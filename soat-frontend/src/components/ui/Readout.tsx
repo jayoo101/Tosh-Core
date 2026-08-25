@@ -48,13 +48,13 @@ export interface ReadoutProps {
 }
 
 const VALUE_TONE: Record<ReadoutTone, string> = {
-  ink: 'text-tosh-ink',
-  mute: 'text-tosh-mute',
-  ok: 'text-tosh-fluo',
-  warn: 'text-tosh-amber',
-  danger: 'text-tosh-rust',
-  info: 'text-tosh-curve',
-  admin: 'text-tosh-admin',
+  ink: 'text-text-primary',
+  mute: 'text-text-tertiary',
+  ok: 'text-brand',
+  warn: 'text-warning',
+  danger: 'text-danger',
+  info: 'text-info',
+  admin: 'text-admin',
 }
 
 const VALUE_SIZE: Record<ReadoutSize, string> = {
@@ -94,10 +94,10 @@ export function Readout({
   if (layout === 'stack') {
     return (
       <div className={cn('flex flex-col gap-1', className)}>
-        <span className="font-mono text-label text-tosh-mute">{label}</span>
+        <span className="font-mono text-label text-text-tertiary">{label}</span>
         {valueNode}
         {hint !== undefined && (
-          <span className="font-mono text-label tracking-[0.12em] text-tosh-faint">{hint}</span>
+          <span className="font-mono text-label tracking-[0.12em] text-text-quiet">{hint}</span>
         )}
       </div>
     )
@@ -107,16 +107,16 @@ export function Readout({
     <div
       className={cn(
         'flex flex-col gap-1 py-2',
-        !flush && 'border-b border-tosh-line/60',
+        !flush && 'border-b border-border-subtle/60',
         className,
       )}
     >
       <div className="flex items-baseline justify-between gap-gap">
-        <span className="shrink-0 font-mono text-label text-tosh-mute">{label}</span>
+        <span className="shrink-0 font-mono text-label text-text-tertiary">{label}</span>
         {valueNode}
       </div>
       {hint !== undefined && (
-        <div className="text-right font-mono text-label tracking-[0.12em] text-tosh-faint">
+        <div className="text-right font-mono text-label tracking-[0.12em] text-text-quiet">
           {hint}
         </div>
       )}

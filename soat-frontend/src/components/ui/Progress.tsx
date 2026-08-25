@@ -41,11 +41,11 @@ export interface ProgressProps {
 }
 
 const FILL: Record<ProgressTone, string> = {
-  ok: 'bg-tosh-fluo',
-  ink: 'bg-tosh-ink',
-  warn: 'bg-tosh-amber',
-  danger: 'bg-tosh-rust',
-  info: 'bg-tosh-curve',
+  ok: 'bg-brand',
+  ink: 'bg-text-primary',
+  warn: 'bg-warning',
+  danger: 'bg-danger',
+  info: 'bg-info',
 }
 
 const ASCII_WIDTH = 28
@@ -67,10 +67,10 @@ export function Progress({
       {(label !== undefined || caption !== undefined) && (
         <div className="flex items-baseline justify-between gap-gap">
           {label !== undefined && (
-            <span className="font-mono text-label text-tosh-mute">{label}</span>
+            <span className="font-mono text-label text-text-tertiary">{label}</span>
           )}
           {caption !== undefined && (
-            <span className="font-mono text-label tracking-[0.08em] text-tosh-ink-dim">
+            <span className="font-mono text-label tracking-[0.08em] text-text-secondary">
               {caption}
             </span>
           )}
@@ -83,7 +83,7 @@ export function Progress({
         aria-valuemin={0}
         aria-valuemax={100}
         className={cn(
-          'relative w-full overflow-hidden bg-tosh-line',
+          'relative w-full overflow-hidden bg-border-subtle',
           variant === 'bar' ? 'h-2 rounded-pill' : 'h-0.5',
         )}
       >
@@ -97,13 +97,13 @@ export function Progress({
       </div>
 
       {ascii && (
-        <p className="font-mono text-label tracking-normal text-tosh-faint">
+        <p className="font-mono text-label tracking-normal text-text-quiet">
           <span>[</span>
-          <span className="text-tosh-ink">
+          <span className="text-text-primary">
             {'█'.repeat(filled)}
             {'─'.repeat(ASCII_WIDTH - filled)}
           </span>
-          <span>]</span> <span className="text-tosh-ink">{clamped.toFixed(1)}%</span>
+          <span>]</span> <span className="text-text-primary">{clamped.toFixed(1)}%</span>
         </p>
       )}
     </div>

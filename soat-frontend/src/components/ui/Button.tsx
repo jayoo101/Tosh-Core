@@ -83,23 +83,23 @@ const SIZES: Record<ButtonSize, string> = {
 
 const ARMED: Record<ButtonVariant, string> = {
   primary:
-    'border-tosh-fluo/45 bg-tosh-fluo/10 text-tosh-fluo ' +
-    'hover:bg-tosh-fluo hover:text-tosh-canvas hover:border-tosh-fluo ' +
-    'hover:shadow-armed active:bg-tosh-fluo-dim',
+    'border-brand/45 bg-brand/10 text-brand ' +
+    'hover:bg-brand hover:text-bg-base hover:border-brand ' +
+    'hover:shadow-armed active:bg-brand-muted',
   danger:
-    'border-tosh-rust/45 bg-tosh-rust/10 text-tosh-rust ' +
-    'hover:bg-tosh-rust hover:text-tosh-canvas hover:border-tosh-rust ' +
-    'active:bg-tosh-rust-dim',
+    'border-danger/45 bg-danger/10 text-danger ' +
+    'hover:bg-danger hover:text-bg-base hover:border-danger ' +
+    'active:bg-danger-dim',
   ghost:
-    'border-tosh-line bg-transparent text-tosh-mute ' +
-    'hover:border-tosh-fluo hover:text-tosh-fluo',
+    'border-border-subtle bg-transparent text-text-tertiary ' +
+    'hover:border-brand hover:text-brand',
   quiet:
-    'border-transparent bg-transparent text-tosh-mute ' +
-    'hover:text-tosh-ink',
+    'border-transparent bg-transparent text-text-tertiary ' +
+    'hover:text-text-primary',
 }
 
 /** Locked and busy look the same on purpose: neither is a thing to click. */
-const INERT = 'border-tosh-line bg-transparent text-tosh-faint'
+const INERT = 'border-border-subtle bg-transparent text-text-quiet'
 
 export function Button({
   label,

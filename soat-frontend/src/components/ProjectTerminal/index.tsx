@@ -159,7 +159,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
       <div className="flex flex-col">
         <Card id="ERR" title="HOOK BINDING MISSING">
           <p className="font-mono text-[11px] text-[#888] leading-relaxed">
-            This project row has no <span className="text-tosh-fluo">hook_address</span> on file.
+            This project row has no <span className="text-brand">hook_address</span> on file.
             Deploy may still be pending — refresh after the createLaunch tx confirms.
           </p>
         </Card>
@@ -171,8 +171,8 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   // a Card carrying its own top margin only spaces correctly when it happens to
   // have a sibling above it.
   return (
-    <div className="flex flex-col gap-section rounded-2xl border border-zinc-800 bg-zinc-900/20 p-6 shadow-2xl backdrop-blur-md font-sans">
-      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-mono">{`/// Action Terminal`}</p>
+    <div className="flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
+      <p className="font-mono text-label text-text-tertiary uppercase">{`/// Action Terminal`}</p>
       {!wConnected ? (
         <ConnectGate />
       ) : phase === 'genesis' ? (

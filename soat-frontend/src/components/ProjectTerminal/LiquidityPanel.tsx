@@ -346,7 +346,7 @@ export function LiquidityPanel({
                 className={
                   'text-[10px] font-mono px-2 py-1 rounded-md border transition-colors ' +
                   (selected
-                    ? 'border-tosh-fluo text-white bg-tosh-fluo/10'
+                    ? 'border-brand text-white bg-brand/10'
                     : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')
                 }
               >
@@ -362,7 +362,7 @@ export function LiquidityPanel({
       {positions.length > 0 && (
         <div className="border border-[#1F1F2E]">
           <div className="px-4 py-2 border-b border-[#1F1F2E]">
-            <span className="font-mono text-label text-tosh-mute">{'// OPEN POSITIONS'}</span>
+            <span className="font-mono text-label text-text-tertiary">{'// OPEN POSITIONS'}</span>
           </div>
           {positions.map(pos => (
             <div

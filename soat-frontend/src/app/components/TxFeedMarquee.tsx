@@ -223,14 +223,14 @@ function FeedRow({ items, ariaHidden }: { items: FeedItem[], ariaHidden?: boolea
 }
 
 const KIND_DOT: Record<TxKind, string> = {
-  LAUNCH:  'bg-tosh-amber',  // one-shot ignition = notice tint
-  POG:     'bg-tosh-fluo',   // attestation       = primary fluo
-  DEPOSIT: 'bg-tosh-curve',  // curve commitment  = phase-2 cyan
+  LAUNCH:  'bg-warning',  // one-shot ignition = notice tint
+  POG:     'bg-brand',   // attestation       = primary fluo
+  DEPOSIT: 'bg-info',  // curve commitment  = phase-2 cyan
 }
 const KIND_TEXT: Record<TxKind, string> = {
-  LAUNCH:  'text-tosh-amber',
-  POG:     'text-tosh-fluo',
-  DEPOSIT: 'text-tosh-curve',
+  LAUNCH:  'text-warning',
+  POG:     'text-brand',
+  DEPOSIT: 'text-info',
 }
 
 function FeedPill({ item }: { item: FeedItem }) {

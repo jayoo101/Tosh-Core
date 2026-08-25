@@ -46,7 +46,7 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        'flex flex-wrap items-end justify-between gap-card border-b border-tosh-line pb-card-lg',
+        'flex flex-wrap items-end justify-between gap-card border-b border-border-subtle pb-card-lg',
         className,
       )}
     >
@@ -54,17 +54,17 @@ export function PageHeader({
         {(eyebrow !== undefined || status !== undefined) && (
           <div className="flex flex-wrap items-center gap-gap-tight">
             {eyebrow !== undefined && (
-              <span className="font-mono text-label text-tosh-mute">{eyebrow}</span>
+              <span className="font-mono text-label text-text-tertiary">{eyebrow}</span>
             )}
             {status}
           </div>
         )}
-        <h1 className="text-hero text-tosh-ink">
+        <h1 className="text-hero text-text-primary">
           {title}
-          {accent !== undefined && <span className="text-tosh-fluo"> {accent}</span>}
+          {accent !== undefined && <span className="text-brand"> {accent}</span>}
         </h1>
         {subtitle !== undefined && (
-          <p className="max-w-2xl text-body text-tosh-mute">{subtitle}</p>
+          <p className="max-w-2xl text-body text-text-tertiary">{subtitle}</p>
         )}
       </div>
       {actions !== undefined && <div className="flex shrink-0 items-center gap-gap">{actions}</div>}
@@ -90,19 +90,19 @@ export function SectionHeader({
   className,
 }: SectionHeaderProps) {
   return (
-    <div className={cn('flex flex-col gap-gap-tight border-t border-tosh-line pt-card', className)}>
+    <div className={cn('flex flex-col gap-gap-tight border-t border-border-subtle pt-card', className)}>
       {index !== undefined && (
         <span
           className={cn(
             'font-mono text-label',
-            tone === 'admin' ? 'text-tosh-admin' : 'text-tosh-fluo',
+            tone === 'admin' ? 'text-admin' : 'text-brand',
           )}
         >
           {index}
         </span>
       )}
-      <h2 className="text-section text-tosh-ink">{title}</h2>
-      {blurb !== undefined && <p className="max-w-2xl text-body text-tosh-mute">{blurb}</p>}
+      <h2 className="text-section text-text-primary">{title}</h2>
+      {blurb !== undefined && <p className="max-w-2xl text-body text-text-tertiary">{blurb}</p>}
     </div>
   )
 }

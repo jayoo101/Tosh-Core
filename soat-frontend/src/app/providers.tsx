@@ -122,9 +122,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           toastOptions={{
             duration: 4500,
             style: {
-              background:    'var(--tosh-overlay)',
-              color:         'var(--tosh-ink)',
-              border:        '1px solid var(--tosh-line)',
+              background:    'var(--tosh-surface-elevated)',
+              color:         'var(--tosh-text-primary)',
+              border:        '1px solid var(--tosh-border-subtle)',
               borderRadius:  'var(--radius-card, 0.875rem)',
               fontFamily:    'var(--font-jbm, ui-monospace, monospace)',
               fontSize:      '12px',
@@ -135,15 +135,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
               maxWidth:      '380px',
             },
             success: {
-              iconTheme: { primary: 'var(--tosh-fluo)',  secondary: 'var(--tosh-canvas)' },
-              style:     { border: '1px solid rgb(0 255 163 / 0.35)' },
+              iconTheme: { primary: 'var(--tosh-success)', secondary: 'var(--tosh-bg-base)' },
+              style:     { border: '1px solid rgb(0 229 143 / 0.35)' },
             },
             error: {
-              iconTheme: { primary: 'var(--tosh-rust)',  secondary: 'var(--tosh-canvas)' },
+              iconTheme: { primary: 'var(--tosh-danger)', secondary: 'var(--tosh-bg-base)' },
               style:     { border: '1px solid rgb(255 51 85 / 0.35)' },
             },
             loading: {
-              iconTheme: { primary: 'var(--tosh-mute)',  secondary: 'var(--tosh-canvas)' },
+              iconTheme: { primary: 'var(--tosh-text-tertiary)', secondary: 'var(--tosh-bg-base)' },
             },
           }}
         />

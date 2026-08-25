@@ -128,9 +128,9 @@ export default async function ProjectDetailPage({ params }: Props) {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
       <main className="max-w-7xl mx-auto py-12 px-4 md:px-6 lg:px-8">
         <nav className="text-[11px] font-mono text-zinc-500 flex items-center gap-2 mb-8">
-          <Link href="/#directory" className="hover:text-tosh-fluo transition-colors">Agent Directory</Link>
+          <Link href="/#directory" className="hover:text-brand transition-colors">Agent Directory</Link>
           <span>/</span>
-          <span className="text-tosh-fluo">{p.symbol}</span>
+          <span className="text-brand">{p.symbol}</span>
         </nav>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -142,27 +142,27 @@ export default async function ProjectDetailPage({ params }: Props) {
                   {p.logo_url
                     // eslint-disable-next-line @next/next/no-img-element
                     ? <img src={p.logo_url} alt={p.name} className="w-full h-full object-cover" />
-                    : <span className="text-2xl font-black text-tosh-fluo">{initial}</span>}
+                    : <span className="text-2xl font-black text-brand">{initial}</span>}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-mono text-tosh-fluo mb-1">${p.symbol}</p>
+                  <p className="text-xs font-mono text-brand mb-1">${p.symbol}</p>
                   <h1 className="text-2xl md:text-3xl font-black text-white truncate">{p.name}</h1>
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     {tw && (
                       <a href={tw} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-tosh-fluo hover:border-tosh-fluo/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
                         <AtSign className="w-4 h-4" />
                       </a>
                     )}
                     {tg && (
                       <a href={tg} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-tosh-fluo hover:border-tosh-fluo/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
                         <Send className="w-4 h-4" />
                       </a>
                     )}
                     {web && (
                       <a href={web} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-tosh-fluo hover:border-tosh-fluo/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
                         <Globe className="w-4 h-4" />
                       </a>
                     )}
@@ -170,12 +170,12 @@ export default async function ProjectDetailPage({ params }: Props) {
                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono text-zinc-600">
                     <span>Created {isoDate(p.created_at)}</span>
                     {p.token_address && (
-                      <a href={testnetExplorerAddress(p.token_address)} target="_blank" rel="noopener noreferrer" className="hover:text-tosh-fluo transition-colors">
+                      <a href={testnetExplorerAddress(p.token_address)} target="_blank" rel="noopener noreferrer" className="hover:text-brand transition-colors">
                         Token {shortAddr(p.token_address)}
                       </a>
                     )}
                     {p.hook_address && (
-                      <a href={testnetExplorerAddress(p.hook_address)} target="_blank" rel="noopener noreferrer" className="hover:text-tosh-fluo transition-colors">
+                      <a href={testnetExplorerAddress(p.hook_address)} target="_blank" rel="noopener noreferrer" className="hover:text-brand transition-colors">
                         Hook {shortAddr(p.hook_address)}
                       </a>
                     )}

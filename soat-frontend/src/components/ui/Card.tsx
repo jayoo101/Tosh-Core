@@ -47,10 +47,10 @@ export interface CardProps {
 
 const TONE_BORDER: Record<CardTone, string> = {
   default: '',
-  ok: 'border-tosh-fluo/30',
-  warn: 'border-tosh-amber/30',
-  danger: 'border-tosh-rust/30',
-  admin: 'border-tosh-admin/30',
+  ok: 'border-brand/30',
+  warn: 'border-warning/30',
+  danger: 'border-danger/30',
+  admin: 'border-admin/30',
 }
 
 const PADDING: Record<CardPadding, string> = {
@@ -83,23 +83,23 @@ export function Card({
     <Tag
       className={cn(
         'tosh-panel flex flex-col gap-gap',
-        !interactive && 'hover:border-tosh-line hover:shadow-panel',
+        !interactive && 'hover:border-border-subtle hover:shadow-panel',
         PADDING[padding],
         TONE_BORDER[tone],
         className,
       )}
     >
       {hasHeader && (
-        <header className="flex flex-wrap items-start justify-between gap-gap border-b border-tosh-line pb-gap">
+        <header className="flex flex-wrap items-start justify-between gap-gap border-b border-border-subtle pb-gap">
           <div className="flex min-w-0 flex-col gap-1">
             {id !== undefined && (
-              <span className="font-mono text-label text-tosh-faint">{`/// ${id}`}</span>
+              <span className="font-mono text-label text-text-quiet">{`/// ${id}`}</span>
             )}
             {title !== undefined && (
-              <h3 className="text-title text-tosh-ink">{title}</h3>
+              <h3 className="text-title text-text-primary">{title}</h3>
             )}
             {subtitle !== undefined && (
-              <p className="max-w-2xl text-body text-tosh-mute">{subtitle}</p>
+              <p className="max-w-2xl text-body text-text-tertiary">{subtitle}</p>
             )}
           </div>
           {(status !== undefined || action !== undefined) && (
@@ -140,7 +140,7 @@ export function CardWell({
 /** Footnote strip pinned under a Card's content, above its bottom padding. */
 export function CardFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('border-t border-tosh-line pt-gap text-body text-tosh-faint', className)}>
+    <div className={cn('border-t border-border-subtle pt-gap text-body text-text-quiet', className)}>
       {children}
     </div>
   )

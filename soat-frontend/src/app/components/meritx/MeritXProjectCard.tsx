@@ -9,7 +9,7 @@ import { LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
 function statusBadge(tab: DirectoryProject['tab']) {
   switch (tab) {
     case 'live':
-      return { text: '[GENESIS] FUNDING', color: 'text-tosh-fluo bg-tosh-fluo/10 border-tosh-fluo/20' }
+      return { text: '[GENESIS] FUNDING', color: 'text-brand bg-brand/10 border-brand/20' }
     case 'launching':
       return { text: '[PREP] AWAITING LAUNCH', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' }
     case 'completed':
@@ -59,7 +59,7 @@ function ctaLabel(tab: DirectoryProject['tab']) {
 
 function ctaCls(tab: DirectoryProject['tab']) {
   switch (tab) {
-    case 'live': return 'text-black bg-tosh-fluo hover:shadow-[0_0_16px_rgba(0,255,163,0.35)]'
+    case 'live': return 'text-black bg-brand hover:shadow-[0_0_16px_rgba(0,255,163,0.35)]'
     case 'launching': return 'text-white bg-purple-600 hover:bg-purple-500'
     case 'completed': return 'text-white bg-emerald-600 hover:bg-emerald-500'
     default: return 'text-zinc-400 bg-zinc-800'
@@ -80,15 +80,18 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
   return (
     <Link
       href={`/projects/${p.token}`}
-      className={`block relative group p-6 rounded-2xl transition-all duration-500 bg-zinc-900/20 backdrop-blur-md border hover:shadow-[0_0_30px_rgba(0,255,163,0.08)]
-        ${p.tab === 'completed' ? 'border-emerald-500/30 hover:border-emerald-500/50' : 'border-zinc-800 hover:border-tosh-fluo/40'}`}
+      className={`block relative group p-card-lg rounded-panel border bg-surface-card shadow-panel
+        transition-colors hover:bg-surface-hover
+        ${p.tab === 'completed'
+          ? 'border-success/30 hover:border-success/50'
+          : 'border-border-subtle hover:border-border-accent'}`}
     >
       <div className="flex justify-between items-start mb-6">
-        <div className="w-12 h-12 rounded-xl bg-black border border-zinc-800 flex items-center justify-center overflow-hidden shrink-0">
+        <div className="w-12 h-12 rounded-card bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
           {p.logoUrl
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={p.logoUrl} alt={p.name} className="w-full h-full object-cover" />
-            : <span className="text-2xl font-black text-tosh-fluo">{sigil}</span>}
+            : <span className="text-2xl font-black text-brand">{sigil}</span>}
         </div>
         <span className={`flex items-center gap-1.5 text-[9px] font-bold px-2 py-1 rounded border uppercase tracking-widest ${badge.color}`}>
           {(p.tab === 'live' || p.tab === 'completed') && (
@@ -98,7 +101,7 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
         </span>
       </div>
 
-      <h3 className="text-xl font-bold text-white mb-1 tracking-tight group-hover:text-tosh-fluo transition-colors truncate">
+      <h3 className="text-xl font-bold text-white mb-1 tracking-tight group-hover:text-brand transition-colors truncate">
         {p.name}
       </h3>
       <p className="text-xs text-zinc-500 font-mono mb-4 uppercase tracking-tighter">
@@ -135,17 +138,16 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
 
 export function SkeletonCard() {
   return (
-    <div className="relative p-6 rounded-2xl bg-zinc-900/20 backdrop-blur-md border border-zinc-800 overflow-hidden">
-      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
+    <div className="tosh-shimmer relative p-card-lg rounded-panel bg-surface-card border border-border-subtle overflow-hidden">
       <div className="flex justify-between items-start mb-6">
-        <div className="w-12 h-12 rounded-xl bg-zinc-800/80" />
-        <div className="w-32 h-5 rounded bg-zinc-800/60" />
+        <div className="w-12 h-12 rounded-card bg-surface-hover" />
+        <div className="w-32 h-5 rounded bg-surface-hover/60" />
       </div>
-      <div className="w-40 h-6 rounded bg-zinc-800/80 mb-2" />
-      <div className="w-48 h-3 rounded bg-zinc-800/40 mb-4" />
-      <div className="w-full h-3 rounded bg-zinc-800/30 mb-2" />
-      <div className="w-3/4 h-3 rounded bg-zinc-800/20 mb-6" />
-      <div className="w-full h-1.5 rounded-full bg-zinc-800" />
+      <div className="w-40 h-6 rounded bg-surface-hover mb-2" />
+      <div className="w-48 h-3 rounded bg-surface-hover/40 mb-4" />
+      <div className="w-full h-3 rounded bg-surface-hover/30 mb-2" />
+      <div className="w-3/4 h-3 rounded bg-surface-hover/20 mb-6" />
+      <div className="w-full h-1.5 rounded-pill bg-surface-hover" />
     </div>
   )
 }

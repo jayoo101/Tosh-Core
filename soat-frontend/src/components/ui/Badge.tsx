@@ -36,12 +36,12 @@ export interface BadgeProps {
 }
 
 const TONES: Record<Tone, string> = {
-  ok: 'border-tosh-fluo/40 bg-tosh-fluo/10 text-tosh-fluo',
-  warn: 'border-tosh-amber/40 bg-tosh-amber/10 text-tosh-amber',
-  danger: 'border-tosh-rust/40 bg-tosh-rust/10 text-tosh-rust',
-  info: 'border-tosh-curve/40 bg-tosh-curve/10 text-tosh-curve',
-  admin: 'border-tosh-admin/40 bg-tosh-admin/10 text-tosh-admin',
-  neutral: 'border-tosh-line bg-tosh-raised text-tosh-mute',
+  ok: 'border-brand/40 bg-brand/10 text-brand',
+  warn: 'border-warning/40 bg-warning/10 text-warning',
+  danger: 'border-danger/40 bg-danger/10 text-danger',
+  info: 'border-info/40 bg-info/10 text-info',
+  admin: 'border-admin/40 bg-admin/10 text-admin',
+  neutral: 'border-border-subtle bg-surface-elevated text-text-tertiary',
 }
 
 export function Badge({

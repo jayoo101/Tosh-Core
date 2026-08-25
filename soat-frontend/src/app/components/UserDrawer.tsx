@@ -491,8 +491,8 @@ function DrawerHeader({
       </div>
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-tosh-fluo/20 to-tosh-admin/20 border border-tosh-fluo/20 flex items-center justify-center shrink-0">
-          <span className="text-tosh-fluo font-black text-sm">{initials}</span>
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand/20 to-admin/20 border border-brand/20 flex items-center justify-center shrink-0">
+          <span className="text-brand font-black text-sm">{initials}</span>
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-mono text-zinc-300 truncate">
@@ -509,7 +509,7 @@ function DrawerHeader({
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
                      border border-zinc-800 bg-zinc-900/50
                      text-[10px] tracking-[0.32em] uppercase font-mono text-zinc-400
-                     hover:border-tosh-fluo/40 hover:text-tosh-fluo hover:bg-tosh-fluo/5
+                     hover:border-brand/40 hover:text-brand hover:bg-brand/5
                      transition-all"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -574,21 +574,21 @@ function PoGQuotaPanel({
   return (
     <section className="px-4 pt-4 pb-2">
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/50 p-4">
-        <div className="text-tosh-fluo/70 font-mono text-[9px] font-bold tracking-widest mb-1">
+        <div className="text-brand/70 font-mono text-[9px] font-bold tracking-widest mb-1">
           POG REMAINING · THIS WINDOW
         </div>
         {banned ? (
-          <div className="text-tosh-rust font-mono text-xl font-black tracking-tight leading-none">
+          <div className="text-danger font-mono text-xl font-black tracking-tight leading-none">
             BLACKLISTED
           </div>
         ) : unattested ? (
-          <div className="text-tosh-amber font-mono text-xl font-black tracking-tight leading-none">
+          <div className="text-warning font-mono text-xl font-black tracking-tight leading-none">
             NO ATTESTATION
           </div>
         ) : (
-          <div className="text-tosh-fluo font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
+          <div className="text-brand font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
             {formatEth(remaining)}
-            <span className="text-sm text-tosh-fluo/60 ml-1">ETH</span>
+            <span className="text-sm text-brand/60 ml-1">ETH</span>
           </div>
         )}
         <div className="border-t border-zinc-800/50 pt-3 mt-3 space-y-2">
@@ -606,7 +606,7 @@ function PoGQuotaPanel({
           </div>
         </div>
         <p className={`mt-3 text-[9px] font-mono leading-relaxed
-                       ${banned ? 'text-tosh-rust' : unattested ? 'text-tosh-amber' : 'text-zinc-600'}`}>
+                       ${banned ? 'text-danger' : unattested ? 'text-warning' : 'text-zinc-600'}`}>
           {banned
             ? `${'// '}every deposit is rejected while the ban stands · ${banTxt.toLowerCase()}`
             : unattested
@@ -636,13 +636,13 @@ function CooldownPanel({
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 px-4 py-3">
       {!cooldownPresent ? (
         <div className="flex items-center gap-2 text-xs font-mono">
-          <span className="w-2 h-2 rounded-full bg-tosh-fluo dot-breathe" />
-          <span className="text-tosh-fluo font-bold tracking-wider text-[9px]">READY TO DEPOSIT</span>
+          <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
+          <span className="text-brand font-bold tracking-wider text-[9px]">READY TO DEPOSIT</span>
         </div>
       ) : cooldownReady ? (
         <div className="flex items-center gap-2 text-xs font-mono">
-          <span className="w-2 h-2 rounded-full bg-tosh-fluo dot-breathe" />
-          <span className="text-tosh-fluo font-bold tracking-wider">ACTIVE READY</span>
+          <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
+          <span className="text-brand font-bold tracking-wider">ACTIVE READY</span>
         </div>
       ) : (
         <>
@@ -750,7 +750,7 @@ function AssetRow({
           </span>
         </div>
         <span className={`text-[9px] tracking-[0.32em] uppercase
-                          ${launched ? 'text-tosh-fluo' : 'text-[#888]'}`}>
+                          ${launched ? 'text-brand' : 'text-[#888]'}`}>
           {launched ? 'CURVE' : 'GENESIS'}
         </span>
       </header>
@@ -797,8 +797,8 @@ function AssetRow({
               onClick={handleClaim}
               disabled={isPending || isMining}
               className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
-                         border border-tosh-fluo text-tosh-fluo
-                         hover:bg-tosh-fluo hover:text-black transition-colors
+                         border border-brand text-brand
+                         hover:bg-brand hover:text-black transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
               {isPending ? '[ SIGN… ]' : isMining ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}

@@ -64,13 +64,13 @@ export function shortErrorMessage(error: unknown, max = 160): string {
 function TxBody({ title, hash }: { title: ReactNode; hash?: `0x${string}` }) {
   return (
     <span className="flex flex-col gap-1">
-      <span className="text-tosh-ink">{title}</span>
+      <span className="text-text-primary">{title}</span>
       {hash !== undefined && (
         <a
           href={testnetExplorerTx(hash)}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-tosh-fluo underline decoration-dotted underline-offset-2"
+          className="text-brand underline decoration-dotted underline-offset-2"
         >
           {truncateTxHash(hash)} ↗
         </a>

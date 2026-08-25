@@ -118,7 +118,7 @@ function GroupHeader({
     <div className="mt-12 first:mt-4">
       <Line />
       <div className="pt-5 flex flex-col gap-1">
-        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-tosh-fluo">
+        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-brand">
           {index}
         </span>
         <h2 className="text-xl font-black text-white tracking-tight">{title}</h2>
@@ -138,13 +138,13 @@ function Section({
   children:  React.ReactNode
 }) {
   return (
-    <section className="glass-card rounded-2xl p-6 flex flex-col gap-4 mt-6">
-      <header className="flex items-start justify-between gap-4 flex-wrap border-b border-zinc-800/60 pb-4">
+    <section className="tosh-panel p-card-lg flex flex-col gap-4 mt-6">
+      <header className="flex items-start justify-between gap-4 flex-wrap border-b border-border-subtle pb-4">
         <div className="flex flex-col gap-1 min-w-0">
-          <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-mono">
+          <div className="font-mono text-label text-text-tertiary uppercase">
             {id ? `/// ${id}` : '/// SYS'}
           </div>
-          <h3 className="text-lg font-black text-white tracking-tight">{title}</h3>
+          <h3 className="text-title text-text-primary">{title}</h3>
           {subtitle && (
             <p className="text-xs text-zinc-500 leading-relaxed max-w-2xl">{subtitle}</p>
           )}
@@ -161,7 +161,7 @@ const labelCls = 'text-[10px] tracking-[0.32em] uppercase text-[#888] font-light
 /** Governance-boundary note — states what a control does NOT reach. */
 function ScopeNote({ tone = 'mute', children }: { tone?: 'mute' | 'warn'; children: React.ReactNode }) {
   const cls = tone === 'warn'
-    ? 'border-tosh-rust/40 text-tosh-rust'
+    ? 'border-danger/40 text-danger'
     : 'border-[#1F1F2E] text-[#888]'
   return (
     <p className={`border-l-2 ${cls} pl-3 text-[11px] leading-relaxed font-mono`}>
@@ -187,10 +187,10 @@ function Field({
   fluo?:        boolean
 }) {
   const borderCls = fluo
-    ? 'border-tosh-fluo'
+    ? 'border-brand'
     : errored
-      ? 'border-[#444] focus:border-tosh-fluo'
-      : 'border-[#1F1F2E] focus:border-tosh-fluo'
+      ? 'border-[#444] focus:border-brand'
+      : 'border-[#1F1F2E] focus:border-brand'
   return (
     <label className="flex flex-col gap-1.5">
       <span className={labelCls}>{label}</span>
@@ -225,7 +225,7 @@ function TextAreaField({
       <textarea
         rows={rows} value={value} placeholder={placeholder} disabled={disabled}
         onChange={e => onChange(e.target.value)}
-        className="bg-transparent border border-[#1F1F2E] focus:border-tosh-fluo
+        className="bg-transparent border border-[#1F1F2E] focus:border-brand
                    px-3 py-2 font-mono text-sm text-white placeholder:text-[#3A3A4A]
                    tabular-nums resize-y transition-colors duration-150
                    disabled:opacity-40"
@@ -270,13 +270,13 @@ function WriteButton({
       title={ownerGated ? (reason ?? 'read-only') : undefined}
       className={`inline-flex items-center justify-center
                   ${small ? 'px-4 py-2 text-[10px]' : 'px-5 py-2.5 text-xs'}
-                  font-mono uppercase tracking-wider font-bold rounded-xl
-                  transition-all duration-150 disabled:cursor-not-allowed
+                  font-mono uppercase tracking-wider font-bold rounded-input
+                  transition-colors disabled:cursor-not-allowed
                   ${hardLocked
-                    ? 'border border-zinc-800 text-zinc-600 bg-transparent'
+                    ? 'border border-border-subtle text-text-quiet bg-transparent'
                     : danger
-                      ? 'border border-tosh-rust text-tosh-rust hover:bg-tosh-rust hover:text-black'
-                      : 'tosh-nuke-btn'}
+                      ? 'border border-danger text-danger hover:bg-danger hover:text-bg-base'
+                      : 'border border-brand/40 bg-brand/10 text-brand hover:bg-brand hover:text-bg-base'}
                   disabled:opacity-40`}
     >
       {busy ? 'transmitting…' : label}
@@ -293,7 +293,7 @@ function Readout({
   hint?: React.ReactNode
 }) {
   const valCls = tone === 'fluo'
-    ? 'text-tosh-fluo'
+    ? 'text-brand'
     : tone === 'mute' ? 'text-[#888]'
     : 'text-white'
   return (
@@ -313,7 +313,7 @@ function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
     <p className="text-[10px] font-mono text-[#888] tracking-wider leading-relaxed">
-      <span className="text-tosh-rust">[REVERT]</span> {msg}
+      <span className="text-danger">[REVERT]</span> {msg}
     </p>
   )
 }
@@ -327,7 +327,7 @@ function TxLine({ hash, label }: { hash?: `0x${string}`; label: string }) {
     : isSuccess ? 'ACKNOWLEDGED'
     : isError ? 'REVERTED'
     : 'PENDING'
-  const tone = isSuccess ? 'text-tosh-fluo' : isError ? 'text-tosh-rust' : 'text-[#888]'
+  const tone = isSuccess ? 'text-brand' : isError ? 'text-danger' : 'text-[#888]'
   return (
     <p className="text-[10px] font-mono tracking-wider flex items-center gap-3 flex-wrap">
       <span className={tone}>[TX]</span>
@@ -336,7 +336,7 @@ function TxLine({ hash, label }: { hash?: `0x${string}`; label: string }) {
       <a
         href={testnetExplorerTx(hash)}
         target="_blank" rel="noopener noreferrer"
-        className="text-[#555] hover:text-tosh-fluo break-all underline decoration-dotted"
+        className="text-[#555] hover:text-brand break-all underline decoration-dotted"
       >
         {hash.slice(0, 10)}…{hash.slice(-6)} ↗
       </a>
@@ -350,7 +350,7 @@ function AddressLink({ addr }: { addr?: string }) {
     <a
       href={testnetExplorerAddress(addr)}
       target="_blank" rel="noopener noreferrer"
-      className="hover:text-tosh-fluo underline decoration-dotted break-all"
+      className="hover:text-brand underline decoration-dotted break-all"
     >
       {addr}
     </a>
@@ -364,10 +364,10 @@ function StatusBadge({ ok, okLabel, badLabel }: { ok: boolean; okLabel: string; 
       className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border
                   font-mono text-[10px] tracking-[0.32em] uppercase
                   ${ok
-                    ? 'border-tosh-fluo/50 text-tosh-fluo'
-                    : 'border-tosh-rust/50 text-tosh-rust'}`}
+                    ? 'border-brand/50 text-brand'
+                    : 'border-danger/50 text-danger'}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-tosh-fluo' : 'bg-tosh-rust'}`} />
+      <span className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-brand' : 'bg-danger'}`} />
       {ok ? okLabel : badLabel}
     </span>
   )
@@ -404,11 +404,11 @@ function ConfirmDialog({
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md glass-card rounded-2xl p-6 flex flex-col gap-4"
+        className="w-full max-w-md bg-surface-elevated border border-border-strong rounded-panel shadow-overlay p-card-lg flex flex-col gap-4"
         onClick={e => e.stopPropagation()}
       >
-        <h4 className="text-base font-black text-white tracking-tight">{title}</h4>
-        <div className="text-xs text-zinc-400 leading-relaxed font-mono">{body}</div>
+        <h4 className="text-title text-text-primary">{title}</h4>
+        <div className="font-mono text-body text-text-secondary">{body}</div>
         <div className="flex gap-3 justify-end pt-2">
           <button
             type="button"
@@ -425,8 +425,8 @@ function ConfirmDialog({
             className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider font-bold
                         rounded-xl border transition-colors
                         ${danger
-                          ? 'border-tosh-rust text-tosh-rust hover:bg-tosh-rust hover:text-black'
-                          : 'border-tosh-fluo text-tosh-fluo hover:bg-tosh-fluo hover:text-black'}`}
+                          ? 'border-danger text-danger hover:bg-danger hover:text-black'
+                          : 'border-brand text-brand hover:bg-brand hover:text-black'}`}
           >
             {confirmLabel}
           </button>
@@ -594,7 +594,7 @@ function LaunchFeePanel() {
             <p>
               {fmtEth(launchFeeWei as bigint | undefined)}
               {' → '}
-              <span className="text-tosh-fluo">
+              <span className="text-brand">
                 {parsed.ok ? fmtEth(parsed.value) : '—'}
               </span>
             </p>
@@ -661,7 +661,7 @@ function SoftCapPanel() {
         fluo={parsed.ok && !belowFloor}
       />
       {belowFloor && (
-        <p className="font-mono text-[10px] tracking-[0.32em] text-tosh-fluo uppercase">
+        <p className="font-mono text-[10px] tracking-[0.32em] text-brand uppercase">
           → GUARD LOCKED · MIN_SOFT_CAP_VIOLATION
         </p>
       )}
@@ -840,7 +840,7 @@ function DurationSetterPanel({
         errored={overMax}
         fluo={parsed.ok && !overMax}
         hint={overMax
-          ? <span className="text-tosh-rust">→ ABOVE_MAX_COOLDOWN (WOULD_REVERT)</span>
+          ? <span className="text-danger">→ ABOVE_MAX_COOLDOWN (WOULD_REVERT)</span>
           : null}
       />
       <ScopeNote tone={settingZero ? 'warn' : 'mute'}>{zeroNote}</ScopeNote>
@@ -970,11 +970,11 @@ function AddressRotationPanel({
         fluo={!locked}
         hint={
           trimmed.length > 0 && !validAddr
-            ? <span className="text-tosh-rust">→ NOT_A_VALID_ADDRESS</span>
+            ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span>
             : sameAsLive
               ? <span className="text-[#888]">→ EQUALS_LIVE_VALUE (NO_OP)</span>
               : zeroAddr
-                ? <span className="text-tosh-rust">→ ZERO_ADDRESS_REFUSED</span>
+                ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
                 : null
         }
       />
@@ -996,7 +996,7 @@ function AddressRotationPanel({
         body={
           <>
             <p className="break-all text-zinc-400">{String(currentAddr ?? '—')}</p>
-            <p className="break-all text-tosh-fluo mt-1">↓ {trimmed}</p>
+            <p className="break-all text-brand mt-1">↓ {trimmed}</p>
             <p className="mt-3 text-zinc-500">{confirmBody}</p>
           </>
         }
@@ -1218,7 +1218,7 @@ function LadderHaltPanel() {
             key={s} type="button" onClick={() => { setScope(s); setError(null) }}
             className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
               (scope === s
-                ? 'border-tosh-fluo text-tosh-fluo'
+                ? 'border-brand text-brand'
                 : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
           >
             {s === 'global' ? 'platform-wide' : 'single project'}
@@ -1259,7 +1259,7 @@ function LadderHaltPanel() {
               disabled={txBusy}
               className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
                 (duration === p.secs
-                  ? 'border-tosh-fluo text-tosh-fluo'
+                  ? 'border-brand text-brand'
                   : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
             >
               {p.label}
@@ -1325,7 +1325,7 @@ function LadderHaltPanel() {
 const ROW_TAG: Record<AddressRowStatus, { tag: string; cls: string }> = {
   'valid':     { tag: '[OK]  ', cls: 'text-white' },
   'duplicate': { tag: '[DUP] ', cls: 'text-[#888]' },
-  'invalid':   { tag: '[ERR] ', cls: 'text-tosh-rust' },
+  'invalid':   { tag: '[ERR] ', cls: 'text-danger' },
   'over-cap':  { tag: '[CAP] ', cls: 'text-[#888]' },
 }
 
@@ -1354,7 +1354,7 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
                 {row.index.toString(16).toUpperCase().padStart(3, '0')}
               </span>
               <span className={t.cls}>{t.tag}</span>
-              <span className={`break-all ${row.status === 'invalid' ? 'text-tosh-rust' : 'text-[#CCC]'}`}>
+              <span className={`break-all ${row.status === 'invalid' ? 'text-danger' : 'text-[#CCC]'}`}>
                 {row.display}
               </span>
             </div>
@@ -1423,12 +1423,12 @@ function SingleLiftRow() {
         fluo={valid && isBanned}
         hint={
           !valid
-            ? (trimmed.length > 0 ? <span className="text-tosh-rust">→ NOT_A_VALID_ADDRESS</span> : null)
+            ? (trimmed.length > 0 ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> : null)
             : until === undefined
               ? <span className="text-[#666]">→ reading blacklistedUntil…</span>
               : isBanned
-                ? <span className="text-tosh-rust">→ BANNED UNTIL {bannedUntilTxt}</span>
-                : <span className="text-tosh-fluo">→ NOT CURRENTLY BANNED</span>
+                ? <span className="text-danger">→ BANNED UNTIL {bannedUntilTxt}</span>
+                : <span className="text-brand">→ NOT CURRENTLY BANNED</span>
         }
       />
       <div className="flex justify-start">
@@ -1512,8 +1512,8 @@ function BlacklistConsole() {
         {([
           ['VALID',     counts.valid,     'text-white'],
           ['DUPLICATE', counts.duplicate, 'text-[#888]'],
-          ['INVALID',   counts.invalid,   counts.invalid > 0 ? 'text-tosh-rust' : 'text-[#555]'],
-          ['OVERCAP',   counts.overCap,   counts.overCap > 0 ? 'text-tosh-rust' : 'text-[#555]'],
+          ['INVALID',   counts.invalid,   counts.invalid > 0 ? 'text-danger' : 'text-[#555]'],
+          ['OVERCAP',   counts.overCap,   counts.overCap > 0 ? 'text-danger' : 'text-[#555]'],
         ] as const).map(([label, value, cls]) => (
           <div key={label} className="px-3 py-2 flex flex-col gap-1">
             <span className={labelCls}>{label}</span>
@@ -1527,7 +1527,7 @@ function BlacklistConsole() {
       {rows.length > 0 && <BlacklistRowList rows={rows} />}
 
       {overBatchLimit && (
-        <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-tosh-rust">
+        <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
           → BATCH OVER {ADMIN_BATCH_MAX} · rows past index {ADMIN_BATCH_MAX - 1} dropped from the wire
         </p>
       )}
@@ -1538,7 +1538,7 @@ function BlacklistConsole() {
           value={duration}
           onChange={e => setDuration(e.target.value as BanDurationKey)}
           disabled={txBusy}
-          className="bg-zinc-900/50 border border-[#1F1F2E] focus:border-tosh-fluo rounded-lg
+          className="bg-zinc-900/50 border border-[#1F1F2E] focus:border-brand rounded-lg
                      px-3 py-2.5 font-mono text-sm text-white tabular-nums
                      transition-colors duration-150 disabled:opacity-40"
         >
@@ -1691,20 +1691,20 @@ function LadderTreasuryPanel() {
 
   const eligibility: { ok: boolean; note: React.ReactNode } = (() => {
     if (!trimmed)        return { ok: false, note: null }
-    if (!valid)          return { ok: false, note: <span className="text-tosh-rust">→ NOT_A_VALID_ADDRESS</span> }
+    if (!valid)          return { ok: false, note: <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> }
     if (hookLoading)     return { ok: false, note: <span className="text-[#666]">→ resolving factory.tokenToHook…</span> }
-    if (!knownToken)     return { ok: false, note: <span className="text-tosh-rust">→ NOT_LAUNCHED_HERE · factory.tokenToHook returned 0</span> }
+    if (!knownToken)     return { ok: false, note: <span className="text-danger">→ NOT_LAUNCHED_HERE · factory.tokenToHook returned 0</span> }
     if (alreadyListed)   return { ok: false, note: <span className="text-[#888]">→ ALREADY_LISTED</span> }
     if (launchedLoading) return { ok: false, note: <span className="text-[#666]">→ reading hook.launched()…</span> }
     if (!launched) {
       return {
         ok: false,
-        note: <span className="text-tosh-rust">→ HOOK_NOT_LAUNCHED · no pool key yet, treasury would revert InvalidPoolKey</span>,
+        note: <span className="text-danger">→ HOOK_NOT_LAUNCHED · no pool key yet, treasury would revert InvalidPoolKey</span>,
       }
     }
     return {
       ok: true,
-      note: <span className="text-tosh-fluo">→ HOOK {hook!.slice(0, 10)}… · LAUNCHED · ELIGIBLE</span>,
+      note: <span className="text-brand">→ HOOK {hook!.slice(0, 10)}… · LAUNCHED · ELIGIBLE</span>,
     }
   })()
 
@@ -1798,7 +1798,7 @@ function LadderTreasuryPanel() {
                     {i.toString().padStart(2, '0')}
                   </span>
                   {BigInt(i) === cursor && (
-                    <span className="text-[9px] font-mono tracking-widest text-tosh-fluo">▸NEXT</span>
+                    <span className="text-[9px] font-mono tracking-widest text-brand">▸NEXT</span>
                   )}
                   <span className="font-mono text-[11px] text-[#CCC] break-all">
                     <AddressLink addr={t} />
@@ -1953,8 +1953,8 @@ function OwnershipCard({
                tone={hasPending ? 'fluo' : 'mute'} />
 
       {iAmPending && (
-        <div className="flex flex-col gap-2 border border-tosh-fluo/40 rounded-lg p-3">
-          <p className="text-[11px] font-mono text-tosh-fluo leading-relaxed">
+        <div className="flex flex-col gap-2 border border-brand/40 rounded-lg p-3">
+          <p className="text-[11px] font-mono text-brand leading-relaxed">
             You are the pending owner of this contract. Ownership does not move
             until you accept it.
           </p>
@@ -1981,9 +1981,9 @@ function OwnershipCard({
         fluo={!transferLocked}
         hint={
           trimmed.length > 0 && !valid
-            ? <span className="text-tosh-rust">→ NOT_A_VALID_ADDRESS</span>
+            ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span>
             : zeroAddr
-              ? <span className="text-tosh-rust">→ ZERO_ADDRESS_REFUSED</span>
+              ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
               : sameAsOwner
                 ? <span className="text-[#888]">→ EQUALS_CURRENT_OWNER (NO_OP)</span>
                 : !iAmOwner
@@ -2011,7 +2011,7 @@ function OwnershipCard({
         body={
           <>
             <p className="break-all text-zinc-400">{owner ?? '—'}</p>
-            <p className="break-all text-tosh-fluo mt-1">↓ {trimmed}</p>
+            <p className="break-all text-brand mt-1">↓ {trimmed}</p>
             <p className="mt-3 text-zinc-500">
               Two-step: you keep full control until the recipient calls
               acceptOwnership(). Verify the recipient can actually transact —
@@ -2102,8 +2102,8 @@ function InitcodeHashMonitor() {
   const statusLine = readError || (!isLoading && !hashOk)
     ? <span className="text-[#888]">OFFLINE</span>
     : rotated
-      ? <span className="text-tosh-fluo">ROTATED</span>
-      : <span className="text-tosh-fluo">OK</span>
+      ? <span className="text-brand">ROTATED</span>
+      : <span className="text-brand">OK</span>
 
   return (
     <Section
@@ -2114,7 +2114,7 @@ function InitcodeHashMonitor() {
         hash{'  '}<span className="text-[#CCCCCC]">{display}</span>
       </p>
       <p className="font-mono text-[10px] tracking-[0.32em] uppercase flex items-center gap-3">
-        <span className={`inline-block w-1.5 h-1.5 rounded-full ${hashOk ? 'bg-tosh-fluo' : 'bg-[#1F1F2E]'}`} aria-hidden />
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${hashOk ? 'bg-brand' : 'bg-[#1F1F2E]'}`} aria-hidden />
         {statusLine}
         {isFetching && !isLoading && <span className="text-[#555]">· syncing</span>}
       </p>
@@ -2211,7 +2211,7 @@ function ExchangeRatePanel() {
       </div>
       {message && (
         <p className={`font-mono text-[10px] tracking-wider leading-relaxed
-                       ${status === 'ok' ? 'text-tosh-fluo' : 'text-tosh-rust'}`}>
+                       ${status === 'ok' ? 'text-brand' : 'text-danger'}`}>
           {status === 'ok' ? '✓' : '⛔'} {message}
         </p>
       )}
@@ -2234,7 +2234,7 @@ function WalletBar() {
         onClick={() => connect({ connector: injected() })}
         className="px-4 py-1.5 border border-white text-white text-[10px] font-mono
                    tracking-[0.32em] uppercase font-bold rounded-xl
-                   hover:border-tosh-fluo hover:text-tosh-fluo transition-colors"
+                   hover:border-brand hover:text-brand transition-colors"
       >
         connect wallet
       </button>
@@ -2242,12 +2242,12 @@ function WalletBar() {
   }
   return (
     <div className="flex items-center gap-3 font-mono text-[10px] tracking-wider">
-      <span className="text-tosh-fluo tabular-nums">
+      <span className="text-brand tabular-nums">
         {address?.slice(0, 6)}…{address?.slice(-4)}
       </span>
       <button
         onClick={() => disconnect()}
-        className="px-2 py-1 text-[#888] hover:text-tosh-rust transition-colors
+        className="px-2 py-1 text-[#888] hover:text-danger transition-colors
                    tracking-[0.32em] uppercase"
       >
         disc
@@ -2276,10 +2276,10 @@ function AccessBanner({
          'This wallet is not the factory owner. Every write on this page is onlyOwner on-chain and would revert, so the levers are disabled rather than left to burn gas.']
 
   return (
-    <div className="mt-6 border border-tosh-rust/40 rounded-2xl p-5 flex flex-col gap-2">
+    <div className="mt-6 border border-danger/40 rounded-2xl p-5 flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full bg-tosh-rust" aria-hidden />
-        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-tosh-rust">
+        <span className="w-1.5 h-1.5 rounded-full bg-danger" aria-hidden />
+        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-danger">
           {title}
         </span>
       </div>
@@ -2315,18 +2315,18 @@ export default function AdminPage() {
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="w-2 h-2 rounded-full bg-tosh-admin dot-breathe" />
-                <span className="text-[10px] font-mono text-tosh-admin uppercase tracking-widest">
+                <span className="w-2 h-2 rounded-full bg-admin dot-breathe" />
+                <span className="text-[10px] font-mono text-admin uppercase tracking-widest">
                   Operator Console
                 </span>
                 {!access.canWrite && (
-                  <span className="text-[10px] font-mono text-tosh-rust uppercase tracking-widest">
+                  <span className="text-[10px] font-mono text-danger uppercase tracking-widest">
                     · read-only
                   </span>
                 )}
               </div>
               <h1 className="text-2xl font-black tracking-tight text-white">
-                Protocol <span className="text-tosh-fluo">Control</span>
+                Protocol <span className="text-brand">Control</span>
               </h1>
               <p className="text-xs text-zinc-500 mt-1 font-mono">
                 {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL} ·{' '}

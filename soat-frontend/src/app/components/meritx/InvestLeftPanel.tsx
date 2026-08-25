@@ -45,8 +45,8 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
     if (canRefund) return { label: 'REFUND ELIGIBLE', cls: 'border-red-500/30 bg-red-500/[0.06] text-red-400', dot: 'bg-red-400' }
     if (launched) return { label: 'SHELF ACTIVE', cls: 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-400', dot: 'bg-emerald-400' }
     if (!windowOpen) return { label: 'AWAITING LAUNCH', cls: 'border-purple-500/30 bg-purple-500/[0.06] text-purple-400', dot: 'bg-purple-400' }
-    if (softCap > 0n && totalEth >= softCap) return { label: 'GENESIS OVERSUBSCRIBED', cls: 'border-tosh-fluo/30 bg-tosh-fluo/[0.06] text-tosh-fluo', dot: 'bg-tosh-fluo' }
-    return { label: 'GENESIS FUNDING', cls: 'border-tosh-fluo/30 bg-tosh-fluo/[0.06] text-tosh-fluo', dot: 'bg-tosh-fluo' }
+    if (softCap > 0n && totalEth >= softCap) return { label: 'GENESIS OVERSUBSCRIBED', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
+    return { label: 'GENESIS FUNDING', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
   }, [canRefund, launched, windowOpen, softCap, totalEth])
 
   const countdown = useMemo(() => {
@@ -69,7 +69,7 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Total Deposited</p>
-          <p className="text-xl font-black text-tosh-fluo tabular-nums">{fmtEth(totalEth)} <span className="text-sm text-zinc-500">ETH</span></p>
+          <p className="text-xl font-black text-brand tabular-nums">{fmtEth(totalEth)} <span className="text-sm text-zinc-500">ETH</span></p>
         </div>
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Soft Cap</p>
@@ -110,8 +110,8 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
               {countdown}
             </div>
           </div>
-          <span className="text-[8px] font-mono font-bold tracking-widest text-tosh-fluo flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-tosh-fluo dot-breathe" /> LIVE
+          <span className="text-[8px] font-mono font-bold tracking-widest text-brand flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-brand dot-breathe" /> LIVE
           </span>
         </div>
       )}

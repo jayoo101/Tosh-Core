@@ -295,8 +295,8 @@ export function BondingPanel(p: BondingProps) {
       <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} halted={halted} />
 
       {halted && (
-        <div className="border border-tosh-rust/40 px-4 py-3 flex flex-col gap-1">
-          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-tosh-rust">
+        <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
             → LADDER SUSPENDED · {haltIsGlobal ? 'PLATFORM-WIDE' : 'THIS PROJECT'} · LIFTS IN {haltTxt}
           </p>
           <p className="font-mono text-[11px] text-[#888] leading-relaxed">
@@ -340,22 +340,22 @@ export function BondingPanel(p: BondingProps) {
         <div className="border border-[#1F1F2E]">
           <div className="grid grid-cols-1 sm:grid-cols-3 divide-x divide-[#1F1F2E]">
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-tosh-mute">QUOTED COST</span>
+              <span className="font-mono text-label text-text-tertiary">QUOTED COST</span>
               <span className="font-mono text-base text-white tabular-nums">
                 {isQuoting ? '…' : `${fmt(ethCost)} ETH`}
               </span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-tosh-mute">MAX W/ 0.5% SLIPPAGE</span>
+              <span className="font-mono text-label text-text-tertiary">MAX W/ 0.5% SLIPPAGE</span>
               <span className="font-mono text-base text-white tabular-nums">
                 {fmt(maxEthCost)} ETH
               </span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-tosh-mute">L-01 GUARD</span>
+              <span className="font-mono text-label text-text-tertiary">L-01 GUARD</span>
               {isDust
-                ? <span className="font-mono text-base text-tosh-fluo">→ L-01_LOCKED</span>
-                : <span className="font-mono text-base text-tosh-fluo">L-01_invariant: verified.</span>}
+                ? <span className="font-mono text-base text-brand">→ L-01_LOCKED</span>
+                : <span className="font-mono text-base text-brand">L-01_invariant: verified.</span>}
             </div>
           </div>
           <p className="px-4 py-2 border-t border-[#1F1F2E] text-[10px] font-mono text-[#555] tracking-wider break-all">

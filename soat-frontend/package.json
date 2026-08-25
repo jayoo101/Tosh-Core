@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "tokens": "node scripts/checkTokens.mjs",
+    "tokens:strict": "node scripts/checkTokens.mjs --strict",
+    "verify": "node scripts/checkTokens.mjs && tsc --noEmit && eslint && next build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",

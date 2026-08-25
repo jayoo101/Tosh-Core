@@ -64,7 +64,7 @@ export function AddressLink({
     )
   }, [value])
 
-  if (!value) return <span className={cn('font-mono text-tosh-faint', className)}>{EM_DASH}</span>
+  if (!value) return <span className={cn('font-mono text-text-quiet', className)}>{EM_DASH}</span>
 
   const text =
     label ??
@@ -84,7 +84,7 @@ export function AddressLink({
           target="_blank"
           rel="noopener noreferrer"
           title={value}
-          className="inline-flex items-center gap-1 break-all underline decoration-dotted underline-offset-2 transition-colors hover:text-tosh-fluo"
+          className="inline-flex items-center gap-1 break-all underline decoration-dotted underline-offset-2 transition-colors hover:text-brand"
         >
           {text}
           <ExternalLink aria-hidden className="size-3 shrink-0 opacity-60" />
@@ -101,10 +101,10 @@ export function AddressLink({
           onClick={copy}
           aria-label={copied ? 'copied' : `copy ${kind}`}
           title={copied ? 'copied' : `copy ${kind}`}
-          className="shrink-0 text-tosh-faint transition-colors hover:text-tosh-fluo"
+          className="shrink-0 text-text-quiet transition-colors hover:text-brand"
         >
           {copied ? (
-            <Check aria-hidden className="size-3 text-tosh-fluo" />
+            <Check aria-hidden className="size-3 text-brand" />
           ) : (
             <Copy aria-hidden className="size-3" />
           )}

@@ -48,7 +48,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
                  justify-center gap-6 px-6 py-12 font-mono text-zinc-200"
     >
       <header className="flex flex-col gap-2 border-b border-zinc-800 pb-4">
-        <span className="text-[11px] uppercase tracking-[0.4em] text-tosh-fluo">
+        <span className="text-[11px] uppercase tracking-[0.4em] text-brand">
           {'// RUNTIME // ANOMALY_DETECTED'}
         </span>
         <h1 className="text-2xl font-light tracking-wide text-zinc-50">
@@ -80,10 +80,10 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
         <button
           type="button"
           onClick={reset}
-          className="flex-1 border border-tosh-fluo bg-black px-4 py-3 text-[12px]
-                     uppercase tracking-[0.3em] text-tosh-fluo
-                     hover:bg-tosh-fluo/10 focus:outline-none focus:ring-2
-                     focus:ring-tosh-fluo focus:ring-offset-2 focus:ring-offset-black
+          className="flex-1 border border-brand bg-black px-4 py-3 text-[12px]
+                     uppercase tracking-[0.3em] text-brand
+                     hover:bg-brand/10 focus:outline-none focus:ring-2
+                     focus:ring-brand focus:ring-offset-2 focus:ring-offset-black
                      transition-colors"
         >
           ● RETRY_SEGMENT

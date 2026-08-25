@@ -28,18 +28,18 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   const connectCls = variant === 'navbar'
-    ? `px-4 py-1.5 rounded-lg border border-tosh-fluo/40 text-tosh-fluo text-xs font-bold
-       uppercase tracking-wider hover:bg-tosh-fluo hover:text-black transition-all
+    ? `px-4 py-1.5 rounded-lg border border-brand/40 text-brand text-xs font-bold
+       uppercase tracking-wider hover:bg-brand hover:text-black transition-all
        shadow-[0_0_8px_rgba(0,255,163,0.15)]`
     : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1F1F2E] text-[#888]
-       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-tosh-fluo
-       hover:text-tosh-fluo transition-colors`
+       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand
+       hover:text-brand transition-colors`
 
   const pipCls = variant === 'navbar'
     ? `group flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-800
-       bg-zinc-900/80 hover:border-tosh-fluo/40 transition-all text-xs font-mono`
+       bg-zinc-900/80 hover:border-brand/40 transition-all text-xs font-mono`
     : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1F1F2E] text-white
-       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-tosh-fluo transition-colors`
+       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand transition-colors`
 
   // Always render a stable outer wrapper so the root element never changes
   // type between SSR (<button>) and CSR (<div> / Fragment). React reconciles
@@ -65,8 +65,8 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
               href="/admin"
               title="protocol operator console"
               className="hidden sm:inline-flex items-center px-2.5 py-1.5 rounded-lg
-                         border border-tosh-admin/30 text-tosh-admin font-mono
-                         text-[10px] tracking-widest uppercase hover:border-tosh-admin
+                         border border-admin/30 text-admin font-mono
+                         text-[10px] tracking-widest uppercase hover:border-admin
                          transition-colors"
             >
               sys_control
@@ -79,7 +79,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
             aria-expanded={drawerOpen}
             className={pipCls}
           >
-            <span aria-hidden className="w-2 h-2 rounded-full bg-tosh-fluo dot-breathe shrink-0" />
+            <span aria-hidden className="w-2 h-2 rounded-full bg-brand dot-breathe shrink-0" />
             <span className="text-zinc-300 group-hover:text-white tabular-nums">
               {short}
             </span>

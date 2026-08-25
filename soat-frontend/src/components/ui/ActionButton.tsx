@@ -36,11 +36,11 @@ export interface ActionButtonProps {
 }
 
 const HINT_TONE: Record<VerdictTone, string> = {
-  ok: 'text-tosh-fluo',
-  danger: 'text-tosh-rust',
-  warn: 'text-tosh-amber',
-  info: 'text-tosh-curve',
-  neutral: 'text-tosh-mute',
+  ok: 'text-brand',
+  danger: 'text-danger',
+  warn: 'text-warning',
+  info: 'text-info',
+  neutral: 'text-text-tertiary',
 }
 
 export function ActionButton({

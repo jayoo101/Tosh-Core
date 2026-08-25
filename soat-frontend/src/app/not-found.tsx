@@ -22,7 +22,7 @@ export default function NotFound() {
                  justify-center gap-6 px-6 py-12 font-mono text-zinc-200"
     >
       <header className="flex flex-col gap-2 border-b border-zinc-800 pb-4">
-        <span className="text-[11px] uppercase tracking-[0.4em] text-tosh-fluo">
+        <span className="text-[11px] uppercase tracking-[0.4em] text-brand">
           {'// ROUTE // 404 · UNMAPPED_PATH'}
         </span>
         <h1 className="text-3xl font-light tracking-wide text-zinc-50">

@@ -32,7 +32,7 @@ export function Skeleton({ className, radius = 'input' }: SkeletonProps) {
   return (
     <span
       aria-hidden
-      className={cn('tosh-shimmer block bg-tosh-raised', RADIUS[radius], className)}
+      className={cn('tosh-shimmer block bg-surface-elevated', RADIUS[radius], className)}
     />
   )
 }
@@ -55,7 +55,7 @@ export function SkeletonReadout({ rows = 3 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
-          className="flex items-baseline justify-between gap-gap border-b border-tosh-line/60 py-2"
+          className="flex items-baseline justify-between gap-gap border-b border-border-subtle/60 py-2"
         >
           <Skeleton className="h-2.5 w-28" />
           <Skeleton className="h-3.5 w-20" />

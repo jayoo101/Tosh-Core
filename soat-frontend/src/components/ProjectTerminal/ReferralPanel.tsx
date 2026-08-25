@@ -126,14 +126,14 @@ export function ReferralPanel({
 
       {link && (
         <div className="border border-[#1F1F2E] flex flex-col gap-2 px-4 py-3">
-          <span className="font-mono text-label text-tosh-mute">YOUR REFERRAL LINK</span>
+          <span className="font-mono text-label text-text-tertiary">YOUR REFERRAL LINK</span>
           <p className="font-mono text-[11px] text-[#CCC] break-all leading-relaxed">{link}</p>
           <button
             type="button"
             onClick={handleCopy}
             className="self-start px-3 py-1.5 border border-[#1F1F2E] text-[#888] text-[10px]
                        tracking-[0.32em] uppercase font-bold
-                       hover:border-tosh-fluo hover:text-tosh-fluo
+                       hover:border-brand hover:text-brand
                        transition-colors duration-150"
           >
             {copied ? 'copied' : 'copy'}
@@ -143,7 +143,7 @@ export function ReferralPanel({
             project on the platform. Self-referral is ignored by the factory.
           </p>
           {!linkIsLive && (
-            <p className="text-[10px] text-tosh-rust tracking-wider leading-relaxed">
+            <p className="text-[10px] text-danger tracking-wider leading-relaxed">
               {'// '}This link will not pay yet. A referrer needs their own PoG
               attestation, so register PoG before sharing — until then a deposit
               made through it still goes through, but the 10 % falls through to

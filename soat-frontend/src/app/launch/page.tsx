@@ -52,7 +52,7 @@ const shareOf  = (wei: bigint, of: bigint) =>
 const INPUT_CORE =
   'w-full py-3.5 px-4 rounded-xl font-mono text-sm text-white placeholder:text-zinc-600 ' +
   'bg-black/50 border border-zinc-700 focus:outline-none focus:ring-1 ' +
-  'focus:border-tosh-fluo focus:ring-tosh-fluo/20 transition-colors'
+  'focus:border-brand focus:ring-brand/20 transition-colors'
 
 // ─── sub-components ─────────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ function MeritXCard({
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
       <div className="flex items-center gap-2 mb-5">
-        <Icon className="w-5 h-5 text-tosh-fluo" />
+        <Icon className="w-5 h-5 text-brand" />
         <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{title}</h2>
       </div>
       {children}
@@ -87,15 +87,15 @@ function MeritXField({
   locked?:      boolean
 }) {
   const borderCls = locked
-    ? 'border-tosh-fluo focus:border-tosh-fluo focus:ring-tosh-fluo/20'
-    : 'border-zinc-700 focus:border-tosh-fluo focus:ring-tosh-fluo/20'
+    ? 'border-brand focus:border-brand focus:ring-brand/20'
+    : 'border-zinc-700 focus:border-brand focus:ring-brand/20'
 
   return (
     <div>
       <label className="flex items-center gap-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">
         {label}
         {hint && <span className="ml-auto normal-case text-[9px] text-zinc-600 font-normal tracking-normal">{hint}</span>}
-        {locked && <span className="ml-auto text-[9px] text-tosh-fluo font-bold tracking-wider">● LOCKED</span>}
+        {locked && <span className="ml-auto text-[9px] text-brand font-bold tracking-wider">● LOCKED</span>}
       </label>
       <input
         type="text"
@@ -105,7 +105,7 @@ function MeritXField({
         placeholder={placeholder}
         spellCheck={false}
         autoCorrect="off"
-        className={`${INPUT_CORE} ${borderCls} ${readOnly ? 'cursor-default' : ''} ${locked ? 'bg-tosh-fluo/5' : ''}`}
+        className={`${INPUT_CORE} ${borderCls} ${readOnly ? 'cursor-default' : ''} ${locked ? 'bg-brand/5' : ''}`}
       />
     </div>
   )
@@ -153,7 +153,7 @@ function GenesisWindowSelect({
               className={
                 'rounded-lg py-2.5 px-2 font-mono transition-colors ' +
                 (selected
-                  ? 'bg-tosh-fluo/10 border border-tosh-fluo text-white'
+                  ? 'bg-brand/10 border border-brand text-white'
                   : 'border border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-white/5')
               }
             >
@@ -161,7 +161,7 @@ function GenesisWindowSelect({
               <span
                 className={
                   'block text-[9px] uppercase tracking-widest mt-0.5 ' +
-                  (selected ? 'text-tosh-fluo' : 'text-zinc-600')
+                  (selected ? 'text-brand' : 'text-zinc-600')
                 }
               >
                 {w.tag}
@@ -212,7 +212,7 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
     <div className="sticky top-24">
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
         <div className="flex items-center gap-2 mb-5">
-          <Shield className="w-5 h-5 text-tosh-fluo" />
+          <Shield className="w-5 h-5 text-brand" />
           <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
             The Immutable Pact
           </h2>
@@ -228,8 +228,8 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
             </li>
           ))}
         </ul>
-        <div className="mt-5 rounded-lg border border-tosh-fluo/30 bg-tosh-fluo/5 p-3">
-          <p className="text-[10px] font-bold text-tosh-fluo uppercase tracking-[0.18em] mb-1.5">
+        <div className="mt-5 rounded-lg border border-brand/30 bg-brand/5 p-3">
+          <p className="text-[10px] font-bold text-brand uppercase tracking-[0.18em] mb-1.5">
             Decentralization invariant
           </p>
           <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
@@ -292,28 +292,28 @@ function CryptoEngine({
           disabled={!canMine || isMining}
           className={`px-4 py-2.5 rounded-xl border text-[10px] tracking-widest uppercase font-bold transition-all
             ${canMine && !isMining
-              ? 'border-tosh-fluo text-tosh-fluo hover:bg-tosh-fluo hover:text-black'
+              ? 'border-brand text-brand hover:bg-brand hover:text-black'
               : 'border-zinc-700 text-zinc-600 cursor-not-allowed'}`}
         >
           {isMining ? '⌛ Mining…' : '[ Mine Salt ]'}
         </button>
         {locked && (
-          <span className="flex items-center gap-1.5 text-[10px] font-bold text-tosh-fluo border border-tosh-fluo/30 px-2 py-1 rounded">
-            <span className="w-1.5 h-1.5 rounded-full bg-tosh-fluo dot-breathe" />
+          <span className="flex items-center gap-1.5 text-[10px] font-bold text-brand border border-brand/30 px-2 py-1 rounded">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand dot-breathe" />
             ENGINE LOCKED
           </span>
         )}
       </div>
 
       <div className={`rounded-xl border px-4 py-3 font-mono text-xs break-all leading-relaxed
-        ${locked ? 'border-tosh-fluo/50 bg-tosh-fluo/5 text-tosh-fluo' : 'border-zinc-800 bg-black/40 text-zinc-500'}`}>
+        ${locked ? 'border-brand/50 bg-brand/5 text-brand' : 'border-zinc-800 bg-black/40 text-zinc-500'}`}>
         {locked ? salt : isMining ? (stream || '0x' + '0'.repeat(64)) : '0x' + '—'.repeat(16)}
       </div>
 
       {predictedHook && (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-4 py-3">
           <p className="text-[9px] text-zinc-500 font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
-          <p className="text-[11px] text-tosh-fluo/80 font-mono break-all">{predictedHook}</p>
+          <p className="text-[11px] text-brand/80 font-mono break-all">{predictedHook}</p>
         </div>
       )}
 
@@ -385,11 +385,11 @@ function LaunchCTA({
           className={[
             'order-1 sm:order-2 relative flex-1 min-w-[200px] py-4 rounded-xl font-black text-sm uppercase tracking-wider transition-all overflow-hidden',
             confirmed
-              ? 'text-tosh-fluo bg-tosh-fluo/10 border border-tosh-fluo/40'
+              ? 'text-brand bg-brand/10 border border-brand/40'
               : readyToFire || (armed && action)
-                ? 'text-black bg-tosh-fluo hover:bg-tosh-fluo/90 border border-tosh-fluo hover:shadow-[0_0_24px_rgba(0,255,163,0.25)]'
+                ? 'text-black bg-brand hover:bg-brand/90 border border-brand hover:shadow-[0_0_24px_rgba(0,255,163,0.25)]'
                 : broadcasting
-                  ? 'text-white bg-tosh-fluo/80 border border-tosh-fluo/50 cursor-wait'
+                  ? 'text-white bg-brand/80 border border-brand/50 cursor-wait'
                   : 'text-zinc-500 bg-zinc-800 border border-zinc-700 cursor-not-allowed opacity-60',
           ].join(' ')}
         >
@@ -405,13 +405,13 @@ function LaunchCTA({
         <div className="flex flex-wrap items-center gap-4 text-xs font-mono px-1">
           {hash && (
             <a href={basescanTx(hash)} target="_blank" rel="noopener noreferrer"
-               className="text-tosh-fluo hover:underline">
+               className="text-brand hover:underline">
               TX {shortHash(hash)} ↗
             </a>
           )}
           {errorMessage  && <span className="text-red-400">Error: {errorMessage}</span>}
           {syncState === 'syncing' && <span className="text-zinc-500 animate-pulse">Syncing to directory…</span>}
-          {syncState === 'done'    && <span className="text-tosh-fluo">✓ Directory synced</span>}
+          {syncState === 'done'    && <span className="text-brand">✓ Directory synced</span>}
           {syncState === 'error'   && <span className="text-amber-400">Directory sync deferred</span>}
         </div>
       )}
@@ -664,11 +664,11 @@ export default function GenesisConsole() {
         {/* Header */}
         <header className="mb-10 border-b border-zinc-800 pb-8">
           <div className="flex items-center gap-3 mb-4">
-            <span className="bg-tosh-fluo text-black text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
+            <span className="bg-brand text-black text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
             <span className="text-zinc-500 text-[10px] font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-white leading-tight">
-            Create a <span className="text-tosh-fluo">Tosh Launch</span>
+            Create a <span className="text-brand">Tosh Launch</span>
           </h1>
           <p className="text-zinc-400 text-sm mt-3 max-w-2xl">
             {CHAIN_POSITIONING} Pay the ETH launch fee, mine a Uniswap V4 hook salt, and open a Proof-of-Gas gated genesis window.

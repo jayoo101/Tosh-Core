@@ -62,7 +62,7 @@ export function ShelfLadder({
           {'// DISCRETE SHELF LADDER · 4000 RUNGS · 2000× SPAN'}
         </span>
         <span className={`font-mono text-[10px] tabular-nums
-                          ${halted ? 'text-tosh-rust' : 'text-[#666]'}`}>
+                          ${halted ? 'text-danger' : 'text-[#666]'}`}>
           {halted
             ? 'LADDER HALTED · BREAKER'
             : unlocked ? 'GATE OPEN' : 'GATE LOCKED · 105%'}

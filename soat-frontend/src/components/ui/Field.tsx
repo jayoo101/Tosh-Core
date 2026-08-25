@@ -51,8 +51,8 @@ export type FieldProps = FieldShape & {
 }
 
 const CONTROL =
-  'w-full rounded-input border bg-tosh-raised px-3 py-2.5 ' +
-  'font-mono text-readout text-tosh-ink placeholder:text-tosh-faint ' +
+  'w-full rounded-input border bg-surface-elevated px-3 py-2.5 ' +
+  'font-mono text-readout text-text-primary placeholder:text-text-quiet ' +
   'transition-colors ' +
   'disabled:cursor-not-allowed disabled:opacity-40 ' +
   'read-only:cursor-default'
@@ -80,16 +80,16 @@ export function Field({
   const describedBy = `${id}-msg`
 
   const border = invalid
-    ? 'border-tosh-rust/60 focus:border-tosh-rust'
+    ? 'border-danger/60 focus:border-danger'
     : armed
-      ? 'border-tosh-fluo focus:border-tosh-fluo'
-      : 'border-tosh-line focus:border-tosh-fluo'
+      ? 'border-brand focus:border-brand'
+      : 'border-border-subtle focus:border-brand'
 
   const handle = (next: string) => onValueChange(uppercase ? next.toUpperCase() : next)
 
   return (
     <div className={cn('flex flex-col gap-gap-tight', className)}>
-      <label htmlFor={id} className="font-mono text-label text-tosh-mute">
+      <label htmlFor={id} className="font-mono text-label text-text-tertiary">
         {label}
       </label>
 
@@ -136,7 +136,7 @@ export function Field({
           id={describedBy}
           className={cn(
             'font-mono text-label tracking-[0.12em]',
-            invalid ? 'text-tosh-rust' : 'text-tosh-faint',
+            invalid ? 'text-danger' : 'text-text-quiet',
           )}
         >
           {invalid ? error : hint}
@@ -171,9 +171,9 @@ export function FieldAffix({
       disabled={disabled}
       title={title}
       className={cn(
-        'shrink-0 rounded-input border border-tosh-line px-3',
-        'font-mono text-label uppercase text-tosh-mute',
-        'transition-colors hover:border-tosh-fluo hover:text-tosh-fluo',
+        'shrink-0 rounded-input border border-border-subtle px-3',
+        'font-mono text-label uppercase text-text-tertiary',
+        'transition-colors hover:border-brand hover:text-brand',
         'disabled:cursor-not-allowed disabled:opacity-40',
       )}
     >

@@ -11,12 +11,12 @@ const STEPS = [
     glow: '#10b981',
   },
   {
-    step: '02', tag: 'FACTORY', tagColor: 'text-tosh-fluo',
+    step: '02', tag: 'FACTORY', tagColor: 'text-brand',
     title: 'Hook-Anchored Launch',
     description: 'Permissionless ERC-20 + ToshLaunchpadHook via CREATE2 salt mining. Pay native ETH launch fee — zero pre-mine, 55/45 genesis split at P₀: 4.62M claimable by depositors, 3.78M locked as LP.',
-    chassis: 'bg-[#0a0a0a] border-tosh-fluo/20 shadow-[inset_0_1px_0_rgba(0,255,163,0.06),0_4px_24px_rgba(0,0,0,0.5)] hover:border-tosh-fluo/40',
-    ledStrip: 'bg-gradient-to-r from-transparent via-tosh-fluo/60 to-transparent',
-    led: 'bg-tosh-fluo shadow-[0_0_6px_rgba(0,255,163,0.8)]',
+    chassis: 'bg-[#0a0a0a] border-brand/20 shadow-[inset_0_1px_0_rgba(0,255,163,0.06),0_4px_24px_rgba(0,0,0,0.5)] hover:border-brand/40',
+    ledStrip: 'bg-gradient-to-r from-transparent via-brand/60 to-transparent',
+    led: 'bg-brand shadow-[0_0_6px_rgba(0,255,163,0.8)]',
     glow: '#00FFA3',
   },
   {

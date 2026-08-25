@@ -30,11 +30,11 @@ export function ToshNavbar() {
   if (pathname?.startsWith('/admin')) return null
 
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-xl">
+    <nav className="sticky top-0 z-50 w-full border-b border-border-subtle bg-bg-base">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/" className="text-lg font-black text-white tracking-tighter hover:opacity-90 transition-opacity">
-            Tosh<span className="text-tosh-fluo">X</span>
+          <Link href="/" className="text-lg font-black text-text-primary tracking-tighter hover:opacity-90 transition-opacity">
+            Tosh<span className="text-brand">X</span>
           </Link>
           <div className="hidden sm:flex items-center gap-1">
             {NAV.map(({ href, label }) => {
@@ -43,8 +43,10 @@ export function ToshNavbar() {
                 <Link
                   key={href}
                   href={href}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors
-                    ${active ? 'text-tosh-fluo bg-tosh-fluo/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`px-3 py-1.5 rounded-input text-[11px] font-medium transition-colors
+                    ${active
+                      ? 'text-brand bg-brand/10'
+                      : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}`}
                 >
                   {label}
                 </Link>
@@ -53,7 +55,7 @@ export function ToshNavbar() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="hidden md:inline text-[9px] text-zinc-600 font-mono tracking-wider uppercase">
+          <span className="hidden md:inline font-mono text-label text-text-quiet uppercase">
             {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}
           </span>
           <WalletPip variant="navbar" />

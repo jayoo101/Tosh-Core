@@ -52,7 +52,7 @@ export function QuotaLedger({
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between border-b border-[#1F1F2E]/60 py-1.5">
-      <span className="font-mono text-label text-tosh-mute">{label}</span>
+      <span className="font-mono text-label text-text-tertiary">{label}</span>
       <span className="font-mono text-[11px] text-white tabular-nums break-all text-right">
         {value}
       </span>
@@ -87,7 +87,7 @@ export function QuotaLedger({
       <div className="pt-2">
         {breached
           ? (
-            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-tosh-fluo">
+            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-brand">
               → H-01_BREACH: INTERCEPTED
             </p>
           )
