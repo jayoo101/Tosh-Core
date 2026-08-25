@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TOSH PROTOCOL · CYBER-MINIMALISM   (v4.4 — MeritX-influenced refresh)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Black canvas, hairline gray dividers, white text, fluorescent green for
+ * primary CTA + audit-guard cues.  A tight semantic palette adds three
+ * phase-tinted accents (curve / notice / admin) for cards, LEDs, and step
+ * bars — all of them rare enough that the eye still reads "minimal".
+ *
+ *   Canvas         #000000   absolute deep-room black
+ *   Line / border  #1F1F2E   1 px dark-gray divider
+ *   Ink            #FFFFFF   primary type
+ *   Mute           #888888   secondary type / labels
+ *   Fluo           #00FFA3   primary CTA + audit-guard accent
+ *   Curve          #22D3EE   Phase 2 shelf-ladder tint
+ *   Notice         #FFB400   warnings, soft cooldown, near-deadline
+ *   Admin          #A855F7   owner-only chrome ([ _sys_control ])
+ *   Rust           #FF3355   reverts, wrong network, destructive
+ *
+ * The token block keeps every legacy `--color-tosh-*` name alive (older
+ * pages wire hundreds of classes against them) but adds the new phase
+ * tints alongside.
+ *
+ * Typography is now hybrid: Geist Sans for body / hero, JetBrains Mono
+ * (the original) for labels, numbers, addresses, status pills, and code.
+ * Use `font-mono` (Tailwind) anywhere you need monospace; `font-sans`
+ * defaults to Geist.  `--font-stm` and `--font-pixel` stay aliased to mono
+ * for legacy class compatibility.
+ *
+ * Three named animations replace the old animate-pulse default:
+ *   • shimmer       — 2 s gradient sweep, used on skeleton loaders.
+ *   • led-breathe   — 2.4 s opacity/scale pulse, used on status dots.
+ *   • cable-flow    — 3 s horizontal gradient slide, used on the Trust
+ *                     Pipeline connectors only.
+ *   • marquee       — linear horizontal scroll for the TxFeed ticker.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --background: #000000;
+  --foreground: #FFFFFF;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* ── Font families — Geist sans + JetBrains Mono ──────────────────── */
+  --font-sans:  var(--font-geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --font-mono:  var(--font-jbm,   ui-monospace, "SFMono-Regular", "Menlo", monospace);
+  --font-stm:   var(--font-jbm,   ui-monospace, "SFMono-Regular", monospace);
+  --font-pixel: var(--font-jbm,   ui-monospace, "SFMono-Regular", monospace);
+
+  /* ── Surfaces — all collapse to absolute black ─────────────────────── */
+  --color-tosh-canvas:    #000000;
+  --color-tosh-chassis:   #000000;
+  --color-tosh-rack:      #000000;
+  --color-tosh-rack-lift: #000000;
+  --color-tosh-bg:        #000000;
+  --color-tosh-bg-lift:   #000000;
+  --color-tosh-card:      #000000;
+  --color-tosh-card-lift: #000000;
+
+  /* ── 1 px line stack ────────────────────────────────────────────────── */
+  --color-tosh-line:          #1F1F2E;
+  --color-tosh-border:        #1F1F2E;
+  --color-tosh-border-strong: #2A2A3D;
+  --color-tosh-rivet:         #888888;
+
+  /* ── Fluorescent (primary CTA + audit-guard accent) ─────────────────── */
+  --color-tosh-fluo:         #00FFA3;
+  --color-tosh-fluo-dim:     #00CC82;
+  --color-tosh-fluo-deep:    #00855A;
+  --color-tosh-fluo-faint:   #003A27;
+  --color-tosh-accent:       #00FFA3;
+  --color-tosh-accent-dim:   #00CC82;
+  --color-tosh-accent-deep:  #00855A;
+  --color-tosh-accent-faint: #003A27;
+
+  /* ── Phase tints (v4.4) — used sparingly on cards / LEDs / step bars ─ */
+  /** Phase 2 4000-rung shelf-ladder tint — paired with Phase 2 cards
+   *  and the `[ SWAP ]` lever. */
+  --color-tosh-curve:       #22D3EE;
+  --color-tosh-curve-deep:  #0E7490;
+  --color-tosh-curve-faint: #06363F;
+  /** Owner-only admin chrome — only the [ _sys_control ] entry, the
+   *  /admin section headers, and the OWNER readout use this. */
+  --color-tosh-admin:       #A855F7;
+  --color-tosh-admin-deep:  #6B21A8;
+  --color-tosh-admin-faint: #2A0F4A;
+
+  /* ── Alarm tones (kept narrow — only for revert text + warnings) ──── */
+  --color-tosh-rust:       #FF3355;
+  --color-tosh-rust-dim:   #BB2640;
+  --color-tosh-amber:      #FFB400;
+  --color-tosh-amber-dim:  #B27F00;
+  --color-tosh-amber-faint:#3D2A00;
+
+  /* ── Type ladder ────────────────────────────────────────────────────── */
+  --color-tosh-ink:         #FFFFFF;
+  --color-tosh-text:        #FFFFFF;
+  --color-tosh-text-dim:    #CCCCCC;
+  --color-tosh-mute:        #888888;
+  --color-tosh-text-mute:   #888888;
+  --color-tosh-text-faint:  #555555;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * BODY
+ * ───────────────────────────────────────────────────────────────────────── */
+
+html, body {
+  background: var(--background);
+  color:      var(--foreground);
+  /* Body defaults to sans — mono is opt-in via the `font-mono` Tailwind
+   * utility (still used everywhere on labels / numbers / addresses). */
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "calt" 0, "ss01" 1;
+  letter-spacing: 0.01em;
+}
+
+::selection {
+  background: #00FFA3;
+  color:      #000000;
+}
+
+/* Hairline focus ring tuned to fluorescent green — applied by Tailwind utilities
+ * via `focus:border-tosh-fluo`, but we override the default outline too so
+ * inputs stay flat and don't sprout the browser blue glow. */
+*:focus-visible {
+  outline: 1px solid #00FFA3;
+  outline-offset: 1px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MOTION VOCABULARY  (v4.4)
+ * Each keyframe is used in exactly one place in the codebase — keep them
+ * tightly scoped or the motion budget gets blown.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Skeleton shimmer — used by card placeholder elements only. */
+@keyframes tosh-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%);  }
+}
+.tosh-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.tosh-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: tosh-shimmer 2s ease-in-out infinite;
+}
+
+/** LED breathe — status dots on cards / drawer header / pipeline steps.
+ *  Subtle scale + opacity pulse, no glow (we live in cyber-minimalism). */
+@keyframes tosh-led-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1);    }
+  50%      { opacity: 1.00; transform: scale(1.15); }
+}
+.tosh-led-breathe {
+  animation: tosh-led-breathe 2.4s ease-in-out infinite;
+}
+
+/** Cable flow — horizontal gradient sliding through the Trust Pipeline
+ *  connector lines.  ONLY used on the pipeline; nothing else. */
+@keyframes tosh-cable-flow {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.tosh-cable-flow {
+  background-size: 200% 100%;
+  animation: tosh-cable-flow 3s linear infinite;
+}
+
+/** Marquee — TxFeed ticker under the hero.  Linear, infinite, no easing
+ *  so the eye doesn't pick up acceleration. */
+@keyframes tosh-marquee {
+  0%   { transform: translateX(0);    }
+  100% { transform: translateX(-50%); }
+}
+.tosh-marquee-track {
+  display: inline-flex;
+  animation: tosh-marquee 30s linear infinite;
+  will-change: transform;
+}
+.tosh-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* ── MeritX-inspired shell (Tosh green accent) ───────────────────────────── */
+
+:root {
+  --tosh-neon: #00FFA3;
+  --tosh-neon-dim: #00cc82;
+  --tosh-glass-bg: rgba(255, 255, 255, 0.03);
+  --tosh-glass-border: rgba(255, 255, 255, 0.06);
+}
+
+.terminal-grid-bg {
+  position: relative;
+  isolation: isolate;
+}
+.terminal-grid-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.03), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(0, 255, 163, 0.04), transparent 55%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 360px 360px, 420px 420px, 40px 40px, 40px 40px;
+}
+
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--tosh-neon); }
+  50%      { opacity: 0.35; box-shadow: 0 0 1px var(--tosh-neon); }
+}
+.dot-breathe {
+  animation: dot-breathe 2s ease-in-out infinite;
+}
+
+.glass-card {
+  background: var(--tosh-glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--tosh-glass-border);
+  border-radius: 1rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.glass-card:hover {
+  border-color: rgba(0, 255, 163, 0.25);
+  box-shadow: 0 0 30px rgba(0, 255, 163, 0.08);
+}
+
+@keyframes bar-glow-slide {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.bar-glow {
+  background: linear-gradient(90deg, #00cc82, #00FFA3, #5dffc4, #00FFA3, #00cc82);
+  background-size: 200% 100%;
+  animation: bar-glow-slide 3s linear infinite;
+  box-shadow: 0 0 8px rgba(0, 255, 163, 0.35);
+}
+
+.tosh-nuke-btn {
+  background: linear-gradient(135deg, rgba(0, 255, 163, 0.15), rgba(0, 255, 163, 0.05));
+  border: 1px solid rgba(0, 255, 163, 0.4);
+  color: var(--tosh-neon);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: all 0.2s ease;
+}
+.tosh-nuke-btn:hover:not(:disabled) {
+  background: var(--tosh-neon);
+  color: #000;
+  box-shadow: 0 0 20px rgba(0, 255, 163, 0.35);
+}
+.tosh-nuke-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mono-stat {
+  font-family: var(--font-jbm), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mono-stat:hover {
+  color: #f9fafb;
+  text-shadow: 0 0 6px rgba(0, 255, 163, 0.5), 0 0 18px rgba(0, 255, 163, 0.25);
+}

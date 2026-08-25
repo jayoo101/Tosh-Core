@@ -1,0 +1,594 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  --background: #050505;
+  --foreground: #e0e0e0;
+  --neon: #2563eb;
+  --neon-dim: #1d4ed8;
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.06);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ── Global dark terminal background + grid/texture ── */
+body {
+  min-height: 100vh;
+  color: var(--foreground);
+  background-color: var(--background);
+  background-image:
+    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.03), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(37, 99, 235, 0.05), transparent 55%),
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    );
+  background-size:
+    360px 360px,
+    420px 420px,
+    40px 40px,
+    40px 40px;
+  background-attachment: fixed;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Optional helper if you want the grid only in specific containers */
+.terminal-grid-bg {
+  position: relative;
+  isolation: isolate;
+}
+.terminal-grid-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.03), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(37, 99, 235, 0.05), transparent 55%),
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    );
+  background-size:
+    360px 360px,
+    420px 420px,
+    40px 40px,
+    40px 40px;
+}
+
+/* ── Typography: geometric headings + mono stats ── */
+h1, h2, h3 {
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+
+.mono-stat {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: text-shadow 180ms ease-out, color 180ms ease-out;
+}
+
+.mono-stat:hover {
+  color: #f9fafb;
+  text-shadow:
+    0 0 6px rgba(37, 99, 235, 0.65),
+    0 0 18px rgba(37, 99, 235, 0.35);
+}
+
+/* ── Breathing dot for LIVE status ── */
+@keyframes breathe {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--neon); }
+  50%      { opacity: 0.3; box-shadow: 0 0 1px var(--neon); }
+}
+.dot-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* ── Neon glow progress bar ── */
+@keyframes glow-slide {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.bar-glow {
+  background: linear-gradient(90deg, #1d4ed8, #2563eb, #60a5fa, #2563eb, #1d4ed8);
+  background-size: 200% 100%;
+  animation: glow-slide 3s linear infinite;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4), 0 0 20px rgba(37, 99, 235, 0.15);
+}
+
+/* ── Launch console form + "nuclear" button ── */
+.mx-console-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.35);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+.mx-console-field::before {
+  content: ">";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color: rgba(37, 99, 235, 0.65);
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+.mx-console-field:focus-within {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18), 0 0 22px rgba(37, 99, 235, 0.10);
+  background: rgba(0, 0, 0, 0.55);
+}
+.mx-console-input {
+  width: 100%;
+  padding: 16px 16px 16px 44px;
+  border-radius: 16px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  outline: none;
+  border: 0;
+  font-weight: 600;
+}
+.mx-console-input::placeholder {
+  color: rgba(255, 255, 255, 0.18);
+  font-weight: 600;
+}
+
+@keyframes mx-scan-sheen {
+  0%   { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
+  12%  { opacity: 0.85; }
+  55%  { opacity: 0.55; }
+  100% { transform: translateX(140%) skewX(-18deg); opacity: 0; }
+}
+@keyframes mx-armed-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75), 0 0 24px rgba(37, 99, 235, 0.12); }
+  50%      { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75), 0 0 34px rgba(37, 99, 235, 0.22); }
+}
+.mx-nuke-btn {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  color: rgba(255, 255, 255, 0.72);
+  transition: transform 120ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+.mx-nuke-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0.06) 1px,
+      transparent 1px,
+      transparent 10px
+    );
+  opacity: 0.14;
+  pointer-events: none;
+}
+.mx-nuke-btn--armed {
+  border-color: rgba(37, 99, 235, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(180deg, rgba(37,99,235,0.92), rgba(37,99,235,0.60));
+  animation: mx-armed-pulse 1.8s ease-in-out infinite;
+}
+.mx-nuke-btn--armed::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  width: 55%;
+  left: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+  filter: blur(1px);
+  animation: mx-scan-sheen 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.mx-nuke-btn:active {
+  transform: translateY(1px);
+}
+
+/* ── Scanning spinner ── */
+@keyframes radar-spin {
+  to { transform: rotate(360deg); }
+}
+.radar-spinner {
+  border: 3px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--neon);
+  animation: radar-spin 1s linear infinite;
+}
+
+/* ── Holographic scan animation ── */
+@keyframes holo-sweep {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+@keyframes holo-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+@keyframes holo-grid-scroll {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 20px; }
+}
+.holo-scan {
+  position: relative;
+  overflow: hidden;
+}
+.holo-scan::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(37, 99, 235, 0.015) 3px,
+      rgba(37, 99, 235, 0.015) 4px
+    );
+  animation: holo-grid-scroll 2s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+.holo-scan::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(37, 99, 235, 0.04) 40%,
+    rgba(37, 99, 235, 0.08) 50%,
+    rgba(37, 99, 235, 0.04) 60%,
+    transparent
+  );
+  animation: holo-sweep 2.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Secured-funds overlay ── */
+@keyframes isolation-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+.isolation-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 10;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 6px,
+      rgba(100, 180, 255, 0.06) 6px,
+      rgba(100, 180, 255, 0.06) 7px
+    );
+  animation: isolation-drift 4s linear infinite;
+  border: 1px solid rgba(100, 180, 255, 0.12);
+}
+.isolation-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(100, 180, 255, 0.04), transparent 60%);
+}
+
+/* ── Glass card base ── */
+.glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 18px 45px rgba(0, 0, 0, 0.75);
+}
+
+/* ── Glass modal variant ── */
+.glass-modal {
+  background: radial-gradient(circle at top left, rgba(37, 99, 235, 0.07), transparent 55%), var(--glass-bg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.7),
+    0 24px 80px rgba(0, 0, 0, 0.9);
+}
+
+/* ── Crucible countdown + block loader ── */
+@keyframes mx-countdown-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-1px); }
+  40%      { transform: translateX(1px); }
+  60%      { transform: translateX(-1px); }
+  80%      { transform: translateX(1px); }
+}
+.mx-shake-soft {
+  animation: mx-countdown-shake 0.4s ease-in-out infinite;
+}
+
+@keyframes mx-block-dot {
+  0%, 20%   { opacity: 0.15; transform: translateY(0); }
+  40%       { opacity: 1; transform: translateY(-2px); }
+  60%, 100% { opacity: 0.15; transform: translateY(0); }
+}
+.mx-block-loader {
+  display: inline-flex;
+  gap: 3px;
+}
+.mx-block-loader-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: rgba(37, 99, 235, 0.7);
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.7);
+  opacity: 0.2;
+  animation: mx-block-dot 1.05s ease-in-out infinite;
+}
+.mx-block-loader-dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.mx-block-loader-dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+.mx-block-loader-dot:nth-child(4) {
+  animation-delay: 0.36s;
+}
+
+/* Manifesto scrollbar */
+.manifesto-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(63 63 70) transparent;
+}
+.manifesto-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.manifesto-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.manifesto-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(63 63 70);
+  border-radius: 3px;
+}
+.manifesto-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(37, 99, 235, 0.5);
+}
+
+/* ── PoG Modal: Cyber-Hacker Terminal effects ── */
+
+/* Screen shake */
+@keyframes pogShake {
+  0%, 100% { transform: translate(0, 0); }
+  10%      { transform: translate(-5px, 3px); }
+  20%      { transform: translate(4px, -4px); }
+  30%      { transform: translate(-3px, 5px); }
+  40%      { transform: translate(5px, -2px); }
+  50%      { transform: translate(-4px, -4px); }
+  60%      { transform: translate(3px, 4px); }
+  70%      { transform: translate(-5px, -3px); }
+  80%      { transform: translate(4px, 2px); }
+  90%      { transform: translate(-2px, -5px); }
+}
+.pog-shake {
+  animation: pogShake 0.12s linear infinite;
+}
+
+/* Chromatic aberration glitch — violet/white shift */
+.pog-glitch-text {
+  position: relative;
+}
+.pog-glitch-text::before,
+.pog-glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.pog-glitch-text::before {
+  color: #8b5cf6;
+  animation: pogGlitchR 0.3s infinite linear alternate-reverse;
+  clip-path: inset(0 0 50% 0);
+}
+.pog-glitch-text::after {
+  color: #a1a1aa;
+  animation: pogGlitchB 0.3s infinite linear alternate-reverse;
+  clip-path: inset(50% 0 0 0);
+}
+@keyframes pogGlitchR {
+  0%   { transform: translate(-3px, 1px); }
+  25%  { transform: translate(2px, -2px); }
+  50%  { transform: translate(-1px, 3px); }
+  75%  { transform: translate(3px, 0); }
+  100% { transform: translate(-2px, -1px); }
+}
+@keyframes pogGlitchB {
+  0%   { transform: translate(3px, -1px); }
+  25%  { transform: translate(-2px, 2px); }
+  50%  { transform: translate(1px, -3px); }
+  75%  { transform: translate(-3px, 0); }
+  100% { transform: translate(2px, 1px); }
+}
+
+/* Artifact text — white-platinum gradient + white glow */
+.pog-artifact-text {
+  background: linear-gradient(to bottom, #ffffff, #a1a1aa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 50px rgba(139, 92, 246, 0.12));
+}
+
+/* Terminal cursor blink */
+@keyframes pogCursorBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+.pog-cursor-blink {
+  animation: pogCursorBlink 0.8s step-end infinite;
+}
+
+/* Terminal log line fade+slide */
+@keyframes pogTermLine {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.pog-term-line {
+  animation: pogTermLine 0.25s ease-out;
+}
+
+/* Final allocation reveal: scale + deblur */
+@keyframes pogFadeScaleIn {
+  from { opacity: 0; transform: scale(0.8); filter: blur(12px); }
+  to   { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+.pog-fade-scale-in {
+  animation: pogFadeScaleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Heavy fullscreen shake — more violent than pogShake */
+@keyframes pogHeavyShake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  5%       { transform: translate(-8px, 5px) rotate(-0.5deg); }
+  10%      { transform: translate(7px, -6px) rotate(0.4deg); }
+  15%      { transform: translate(-6px, 8px) rotate(-0.3deg); }
+  20%      { transform: translate(9px, -3px) rotate(0.6deg); }
+  25%      { transform: translate(-5px, -7px) rotate(-0.4deg); }
+  30%      { transform: translate(6px, 6px) rotate(0.3deg); }
+  35%      { transform: translate(-9px, -4px) rotate(-0.5deg); }
+  40%      { transform: translate(7px, 3px) rotate(0.4deg); }
+  45%      { transform: translate(-4px, -8px) rotate(-0.3deg); }
+  50%      { transform: translate(8px, -5px) rotate(0.5deg); }
+  55%      { transform: translate(-7px, 6px) rotate(-0.4deg); }
+  60%      { transform: translate(5px, -7px) rotate(0.3deg); }
+  65%      { transform: translate(-8px, 4px) rotate(-0.5deg); }
+  70%      { transform: translate(6px, 7px) rotate(0.4deg); }
+  75%      { transform: translate(-5px, -6px) rotate(-0.3deg); }
+  80%      { transform: translate(9px, -4px) rotate(0.5deg); }
+  85%      { transform: translate(-7px, 5px) rotate(-0.4deg); }
+  90%      { transform: translate(4px, -8px) rotate(0.3deg); }
+  95%      { transform: translate(-6px, 3px) rotate(-0.2deg); }
+}
+.pog-heavy-shake {
+  animation: pogHeavyShake 0.15s linear infinite;
+}
+
+/* Generic fade-in for stage transitions */
+@keyframes pogFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.pog-fade-in {
+  animation: pogFadeIn 0.4s ease-out;
+}
+
+/* ── User Center Drawer slide-in ── */
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+/* ── Skeleton shimmer for loading cards ── */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* ── Over-subscribe progress bar flow ── */
+@keyframes bar-flow {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* ── Pulsing glow for Connect button ── */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(59, 130, 246, 0.3), 0 0 2px rgba(59, 130, 246, 0.15); }
+  50%      { box-shadow: 0 0 18px rgba(59, 130, 246, 0.55), 0 0 6px rgba(59, 130, 246, 0.35); }
+}
+
+/* ── Protocol terminal scanline + flicker ── */
+@keyframes terminal-scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+@keyframes terminal-flicker {
+  0%, 97%, 100% { opacity: 1; }
+  98%           { opacity: 0.92; }
+  99%           { opacity: 0.97; }
+}
+.protocol-terminal {
+  position: relative;
+  overflow: hidden;
+  animation: terminal-flicker 4s linear infinite;
+}
+.protocol-terminal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(37, 99, 235, 0.018) 2px,
+      rgba(37, 99, 235, 0.018) 3px
+    );
+  pointer-events: none;
+  z-index: 1;
+}
+.protocol-terminal::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 35%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(37, 99, 235, 0.03) 40%,
+    rgba(37, 99, 235, 0.06) 50%,
+    rgba(37, 99, 235, 0.03) 60%,
+    transparent
+  );
+  animation: terminal-scanline 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+

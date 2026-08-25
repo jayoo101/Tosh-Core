@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import "forge-std/Script.sol";
+import "forge-std/console2.sol";
+
+import {ToshFactory} from "../src/ToshFactory.sol";
+import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
+
+// ---------------------------------------------------------------------------
+// DeployScript -- Base Sepolia
+// ---------------------------------------------------------------------------
+// TESTNET ONLY.  This script leaves the factory and the treasury owned by the
+// deployer EOA with no multisig handoff, which is fine for Base Sepolia and is
+// NOT acceptable anywhere real.  Use script/DeployMainnet.s.sol for production;
+// it performs the Ownable2Step transfer to a Safe.
+//
+// Required env vars (copy .env.example -> .env and fill in):
+//   PRIVATE_KEY          -- deployer wallet private key (must hold Base Sepolia ETH)
+//   V4_POOL_MANAGER      -- Uniswap V4 PoolManager on Base Sepolia
+//   POG_SIGNER_ADDRESS   -- address whose private key signs PoG attestations
+//   PLATFORM_TREASURY    -- platform address (multisig recommended)
+//   BASESCAN_API_KEY     -- for --verify automatic source verification
+//
+// Deploy command (run after `source .env`):
+//   forge script script/Deploy.s.sol:DeployScript \
+//     --rpc-url $BASE_SEPOLIA_RPC \
+//     --broadcast \
+//     --verify \
+//     --etherscan-api-key $BASESCAN_API_KEY \
+//     -vvvv
+// ---------------------------------------------------------------------------
+contract DeployScript is Script {
+    function run() external {
+        uint256 deployerPk = vm.envUint("PRIVATE_KEY");
+        address deployer = vm.addr(deployerPk);
+
+        // The manifest below claims Base Sepolia; make that true rather than
+        // decorative, so a stale --rpc-url cannot quietly deploy elsewhere.
+        require(block.chainid == 84532, "Deploy.s.sol is Base Sepolia (84532) only");
+
+        address poolManager = vm.envAddress("V4_POOL_MANAGER");
+        address pogSigner = vm.envOr("POG_SIGNER_ADDRESS", deployer);
+        address platformTreasury = vm.envOr("PLATFORM_TREASURY", deployer);
+
+        console2.log("============================================================");
+        console2.log("Tosh Fair Launchpad v5.0 -- Base Sepolia Deployment");
+        console2.log("============================================================");
+        console2.log("Deployer         :", deployer);
+        console2.log("V4 PoolManager   :", poolManager);
+        console2.log("PoG Signer       :", pogSigner);
+        console2.log("Platform Treasury:", platformTreasury);
+        console2.log("------------------------------------------------------------");
+
+        vm.startBroadcast(deployerPk);
+
+        // ── 1. ToshLadderTreasury ─────────────────────────────────────────────
+        // Must exist BEFORE the factory: the factory takes its address as an
+        // immutable constructor argument, and every hook inherits it from there.
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, deployer);
+        console2.log("ToshLadderTreasury deployed:", address(treasury));
+
+        // ── 2. ToshFactory ────────────────────────────────────────────────────
+        ToshFactory factory = new ToshFactory(
+            poolManager, // _poolManager      (Uniswap V4)
+            pogSigner, // _pogSigner        (PoG oracle backend)
+            platformTreasury, // _platformTreasury
+            address(treasury) // _ladderTreasury   (buyback reservoir)
+        );
+        console2.log("ToshFactory deployed:", address(factory));
+
+        // ── 3. Close the loop ─────────────────────────────────────────────────
+        // The treasury authenticates piggyback callers against the factory's
+        // `registeredHooks` map, so it needs the factory address.  One-shot.
+        treasury.setFactory(address(factory));
+        console2.log("Treasury bound to factory");
+
+        vm.stopBroadcast();
+
+        // ── 4. Print deployment manifest ──────────────────────────────────────
+        // Sentinel-address hash, 24h window.  Useful as a build fingerprint,
+        // useless for mining: see step 3 below for the hash that actually
+        // matches what `createLaunch` will verify.
+        bytes32 sentinelInitcodeHash = factory.getLiveHookInitcodeHash();
+
+        console2.log("============================================================");
+        console2.log("DEPLOYMENT COMPLETE -- copy these into your .env / frontend");
+        console2.log("============================================================");
+        console2.log("FACTORY_ADDRESS  =", address(factory));
+        console2.log("TREASURY_ADDRESS =", address(treasury));
+        console2.log("CHAIN_ID         = 84532 (Base Sepolia)");
+        console2.log("Sentinel 24h initcode hash (reference only, NOT for mining):");
+        console2.logBytes32(sentinelInitcodeHash);
+        console2.log("============================================================");
+        console2.log("");
+        console2.log("NEXT STEPS:");
+        console2.log("1. Update soat-frontend/.env.local:");
+        console2.log("     NEXT_PUBLIC_FACTORY_ADDRESS, NEXT_PUBLIC_TREASURY_ADDRESS");
+        console2.log("2. Regenerate soat-frontend/src/app/lib/hookBytecode.ts");
+        console2.log("     (v5.0 changed the hook constructor tuple -- old salts are stale)");
+        console2.log("3. Salt mining (v5.0 -- REQUIRED_FLAGS mask is now 0x20CC):");
+        console2.log("     initcodeHash = factory.hookInitcodeHash(");
+        console2.log("                      projTreasury, creator, projectAdmin, softCap, perWalletCap, duration)");
+        console2.log("     duration MUST be the creator's choice: 3h / 24h / 72h");
+        console2.log("     softCap and perWalletCap MUST be the factory's CURRENT values");
+        console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
+        console2.log("     predicted    = HookMiner.computeAddress(factory, finalSalt, initcodeHash)");
+        console2.log("     accept when  uint160(predicted) & 0x20CC == 0x20CC");
+        console2.log("     or just run: node scripts/mineHookSalt.js --rpc <url> ...");
+        console2.log("4. createLaunch is now PAYABLE -- send `launchFee` (default 0.1 ETH) as msg.value.");
+        console2.log("5. deposit(hook, referrer) is PAYABLE -- send native ETH, no ERC20 approve.");
+        console2.log("6. Curate the buyback ladder: treasury.addLadderToken(token).");
+        console2.log("     The pool is derived from the token's hook -- listing a token this");
+        console2.log("     factory did not launch is rejected.");
+        console2.log("============================================================");
+    }
+}

@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS — nothing in this block may ever be committed.
+#
+# `.env.local` files in this repo hold POG_SIGNER_PRIVATE_KEY, the sole trust
+# root of the quota system: whoever holds it can sign an arbitrary allocation
+# for an arbitrary address.  The root `.env` holds the deployer PRIVATE_KEY and
+# BASESCAN_API_KEY.  The patterns are deliberately broad — a new `.env.staging`
+# should be ignored by default rather than by remembering to add it.
+#
+# Committed templates carry NO values: `.env.example`, `.env.production.example`.
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+*.key
+*.pem
+*.keystore
+
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Foundry build output ────────────────────────────────────────────────────
+cache/
+out/
+foundry.lock
+
+# Broadcast logs: keep real deployment receipts (they are the record of what is
+# live on which chain), drop local-anvil and dry-run noise.
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# ─── Next.js / frontend build output ─────────────────────────────────────────
+.next/
+build/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+
+# ─── Local scratch ───────────────────────────────────────────────────────────
+# Anvil fork snapshots and one-off scratch files from debugging sessions.
+.fork-*.json
+.tmp_*
+*.log
+
+# ─── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

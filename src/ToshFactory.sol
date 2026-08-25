@@ -1,0 +1,765 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+import {ECDSA} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "../lib/openzeppelin-contracts/contracts/utils/cryptography/MessageHashUtils.sol";
+import {Ownable2Step} from "../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Pausable} from "../lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+
+import {ToshToken} from "./ToshToken.sol";
+import {ToshLaunchpadHook} from "./ToshLaunchpadHook.sol";
+import {HookMiner} from "./libraries/HookMiner.sol";
+import {HookDeployLib} from "./libraries/HookDeployLib.sol";
+
+/// @title  ToshFactory v5.0 — ETH-native launchpad with a global referral graph
+/// @notice Platform singleton: deploys launches, guards genesis eligibility, and
+///         owns the platform-wide lifetime referral registry.
+///
+/// ── What changed in v5.0 ────────────────────────────────────────────────────
+///
+///   1. 100 % ETH-NATIVE.  Launch fees and genesis deposits are native ETH.
+///      SATO has no protocol role whatsoever — it is simply one of the tokens
+///      launched on this platform, and the factory no longer even stores its
+///      address.
+///
+///   2. GLOBAL LIFETIME REFERRALS.  `globalReferrers` binds each wallet to its
+///      referrer ONCE, platform-wide and permanently.  Every subsequent deposit
+///      that wallet ever makes — on any project, forever — credits that same
+///      referrer with 10 % of the raise.  The binding is immutable: passing a
+///      different referrer later is silently ignored rather than reverting, so
+///      a stale referral link in a shared URL can never brick a deposit.
+///
+///   3. Launch fees are forwarded to `ladderTreasury`, becoming buyback fuel
+///      instead of platform profit.
+contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
+    using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
+
+    // ─── Constants ────────────────────────────────────────────────────────────
+
+    uint256 public constant MAX_SIG_VALIDITY = 24 hours;
+    uint256 public constant MAX_COOLDOWN = 7 days;
+
+    /// @notice Minimum acceptable `defaultSoftCap`, denominated in ETH (v5.0).
+    ///
+    /// @dev    Guards the `p0 = 0` configuration trapdoor.  The hook derives
+    ///         `p0 = (lpEth * 1e18) / GENESIS_LP_SUPPLY` with
+    ///         `GENESIS_LP_SUPPLY = 3.78e24`, so `p0` truncates to zero once
+    ///         `lpEth < 3_780_000` wei — which would collapse the entire tier
+    ///         ladder to a free-mint zone.  A 0.01 ETH floor keeps `p0` around
+    ///         2.38e9 wei/token, astronomically clear of that cliff, while
+    ///         still permitting small testnet raises.  Defence-in-depth: the
+    ///         hook's `launch()` also asserts `p0 > 0`.
+    uint256 public constant MIN_SOFT_CAP_PROD = 0.01 ether;
+
+    // ─── Immutables ───────────────────────────────────────────────────────────
+
+    /// @dev v5.0 dropped the `satoToken` immutable entirely.  SATO is an
+    ///      ordinary launch on this platform with no protocol-level privileges,
+    ///      so pinning its address here only implied a special status the
+    ///      contract never actually honoured.
+
+    address public immutable poolManager;
+
+    /// @notice Platform buyback reservoir; receives every launch fee.
+    address payable public immutable ladderTreasury;
+
+    bytes32 public immutable HOOK_CREATION_CODEHASH;
+
+    // ─── Owner-controlled state ───────────────────────────────────────────────
+
+    address public pogSigner;
+
+    /// @notice Legacy platform fee destination.
+    ///
+    /// @dev    ⚠ NO LONGER ON ANY MONEY PATH.  In v4.x this collected the
+    ///         launch fee and the Phase-2 platform cut.  v5.0 routes 100 % of
+    ///         platform revenue to `ladderTreasury` instead, where it is burned
+    ///         rather than banked — so both of those flows moved and this
+    ///         address kept nothing.
+    ///
+    ///         Its one remaining function is as the sentinel filler in
+    ///         `getLiveHookInitcodeHash`.  `setPlatformTreasury` still exists
+    ///         and still emits, but rotating it changes no economic behaviour;
+    ///         treat it as metadata, not as a lever.
+    address public platformTreasury;
+
+    /// @notice Per-(wallet, hook) re-deposit throttle.  Orthogonal to the
+    ///         PoG quota window — a wallet can be off cooldown and still
+    ///         out of quota, or vice versa.  `0` disables the throttle.
+    uint256 public cooldownDuration = 24 hours;
+
+    /// @notice How long a wallet's PoG spend ledger lasts before it rolls
+    ///         back to zero.  Independent of `cooldownDuration`.
+    ///
+    /// @dev    `0` is a deliberate semantic shift, not a "disabled" flag:
+    ///         there is then nothing to anchor a window to, so `quotaSpent`
+    ///         never resets and the quota degrades to a lifetime budget.
+    ///         The two knobs used to be the same storage slot, which meant
+    ///         turning off the deposit throttle also froze every wallet's
+    ///         remaining allowance for life.  They are separate so a
+    ///         platform can run a cool-off without a refill (or a refill
+    ///         without a cool-off) without that coupling.
+    uint256 public quotaWindowDuration = 24 hours;
+
+    /// @notice ETH charged on `createLaunch`. Default: 0.1 ETH (v5.0).
+    uint256 public launchFee = 0.1 ether;
+
+    /// @notice Per-wallet ETH cap. Serves double duty: it ceilings the PoG
+    ///         `maxAlloc` an oracle attestation may grant, and it is
+    ///         snapshotted into every NEW hook as that project's per-wallet
+    ///         deposit limit.
+    ///
+    /// @dev    Only the snapshot is binding for a live round.  Retuning this
+    ///         value governs projects created afterwards; rounds already
+    ///         raising keep the cap they were deployed with, so the terms a
+    ///         depositor committed under cannot be rewritten under them.
+    uint256 public maxPogAllocationLimit = 0.1 ether;
+
+    /// @notice Global default soft-cap baked into every NEW hook, in ETH (v5.0).
+    uint256 public defaultSoftCap = 10 ether;
+
+    // ─── Eligibility maps ─────────────────────────────────────────────────────
+
+    mapping(address => uint256) public blacklistedUntil;
+    mapping(address => mapping(address => uint256)) public userLaunchCooldownEnd;
+    mapping(address => uint256) public pogQuota;
+    mapping(address => uint256) public pogNonces;
+
+    /// @notice Lifetime ETH a wallet has ever committed to genesis rounds.
+    ///         Statistics only — no longer gates anything.
+    mapping(address => uint256) public totalGenesisDeposited;
+
+    /// @notice ETH spent against the PoG quota inside the CURRENT window.
+    mapping(address => uint256) public quotaSpent;
+
+    /// @notice When the caller's current quota window lapses and `quotaSpent`
+    ///         rolls back to zero.
+    ///
+    /// @dev    The PoG quota is a cooling-off budget, not a lifetime one: a
+    ///         wallet spends up to `pogQuota` per `quotaWindowDuration` window
+    ///         and is then topped back up.  Refunds deliberately do NOT credit
+    ///         the window back — withdrawing is meant to cost you your turn, or
+    ///         deposit/refund cycling would recycle one wallet's quota
+    ///         indefinitely.  Waiting out the window is the only way back in.
+    mapping(address => uint256) public quotaWindowEnd;
+
+    // ─── Global referral registry (v5.0) ──────────────────────────────────────
+
+    /// @notice Permanent, platform-wide referrer binding.  Written at most once
+    ///         per wallet, on that wallet's first genesis deposit.
+    mapping(address => address) public globalReferrers;
+
+    /// @notice How many wallets a referrer has recruited (informational).
+    mapping(address => uint256) public referralCount;
+
+    // ─── Launch registry ──────────────────────────────────────────────────────
+
+    struct LaunchInfo {
+        address token;
+        address hook;
+        address creator;
+        uint256 createdAt;
+    }
+
+    LaunchInfo[] public launches;
+    mapping(address => bool) public registeredHooks;
+    mapping(address => address) public tokenToHook;
+
+    /// @notice Tracks which (name, symbol) tuples have already produced a launch
+    ///         (front-run / squatting defence).
+    mapping(bytes32 => bool) public nameTaken;
+
+    /// @notice Reverse index from hook to the reservation it holds, so a name
+    ///         belonging to a launch that never made it out of genesis can be
+    ///         handed back.  Without this the reservation is permanent, which
+    ///         turns two survivable events into unrecoverable ones: a squatter
+    ///         burning 0.1 ETH to sit on a ticker forever, and a genesis that
+    ///         failed only because the factory was paused through its window.
+    mapping(address => bytes32) public hookNameKey;
+
+    // ─── Events ───────────────────────────────────────────────────────────────
+
+    event LaunchCreated(
+        uint256 indexed launchId,
+        address indexed token,
+        address indexed hook,
+        address creator,
+        string name,
+        string symbol
+    );
+    event Blacklisted(address indexed user, uint256 untilTimestamp);
+    event PoGRegistered(address indexed user, uint256 quota);
+    event GenesisDeposit(address indexed user, address indexed hook, uint256 amount, address indexed referrer);
+    event ReferralBound(address indexed user, address indexed referrer);
+    event PogSignerUpdated(address indexed newSigner);
+    event TreasuryUpdated(address indexed newTreasury);
+    event LaunchFeeUpdated(uint256 fee);
+    event LaunchFeeForwarded(uint256 amount);
+    event CooldownDurationUpdated(uint256 duration);
+    event QuotaWindowDurationUpdated(uint256 duration);
+    event DefaultSoftCapUpdated(uint256 newSoftCap);
+    event MaxPogAllocationLimitUpdated(uint256 newLimit);
+
+    /// @notice A wallet's quota window lapsed and its budget was topped back up.
+    event QuotaWindowReset(address indexed user, uint256 windowEnd);
+
+    /// @notice A dead launch's name/symbol went back on the market.
+    event NameReleased(address indexed hook, bytes32 indexed nameKey);
+
+    // ─── Errors ───────────────────────────────────────────────────────────────
+
+    error IsBlacklisted();
+    error NoPogQuota();
+    error QuotaExceeded();
+    error CooldownActive();
+    error InvalidSignature();
+    error NonceConflict();
+    error SignatureExpired();
+    error SignatureTooLong();
+    error HookNotRegistered();
+    error InvalidHookSalt();
+    error DeployFailed();
+    error ZeroAmount();
+    error InvalidAdmin();
+    error ExceedsGlobalPogLimit();
+    error InvalidSoftCap();
+    /// @notice `maxPogAllocationLimit` may not be set to zero — the hook
+    ///         constructor rejects a zero per-wallet cap, so it would brick
+    ///         `createLaunch` platform-wide.
+    error InvalidPogLimit();
+    error NameTaken();
+    error EmptyName();
+    /// @notice The launch still has a live claim on its name.
+    error NameStillHeld();
+
+    /// @notice `msg.value` did not cover `launchFee`.
+    error InsufficientLaunchFee();
+    /// @notice Owner raised `launchFee` above the caller's slippage cap.
+    error FeeChanged();
+    /// @notice Native-ETH transfer to a treasury or refund recipient failed.
+    error EthTransferFailed();
+
+    // ─── Constructor ──────────────────────────────────────────────────────────
+
+    constructor(address _poolManager, address _pogSigner, address _platformTreasury, address _ladderTreasury)
+        Ownable(msg.sender)
+    {
+        require(_poolManager != address(0), "zero poolManager");
+        require(_pogSigner != address(0), "zero pogSigner");
+        require(_platformTreasury != address(0), "zero treasury");
+        require(_ladderTreasury != address(0), "zero ladderTreasury");
+
+        poolManager = _poolManager;
+        pogSigner = _pogSigner;
+        platformTreasury = _platformTreasury;
+        ladderTreasury = payable(_ladderTreasury);
+
+        HOOK_CREATION_CODEHASH = HookDeployLib.creationCodeHash();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Owner Admin
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Stop the platform from taking on NEW projects.
+    ///
+    /// @dev    Deliberately narrow.  A pause halts `createLaunch` and freezes
+    ///         new PoG registrations; it does NOT touch a genesis round that is
+    ///         already open, a project that has already launched, or any pool.
+    ///         `deposit` is therefore not gated: a wallet that already holds
+    ///         quota can keep funding an in-flight raise for the whole window.
+    ///
+    ///         The reason is that a genesis round fails by NOT reaching its soft
+    ///         cap.  Gating `deposit` would hand the owner a switch that starves
+    ///         a live raise into failure and forces every depositor into refund
+    ///         — a unilateral veto over projects the platform already accepted.
+    ///         Pausing must be able to stop the platform growing without being
+    ///         able to kill what it has already taken money for.
+    ///
+    ///         `registerPoG` stays gated because it mints new spending budget
+    ///         against an oracle signature, which is the one thing that needs a
+    ///         faster brake than `setPogSigner` if the signer key leaks.  It
+    ///         blocks new entrants only; committed ETH and existing quota are
+    ///         untouched.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    function setPogSigner(address newSigner) external onlyOwner {
+        require(newSigner != address(0), "zero signer");
+        pogSigner = newSigner;
+        emit PogSignerUpdated(newSigner);
+    }
+
+    function setPlatformTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "zero treasury");
+        platformTreasury = newTreasury;
+        emit TreasuryUpdated(newTreasury);
+    }
+
+    function setLaunchFee(uint256 fee) external onlyOwner {
+        launchFee = fee;
+        emit LaunchFeeUpdated(fee);
+    }
+
+    function setCooldownDuration(uint256 duration) external onlyOwner {
+        require(duration <= MAX_COOLDOWN, "cooldown > MAX_COOLDOWN");
+        cooldownDuration = duration;
+        emit CooldownDurationUpdated(duration);
+    }
+
+    function setQuotaWindowDuration(uint256 duration) external onlyOwner {
+        require(duration <= MAX_COOLDOWN, "quota window > MAX_COOLDOWN");
+        quotaWindowDuration = duration;
+        emit QuotaWindowDurationUpdated(duration);
+    }
+
+    /// @notice Owner-rotatable global default soft-cap, floored at
+    ///         `MIN_SOFT_CAP_PROD` to keep `p0` off the truncation cliff.
+    function setDefaultSoftCap(uint256 newSoftCap) external onlyOwner {
+        if (newSoftCap < MIN_SOFT_CAP_PROD) revert InvalidSoftCap();
+        defaultSoftCap = newSoftCap;
+        emit DefaultSoftCapUpdated(newSoftCap);
+    }
+
+    /// @notice Retune the per-wallet ETH ceiling.
+    ///
+    /// @dev    Floored at 1 wei rather than left open, because this value is
+    ///         snapshotted into every new hook's constructor tuple and that
+    ///         constructor does `require(_perWalletCap > 0)`.  At zero the
+    ///         CREATE2 construction reverts and `createLaunch` dies with
+    ///         `DeployFailed` for EVERY creator — a dial documented as
+    ///         governing "new projects only" would instead have taken the
+    ///         entire launch entrance offline, with nothing in the signature
+    ///         or the event to suggest it.  Pausing is the supported way to
+    ///         stop taking on projects; see `pause()`.
+    function setMaxPogAllocationLimit(uint256 newLimit) external onlyOwner {
+        if (newLimit == 0) revert InvalidPogLimit();
+        maxPogAllocationLimit = newLimit;
+        emit MaxPogAllocationLimitUpdated(newLimit);
+    }
+
+    function setBlacklist(address[] calldata users, uint256 banDuration) external onlyOwner {
+        require(users.length <= 200, "Batch too large");
+        uint256 untilTimestamp = banDuration == type(uint256).max ? type(uint256).max : block.timestamp + banDuration;
+        for (uint256 i; i < users.length; ++i) {
+            blacklistedUntil[users[i]] = untilTimestamp;
+            emit Blacklisted(users[i], untilTimestamp);
+        }
+    }
+
+    function liftBlacklist(address[] calldata users) external onlyOwner {
+        require(users.length <= 200, "Batch too large");
+        for (uint256 i; i < users.length; ++i) {
+            blacklistedUntil[users[i]] = 0;
+            emit Blacklisted(users[i], 0);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PoG Quota Registration
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Register a Proof-of-Gas quota under an oracle-signed
+    ///         attestation.  Quotas are denominated in ETH-wei from v5.0.
+    ///
+    /// @dev    Blacklisted wallets are refused here, not only at `deposit`.
+    ///         Otherwise a banned address can keep raising its ceiling and
+    ///         come back the moment the ban lifts carrying a quota it never
+    ///         would have been granted while banned.  Quotas are monotonic
+    ///         (only ever raised, never cut) so the only way to stop a
+    ///         raise is to refuse the attestation; lowering
+    ///         `maxPogAllocationLimit` does not claw back what is already
+    ///         on the books.
+    function registerPoG(uint256 maxAlloc, uint256 deadline, uint256 nonce, bytes calldata signature)
+        external
+        whenNotPaused
+    {
+        if (block.timestamp < blacklistedUntil[msg.sender]) revert IsBlacklisted();
+        if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
+        if (block.timestamp > deadline) revert SignatureExpired();
+        if (nonce != pogNonces[msg.sender]) revert NonceConflict();
+        if (maxAlloc > maxPogAllocationLimit) revert ExceedsGlobalPogLimit();
+
+        bytes32 hash = keccak256(abi.encode(msg.sender, maxAlloc, nonce, deadline, address(this), block.chainid))
+            .toEthSignedMessageHash();
+        if (hash.recover(signature) != pogSigner) revert InvalidSignature();
+
+        pogNonces[msg.sender]++;
+        if (maxAlloc > pogQuota[msg.sender]) {
+            pogQuota[msg.sender] = maxAlloc;
+        }
+        emit PoGRegistered(msg.sender, pogQuota[msg.sender]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Global referral registry
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Permanently bind `user` to `referrer`, if and only if `user` has
+    ///         never been bound before.
+    ///
+    /// @dev    Deliberately silent on every rejection path.  This runs inside
+    ///         `deposit`, and a revert would mean a user who already has a
+    ///         referrer could never deposit again through a link carrying a
+    ///         different code — turning a cosmetic mismatch into a denial of
+    ///         service.  A rejected binding is not a rejected deposit: the
+    ///         commission simply falls through to `orphanReferral` and becomes
+    ///         buyback fuel.  The four rejection cases:
+    ///           • already bound        → first binding wins, forever;
+    ///           • zero referrer        → nothing to bind;
+    ///           • self-referral        → the trivial case;
+    ///           • referrer holds no PoG quota → see below.
+    ///
+    ///         ── On self-farming ─────────────────────────────────────────────
+    ///
+    ///         `referrer != user` alone is one address deep.  A second EOA the
+    ///         same person controls is not `user`, so the check used to hand
+    ///         back 10 % of every deposit to anyone who knew to open a throwaway
+    ///         wallet — and the wallet needed nothing at all: no quota, no
+    ///         deposit, no history.  That is not a referral programme, it is an
+    ///         undocumented 10 % discount for the informed, funded by the
+    ///         orphan sweep that only the uninformed pay into.
+    ///
+    ///         Requiring `pogQuota[referrer] > 0` does NOT make sybils
+    ///         impossible — nothing on-chain can, since a referrer is just an
+    ///         address.  What it does is move the judgement to the only party
+    ///         that can actually make it: the PoG oracle.  A referrer must now
+    ///         have passed the same attestation a depositor passes, so farming
+    ///         costs an attestation per throwaway wallet and the signer can
+    ///         price, rate-limit, or refuse that off-chain.  The guard is
+    ///         honest about being a cost, not a wall.
+    function _recordReferral(address user, address referrer) internal {
+        if (globalReferrers[user] != address(0)) return;
+        if (referrer == address(0) || referrer == user) return;
+        if (pogQuota[referrer] == 0) return;
+
+        globalReferrers[user] = referrer;
+        unchecked {
+            ++referralCount[referrer];
+        }
+        emit ReferralBound(user, referrer);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Launch Creation
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Deploy a new launch (Hook + ToshToken pair) under a creator-bound
+    ///         CREATE2 salt, paying `launchFee` in native ETH.
+    ///
+    /// @param  expectedFee Slippage cap on `launchFee`; pass the value read in
+    ///                     the same block to prevent an owner fee-bump front-run.
+    /// @param  genesisDuration Genesis window length.  Must be one of the hook's
+    ///                     three allowed rungs (3 h / 24 h / 72 h) — the hook's
+    ///                     constructor rejects anything else, and because the
+    ///                     value is part of the initcode hash it also has to
+    ///                     match whatever the salt was mined against.
+    function createLaunch(
+        string calldata name,
+        string calldata symbol,
+        address projectTreasury,
+        address projectAdmin,
+        bytes32 hookSalt,
+        uint256 expectedFee,
+        uint256 genesisDuration
+    ) external payable whenNotPaused nonReentrant returns (address token, address hook) {
+        require(projectTreasury != address(0), "zero treasury");
+        if (projectAdmin == address(0)) revert InvalidAdmin();
+
+        uint256 fee = launchFee;
+        if (fee > expectedFee) revert FeeChanged();
+        if (msg.value < fee) revert InsufficientLaunchFee();
+
+        // ── Squat / front-run defence ─────────────────────────────────────────
+        if (bytes(name).length == 0 || bytes(symbol).length == 0) revert EmptyName();
+        bytes32 nameKey = keccak256(abi.encode(name, symbol));
+        if (nameTaken[nameKey]) revert NameTaken();
+
+        bytes32 finalSalt = keccak256(abi.encode(msg.sender, hookSalt));
+
+        // Freeze both dials into the hook's initcode. From here the project's
+        // economics are fixed even if the platform owner retunes the globals.
+        uint256 launchSoftCap = defaultSoftCap;
+        uint256 launchWalletCap = maxPogAllocationLimit;
+
+        bytes32 initHash = HookDeployLib.computeInitcodeHash(
+            poolManager,
+            address(this),
+            projectTreasury,
+            msg.sender,
+            projectAdmin,
+            ladderTreasury,
+            launchSoftCap,
+            launchWalletCap,
+            genesisDuration
+        );
+        address predictedHook = HookMiner.computeAddress(address(this), finalSalt, initHash);
+        if (!HookMiner.isValidHookAddress(predictedHook)) revert InvalidHookSalt();
+
+        hook = HookDeployLib.deployHook(
+            finalSalt,
+            poolManager,
+            address(this),
+            projectTreasury,
+            msg.sender,
+            projectAdmin,
+            ladderTreasury,
+            launchSoftCap,
+            launchWalletCap,
+            genesisDuration
+        );
+        if (hook == address(0)) revert DeployFailed();
+
+        token = address(new ToshToken(name, symbol, address(this)));
+        ToshToken(token).initialize(hook);
+        ToshLaunchpadHook(payable(hook)).initializeToken(token);
+
+        registeredHooks[hook] = true;
+        tokenToHook[token] = hook;
+        nameTaken[nameKey] = true;
+        hookNameKey[hook] = nameKey;
+
+        uint256 launchId = launches.length;
+        launches.push(LaunchInfo(token, hook, msg.sender, block.timestamp));
+
+        emit LaunchCreated(launchId, token, hook, msg.sender, name, symbol);
+
+        // ── Route the fee to the buyback reservoir, refund any overpayment ────
+        if (fee > 0) {
+            _sendEth(ladderTreasury, fee);
+            emit LaunchFeeForwarded(fee);
+        }
+        uint256 change = msg.value - fee;
+        if (change > 0) _sendEth(msg.sender, change);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Genesis Deposit Gateway
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Deposit native ETH into a project's genesis round.
+    ///
+    /// @dev    The PoG quota is a platform-wide budget spent across all
+    ///         projects, refilled once per `quotaWindowDuration` window rather
+    ///         than granted for life.  Refunds never credit it back, so
+    ///         deposit/refund churn cannot recycle a single wallet's
+    ///         allowance — the only way to regain room is to wait out the
+    ///         window.  The per-PROJECT ceiling is enforced separately, by the
+    ///         hook, against the cap snapshotted when it was created.
+    ///
+    ///         Not gated by `whenNotPaused` — see `pause()`.  A raise already
+    ///         underway must be able to run to its deadline on its own merits.
+    ///
+    /// @param  hook     Target launch hook.
+    /// @param  referrer Referral code carried by the caller's link.  Only
+    ///                  honoured if this wallet has never been bound before;
+    ///                  otherwise the existing lifetime binding stands.
+    function deposit(address hook, address referrer) external payable nonReentrant {
+        uint256 amount = msg.value;
+        if (amount == 0) revert ZeroAmount();
+        if (!registeredHooks[hook]) revert HookNotRegistered();
+        if (block.timestamp < blacklistedUntil[msg.sender]) revert IsBlacklisted();
+        if (pogQuota[msg.sender] == 0) revert NoPogQuota();
+        if (block.timestamp < userLaunchCooldownEnd[msg.sender][hook]) revert CooldownActive();
+
+        uint256 alreadyIn = _rollQuotaWindow(msg.sender);
+        if (alreadyIn + amount > pogQuota[msg.sender]) revert QuotaExceeded();
+
+        if (cooldownDuration > 0) {
+            userLaunchCooldownEnd[msg.sender][hook] = block.timestamp + cooldownDuration;
+        }
+
+        // Bind the lifetime referral BEFORE reading it back, so a first-time
+        // depositor's own link is honoured on this very deposit.
+        _recordReferral(msg.sender, referrer);
+        address boundReferrer = globalReferrers[msg.sender];
+
+        quotaSpent[msg.sender] = alreadyIn + amount;
+        totalGenesisDeposited[msg.sender] += amount;
+
+        ToshLaunchpadHook(payable(hook)).deposit{value: amount}(msg.sender, boundReferrer);
+
+        emit GenesisDeposit(msg.sender, hook, amount, boundReferrer);
+    }
+
+    /// @notice Hand a name/symbol back to the pool once its launch is provably
+    ///         dead, i.e. the hook's own refund path has opened because the
+    ///         soft cap was missed or the 7-day launch window lapsed.
+    ///
+    /// @dev    Permissionless on purpose.  The condition is objective and read
+    ///         from the hook, there is nothing to steal — a live or launched
+    ///         project can never satisfy `canRefund()` — and leaving it to the
+    ///         creator would strand exactly the names most worth reclaiming,
+    ///         since an abandoned launch is one whose creator has stopped
+    ///         showing up.  Deliberately NOT `whenNotPaused`: a pause is one of
+    ///         the things that can kill a genesis, so it must not also block
+    ///         the cleanup.
+    function releaseAbandonedName(address hook) external {
+        if (!registeredHooks[hook]) revert HookNotRegistered();
+
+        bytes32 key = hookNameKey[hook];
+        if (key == bytes32(0)) revert NameStillHeld(); // already released
+        if (!ToshLaunchpadHook(payable(hook)).canRefund()) revert NameStillHeld();
+
+        delete hookNameKey[hook];
+        nameTaken[key] = false;
+
+        emit NameReleased(hook, key);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Views
+    // ══════════════════════════════════════════════════════════════════════════
+
+    function eligibility(address user, address hook)
+        external
+        view
+        returns (bool eligible, uint256 remainingQuota, uint256 cooldownRemaining)
+    {
+        if (block.timestamp < blacklistedUntil[user] || pogQuota[user] == 0) {
+            return (false, 0, 0);
+        }
+        uint256 cd = userLaunchCooldownEnd[user][hook];
+        if (block.timestamp < cd) return (false, 0, cd - block.timestamp);
+
+        uint256 quota = pogQuota[user];
+
+        // Mirror `_rollQuotaWindow` without writing: a lapsed window means the
+        // budget is already refilled from the caller's point of view.
+        uint256 spent = (quotaWindowDuration > 0 && block.timestamp >= quotaWindowEnd[user]) ? 0 : quotaSpent[user];
+
+        remainingQuota = spent >= quota ? 0 : quota - spent;
+        eligible = remainingQuota > 0;
+    }
+
+    /// @notice The permanent referrer of `user`, or the zero address.
+    function referrerOf(address user) external view returns (address) {
+        return globalReferrers[user];
+    }
+
+    function launchCount() external view returns (uint256) {
+        return launches.length;
+    }
+
+    function hookInitcodeHash(
+        address projectTreasury,
+        address creator_,
+        address projectAdmin,
+        uint256 softCap,
+        uint256 perWalletCap,
+        uint256 genesisDuration
+    ) external view returns (bytes32) {
+        return HookDeployLib.computeInitcodeHash(
+            poolManager,
+            address(this),
+            projectTreasury,
+            creator_,
+            projectAdmin,
+            ladderTreasury,
+            softCap,
+            perWalletCap,
+            genesisDuration
+        );
+    }
+
+    /// @dev Reports the STANDARD-window hash.  The duration is now a per-launch
+    ///      choice, so there is no single "live" initcode hash any more; this
+    ///      keeps the 24 h default answerable for existing tooling.
+    ///
+    ///      ⚠ NOT A MINING INPUT.  `platformTreasury` stands in for all three of
+    ///      `projectTreasury`, `creator`, and `projectAdmin`, none of which a
+    ///      real launch shares.  `createLaunch` recomputes the hash from the
+    ///      caller's actual addresses, so a salt mined against this value fails
+    ///      `InvalidHookSalt` every time.  Mine against `hookInitcodeHash`.
+    ///      Its value is as a build fingerprint: it changes iff the hook
+    ///      creation code or the factory's own wiring changed.
+    ///
+    ///      The 24 h literal has to track `ToshLaunchpadHook.DURATION_STANDARD`;
+    ///      Solidity will not let us read that constant off the contract type,
+    ///      so `test_factory_liveInitcodeHash_tracksStandardDuration` pins the
+    ///      two together instead.
+    function getLiveHookInitcodeHash() external view returns (bytes32 hashSnapshot) {
+        address sentinel = platformTreasury;
+        return HookDeployLib.computeInitcodeHash(
+            poolManager,
+            address(this),
+            sentinel,
+            sentinel,
+            sentinel,
+            ladderTreasury,
+            defaultSoftCap,
+            maxPogAllocationLimit,
+            24 hours
+        );
+    }
+
+    function predictHookAddress(address creator_, bytes32 rawSalt, bytes32 initcodeHash_)
+        external
+        view
+        returns (address)
+    {
+        return HookMiner.computeAddress(address(this), keccak256(abi.encode(creator_, rawSalt)), initcodeHash_);
+    }
+
+    function verifyHookDeployment(
+        address hook,
+        address creator_,
+        address projectTreasury,
+        address projectAdmin,
+        uint256 softCap,
+        uint256 perWalletCap,
+        uint256 genesisDuration,
+        bytes32 rawSalt
+    ) external view returns (bool) {
+        if (!registeredHooks[hook]) return false;
+        bytes32 initcodeHash_ = HookDeployLib.computeInitcodeHash(
+            poolManager,
+            address(this),
+            projectTreasury,
+            creator_,
+            projectAdmin,
+            ladderTreasury,
+            softCap,
+            perWalletCap,
+            genesisDuration
+        );
+        bytes32 finalSalt = keccak256(abi.encode(creator_, rawSalt));
+        return HookMiner.computeAddress(address(this), finalSalt, initcodeHash_) == hook;
+    }
+
+    // ─── Internals ────────────────────────────────────────────────────────────
+
+    /// @dev Lapse `user`'s quota window if it has expired and open a fresh one.
+    ///
+    ///      With `quotaWindowDuration == 0` there is no window to anchor a
+    ///      refill to, so the quota degrades to a single lifetime budget
+    ///      rather than silently refilling on every deposit.
+    ///
+    /// @return spent ETH already committed inside the now-current window.
+    function _rollQuotaWindow(address user) internal returns (uint256 spent) {
+        uint256 duration = quotaWindowDuration;
+        if (duration == 0) return quotaSpent[user];
+
+        if (block.timestamp >= quotaWindowEnd[user]) {
+            uint256 windowEnd = block.timestamp + duration;
+            quotaWindowEnd[user] = windowEnd;
+            quotaSpent[user] = 0;
+            emit QuotaWindowReset(user, windowEnd);
+            return 0;
+        }
+        return quotaSpent[user];
+    }
+
+    function _sendEth(address to, uint256 amount) internal {
+        (bool ok,) = payable(to).call{value: amount}("");
+        if (!ok) revert EthTransferFailed();
+    }
+}

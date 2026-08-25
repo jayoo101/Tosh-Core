@@ -1,0 +1,24 @@
+{
+  "name": "soat-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "pog": "npx ts-node --esm pogSigner.ts",
+    "sync-bytecode": "node extractBytecode.js",
+    "rebuild-and-sync": "cd .. && forge build && node scripts/extractBytecode.js",
+    "harvest": "npx ts-node harvestBot/harvest.ts",
+    "harvest:dry": "cross-env DRY_RUN=1 npx ts-node harvestBot/harvest.ts",
+    "typecheck:bot": "npx tsc --noEmit -p harvestBot/tsconfig.json"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.4",
+    "viem": "^2.50.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "cross-env": "^7.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
