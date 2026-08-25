@@ -251,6 +251,19 @@ contract ToshV5AttackTest is Test {
         console2.log("bps of CLAIM float    ", (released * 10_000) / CLAIM);
         console2.log("bps of claim+released ", (released * 10_000) / (CLAIM + released));
         console2.log("LP locked (not float) ", LP);
+
+        // The gap between the headline figure and the honest one is the finding,
+        // so pin the gap rather than either number on its own.  13.7 % is what
+        // the Scheme-B write-up quoted; 24.9 % is what the market is asked to
+        // absorb, because the 3.78 M LP side never trades.
+        assertEq((released * 10_000) / GEN, 1368, "headline: 13.7 % of GENESIS_SUPPLY");
+        assertEq((released * 10_000) / CLAIM, 2488, "honest: 24.9 % of the tradeable float");
+        assertEq(CLAIM + LP, GEN, "the two denominators differ by exactly the locked LP");
+        assertGt(
+            (released * 10_000) / CLAIM,
+            (released * 10_000) / GEN,
+            "any restatement must keep reporting the float denominator too"
+        );
     }
 
     /// @dev Count of shelves whose price multiple `STEP^i` is <= `multiple`,
@@ -386,19 +399,32 @@ contract ToshV5AttackTest is Test {
             hooks: IHooks(address(0))
         });
 
+        uint256 treasuryBefore = address(ladder).balance;
+
+        // A stranger can open it.  `beforeInitialize` is never consulted,
+        // because V4 only calls a hook for pools that name that hook.
         vm.prank(attacker);
         poolManager.initialize(rogue, TickMath.getSqrtPriceAtTick(0));
         console2.log("rogue hookless ETH/token pool initialised by a stranger");
 
-        // And it is immediately usable: seed it and trade tax-free.
-        uint256 seed = token.balanceOf(alice) / 2;
-        vm.startPrank(alice);
-        token.approve(address(liqRouter), type(uint256).max);
-        vm.stopPrank();
-        console2.log("alice can seed it with", seed);
+        assertEq(address(ladder).balance, treasuryBefore, "the rogue venue funds no buyback");
 
-        uint256 treasuryBefore = address(ladder).balance;
-        console2.log("treasury take from rogue venue", address(ladder).balance - treasuryBefore);
+        // ACCEPTED, NOT FIXED — and the assertions below say so out loud.
+        //
+        // There is no contract-level defence: the token is a plain ERC-20 with
+        // no transfer hook, so any fee tier, any hook (or none), any seeder.
+        // What the protocol keeps instead is DEPTH — the genesis LP position is
+        // locked in the official pool forever — and depth is what makes
+        // `_safeReferencePrice` worth reading, since it is single-venue.
+        //
+        // If this ever stops holding, the exposure is not the lost 0.7 %: it is
+        // that the anti-spike gate is measured against a book that has thinned.
+        assertEq(uint256(uint160(address(rogue.hooks))), 0, "the rogue pool is genuinely hookless, by construction");
+        assertGt(
+            token.balanceOf(address(poolManager)),
+            0,
+            "the official pool still holds the permanently locked genesis liquidity"
+        );
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -417,7 +443,22 @@ contract ToshV5AttackTest is Test {
         // Now drain the claim side and see what can never leave.
         vm.prank(alice);
         hook.claimGenesis();
-        console2.log("hook balance after sole depositor claims", token.balanceOf(address(hook)));
+        uint256 stranded = token.balanceOf(address(hook));
+        console2.log("hook balance after sole depositor claims", stranded);
+
+        // ACCEPTED, NOT FIXED — but note WHERE the dust comes from, because the
+        // obvious guess is wrong.  It is not the pro-rata claim rounding down:
+        // the sole depositor receives the claim pool to the wei.  It is the LP
+        // seed, where V4's liquidity math accepts marginally less than
+        // `GENESIS_LP_SUPPLY`, and the remainder stays in the hook.
+        //
+        // There is no rescue path, on purpose — a rescue path is a withdrawal
+        // path wearing a different name, which is the same trade the treasury
+        // makes by having no `sweep`.  Bounded rather than merely observed, so
+        // "dust" cannot quietly grow into a number worth caring about: 186
+        // wei-tokens against a 4.62 M pool is about 1 part in 2.5e22.
+        assertEq(token.balanceOf(alice), claimSide, "the sole depositor gets the entire claim pool, to the wei");
+        assertLt(stranded, 1e12, "so the residue is LP-seed remainder, and must stay in the dust regime");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -619,6 +660,18 @@ contract ToshV5AttackTest is Test {
         console2.log("treasury delta after 20 dust buys", address(ladder).balance - treasuryBefore);
         console2.log("tax on 142 wei", uint256(142 * 70) / 10_000);
         console2.log("tax on 143 wei", uint256(143 * 70) / 10_000);
+
+        // ACCEPTED, NOT FIXED.  The evasion is real and it is worthless: to move
+        // 1 ETH untaxed you would need ~7e15 swaps of 142 wei, each paying full
+        // calldata and pool-accounting gas, to avoid 0.007 ETH of tax.  The
+        // rounding runs in the trader's favour by one wei-scale unit, which is
+        // the same direction every other rounding in this codebase runs.
+        //
+        // What is worth pinning is the THRESHOLD, so a future change to TAX_BPS
+        // or to the early-return cannot silently widen the untaxed band.
+        assertEq(uint256(142 * 70) / 10_000, 0, "142 wei is the largest untaxed input");
+        assertEq(uint256(143 * 70) / 10_000, 1, "143 wei is the smallest taxed one");
+        assertEq(address(ladder).balance, treasuryBefore, "so 20 dust buys yield the treasury nothing");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -645,6 +698,18 @@ contract ToshV5AttackTest is Test {
         assertEq(charged, cost, "charged == quoted");
         console2.log("tokens bought for 1 wei", take);
         console2.log("full ladder at this rate needs N txs", 12_600_000e18 / take);
+
+        // ACCEPTED, NOT FIXED.  One wei buys ~0.0000000000008 of a token here,
+        // and the ladder cannot be walked this way: `mintBondingCurve` advances
+        // the cursor by exactly what it sells, so draining 12.6 M at this
+        // granularity needs the transaction count logged above — a number with
+        // no physical meaning.  Rounding in the buyer's favour by one wei-unit
+        // per leg is the deliberate direction; the alternative (ceil) would let
+        // a quote come back below what the mint then charges.
+        //
+        // The invariant that actually matters is that nothing is EVER free.
+        assertGt(cost, 0, "a positive request always costs at least 1 wei");
+        assertEq(hook.phase2Minted(), take, "and the cursor advances by exactly what was sold");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -664,7 +729,9 @@ contract ToshV5AttackTest is Test {
         _buy(hook, alice, 1 wei);
         _nextBlock();
 
-        console2.log("maxMintable after rally", hook.maxMintable());
+        uint256 unlockedAfterRally = hook.maxMintable();
+        console2.log("maxMintable after rally", unlockedAfterRally);
+        assertGt(unlockedAfterRally, 0, "fixture needs an open ladder to then freeze");
 
         // Attacker dumps whatever they hold to crash spot.
         uint256 bal = token.balanceOf(alice);
@@ -686,5 +753,19 @@ contract ToshV5AttackTest is Test {
         console2.log("spot after dump ", spot);
         console2.log("twap after dump ", twap);
         console2.log("maxMintable now ", hook.maxMintable());
+
+        // ACCEPTED, NOT FIXED — and this is the gate working, not failing.
+        //
+        // The reference is `min(spot, TWAP)` with LIVE spot precisely so that a
+        // collapsing market shuts the ladder instantly rather than a window
+        // later.  The mirror image is that anyone willing to sell into their own
+        // dump can throttle project revenue for as long as they can hold the
+        // price down — which costs them the spread every time, and ends the
+        // moment an arbitrageur takes the other side.
+        //
+        // Using max() instead would make the ladder unfreezable and also make it
+        // mintable straight into a crash.  That is the worse trade.
+        assertLt(hook.maxMintable(), unlockedAfterRally, "a crashed spot must throttle the ladder");
+        assertLe(spot, twap, "spot leads the TWAP down, so min() follows spot");
     }
 }
