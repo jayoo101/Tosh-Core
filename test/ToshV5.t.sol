@@ -723,6 +723,56 @@ contract ToshV5Test is Test {
         assertApproxEqRel(last, hook.shelfP0() * 2000, 0.01e18, "top rung should land near 2000x the base");
     }
 
+    /// @notice THE RATIFIED PARAMETER SET.  One place, every literal, so that
+    ///         changing the economics is a deliberate act with a single gate.
+    ///
+    ///   Decision D1, taken after the red-team pass measured the real release
+    ///   schedule: freeze
+    ///
+    ///     span     2000x across 4000 shelves
+    ///     shelves  equal size, 3 150 tokens each
+    ///     split    8.4 M genesis (4.62 M claim + 3.78 M LP) / 12.6 M ladder
+    ///
+    ///   and accept what that costs.  What it costs is stated plainly in
+    ///   `test_earlyReleaseSchedule_isSetByTheSupplySplit`: a doubling in price
+    ///   releases ~24.9 % of the tradeable float, not the ~10 % originally
+    ///   targeted.  Closing that gap needs a wider span or a smaller Phase 2,
+    ///   and both were judged worse than the thing they fix — a wider span
+    ///   flattens the whole curve logarithmically for very little early relief,
+    ///   and a smaller Phase 2 shrinks the only supply the market can price.
+    ///
+    ///   The other suites pin the CONSEQUENCES of these numbers (the schedule,
+    ///   the 2000x endpoint, the supply closure, the genesis premium).  This one
+    ///   pins the numbers themselves, so a diff that touches the economics
+    ///   cannot land quietly as a side effect of some other edit.
+    function test_ratifiedParameterSet_isFrozen() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Frozen", "FRZ", alice, address(0));
+
+        // ── Supply split ──────────────────────────────────────────────────────
+        assertEq(hook.GENESIS_SUPPLY(), 8_400_000e18, "genesis block");
+        assertEq(hook.GENESIS_CLAIM_SUPPLY(), 4_620_000e18, "claim float (55 % of genesis)");
+        assertEq(hook.GENESIS_LP_SUPPLY(), 3_780_000e18, "locked LP (45 % of genesis)");
+        assertEq(hook.BONDING_MAX(), 12_600_000e18, "ladder");
+
+        // ── Ladder geometry ───────────────────────────────────────────────────
+        assertEq(hook.TIER_COUNT(), 4000, "shelf count");
+        assertEq(hook.TIER_SIZE(), 3_150e18, "equal shelf size");
+        assertEq(hook.MAX_TIERS_PER_TX(), 32, "shelves per call");
+
+        // `TIER_STEP_E18` is internal, so freeze the literal by recomputing the
+        // first rung with it.  An edit to the constant breaks this exactly.
+        assertEq(
+            hook.tierPriceAt(1),
+            (hook.shelfP0() * 1_001_902_508_266_805_824) / 1e18,
+            "TIER_STEP_E18 == 1_001_902_508_266_805_824"
+        );
+
+        // ── Closure, restated here so the set is self-evidently coherent ──────
+        assertEq(hook.TIER_COUNT() * hook.TIER_SIZE(), hook.BONDING_MAX(), "shelves fill the ladder exactly");
+        assertEq(hook.GENESIS_CLAIM_SUPPLY() + hook.GENESIS_LP_SUPPLY(), hook.GENESIS_SUPPLY(), "genesis splits 55/45");
+        assertEq(hook.GENESIS_SUPPLY() + hook.BONDING_MAX(), 21_000_000e18, "and the two close on the hard cap");
+    }
+
     /// @notice How much fresh supply the ladder hands the market on the way up,
     ///         pinned as a schedule rather than as the constants that produce it.
     ///
@@ -975,6 +1025,123 @@ contract ToshV5Test is Test {
         // A market that holds above p0 is what opens it.
         _openLadder(hook, 0.01 ether);
         assertGt(hook.maxMintable(), 0, "a market above p0 unlocks the ladder");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Ladder halt — the one platform brake that reaches a launched project
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice A halt stops shelf minting and NOTHING else.
+    ///
+    ///   `pause()` deliberately cannot touch a launched project, which left one
+    ///   gap: a defect in the shelf pricing itself would keep selling supply
+    ///   with no way to stop it.  `haltLadderMinting` closes exactly that gap,
+    ///   and this test exists mostly to pin how narrow "exactly that" is —
+    ///   trading, LP, genesis claims, referral claims and refunds must all keep
+    ///   working, because a brake that can strand a balance is a different and
+    ///   much worse thing than a brake that can cancel an opportunity.
+    function test_ladderHalt_stopsMintingAndNothingElse() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Halt", "HLT", alice, address(0));
+        _openLadder(hook, 0.01 ether);
+        assertGt(hook.maxMintable(), 0, "fixture needs an open ladder to halt");
+
+        vm.prank(admin);
+        factory.haltLadderMinting(address(hook), 1 days);
+
+        assertTrue(factory.ladderMintingHalted(address(hook)));
+        assertEq(hook.maxMintable(), 0, "the view must agree with the guard");
+
+        vm.prank(bob);
+        vm.expectRevert(ToshLaunchpadHook.LadderMintingHalted.selector);
+        hook.mintBondingCurve{value: 1 ether}(1e18);
+
+        // ...but the market is untouched.  Measured as price movement rather
+        // than a balance, so the assertion is about the swap having executed
+        // and not about which address the test router settles to.
+        (,,, uint256 spotBefore,,,) = hook.tierStatus();
+        _swapBuy(hook, trader, 0.5 ether);
+        _nextBlock();
+        (,,, uint256 spotAfter,,,) = hook.tierStatus();
+        assertGt(spotAfter, spotBefore, "secondary trading keeps working while the ladder is halted");
+
+        // ...and so is every path that returns value to a user.
+        vm.prank(alice);
+        hook.claimGenesis();
+        assertGt(token.balanceOf(alice), 0, "genesis claims keep working");
+    }
+
+    /// @notice A halt lapses on its own, so it cannot become a permanent veto.
+    ///
+    ///   This is the property that makes the switch a break-glass brake rather
+    ///   than a kill switch.  An owner who is hostile, compromised or simply
+    ///   gone cannot brick Phase 2: the worst case is a rolling outage that has
+    ///   to be re-armed in public, on-chain, at most a week at a time.
+    function test_ladderHalt_expiresWithoutIntervention() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Lapse", "LPS", alice, address(0));
+        _openLadder(hook, 0.01 ether);
+
+        // Hoisted: `vm.prank` arms only the next CALL, and evaluating
+        // `factory.MAX_HALT_DURATION()` inline as an argument would spend it.
+        uint256 maxHalt = factory.MAX_HALT_DURATION();
+
+        vm.prank(admin);
+        factory.haltLadderMinting(address(hook), maxHalt);
+        assertEq(hook.maxMintable(), 0);
+
+        // One second past the deadline the ladder is live again, with nobody
+        // having had to call anything.
+        vm.warp(block.timestamp + maxHalt + 1);
+        _nextBlock();
+        assertFalse(factory.ladderMintingHalted(address(hook)));
+        assertGt(hook.maxMintable(), 0, "the halt must lapse by itself");
+
+        // And the cap is enforced, so no single call can outrun that guarantee.
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.HaltDurationTooLong.selector);
+        factory.haltLadderMinting(address(hook), maxHalt + 1);
+
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.HaltDurationTooLong.selector);
+        factory.haltLadderMinting(address(hook), 0);
+    }
+
+    /// @notice The halt is scoped: one bad market does not take Phase 2 offline
+    ///         platform-wide, and the global form still exists when it should.
+    function test_ladderHalt_isScopedPerHookAndGlobally() public {
+        (, ToshLaunchpadHook hookA) = _launchProject("ScopeA", "SCA", alice, address(0));
+        (, ToshLaunchpadHook hookB) = _launchProject("ScopeB", "SCB", alice, address(0));
+        _openLadder(hookA, 0.01 ether);
+        _openLadder(hookB, 0.01 ether);
+
+        vm.prank(admin);
+        factory.haltLadderMinting(address(hookA), 1 days);
+        assertEq(hookA.maxMintable(), 0, "the named project is halted");
+        assertGt(hookB.maxMintable(), 0, "its neighbour is not");
+
+        // address(0) means every ladder.
+        vm.prank(admin);
+        factory.haltLadderMinting(address(0), 1 days);
+        assertEq(hookB.maxMintable(), 0, "the global form reaches every project");
+
+        // Resuming the global halt leaves the targeted one standing.
+        vm.prank(admin);
+        factory.resumeLadderMinting(address(0));
+        assertEq(hookA.maxMintable(), 0, "hookA's own halt survives the global lift");
+        assertGt(hookB.maxMintable(), 0, "hookB is free again");
+
+        vm.prank(admin);
+        factory.resumeLadderMinting(address(hookA));
+        assertGt(hookA.maxMintable(), 0);
+    }
+
+    function test_ladderHalt_rejectsNonOwner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        factory.haltLadderMinting(address(0), 1 days);
+
+        vm.prank(alice);
+        vm.expectRevert();
+        factory.resumeLadderMinting(address(0));
     }
 
     /// @notice The launch-block lock holds for EVERY raise, not just the one

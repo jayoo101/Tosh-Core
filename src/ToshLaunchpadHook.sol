@@ -610,6 +610,12 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         wait one block so a flash-loan spike cannot fake the price gate.
     error SameBlockMintForbidden();
 
+    /// @notice The platform has suspended shelf minting, either for this project
+    ///         or globally.  Trading, LP, genesis claims, referral claims and
+    ///         refunds are all unaffected, and the halt lapses on its own.
+    ///         See `ToshFactory.haltLadderMinting`.
+    error LadderMintingHalted();
+
     /// @notice The active shelf costs more than 105 % of `min(spot, TWAP)`.
     ///         The secondary market has to catch up before this shelf unlocks.
     error TierPriceAboveCeiling();
@@ -976,6 +982,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (!launched) revert NotLaunched();
         if (tokenAmount == 0) revert ZeroAmount();
 
+        // ── Guard 0: platform ladder halt ─────────────────────────────────────
+        // The only platform brake that reaches a launched project, and it
+        // reaches nothing else here: swaps, LP, `claimGenesis`,
+        // `claimReferralReward` and `refund` all stay open, so a halt can cost a
+        // buyer an opportunity but never a balance.  It also expires on its own
+        // (`MAX_HALT_DURATION`), which is what keeps it a break-glass brake
+        // rather than a permanent veto.  See `ToshFactory.haltLadderMinting`.
+        if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
+
         // ── Guard 1: same-block lockout ───────────────────────────────────────
         if (block.number <= lastSwapBlock) revert SameBlockMintForbidden();
 
@@ -1114,6 +1129,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     function maxMintable() public view returns (uint256 tokens) {
         if (!launched) return 0;
         if (block.number <= lastSwapBlock) return 0;
+        if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) return 0;
 
         uint256 tierIndex = currentTierIndex;
         if (tierIndex >= TIER_COUNT) return 0;
@@ -1753,4 +1769,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 interface IToshLadderTreasury {
     function autoPiggybackBuyback() external;
     function piggybackActive() external view returns (bool);
+}
+
+/// @dev Minimal factory view for the ladder halt.  Declared here rather than
+///      importing ToshFactory because the factory already imports this file to
+///      deploy hooks, and a direct import would close that cycle.
+interface IToshFactoryHalt {
+    function ladderMintingHalted(address hook) external view returns (bool);
 }

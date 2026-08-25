@@ -292,6 +292,85 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         _unpause();
     }
 
+    // ─── Ladder halt: the one brake that reaches a launched project ───────────
+    //
+    // `pause()` deliberately stops nothing on a project that has already
+    // launched (see its natspec). That boundary is the platform's core promise,
+    // and it left exactly one gap worth closing: if a defect is found in the
+    // shelf pricing itself, every live project keeps selling supply against it
+    // and there is no way to stop except to ask buyers nicely.
+    //
+    // This is a SEPARATE switch from `pause()` on purpose. Folding the two
+    // together would have quietly widened what "paused" means for every reader
+    // and every existing test, and the two brakes answer different questions:
+    // `pause()` stops the platform GROWING, this stops the ladder SELLING.
+    //
+    // Three properties keep it from becoming the veto that `pause()` refuses to
+    // be:
+    //
+    //   • It reaches `mintBondingCurve` and nothing else. Pool swaps, LP,
+    //     `claimGenesis`, `claimReferralReward` and `refund` are all untouched,
+    //     so no user's funds can be held hostage by it. A halted ladder costs a
+    //     buyer an opportunity, never a balance.
+    //
+    //   • IT EXPIRES. A halt carries a deadline capped at `MAX_HALT_DURATION`,
+    //     so an owner who is hostile, compromised, or simply gone cannot brick
+    //     Phase 2 permanently — the worst case is a rolling one-week outage
+    //     that has to be renewed in public, on-chain, every time. This is the
+    //     difference between a break-glass brake and a kill switch, and it is
+    //     the reason the new trust assumption is bounded rather than absolute.
+    //
+    //   • It is scoped. `hook == address(0)` halts every ladder; any other
+    //     address halts that project alone, so a single compromised market does
+    //     not require taking the whole platform's Phase 2 offline.
+
+    /// @notice Longest a single halt may run before it lapses on its own.
+    uint256 public constant MAX_HALT_DURATION = 7 days;
+
+    /// @notice Timestamp until which ALL ladders are halted. Zero when inactive.
+    uint256 public globalLadderHaltedUntil;
+
+    /// @notice Per-hook halt deadlines, for containing a single bad market.
+    mapping(address hook => uint256 until) public hookLadderHaltedUntil;
+
+    event LadderMintingHalted(address indexed hook, uint256 until);
+    event LadderMintingResumed(address indexed hook);
+
+    error HaltDurationTooLong();
+
+    /// @notice Suspend shelf minting for `duration` seconds.
+    ///
+    /// @param  hook     The project to halt, or `address(0)` for every project.
+    /// @param  duration Seconds from now; must be non-zero and `<= 7 days`.
+    ///                  Re-arm before expiry to extend an ongoing incident.
+    function haltLadderMinting(address hook, uint256 duration) external onlyOwner {
+        if (duration == 0 || duration > MAX_HALT_DURATION) revert HaltDurationTooLong();
+
+        uint256 until = block.timestamp + duration;
+        if (hook == address(0)) {
+            globalLadderHaltedUntil = until;
+        } else {
+            hookLadderHaltedUntil[hook] = until;
+        }
+        emit LadderMintingHalted(hook, until);
+    }
+
+    /// @notice Lift a halt before it lapses.
+    function resumeLadderMinting(address hook) external onlyOwner {
+        if (hook == address(0)) {
+            globalLadderHaltedUntil = 0;
+        } else {
+            hookLadderHaltedUntil[hook] = 0;
+        }
+        emit LadderMintingResumed(hook);
+    }
+
+    /// @notice Whether `hook` may currently sell shelves. Read by the hook on
+    ///         every mint and by `maxMintable()`, so the UI and the guard agree.
+    function ladderMintingHalted(address hook) external view returns (bool) {
+        return block.timestamp < globalLadderHaltedUntil || block.timestamp < hookLadderHaltedUntil[hook];
+    }
+
     function setPogSigner(address newSigner) external onlyOwner {
         require(newSigner != address(0), "zero signer");
         pogSigner = newSigner;

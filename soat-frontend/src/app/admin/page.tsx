@@ -1084,7 +1084,19 @@ function CircuitBreakerPanel() {
         registration and nothing else. Secondary trading on launched pools, shelf
         minting, genesis claims and depositor refunds all keep working — those
         live in the hooks, which the factory has no authority over once deployed.
-        This is a spam and incident brake, not a kill switch.
+        This is a spam and incident brake, not a kill switch. To stop shelf
+        minting on a project that has already launched, use the ladder halt in
+        G3-B — it is a separate switch precisely so this one keeps meaning what
+        it says.
+      </ScopeNote>
+      <ScopeNote tone="warn">
+        <span className="text-[#c88]">Deposits are not paused.</span>{' '}
+        <code>deposit</code> carries no <code>whenNotPaused</code>, so a genesis
+        round that is already open goes on taking ETH for its full window while
+        the platform is paused. That is the same promise that keeps refunds
+        working — once the platform has taken money for a round it cannot starve
+        it — but it cuts both ways: if an incident requires stopping the inflow,
+        this button is not sufficient and you need the blacklist below.
       </ScopeNote>
       <div className="flex justify-start">
         <WriteButton
@@ -1102,11 +1114,192 @@ function CircuitBreakerPanel() {
         title={isPaused ? 'Resume the platform?' : 'Engage the circuit breaker?'}
         body={isPaused
           ? 'createLaunch and registerPoG reopen immediately on confirmation.'
-          : 'createLaunch and registerPoG stop accepting transactions. Live pools, shelf mints and refunds are unaffected.'}
+          : 'createLaunch and registerPoG stop accepting transactions. Deposits into rounds that are already open, live pools, shelf mints and refunds are all unaffected.'}
         confirmLabel={isPaused ? 'resume' : 'pause platform'}
         onConfirm={submit}
         onCancel={() => setConfirming(false)}
         danger={!isPaused}
+      />
+    </Section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// G3-B · LADDER HALT — the only platform brake that reaches a launched project
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Kept visually separate from the circuit breaker above because the two answer
+// different questions: `pause()` stops the platform GROWING, this stops the
+// ladder SELLING.  Folding them into one toggle would have made "paused" mean
+// something quietly larger than what the factory's own natspec promises.
+//
+// The halt expires on its own, so the panel leads with the deadline rather than
+// with a boolean: an operator's next question after "is it halted" is always
+// "for how much longer", and a halt that lapses unnoticed mid-incident is the
+// failure mode worth designing against.
+
+const HALT_PRESETS = [
+  { label: '1 h',  secs: 3_600n },
+  { label: '24 h', secs: 86_400n },
+  { label: '72 h', secs: 259_200n },
+  { label: '7 d',  secs: 604_800n },
+] as const
+
+function LadderHaltPanel() {
+  const nowSec = useNowSec()
+  const [scope, setScope]           = useState<'global' | 'hook'>('global')
+  const [hookInput, setHookInput]   = useState('')
+  const [duration, setDuration]     = useState<bigint>(86_400n)
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError]           = useState<string | null>(null)
+
+  const { data: globalUntil, refetch } = useReadContract({
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'globalLadderHaltedUntil',
+    query: { refetchInterval: 10_000 },
+  })
+
+  const targeted = scope === 'hook' && isAddress(hookInput.trim())
+    ? (getAddress(hookInput.trim()) as Address)
+    : undefined
+
+  const { data: hookUntil, refetch: refetchHook } = useReadContract({
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookLadderHaltedUntil',
+    args: targeted ? [targeted] : undefined,
+    query: { enabled: !!targeted, refetchInterval: 10_000 },
+  })
+
+  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  useEffect(() => {
+    if (!isSuccess) return
+    void refetch(); void refetchHook()
+  }, [isSuccess, refetch, refetchHook])
+
+  const activeUntil  = scope === 'global' ? (globalUntil as bigint | undefined) : (hookUntil as bigint | undefined)
+  const isHalted     = !!activeUntil && Number(activeUntil) > nowSec
+  const secsLeft     = isHalted ? Number(activeUntil) - nowSec : 0
+  const txBusy       = isPending || isConfirming
+  const targetArg    = scope === 'global' ? ZERO_ADDRESS : targeted
+  const targetReady  = scope === 'global' || !!targeted
+
+  const submit = useCallback((resume: boolean) => {
+    setConfirming(false); setError(null)
+    if (!targetArg) { setError('Enter a valid hook address, or switch to platform-wide'); return }
+    writeContract({
+      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+      functionName: resume ? 'resumeLadderMinting' : 'haltLadderMinting',
+      args: resume ? [targetArg] : [targetArg, duration],
+      chainId: TARGET_CHAIN_ID,
+    })
+  }, [targetArg, duration, writeContract])
+
+  return (
+    <Section
+      id="G3-B" title="LADDER HALT"
+      subtitle="haltLadderMinting / resumeLadderMinting · suspends shelf minting on projects that have already launched"
+      action={<StatusBadge ok={!isHalted} okLabel="ladder live" badLabel="halted" />}
+    >
+      <div className="flex gap-2">
+        {(['global', 'hook'] as const).map(s => (
+          <button
+            key={s} type="button" onClick={() => { setScope(s); setError(null) }}
+            className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
+              (scope === s
+                ? 'border-tosh-fluo text-tosh-fluo'
+                : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
+          >
+            {s === 'global' ? 'platform-wide' : 'single project'}
+          </button>
+        ))}
+      </div>
+
+      {scope === 'hook' && (
+        <Field
+          label="HOOK ADDRESS"
+          value={hookInput}
+          onChange={v => { setHookInput(v); setError(null) }}
+          placeholder="0x… the project's hook, not its token"
+          disabled={txBusy}
+          fluo={!!targeted}
+        />
+      )}
+
+      <Readout
+        label="HALTED UNTIL"
+        value={isHalted
+          ? `${new Date(Number(activeUntil) * 1000).toISOString().replace('T', ' ').slice(0, 19)} UTC`
+          : 'not halted'}
+        hint={isHalted ? `${fmtDuration(BigInt(secsLeft), '—')} remaining` : null}
+        tone={isHalted ? 'fluo' : 'mute'}
+      />
+
+      <div className="flex flex-col gap-1.5">
+        <span className={labelCls}>HALT DURATION</span>
+        <div className="flex gap-2 flex-wrap">
+          {HALT_PRESETS.map(p => (
+            <button
+              key={p.label} type="button" onClick={() => setDuration(p.secs)}
+              disabled={txBusy}
+              className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
+                (duration === p.secs
+                  ? 'border-tosh-fluo text-tosh-fluo'
+                  : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ScopeNote tone="warn">
+        Reaches <code>mintBondingCurve</code> and nothing else. Pool swaps, LP
+        add/remove, genesis claims, referral claims and depositor refunds all
+        keep working, so a halt can cancel an opportunity but can never strand a
+        balance.
+        <br /><br />
+        <span className="text-[#CCC]">It expires by itself.</span> A halt is a
+        deadline, capped at 7 days, not a flag — so an owner who is compromised
+        or simply unavailable cannot brick Phase 2 permanently. Re-arm before the
+        deadline to extend an ongoing incident; the worst case is a rolling
+        outage that has to be renewed on-chain, in public, every week.
+      </ScopeNote>
+
+      <div className="flex justify-start gap-2 flex-wrap">
+        <WriteButton
+          label={`halt ladder · ${HALT_PRESETS.find(p => p.secs === duration)?.label ?? ''}`}
+          onClick={() => setConfirming(true)}
+          locked={!targetReady}
+          busy={txBusy}
+          danger
+        />
+        {isHalted && (
+          <WriteButton
+            label="resume now"
+            onClick={() => submit(true)}
+            locked={!targetReady}
+            busy={txBusy}
+          />
+        )}
+      </div>
+
+      <AlarmLine msg={error ?? shortErr(writeError)} />
+      <TxLine hash={txHash} label="haltLadderMinting" />
+
+      <ConfirmDialog
+        open={confirming}
+        title={scope === 'global' ? 'Halt every ladder?' : 'Halt this project\u2019s ladder?'}
+        body={
+          `Shelf minting stops immediately and resumes automatically after ` +
+          `${HALT_PRESETS.find(p => p.secs === duration)?.label ?? ''}. ` +
+          `Trading, LP, claims and refunds are unaffected. ` +
+          (scope === 'global'
+            ? 'This applies to every launched project on the platform.'
+            : `Scoped to ${targeted ?? '—'} only.`)
+        }
+        confirmLabel="halt ladder"
+        onConfirm={() => submit(false)}
+        onCancel={() => setConfirming(false)}
+        danger
       />
     </Section>
   )
@@ -2145,9 +2338,10 @@ export default function AdminPage() {
           <GroupHeader
             index="G3 · SAFETY & RISK"
             title="Circuit breaker and blacklist"
-            blurb="Incident controls. Both are scoped to the factory's own entry points — neither can reach into a hook that has already launched."
+            blurb="Incident controls. The circuit breaker and the blacklist are scoped to the factory's own entry points; the ladder halt is the single exception that reaches a launched project, and it expires on its own."
           />
           <CircuitBreakerPanel />
+          <LadderHaltPanel />
           <BlacklistConsole />
 
           <GroupHeader

@@ -77,6 +77,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_HALT_DURATION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_SIG_VALIDITY",
     "inputs": [],
     "outputs": [
@@ -274,6 +287,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "globalLadderHaltedUntil",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "globalReferrers",
     "inputs": [
       {
@@ -290,6 +316,24 @@ export const FACTORY_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "haltLadderMinting",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "duration",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -337,6 +381,25 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "hookLadderHaltedUntil",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "until",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hookNameKey",
     "inputs": [
       {
@@ -350,6 +413,25 @@ export const FACTORY_ABI = [
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ladderMintingHalted",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -782,6 +864,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "resumeLadderMinting",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setBlacklist",
     "inputs": [
       {
@@ -1094,6 +1189,38 @@ export const FACTORY_ABI = [
       },
       {
         "name": "referrer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LadderMintingHalted",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "until",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LadderMintingResumed",
+    "inputs": [
+      {
+        "name": "hook",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1427,6 +1554,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "FeeChanged",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HaltDurationTooLong",
     "inputs": []
   },
   {
@@ -3894,6 +4026,11 @@ export const HOOK_ABI = [
   {
     "type": "error",
     "name": "LadderExhausted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LadderMintingHalted",
     "inputs": []
   },
   {

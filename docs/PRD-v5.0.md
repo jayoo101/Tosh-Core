@@ -136,7 +136,8 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 | 能做 | 函数 | 约束 | 行号 |
 |---|---|---|---|
-| 暂停 / 恢复工厂 | `pause` / `unpause` | 只影响 `createLaunch` / `registerPoG` / `deposit`（⚠️ 8.12） | `src/ToshFactory.sol:219-225` |
+| 暂停 / 恢复工厂 | `pause` / `unpause` | **只影响 `createLaunch` 与 `registerPoG` 两个入口**。`deposit` 没有 `whenNotPaused`——已开启的创世轮次照常收款（⚠️ 8.12） | `src/ToshFactory.sol:219-225` |
+| 停售 / 恢复阶梯 | `haltLadderMinting` / `resumeLadderMinting` | **唯一能触及已开盘项目的刹车**，且只触及 `mintBondingCurve`。单次 `≤ MAX_HALT_DURATION = 7 days` 且自动失效（`HaltDurationTooLong`）；`hook == address(0)` 停全部，否则只停该项目。不影响 swap / LP / `claimGenesis` / `claimReferralReward` / `refund`——**能让买家损失机会，不能让任何人损失余额**。见 §11 D3 | `src/ToshFactory.sol` `haltLadderMinting` |
 | 轮换 PoG 签名者 | `setPogSigner` | 非零 | `src/ToshFactory.sol:227-231` |
 | 轮换 `platformTreasury` | `setPlatformTreasury` | 非零；但该地址无任何资金流（⚠️ 8.2） | `src/ToshFactory.sol:233-237` |
 | 调整发射费 | `setLaunchFee` | 允许为 0；受调用方 `expectedFee` 滑点保护 | `src/ToshFactory.sol:239-242` |
@@ -154,7 +155,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 | 改动已开盘项目的经济参数 | `softCap` / `perWalletCap` / `genesisDuration` 都是 hook 的 immutable，创建时快照（`src/ToshLaunchpadHook.sol:333-345`、`221`）。测试 `test_setDefaultSoftCap_doesNotAffectExistingHooks` @ `test/ToshV5Factory.t.sol:367` |
 | 改 `ToshToken` 的角色 | `DEFAULT_ADMIN_ROLE` 从未授予任何人，`grantRole`/`revokeRole` 永久不可用（`src/ToshToken.sol:74-79`、`102-103`） |
 | 触发 / 阻止某一次回购 | `autoPiggybackBuyback` 只接受注册 hook 调用（`onlyHook`），owner 直接调会 revert `OnlyHook`。测试 @ `test/ToshV5.t.sol:1241` |
-| 暂停已开盘项目的交易或铸造 | 暂停开关只在工厂上（⚠️ 8.12） |
+| 暂停已开盘项目的**交易**（swap / LP / 领取 / 退款） | 无任何开关可达（⚠️ 8.12） |
 
 #### 2.2.2 项目创作者（creator）
 
@@ -941,7 +942,15 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 | 部署后不变量巡检脚本 | `VerifyDeployment.s.sol` 断言 6 类不变量，包括 `treasury.factory() == factory`（未接线会静默关掉本次部署的所有回购） | `script/VerifyDeployment.s.sol:55-109` |
 | 前端字节码同步守卫 | `test_hookBytecode_inSyncWithArtifact` 比对 Foundry artifact 与 `hookBytecode.ts` 的 keccak，防止 UI 挖出死盐 | `test/ToshV5Bytecode.t.sol:17-28` |
 
-> **⚠️ 8.12**：`Pausable` 只覆盖工厂的三个入口（`createLaunch` / `registerPoG` / `deposit`）。**hook 侧的 `launch` / `mintBondingCurve` / `claimGenesis` / `claimReferralReward` / `refund`，以及池子上的所有 swap 和 LP 操作，都不受平台暂停影响。** 测试 `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol:445` 明确固化了退款不受暂停影响（这是好事），但整体意味着**没有任何协议级的交易/铸造熔断开关**。事故响应时唯一能做的是停止新项目创建与新出资。
+> **⚠️ 8.12**：`Pausable` 只覆盖工厂的**两个**入口——`createLaunch` 与 `registerPoG`。
+>
+> **`deposit` 不在其中。** 它只有 `nonReentrant`，没有 `whenNotPaused`（`src/ToshFactory.sol` `deposit`），所以**暂停期间一个已开启的创世轮次仍然照常收款**。这是刻意的，与退款不被暂停是同一条原则：平台已经开门收钱的轮次，不能被一个 owner 开关中途掐断。测试 `test_pause_doesNotBlockDepositIntoALiveRound` 与 `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` 两面都钉住了。
+>
+> 本条此前长期误写为「三个入口，含 `deposit`」，事故手册 §2 Step 2 也照抄了这个错误。**这类错误的代价是在事故中做出错误判断**——响应者以为按下暂停就止住了入金，实际没有。已于 v5.0 红队复查后一并修正。
+>
+> **hook 侧的 `launch` / `mintBondingCurve` / `claimGenesis` / `claimReferralReward` / `refund`，以及池子上的所有 swap 和 LP 操作，都不受 `pause()` 影响。**
+>
+> **已被 D3 部分修订**：`pause()` 的覆盖面没有变，但平台现在另有一个独立刹车 `haltLadderMinting`，能停掉已开盘项目的**阶梯铸造**（且仅此一项）。它会在 7 天内自动失效、可按项目分域、且不触及任何用户余额路径。因此「没有任何协议级熔断开关」这句话已不再成立，准确的表述是：**平台能停售阶梯，不能停交易、不能停领取、不能停退款**。见 §11 D3。
 
 ---
 
@@ -1534,7 +1543,7 @@ encodeBurnPayload({
 | 8.2 (新) | 交易税按 specified 侧路由 | **已闭环**。exact-input 仍在 `beforeSwap` 抽 input；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码 `0x20C8` → `0x20CC`）。买单无论怎么构造都把 0.7% ETH 送进国库，卖单都烧币。`test_buyTax_exactOutputSkimsEthNotTokens` / `test_sellTax_exactOutputBurnsTokensNotEth` |
 | 8.3 (新) | `pogQuota` 只上调不下调 | **保持**。风控收紧不追溯。README 与 `registerPoG` natspec 已写明：调低 `maxPogAllocationLimit` 不回收已登记额度 |
 | 8.4 (新) | `registerPoG` 不检查黑名单 | **已修**。与 `deposit` 对齐，被拉黑钱包无法注册或提升额度。`test_registerPoG_rejectsBlacklisted` |
-| 8.5 (新) | 平台暂停覆盖不到 hook 与池子 | **接受**。这就是「已发射项目不可被平台干预」的去中心化承诺。`INCIDENT_RESPONSE.md` 黄金法则与速查表已把边界写死 |
+| 8.5 (新) | 平台暂停覆盖不到 hook 与池子 | **接受，后经 D3 部分修订**。`pause()` 覆盖面维持不变，「已发射项目的交易、领取、退款不可被平台干预」仍然成立；但 D3 新增了一个**只停阶梯铸造、7 天自动失效、可按项目分域**的独立刹车，用于货架定价本身出缺陷时的事故响应。`INCIDENT_RESPONSE.md` 需同步这条新边界 |
 | 8.6 (新) | `refundEnabled` 只写不读 | **保持代码，改注释**。明确为事件去重标记，权威状态是 `canRefund()` |
 | 8.7 (新) | 货架套利窗口无量化保护 | **已钉**。`test_sweepIsProfitableOnceTheMarketHasRunAhead` 上界从 `2×` 收紧到 `1.5×`。`ExceedsTierRemaining` 错误注释改为指向 `maxMintable()` |
 | 8.8 (新) | 开盘初期 TWAP 退化为纯 spot | **已闭环**。`span < TWAP_WINDOW`（含 `twap == 0`）时 `_safeReferencePrice = min(spot, p0)`，两步脉冲最多顶开货架 0。`test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` |
@@ -1570,23 +1579,89 @@ encodeBurnPayload({
 
 ---
 
-## 11. 待决策（Open Decisions）
+## 11. 决策记录（Decision Record）
 
-以下四条不是缺陷，是**需要产品方拍板的取舍**。每条都已把技术侧做到不依赖决策也能运行的状态，但都还有一个只有产品能回答的问题。
+以下四条不是缺陷，是**产品方已经拍板的取舍**。本节记录的是决定本身、理由、落地位置，以及**什么条件下应当重新审视**——最后一项尤其重要：一个没写下重审条件的决定，等于把当时的假设永久化了。
 
-**D1 · 早期放量是否要继续压到流通盘 10%。** 现状：2× 时释放 1,149,750 枚 = 认领盘的 24.9%、释放后总流通盘的 19.9%（见 §3.1）。最初提出的目标是 ~10%。40/60 拆分把 36.5% 压到 13.7% 是同口径下的真实改进，但那是对 `GENESIS_SUPPLY` 的口径。要真压到流通盘 10%，只能继续加大跨度或再调切分——两者都会改变整条曲线的手感（跨度加大压中后期弹性；切分再调会稀释阶梯本身的意义）。**问题：24.9% 是可接受的，还是必须继续压？**
+四条均于 v5.0 红队复查后一次性定稿。D1 与 D3 改变了代码，D2 与 D4 是明确的「维持现状」——**「维持现状」也是一个决定，不是没有决定**，所以同样立此存照。
 
-**D2 · 国库策展要不要上时间锁。** 现状：`addLadderToken` / `removeLadderToken` 是 owner 即时生效。8.30 的除数改动 + sqrt 地板把「随时可抽干」降到「按窗口限速」，但 owner 仍能在一笔交易里把受益市场换成任意一个已发射代币。如果 owner 最终是 Safe 多签，多签本身的审批流程可能已经够了。**问题：是否给这两个函数加 timelock（比如 48h），还是依赖多签流程？**
+---
 
-**D3 · 是否需要协议级熔断。** 现状：`pause()` 只覆盖工厂的 `createLaunch` / `registerPoG` / `deposit`。已开盘项目的 swap、阶梯铸造、`claimGenesis`、`claimReferralReward`、`refund` 一概停不下来——这是 8.5 (新) 记录的去中心化承诺。事故响应时唯一能做的是不再接新项目。**问题：这个「不可干预」承诺要保持，还是需要一个可以叫停已开盘项目的开关（那会同时成为一个新的信任假设和攻击面）？**
+### D1 · 参数固化：接受 24.9% 的早期放量
 
-**D4 · TWAP 是否值得上环形缓冲。** 现状：两检查点，深度就等于 `TWAP_WINDOW` = 1800s，攻击者顶住价格 30 分钟即可让均价收敛（§8.29）。完整环形缓冲能把深度与单笔成本解耦，代价是一次不小的重写，并把 gas 成本从「每窗口一次冷 SSTORE」推回接近「每笔一次」。**问题：30 分钟的操纵成本够不够？若不够，是接受 gas 回升去换深度，还是继续加大 `TWAP_WINDOW`（线性提价、零工程量，但会拖慢真实上涨市场打开阶梯的速度）？**
+**决定：固化【2000× 跨度 / 4000 档 / 等量平均分配 / 8.4M 创世 + 12.6M 货架】，不再继续压早期放量。**
+
+| 参数 | 定值 |
+|---|---|
+| `GENESIS_SUPPLY` | 8,400,000e18（Claim 4.62M + LP 3.78M） |
+| `BONDING_MAX` | 12,600,000e18 |
+| `TIER_COUNT` | 4000 |
+| `TIER_SIZE` | 3,150e18（每档等量） |
+| `TIER_STEP_E18` | 1,001,902,508,266,805,824 |
+| `MAX_TIERS_PER_TX` | 32 |
+
+**接受的代价，说清楚：** 2× 时释放 1,149,750 枚。对 `GENESIS_SUPPLY` 是 13.7%，对**可交易认领盘**是 24.9%，对释放后总流通盘是 19.9%（三个口径见 §3.1 与 §3.4）。最初提出的目标是流通盘 ~10%，**这个目标没有达成，且决定不再追**。
+
+**理由：** 40/60 拆分把 36.5% 压到 13.7% 是同口径下的真实改进，剩下的差距只能靠加大跨度或再缩 Phase 2 来补，而两者都比它们修的问题更糟——等量档位下释放比例是 `log(R) / log(SPAN)`，跨度对早期的边际作用是对数级的（1000×→2000× 只把 2× 释放从 36.5% 挪到 34.9%，真正起作用的是切分），代价却是整条中后期曲线被拉平；再缩 Phase 2 则会削掉市场唯一能定价的那部分供应，把项目推回「创世盘决定一切」的老问题。
+
+**落地：** `test_ratifiedParameterSet_isFrozen` @ `test/ToshV5.t.sol` 把六个字面量钉在一处，作为改动经济模型的**单一闸门**；`test_earlyReleaseSchedule_isSetByTheSupplySplit` 同时钉住三个口径的释放比例，任何一个口径变了都得重述另外两个。
+
+**重审条件：** 若首批真实项目在 2× 附近出现持续的卖压塌陷（即 24.9% 事实上吃不下），或跨度/切分因其他原因需要改动时，一并重开此条。
+
+---
+
+### D2 · 国库策展：不加时间锁，依赖多签流程
+
+**决定：`addLadderToken` / `removeLadderToken` 维持 owner 即时生效，不引入 timelock。**
+
+**理由：** 8.30 的两处缓解（`perToken` 除以 `BATCH_SIZE`、`_buybackSqrtFloor` 按窗口限速）已经把「随时把储备抽干砸向单一盘口」降级为「按窗口限速的缓慢倾斜」，剩下的是**治理面而非代码面**的风险。timelock 在这里的收益并不对称：它拦不住一个铁了心的 owner（等 48 小时即可），却会在真正需要紧急摘牌时（比如某个已挂牌项目的池子出了问题、继续回购等于往坏池子里送钱）强制延迟 48 小时。既然 owner 终局是 Safe 多签，多签自身的提案—审批流程已经提供了「改动可见、需要多人同意」这一层，与 timelock 想买的是同一样东西。
+
+**前提（已确认）：** Factory 与 LadderTreasury 的终局 owner 为 **Safe 多签，2/N 或更严格**。**这条决定完全建立在这个前提上**——多签的提案—审批流程就是本决定用来替代 timelock 的那一层保护，前提不成立则决定不成立。
+
+**落地：** 无代码改动。`ToshLadderTreasury` 的 natspec 与 admin 面板 G4 文案已诚实标注「策展不是中立的，它是经济旋钮」。
+
+**重审条件：** ①owner 结构若退化为单 EOA 或 1/N 多签，**必须立即补 timelock**，本决定自动失效；②国库储备规模显著超过单个已挂牌项目的池深时应重审——那时集中度的绝对影响会超过 sqrt 地板的限速能力；③所有权移交完成后，应在 `INCIDENT_RESPONSE.md` 记录实际的 N 与阈值，使前提可被审计而不是口头相传。
+
+---
+
+### D3 · 协议级熔断：新增有界的阶梯停售开关
+
+**决定：新增 `haltLadderMinting` / `resumeLadderMinting`，这是唯一一个能触及已开盘项目的平台刹车。此条修订 §8.5 (新) 记录的「已发射项目完全不可被平台干预」承诺。**
+
+**为什么开这个口子：** `pause()` 有意不停任何已开盘项目，这条边界是平台的核心承诺，但它留下了一个值得关门的缺口——**如果货架定价本身被发现有缺陷，每一个在跑的项目都会继续按那个缺陷卖出供应，而唯一的应对手段是好言相劝**。这不是理论风险：本轮红队就在定价闸门上找到了 8.26（开盘锁是掷硬币）。
+
+**为什么它没有变成一个否决权：** 三条性质把新增的信任假设约束成有界的：
+
+1. **只触及 `mintBondingCurve`，别无其他。** 池子 swap、散户 LP、`claimGenesis`、`claimReferralReward`、`refund` 全部不受影响。**停售能让买家损失一个机会，永远不能让任何人损失一笔余额**——没有任何用户资金会被它扣住。
+2. **它会自己过期。** 每次停售携带一个不超过 `MAX_HALT_DURATION`（7 天）的截止时间。一个变坏的、被攻陷的、或者干脆消失了的 owner **无法永久锁死 Phase 2**，最坏情况是一个必须每周在链上公开续期一次的滚动停售。这是「破窗锤」与「杀死开关」的区别，也是新信任假设有界而非绝对的原因。
+3. **它是可分域的。** `hook == address(0)` 停全部，任何其他地址只停那一个项目，单个出问题的市场不需要把全平台的 Phase 2 拖下水。
+
+**为什么是独立开关而不是并进 `pause()`：** 合并会悄悄拓宽「paused」这个词对每一个读者和每一个既有测试的含义。两个刹车回答的是不同问题——`pause()` 阻止平台**生长**，这个阻止阶梯**售卖**。
+
+**落地：** `ToshFactory.haltLadderMinting` / `resumeLadderMinting` / `ladderMintingHalted`；hook 侧 Guard 0 与 `LadderMintingHalted` 错误；`maxMintable()` 同步读取，保证 UI 与闸门口径一致；admin 面板新增对应模块。
+
+**重审条件：** 若上线一年内从未使用，应重新评估它是否值得继续承担这份信任假设。反之若被使用超过一次，说明货架定价需要的是修复而不是刹车。
+
+---
+
+### D4 · TWAP 深度：维持 1800s 两检查点，不上环形缓冲
+
+**决定：`TWAP_WINDOW` 保持 1800 秒，不改造成完整环形缓冲。**
+
+**接受的代价，说清楚：** 预言机的操纵深度**就等于** `TWAP_WINDOW`。攻击者把价格顶住 30 分钟再用灰尘 swap 触发检查点滚动，均价即收敛到操纵价（§8.29，`test_probeB_twapReanchorSpeed` 钉住了这个行为）。1800s 相对原先 600s 把这份持仓成本翻了三倍，但它是**提价，不是变形**。
+
+**理由：** 完整环形缓冲能把深度与单笔成本解耦，代价是一次不小的重写，且把 gas 从「每窗口一次冷 SSTORE」推回接近「每笔 swap 一次」——这笔成本由**每一个诚实交易者**承担，用来防一个必须先自掏腰包把价格顶住半小时、且顶完还要面对 105% 溢价才能铸造的攻击者。继续加大 `TWAP_WINDOW` 则是零工程量的线性提价，但会同步拖慢**真实**上涨的市场打开阶梯的速度，30 分钟已接近这个取舍的拐点。
+
+**落地：** 无代码改动。`TWAP_WINDOW` 的 natspec 已明写「这个常数就是预言机的全部纵深，把它读作价格而不是保证」。
+
+**重审条件：** 若出现一次真实的持价操纵（而非理论推演），或阶梯铸造的经济激励发生变化（例如 `SHELF_PREMIUM_BPS` 下调，使得操纵后铸造真正有利可图）——目前挡住攻击的主力是 105% 溢价而不是预言机，一旦那层保护变薄，这条必须重开。
 
 ---
 
 ## 附：本文档的取证边界
 
-- 本文档 §8.26–8.31 与 §11 对应的那轮改动**已执行** `forge build` 与 `forge test`（245/245 通过）、前端 `npm run build` 与 `npm run lint`（均无错误）。此前章节的断言仍以静态阅读为主。
+- 本文档 §8.26–8.31 与 §11 对应的那轮改动**已执行** `forge build` 与 `forge test`、前端 `npm run build` 与 `npm run lint`（均无错误）。§11 定稿（D1 参数固化 + D3 阶梯停售）后重跑为 250/250 通过。此前章节的断言仍以静态阅读为主。
+- **§8.12 的「pause 覆盖 `deposit`」是被本轮实测推翻的**：`deposit` 只有 `nonReentrant`，没有 `whenNotPaused`。该错误同时存在于 `INCIDENT_RESPONSE.md` §2 Step 2，两处均已修正。这提示本文其余「某函数受某修饰符保护」类断言若未标注测试名，都应视为待核实——**修饰符清单是最容易在重构中悄悄失真的一类文档**。
 - 未阅读 `test/ToshLaunchpadHook.t.sol`（81KB）、`test/ToshFactory.t.sol`（32KB）、`test/ToshFactoryCoverage.t.sol`（30KB）、`test/ToshHookCoverage.t.sol`（18KB）、`test/ToshPauseBlacklist.t.sol`（17KB）、`test/ToshIntegration.t.sol`、`test/ToshFuzz.t.sol`、`test/ToshV5Fuzz.t.sol` 的全文——这些文件里可能还有本文未收录的设计理由。已阅读 `test/ToshV5.t.sol` 全部关键段落、`test/ToshV5Guards.t.sol` 与 `test/ToshV5Factory.t.sol` 的测试名清单、`test/ToshV5Bytecode.t.sol` 全文。
 - 未阅读 `soat-frontend/src/app/admin/page.tsx`（51KB）、`UserDrawer.tsx`（33KB）、`useLaunchData.ts`、`pogQuota.ts`、`apiGuard.ts`、`api/` 下的服务端路由全文——PoG 签发链路与管理后台的细节可能有本文未覆盖的规则。
 - `scripts/` 目录（`extractBytecode.js`、`pogSigner.ts`、`checkLpActions.ts`）未阅读，只从其他文件的引用推断其作用。

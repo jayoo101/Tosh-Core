@@ -15,6 +15,13 @@ support.
 > deposits, already-launched pools, shelf mints, claims, or refunds. If at
 > any point a responder cannot meet the 60-second bar for new launches,
 > treat it as a P0 incident in its own right.
+>
+> **One exception, added in v5.0.** `haltLadderMinting` can stop shelf mints on
+> projects that have already launched — and nothing else on them. It exists for
+> one scenario: a defect in the shelf pricing itself, where every live project
+> would otherwise keep selling supply against the bug. It expires on its own
+> within 7 days, and it cannot touch swaps, LP, claims, or refunds. See
+> Section 2b.
 
 ---
 
@@ -95,14 +102,27 @@ cast send $FACTORY_ADDRESS "pause()" \
   --private-key $PRIVATE_KEY
 ```
 
-### Step 2 — Confirm halt is comprehensive
+### Step 2 — Confirm what the halt actually covers
 
-After `paused() == true`, **all three** of these surfaces revert with
+After `paused() == true`, **exactly two** surfaces revert with
 `EnforcedPause()`:
 
 - `factory.registerPoG(...)`
 - `factory.createLaunch(...)`
-- `factory.deposit(...)`
+
+> **`factory.deposit(...)` KEEPS WORKING.** It carries `nonReentrant` only —
+> there is no `whenNotPaused` on it. A genesis round that was already open
+> goes on taking ETH for its full window while the platform is paused. Pinned
+> by `test_pause_doesNotBlockDepositIntoALiveRound`.
+>
+> This runbook previously listed `deposit` as a paused surface. It was wrong,
+> and it was wrong in the most expensive direction: a responder reading it at
+> 3am would believe they had stopped the inflow when they had not. **If your
+> incident requires stopping money coming in, `pause()` is not sufficient** —
+> you must additionally blacklist the depositing addresses (Section 3), and
+> accept that you cannot stop an honest depositor from funding a round that is
+> already live. That is the same de-centralisation promise that keeps refunds
+> working; it cuts both ways.
 
 `hook.refund()` is **intentionally not gated** — depositors who deposited
 before the incident must keep their exit. This is property #2 in
@@ -172,6 +192,90 @@ until all four of the following hold:**
 After unpause, atomic restoration of `registerPoG`, `createLaunch`, and
 `deposit` is guaranteed by the contract (property #3 in
 `ToshPauseBlacklistTest`) — you do not need to manually verify each surface.
+
+---
+
+## 2b. P0 — Ladder halt playbook (shelf pricing defect)
+
+`pause()` cannot reach a launched project. `haltLadderMinting` can, and it is
+the **only** switch that can. Use it for exactly one class of incident: **the
+shelf pricing or the price gate itself is defective**, so every live project is
+selling supply against a bug and asking buyers to stop is not a plan.
+
+Do **not** reach for it for anything else. A single misbehaving market, a
+whale, an unhappy creator, a price you dislike — none of those are this switch.
+
+### What it does and does not touch
+
+| Halted | Untouched |
+|---|---|
+| `hook.mintBondingCurve(...)` → `LadderMintingHalted()` | pool swaps (buy and sell) |
+| `hook.maxMintable()` → reports `0`, so the UI agrees with the guard | retail LP add / remove |
+| | `hook.claimGenesis()` |
+| | `hook.claimReferralReward()` |
+| | `hook.refund()` |
+| | `factory.deposit(...)` into a live round |
+
+**A halt costs a buyer an opportunity. It can never cost anyone a balance.**
+If you ever find a path where a halt traps funds, that is a P0 in its own
+right — roll it back and page the commander.
+
+### Step 1 — Choose the scope
+
+```text
+haltLadderMinting(address(0), duration)   // every project
+haltLadderMinting(<hook>,    duration)    // that project only
+```
+
+Prefer the narrow form. Global halt is for a defect in the pricing code that is
+shared by every hook; a single compromised market does not justify taking the
+whole platform's Phase 2 offline.
+
+### Step 2 — Choose the duration
+
+`duration` is in **seconds**, must be non-zero, and must be `<= 7 days`
+(`MAX_HALT_DURATION`, else `HaltDurationTooLong()`). It is a deadline, not a
+flag: **the halt lapses on its own**, and re-arming is a fresh on-chain
+transaction that anyone can see.
+
+Pick the shortest duration that plausibly covers diagnosis. 24 h is the normal
+opening bid; escalate by re-arming rather than by starting at 7 days.
+
+**Testnet (deployer EOA path):**
+
+```bash
+# halt every ladder for 24 hours
+cast send $FACTORY_ADDRESS "haltLadderMinting(address,uint256)" \
+  0x0000000000000000000000000000000000000000 86400 \
+  --rpc-url $TARGET_RPC --private-key $PRIVATE_KEY
+
+# confirm
+cast call $FACTORY_ADDRESS "ladderMintingHalted(address)(bool)" $HOOK_ADDRESS \
+  --rpc-url $TARGET_RPC
+```
+
+**Mainnet:** Gnosis Safe → Contract Interaction → `haltLadderMinting`, same
+2-of-N signing bar as `pause()`.
+
+### Step 3 — Communicate, in this order
+
+Shelf minting stopping is visible to users immediately (the mint button locks
+and reads `[ladder_halted]`), so the announcement window is tighter than for a
+factory pause. Post within **15 minutes**, and state three things explicitly:
+what is halted, what is *not* halted (trading, claims, refunds all continue),
+and when the halt expires on its own.
+
+### Step 4 — Resume
+
+```bash
+cast send $FACTORY_ADDRESS "resumeLadderMinting(address)" $HOOK_ADDRESS \
+  --rpc-url $TARGET_RPC --private-key $PRIVATE_KEY
+```
+
+Letting a halt lapse silently is acceptable for a false positive. For a real
+incident, resume **explicitly** and publish the post-mortem in the same hour —
+an expiring halt that nobody narrated looks identical to an owner who lost
+their keys.
 
 ---
 
@@ -291,6 +395,12 @@ compromised, the attacker can:
 
 - `pause()` permanently — DoS on new launches only. In-flight genesis rounds
   keep taking deposits and every project already launched is untouched.
+- `haltLadderMinting(0x0, 7 days)` on repeat — a **rolling** DoS on shelf
+  minting across the platform. Bounded by design: each halt lapses after at
+  most 7 days, so the attacker must keep re-arming in public, on-chain, and
+  they still cannot touch swaps, LP, claims, or refunds. Treat it as a loud
+  nuisance, not a fund-loss event, and let it inform how fast you must
+  complete the ownership migration below.
 - `setPlatformTreasury(<their-address>)` — **no effect.** This is a v4.x
   leftover that no longer sits on any money path; all platform revenue goes to
   the immutable `ladderTreasury`. Do not spend incident time on it.
@@ -406,6 +516,9 @@ operational maturity.
 ├────────────────────────────────────────────────────────────────────────┤
 │  HALT NEW LAUNCHES      Gnosis Safe → factory.pause()                  │
 │  RESUME                 Gnosis Safe → factory.unpause()                │
+│  HALT SHELF MINTS       factory.haltLadderMinting(hook|0x0, seconds)   │
+│                         0x0 = all projects · max 86400*7 · auto-expires│
+│  RESUME SHELF MINTS     factory.resumeLadderMinting(hook|0x0)          │
 │  BAN ADDRESS (24 h)     cast send … setBlacklist([…], 86400)           │
 │  BAN ADDRESS (forever)  cast send … setBlacklist([…], 2^256-1)         │
 │  UN-BAN                 cast send … liftBlacklist([…])                 │
@@ -413,19 +526,30 @@ operational maturity.
 │                         → unpause                                      │
 │  DELIST BUYBACK TOKEN   Gnosis Safe → treasury.removeLadderToken(…)    │
 │                                                                        │
-│  PAUSE IS NARROW.  It stops createLaunch and registerPoG.  It does     │
-│  NOT stop deposits into a live genesis round, and it does NOT touch    │
-│  any project already launched — not swap, not mintBondingCurve, not    │
-│  claim, not refund, not LP.  That is the de-centralisation promise:    │
-│  once the platform has taken money for a round, it cannot starve it.   │
-│  A round fails by missing its soft cap, not by an owner switch.        │
+│  PAUSE IS NARROW.  It stops createLaunch and registerPoG.  THAT IS     │
+│  ALL.  It does NOT stop deposits into a live genesis round — deposit   │
+│  has no whenNotPaused — and it does NOT touch any project already      │
+│  launched: not swap, not claim, not refund, not LP.  That is the       │
+│  de-centralisation promise: once the platform has taken money for a    │
+│  round, it cannot starve it.  A round fails by missing its soft cap,   │
+│  not by an owner switch.                                               │
 │                                                                        │
-│  REFUNDS WORK DURING PAUSE.  This is intentional.  Pinned by           │
-│  test_pause_doesNotBlockRefund in test/ToshV5Factory.t.sol.  If you    │
-│  break this you've turned a pause into a hostage situation.            │
+│  IF YOU NEED TO STOP MONEY COMING IN, PAUSE IS NOT ENOUGH.  Blacklist  │
+│  the addresses (§3).  You cannot stop an honest depositor funding a    │
+│  round that is already open.                                           │
+│                                                                        │
+│  ONE SWITCH REACHES A LAUNCHED PROJECT: haltLadderMinting.  It stops   │
+│  mintBondingCurve and nothing else, and it expires within 7 days.      │
+│  Use it only for a defect in shelf pricing itself.  See §2b.           │
+│                                                                        │
+│  REFUNDS WORK DURING PAUSE AND DURING A LADDER HALT.  Intentional.     │
+│  Pinned by test_pause_doesNotBlockRefund in test/ToshV5Factory.t.sol.  │
+│  If you break this you've turned a brake into a hostage situation.     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-*Last updated: 2026-08-25 (v5.0 — pause boundary, ladder curation policy).*
+*Last updated: 2026-08-25 (v5.0 — ladder halt playbook §2b; corrected the pause
+boundary: `deposit` is NOT paused; owner-compromise section covers rolling
+halts).*
