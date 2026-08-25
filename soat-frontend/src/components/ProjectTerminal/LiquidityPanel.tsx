@@ -10,10 +10,9 @@ import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
+import { Card, Readout } from '@/components/ui'
 import { fmt } from './format'
-import {
-  Section, Readout, Field, WriteButton, AlarmLine, TxLine, labelCls,
-} from './primitives'
+import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
 
 const LP_SLIPPAGE_PRESETS = [
   { bps: 50n,  label: '0.5%' },
@@ -214,7 +213,7 @@ export function LiquidityPanel({
   })()
 
   return (
-    <Section
+    <Card
       id="P-3"
       title={`MARKET MAKING · ${symbol}/ETH`}
       subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
@@ -293,7 +292,7 @@ export function LiquidityPanel({
       {positions.length > 0 && (
         <div className="border border-[#1F1F2E]">
           <div className="px-4 py-2 border-b border-[#1F1F2E]">
-            <span className={labelCls}>{'// OPEN POSITIONS'}</span>
+            <span className="font-mono text-label text-tosh-mute">{'// OPEN POSITIONS'}</span>
           </div>
           {positions.map(pos => (
             <div
@@ -329,6 +328,6 @@ export function LiquidityPanel({
 
       <AlarmLine msg={error ?? (txError?.message?.slice(0, 200) ?? null)} />
       <TxLine hash={txHash} label="modifyLiquidities" />
-    </Section>
+    </Card>
   )
 }

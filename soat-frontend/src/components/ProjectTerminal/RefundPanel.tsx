@@ -4,8 +4,9 @@ import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { Card, Readout } from '@/components/ui'
 import { fmt } from './format'
-import { Section, Readout, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ export function RefundPanel({
   const locked = !isConnected || ethDeposited === 0n
 
   return (
-    <Section
+    <Card
       id="P-3"
       title="REFUND TERMINAL"
       subtitle="hook.refund() — soft-cap not met OR zombie window elapsed · full claim, no penalty"
@@ -58,6 +59,6 @@ export function RefundPanel({
       />
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="refund" />
-    </Section>
+    </Card>
   )
 }

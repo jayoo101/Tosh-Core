@@ -1,7 +1,6 @@
 import type * as React from 'react'
 
 import { fmt } from './format'
-import { labelCls } from './primitives'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // H-01 LEDGER  ·  pure-text reconciliation
@@ -53,7 +52,7 @@ export function QuotaLedger({
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between border-b border-[#1F1F2E]/60 py-1.5">
-      <span className={labelCls}>{label}</span>
+      <span className="font-mono text-label text-tosh-mute">{label}</span>
       <span className="font-mono text-[11px] text-white tabular-nums break-all text-right">
         {value}
       </span>

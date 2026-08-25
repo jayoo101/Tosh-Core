@@ -6,8 +6,9 @@ import {
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { Card, Readout } from '@/components/ui'
 import { fmt } from './format'
-import { Section, Readout, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ export function GenesisClaimPanel({
   if (ethDeposited === 0n || hasClaimed) return null
 
   return (
-    <Section
+    <Card
       id="P-1.9"
       title={`GENESIS ALLOCATION · ${symbol}`}
       subtitle="hook.claimGenesis() — your pro-rata share of the genesis block, one claim per wallet"
@@ -73,6 +74,6 @@ export function GenesisClaimPanel({
       />
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="claimGenesis" />
-    </Section>
+    </Card>
   )
 }

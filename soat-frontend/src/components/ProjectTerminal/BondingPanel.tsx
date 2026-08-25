@@ -10,10 +10,9 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
   TIER_COUNT, TIER_SIZE,
 } from '@/lib/contracts'
+import { Card, Readout } from '@/components/ui'
 import { fmt } from './format'
-import {
-  Section, Readout, Field, WriteButton, AlarmLine, TxLine, labelCls,
-} from './primitives'
+import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
 import { ShelfLadder } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
@@ -205,7 +204,7 @@ export function BondingPanel(p: BondingProps) {
              && p.isConnected
 
   return (
-    <Section
+    <Card
       id="P-2"
       title={`SHELF LADDER · ${p.symbol}`}
       subtitle="hook.mintBondingCurve{value}(tokenAmount) · 4000 rungs to 2000× · sweeps shelves · 105% min(spot, TWAP) gate"
@@ -274,19 +273,19 @@ export function BondingPanel(p: BondingProps) {
         <div className="border border-[#1F1F2E]">
           <div className="grid grid-cols-1 sm:grid-cols-3 divide-x divide-[#1F1F2E]">
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className={labelCls}>QUOTED COST</span>
+              <span className="font-mono text-label text-tosh-mute">QUOTED COST</span>
               <span className="font-mono text-base text-white tabular-nums">
                 {isQuoting ? '…' : `${fmt(ethCost)} ETH`}
               </span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className={labelCls}>MAX W/ 0.5% SLIPPAGE</span>
+              <span className="font-mono text-label text-tosh-mute">MAX W/ 0.5% SLIPPAGE</span>
               <span className="font-mono text-base text-white tabular-nums">
                 {fmt(maxEthCost)} ETH
               </span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-1">
-              <span className={labelCls}>L-01 GUARD</span>
+              <span className="font-mono text-label text-tosh-mute">L-01 GUARD</span>
               {isDust
                 ? <span className="font-mono text-base text-tosh-fluo">→ L-01_LOCKED</span>
                 : <span className="font-mono text-base text-tosh-fluo">L-01_invariant: verified.</span>}
@@ -329,6 +328,6 @@ export function BondingPanel(p: BondingProps) {
 
       <AlarmLine msg={error ?? (mintError?.message?.slice(0, 200) ?? null)} />
       <TxLine hash={mintHash} label="mintBondingCurve" />
-    </Section>
+    </Card>
   )
 }

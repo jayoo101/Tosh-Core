@@ -9,10 +9,9 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
 } from '@/lib/contracts'
 import { buildReferralLink } from '@/lib/useReferral'
+import { Card, Readout } from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import {
-  Section, Readout, WriteButton, AlarmLine, TxLine, labelCls,
-} from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL PANEL  ·  share a link, claim the commission it earned
@@ -95,7 +94,7 @@ export function ReferralPanel({
   const txBusy = isPending || isConfirming
 
   return (
-    <Section
+    <Card
       id="REF"
       title="REFERRAL DESK"
       subtitle="10% of every genesis deposit made through your link · payable once the project launches"
@@ -106,7 +105,7 @@ export function ReferralPanel({
         hint={claimable === 0n
           ? 'accrues on deposit · unlocks at launch()'
           : fmtFull(claimable, 18)}
-        tone={claimable > 0n ? 'fluo' : 'mute'}
+        tone={claimable > 0n ? 'ok' : 'mute'}
       />
 
       <WriteButton
@@ -120,7 +119,7 @@ export function ReferralPanel({
 
       {link && (
         <div className="border border-[#1F1F2E] flex flex-col gap-2 px-4 py-3">
-          <span className={labelCls}>YOUR REFERRAL LINK</span>
+          <span className="font-mono text-label text-tosh-mute">YOUR REFERRAL LINK</span>
           <p className="font-mono text-[11px] text-[#CCC] break-all leading-relaxed">{link}</p>
           <button
             type="button"
@@ -150,6 +149,6 @@ export function ReferralPanel({
 
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="claimReferralReward" />
-    </Section>
+    </Card>
   )
 }

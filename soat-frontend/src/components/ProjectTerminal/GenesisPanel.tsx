@@ -6,11 +6,9 @@ import { parseUnits, formatUnits, type Address } from 'viem'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS,
 } from '@/lib/contracts'
-import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
+import { classifyHorizon, formatHorizonLabel, formatHorizonUtc, Card, Readout, Progress } from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import {
-  Section, Readout, Field, WriteButton, AlarmLine, TxLine, ProgressBar,
-} from './primitives'
+import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { PogScanButton } from './PogScanButton'
 
@@ -178,15 +176,17 @@ export function GenesisPanel(p: GenesisProps) {
 
   return (
     <div className="flex flex-col">
-      <Section
+      <Card
         id="P-1"
         title={`GENESIS PULSE · ${p.symbol}`}
         subtitle="factory.deposit{value}(hook, referrer) — collecting genesis ETH until the window closes"
       >
-        <ProgressBar
+        <Progress
           pct={pctGenesis}
           label={`GENESIS PROGRESS · ${p.symbol}`}
-          totalLabel={`${fmt(p.totalEthDeposited)} / ${fmt(p.softCap)} ETH`}
+          caption={`${fmt(p.totalEthDeposited)} / ${fmt(p.softCap)} ETH`}
+          tone="ink"
+          ascii
         />
 
         {oversubscribed && !windowClosed && (
@@ -254,7 +254,7 @@ export function GenesisPanel(p: GenesisProps) {
             label="REFERRED BY"
             value={`${p.referrer.slice(0, 10)}…${p.referrer.slice(-6)}`}
             hint="bound platform-wide on your first deposit · 10% of it credits them"
-            tone="fluo"
+            tone="ok"
           />
         )}
 
@@ -329,7 +329,7 @@ export function GenesisPanel(p: GenesisProps) {
 
         <AlarmLine msg={error ?? (depositError?.message?.slice(0, 200) ?? null)} />
         <TxLine hash={depositHash} label="deposit" />
-      </Section>
+      </Card>
     </div>
   )
 }

@@ -22,7 +22,7 @@ import type { Address, ContractFunctionParameters } from 'viem'
 import type { ProjectRow } from '@/app/lib/supabase'
 import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX } from '@/lib/contracts'
 import { useBoundReferrer } from '@/lib/useReferral'
-import { Section } from './primitives'
+import { Card } from '@/components/ui'
 import { resolvePhase, type Phase } from './phase'
 import { ConnectGate } from './ConnectGate'
 import { GenesisPanel } from './GenesisPanel'
@@ -157,19 +157,22 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   if (!hookAddress) {
     return (
       <div className="flex flex-col">
-        <Section id="ERR" title="HOOK BINDING MISSING">
+        <Card id="ERR" title="HOOK BINDING MISSING">
           <p className="font-mono text-[11px] text-[#888] leading-relaxed">
             This project row has no <span className="text-tosh-fluo">hook_address</span> on file.
             Deploy may still be pending — refresh after the createLaunch tx confirms.
           </p>
-        </Section>
+        </Card>
       </div>
     )
   }
 
+  // Vertical rhythm lives on the container rather than as `mt-6` on each panel:
+  // a Card carrying its own top margin only spaces correctly when it happens to
+  // have a sibling above it.
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 p-6 shadow-2xl backdrop-blur-md font-sans">
-      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 font-mono">{`/// Action Terminal`}</p>
+    <div className="flex flex-col gap-section rounded-2xl border border-zinc-800 bg-zinc-900/20 p-6 shadow-2xl backdrop-blur-md font-sans">
+      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-mono">{`/// Action Terminal`}</p>
       {!wConnected ? (
         <ConnectGate />
       ) : phase === 'genesis' ? (

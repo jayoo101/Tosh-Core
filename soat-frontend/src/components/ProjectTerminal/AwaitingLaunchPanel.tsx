@@ -4,8 +4,9 @@ import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID, LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
+import { Card, Readout } from '@/components/ui'
 import { fmt } from './format'
-import { Section, Readout, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ export function AwaitingLaunchPanel({
   const txBusy = isPending || isConfirming
 
   return (
-    <Section
+    <Card
       id="P-1.5"
       title="LAUNCH TERMINAL"
       subtitle="hook.launch() — seeds the V4 pool, mints genesis LP, opens the shelf ladder"
@@ -93,6 +94,6 @@ export function AwaitingLaunchPanel({
 
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="launch" />
-    </Section>
+    </Card>
   )
 }

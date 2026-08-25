@@ -3,8 +3,8 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TIER_COUNT, TIER_SIZE, TWAP_WINDOW_LABEL } from '@/lib/contracts'
+import { Readout, Progress } from '@/components/ui'
 import { fmt } from './format'
-import { Readout, ProgressBar } from './primitives'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHELF LADDER  ·  4000 discrete rungs, 105 % price gate
@@ -77,15 +77,17 @@ export function ShelfLadder({
           label="105% CEILING"
           value={`${fmt(ceiling)} ETH`}
           hint={unlocked ? 'min(spot, twap) · unlocked' : 'wait for spot/TWAP'}
-          tone={unlocked ? 'fluo' : 'mute'}
+          tone={unlocked ? 'ok' : 'mute'}
         />
       </div>
 
       <div className="px-4 pb-3">
-        <ProgressBar
+        <Progress
           pct={fillPct}
           label={`SHELF #${tierIndex.toString()} FILL`}
-          totalLabel={`${fmt(TIER_SIZE - remaining)} / ${fmt(TIER_SIZE)}`}
+          caption={`${fmt(TIER_SIZE - remaining)} / ${fmt(TIER_SIZE)}`}
+          tone="ink"
+          ascii
         />
       </div>
 
