@@ -1,135 +1,232 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * TOSH PROTOCOL · CYBER-MINIMALISM   (v4.4 — MeritX-influenced refresh)
+ * TOSH PROTOCOL · MODERN IMMERSIVE TERMINAL   (v5.0 design substrate)
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Black canvas, hairline gray dividers, white text, fluorescent green for
- * primary CTA + audit-guard cues.  A tight semantic palette adds three
- * phase-tinted accents (curve / notice / admin) for cards, LEDs, and step
- * bars — all of them rare enough that the eye still reads "minimal".
+ * ONE visual language.  The v4.4 file carried two that contradicted each other:
+ * flat cyber-minimalism (absolute black, 1px hairlines, "no glow" written into
+ * the comments) and a glassmorphic layer bolted on later (backdrop-filter,
+ * box-shadow bars, text-shadow on hover).  Glass lost.  What replaced it:
  *
- *   Canvas         #000000   absolute deep-room black
- *   Line / border  #1F1F2E   1 px dark-gray divider
- *   Ink            #FFFFFF   primary type
- *   Mute           #888888   secondary type / labels
- *   Fluo           #00FFA3   primary CTA + audit-guard accent
- *   Curve          #22D3EE   Phase 2 shelf-ladder tint
- *   Notice         #FFB400   warnings, soft cooldown, near-deadline
- *   Admin          #A855F7   owner-only chrome ([ _sys_control ])
- *   Rust           #FF3355   reverts, wrong network, destructive
+ *   • Depth is real, not declared.  Four surfaces that actually differ
+ *     (canvas → surface → raised → overlay) instead of eight tokens that all
+ *     resolved to #000000 and encoded a hierarchy the eye could not see.
+ *   • No backdrop-filter anywhere.  Blur costs a compositor layer per card and
+ *     bought ~nothing over an opaque near-black page.  Elevation is carried by
+ *     surface value + hairline + a 1px inner top highlight instead.
+ *   • Glow is rationed to two jobs: a live status LED, and the focus/primary
+ *     state of the single armed CTA.  It is never ambient chrome.
  *
- * The token block keeps every legacy `--color-tosh-*` name alive (older
- * pages wire hundreds of classes against them) but adds the new phase
- * tints alongside.
+ * IDENTITY (kept)
+ *   Canvas       #000000  absolute black
+ *   Hairline     #1F1F2E  1px divider — unchanged, so a partial Phase-2
+ *                         migration from `border-[#1F1F2E]` to
+ *                         `border-tosh-line` is pixel-identical
+ *   Fluo         #00FFA3  primary CTA + audit-guard accent
+ *   Mono         JetBrains Mono for numbers / addresses / status / labels
+ *   Sans         Geist for prose
  *
- * Typography is now hybrid: Geist Sans for body / hero, JetBrains Mono
- * (the original) for labels, numbers, addresses, status pills, and code.
- * Use `font-mono` (Tailwind) anywhere you need monospace; `font-sans`
- * defaults to Geist.  `--font-stm` and `--font-pixel` stay aliased to mono
- * for legacy class compatibility.
+ * TOKEN CONTRACT
+ * ──────────────
+ * Raw values live in `:root`.  `@theme inline` maps them into Tailwind's
+ * namespaces.  Component CSS below reads the `:root` names.  There is exactly
+ * one place to change a colour.
  *
- * Three named animations replace the old animate-pulse default:
- *   • shimmer       — 2 s gradient sweep, used on skeleton loaders.
- *   • led-breathe   — 2.4 s opacity/scale pulse, used on status dots.
- *   • cable-flow    — 3 s horizontal gradient slide, used on the Trust
- *                     Pipeline connectors only.
- *   • marquee       — linear horizontal scroll for the TxFeed ticker.
+ * Tailwind class names are strings — a token that no longer exists degrades
+ * silently to no style and neither tsc nor the build will say a word.  Every
+ * name removed in this pass was grepped across all of `soat-frontend/src`
+ * first; the removals below had ZERO occurrences.  See the Phase-1 report for
+ * the per-token counts.  Two class names are kept purely as aliases because
+ * they are referenced from files this phase does not own: `.glass-card` and
+ * `.tosh-nuke-btn`.
  * ───────────────────────────────────────────────────────────────────────── */
 
 :root {
   --background: #000000;
   --foreground: #FFFFFF;
+
+  /* ── Surfaces — a depth ladder that is actually visible ───────────────── */
+  --tosh-canvas:  #000000;  /* page */
+  --tosh-surface: #08080B;  /* card / section */
+  --tosh-raised:  #0E0E13;  /* card header, nested panel, input well */
+  --tosh-overlay: #14141B;  /* modal, drawer, popover */
+
+  /* ── Hairlines ───────────────────────────────────────────────────────── */
+  --tosh-line:        #1F1F2E;
+  --tosh-line-strong: #2A2A3D;
+
+  /* ── Type ladder ─────────────────────────────────────────────────────── */
+  --tosh-ink:     #FFFFFF;
+  --tosh-ink-dim: #CCCCCC;
+  --tosh-mute:    #888888;
+  --tosh-faint:   #555555;
+
+  /* ── Semantic accents.  One base + one dim per tone; every tint, border
+   *    and hover state is an opacity modifier off the base
+   *    (`bg-tosh-fluo/10`, `border-tosh-fluo/30`), which is why the old
+   *    `-deep` / `-faint` rungs are gone. ─────────────────────────────── */
+  --tosh-fluo:      #00FFA3;  /* ok / primary / armed */
+  --tosh-fluo-dim:  #00CC82;
+  --tosh-rust:      #FF3355;  /* danger / revert / wrong network */
+  --tosh-rust-dim:  #BB2640;
+  --tosh-amber:     #FFB400;  /* warn / cooldown / near-deadline */
+  --tosh-amber-dim: #B27F00;
+  --tosh-curve:     #22D3EE;  /* info / Phase-2 ladder */
+  --tosh-curve-dim: #0E7490;
+  --tosh-admin:     #A855F7;  /* owner-only chrome */
+  --tosh-admin-dim: #6B21A8;
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --tosh-dur-fast:  120ms;   /* hover / colour swap */
+  --tosh-dur-base:  180ms;   /* the default; see --default-transition-* */
+  --tosh-dur-slow:  280ms;   /* panel open, drawer slide */
+  --tosh-ease-out:  cubic-bezier(0.32, 0.72, 0, 1);
+  --tosh-ease-soft: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  /* ── Font families — Geist sans + JetBrains Mono ──────────────────── */
-  --font-sans:  var(--font-geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
-  --font-mono:  var(--font-jbm,   ui-monospace, "SFMono-Regular", "Menlo", monospace);
-  --font-stm:   var(--font-jbm,   ui-monospace, "SFMono-Regular", monospace);
-  --font-pixel: var(--font-jbm,   ui-monospace, "SFMono-Regular", monospace);
+  /* ── Font families ───────────────────────────────────────────────────── */
+  --font-sans: var(--font-geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --font-mono: var(--font-jbm, ui-monospace, "SFMono-Regular", "Menlo", monospace);
 
-  /* ── Surfaces — all collapse to absolute black ─────────────────────── */
-  --color-tosh-canvas:    #000000;
-  --color-tosh-chassis:   #000000;
-  --color-tosh-rack:      #000000;
-  --color-tosh-rack-lift: #000000;
-  --color-tosh-bg:        #000000;
-  --color-tosh-bg-lift:   #000000;
-  --color-tosh-card:      #000000;
-  --color-tosh-card-lift: #000000;
+  /* ── Colours ─────────────────────────────────────────────────────────── */
+  --color-tosh-canvas:  var(--tosh-canvas);
+  --color-tosh-surface: var(--tosh-surface);
+  --color-tosh-raised:  var(--tosh-raised);
+  --color-tosh-overlay: var(--tosh-overlay);
 
-  /* ── 1 px line stack ────────────────────────────────────────────────── */
-  --color-tosh-line:          #1F1F2E;
-  --color-tosh-border:        #1F1F2E;
-  --color-tosh-border-strong: #2A2A3D;
-  --color-tosh-rivet:         #888888;
+  --color-tosh-line:        var(--tosh-line);
+  --color-tosh-line-strong: var(--tosh-line-strong);
 
-  /* ── Fluorescent (primary CTA + audit-guard accent) ─────────────────── */
-  --color-tosh-fluo:         #00FFA3;
-  --color-tosh-fluo-dim:     #00CC82;
-  --color-tosh-fluo-deep:    #00855A;
-  --color-tosh-fluo-faint:   #003A27;
-  --color-tosh-accent:       #00FFA3;
-  --color-tosh-accent-dim:   #00CC82;
-  --color-tosh-accent-deep:  #00855A;
-  --color-tosh-accent-faint: #003A27;
+  --color-tosh-ink:     var(--tosh-ink);
+  --color-tosh-ink-dim: var(--tosh-ink-dim);
+  --color-tosh-mute:    var(--tosh-mute);
+  --color-tosh-faint:   var(--tosh-faint);
 
-  /* ── Phase tints (v4.4) — used sparingly on cards / LEDs / step bars ─ */
-  /** Phase 2 4000-rung shelf-ladder tint — paired with Phase 2 cards
-   *  and the `[ SWAP ]` lever. */
-  --color-tosh-curve:       #22D3EE;
-  --color-tosh-curve-deep:  #0E7490;
-  --color-tosh-curve-faint: #06363F;
-  /** Owner-only admin chrome — only the [ _sys_control ] entry, the
-   *  /admin section headers, and the OWNER readout use this. */
-  --color-tosh-admin:       #A855F7;
-  --color-tosh-admin-deep:  #6B21A8;
-  --color-tosh-admin-faint: #2A0F4A;
+  --color-tosh-fluo:      var(--tosh-fluo);
+  --color-tosh-fluo-dim:  var(--tosh-fluo-dim);
+  --color-tosh-rust:      var(--tosh-rust);
+  --color-tosh-rust-dim:  var(--tosh-rust-dim);
+  --color-tosh-amber:     var(--tosh-amber);
+  --color-tosh-amber-dim: var(--tosh-amber-dim);
+  --color-tosh-curve:     var(--tosh-curve);
+  --color-tosh-curve-dim: var(--tosh-curve-dim);
+  --color-tosh-admin:     var(--tosh-admin);
+  --color-tosh-admin-dim: var(--tosh-admin-dim);
 
-  /* ── Alarm tones (kept narrow — only for revert text + warnings) ──── */
-  --color-tosh-rust:       #FF3355;
-  --color-tosh-rust-dim:   #BB2640;
-  --color-tosh-amber:      #FFB400;
-  --color-tosh-amber-dim:  #B27F00;
-  --color-tosh-amber-faint:#3D2A00;
+  /* ── Type scale.  Six named steps, each carrying its own tracking, so no
+   *    surface hand-picks `text-[11px] tracking-wider` again.  The old global
+   *    `letter-spacing: 0.01em` on <body> is gone — it fought every one of
+   *    these. ────────────────────────────────────────────────────────────
+   *
+   *    text-hero     page headline
+   *    text-section  governance-group / section heading
+   *    text-title    card title
+   *    text-body     prose, descriptions, blurbs
+   *    text-label    uppercase caption / field label / status pill
+   *    text-readout  numeric + address readout value (pair with font-mono)
+   *    text-figure   the one big number on a card (pair with font-mono)
+   */
+  --text-hero: 2.5rem;
+  --text-hero--line-height: 1.06;
+  --text-hero--letter-spacing: -0.03em;
+  --text-hero--font-weight: 800;
 
-  /* ── Type ladder ────────────────────────────────────────────────────── */
-  --color-tosh-ink:         #FFFFFF;
-  --color-tosh-text:        #FFFFFF;
-  --color-tosh-text-dim:    #CCCCCC;
-  --color-tosh-mute:        #888888;
-  --color-tosh-text-mute:   #888888;
-  --color-tosh-text-faint:  #555555;
+  --text-section: 1.5rem;
+  --text-section--line-height: 1.15;
+  --text-section--letter-spacing: -0.02em;
+  --text-section--font-weight: 700;
+
+  --text-title: 1rem;
+  --text-title--line-height: 1.3;
+  --text-title--letter-spacing: -0.01em;
+  --text-title--font-weight: 700;
+
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.6;
+  --text-body--letter-spacing: 0em;
+  --text-body--font-weight: 400;
+
+  --text-label: 0.625rem;
+  --text-label--line-height: 1.4;
+  --text-label--letter-spacing: 0.28em;
+  --text-label--font-weight: 600;
+
+  --text-readout: 0.875rem;
+  --text-readout--line-height: 1.25;
+  --text-readout--letter-spacing: 0.01em;
+  --text-readout--font-weight: 500;
+
+  --text-figure: 1.5rem;
+  --text-figure--line-height: 1.05;
+  --text-figure--letter-spacing: -0.01em;
+  --text-figure--font-weight: 700;
+
+  /* ── Spacing rhythm.  Named steps so a card is `p-card gap-gap` and a page
+   *    is `space-y-section`, instead of every card re-picking p-4 / gap-3. */
+  --spacing-gap-tight: 0.5rem;   /*  8px — label→value, chip rows          */
+  --spacing-gap:       0.75rem;  /* 12px — card-internal gap               */
+  --spacing-card:      1.25rem;  /* 20px — card padding                    */
+  --spacing-card-lg:   1.5rem;   /* 24px — hero card / modal padding       */
+  --spacing-section:   2rem;     /* 32px — gap between cards               */
+  --spacing-page:      3rem;     /* 48px — gap between governance groups   */
+
+  /* ── Radius.  Border WIDTH is not a scale in this system: it is 1px,
+   *    always.  The step is the hairline colour (tosh-line → -strong). */
+  --radius-input: 0.625rem;  /* 10px */
+  --radius-card:  0.875rem;  /* 14px */
+  --radius-panel: 1rem;      /* 16px */
+  --radius-pill:  9999px;
+
+  /* ── Elevation.  No blur; a 1px inset top highlight plus a soft drop. */
+  --shadow-panel:   inset 0 1px 0 0 rgb(255 255 255 / 0.04), 0 1px 2px 0 rgb(0 0 0 / 0.6);
+  --shadow-lift:    inset 0 1px 0 0 rgb(255 255 255 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.8);
+  --shadow-overlay: 0 24px 64px -12px rgb(0 0 0 / 0.9);
+  --shadow-armed:   0 0 0 1px rgb(0 255 163 / 0.35), 0 0 24px -6px rgb(0 255 163 / 0.45);
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --ease-out-quick: var(--tosh-ease-out);
+  --ease-soft:      var(--tosh-ease-soft);
+
+  --default-transition-duration:        var(--tosh-dur-base);
+  --default-transition-timing-function: var(--tosh-ease-out);
+
+  --animate-shimmer: tosh-shimmer 2s ease-in-out infinite;
+  --animate-led:     tosh-led-breathe 2.4s ease-in-out infinite;
+  --animate-marquee: tosh-marquee 30s linear infinite;
+  --animate-cable:   tosh-cable-flow 3s linear infinite;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * BODY
  * ───────────────────────────────────────────────────────────────────────── */
 
-html, body {
-  background: var(--background);
-  color:      var(--foreground);
-  /* Body defaults to sans — mono is opt-in via the `font-mono` Tailwind
-   * utility (still used everywhere on labels / numbers / addresses). */
+html,
+body {
+  background: var(--tosh-canvas);
+  color: var(--tosh-ink);
   font-family: var(--font-sans);
-  font-feature-settings: "tnum" 1, "calt" 0, "ss01" 1;
-  letter-spacing: 0.01em;
+  /* Numerals are tabular EVERYWHERE by default — this is the single source of
+   * that rule, so no primitive needs to re-declare `tabular-nums`.  Stated as
+   * font-variant-numeric (not font-feature-settings "tnum") so it uses the
+   * same mechanism as Tailwind's own `tabular-nums` utility and the two can
+   * never disagree. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "calt" 0, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: #00FFA3;
-  color:      #000000;
+  background: var(--tosh-fluo);
+  color: var(--tosh-canvas);
 }
 
-/* Hairline focus ring tuned to fluorescent green — applied by Tailwind utilities
- * via `focus:border-tosh-fluo`, but we override the default outline too so
- * inputs stay flat and don't sprout the browser blue glow. */
 *:focus-visible {
-  outline: 1px solid #00FFA3;
+  outline: 1px solid var(--tosh-fluo);
   outline-offset: 1px;
 }
 
@@ -139,83 +236,52 @@ select:focus {
   outline: none;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
- * MOTION VOCABULARY  (v4.4)
- * Each keyframe is used in exactly one place in the codebase — keep them
- * tightly scoped or the motion budget gets blown.
+ * SURFACES
  * ───────────────────────────────────────────────────────────────────────── */
 
-/** Skeleton shimmer — used by card placeholder elements only. */
-@keyframes tosh-shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%);  }
-}
-.tosh-shimmer {
-  position: relative;
-  overflow: hidden;
-}
-.tosh-shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.04) 50%,
-    transparent 100%
-  );
-  animation: tosh-shimmer 2s ease-in-out infinite;
+/** The card/section surface.  Replaces the glassmorphic `.glass-card`:
+ *  same silhouette, no backdrop-filter, real elevation. */
+.tosh-panel,
+.glass-card {
+  background: var(--tosh-surface);
+  border: 1px solid var(--tosh-line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  transition:
+    border-color var(--tosh-dur-base) var(--tosh-ease-out),
+    box-shadow var(--tosh-dur-base) var(--tosh-ease-out);
 }
 
-/** LED breathe — status dots on cards / drawer header / pipeline steps.
- *  Subtle scale + opacity pulse, no glow (we live in cyber-minimalism). */
-@keyframes tosh-led-breathe {
-  0%, 100% { opacity: 0.55; transform: scale(1);    }
-  50%      { opacity: 1.00; transform: scale(1.15); }
-}
-.tosh-led-breathe {
-  animation: tosh-led-breathe 2.4s ease-in-out infinite;
+.tosh-panel:hover,
+.glass-card:hover {
+  border-color: var(--tosh-line-strong);
+  box-shadow: var(--shadow-lift);
 }
 
-/** Cable flow — horizontal gradient sliding through the Trust Pipeline
- *  connector lines.  ONLY used on the pipeline; nothing else. */
-@keyframes tosh-cable-flow {
-  0%   { background-position: -200% 0; }
-  100% { background-position:  200% 0; }
-}
-.tosh-cable-flow {
-  background-size: 200% 100%;
-  animation: tosh-cable-flow 3s linear infinite;
+/** Nested well inside a panel — inputs, sub-tables, quote boxes. */
+.tosh-raised {
+  background: var(--tosh-raised);
+  border: 1px solid var(--tosh-line);
+  border-radius: var(--radius-card);
 }
 
-/** Marquee — TxFeed ticker under the hero.  Linear, infinite, no easing
- *  so the eye doesn't pick up acceleration. */
-@keyframes tosh-marquee {
-  0%   { transform: translateX(0);    }
-  100% { transform: translateX(-50%); }
-}
-.tosh-marquee-track {
-  display: inline-flex;
-  animation: tosh-marquee 30s linear infinite;
-  will-change: transform;
-}
-.tosh-marquee-track:hover {
-  animation-play-state: paused;
-}
-
-/* ── MeritX-inspired shell (Tosh green accent) ───────────────────────────── */
-
-:root {
-  --tosh-neon: #00FFA3;
-  --tosh-neon-dim: #00cc82;
-  --tosh-glass-bg: rgba(255, 255, 255, 0.03);
-  --tosh-glass-border: rgba(255, 255, 255, 0.06);
-}
-
+/** The ambient page texture.  Fixed, behind everything, pointer-inert. */
 .terminal-grid-bg {
   position: relative;
   isolation: isolate;
 }
+
 .terminal-grid-bg::before {
   content: "";
   position: fixed;
@@ -223,71 +289,145 @@ select:focus {
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.03), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(0, 255, 163, 0.04), transparent 55%),
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    radial-gradient(circle at 0 0, rgb(255 255 255 / 0.025), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgb(0 255 163 / 0.035), transparent 55%),
+    linear-gradient(to right, rgb(255 255 255 / 0.018) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.018) 1px, transparent 1px);
   background-size: 360px 360px, 420px 420px, 40px 40px, 40px 40px;
 }
 
-@keyframes dot-breathe {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--tosh-neon); }
-  50%      { opacity: 0.35; box-shadow: 0 0 1px var(--tosh-neon); }
+/* ─────────────────────────────────────────────────────────────────────────────
+ * MOTION VOCABULARY
+ *
+ * Four keyframes survive because four are referenced.  `bar-glow-slide` and
+ * `dot-breathe` are kept for the MeritX cards and status pips that still use
+ * them.  `.led-breathe` and `.cable-flow` are defined here because the Trust
+ * Pipeline already writes those exact (previously undefined, therefore inert)
+ * class names.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Skeleton shimmer — placeholder blocks only. */
+@keyframes tosh-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
+
+.tosh-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.tosh-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.05) 50%,
+    transparent 100%
+  );
+  animation: var(--animate-shimmer);
+}
+
+/** LED breathe — status dots on cards, drawer header, pipeline steps. */
+@keyframes tosh-led-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+.tosh-led-breathe,
+.led-breathe {
+  animation: var(--animate-led);
+}
+
+/** Cable flow — the Trust Pipeline connector lines, and nothing else. */
+@keyframes tosh-cable-flow {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.tosh-cable-flow,
+.cable-flow {
+  background-size: 200% 100%;
+  animation: var(--animate-cable);
+}
+
+/** Marquee — the TxFeed ticker.  Linear so the eye reads no acceleration. */
+@keyframes tosh-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.tosh-marquee-track {
+  display: inline-flex;
+  animation: var(--animate-marquee);
+  will-change: transform;
+}
+
+.tosh-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/** Live pip — the one place a coloured glow is correct, because the glow IS
+ *  the signal.  `currentColor` so a single class serves every tone. */
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 5px 0 currentColor; }
+  50%      { opacity: 0.45; box-shadow: 0 0 1px 0 currentColor; }
+}
+
 .dot-breathe {
   animation: dot-breathe 2s ease-in-out infinite;
 }
 
-.glass-card {
-  background: var(--tosh-glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--tosh-glass-border);
-  border-radius: 1rem;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-}
-.glass-card:hover {
-  border-color: rgba(0, 255, 163, 0.25);
-  box-shadow: 0 0 30px rgba(0, 255, 163, 0.08);
-}
-
+/** Funding-progress fill.  Toned down from the old five-stop rainbow: two
+ *  stops of the accent, and the drop shadow reads as emission, not neon. */
 @keyframes bar-glow-slide {
   0%   { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
 }
+
 .bar-glow {
-  background: linear-gradient(90deg, #00cc82, #00FFA3, #5dffc4, #00FFA3, #00cc82);
+  background: linear-gradient(
+    90deg,
+    var(--tosh-fluo-dim),
+    var(--tosh-fluo),
+    var(--tosh-fluo-dim)
+  );
   background-size: 200% 100%;
   animation: bar-glow-slide 3s linear infinite;
-  box-shadow: 0 0 8px rgba(0, 255, 163, 0.35);
+  box-shadow: 0 0 12px -2px rgb(0 255 163 / 0.4);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * LEGACY ALIAS
+ *
+ * `.tosh-nuke-btn` is referenced from ProjectTerminal.tsx and admin/page.tsx,
+ * neither of which this phase may modify.  It is re-pointed at the new primary
+ * button treatment so those two surfaces inherit the refresh without an edit,
+ * and Phase 2 should delete the class as it adopts <Button variant="primary">.
+ * ───────────────────────────────────────────────────────────────────────── */
+
 .tosh-nuke-btn {
-  background: linear-gradient(135deg, rgba(0, 255, 163, 0.15), rgba(0, 255, 163, 0.05));
-  border: 1px solid rgba(0, 255, 163, 0.4);
-  color: var(--tosh-neon);
+  background: rgb(0 255 163 / 0.1);
+  border: 1px solid rgb(0 255 163 / 0.4);
+  color: var(--tosh-fluo);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--tosh-dur-fast) var(--tosh-ease-out),
+    color var(--tosh-dur-fast) var(--tosh-ease-out),
+    box-shadow var(--tosh-dur-fast) var(--tosh-ease-out);
 }
+
 .tosh-nuke-btn:hover:not(:disabled) {
-  background: var(--tosh-neon);
-  color: #000;
-  box-shadow: 0 0 20px rgba(0, 255, 163, 0.35);
+  background: var(--tosh-fluo);
+  color: var(--tosh-canvas);
+  box-shadow: var(--shadow-armed);
 }
+
 .tosh-nuke-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.mono-stat {
-  font-family: var(--font-jbm), ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.mono-stat:hover {
-  color: #f9fafb;
-  text-shadow: 0 0 6px rgba(0, 255, 163, 0.5), 0 0 18px rgba(0, 255, 163, 0.25);
 }

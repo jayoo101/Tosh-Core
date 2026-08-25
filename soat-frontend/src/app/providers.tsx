@@ -76,8 +76,9 @@ function buildFoundryTransport() {
 }
 
 // Use injected() only — it handles MetaMask, Coinbase Wallet, Rabby, etc.
-// metaMask() from wagmi/connectors does not implement getChainId in all
-// wagmi v2 patch versions and causes "getChainId is not a function" errors.
+// This is also what `useActionGate` reaches for when it renders the
+// Connect Wallet verdict: it takes `connectors[0]`, so the order of this
+// array is the connect UX.
 function makeConfig() {
   const chains = targetChain.id === FOUNDRY_CHAIN_ID
     ? [foundry] as const
@@ -102,42 +103,47 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         {children}
-        {/* Global toaster — square corners, hairline border, monospace,
-            phase-tinted via the `success` / `error` / default duration
-            paths.  Mounted once at the root so any client component can
-            `import { toast } from 'react-hot-toast'` and emit.
-            Tx callers SHOULD prefer toast.promise(writeContractAsync, ...)
-            so the same toast updates through pending → confirmed → minted. */}
+        {/* THE toaster.  Mounted here rather than in layout.tsx for two
+            reasons: layout.tsx is a server component, so hosting it there
+            would need a second client boundary purely to carry this; and the
+            `ssr: false` dynamic wrapper above exists for a real hydration bug
+            (react-hot-toast's internal store never matches between the SSR
+            snapshot and the client one, producing a removeChild on load), so
+            the mount point has to live inside a client tree anyway.
+
+            Every value below reads a design token from globals.css.  Nothing
+            in the app should mount a second <Toaster/>, and nothing should
+            call react-hot-toast directly — go through `toshToast` /
+            `useTxAction` in @/components/ui so the copy and the lifecycle
+            stay consistent. */}
         <Toaster
           position="bottom-right"
           gutter={8}
           toastOptions={{
             duration: 4500,
-            // Square box, hairline frame, JetBrains Mono — matches the rest
-            // of the cyber-minimal chrome so the toaster doesn't visually
-            // collide with the page when it slides in.
             style: {
-              background:    '#000000',
-              color:         '#FFFFFF',
-              border:        '1px solid #1F1F2E',
-              borderRadius:  '12px',
+              background:    'var(--tosh-overlay)',
+              color:         'var(--tosh-ink)',
+              border:        '1px solid var(--tosh-line)',
+              borderRadius:  'var(--radius-card, 0.875rem)',
               fontFamily:    'var(--font-jbm, ui-monospace, monospace)',
               fontSize:      '12px',
-              letterSpacing: '0.04em',
-              boxShadow:     'none',
+              lineHeight:    '1.5',
+              letterSpacing: '0.02em',
+              boxShadow:     '0 24px 64px -12px rgb(0 0 0 / 0.9)',
               padding:       '12px 14px',
               maxWidth:      '380px',
             },
             success: {
-              iconTheme: { primary: '#00FFA3', secondary: '#000000' },
-              style:     { border: '1px solid #003A27' },
+              iconTheme: { primary: 'var(--tosh-fluo)',  secondary: 'var(--tosh-canvas)' },
+              style:     { border: '1px solid rgb(0 255 163 / 0.35)' },
             },
             error: {
-              iconTheme: { primary: '#FF3355', secondary: '#000000' },
-              style:     { border: '1px solid #3D0A14' },
+              iconTheme: { primary: 'var(--tosh-rust)',  secondary: 'var(--tosh-canvas)' },
+              style:     { border: '1px solid rgb(255 51 85 / 0.35)' },
             },
             loading: {
-              iconTheme: { primary: '#FFFFFF', secondary: '#000000' },
+              iconTheme: { primary: 'var(--tosh-mute)',  secondary: 'var(--tosh-canvas)' },
             },
           }}
         />

@@ -41,9 +41,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${jbm.variable} ${geist.variable}`} suppressHydrationWarning>
+      {/* Colour, selection and numeral defaults all come from globals.css, so
+          the body carries layout only. `bg-zinc-950` used to sit here and
+          quietly overrode the canvas token on every page. */}
       <body
-        className="terminal-grid-bg bg-zinc-950 text-zinc-100 font-sans antialiased
-                   selection:bg-tosh-fluo/30 min-h-screen"
+        className="terminal-grid-bg min-h-screen font-sans antialiased"
         suppressHydrationWarning
       >
         <Providers>
