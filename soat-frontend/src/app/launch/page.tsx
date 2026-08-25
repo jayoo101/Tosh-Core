@@ -50,8 +50,8 @@ const shareOf  = (wei: bigint, of: bigint) =>
 
 // ─── styling constant ───────────────────────────────────────────────────────
 const INPUT_CORE =
-  'w-full py-3.5 px-4 rounded-xl font-mono text-sm text-white placeholder:text-zinc-600 ' +
-  'bg-black/50 border border-zinc-700 focus:outline-none focus:ring-1 ' +
+  'w-full py-3.5 px-4 rounded-xl font-mono text-sm text-text-primary placeholder:text-text-quiet ' +
+  'bg-bg-base/50 border border-border-strong focus:outline-none focus:ring-1 ' +
   'focus:border-brand focus:ring-brand/20 transition-colors'
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -64,10 +64,10 @@ function MeritXCard({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+    <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
       <div className="flex items-center gap-2 mb-5">
         <Icon className="w-5 h-5 text-brand" />
-        <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{title}</h2>
+        <h2 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.2em]">{title}</h2>
       </div>
       {children}
     </div>
@@ -88,13 +88,13 @@ function MeritXField({
 }) {
   const borderCls = locked
     ? 'border-brand focus:border-brand focus:ring-brand/20'
-    : 'border-zinc-700 focus:border-brand focus:ring-brand/20'
+    : 'border-border-strong focus:border-brand focus:ring-brand/20'
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
         {label}
-        {hint && <span className="ml-auto normal-case text-[9px] text-zinc-600 font-normal tracking-normal">{hint}</span>}
+        {hint && <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">{hint}</span>}
         {locked && <span className="ml-auto text-[9px] text-brand font-bold tracking-wider">● LOCKED</span>}
       </label>
       <input
@@ -129,9 +129,9 @@ function GenesisWindowSelect({
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
         Genesis Window
-        <span className="ml-auto normal-case text-[9px] text-zinc-600 font-normal tracking-normal">
+        <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">
           immutable once deployed
         </span>
       </label>
@@ -139,7 +139,7 @@ function GenesisWindowSelect({
       <div
         role="radiogroup"
         aria-label="Genesis window"
-        className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-700 bg-black/50 p-1"
+        className="grid grid-cols-3 gap-1 rounded-xl border border-border-strong bg-bg-base/50 p-1"
       >
         {GENESIS_WINDOWS.map(w => {
           const selected = w.seconds === active.seconds
@@ -153,15 +153,15 @@ function GenesisWindowSelect({
               className={
                 'rounded-lg py-2.5 px-2 font-mono transition-colors ' +
                 (selected
-                  ? 'bg-brand/10 border border-brand text-white'
-                  : 'border border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-white/5')
+                  ? 'bg-brand/10 border border-brand text-text-primary'
+                  : 'border border-transparent text-text-tertiary hover:text-text-secondary hover:bg-white/5')
               }
             >
               <span className="block text-sm font-bold tabular-nums">{w.label}</span>
               <span
                 className={
                   'block text-[9px] uppercase tracking-widest mt-0.5 ' +
-                  (selected ? 'text-brand' : 'text-zinc-600')
+                  (selected ? 'text-brand' : 'text-text-quiet')
                 }
               >
                 {w.tag}
@@ -171,8 +171,8 @@ function GenesisWindowSelect({
         })}
       </div>
 
-      <p className="mt-1.5 text-[10px] font-mono text-zinc-500">{active.blurb}</p>
-      <p className="mt-1 text-[10px] font-mono text-amber-400/80 leading-relaxed">
+      <p className="mt-1.5 text-[10px] font-mono text-text-tertiary">{active.blurb}</p>
+      <p className="mt-1 text-[10px] font-mono text-warning/80 leading-relaxed">
         The window must run to completion — even if the soft cap fills in minutes,
         launch() cannot be called early. Pick the shortest window you can live with.
       </p>
@@ -191,9 +191,9 @@ function MeritXTextarea({
 }) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
         {label}
-        {hint && <span className="ml-auto normal-case text-[9px] text-zinc-600 font-normal tracking-normal">{hint}</span>}
+        {hint && <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">{hint}</span>}
       </label>
       <textarea
         value={value}
@@ -210,21 +210,21 @@ function MeritXTextarea({
 function ImmutablePact({ rules }: { rules: { key: string; label: string; value: string }[] }) {
   return (
     <div className="sticky top-24">
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+      <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
         <div className="flex items-center gap-2 mb-5">
           <Shield className="w-5 h-5 text-brand" />
-          <h2 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
+          <h2 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.2em]">
             The Immutable Pact
           </h2>
         </div>
-        <p className="text-[10px] text-zinc-500 font-mono mb-4 leading-relaxed">
+        <p className="text-[10px] text-text-tertiary font-mono mb-4 leading-relaxed">
           Protocol mechanics — unalterable rules you agree to by initializing:
         </p>
         <ul className="space-y-3 font-mono text-xs">
           {rules.map(({ key, label, value }) => (
-            <li key={key} className="flex justify-between gap-4 py-2 border-b border-zinc-800/60 last:border-0">
-              <span className="text-zinc-500 shrink-0">{label}:</span>
-              <span className="text-white font-bold text-right tabular-nums">{value}</span>
+            <li key={key} className="flex justify-between gap-4 py-2 border-b border-border-subtle/60 last:border-0">
+              <span className="text-text-tertiary shrink-0">{label}:</span>
+              <span className="text-text-primary font-bold text-right tabular-nums">{value}</span>
             </li>
           ))}
         </ul>
@@ -232,23 +232,23 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
           <p className="text-[10px] font-bold text-brand uppercase tracking-[0.18em] mb-1.5">
             Decentralization invariant
           </p>
-          <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">
-            No proxy, no admin key, no upgrade. <span className="text-zinc-200">MINTER_ROLE</span> is
-            granted once to this project&apos;s Hook and <span className="text-zinc-200">DEFAULT_ADMIN_ROLE</span> is
+          <p className="text-[10px] text-text-secondary font-mono leading-relaxed">
+            No proxy, no admin key, no upgrade. <span className="text-text-primary">MINTER_ROLE</span> is
+            granted once to this project&apos;s Hook and <span className="text-text-primary">DEFAULT_ADMIN_ROLE</span> is
             left permanently vacant. The token cannot migrate to a v5.1 Hook; unsold ladder
             supply can never be reminted elsewhere.
           </p>
         </div>
-        <div className="mt-6 pt-4 border-t border-zinc-800">
-          <p className="text-[10px] text-amber-400/80 font-mono leading-relaxed">
+        <div className="mt-6 pt-4 border-t border-border-subtle">
+          <p className="text-[10px] text-warning/80 font-mono leading-relaxed">
             If genesis fails (soft cap not met) or the 7-day launch window expires without curve
             activation, depositors can call{' '}
-            <span className="text-amber-300">refund()</span> for full ETH return — no penalty.
+            <span className="text-warning">refund()</span> for full ETH return — no penalty.
           </p>
         </div>
       </div>
-      <div className="mt-4 p-3 rounded-lg border border-zinc-800/60 bg-zinc-900/20">
-        <p className="text-[9px] text-zinc-600 font-mono break-all">
+      <div className="mt-4 p-3 rounded-lg border border-border-subtle/60 bg-surface-card/20">
+        <p className="text-[9px] text-text-quiet font-mono break-all">
           Factory: {FACTORY_ADDRESS}
         </p>
       </div>
@@ -292,8 +292,8 @@ function CryptoEngine({
           disabled={!canMine || isMining}
           className={`px-4 py-2.5 rounded-xl border text-[10px] tracking-widest uppercase font-bold transition-all
             ${canMine && !isMining
-              ? 'border-brand text-brand hover:bg-brand hover:text-black'
-              : 'border-zinc-700 text-zinc-600 cursor-not-allowed'}`}
+              ? 'border-brand text-brand hover:bg-brand hover:text-bg-base'
+              : 'border-border-strong text-text-quiet cursor-not-allowed'}`}
         >
           {isMining ? '⌛ Mining…' : '[ Mine Salt ]'}
         </button>
@@ -306,19 +306,19 @@ function CryptoEngine({
       </div>
 
       <div className={`rounded-xl border px-4 py-3 font-mono text-xs break-all leading-relaxed
-        ${locked ? 'border-brand/50 bg-brand/5 text-brand' : 'border-zinc-800 bg-black/40 text-zinc-500'}`}>
+        ${locked ? 'border-brand/50 bg-brand/5 text-brand' : 'border-border-subtle bg-bg-base/40 text-text-tertiary'}`}>
         {locked ? salt : isMining ? (stream || '0x' + '0'.repeat(64)) : '0x' + '—'.repeat(16)}
       </div>
 
       {predictedHook && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-4 py-3">
-          <p className="text-[9px] text-zinc-500 font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
+        <div className="rounded-xl border border-border-subtle bg-surface-card/30 px-4 py-3">
+          <p className="text-[9px] text-text-tertiary font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
           <p className="text-[11px] text-brand/80 font-mono break-all">{predictedHook}</p>
         </div>
       )}
 
       {mineError && (
-        <p className="text-xs text-red-400 font-mono">Error: {mineError}</p>
+        <p className="text-xs text-danger font-mono">Error: {mineError}</p>
       )}
     </div>
   )
@@ -374,7 +374,7 @@ function LaunchCTA({
       <div className="flex flex-col sm:flex-row gap-4">
         <Link
           href="/"
-          className="order-2 sm:order-1 shrink-0 px-8 py-4 rounded-xl flex items-center justify-center font-bold text-sm border border-zinc-600 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+          className="order-2 sm:order-1 shrink-0 px-8 py-4 rounded-xl flex items-center justify-center font-bold text-sm border border-border-strong bg-surface-card/50 text-text-secondary hover:bg-surface-elevated/50 hover:text-text-secondary hover:border-border-strong transition-colors"
         >
           Cancel
         </Link>
@@ -387,10 +387,10 @@ function LaunchCTA({
             confirmed
               ? 'text-brand bg-brand/10 border border-brand/40'
               : readyToFire || (armed && action)
-                ? 'text-black bg-brand hover:bg-brand/90 border border-brand hover:shadow-[0_0_24px_rgba(0,255,163,0.25)]'
+                ? 'text-bg-base bg-brand hover:bg-brand/90 border border-brand hover:shadow-[0_0_24px_rgba(0,255,163,0.25)]'
                 : broadcasting
-                  ? 'text-white bg-brand/80 border border-brand/50 cursor-wait'
-                  : 'text-zinc-500 bg-zinc-800 border border-zinc-700 cursor-not-allowed opacity-60',
+                  ? 'text-text-primary bg-brand/80 border border-brand/50 cursor-wait'
+                  : 'text-text-tertiary bg-surface-elevated border border-border-strong cursor-not-allowed opacity-60',
           ].join(' ')}
         >
           {broadcasting && (
@@ -409,10 +409,10 @@ function LaunchCTA({
               TX {shortHash(hash)} ↗
             </a>
           )}
-          {errorMessage  && <span className="text-red-400">Error: {errorMessage}</span>}
-          {syncState === 'syncing' && <span className="text-zinc-500 animate-pulse">Syncing to directory…</span>}
+          {errorMessage  && <span className="text-danger">Error: {errorMessage}</span>}
+          {syncState === 'syncing' && <span className="text-text-tertiary animate-pulse">Syncing to directory…</span>}
           {syncState === 'done'    && <span className="text-brand">✓ Directory synced</span>}
-          {syncState === 'error'   && <span className="text-amber-400">Directory sync deferred</span>}
+          {syncState === 'error'   && <span className="text-warning">Directory sync deferred</span>}
         </div>
       )}
     </div>
@@ -658,19 +658,19 @@ export default function GenesisConsole() {
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+    <main className="min-h-screen bg-bg-base text-text-primary font-sans">
       <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-12">
 
         {/* Header */}
-        <header className="mb-10 border-b border-zinc-800 pb-8">
+        <header className="mb-10 border-b border-border-subtle pb-8">
           <div className="flex items-center gap-3 mb-4">
-            <span className="bg-brand text-black text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
-            <span className="text-zinc-500 text-[10px] font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
+            <span className="bg-brand text-bg-base text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
+            <span className="text-text-tertiary text-[10px] font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-white leading-tight">
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-text-primary leading-tight">
             Create a <span className="text-brand">Tosh Launch</span>
           </h1>
-          <p className="text-zinc-400 text-sm mt-3 max-w-2xl">
+          <p className="text-text-secondary text-sm mt-3 max-w-2xl">
             {CHAIN_POSITIONING} Pay the ETH launch fee, mine a Uniswap V4 hook salt, and open a Proof-of-Gas gated genesis window.
           </p>
         </header>
@@ -717,12 +717,12 @@ export default function GenesisConsole() {
                     placeholder="0x… (defaults to your wallet)"
                   />
                   {hydrated && projectAdmin && !isAddress(projectAdmin) && (
-                    <p className="mt-1.5 text-[10px] font-mono text-red-400">
+                    <p className="mt-1.5 text-[10px] font-mono text-danger">
                       Invalid address — must be a valid 0x Ethereum address
                     </p>
                   )}
                   {hydrated && projectAdmin && isAddress(projectAdmin) && projectAdmin.toLowerCase() !== address?.toLowerCase() && (
-                    <p className="mt-1.5 text-[10px] font-mono text-amber-400/80">
+                    <p className="mt-1.5 text-[10px] font-mono text-warning/80">
                       Custom admin — this address will receive the 99 % Phase-2 shelf cut
                     </p>
                   )}
@@ -756,7 +756,7 @@ export default function GenesisConsole() {
             </MeritXCard>
 
             <MeritXCard icon={Cpu} title="Crypto Engine">
-              <p className="text-[10px] text-zinc-600 font-mono mb-4 leading-relaxed">
+              <p className="text-[10px] text-text-quiet font-mono mb-4 leading-relaxed">
                 CREATE2 salt grinder — bind name + ticker first, then mine until the engine locks.
               </p>
               <CryptoEngine
@@ -770,23 +770,23 @@ export default function GenesisConsole() {
             </MeritXCard>
 
             {/* Acknowledgement */}
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+            <div className="rounded-xl border border-warning/30 bg-warning/5 p-5">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={ack}
                   onChange={() => setAck(a => !a)}
-                  className="mt-1 h-4 w-4 rounded border border-zinc-600 bg-black/50 accent-amber-500"
+                  className="mt-1 h-4 w-4 rounded border border-border-strong bg-bg-base/50 accent-warning"
                 />
                 <div>
-                  <span className="text-[10px] font-bold text-amber-400/90 uppercase tracking-wider">Acknowledgement</span>
-                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  <span className="text-[10px] font-bold text-warning/90 uppercase tracking-wider">Acknowledgement</span>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
                     I acknowledge the Immutable Pact: ETH launch fee ({feeDisplay} ETH), genesis soft
                     cap ({softCapDisplay} ETH), deposit cooldown per hook, a genesis window that
                     runs in full even after the soft cap is met, and that this Hook and its token
                     are not upgradeable — MINTER_ROLE stays with this Hook forever. Full ETH refund
                     via{' '}
-                    <span className="text-amber-300">refund()</span> if genesis fails or the launch
+                    <span className="text-warning">refund()</span> if genesis fails or the launch
                     window expires.
                   </p>
                 </div>
@@ -820,7 +820,7 @@ export default function GenesisConsole() {
         </div>
       </div>
 
-      <footer className="border-t border-zinc-800 mt-12 py-6 text-center text-[10px] text-zinc-600 font-mono tracking-widest uppercase">
+      <footer className="border-t border-border-subtle mt-12 py-6 text-center text-[10px] text-text-quiet font-mono tracking-widest uppercase">
         Tosh Protocol · v4.3 · {MAINNET_CHAIN_LABEL} · testnet: {TESTNET_CHAIN_LABEL}
       </footer>
     </main>

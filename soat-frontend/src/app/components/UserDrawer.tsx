@@ -396,7 +396,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
         aria-label="close drawer"
         tabIndex={open ? 0 : -1}
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-black/70 transition-opacity duration-200
+        className={`fixed inset-0 z-40 bg-bg-base/70 transition-opacity duration-200
                     ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       />
 
@@ -406,8 +406,8 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
         aria-modal="true"
         aria-hidden={!open}
         className={`fixed inset-y-0 right-0 z-50 w-full sm:w-80 max-w-[100vw]
-                    bg-zinc-950 border-l border-zinc-800/80 shadow-[0_0_80px_rgba(0,0,0,0.6)]
-                    text-zinc-100 font-sans
+                    bg-bg-base border-l border-border-subtle/80 shadow-[0_0_80px_rgba(0,0,0,0.6)]
+                    text-text-primary font-sans
                     transform transition-transform duration-300 ease-out
                     ${open ? 'translate-x-0' : 'translate-x-full'}
                     flex flex-col`}
@@ -474,17 +474,17 @@ function DrawerHeader({
   const initials = address ? address.slice(2, 4).toUpperCase() : '--'
 
   return (
-    <header className="p-5 pb-4 border-b border-zinc-800/60 shrink-0">
+    <header className="p-5 pb-4 border-b border-border-subtle/60 shrink-0">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-black text-white uppercase tracking-widest">My Profile</h2>
-          <p className="text-[10px] text-zinc-600 font-mono mt-0.5">{MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</p>
+          <h2 className="text-sm font-black text-text-primary uppercase tracking-widest">My Profile</h2>
+          <p className="text-[10px] text-text-quiet font-mono mt-0.5">{MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</p>
         </div>
         <button
           type="button"
           aria-label="close"
           onClick={onClose}
-          className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-white hover:border-zinc-600 transition-all"
+          className="w-8 h-8 rounded-lg bg-surface-card border border-border-subtle flex items-center justify-center text-text-tertiary hover:text-text-primary hover:border-border-strong transition-all"
         >
           ×
         </button>
@@ -495,7 +495,7 @@ function DrawerHeader({
           <span className="text-brand font-black text-sm">{initials}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-mono text-zinc-300 truncate">
+          <p className="text-sm font-mono text-text-secondary truncate">
             {address ? shortAddr(address) : '—'}
           </p>
         </div>
@@ -507,8 +507,8 @@ function DrawerHeader({
           onClick={onSwitchAccount}
           title="Re-open wallet account picker (EIP-2255)"
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
-                     border border-zinc-800 bg-zinc-900/50
-                     text-[10px] tracking-[0.32em] uppercase font-mono text-zinc-400
+                     border border-border-subtle bg-surface-card/50
+                     text-[10px] tracking-[0.32em] uppercase font-mono text-text-secondary
                      hover:border-brand/40 hover:text-brand hover:bg-brand/5
                      transition-all"
         >
@@ -526,9 +526,9 @@ function DrawerHeader({
           onClick={onDisconnect}
           title="Terminate wagmi session for this address"
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
-                     border border-zinc-800 bg-zinc-900/50
-                     text-[10px] tracking-[0.32em] uppercase font-mono text-zinc-400
-                     hover:border-red-500/40 hover:text-red-400 hover:bg-red-500/5
+                     border border-border-subtle bg-surface-card/50
+                     text-[10px] tracking-[0.32em] uppercase font-mono text-text-secondary
+                     hover:border-danger/40 hover:text-danger hover:bg-danger/5
                      transition-all"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -544,8 +544,8 @@ function DrawerHeader({
 
 function DrawerFooter() {
   return (
-    <footer className="px-5 py-3 border-t border-[#1F1F2E]
-                       text-[9px] tracking-[0.32em] uppercase text-[#444]
+    <footer className="px-5 py-3 border-t border-border-subtle
+                       text-[9px] tracking-[0.32em] uppercase text-text-quiet
                        flex items-center justify-between gap-3">
       <span>v4.3 · {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</span>
       <span>esc · click_outside</span>
@@ -573,7 +573,7 @@ function PoGQuotaPanel({
   const blocked = banned || unattested
   return (
     <section className="px-4 pt-4 pb-2">
-      <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/50 p-4">
+      <div className="rounded-xl border border-border-subtle/70 bg-surface-card/50 p-4">
         <div className="text-brand/70 font-mono text-[9px] font-bold tracking-widest mb-1">
           POG REMAINING · THIS WINDOW
         </div>
@@ -591,22 +591,22 @@ function PoGQuotaPanel({
             <span className="text-sm text-brand/60 ml-1">ETH</span>
           </div>
         )}
-        <div className="border-t border-zinc-800/50 pt-3 mt-3 space-y-2">
+        <div className="border-t border-border-subtle/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-zinc-500 font-mono text-[10px] uppercase">Per-window Allocation</span>
-            <span className="text-white font-mono text-xs font-bold tabular-nums">
+            <span className="text-text-tertiary font-mono text-[10px] uppercase">Per-window Allocation</span>
+            <span className="text-text-primary font-mono text-xs font-bold tabular-nums">
               {unattested ? '—' : `${formatEth(pogQuota)} ETH`}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-zinc-500 font-mono text-[10px] uppercase">Spent This Window</span>
-            <span className="text-zinc-400 font-mono text-xs font-bold tabular-nums">
+            <span className="text-text-tertiary font-mono text-[10px] uppercase">Spent This Window</span>
+            <span className="text-text-secondary font-mono text-xs font-bold tabular-nums">
               {blocked ? '—' : `${formatEth(windowSpent)} ETH`}
             </span>
           </div>
         </div>
         <p className={`mt-3 text-[9px] font-mono leading-relaxed
-                       ${banned ? 'text-danger' : unattested ? 'text-warning' : 'text-zinc-600'}`}>
+                       ${banned ? 'text-danger' : unattested ? 'text-warning' : 'text-text-quiet'}`}>
           {banned
             ? `${'// '}every deposit is rejected while the ban stands · ${banTxt.toLowerCase()}`
             : unattested
@@ -632,8 +632,8 @@ function CooldownPanel({
 }) {
   return (
     <section className="px-4 py-3">
-      <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">Cooldown Matrix</p>
-      <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 px-4 py-3">
+      <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-widest mb-2">Cooldown Matrix</p>
+      <div className="rounded-xl border border-border-subtle/70 bg-surface-card/30 px-4 py-3">
       {!cooldownPresent ? (
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
@@ -646,13 +646,13 @@ function CooldownPanel({
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2 text-xs font-mono text-red-400 mb-2">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <div className="flex items-center gap-2 text-xs font-mono text-danger mb-2">
+            <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
             <span className="font-bold tracking-wider">ON COOLDOWN</span>
           </div>
           <p
             suppressHydrationWarning
-            className="text-white text-2xl tabular-nums tracking-wider font-black font-mono leading-none"
+            className="text-text-primary text-2xl tabular-nums tracking-wider font-black font-mono leading-none"
           >
             {knowsWallTime ? formatCooldown(remainingMs) : '--:--:--_--'}
           </p>
@@ -677,20 +677,20 @@ function ParticipatedAssetsPanel({
 }) {
   return (
     <section className="px-4 pt-2 pb-8">
-      <p className="text-emerald-400/80 font-mono text-[10px] font-bold tracking-widest mb-3 px-1">
+      <p className="text-success/80 font-mono text-[10px] font-bold tracking-widest mb-3 px-1">
         {`/// Participated Assets`}
       </p>
 
       {loading && snapshots.length === 0 && (
-        <p className="text-[10px] tracking-wider text-[#666] uppercase">
+        <p className="text-[10px] tracking-wider text-text-tertiary uppercase">
           / scanning on-chain registry…
         </p>
       )}
 
       {empty && (
-        <p className="text-[10px] tracking-wider text-[#666] uppercase leading-relaxed">
+        <p className="text-[10px] tracking-wider text-text-tertiary uppercase leading-relaxed">
           / no genesis deposits detected ·{' '}
-          <span className="text-white">deposit ETH in any live genesis window, then claim after launch()</span>
+          <span className="text-text-primary">deposit ETH in any live genesis window, then claim after launch()</span>
         </p>
       )}
 
@@ -739,18 +739,18 @@ function AssetRow({
     : 0
 
   return (
-    <li className="rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4 mb-3">
+    <li className="rounded-xl border border-border-subtle/70 bg-surface-card/30 p-4 mb-3">
       <header className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[12px] text-white font-bold tracking-wider uppercase">
+          <span className="text-[12px] text-text-primary font-bold tracking-wider uppercase">
             ${symbol}
           </span>
-          <span className="text-[9px] tracking-[0.32em] uppercase text-[#555] truncate">
+          <span className="text-[9px] tracking-[0.32em] uppercase text-text-quiet truncate">
             / {shortAddr(row.hook)}
           </span>
         </div>
         <span className={`text-[9px] tracking-[0.32em] uppercase
-                          ${launched ? 'text-brand' : 'text-[#888]'}`}>
+                          ${launched ? 'text-brand' : 'text-text-tertiary'}`}>
           {launched ? 'CURVE' : 'GENESIS'}
         </span>
       </header>
@@ -759,16 +759,16 @@ function AssetRow({
 
       {!launched && (
         <div className="mt-3">
-          <div className="relative h-1 bg-[#0A0A0A] border border-[#1F1F2E]">
+          <div className="relative h-1 bg-surface-card border border-border-subtle">
             <div
-              className="absolute inset-y-0 left-0 bg-white"
+              className="absolute inset-y-0 left-0 bg-text-primary"
               style={{ width: `${progressPct}%` }}
             />
           </div>
           <p className="mt-1.5 text-[9px] tracking-[0.32em] uppercase
-                        text-[#666] flex items-baseline justify-between gap-2">
+                        text-text-tertiary flex items-baseline justify-between gap-2">
             <span>RAISE_PROGRESS</span>
-            <span className="text-white tabular-nums normal-case tracking-wider">
+            <span className="text-text-primary tabular-nums normal-case tracking-wider">
               {formatEth(totalEth)} / {formatEth(softCap)} ({progressPct.toFixed(1)}%)
             </span>
           </p>
@@ -778,17 +778,17 @@ function AssetRow({
       {launched && (
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[9px] tracking-[0.32em] uppercase text-[#666]">
+            <p className="text-[9px] tracking-[0.32em] uppercase text-text-tertiary">
               CLAIMABLE
             </p>
-            <p className="text-[12px] text-white tabular-nums truncate">
+            <p className="text-[12px] text-text-primary tabular-nums truncate">
               {formatToken(claimable)} {symbol}
             </p>
           </div>
 
           {hasClaimed ? (
             <span className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
-                             border border-[#1F1F2E] text-[#555] shrink-0">
+                             border border-border-subtle text-text-quiet shrink-0">
               [ TRANSFERRED_CLOSED ]
             </span>
           ) : claimable > 0n ? (
@@ -798,14 +798,14 @@ function AssetRow({
               disabled={isPending || isMining}
               className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
                          border border-brand text-brand
-                         hover:bg-brand hover:text-black transition-colors
+                         hover:bg-brand hover:text-bg-base transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
               {isPending ? '[ SIGN… ]' : isMining ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}
             </button>
           ) : (
             <span className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
-                             border border-[#1F1F2E] text-[#555] shrink-0">
+                             border border-border-subtle text-text-quiet shrink-0">
               [ NO_ALLOCATION ]
             </span>
           )}
@@ -822,9 +822,9 @@ function AssetRow({
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PanelHeader({ index, label }: { index: string, label: string }) {
   return (
-    <div className="flex items-center gap-3 text-[10px] tracking-[0.4em] uppercase text-[#888] mb-4">
-      <span className="text-[#555]">{'// ['}{index}{']'}</span>
-      <span className="text-white">{label}</span>
+    <div className="flex items-center gap-3 text-[10px] tracking-[0.4em] uppercase text-text-tertiary mb-4">
+      <span className="text-text-quiet">{'// ['}{index}{']'}</span>
+      <span className="text-text-primary">{label}</span>
     </div>
   )
 }
@@ -832,10 +832,10 @@ function PanelHeader({ index, label }: { index: string, label: string }) {
 function Row({ label, value }: { label: string, value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[9px] tracking-[0.32em] uppercase text-[#666]">
+      <span className="text-[9px] tracking-[0.32em] uppercase text-text-tertiary">
         {label}
       </span>
-      <span className="text-[12px] text-white tabular-nums normal-case tracking-wider">
+      <span className="text-[12px] text-text-primary tabular-nums normal-case tracking-wider">
         {value}
       </span>
     </div>

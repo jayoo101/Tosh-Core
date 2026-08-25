@@ -194,7 +194,7 @@ export function TxFeedMarquee({ compact = false }: { compact?: boolean }) {
   return (
     <section className={compact ? 'relative font-mono' : 'relative px-6 font-mono'}>
       <div className={compact ? '' : 'mx-auto max-w-7xl'}>
-        <div className={`${compact ? 'border-zinc-800 bg-zinc-950/50 rounded-lg' : 'border-[#1F1F2E] bg-black'} border overflow-hidden`}
+        <div className={`${compact ? 'border-border-subtle bg-bg-base/50 rounded-lg' : 'border-border-subtle bg-bg-base'} border overflow-hidden`}
              style={{ minHeight: '2rem' }}>
           {mounted && (
             <div className="tosh-marquee-track py-1.5 whitespace-nowrap">
@@ -238,8 +238,8 @@ function FeedPill({ item }: { item: FeedItem }) {
     <span className="inline-flex items-center gap-2 text-[10px] tracking-[0.32em] uppercase">
       <span aria-hidden className={`inline-block h-1.5 w-1.5 ${KIND_DOT[item.kind]}`} />
       <span className={KIND_TEXT[item.kind]}>[ {item.kind} ]</span>
-      <span className="text-[#888] normal-case tracking-normal">{item.payload}</span>
-      <span aria-hidden className="text-[#222] pl-2">·</span>
+      <span className="text-text-tertiary normal-case tracking-normal">{item.payload}</span>
+      <span aria-hidden className="text-text-quiet pl-2">·</span>
     </span>
   )
 }

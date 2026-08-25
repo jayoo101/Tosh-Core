@@ -10,11 +10,11 @@
  * it, and the divider under it renders only if the header rendered.  A Card
  * with just children is a plain surface, so nested panels (the quote box, the
  * shelf table) use the same component instead of a fourth hand-rolled
- * `border border-[#1F1F2E]` div.
+ * `border border-border-subtle` div.
  *
  * REPLACES: `Section` in ProjectTerminal.tsx, `Section` in admin/page.tsx,
- * `MeritXCard` in launch/page.tsx, and the `rounded-xl border border-zinc-800
- * bg-zinc-900/50 p-4` literal repeated throughout UserDrawer and the meritx
+ * `MeritXCard` in launch/page.tsx, and the `rounded-xl border border-border-subtle
+ * bg-surface-card/50 p-4` literal repeated throughout UserDrawer and the meritx
  * components.
  */
 

@@ -70,7 +70,7 @@ export function AwaitingLaunchPanel({
 
       {isCreator ? (
         <>
-          <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+          <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
             You are the creator of {symbol}. Calling <span className="text-brand">launch()</span> is
             irreversible: it pairs the raised ETH with the genesis LP allocation, hands
             the position to the hook, and starts the ladder. Depositors can claim their
@@ -78,13 +78,13 @@ export function AwaitingLaunchPanel({
           </p>
           <p className="font-mono text-[11px] text-warning leading-relaxed">
             You have {hoursLeft}h left. If you do not open the pool within 7 days of the
-            genesis deadline, the raise is written off: <span className="text-white">launch()</span> stops
+            genesis deadline, the raise is written off: <span className="text-text-primary">launch()</span> stops
             working permanently and every depositor reclaims their ETH in full.
           </p>
           <ActionButton gate={gate} />
         </>
       ) : (
-        <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+        <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
           The raise cleared its soft cap and is waiting on the creator to open the
           pool. Your deposit is safe: if the pool is not opened within the launch
           window, the refund terminal unlocks automatically and returns 100% of it.

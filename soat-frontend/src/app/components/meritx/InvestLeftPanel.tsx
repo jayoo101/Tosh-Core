@@ -42,9 +42,9 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
   const windowOpen = deadline === 0n || nowSec === 0 || Number(deadline) > nowSec
 
   const status = useMemo(() => {
-    if (canRefund) return { label: 'REFUND ELIGIBLE', cls: 'border-red-500/30 bg-red-500/[0.06] text-red-400', dot: 'bg-red-400' }
-    if (launched) return { label: 'SHELF ACTIVE', cls: 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-400', dot: 'bg-emerald-400' }
-    if (!windowOpen) return { label: 'AWAITING LAUNCH', cls: 'border-purple-500/30 bg-purple-500/[0.06] text-purple-400', dot: 'bg-purple-400' }
+    if (canRefund) return { label: 'REFUND ELIGIBLE', cls: 'border-danger/30 bg-danger/[0.06] text-danger', dot: 'bg-danger' }
+    if (launched) return { label: 'SHELF ACTIVE', cls: 'border-success/30 bg-success/[0.06] text-success', dot: 'bg-success' }
+    if (!windowOpen) return { label: 'AWAITING LAUNCH', cls: 'border-admin/30 bg-admin/[0.06] text-admin', dot: 'bg-admin' }
     if (softCap > 0n && totalEth >= softCap) return { label: 'GENESIS OVERSUBSCRIBED', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
     return { label: 'GENESIS FUNDING', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
   }, [canRefund, launched, windowOpen, softCap, totalEth])
@@ -67,46 +67,46 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Total Deposited</p>
-          <p className="text-xl font-black text-brand tabular-nums">{fmtEth(totalEth)} <span className="text-sm text-zinc-500">ETH</span></p>
+        <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-4">
+          <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-widest mb-1">Total Deposited</p>
+          <p className="text-xl font-black text-brand tabular-nums">{fmtEth(totalEth)} <span className="text-sm text-text-tertiary">ETH</span></p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Soft Cap</p>
-          <p className="text-xl font-black text-purple-400 tabular-nums">{fmtEth(softCap)} <span className="text-sm text-zinc-500">ETH</span></p>
-          <span className="inline-flex mt-2 px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-[9px] font-bold text-purple-400">GENESIS TARGET</span>
+        <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-4">
+          <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-widest mb-1">Soft Cap</p>
+          <p className="text-xl font-black text-admin tabular-nums">{fmtEth(softCap)} <span className="text-sm text-text-tertiary">ETH</span></p>
+          <span className="inline-flex mt-2 px-2 py-0.5 rounded-md bg-admin/10 border border-admin/20 text-[9px] font-bold text-admin">GENESIS TARGET</span>
         </div>
       </div>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4">
+      <div className="rounded-xl border border-border-subtle bg-surface-card/20 p-4">
         <div className="flex justify-between items-baseline text-sm mb-2.5">
-          <span className="text-zinc-400 text-[10px] font-mono uppercase tracking-widest">Genesis Progress</span>
-          <span className="font-mono tabular-nums font-bold text-white">{progress.toFixed(1)}%</span>
+          <span className="text-text-secondary text-[10px] font-mono uppercase tracking-widest">Genesis Progress</span>
+          <span className="font-mono tabular-nums font-bold text-text-primary">{progress.toFixed(1)}%</span>
         </div>
-        <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-surface-elevated rounded-full overflow-hidden">
           <div className="h-full rounded-full bar-glow transition-all duration-1000" style={{ width: `${Math.min(100, progress)}%` }} />
         </div>
-        <div className="flex justify-between mt-2 text-[10px] font-mono text-zinc-600">
+        <div className="flex justify-between mt-2 text-[10px] font-mono text-text-quiet">
           <span>{fmtEth(totalEth)} / {fmtEth(softCap)} ETH</span>
           <span>Soft cap · 4000-rung shelf · 12.6M tokens</span>
         </div>
       </div>
 
       {canRefund && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/[0.04] p-4 text-xs text-zinc-400 leading-relaxed">
-          <span className="text-red-400 font-bold uppercase tracking-wider text-[10px]">Refund path open — </span>
+        <div className="rounded-xl border border-danger/30 bg-danger/[0.04] p-4 text-xs text-text-secondary leading-relaxed">
+          <span className="text-danger font-bold uppercase tracking-wider text-[10px]">Refund path open — </span>
           Genesis soft cap was not met or the 7-day launch window expired without curve activation. Depositors can call{' '}
-          <span className="text-white font-mono">refund()</span> in the action terminal for a full ETH return.
+          <span className="text-text-primary font-mono">refund()</span> in the action terminal for a full ETH return.
         </div>
       )}
 
       {!launched && !canRefund && windowOpen && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4 flex items-center gap-4">
+        <div className="rounded-xl border border-border-subtle bg-surface-card/20 p-4 flex items-center gap-4">
           <div className="flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-widest mb-1 font-mono text-zinc-500">
+            <div className="text-[10px] font-bold uppercase tracking-widest mb-1 font-mono text-text-tertiary">
               Genesis Window — Closes In
             </div>
-            <div className="font-mono tabular-nums font-black text-2xl tracking-tight text-white">
+            <div className="font-mono tabular-nums font-black text-2xl tracking-tight text-text-primary">
               {countdown}
             </div>
           </div>
@@ -117,10 +117,10 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
       )}
 
       {!launched && !canRefund && !windowOpen && (
-        <div className="rounded-xl border border-purple-500/30 bg-purple-500/[0.04] p-4 text-xs text-zinc-400 leading-relaxed">
-          <span className="text-purple-400 font-bold uppercase tracking-wider text-[10px]">Awaiting launch — </span>
+        <div className="rounded-xl border border-admin/30 bg-admin/[0.04] p-4 text-xs text-text-secondary leading-relaxed">
+          <span className="text-admin font-bold uppercase tracking-wider text-[10px]">Awaiting launch — </span>
           The genesis window has closed and deposits are no longer accepted. The creator can now call{' '}
-          <span className="text-white font-mono">launch()</span> to seed the pool and open the shelf ladder.
+          <span className="text-text-primary font-mono">launch()</span> to seed the pool and open the shelf ladder.
           If they do not within 7 days, every depositor can reclaim their ETH in full.
         </div>
       )}
@@ -131,9 +131,9 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
 export function EventStreamPanel({ hookAddress }: { hookAddress: string | null }) {
   if (!hookAddress) return null
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4">
-      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3 font-mono">{`/// Event Stream`}</p>
-      <p className="text-xs text-zinc-600 font-mono">Live hook events render in the action terminal after wallet connect.</p>
+    <div className="rounded-xl border border-border-subtle bg-surface-card/20 p-4">
+      <p className="text-[10px] font-bold text-text-tertiary uppercase tracking-widest mb-3 font-mono">{`/// Event Stream`}</p>
+      <p className="text-xs text-text-quiet font-mono">Live hook events render in the action terminal after wallet connect.</p>
     </div>
   )
 }

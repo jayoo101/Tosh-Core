@@ -329,7 +329,7 @@ export function LiquidityPanel({
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">
+        <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest">
           Slippage
         </span>
         <div role="radiogroup" aria-label="LP slippage tolerance" className="flex gap-1">
@@ -346,8 +346,8 @@ export function LiquidityPanel({
                 className={
                   'text-[10px] font-mono px-2 py-1 rounded-md border transition-colors ' +
                   (selected
-                    ? 'border-brand text-white bg-brand/10'
-                    : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')
+                    ? 'border-brand text-text-primary bg-brand/10'
+                    : 'border-border-strong text-text-tertiary hover:text-text-secondary')
                 }
               >
                 {p.label}
@@ -360,17 +360,17 @@ export function LiquidityPanel({
       <ActionButton gate={gate} />
 
       {positions.length > 0 && (
-        <div className="border border-[#1F1F2E]">
-          <div className="px-4 py-2 border-b border-[#1F1F2E]">
+        <div className="border border-border-subtle">
+          <div className="px-4 py-2 border-b border-border-subtle">
             <span className="font-mono text-label text-text-tertiary">{'// OPEN POSITIONS'}</span>
           </div>
           {positions.map(pos => (
             <div
               key={pos.tokenId.toString()}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-[#1F1F2E] last:border-b-0"
+              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-border-subtle last:border-b-0"
             >
-              <div className="font-mono text-[11px] text-[#888] tabular-nums">
-                <span className="text-white">#{pos.tokenId.toString()}</span>
+              <div className="font-mono text-[11px] text-text-tertiary tabular-nums">
+                <span className="text-text-primary">#{pos.tokenId.toString()}</span>
                 {' · '}{fmt(pos.amount0)} ETH{' + '}{fmt(pos.amount1)} {symbol}
               </div>
               <button
@@ -378,7 +378,7 @@ export function LiquidityPanel({
                 disabled={busy}
                 onClick={() => withdraw(pos.tokenId, pos.amount0, pos.amount1)}
                 className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-md
-                           border border-zinc-600 text-zinc-300 hover:bg-zinc-800/60
+                           border border-border-strong text-text-secondary hover:bg-surface-elevated/60
                            disabled:opacity-40 transition-colors"
               >
                 Withdraw
@@ -389,7 +389,7 @@ export function LiquidityPanel({
       )}
 
       {degraded && (
-        <p className="text-[10px] font-mono text-[#888] tracking-wider leading-relaxed">
+        <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
           {'// '}This RPC would not serve position logs, so only positions minted from this
           browser are listed. Your other positions are safe on-chain and remain withdrawable
           through any Uniswap V4 interface.

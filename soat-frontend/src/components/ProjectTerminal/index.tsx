@@ -158,7 +158,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
     return (
       <div className="flex flex-col">
         <Card id="ERR" title="HOOK BINDING MISSING">
-          <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+          <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
             This project row has no <span className="text-brand">hook_address</span> on file.
             Deploy may still be pending — refresh after the createLaunch tx confirms.
           </p>

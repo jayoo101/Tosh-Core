@@ -108,7 +108,7 @@ export function PogScanButton({
         <span className={`font-mono text-[10px] tracking-wider
                           ${tone === 'rust'
                             ? 'text-danger'
-                            : tone === 'mute' ? 'text-[#888]' : 'text-brand'}`}>
+                            : tone === 'mute' ? 'text-text-tertiary' : 'text-brand'}`}>
           {tone === 'rust' ? '⛔' : '→'} {msg}
         </span>
       )}

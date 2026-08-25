@@ -11,11 +11,11 @@ function statusBadge(tab: DirectoryProject['tab']) {
     case 'live':
       return { text: '[GENESIS] FUNDING', color: 'text-brand bg-brand/10 border-brand/20' }
     case 'launching':
-      return { text: '[PREP] AWAITING LAUNCH', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' }
+      return { text: '[PREP] AWAITING LAUNCH', color: 'text-admin bg-admin/10 border-admin/20' }
     case 'completed':
-      return { text: '[LIVE] CURVE_ACTIVE', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' }
+      return { text: '[LIVE] CURVE_ACTIVE', color: 'text-success bg-success/10 border-success/20' }
     case 'archived':
-      return { text: '[REFUND] ELIGIBLE', color: 'text-red-400 bg-red-500/10 border-red-500/20' }
+      return { text: '[REFUND] ELIGIBLE', color: 'text-danger bg-danger/10 border-danger/20' }
   }
 }
 
@@ -45,7 +45,7 @@ function CardCountdown({ deadline, tab }: { deadline: bigint; tab: DirectoryProj
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [deadline, tab])
-  return <span className="text-[10px] font-mono tabular-nums text-zinc-500">{text}</span>
+  return <span className="text-[10px] font-mono tabular-nums text-text-tertiary">{text}</span>
 }
 
 function ctaLabel(tab: DirectoryProject['tab']) {
@@ -59,10 +59,10 @@ function ctaLabel(tab: DirectoryProject['tab']) {
 
 function ctaCls(tab: DirectoryProject['tab']) {
   switch (tab) {
-    case 'live': return 'text-black bg-brand hover:shadow-[0_0_16px_rgba(0,255,163,0.35)]'
-    case 'launching': return 'text-white bg-purple-600 hover:bg-purple-500'
-    case 'completed': return 'text-white bg-emerald-600 hover:bg-emerald-500'
-    default: return 'text-zinc-400 bg-zinc-800'
+    case 'live': return 'text-bg-base bg-brand hover:shadow-[0_0_16px_rgba(0,255,163,0.35)]'
+    case 'launching': return 'text-text-primary bg-admin hover:bg-admin'
+    case 'completed': return 'text-text-primary bg-success hover:bg-success'
+    default: return 'text-text-secondary bg-surface-elevated'
   }
 }
 
@@ -72,9 +72,9 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
   const desc = p.description?.trim()
     || `${p.name} ($${p.symbol}) — Proof-of-Gas gated genesis on Tosh Protocol. Deposit ETH before soft cap, claim tokens after the shelf ladder launches.`
   const barCls = p.tab === 'completed'
-    ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.6)]'
+    ? 'bg-gradient-to-r from-success to-success shadow-[0_0_10px_rgba(16,185,129,0.6)]'
     : p.tab === 'archived'
-      ? 'bg-red-500/80'
+      ? 'bg-danger/80'
       : 'bar-glow'
 
   return (
@@ -101,26 +101,26 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
         </span>
       </div>
 
-      <h3 className="text-xl font-bold text-white mb-1 tracking-tight group-hover:text-brand transition-colors truncate">
+      <h3 className="text-xl font-bold text-text-primary mb-1 tracking-tight group-hover:text-brand transition-colors truncate">
         {p.name}
       </h3>
-      <p className="text-xs text-zinc-500 font-mono mb-4 uppercase tracking-tighter">
+      <p className="text-xs text-text-tertiary font-mono mb-4 uppercase tracking-tighter">
         ${p.symbol} · {p.token.slice(0, 6)}…{p.token.slice(-4)}
       </p>
 
-      <p className="text-sm text-zinc-400 line-clamp-3 min-h-[40px] mb-6 leading-relaxed">
+      <p className="text-sm text-text-secondary line-clamp-3 min-h-[40px] mb-6 leading-relaxed">
         {desc}
       </p>
 
       <div className="space-y-3">
         <div className="flex justify-between text-xs font-mono">
-          <span className="text-zinc-500 uppercase">Genesis Progress</span>
-          <span className="text-white font-bold">{Math.min(p.progress, 100).toFixed(1)}%</span>
+          <span className="text-text-tertiary uppercase">Genesis Progress</span>
+          <span className="text-text-primary font-bold">{Math.min(p.progress, 100).toFixed(1)}%</span>
         </div>
-        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 bg-surface-elevated rounded-full overflow-hidden">
           <div className={`h-full rounded-full transition-all duration-1000 ${barCls}`} style={{ width: `${Math.min(100, p.progress)}%` }} />
         </div>
-        <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+        <div className="flex justify-between text-[10px] font-mono text-text-tertiary">
           <span>Raised: {fmtEth(p.totalEth)} ETH</span>
           <span>Target: {fmtEth(p.softCap)} ETH</span>
         </div>

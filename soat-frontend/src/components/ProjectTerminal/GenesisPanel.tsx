@@ -273,12 +273,12 @@ export function GenesisPanel(p: GenesisProps) {
             <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
               → WALLET BLACKLISTED · {banTxt}
             </p>
-            <p className="font-mono text-[11px] text-[#888] leading-relaxed">
-              The factory rejects every <span className="text-white">deposit</span> from this
+            <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
+              The factory rejects every <span className="text-text-primary">deposit</span> from this
               address while the ban stands, whatever quota it holds — so the zero here is a
               ban, not a spent allowance.{' '}
               {banLiftsAt
-                ? <>The ban expires on its own at <span className="text-white">{banLiftsAt}</span>, after
+                ? <>The ban expires on its own at <span className="text-text-primary">{banLiftsAt}</span>, after
                    which the quota is spendable again with nothing to reset.</>
                 : <>Only the protocol owner can clear a permanent ban.</>}
             </p>
@@ -290,10 +290,10 @@ export function GenesisPanel(p: GenesisProps) {
             <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-warning">
               → NO POG ATTESTATION ON FILE
             </p>
-            <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+            <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
               This wallet has never registered Proof-of-Gas, so it holds no quota to spend —
               nothing has been consumed here. Run{' '}
-              <span className="text-white">EXECUTE_GAS_PROOF_SCAN</span> below to have the
+              <span className="text-text-primary">EXECUTE_GAS_PROOF_SCAN</span> below to have the
               oracle size an allocation from this address&apos;s gas history and write it
               on-chain; deposits open the moment that lands.
             </p>

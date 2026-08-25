@@ -103,7 +103,7 @@ function useWriteAccess(): WriteAccess {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Line({ className = '' }: { className?: string }) {
-  return <div aria-hidden className={`h-px bg-[#1F1F2E] ${className}`} />
+  return <div aria-hidden className={`h-px bg-surface-hover ${className}`} />
 }
 
 /** Group heading — separates the five governance domains. */
@@ -121,8 +121,8 @@ function GroupHeader({
         <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-brand">
           {index}
         </span>
-        <h2 className="text-xl font-black text-white tracking-tight">{title}</h2>
-        <p className="text-xs text-zinc-500 leading-relaxed max-w-2xl">{blurb}</p>
+        <h2 className="text-xl font-black text-text-primary tracking-tight">{title}</h2>
+        <p className="text-xs text-text-tertiary leading-relaxed max-w-2xl">{blurb}</p>
       </div>
     </div>
   )
@@ -146,7 +146,7 @@ function Section({
           </div>
           <h3 className="text-title text-text-primary">{title}</h3>
           {subtitle && (
-            <p className="text-xs text-zinc-500 leading-relaxed max-w-2xl">{subtitle}</p>
+            <p className="text-xs text-text-tertiary leading-relaxed max-w-2xl">{subtitle}</p>
           )}
         </div>
         {action}
@@ -156,13 +156,13 @@ function Section({
   )
 }
 
-const labelCls = 'text-[10px] tracking-[0.32em] uppercase text-[#888] font-light'
+const labelCls = 'text-[10px] tracking-[0.32em] uppercase text-text-tertiary font-light'
 
 /** Governance-boundary note — states what a control does NOT reach. */
 function ScopeNote({ tone = 'mute', children }: { tone?: 'mute' | 'warn'; children: React.ReactNode }) {
   const cls = tone === 'warn'
     ? 'border-danger/40 text-danger'
-    : 'border-[#1F1F2E] text-[#888]'
+    : 'border-border-subtle text-text-tertiary'
   return (
     <p className={`border-l-2 ${cls} pl-3 text-[11px] leading-relaxed font-mono`}>
       {children}
@@ -189,8 +189,8 @@ function Field({
   const borderCls = fluo
     ? 'border-brand'
     : errored
-      ? 'border-[#444] focus:border-brand'
-      : 'border-[#1F1F2E] focus:border-brand'
+      ? 'border-border-strong focus:border-brand'
+      : 'border-border-subtle focus:border-brand'
   return (
     <label className="flex flex-col gap-1.5">
       <span className={labelCls}>{label}</span>
@@ -198,12 +198,12 @@ function Field({
         type={type} value={value} placeholder={placeholder} disabled={disabled}
         inputMode={inputMode} pattern={pattern}
         onChange={e => onChange(e.target.value)}
-        className={`bg-zinc-900/50 border ${borderCls} rounded-lg px-3 py-2.5 font-mono text-sm
-                    text-white placeholder:text-zinc-600 tabular-nums
+        className={`bg-surface-card/50 border ${borderCls} rounded-lg px-3 py-2.5 font-mono text-sm
+                    text-text-primary placeholder:text-text-quiet tabular-nums
                     disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors duration-150`}
       />
-      {hint && <span className="text-[10px] text-[#666] tracking-wider">{hint}</span>}
+      {hint && <span className="text-[10px] text-text-tertiary tracking-wider">{hint}</span>}
     </label>
   )
 }
@@ -225,12 +225,12 @@ function TextAreaField({
       <textarea
         rows={rows} value={value} placeholder={placeholder} disabled={disabled}
         onChange={e => onChange(e.target.value)}
-        className="bg-transparent border border-[#1F1F2E] focus:border-brand
-                   px-3 py-2 font-mono text-sm text-white placeholder:text-[#3A3A4A]
+        className="bg-transparent border border-border-subtle focus:border-brand
+                   px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-quiet
                    tabular-nums resize-y transition-colors duration-150
                    disabled:opacity-40"
       />
-      {hint && <span className="text-[10px] text-[#666] tracking-wider">{hint}</span>}
+      {hint && <span className="text-[10px] text-text-tertiary tracking-wider">{hint}</span>}
     </label>
   )
 }
@@ -294,17 +294,17 @@ function Readout({
 }) {
   const valCls = tone === 'fluo'
     ? 'text-brand'
-    : tone === 'mute' ? 'text-[#888]'
-    : 'text-white'
+    : tone === 'mute' ? 'text-text-tertiary'
+    : 'text-text-primary'
   return (
-    <div className="flex flex-col gap-1 py-2 border-b border-[#1F1F2E]/60">
+    <div className="flex flex-col gap-1 py-2 border-b border-border-subtle/60">
       <div className="flex items-baseline justify-between gap-4">
         <span className={labelCls}>{label}</span>
         <span className={`font-mono text-sm tabular-nums break-all text-right ${valCls}`}>
           {value}
         </span>
       </div>
-      {hint && <div className="text-[10px] text-[#555] tracking-wider text-right">{hint}</div>}
+      {hint && <div className="text-[10px] text-text-quiet tracking-wider text-right">{hint}</div>}
     </div>
   )
 }
@@ -312,7 +312,7 @@ function Readout({
 function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
-    <p className="text-[10px] font-mono text-[#888] tracking-wider leading-relaxed">
+    <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
       <span className="text-danger">[REVERT]</span> {msg}
     </p>
   )
@@ -327,16 +327,16 @@ function TxLine({ hash, label }: { hash?: `0x${string}`; label: string }) {
     : isSuccess ? 'ACKNOWLEDGED'
     : isError ? 'REVERTED'
     : 'PENDING'
-  const tone = isSuccess ? 'text-brand' : isError ? 'text-danger' : 'text-[#888]'
+  const tone = isSuccess ? 'text-brand' : isError ? 'text-danger' : 'text-text-tertiary'
   return (
     <p className="text-[10px] font-mono tracking-wider flex items-center gap-3 flex-wrap">
       <span className={tone}>[TX]</span>
-      <span className="text-[#888]">{label}</span>
+      <span className="text-text-tertiary">{label}</span>
       <span className={tone}>{stateTxt}</span>
       <a
         href={testnetExplorerTx(hash)}
         target="_blank" rel="noopener noreferrer"
-        className="text-[#555] hover:text-brand break-all underline decoration-dotted"
+        className="text-text-quiet hover:text-brand break-all underline decoration-dotted"
       >
         {hash.slice(0, 10)}…{hash.slice(-6)} ↗
       </a>
@@ -398,7 +398,7 @@ function ConfirmDialog({
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-base/80 px-6"
       role="dialog"
       aria-modal="true"
       onClick={onCancel}
@@ -414,8 +414,8 @@ function ConfirmDialog({
             type="button"
             onClick={onCancel}
             className="px-4 py-2 text-[10px] font-mono uppercase tracking-wider
-                       border border-zinc-800 text-zinc-400 rounded-xl
-                       hover:text-white hover:border-zinc-600 transition-colors"
+                       border border-border-subtle text-text-secondary rounded-xl
+                       hover:text-text-primary hover:border-border-strong transition-colors"
           >
             cancel
           </button>
@@ -425,8 +425,8 @@ function ConfirmDialog({
             className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider font-bold
                         rounded-xl border transition-colors
                         ${danger
-                          ? 'border-danger text-danger hover:bg-danger hover:text-black'
-                          : 'border-brand text-brand hover:bg-brand hover:text-black'}`}
+                          ? 'border-danger text-danger hover:bg-danger hover:text-bg-base'
+                          : 'border-brand text-brand hover:bg-brand hover:text-bg-base'}`}
           >
             {confirmLabel}
           </button>
@@ -598,7 +598,7 @@ function LaunchFeePanel() {
                 {parsed.ok ? fmtEth(parsed.value) : '—'}
               </span>
             </p>
-            <p className="mt-3 text-zinc-500">
+            <p className="mt-3 text-text-tertiary">
               Every createLaunch after this block must attach the new amount as
               msg.value. A UI still holding the old figure will revert.
             </p>
@@ -742,7 +742,7 @@ function PogLimitPanel() {
         their granted allowance — a depositor&apos;s terms cannot be rewritten under
         them after they commit.
         <br /><br />
-        <span className="text-[#c88]">
+        <span className="text-danger">
           Zero is not &ldquo;freeze registrations&rdquo;.
         </span>{' '}
         This value is snapshotted into every new hook&apos;s constructor, which
@@ -824,7 +824,7 @@ function DurationSetterPanel({
             ? 'reading…'
             : currentSec !== undefined
               ? <>{fmtDuration(currentSec as bigint, zeroHint)}{' '}
-                  <span className="text-[#555]">({(currentSec as bigint).toString()} s)</span></>
+                  <span className="text-text-quiet">({(currentSec as bigint).toString()} s)</span></>
               : '—'
         }
         hint={isFetching && !isLoading ? 'syncing' : null}
@@ -972,7 +972,7 @@ function AddressRotationPanel({
           trimmed.length > 0 && !validAddr
             ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span>
             : sameAsLive
-              ? <span className="text-[#888]">→ EQUALS_LIVE_VALUE (NO_OP)</span>
+              ? <span className="text-text-tertiary">→ EQUALS_LIVE_VALUE (NO_OP)</span>
               : zeroAddr
                 ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
                 : null
@@ -995,9 +995,9 @@ function AddressRotationPanel({
         title={`Confirm ${txLabel.toLowerCase()} rotation`}
         body={
           <>
-            <p className="break-all text-zinc-400">{String(currentAddr ?? '—')}</p>
+            <p className="break-all text-text-secondary">{String(currentAddr ?? '—')}</p>
             <p className="break-all text-brand mt-1">↓ {trimmed}</p>
-            <p className="mt-3 text-zinc-500">{confirmBody}</p>
+            <p className="mt-3 text-text-tertiary">{confirmBody}</p>
           </>
         }
         confirmLabel="commit rotation"
@@ -1086,7 +1086,7 @@ function CircuitBreakerPanel() {
       id="G3-A" title="PLATFORM CIRCUIT BREAKER"
       subtitle="pause / unpause · Pausable guard on the factory's entry points"
       action={isLoading && paused === undefined
-        ? <span className="text-[10px] font-mono text-[#666]">reading…</span>
+        ? <span className="text-[10px] font-mono text-text-tertiary">reading…</span>
         : <StatusBadge ok={!isPaused} okLabel="live" badLabel="paused" />}
     >
       <ScopeNote tone={isPaused ? 'warn' : 'mute'}>
@@ -1100,7 +1100,7 @@ function CircuitBreakerPanel() {
         it says.
       </ScopeNote>
       <ScopeNote tone="warn">
-        <span className="text-[#c88]">Deposits are not paused.</span>{' '}
+        <span className="text-danger">Deposits are not paused.</span>{' '}
         <code>deposit</code> carries no <code>whenNotPaused</code>, so a genesis
         round that is already open goes on taking ETH for its full window while
         the platform is paused. That is the same promise that keeps refunds
@@ -1219,7 +1219,7 @@ function LadderHaltPanel() {
             className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
               (scope === s
                 ? 'border-brand text-brand'
-                : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
+                : 'border-border-subtle text-text-tertiary hover:text-text-secondary')}
           >
             {s === 'global' ? 'platform-wide' : 'single project'}
           </button>
@@ -1260,7 +1260,7 @@ function LadderHaltPanel() {
               className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
                 (duration === p.secs
                   ? 'border-brand text-brand'
-                  : 'border-[#1F1F2E] text-[#666] hover:text-[#AAA]')}
+                  : 'border-border-subtle text-text-tertiary hover:text-text-secondary')}
             >
               {p.label}
             </button>
@@ -1274,7 +1274,7 @@ function LadderHaltPanel() {
         keep working, so a halt can cancel an opportunity but can never strand a
         balance.
         <br /><br />
-        <span className="text-[#CCC]">It expires by itself.</span> A halt is a
+        <span className="text-text-secondary">It expires by itself.</span> A halt is a
         deadline, capped at 7 days, not a flag — so an owner who is compromised
         or simply unavailable cannot brick Phase 2 permanently. Re-arm before the
         deadline to extend an ongoing incident; the worst case is a rolling
@@ -1323,10 +1323,10 @@ function LadderHaltPanel() {
 }
 
 const ROW_TAG: Record<AddressRowStatus, { tag: string; cls: string }> = {
-  'valid':     { tag: '[OK]  ', cls: 'text-white' },
-  'duplicate': { tag: '[DUP] ', cls: 'text-[#888]' },
+  'valid':     { tag: '[OK]  ', cls: 'text-text-primary' },
+  'duplicate': { tag: '[DUP] ', cls: 'text-text-tertiary' },
   'invalid':   { tag: '[ERR] ', cls: 'text-danger' },
-  'over-cap':  { tag: '[CAP] ', cls: 'text-[#888]' },
+  'over-cap':  { tag: '[CAP] ', cls: 'text-text-tertiary' },
 }
 
 function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
@@ -1335,14 +1335,14 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
   const truncated    = rows.length - renderedRows.length
 
   return (
-    <div className="border border-[#1F1F2E] rounded-lg overflow-hidden">
-      <div className="grid grid-cols-[3rem_5rem_1fr] gap-3 px-3 py-1.5 border-b border-[#1F1F2E]
-                      text-[10px] tracking-[0.32em] uppercase text-[#666]">
+    <div className="border border-border-subtle rounded-lg overflow-hidden">
+      <div className="grid grid-cols-[3rem_5rem_1fr] gap-3 px-3 py-1.5 border-b border-border-subtle
+                      text-[10px] tracking-[0.32em] uppercase text-text-tertiary">
         <span>idx</span>
         <span>state</span>
         <span>address</span>
       </div>
-      <div className="max-h-72 overflow-y-auto divide-y divide-[#1F1F2E]/60 font-mono">
+      <div className="max-h-72 overflow-y-auto divide-y divide-border-subtle/60 font-mono">
         {renderedRows.map(row => {
           const t = ROW_TAG[row.status]
           return (
@@ -1350,11 +1350,11 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
               key={`${row.index}-${row.raw}`}
               className="grid grid-cols-[3rem_5rem_1fr] gap-3 items-center px-3 py-1 text-[11px] tabular-nums"
             >
-              <span className="text-[#555]">
+              <span className="text-text-quiet">
                 {row.index.toString(16).toUpperCase().padStart(3, '0')}
               </span>
               <span className={t.cls}>{t.tag}</span>
-              <span className={`break-all ${row.status === 'invalid' ? 'text-danger' : 'text-[#CCC]'}`}>
+              <span className={`break-all ${row.status === 'invalid' ? 'text-danger' : 'text-text-secondary'}`}>
                 {row.display}
               </span>
             </div>
@@ -1362,7 +1362,7 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
         })}
       </div>
       {truncated > 0 && (
-        <p className="px-3 py-1.5 text-center text-[10px] text-[#666] border-t border-[#1F1F2E] tracking-wider">
+        <p className="px-3 py-1.5 text-center text-[10px] text-text-tertiary border-t border-border-subtle tracking-wider">
           +{truncated} ROWS BUFFERED · DUMP CAPPED AT {RENDER_CAP}
         </p>
       )}
@@ -1425,7 +1425,7 @@ function SingleLiftRow() {
           !valid
             ? (trimmed.length > 0 ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> : null)
             : until === undefined
-              ? <span className="text-[#666]">→ reading blacklistedUntil…</span>
+              ? <span className="text-text-tertiary">→ reading blacklistedUntil…</span>
               : isBanned
                 ? <span className="text-danger">→ BANNED UNTIL {bannedUntilTxt}</span>
                 : <span className="text-brand">→ NOT CURRENTLY BANNED</span>
@@ -1508,12 +1508,12 @@ function BlacklistConsole() {
         disabled={txBusy}
       />
 
-      <div className="grid grid-cols-4 border border-[#1F1F2E] divide-x divide-[#1F1F2E] rounded-lg overflow-hidden">
+      <div className="grid grid-cols-4 border border-border-subtle divide-x divide-border-subtle rounded-lg overflow-hidden">
         {([
-          ['VALID',     counts.valid,     'text-white'],
-          ['DUPLICATE', counts.duplicate, 'text-[#888]'],
-          ['INVALID',   counts.invalid,   counts.invalid > 0 ? 'text-danger' : 'text-[#555]'],
-          ['OVERCAP',   counts.overCap,   counts.overCap > 0 ? 'text-danger' : 'text-[#555]'],
+          ['VALID',     counts.valid,     'text-text-primary'],
+          ['DUPLICATE', counts.duplicate, 'text-text-tertiary'],
+          ['INVALID',   counts.invalid,   counts.invalid > 0 ? 'text-danger' : 'text-text-quiet'],
+          ['OVERCAP',   counts.overCap,   counts.overCap > 0 ? 'text-danger' : 'text-text-quiet'],
         ] as const).map(([label, value, cls]) => (
           <div key={label} className="px-3 py-2 flex flex-col gap-1">
             <span className={labelCls}>{label}</span>
@@ -1538,12 +1538,12 @@ function BlacklistConsole() {
           value={duration}
           onChange={e => setDuration(e.target.value as BanDurationKey)}
           disabled={txBusy}
-          className="bg-zinc-900/50 border border-[#1F1F2E] focus:border-brand rounded-lg
-                     px-3 py-2.5 font-mono text-sm text-white tabular-nums
+          className="bg-surface-card/50 border border-border-subtle focus:border-brand rounded-lg
+                     px-3 py-2.5 font-mono text-sm text-text-primary tabular-nums
                      transition-colors duration-150 disabled:opacity-40"
         >
           {(Object.keys(BAN_DURATIONS) as BanDurationKey[]).map(d => (
-            <option key={d} value={d} className="bg-black text-white">{d}</option>
+            <option key={d} value={d} className="bg-bg-base text-text-primary">{d}</option>
           ))}
         </select>
       </label>
@@ -1692,10 +1692,10 @@ function LadderTreasuryPanel() {
   const eligibility: { ok: boolean; note: React.ReactNode } = (() => {
     if (!trimmed)        return { ok: false, note: null }
     if (!valid)          return { ok: false, note: <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> }
-    if (hookLoading)     return { ok: false, note: <span className="text-[#666]">→ resolving factory.tokenToHook…</span> }
+    if (hookLoading)     return { ok: false, note: <span className="text-text-tertiary">→ resolving factory.tokenToHook…</span> }
     if (!knownToken)     return { ok: false, note: <span className="text-danger">→ NOT_LAUNCHED_HERE · factory.tokenToHook returned 0</span> }
-    if (alreadyListed)   return { ok: false, note: <span className="text-[#888]">→ ALREADY_LISTED</span> }
-    if (launchedLoading) return { ok: false, note: <span className="text-[#666]">→ reading hook.launched()…</span> }
+    if (alreadyListed)   return { ok: false, note: <span className="text-text-tertiary">→ ALREADY_LISTED</span> }
+    if (launchedLoading) return { ok: false, note: <span className="text-text-tertiary">→ reading hook.launched()…</span> }
     if (!launched) {
       return {
         ok: false,
@@ -1764,7 +1764,7 @@ function LadderTreasuryPanel() {
         One-way valve by construction. The treasury has no withdraw, no transfer
         and no owner payout path — the only exit for a wei that lands here is
         _buyAndBurn, which swaps ETH for a listed token and sends the proceeds to{' '}
-        <span className="text-[#CCC]">{DEAD_ADDRESS}</span>. Owner authority on
+        <span className="text-text-secondary">{DEAD_ADDRESS}</span>. Owner authority on
         this contract is curation only.
       </ScopeNote>
       <ScopeNote tone="warn">
@@ -1786,21 +1786,21 @@ function LadderTreasuryPanel() {
       <div className="flex flex-col gap-1.5">
         <span className={labelCls}>LISTED TOKENS</span>
         {listed.length === 0 ? (
-          <p className="text-[11px] font-mono text-[#666] py-3">
+          <p className="text-[11px] font-mono text-text-tertiary py-3">
             roster empty — buybacks are inert until at least one token is listed
           </p>
         ) : (
-          <div className="border border-[#1F1F2E] rounded-lg divide-y divide-[#1F1F2E]/60">
+          <div className="border border-border-subtle rounded-lg divide-y divide-border-subtle/60">
             {listed.map((t, i) => (
               <div key={t} className="flex items-center justify-between gap-3 px-3 py-2">
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="font-mono text-[10px] text-[#555] tabular-nums">
+                  <span className="font-mono text-[10px] text-text-quiet tabular-nums">
                     {i.toString().padStart(2, '0')}
                   </span>
                   {BigInt(i) === cursor && (
                     <span className="text-[9px] font-mono tracking-widest text-brand">▸NEXT</span>
                   )}
-                  <span className="font-mono text-[11px] text-[#CCC] break-all">
+                  <span className="font-mono text-[11px] text-text-secondary break-all">
                     <AddressLink addr={t} />
                   </span>
                 </div>
@@ -1845,8 +1845,8 @@ function LadderTreasuryPanel() {
         title="Delist from the buyback roster?"
         body={
           <>
-            <p className="break-all text-zinc-400">{pendingRemoval}</p>
-            <p className="mt-3 text-zinc-500">
+            <p className="break-all text-text-secondary">{pendingRemoval}</p>
+            <p className="mt-3 text-text-tertiary">
               Removal is swap-and-pop: the last entry moves into this slot and the
               round-robin cursor is re-modulated against the shorter array. The
               rotation order changes for the remaining tokens — that is expected,
@@ -1935,9 +1935,9 @@ function OwnershipCard({
   }, [contractAddress, abi, writeContract])
 
   return (
-    <div className="flex flex-col gap-3 border border-[#1F1F2E] rounded-xl p-4">
+    <div className="flex flex-col gap-3 border border-border-subtle rounded-xl p-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h4 className="text-sm font-black text-white tracking-tight">{label}</h4>
+        <h4 className="text-sm font-black text-text-primary tracking-tight">{label}</h4>
         <StatusBadge
           ok={!hasPending}
           okLabel="settled"
@@ -1985,9 +1985,9 @@ function OwnershipCard({
             : zeroAddr
               ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
               : sameAsOwner
-                ? <span className="text-[#888]">→ EQUALS_CURRENT_OWNER (NO_OP)</span>
+                ? <span className="text-text-tertiary">→ EQUALS_CURRENT_OWNER (NO_OP)</span>
                 : !iAmOwner
-                  ? <span className="text-[#888]">→ ONLY THE CURRENT OWNER MAY INITIATE</span>
+                  ? <span className="text-text-tertiary">→ ONLY THE CURRENT OWNER MAY INITIATE</span>
                   : null
         }
       />
@@ -2010,9 +2010,9 @@ function OwnershipCard({
         title={`Hand over ${label}?`}
         body={
           <>
-            <p className="break-all text-zinc-400">{owner ?? '—'}</p>
+            <p className="break-all text-text-secondary">{owner ?? '—'}</p>
             <p className="break-all text-brand mt-1">↓ {trimmed}</p>
-            <p className="mt-3 text-zinc-500">
+            <p className="mt-3 text-text-tertiary">
               Two-step: you keep full control until the recipient calls
               acceptOwnership(). Verify the recipient can actually transact —
               a Safe that never accepts leaves ownership with you, but an EOA you
@@ -2100,7 +2100,7 @@ function InitcodeHashMonitor() {
     : hashOk ? (liveHash as string) : ZERO_HASH
 
   const statusLine = readError || (!isLoading && !hashOk)
-    ? <span className="text-[#888]">OFFLINE</span>
+    ? <span className="text-text-tertiary">OFFLINE</span>
     : rotated
       ? <span className="text-brand">ROTATED</span>
       : <span className="text-brand">OK</span>
@@ -2110,13 +2110,13 @@ function InitcodeHashMonitor() {
       id="DIAG-A" title="LIVE INITCODE HASH"
       subtitle="factory.getLiveHookInitcodeHash() · build fingerprint · 8 s probe"
     >
-      <p className="font-mono text-[11px] text-[#888] tracking-wider break-all leading-relaxed">
-        hash{'  '}<span className="text-[#CCCCCC]">{display}</span>
+      <p className="font-mono text-[11px] text-text-tertiary tracking-wider break-all leading-relaxed">
+        hash{'  '}<span className="text-text-secondary">{display}</span>
       </p>
       <p className="font-mono text-[10px] tracking-[0.32em] uppercase flex items-center gap-3">
-        <span className={`inline-block w-1.5 h-1.5 rounded-full ${hashOk ? 'bg-brand' : 'bg-[#1F1F2E]'}`} aria-hidden />
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${hashOk ? 'bg-brand' : 'bg-surface-hover'}`} aria-hidden />
         {statusLine}
-        {isFetching && !isLoading && <span className="text-[#555]">· syncing</span>}
+        {isFetching && !isLoading && <span className="text-text-quiet">· syncing</span>}
       </p>
       <ScopeNote>
         Sentinel-address hash — a fingerprint, not a mining target. It changes iff
@@ -2232,7 +2232,7 @@ function WalletBar() {
     return (
       <button
         onClick={() => connect({ connector: injected() })}
-        className="px-4 py-1.5 border border-white text-white text-[10px] font-mono
+        className="px-4 py-1.5 border border-text-primary text-text-primary text-[10px] font-mono
                    tracking-[0.32em] uppercase font-bold rounded-xl
                    hover:border-brand hover:text-brand transition-colors"
       >
@@ -2247,7 +2247,7 @@ function WalletBar() {
       </span>
       <button
         onClick={() => disconnect()}
-        className="px-2 py-1 text-[#888] hover:text-danger transition-colors
+        className="px-2 py-1 text-text-tertiary hover:text-danger transition-colors
                    tracking-[0.32em] uppercase"
       >
         disc
@@ -2283,9 +2283,9 @@ function AccessBanner({
           {title}
         </span>
       </div>
-      <p className="text-xs text-zinc-400 leading-relaxed max-w-2xl">{body}</p>
+      <p className="text-xs text-text-secondary leading-relaxed max-w-2xl">{body}</p>
       {owner && (
-        <p className="text-[11px] font-mono text-[#666] break-all">
+        <p className="text-[11px] font-mono text-text-tertiary break-all">
           owner <AddressLink addr={owner} />
         </p>
       )}
@@ -2310,8 +2310,8 @@ export default function AdminPage() {
 
   return (
     <WriteAccessContext.Provider value={access}>
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-        <header className="border-b border-zinc-800/60 px-6 py-6">
+      <div className="min-h-screen bg-bg-base text-text-primary font-sans">
+        <header className="border-b border-border-subtle/60 px-6 py-6">
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -2325,10 +2325,10 @@ export default function AdminPage() {
                   </span>
                 )}
               </div>
-              <h1 className="text-2xl font-black tracking-tight text-white">
+              <h1 className="text-2xl font-black tracking-tight text-text-primary">
                 Protocol <span className="text-brand">Control</span>
               </h1>
-              <p className="text-xs text-zinc-500 mt-1 font-mono">
+              <p className="text-xs text-text-tertiary mt-1 font-mono">
                 {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL} ·{' '}
                 {FACTORY_ADDRESS.slice(0, 10)}…{FACTORY_ADDRESS.slice(-6)}
               </p>
@@ -2397,7 +2397,7 @@ export default function AdminPage() {
 
           <div className="pt-12">
             <Line />
-            <p className="text-[10px] text-[#555] tracking-[0.4em] uppercase text-center pt-6">
+            <p className="text-[10px] text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
               every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
             </p>
           </div>

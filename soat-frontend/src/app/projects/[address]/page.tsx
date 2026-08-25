@@ -125,9 +125,9 @@ export default async function ProjectDetailPage({ params }: Props) {
   const web = safeHref(p.website)
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+    <div className="min-h-screen bg-bg-base text-text-primary font-sans">
       <main className="max-w-7xl mx-auto py-12 px-4 md:px-6 lg:px-8">
-        <nav className="text-[11px] font-mono text-zinc-500 flex items-center gap-2 mb-8">
+        <nav className="text-[11px] font-mono text-text-tertiary flex items-center gap-2 mb-8">
           <Link href="/#directory" className="hover:text-brand transition-colors">Agent Directory</Link>
           <span>/</span>
           <span className="text-brand">{p.symbol}</span>
@@ -136,9 +136,9 @@ export default async function ProjectDetailPage({ params }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* LEFT — MeritX invest column */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-5">
               <div className="flex items-start gap-4">
-                <div className="w-16 h-16 rounded-xl bg-black border border-zinc-800 flex items-center justify-center overflow-hidden shrink-0">
+                <div className="w-16 h-16 rounded-xl bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
                   {p.logo_url
                     // eslint-disable-next-line @next/next/no-img-element
                     ? <img src={p.logo_url} alt={p.name} className="w-full h-full object-cover" />
@@ -146,28 +146,28 @@ export default async function ProjectDetailPage({ params }: Props) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-mono text-brand mb-1">${p.symbol}</p>
-                  <h1 className="text-2xl md:text-3xl font-black text-white truncate">{p.name}</h1>
+                  <h1 className="text-2xl md:text-3xl font-black text-text-primary truncate">{p.name}</h1>
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     {tw && (
                       <a href={tw} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <AtSign className="w-4 h-4" />
                       </a>
                     )}
                     {tg && (
                       <a href={tg} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <Send className="w-4 h-4" />
                       </a>
                     )}
                     {web && (
                       <a href={web} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <Globe className="w-4 h-4" />
                       </a>
                     )}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono text-zinc-600">
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono text-text-quiet">
                     <span>Created {isoDate(p.created_at)}</span>
                     {p.token_address && (
                       <a href={testnetExplorerAddress(p.token_address)} target="_blank" rel="noopener noreferrer" className="hover:text-brand transition-colors">
@@ -184,9 +184,9 @@ export default async function ProjectDetailPage({ params }: Props) {
               </div>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-              <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3 font-mono">{`/// Project Manifesto`}</div>
-              <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+            <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-5">
+              <div className="text-[10px] font-bold text-text-tertiary uppercase tracking-widest mb-3 font-mono">{`/// Project Manifesto`}</div>
+              <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
                 {projectManifesto(p)}
               </p>
             </div>

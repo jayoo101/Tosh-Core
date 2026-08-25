@@ -29,16 +29,16 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
 
   const connectCls = variant === 'navbar'
     ? `px-4 py-1.5 rounded-lg border border-brand/40 text-brand text-xs font-bold
-       uppercase tracking-wider hover:bg-brand hover:text-black transition-all
+       uppercase tracking-wider hover:bg-brand hover:text-bg-base transition-all
        shadow-[0_0_8px_rgba(0,255,163,0.15)]`
-    : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1F1F2E] text-[#888]
+    : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-subtle text-text-tertiary
        font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand
        hover:text-brand transition-colors`
 
   const pipCls = variant === 'navbar'
-    ? `group flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-800
-       bg-zinc-900/80 hover:border-brand/40 transition-all text-xs font-mono`
-    : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1F1F2E] text-white
+    ? `group flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border-subtle
+       bg-surface-card/80 hover:border-brand/40 transition-all text-xs font-mono`
+    : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-subtle text-text-primary
        font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand transition-colors`
 
   // Always render a stable outer wrapper so the root element never changes
@@ -80,7 +80,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
             className={pipCls}
           >
             <span aria-hidden className="w-2 h-2 rounded-full bg-brand dot-breathe shrink-0" />
-            <span className="text-zinc-300 group-hover:text-white tabular-nums">
+            <span className="text-text-secondary group-hover:text-text-primary tabular-nums">
               {short}
             </span>
           </button>

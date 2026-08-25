@@ -19,16 +19,16 @@ export default function NotFound() {
   return (
     <section
       className="mx-auto flex min-h-[60vh] max-w-3xl flex-col items-stretch
-                 justify-center gap-6 px-6 py-12 font-mono text-zinc-200"
+                 justify-center gap-6 px-6 py-12 font-mono text-text-primary"
     >
-      <header className="flex flex-col gap-2 border-b border-zinc-800 pb-4">
+      <header className="flex flex-col gap-2 border-b border-border-subtle pb-4">
         <span className="text-[11px] uppercase tracking-[0.4em] text-brand">
           {'// ROUTE // 404 · UNMAPPED_PATH'}
         </span>
-        <h1 className="text-3xl font-light tracking-wide text-zinc-50">
+        <h1 className="text-3xl font-light tracking-wide text-text-primary">
           That endpoint is not on the registry.
         </h1>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-text-secondary">
           You either followed a stale link or mistyped a path.  The protocol
           surfaces only the routes shipped in the current build — nothing
           dynamic gets resolved client-side, so this is a hard miss.
@@ -41,10 +41,10 @@ export default function NotFound() {
       >
         <Link
           href="/"
-          className="border border-zinc-700 bg-black px-4 py-4 text-[12px]
-                     uppercase tracking-[0.3em] text-zinc-300
-                     hover:border-zinc-400 hover:text-zinc-50
-                     focus:outline-none focus:ring-2 focus:ring-zinc-400
+          className="border border-border-strong bg-bg-base px-4 py-4 text-[12px]
+                     uppercase tracking-[0.3em] text-text-secondary
+                     hover:border-border-strong hover:text-text-primary
+                     focus:outline-none focus:ring-2 focus:ring-border-strong
                      focus:ring-offset-2 focus:ring-offset-black
                      transition-colors"
         >
@@ -52,10 +52,10 @@ export default function NotFound() {
         </Link>
         <Link
           href="/projects"
-          className="border border-zinc-700 bg-black px-4 py-4 text-[12px]
-                     uppercase tracking-[0.3em] text-zinc-300
-                     hover:border-zinc-400 hover:text-zinc-50
-                     focus:outline-none focus:ring-2 focus:ring-zinc-400
+          className="border border-border-strong bg-bg-base px-4 py-4 text-[12px]
+                     uppercase tracking-[0.3em] text-text-secondary
+                     hover:border-border-strong hover:text-text-primary
+                     focus:outline-none focus:ring-2 focus:ring-border-strong
                      focus:ring-offset-2 focus:ring-offset-black
                      transition-colors"
         >
@@ -63,10 +63,10 @@ export default function NotFound() {
         </Link>
         <Link
           href="/launch"
-          className="border border-zinc-700 bg-black px-4 py-4 text-[12px]
-                     uppercase tracking-[0.3em] text-zinc-300
-                     hover:border-zinc-400 hover:text-zinc-50
-                     focus:outline-none focus:ring-2 focus:ring-zinc-400
+          className="border border-border-strong bg-bg-base px-4 py-4 text-[12px]
+                     uppercase tracking-[0.3em] text-text-secondary
+                     hover:border-border-strong hover:text-text-primary
+                     focus:outline-none focus:ring-2 focus:ring-border-strong
                      focus:ring-offset-2 focus:ring-offset-black
                      transition-colors"
         >
@@ -74,10 +74,10 @@ export default function NotFound() {
         </Link>
         <Link
           href="/admin"
-          className="border border-zinc-700 bg-black px-4 py-4 text-[12px]
-                     uppercase tracking-[0.3em] text-zinc-300
-                     hover:border-zinc-400 hover:text-zinc-50
-                     focus:outline-none focus:ring-2 focus:ring-zinc-400
+          className="border border-border-strong bg-bg-base px-4 py-4 text-[12px]
+                     uppercase tracking-[0.3em] text-text-secondary
+                     hover:border-border-strong hover:text-text-primary
+                     focus:outline-none focus:ring-2 focus:ring-border-strong
                      focus:ring-offset-2 focus:ring-offset-black
                      transition-colors"
         >
@@ -85,7 +85,7 @@ export default function NotFound() {
         </Link>
       </nav>
 
-      <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">
+      <p className="text-[10px] uppercase tracking-[0.25em] text-text-quiet">
         {'// PROTOCOL_STATE_IS_FINE · ONLY_THIS_URL_IS_NOT_REGISTERED'}
       </p>
     </section>

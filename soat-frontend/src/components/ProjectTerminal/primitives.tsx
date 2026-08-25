@@ -16,7 +16,7 @@ import { basescanTx } from './format'
 export function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
-    <p className="text-[10px] font-mono text-[#888] tracking-wider leading-relaxed">
+    <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
       <span className="text-danger">[REVERT]</span> {msg}
     </p>
   )
@@ -28,14 +28,14 @@ export function TxLine({ hash, label }: { hash?: `0x${string}`; label: string })
   const stateTxt = isLoading
     ? 'CONFIRMING'
     : isSuccess ? 'ACKNOWLEDGED' : 'PENDING'
-  const tone = isSuccess ? 'text-brand' : 'text-[#888]'
+  const tone = isSuccess ? 'text-brand' : 'text-text-tertiary'
   return (
     <p className="text-[10px] font-mono tracking-wider flex items-center gap-3 flex-wrap">
       <span className={tone}>[TX]</span>
-      <span className="text-[#888]">{label}</span>
+      <span className="text-text-tertiary">{label}</span>
       <span className={tone}>{stateTxt}</span>
       <a href={basescanTx(hash)} target="_blank" rel="noopener noreferrer"
-         className="text-[#555] hover:text-brand break-all">
+         className="text-text-quiet hover:text-brand break-all">
         {hash.slice(0, 10)}…{hash.slice(-6)}
       </a>
     </p>

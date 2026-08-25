@@ -10,7 +10,7 @@ const TxFeedMarquee = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="border-zinc-800 bg-zinc-950/50 rounded-lg border overflow-hidden"
+      <div className="border-border-subtle bg-bg-base/50 rounded-lg border overflow-hidden"
            style={{ minHeight: '2rem' }} />
     ),
   },
@@ -19,13 +19,13 @@ const TxFeedMarquee = dynamic(
 /** Live on-chain activity ticker — factory LaunchCreated / PoGRegistered / GenesisDeposit. */
 export function A2AFeed() {
   return (
-    <div className="border-b border-zinc-800/40">
+    <div className="border-b border-border-subtle/40">
       <div className="flex items-center gap-3 py-2.5 px-1">
         <span className="flex items-center gap-1.5 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-brand dot-breathe shadow-[0_0_6px_rgba(0,255,163,0.5)]" />
-          <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">On-Chain Feed</span>
+          <span className="text-[9px] font-mono text-text-tertiary uppercase tracking-widest">On-Chain Feed</span>
         </span>
-        <span className="text-[9px] font-mono text-zinc-700 hidden sm:inline">
+        <span className="text-[9px] font-mono text-text-quiet hidden sm:inline">
           Launch · PoG · GenesisDeposit
         </span>
       </div>

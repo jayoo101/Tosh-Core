@@ -51,21 +51,21 @@ export function QuotaLedger({
                   : `${consumed.toFixed(1)}% CONSUMED`
 
   const row = (label: string, value: React.ReactNode) => (
-    <div className="flex items-baseline justify-between border-b border-[#1F1F2E]/60 py-1.5">
+    <div className="flex items-baseline justify-between border-b border-border-subtle/60 py-1.5">
       <span className="font-mono text-label text-text-tertiary">{label}</span>
-      <span className="font-mono text-[11px] text-white tabular-nums break-all text-right">
+      <span className="font-mono text-[11px] text-text-primary tabular-nums break-all text-right">
         {value}
       </span>
     </div>
   )
 
   return (
-    <div className="border border-[#1F1F2E] px-4 py-3 flex flex-col gap-1">
+    <div className="border border-border-subtle px-4 py-3 flex flex-col gap-1">
       <div className="flex items-center justify-between pb-1">
-        <span className="text-[10px] tracking-[0.4em] uppercase text-[#888] font-bold">
+        <span className="text-[10px] tracking-[0.4em] uppercase text-text-tertiary font-bold">
           {'// [H-01] QUOTA LEDGER'}
         </span>
-        <span className="font-mono text-[10px] text-[#666] tabular-nums">
+        <span className="font-mono text-[10px] text-text-tertiary tabular-nums">
           {statusTxt}
         </span>
       </div>
@@ -80,7 +80,7 @@ export function QuotaLedger({
           'PROJECTED (THIS TX)',
           <>
             +{fmt(projected)} ETH{' '}
-            <span className="text-[#555]">→ {projConsumed.toFixed(1)}%</span>
+            <span className="text-text-quiet">→ {projConsumed.toFixed(1)}%</span>
           </>
         )
       )}
@@ -92,7 +92,7 @@ export function QuotaLedger({
             </p>
           )
           : (
-            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-[#666]">
+            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-text-tertiary">
               → H-01_GUARD: ACTIVE
             </p>
           )}

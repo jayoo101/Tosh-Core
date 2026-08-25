@@ -125,20 +125,20 @@ export function ReferralPanel({
       <ActionButton gate={gate} />
 
       {link && (
-        <div className="border border-[#1F1F2E] flex flex-col gap-2 px-4 py-3">
+        <div className="border border-border-subtle flex flex-col gap-2 px-4 py-3">
           <span className="font-mono text-label text-text-tertiary">YOUR REFERRAL LINK</span>
-          <p className="font-mono text-[11px] text-[#CCC] break-all leading-relaxed">{link}</p>
+          <p className="font-mono text-[11px] text-text-secondary break-all leading-relaxed">{link}</p>
           <button
             type="button"
             onClick={handleCopy}
-            className="self-start px-3 py-1.5 border border-[#1F1F2E] text-[#888] text-[10px]
+            className="self-start px-3 py-1.5 border border-border-subtle text-text-tertiary text-[10px]
                        tracking-[0.32em] uppercase font-bold
                        hover:border-brand hover:text-brand
                        transition-colors duration-150"
           >
             {copied ? 'copied' : 'copy'}
           </button>
-          <p className="text-[10px] text-[#555] tracking-wider leading-relaxed">
+          <p className="text-[10px] text-text-quiet tracking-wider leading-relaxed">
             {'// '}The first link a wallet arrives on binds it to you permanently, across every
             project on the platform. Self-referral is ignored by the factory.
           </p>
