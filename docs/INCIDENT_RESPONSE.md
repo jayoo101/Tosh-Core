@@ -308,7 +308,6 @@ target list goes through:
 
 ```text
 1 day      = 86_400                   // Sybil sweep, low-confidence
-24 hours       86_400                  // (alias)
 7 days     = 604_800                  // Repeat offender
 365 days   = 31_536_000               // Confirmed exploit attempt
 permanent  = type(uint256).max
@@ -333,8 +332,9 @@ cast send $FACTORY_ADDRESS \
   --private-key $PRIVATE_KEY   # or Safe path on mainnet
 ```
 
-The factory accepts batches up to the contract-declared limit
-(`MAX_BLACKLIST_BATCH`, currently 100). Larger batches must be split.
+`setBlacklist` and `liftBlacklist` both cap the batch at **200** addresses
+(a hard-coded `require(users.length <= 200, "Batch too large")` — there is no
+named constant to read on-chain). Larger batches must be split.
 
 ### Step 4 — Verify
 

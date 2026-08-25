@@ -38,11 +38,11 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 | # | 常见 launchpad 的问题 | v5.0 的处理 | 代码依据 |
 |---|---|---|---|
 | 1 | 需要先买平台币（SATO 之类）才能参与，制造了额外的准入摩擦和平台币庄家风险 | 全链路 ETH 原生：发射费、创世出资、货架铸造、回购弹药、退款，全部是原生 ETH。工厂甚至不再存储 SATO 地址 | `src/ToshFactory.sol:59-62`；`src/ToshLaunchpadHook.sol:43-46` |
-| 2 | 项目方持有大额预挖，区块浏览器上一个地址占 100% 供应，社区不敢进 | 按需铸造（on-demand mint）。开盘时只铸 8.4M 创世块，其余 12.6M 随货架成交逐笔铸出 | `src/ToshToken.sol:35-39`、`src/ToshToken.sol:111-114` |
+| 2 | 项目方持有大额预挖，区块浏览器上一个地址占 100% 供应，社区不敢进 | 按需铸造（on-demand mint）。开盘时只铸 8.4M 创世块，其余 12.6M 随货架成交逐笔铸出 | `src/ToshToken.sol:35-39`、`mint` @ `src/ToshToken.sol` |
 | 3 | 项目方可以从低价曲线铸币砸回底池，抽干创世 ETH | 三重价格门控：同区块铸造禁令 + `min(spot, TWAP)` 参考价 + 105% 天花板。开盘那个区块 Phase-2 **完全关闭**——由 `launch()` 主动盖上 `lastSwapBlock` 强制，而非依赖边界算术（见 §8.26） | `ToshLaunchpadHook.launch()` / `mintBondingCurve`；测试 `test_ladderOpensLockedAtLaunch` + `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` |
-| 4 | 创世参与者开盘就被套（开盘价 ≤ 出资成本） | 55/45 的创世供应切分在数学上制造出**恰好 10%** 的开盘账面溢价，货架 0 再叠 5%，合计 15.5% | `src/ToshLaunchpadHook.sol:141-162`；测试 `test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol` |
-| 5 | 底池被永久锁死，散户不敢也不能做 LP，池子费收给了无人能领的仓位 | v5.0 从地址掩码里**移除** `BEFORE_REMOVE_LIQUIDITY`（0x22CC → 0x20CC），散户 LP 自由进出；创世仓位靠"归属权 + 无移除代码路径"结构性锁定 | `src/ToshLaunchpadHook.sol:73-88`、`1018-1042`；测试 `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
-| 6 | 通缩靠链下机器人 harvest，有 MEV 风险和运维成本 | 顺风车（piggyback）回购：任何一笔 Tosh 池交易的 `afterSwap` 都会顺手把平台国库的 1 ETH 拆成 3 份轮转买入并销毁到 `0xdead`，无链下组件 | `src/ToshLaunchpadHook.sol:1142-1157`；`src/ToshLadderTreasury.sol:267-304` |
+| 4 | 创世参与者开盘就被套（开盘价 ≤ 出资成本） | 55/45 的创世供应切分在数学上制造出**恰好 10%** 的开盘账面溢价，货架 0 再叠 5%，合计 15.5% | `GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`；测试 `test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol` |
+| 5 | 底池被永久锁死，散户不敢也不能做 LP，池子费收给了无人能领的仓位 | v5.0 从地址掩码里**移除** `BEFORE_REMOVE_LIQUIDITY`（0x22CC → 0x20CC），散户 LP 自由进出；创世仓位靠"归属权 + 无移除代码路径"结构性锁定 | `src/ToshLaunchpadHook.sol:73-88`、`beforeRemoveLiquidity`；测试 `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
+| 6 | 通缩靠链下机器人 harvest，有 MEV 风险和运维成本 | 顺风车（piggyback）回购：任何一笔 Tosh 池交易的 `afterSwap` 都会顺手把平台国库的 1 ETH 拆成 3 份轮转买入并销毁到 `0xdead`，无链下组件 | `afterSwap` @ `src/ToshLaunchpadHook.sol`；`autoPiggybackBuyback` @ `src/ToshLadderTreasury.sol` |
 | 7 | 平台金库可以被 owner 提走 | 国库是**单向阀**：无 `withdraw` / `sweep` / `rescue` / `delegatecall`，唯一出金路径 `_buyAndBurn` 的收款地址硬编码为 `0xdead` | `src/ToshLadderTreasury.sol:37-51`、`327-352` |
 
 ### 1.3 目标用户
@@ -60,7 +60,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 - **不是 bonding-curve-only**：v5.0 有**真实的 Uniswap V4 池子**（Phase 1 结束就建池），阶梯货架（Phase 2）是**平行于池子**的一级增发渠道，且被池子的价格反向门控。这与 pump.fun 类"曲线内交易，毕业后才建池"是完全不同的结构。
 - **不是 tan(z) 连续曲线**：v4.x 的泰勒展开切线曲线被删除，换成 4000 档**离散定价货架**（`TIER_COUNT = 4000`，每档 3,150 枚，档间 +0.19025%，全程跨度 2000×），价格用快速幂闭式求值而非累乘，避免 4000 次截断漂移（`src/ToshLaunchpadHook.sol`）。
-- **卖压直接销毁**：卖出侧 0.7% 的代币在 `beforeSwap` 里就被 `take` 到 `0xdead`，不进储备、不需要回购换手（`src/ToshLaunchpadHook.sol:1113-1116`）。
+- **卖压直接销毁**：卖出侧 0.7% 的代币在 `beforeSwap` 里就被 `take` 到 `0xdead`，不进储备、不需要回购换手（`_skimInputTax` @ `src/ToshLaunchpadHook.sol`）。
 - **平台收入不是利润**：发射费、货架 1% 切片、孤儿推荐佣金、买入侧 0.7% ETH 税，四条管道全部汇入 `ToshLadderTreasury`，只能用于回购销毁（`src/ToshLadderTreasury.sol:23-29`）。
 
 ---
@@ -119,16 +119,16 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 | 序 | 调用方 → 被调方 | 函数 | 说明 | 行号 |
 |---|---|---|---|---|
 | 1 | 部署者 → Treasury | `constructor` | 必须先于工厂部署（工厂把它当 immutable 构造参数） | `script/Deploy.s.sol:51` |
-| 2 | 部署者 → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | 同时算出 `HOOK_CREATION_CODEHASH` | `src/ToshFactory.sol:199-213` |
-| 3 | owner → Treasury | `setFactory` | **一次性**，闭环。未闭环则所有回购静默失效 | `src/ToshLadderTreasury.sol:173-178` |
-| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2 部署 hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol:346-422` |
-| 5 | 储户 → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | 资格校验全在工厂，记账全在 hook | `src/ToshFactory.sol:442-468` → `src/ToshLaunchpadHook.sol:624-654` |
-| 6 | creator → Hook → PoolManager | `launch()` → `initialize` + `unlock` → `unlockCallback` → `modifyLiquidity` | 建池 + 注入全区间创世流动性 | `src/ToshLaunchpadHook.sol:704-766`、`1224-1262` |
-| 7 | 任意交易者 → PoolManager → Hook | `beforeSwap` / `afterSwap` | 抽税 + 写预言机 + 顺风车 poke | `src/ToshLaunchpadHook.sol:1087-1160` |
-| 8 | Hook → Treasury | `autoPiggybackBuyback()`（`try/catch` 包裹） | 故障隔离：国库炸了不能让交易炸 | `src/ToshLaunchpadHook.sol:1154-1157` |
-| 9 | Treasury → PoolManager | `swap` / `sync` / `settle` / `take` | **不调 `unlock`**，因为已在别人的 unlock 帧内 | `src/ToshLadderTreasury.sol:53-60`、`327-352` |
-| 10 | Treasury → Factory | `registeredHooks` / `tokenToHook` | 认证 poke 来源；校验策展代币来源 | `src/ToshLadderTreasury.sol:156-160`、`204-208` |
-| 11 | Treasury → Hook | `getPoolKey()` | 回购场地从 hook 反查，**不由 owner 提供** | `src/ToshLadderTreasury.sol:210` |
+| 2 | 部署者 → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | 同时算出 `HOOK_CREATION_CODEHASH` | `src/ToshFactory.sol` |
+| 3 | owner → Treasury | `setFactory` | **一次性**，闭环。未闭环则所有回购静默失效 | `src/ToshLadderTreasury.sol` |
+| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2 部署 hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol` |
+| 5 | 储户 → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | 资格校验全在工厂，记账全在 hook | `src/ToshFactory.sol` → `src/ToshLaunchpadHook.sol` |
+| 6 | creator → Hook → PoolManager | `launch()` → `initialize` + `unlock` → `unlockCallback` → `modifyLiquidity` | 建池 + 注入全区间创世流动性 | `launch` / `_addInitialLiquidity` @ `src/ToshLaunchpadHook.sol` |
+| 7 | 任意交易者 → PoolManager → Hook | `beforeSwap` / `afterSwap` | 抽税 + 写预言机 + 顺风车 poke | `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 8 | Hook → Treasury | `autoPiggybackBuyback()`（`try/catch` 包裹） | 故障隔离：国库炸了不能让交易炸 | `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 9 | Treasury → PoolManager | `swap` / `sync` / `settle` / `take` | **不调 `unlock`**，因为已在别人的 unlock 帧内 | `_buyAndBurn` @ `src/ToshLadderTreasury.sol` |
+| 10 | Treasury → Factory | `registeredHooks` / `tokenToHook` | 认证 poke 来源；校验策展代币来源 | `onlyHook` / `addLadderToken` @ `src/ToshLadderTreasury.sol` |
+| 11 | Treasury → Hook | `getPoolKey()` | 回购场地从 hook 反查，**不由 owner 提供** | `addLadderToken` @ `src/ToshLadderTreasury.sol` |
 
 ### 2.2 角色权限清单
 
@@ -136,67 +136,67 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 | 能做 | 函数 | 约束 | 行号 |
 |---|---|---|---|
-| 暂停 / 恢复工厂 | `pause` / `unpause` | **只影响 `createLaunch` 与 `registerPoG` 两个入口**。`deposit` 没有 `whenNotPaused`——已开启的创世轮次照常收款（⚠️ 8.12） | `src/ToshFactory.sol:219-225` |
+| 暂停 / 恢复工厂 | `pause` / `unpause` | **只影响 `createLaunch` 与 `registerPoG` 两个入口**。`deposit` 没有 `whenNotPaused`——已开启的创世轮次照常收款（⚠️ 8.12） | `src/ToshFactory.sol` |
 | 停售 / 恢复阶梯 | `haltLadderMinting` / `resumeLadderMinting` | **唯一能触及已开盘项目的刹车**，且只触及 `mintBondingCurve`。单次 `≤ MAX_HALT_DURATION = 7 days` 且自动失效（`HaltDurationTooLong`）；`hook == address(0)` 停全部，否则只停该项目。不影响 swap / LP / `claimGenesis` / `claimReferralReward` / `refund`——**能让买家损失机会，不能让任何人损失余额**。见 §11 D3 | `src/ToshFactory.sol` `haltLadderMinting` |
-| 轮换 PoG 签名者 | `setPogSigner` | 非零 | `src/ToshFactory.sol:227-231` |
-| 轮换 `platformTreasury` | `setPlatformTreasury` | 非零；但该地址无任何资金流（⚠️ 8.2） | `src/ToshFactory.sol:233-237` |
-| 调整发射费 | `setLaunchFee` | 允许为 0；受调用方 `expectedFee` 滑点保护 | `src/ToshFactory.sol:239-242` |
-| 调整冷却期 | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`；为 0 时 PoG 额度退化为终身预算（⚠️ 8.25） | `src/ToshFactory.sol:244-248` |
-| 调整默认软顶 | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`，防 `p0` 截断为 0 | `src/ToshFactory.sol:250-256`、`45-55` |
+| 轮换 PoG 签名者 | `setPogSigner` | 非零 | `src/ToshFactory.sol` |
+| 轮换 `platformTreasury` | `setPlatformTreasury` | 非零；但该地址无任何资金流（⚠️ 8.2） | `src/ToshFactory.sol` |
+| 调整发射费 | `setLaunchFee` | 允许为 0；受调用方 `expectedFee` 滑点保护 | `src/ToshFactory.sol` |
+| 调整冷却期 | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`；为 0 时 PoG 额度退化为终身预算（⚠️ 8.25） | `src/ToshFactory.sol` |
+| 调整默认软顶 | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`，防 `p0` 截断为 0 | `src/ToshFactory.sol` |
 | 调整每钱包上限 | `setMaxPogAllocationLimit` | **必须非零**（`InvalidPogLimit`）；只影响之后创建的项目。该值会快照进每个新 hook 的构造函数，而构造函数要求 `_perWalletCap > 0`，所以归零会让全站 `createLaunch` 以 `DeployFailed` 报废——停止接项目请用 `pause()`（见 §8.27） | `src/ToshFactory.sol` `setMaxPogAllocationLimit` |
-| 批量拉黑 / 解禁 | `setBlacklist` / `liftBlacklist` | 每批 ≤ 200；`banDuration == type(uint256).max` 为永久 | `src/ToshFactory.sol:263-278` |
-| 策展回购阶梯 | `addLadderToken` / `removeLadderToken` | 代币必须经本平台 `tokenToHook` 注册且已开盘 | `src/ToshLadderTreasury.sol:200-254` |
-| 绑定国库↔工厂 | `setFactory` | 一次性，不可重指 | `src/ToshLadderTreasury.sol:173-178` |
+| 批量拉黑 / 解禁 | `setBlacklist` / `liftBlacklist` | 每批 ≤ 200；`banDuration == type(uint256).max` 为永久 | `src/ToshFactory.sol` |
+| 策展回购阶梯 | `addLadderToken` / `removeLadderToken` | 代币必须经本平台 `tokenToHook` 注册且已开盘 | `src/ToshLadderTreasury.sol` |
+| 绑定国库↔工厂 | `setFactory` | 一次性，不可重指 | `src/ToshLadderTreasury.sol` |
 
 | **不能做** | 原因 |
 |---|---|
 | 从国库取走任何 ETH | 国库无 `withdraw`/`sweep`/`rescue`/`delegatecall`；唯一出金 `_buyAndBurn` 收款方硬编码 `0xdead`（`src/ToshLadderTreasury.sol:37-51`）。测试 `test_ladderTreasury_hasNoWithdrawPath` @ `test/ToshV5.t.sol` |
-| 把回购资金导向自己控盘的池子 | `addLadderToken` 只收本平台已开盘代币，池子 key 从 hook 反查（`src/ToshLadderTreasury.sol:180-226`）。测试 `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol` |
-| 改动已开盘项目的经济参数 | `softCap` / `perWalletCap` / `genesisDuration` 都是 hook 的 immutable，创建时快照（`src/ToshLaunchpadHook.sol:333-345`、`221`）。测试 `test_setDefaultSoftCap_doesNotAffectExistingHooks` @ `test/ToshV5Factory.t.sol` |
-| 改 `ToshToken` 的角色 | `DEFAULT_ADMIN_ROLE` 从未授予任何人，`grantRole`/`revokeRole` 永久不可用（`src/ToshToken.sol:74-79`、`102-103`） |
+| 把回购资金导向自己控盘的池子 | `addLadderToken` 只收本平台已开盘代币，池子 key 从 hook 反查（`src/ToshLadderTreasury.sol`）。测试 `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol` |
+| 改动已开盘项目的经济参数 | `softCap` / `perWalletCap` / `genesisDuration` 都是 hook 的 immutable，创建时快照（`src/ToshLaunchpadHook.sol`）。测试 `test_setDefaultSoftCap_doesNotAffectExistingHooks` @ `test/ToshV5Factory.t.sol` |
+| 改 `ToshToken` 的角色 | `DEFAULT_ADMIN_ROLE` 从未授予任何人，`grantRole`/`revokeRole` 永久不可用（`constructor` / `initialize` @ `src/ToshToken.sol`） |
 | 触发 / 阻止某一次回购 | `autoPiggybackBuyback` 只接受注册 hook 调用（`onlyHook`），owner 直接调会 revert `OnlyHook`。测试 `test_autoPiggybackBuyback_rejectsNonHookCallers` @ `test/ToshV5.t.sol` |
 | 暂停已开盘项目的**交易**（swap / LP / 领取 / 退款） | 无任何开关可达（⚠️ 8.12） |
 
 #### 2.2.2 项目创作者（creator）
 
-- **是**：`createLaunch` 的 `msg.sender`，被写入 hook 的 `creator` immutable（`src/ToshLaunchpadHook.sol:324`）。
-- **唯一专属权限**：调用 `launch()` 开盘（`src/ToshLaunchpadHook.sol:705`，`OnlyCreator`）。
+- **是**：`createLaunch` 的 `msg.sender`，被写入 hook 的 `creator` immutable（`src/ToshLaunchpadHook.sol`）。
+- **唯一专属权限**：调用 `launch()` 开盘（`src/ToshLaunchpadHook.sol`，`OnlyCreator`）。
 - **不能**：改 `projectAdmin`（那是 `projectAdmin` 自己的权限）、不能提前开盘（必须 `block.timestamp >= genesisDeadline`，⚠️ 8.7）、不能退款给自己、不能移除创世流动性。
-- 参与 CREATE2 盐派生：`finalSalt = keccak256(abi.encode(msg.sender, hookSalt))`（`src/ToshFactory.sol:367`），所以**盐是创作者绑定的**，别人挖到的盐在你身上无效。
+- 参与 CREATE2 盐派生：`finalSalt = keccak256(abi.encode(msg.sender, hookSalt))`（`createLaunch` @ `src/ToshFactory.sol`），所以**盐是创作者绑定的**，别人挖到的盐在你身上无效。
 
 #### 2.2.3 项目管理员（projectAdmin）
 
 | 能做 | 函数 | 行号 |
 |---|---|---|
-| 领取 Phase-2 货架收入的 99% | 被动接收（`mintBondingCurve` 内 `_sendEth`） | `src/ToshLaunchpadHook.sol:914-918` |
-| 把角色移交给新钱包 / 多签 | `changeProjectAdmin(newAdmin)` | `src/ToshLaunchpadHook.sol:603-610` |
+| 领取 Phase-2 货架收入的 99% | 被动接收（`mintBondingCurve` 内 `_sendEth`） | `src/ToshLaunchpadHook.sol` |
+| 把角色移交给新钱包 / 多签 | `changeProjectAdmin(newAdmin)` | `src/ToshLaunchpadHook.sol` |
 
 - **不能**：铸造代币（唯一 `MINTER_ROLE` 是 hook 自己）、动创世 ETH、动创世 LP、开盘。
 - 是 hook 里**唯一可变的**资金收款地址（其他都是 immutable）。
 
 #### 2.2.4 项目金库（projectTreasury）
 
-- 构造参数、`require` 非零、写入 immutable（`src/ToshLaunchpadHook.sol:325`、`546`、`559`）。
+- 构造参数、`require` 非零、写入 immutable（`constructor` / `projectTreasury` @ `src/ToshLaunchpadHook.sol`）。
 - **⚠️ 8.1：合约里没有任何一处向 `projectTreasury` 转账或读取它。** 它的全部作用是（a）作为 CREATE2 initcode 元组的一员从而影响 hook 地址，（b）作为链上可读的"项目多签"元数据。前端把它硬绑为创作者的连接钱包并设为只读（`soat-frontend/src/app/launch/page.tsx:468`、`622-629`）。
 
 #### 2.2.5 平台金库（platformTreasury）
 
-- 工厂的可变 owner 状态（`src/ToshFactory.sol:74`、`233-237`）。
-- **⚠️ 8.2：没有任何资金流向它。** 发射费走 `ladderTreasury`（`src/ToshFactory.sol:416-419`），Phase-2 的 1% 平台切片也走 `ladderTreasury`（`src/ToshLaunchpadHook.sol:917`）。`platformTreasury` 在代码里只被 `getLiveHookInitcodeHash` 当作哨兵地址填充占位（`src/ToshFactory.sol:534`）。
+- 工厂的可变 owner 状态（`platformTreasury` / `setPlatformTreasury` @ `src/ToshFactory.sol`）。
+- **⚠️ 8.2：没有任何资金流向它。** 发射费走 `ladderTreasury`（`createLaunch` @ `src/ToshFactory.sol`），Phase-2 的 1% 平台切片也走 `ladderTreasury`（`mintBondingCurve` @ `src/ToshLaunchpadHook.sol`）。`platformTreasury` 在代码里只被 `getLiveHookInitcodeHash` 当作哨兵地址填充占位（`src/ToshFactory.sol`）。
 
 #### 2.2.6 创世储户
 
 | 能做 | 何时 | 函数 | 行号 |
 |---|---|---|---|
-| 出资 | 创世窗口内、有 PoG 额度、未拉黑、未冷却、未超每钱包上限 | `factory.deposit{value}(hook, referrer)` | `src/ToshFactory.sol:442-468` |
-| 100% 退款 | 软顶未达成，或超 7 天僵尸窗口 | `hook.refund()` | `src/ToshLaunchpadHook.sol:668-693` |
-| 按出资比例认领 4,620,000 枚中的份额 | 开盘后，一次性 | `hook.claimGenesis()` | `src/ToshLaunchpadHook.sol:769-781` |
+| 出资 | 创世窗口内、有 PoG 额度、未拉黑、未冷却、未超每钱包上限 | `factory.deposit{value}(hook, referrer)` | `src/ToshFactory.sol` |
+| 100% 退款 | 软顶未达成，或超 7 天僵尸窗口 | `hook.refund()` | `src/ToshLaunchpadHook.sol` |
+| 按出资比例认领 4,620,000 枚中的份额 | 开盘后，一次性 | `hook.claimGenesis()` | `src/ToshLaunchpadHook.sol` |
 
 - **不能**：多次认领（`genesisShareClaimed` 布尔位）、退款后再认领（`refund` 要求 `!launched`，两条路径互斥）、在开盘后退款。
 
 #### 2.2.7 二级交易者
 
-- 在 V4 池子上正常 swap。每笔付 **1.00%** 摩擦：0.30% `POOL_FEE` 归 LP（V4 原生结算），0.70% `TAX_BPS` 归协议（`src/ToshLaunchpadHook.sol:239`、`302`）。
+- 在 V4 池子上正常 swap。每笔付 **1.00%** 摩擦：0.30% `POOL_FEE` 归 LP（V4 原生结算），0.70% `TAX_BPS` 归协议（`POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol`）。
 - 无白名单、无额度、无冷却、无黑名单——池子层面完全开放（黑名单只作用于 `factory.deposit`）。
 
 #### 2.2.8 推荐人
@@ -204,14 +204,14 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 - 绑定关系写在工厂的 `globalReferrers`，**全平台、终身、只写一次**（`ToshFactory.globalReferrers` / `_recordReferral`）。
 - **四条**静默拒绝路径（不 revert，避免链接失效造成拒绝服务；被拒的绑定不等于被拒的出资，佣金落进 `orphanReferral` 变回购燃料）：已绑定 / 推荐人为零地址 / 自我推荐 / **推荐人自身没有 PoG 额度**（`ToshFactory._recordReferral`）。
 - 最后一条是 v5.0 后期补的反女巫措施。`referrer != user` 只有一个地址的深度，换个自己的小号就能把每笔出资的 10% 拿回来，而那个小号原本不需要额度、不需要出资、不需要任何历史。要求 `pogQuota[referrer] > 0` **挡不住**铁了心的女巫（链上做不到），它做的是把判断挪到唯一能判断的地方——PoG 预言机：每个小号得先过一次和出资人相同的认证，签名方可以在链下定价、限流或拒签。这是一道成本，不是一堵墙（见 §8.28）。测试 `test_probeJ_referralSelfFarmViaSecondWallet`。
-- 佣金 = 被推荐人每次创世出资的 10%，在 `deposit` 时即计入 `referralAccrued`，开盘后可提（`src/ToshLaunchpadHook.sol:642-651`、`790-801`）。
-- **失败的创世不欠推荐人任何东西**：退款返 100%，佣金只在 `launch()` 时才真正兑现，`referralAccrued` 单纯变成永不可领（`src/ToshLaunchpadHook.sol:664-667`）。
+- 佣金 = 被推荐人每次创世出资的 10%，在 `deposit` 时即计入 `referralAccrued`，开盘后可提（`deposit` / `claimReferralReward` @ `src/ToshLaunchpadHook.sol`）。
+- **失败的创世不欠推荐人任何东西**：退款返 100%，佣金只在 `launch()` 时才真正兑现，`referralAccrued` 单纯变成永不可领（`refund` @ `src/ToshLaunchpadHook.sol`）。
 
 #### 2.2.9 散户 LP
 
-- 用**自己的**（或所经由的 router/posm 的）V4 仓位，自由 `modifyLiquidity` 增减（`src/ToshLaunchpadHook.sol:1018-1042`）。
+- 用**自己的**（或所经由的 router/posm 的）V4 仓位，自由 `modifyLiquidity` 增减（`beforeRemoveLiquidity` @ `src/ToshLaunchpadHook.sol`）。
 - 赚 0.30% 池子费，由 V4 原生计入仓位，Tosh 无分配代码。
-- **不能**碰创世仓位：V4 把仓位按 `msg.sender` 归属，创世仓位归 hook，而 hook 的 `unlockCallback` 只认 `ACTION_ADD_LIQUIDITY`（`src/ToshLaunchpadHook.sol:1212-1220`）。测试 `test_genesisLiquidityIsPermanentlyLocked` @ `test/ToshV5.t.sol`。
+- **不能**碰创世仓位：V4 把仓位按 `msg.sender` 归属，创世仓位归 hook，而 hook 的 `unlockCallback` 只认 `ACTION_ADD_LIQUIDITY`（`unlockCallback` @ `src/ToshLaunchpadHook.sol`）。测试 `test_genesisLiquidityIsPermanentlyLocked` @ `test/ToshV5.t.sol`。
 
 ---
 
@@ -221,10 +221,10 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 | 层级 | 常量 | 数量 | 占 21M | 用途 | 行号 |
 |---|---|---|---|---|---|
-| 硬顶 | `ToshToken.MAX_SUPPLY` | 21,000,000e18 | 100% | `mint` 时逐笔校验 | `src/ToshToken.sol:53`、`112` |
-| 创世块 | `GENESIS_SUPPLY` | 8,400,000e18 | 40% | 开盘时一次性铸给 hook | `src/ToshLaunchpadHook.sol:139`、`731` |
-| ├ 认领侧 | `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 | 22%（创世块的 **55%**） | 储户按出资比例认领 | `src/ToshLaunchpadHook.sol:161` |
-| └ 底池侧 | `GENESIS_LP_SUPPLY` | 3,780,000e18 | 18%（创世块的 **45%**） | 全区间注入底池并永久锁定 | `src/ToshLaunchpadHook.sol:162` |
+| 硬顶 | `ToshToken.MAX_SUPPLY` | 21,000,000e18 | 100% | `mint` 时逐笔校验 | `src/ToshToken.sol` |
+| 创世块 | `GENESIS_SUPPLY` | 8,400,000e18 | 40% | 开盘时一次性铸给 hook | `src/ToshLaunchpadHook.sol` |
+| ├ 认领侧 | `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 | 22%（创世块的 **55%**） | 储户按出资比例认领 | `src/ToshLaunchpadHook.sol` |
+| └ 底池侧 | `GENESIS_LP_SUPPLY` | 3,780,000e18 | 18%（创世块的 **45%**） | 全区间注入底池并永久锁定 | `src/ToshLaunchpadHook.sol` |
 | Phase-2 阶梯 | `BONDING_MAX = TIER_COUNT × TIER_SIZE` | 12,600,000e18 | 60% | 4000 档 × 3,150 枚 | `src/ToshLaunchpadHook.sol` |
 
 算术闭合：8,400,000 + 12,600,000 = 21,000,000，精确等于硬顶。测试 `test_supplyPartitioning` @ `test/ToshV5Guards.t.sol`。
@@ -268,20 +268,20 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
                  └── 与 GENESIS_LP_SUPPLY (3.78M) 一起全区间注入 V4 底池，永久锁定
 ```
 
-代码位置：切佣 `src/ToshLaunchpadHook.sol:642-651`；`lpEth` 计算 `721-723`；孤儿佣金转出 `758-763`；建池注入 `1224-1262`。测试 `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` @ `test/ToshV5.t.sol`。
+代码位置：切佣 `deposit`；`lpEth` 计算与孤儿佣金转出 `launch`；建池注入 `_addInitialLiquidity`——均在 `src/ToshLaunchpadHook.sol`。测试 `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` @ `test/ToshV5.t.sol`。
 
 **关键点**：无论有没有推荐人，从底池的角度看**永远只有 90% 进池**。这是让 10% 溢价成为结构性常量（而不是随推荐率浮动）的前提。
 
 ### 3.3 定价：p0、shelfP0 与 10% 溢价的来源
 
 ```
-p0      = lpEth × 1e18 / GENESIS_LP_SUPPLY            // src/ToshLaunchpadHook.sol:726
+p0      = lpEth × 1e18 / GENESIS_LP_SUPPLY            // launch() @ src/ToshLaunchpadHook.sol
 shelfP0 = p0 × SHELF_PREMIUM_BPS / 10000
         = p0 × 10500 / 10000
-        = p0 × 1.05                                    // src/ToshLaunchpadHook.sol:728
+        = p0 × 1.05                                    // launch() @ src/ToshLaunchpadHook.sol
 ```
 
-**10% 溢价的数学推导**（合约注释里已给出，`src/ToshLaunchpadHook.sol:144-160`）：
+**10% 溢价的数学推导**（合约注释里已给出，`GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`）：
 
 ```
 储户成本基准   P_raise = R / GENESIS_CLAIM_SUPPLY = R / 4,620,000
@@ -292,7 +292,7 @@ p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
 
 也就是：**55/45 的切分 + 10% 推荐率，三者共同决定了这个 1.10**。动任何一个，溢价就变。测试用 `assertApproxEqRel(…, 1e12)` 把这个**关系**（而非硬编码价格）钉住，并同时校验 `shelfP0 = 1.155 × 成本基准`（`test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol`）。
 
-**为什么货架要再高 5%**（`src/ToshLaunchpadHook.sol:249-278`）：
+**为什么货架要再高 5%**（`SHELF_PREMIUM_BPS` / `PRICE_CEILING_BPS` @ `src/ToshLaunchpadHook.sol`）：
 
 - `SHELF_PREMIUM_BPS` 被**故意设成等于** `PRICE_CEILING_BPS`（都是 10500）。于是门控条件 `shelfP0 · STEP^i ≤ REF × 1.05` 里的 1.05 两边对消，坍缩成：
 
@@ -339,23 +339,23 @@ p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
 
 **要把早期放量再压一个数量级，跨度这个旋钮做不到**——剩下的手段是让每档配额随价格几何增长（`size(i) ∝ SIZE_STEP^i`，2× 时可压到创世盘的个位数百分比）。该方案会让低价区单笔可买量降到当前的 1/4 左右，评估后暂未采纳。
 
-**为什么步进与档数耦合**：注释明确说明 `STEP = 1000^(1/1999)`，两者必须一起改。且跨度不能任意拉高——`1.2^1999 ≈ 1e158` 会在阶梯清空前就溢出 `uint256`（`src/ToshLaunchpadHook.sol:180-185`）。
+**为什么步进与档数耦合**：注释明确说明 `STEP = 1000^(1/1999)`，两者必须一起改。且跨度不能任意拉高——`1.2^1999 ≈ 1e158` 会在阶梯清空前就溢出 `uint256`（`TIER_STEP_E18` @ `src/ToshLaunchpadHook.sol`）。
 
-**为什么价格不落盘**：4000 档物化成 storage 结构体要花掉数百万 gas；而"缓存当前价 + 累乘推进"经过 4000 次截断会与闭式解漂移。所以 `tierPriceAt()` 是铸造热路径、`quoteMint`、以及所有 view 的**唯一价格来源**（`src/ToshLaunchpadHook.sol:396-403`、`1396-1400`）。`getTiers()` 分页 view 也逐档重算而不是向前走序列，理由是"显示价与成交价差 1 wei 就是一张客服工单"（`src/ToshLaunchpadHook.sol:1459-1463`）。
+**为什么价格不落盘**：4000 档物化成 storage 结构体要花掉数百万 gas；而"缓存当前价 + 累乘推进"经过 4000 次截断会与闭式解漂移。所以 `tierPriceAt()` 是铸造热路径、`quoteMint`、以及所有 view 的**唯一价格来源**（`tierPriceAt` @ `src/ToshLaunchpadHook.sol`）。`getTiers()` 分页 view 也逐档重算而不是向前走序列，理由是"显示价与成交价差 1 wei 就是一张客服工单"（`getTiers` @ `src/ToshLaunchpadHook.sol`）。
 
 ### 3.5 费率总表
 
 | 费用 | 常量 | 值 | 来源侧 | 去向 | 行号 |
 |---|---|---|---|---|---|
-| 发射费 | `ToshFactory.launchFee` | 0.1 ETH（默认，owner 可调，可为 0） | creator | `ladderTreasury`（回购弹药） | `src/ToshFactory.sol:78`、`416-419` |
-| 推荐佣金 | `REFERRAL_BPS` | 10%（1000 bps） | 每笔创世出资 | 推荐人；无推荐人→`ladderTreasury` | `src/ToshLaunchpadHook.sol:226`、`642-651` |
-| Phase-2 平台切片 | `PLATFORM_TAX_BPS` | **1%**（100 bps） | 货架成交额 | `ladderTreasury` | `src/ToshLaunchpadHook.sol:230`、`914-917` |
-| Phase-2 项目切片 | 余额 | **99%** | 货架成交额 | `projectAdmin` | `src/ToshLaunchpadHook.sol:915`、`918` |
-| 交易税（协议） | `TAX_BPS` | **0.70%**（70 bps） | 每笔 swap 的 **input**（按买/卖方向，不按 specified 币种） | 买单 ETH→`ladderTreasury`；卖单代币→`0xdead` | `src/ToshLaunchpadHook.sol:249`、`beforeSwap`/`afterSwap` |
-| 池子费（LP） | `POOL_FEE` | **0.30%**（3000，V4 单位） | 每笔 swap | LP（V4 原生结算，Tosh 无代码） | `src/ToshLaunchpadHook.sol:302`、`288-301` |
-| **交易者总摩擦** | — | **1.00%** | — | 0.30 给 LP + 0.70 给协议 | `src/ToshLaunchpadHook.sol:235-238` |
+| 发射费 | `ToshFactory.launchFee` | 0.1 ETH（默认，owner 可调，可为 0） | creator | `ladderTreasury`（回购弹药） | `launchFee` / `createLaunch` @ `src/ToshFactory.sol` |
+| 推荐佣金 | `REFERRAL_BPS` | 10%（1000 bps） | 每笔创世出资 | 推荐人；无推荐人→`ladderTreasury` | `REFERRAL_BPS` / `deposit` @ `src/ToshLaunchpadHook.sol` |
+| Phase-2 平台切片 | `PLATFORM_TAX_BPS` | **1%**（100 bps） | 货架成交额 | `ladderTreasury` | `PLATFORM_TAX_BPS` / `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
+| Phase-2 项目切片 | 余额 | **99%** | 货架成交额 | `projectAdmin` | `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
+| 交易税（协议） | `TAX_BPS` | **0.70%**（70 bps） | 每笔 swap 的 **input**（按买/卖方向，不按 specified 币种） | 买单 ETH→`ladderTreasury`；卖单代币→`0xdead` | `TAX_BPS` / `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 池子费（LP） | `POOL_FEE` | **0.30%**（3000，V4 单位） | 每笔 swap | LP（V4 原生结算，Tosh 无代码） | `POOL_FEE` @ `src/ToshLaunchpadHook.sol` |
+| **交易者总摩擦** | — | **1.00%** | — | 0.30 给 LP + 0.70 给协议 | `POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol` |
 
-**v4.x → v5.0 的摩擦重分配**：v4.x 收 1% 池子费 + 1% 税 = 2%，而池子费那一半是死重（唯一 LP 是永久锁定的创世仓位，没人能领）。v5.0 把总摩擦砍回 1.00%，并让池子费真正有了领取人（`src/ToshLaunchpadHook.sol:73-84`、`290-301`）。
+**v4.x → v5.0 的摩擦重分配**：v4.x 收 1% 池子费 + 1% 税 = 2%，而池子费那一半是死重（唯一 LP 是永久锁定的创世仓位，没人能领）。v5.0 把总摩擦砍回 1.00%，并让池子费真正有了领取人（`src/ToshLaunchpadHook.sol:73-84`）。
 
 **交易税按买卖方向抽 input，不按 specified 侧币种。** exact-input 在 `beforeSwap` 结算；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码含 `AFTER_SWAP_RETURNS_DELTA`）。
 
@@ -395,13 +395,13 @@ p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
 | **S4 已开盘 / 阶梯运行** | `launched == true` | `claimGenesis` / `claimReferralReward` / `mintBondingCurve` / 池子 swap / 散户 LP | `currentTierIndex == TIER_COUNT` → S5 |
 | **S5 阶梯耗尽** | `currentTierIndex >= TIER_COUNT` | 池子 swap / 散户 LP（`mintBondingCurve` revert `LadderExhausted`） | 终态 |
 
-判据代码：`canRefund()` @ `src/ToshLaunchpadHook.sol:657-662`；`launch()` 的四道前置 @ `705-710`；`refund()` 的三道前置 @ `669-674`。
+判据代码：`canRefund()`、`launch()` 的前置检查、`refund()` 的前置检查——三者均在 `src/ToshLaunchpadHook.sol`。
 
-> **⚠️ 8.13**：`refundEnabled` / `zombieRefundEnabled` 两个状态位在 `refund()` 里被懒惰置位并发事件（`src/ToshLaunchpadHook.sol:682-689`），但**从未被任何地方读作门控条件**。真正的门控是每次调用时重算 `softCapFailed || zombieExpired`。它们是纯事件标记位。
+> **⚠️ 8.13**：`refundEnabled` / `zombieRefundEnabled` 两个状态位在 `refund()` 里被懒惰置位并发事件（`src/ToshLaunchpadHook.sol`），但**从未被任何地方读作门控条件**。真正的门控是每次调用时重算 `softCapFailed || zombieExpired`。它们是纯事件标记位。
 
 ### 4.2 创建发射 —— `createLaunch`
 
-**签名**（`src/ToshFactory.sol:346-354`）：
+**签名**（`src/ToshFactory.sol`）：
 
 ```solidity
 function createLaunch(
@@ -434,7 +434,7 @@ function createLaunch(
 | 13 | 入册 + 发 `LaunchCreated` | — | 410-413 |
 | 14 | 发射费转 `ladderTreasury`，多付部分退还 `msg.sender` | `EthTransferFailed` | 416-421 |
 
-**9 参构造元组**（`src/libraries/HookDeployLib.sol:58-71`，顺序固定）：
+**9 参构造元组**（`deployHook` @ `src/libraries/HookDeployLib.sol`，顺序固定）：
 
 ```
 1. poolManager      (address)   Uniswap V4 PoolManager
@@ -448,7 +448,7 @@ function createLaunch(
 9. genesisDuration  (uint256)   创世窗口长度（3h / 24h / 72h 之一）
 ```
 
-**这 9 个参数全部进 initcode hash**，所以任何一项变化都会让已挖的盐失效。前端为此做了三处缓存失效（见 6.4）。`HookDeployLib` 的注释直接点名：v5.0 删了 `satoToken`、加了 `ladderTreasury` + `perWalletCap`，`genesisDuration` 让它凑到 9 个字段，**所有链下盐矿机必须重新生成**（`src/libraries/HookDeployLib.sol:20-25`）。
+**这 9 个参数全部进 initcode hash**，所以任何一项变化都会让已挖的盐失效。前端为此做了三处缓存失效（见 6.4）。`HookDeployLib` 的注释直接点名：v5.0 删了 `satoToken`、加了 `ladderTreasury` + `perWalletCap`，`genesisDuration` 让它凑到 9 个字段，**所有链下盐矿机必须重新生成**（`src/libraries/HookDeployLib.sol`）。
 
 **CREATE2 掩码 `0x20CC`**（`src/libraries/HookMiner.sol`）：
 
@@ -471,19 +471,19 @@ function createLaunch(
 
 | 常量 | 值 | 前端标签 | 定位话术（前端） | 行号 |
 |---|---|---|---|---|
-| `DURATION_FAST` | 3 hours | "3 Hours / Fast" | "Momentum play — hits the cap fast or fails fast." | `src/ToshLaunchpadHook.sol:214` |
-| `DURATION_STANDARD` | 24 hours | "24 Hours / Standard" | "Covers every timezone once. The default." | `src/ToshLaunchpadHook.sol:215` |
-| `DURATION_SLOW` | 72 hours | "72 Hours / Slow" | "Maximum reach for a wider raise." | `src/ToshLaunchpadHook.sol:216` |
+| `DURATION_FAST` | 3 hours | "3 Hours / Fast" | "Momentum play — hits the cap fast or fails fast." | `src/ToshLaunchpadHook.sol` |
+| `DURATION_STANDARD` | 24 hours | "24 Hours / Standard" | "Covers every timezone once. The default." | `src/ToshLaunchpadHook.sol` |
+| `DURATION_SLOW` | 72 hours | "72 Hours / Slow" | "Maximum reach for a wider raise." | `src/ToshLaunchpadHook.sol` |
 
 前端常量镜像 + 文案：`soat-frontend/src/app/lib/hookMiner.ts:41-43`、`soat-frontend/src/app/launch/page.tsx:104-108`。默认值 `GENESIS_DURATION_STANDARD`（`soat-frontend/src/app/launch/page.tsx:411`）。
 
-**为什么是封闭集合而不是自由 `uint256`**（`src/ToshLaunchpadHook.sol:204-213`）：时长是构造元组的一员，因此也是 initcode hash 的一部分。开放区间会让创作者能针对 1 秒窗口（没人来得及存，创世立刻失败，退款即刻打开）或 100 年窗口（存款被锁死且无退款路径）挖盐。三档粗粒度既保留市场意义，也堵住两个退化端。构造函数逐一比对三个常量，否则 revert `InvalidDuration`（`src/ToshLaunchpadHook.sol:552-555`）。测试：`test_hook_ctor_acceptsTheThreeAllowedWindows` @ `test/ToshV5Guards.t.sol:184`，`test_hook_ctor_revertsOnUnlistedWindow` @ `202-206`，`test_createLaunch_rejectsSaltMinedForAnotherWindow` @ `test/ToshV5Factory.t.sol`。
+**为什么是封闭集合而不是自由 `uint256`**（`DURATION_FAST` / `DURATION_STANDARD` / `DURATION_SLOW` @ `src/ToshLaunchpadHook.sol`）：时长是构造元组的一员，因此也是 initcode hash 的一部分。开放区间会让创作者能针对 1 秒窗口（没人来得及存，创世立刻失败，退款即刻打开）或 100 年窗口（存款被锁死且无退款路径）挖盐。三档粗粒度既保留市场意义，也堵住两个退化端。构造函数逐一比对三个常量，否则 revert `InvalidDuration`（`constructor` @ `src/ToshLaunchpadHook.sol`）。测试：`test_hook_ctor_acceptsTheThreeAllowedWindows` 与 `test_hook_ctor_revertsOnUnlistedWindow` @ `test/ToshV5Guards.t.sol`，`test_createLaunch_rejectsSaltMinedForAnotherWindow` @ `test/ToshV5Factory.t.sol`。
 
 #### 4.3.2 PoG（Proof-of-Gas / Goodwill）配额与签名注册
 
-> 注：合约注释里 `registerPoG` 被称为 "Proof of Goodwill"（`src/ToshFactory.sol:284`），前端与 README 叫 "Proof-of-Gas"。**代码中未找到**统一命名的依据，两个名字都存在。
+> 注：合约注释里 `registerPoG` 被称为 "Proof-of-Gas"（`registerPoG` @ `src/ToshFactory.sol`），与前端和 README 一致；"Proof of Goodwill" 这个叫法只出现在本文档里，`src/` 中并不存在。
 
-**签名摘要**（`src/ToshFactory.sol:295-297`），六元组防重放：
+**签名摘要**（`registerPoG` @ `src/ToshFactory.sol`），六元组防重放：
 
 ```
 digest = toEthSignedMessageHash(keccak256(abi.encode(
@@ -497,7 +497,7 @@ digest = toEthSignedMessageHash(keccak256(abi.encode(
 require(digest.recover(signature) == pogSigner)
 ```
 
-**校验顺序**（`src/ToshFactory.sol:286-303`）：
+**校验顺序**（`registerPoG` @ `src/ToshFactory.sol`）：
 
 | 检查 | 错误 | 说明 |
 |---|---|---|
@@ -507,14 +507,14 @@ require(digest.recover(signature) == pogSigner)
 | `maxAlloc ≤ maxPogAllocationLimit` | `ExceedsGlobalPogLimit` | **不静默截断**，直接拒（测试 `test_registerPoG_noSilentClamp` @ `test/ToshV5Factory.t.sol:213`） |
 | 签名恢复 == `pogSigner` | `InvalidSignature` | |
 
-**额度只上调不下调**：`if (maxAlloc > pogQuota[sender]) pogQuota[sender] = maxAlloc;`（`src/ToshFactory.sol:300-302`）。⚠️ **8.10**：owner 事后调低 `maxPogAllocationLimit` **不会**回收已注册的额度。
+**额度只上调不下调**：`if (maxAlloc > pogQuota[sender]) pogQuota[sender] = maxAlloc;`（`registerPoG` @ `src/ToshFactory.sol`）。⚠️ **8.10**：owner 事后调低 `maxPogAllocationLimit` **不会**回收已注册的额度。
 
 ⚠️ **8.11**：`registerPoG` 有 `whenNotPaused` 但**没有黑名单检查**。被拉黑的钱包仍可注册/提升 PoG 额度（只是 `deposit` 会被 `IsBlacklisted` 拦住）。
 
-**配额窗口机制**（`src/ToshFactory.sol:105-117`、`591-603`）：
+**配额窗口机制**（`quotaWindowEnd` / `quotaSpent` / `_rollQuotaWindow` @ `src/ToshFactory.sol`）：
 
 - PoG 额度是**冷却期预算**，不是终身预算：一个钱包在每个 `cooldownDuration` 窗口内可花掉最多 `pogQuota`，窗口过期后归零重开。
-- **退款不返还窗口额度**——刻意的：撤资就该失去这一轮的名额，否则「存入-退款」循环能无限复用一个钱包的额度（`src/ToshFactory.sol:111-116`）。测试 `test_pogQuota_isNotRestoredByRefund` @ `test/ToshV5.t.sol`。
+- **退款不返还窗口额度**——刻意的：撤资就该失去这一轮的名额，否则「存入-退款」循环能无限复用一个钱包的额度（`quotaSpent` @ `src/ToshFactory.sol`）。测试 `test_pogQuota_isNotRestoredByRefund` @ `test/ToshV5.t.sol`。
 - ⚠️ **8.25**：`cooldownDuration == 0` 时 `_rollQuotaWindow` 直接返回 `quotaSpent`，额度退化成**终身预算**（`src/ToshFactory.sol:584-593`）。冷却期长度与额度窗口长度是同一个旋钮，存在耦合。
 
 #### 4.3.3 出资 `deposit`
