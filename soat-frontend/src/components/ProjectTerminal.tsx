@@ -46,6 +46,7 @@ import {
   LAUNCH_WINDOW_SECONDS,
   TIER_COUNT,
   TIER_SIZE,
+  TWAP_WINDOW_LABEL,
   POG_SESSION_AUTH_TTL_MS,
   buildPoGScanAuthMessage,
   ZERO_ADDRESS,
@@ -358,13 +359,15 @@ function ProgressBar({
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Account ledger format — left aligned debit, right aligned credit, totals at
-// the bottom.  When the projected deposit would push consumed > quota, the
-// final line surfaces a single fluo guard line:
+// the bottom.  The quota is a per-WINDOW budget (`quotaWindowDuration`, 24 h by
+// default), not a lifetime allowance, so everything here is denominated against
+// the live `factory.eligibility()` verdict rather than against a cumulative
+// deposit total.  While the projected deposit still fits, the final line reads:
 //
 //     → H-01_GUARD: ACTIVE
 //
-// On actual breach (current state OR a parsed input that exceeds remaining
-// quota) the guard line flips to:
+// On actual breach (a parsed input that exceeds the remaining window budget)
+// the guard line flips to:
 //
 //     → H-01_BREACH: INTERCEPTED
 //
@@ -372,19 +375,23 @@ function ProgressBar({
 //
 
 function QuotaLedger({
-  deposited, quota, projected,
+  quota, remaining, projected, stale,
 }: {
-  deposited: bigint
   quota:     bigint
+  remaining: bigint
   projected: bigint
+  /// `eligibility` short-circuits on an active per-project cooldown and reports
+  /// zero quota, which is not the same fact as "none left".  Blank the figures
+  /// rather than render that zero as if it were a balance.
+  stale:     boolean
 }) {
-  const remaining = quota > deposited ? quota - deposited : 0n
-  const breached  = projected > 0n && projected > remaining
+  const spent     = quota > remaining ? quota - remaining : 0n
+  const breached  = !stale && projected > 0n && projected > remaining
   const consumed  = quota > 0n
-    ? Number((deposited * 10_000n) / quota) / 100
+    ? Number((spent * 10_000n) / quota) / 100
     : 0
   const projConsumed = quota > 0n && projected > 0n
-    ? Number(((deposited + projected) * 10_000n) / quota) / 100
+    ? Number(((spent + projected) * 10_000n) / quota) / 100
     : consumed
 
   const row = (label: string, value: React.ReactNode) => (
@@ -403,13 +410,13 @@ function QuotaLedger({
           {'// [H-01] QUOTA LEDGER'}
         </span>
         <span className="font-mono text-[10px] text-[#666] tabular-nums">
-          {consumed.toFixed(1)}% CONSUMED
+          {stale ? 'WINDOW UNREADABLE' : `${consumed.toFixed(1)}% CONSUMED`}
         </span>
       </div>
-      {row('CROSS-HOOK DEPOSITED', `${fmt(deposited)} ETH`)}
-      {row('POG QUOTA',            `${fmt(quota)} ETH`)}
-      {row('REMAINING',            `${fmt(remaining)} ETH`)}
-      {projected > 0n && (
+      {row('POG QUOTA · PER WINDOW', `${fmt(quota)} ETH`)}
+      {row('SPENT THIS WINDOW',      stale ? '—' : `${fmt(spent)} ETH`)}
+      {row('REMAINING',              stale ? '—' : `${fmt(remaining)} ETH`)}
+      {!stale && projected > 0n && (
         row(
           'PROJECTED (THIS TX)',
           <>
@@ -536,7 +543,14 @@ function ShelfLadder({
                       font-mono text-[10px] text-[#666] tabular-nums">
         <span>P₀ = <span className="text-white">{fmt(p0)} ETH</span></span>
         <span>spot = <span className="text-white">{fmt(spotPrice)}</span></span>
-        <span>twap = <span className="text-white">{fmt(twapPrice)}</span></span>
+        {/* A zero TWAP is the hook's "no full window yet" signal, not a price of
+            zero — the ceiling caps against P₀ until the window matures. */}
+        <span>
+          twap ={' '}
+          {twapPrice > 0n
+            ? <span className="text-white">{fmt(twapPrice)}</span>
+            : <span className="text-[#888]">MATURING · {TWAP_WINDOW_LABEL} WINDOW · CEILING ON P₀</span>}
+        </span>
       </div>
     </div>
   )
@@ -579,7 +593,15 @@ function resolvePhase({
   // Deadline passed and not yet launched.  Re-derive the outcome from the same
   // inputs the contract uses instead of trusting `canRefund`, which is polled
   // and can lag the clock by up to a refetch interval.
-  return totalEthDeposited >= softCap && softCap > 0n ? 'awaiting_launch' : 'refund'
+  //
+  // The soft cap alone is not enough: once the launch window lapses on top of
+  // it the hook opens `refund()` to everyone, and reading the cap in isolation
+  // parked the user on a launch panel whose own copy said the refund was open
+  // while no refund button existed anywhere on the page.
+  const zombie = BigInt(nowSec) >= genesisDeadline + LAUNCH_WINDOW_SECONDS
+  return totalEthDeposited >= softCap && softCap > 0n && !zombie
+    ? 'awaiting_launch'
+    : 'refund'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -595,7 +617,11 @@ interface GenesisProps {
   softCap:            bigint
   ethBalance:         bigint
   pogQuota:           bigint
-  globalDeposited:    bigint
+  /// Straight from `factory.eligibility(user, hook)`.  The quota is refilled
+  /// once per `quotaWindowDuration`, and only the factory can tell whether a
+  /// lapsed window has already been credited back, so this is never derived
+  /// client-side from a cumulative deposit total.
+  quotaRemaining:     bigint
   cooldownEnd:        bigint
   nowSec:             number
   /// This project's own deposit ceiling per wallet, snapshotted into the hook
@@ -622,12 +648,10 @@ function GenesisPanel(p: GenesisProps) {
   })()
   const amountInvalid = amountWei === -1n
 
-  const quotaRemaining = p.pogQuota > p.globalDeposited
-    ? p.pogQuota - p.globalDeposited
-    : 0n
-  const quotaBreached   = amountWei > 0n && amountWei > quotaRemaining
-  const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
   const onCooldown      = p.cooldownEnd > 0n && BigInt(p.nowSec) < p.cooldownEnd
+  const quotaRemaining  = p.quotaRemaining
+  const quotaBreached   = !onCooldown && amountWei > 0n && amountWei > quotaRemaining
+  const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
   const pctGenesis      = p.softCap > 0n
     ? Number((p.totalEthDeposited * 10_000n) / p.softCap) / 100
     : 0
@@ -736,9 +760,10 @@ function GenesisPanel(p: GenesisProps) {
         )}
 
         <QuotaLedger
-          deposited={p.globalDeposited}
           quota={p.pogQuota}
+          remaining={quotaRemaining}
           projected={amountWei > 0n ? amountWei : 0n}
+          stale={onCooldown}
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
@@ -1144,6 +1169,7 @@ interface BondingProps {
   phase2Minted: bigint
   bondingMax:   bigint
   ethBalance:   bigint
+  nowSec:       number
   refetch:      () => void
 }
 
@@ -1181,6 +1207,39 @@ function BondingPanel(p: BondingProps) {
   const maxMintable = (maxMintableRaw as bigint | undefined) ?? 0n
   const exceedsMax = maxMintable > 0n && tokenAmountWei > maxMintable
 
+  // `exceedsMax` is silent at zero, which is exactly the value `maxMintable`
+  // reports when the hook will not serve ANY size right now — halted, sold out,
+  // or priced out.  Without this the button stayed armed and handed the user a
+  // raw revert.
+  const noCapacity = maxMintableRaw !== undefined && maxMintable === 0n
+
+  // Owner-triggered circuit breaker.  `ladderMintingHalted` already folds the
+  // platform-wide halt and this project's own together — the hook reverts
+  // `LadderMintingHalted()` on either — so the two expiry stamps are read
+  // alongside it only to say which one is biting and when it lifts.
+  const haltContracts: ContractFunctionParameters[] = [
+    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'ladderMintingHalted',    args: [p.hookAddress] },
+    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'globalLadderHaltedUntil' },
+    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookLadderHaltedUntil',  args: [p.hookAddress] },
+  ]
+  const { data: haltData } = useReadContracts({
+    contracts: haltContracts,
+    query: { refetchInterval: 8_000 },
+  })
+  const halted        = (haltData?.[0]?.result as boolean | undefined) ?? false
+  const globalHaltEnd = (haltData?.[1]?.result as bigint  | undefined) ?? 0n
+  const hookHaltEnd   = (haltData?.[2]?.result as bigint  | undefined) ?? 0n
+  const haltIsGlobal  = BigInt(p.nowSec) < globalHaltEnd
+  const haltEndsAt    = haltIsGlobal ? globalHaltEnd : hookHaltEnd
+  const haltTxt = (() => {
+    const rem = Number(haltEndsAt) - p.nowSec
+    if (rem <= 0) return 'PENDING RESUME'
+    const h = Math.floor(rem / 3600)
+    const m = Math.floor((rem % 3600) / 60)
+    const s = rem % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  })()
+
   // Any swap on this pool stamps `lastSwapBlock`, and the hook refuses to mint
   // in that same block so a flash-pumped price can never be observed by the
   // 105% gate before it unwinds.  Polled together with the block height at the
@@ -1198,7 +1257,7 @@ function BondingPanel(p: BondingProps) {
   const sameBlockLock =
     lastSwapBlock > 0n && blockNumber !== undefined && lastSwapBlock >= blockNumber
 
-  const quotable = tokenAmountWei > 0n && !exceedsMax
+  const quotable = tokenAmountWei > 0n && !exceedsMax && !halted && !noCapacity
 
   const { data: quoteData, isFetching: isQuoting, isError: quoteFailed } = useReadContract({
     address:      p.hookAddress,
@@ -1237,11 +1296,13 @@ function BondingPanel(p: BondingProps) {
   const handleMint = useCallback(() => {
     setError(null)
     if (!p.userAddress)       { setError('Connect wallet'); return }
+    if (halted)               { setError(`Shelf minting is suspended by the protocol circuit breaker${haltIsGlobal ? ' (platform-wide)' : ''} — it lifts on its own in ${haltTxt}`); return }
     if (tokenAmountWei <= 0n) { setError('Enter a positive token amount'); return }
     if (exceedsMax)           { setError(`Exceeds what one call can serve — max ${fmt(maxMintable)} right now`); return }
-    if (sameBlockLock)        { setError('A swap already landed in this block — minting reopens on the next one'); return }
+    if (sameBlockLock)        { setError('Minting is shut for this block — the ladder reopens on the next one'); return }
     if (awaitingFirstUnlock)  { setError('Shelf 0 sits 5% over the pool — the ladder opens once the market holds at or above P₀'); return }
     if (gateLocked)           { setError('105% price gate is locked — wait for spot/TWAP'); return }
+    if (noCapacity)           { setError('The hook will serve no size in one call right now — the ladder is fully sold or priced out at the margin'); return }
     if (isDust)               { return }
     if (insufficientBal)      { setError('Insufficient ETH for quoted cost + slippage'); return }
     writeMint({
@@ -1254,7 +1315,7 @@ function BondingPanel(p: BondingProps) {
   }, [
     p.userAddress, p.hookAddress, tokenAmountWei, exceedsMax, maxMintable,
     awaitingFirstUnlock, gateLocked, isDust, insufficientBal, maxEthCost,
-    sameBlockLock, writeMint,
+    sameBlockLock, halted, haltIsGlobal, haltTxt, noCapacity, writeMint,
   ])
 
   // Rungs climbed since shelf 0, i.e. STEP^index.  Measured against the LADDER
@@ -1272,6 +1333,8 @@ function BondingPanel(p: BondingProps) {
              && !insufficientBal
              && !gateLocked
              && !sameBlockLock
+             && !halted
+             && !noCapacity
              && p.isConnected
 
   return (
@@ -1281,6 +1344,21 @@ function BondingPanel(p: BondingProps) {
       subtitle="hook.mintBondingCurve{value}(tokenAmount) · 4000 rungs to 2000× · sweeps shelves · 105% min(spot, TWAP) gate"
     >
       <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} />
+
+      {halted && (
+        <div className="border border-tosh-rust/40 px-4 py-3 flex flex-col gap-1">
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-tosh-rust">
+            → LADDER SUSPENDED · {haltIsGlobal ? 'PLATFORM-WIDE' : 'THIS PROJECT'} · LIFTS IN {haltTxt}
+          </p>
+          <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+            The protocol owner has tripped the circuit breaker, so the hook
+            rejects every <span className="text-white">mintBondingCurve</span> call
+            until it expires. The pool itself is untouched — the token still
+            trades on Uniswap, existing balances are unaffected, and the halt
+            lapses on its own without any further action.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6">
         <Readout label="P₀ · POOL OPEN"
@@ -1303,25 +1381,29 @@ function BondingPanel(p: BondingProps) {
         onChange={v => { setTokenAmount(v); setError(null) }}
         placeholder="e.g. 1000"
         inputMode="decimal"
-        disabled={txBusy || !p.isConnected}
-        errored={tokenAmountInvalid || exceedsMax || isDust || insufficientBal || gateLocked}
+        disabled={txBusy || !p.isConnected || halted}
+        errored={tokenAmountInvalid || exceedsMax || isDust || insufficientBal || gateLocked || halted}
         fluo={armed}
         hint={
-          sameBlockLock
-            ? <span className="text-tosh-amber">→ A SWAP ALREADY LANDED IN THIS BLOCK — MINTING REOPENS NEXT BLOCK</span>
+          halted
+            ? <span className="text-tosh-rust">→ CIRCUIT BREAKER ENGAGED — SHELF MINTING RESUMES IN {haltTxt}</span>
+            : sameBlockLock
+            ? <span className="text-tosh-amber">→ MINTING IS SHUT FOR THIS BLOCK — THE LADDER REOPENS NEXT BLOCK</span>
             : awaitingFirstUnlock
             ? <span className="text-[#888]">→ LADDER OPENS ONCE THE MARKET HOLDS AT OR ABOVE P₀</span>
             : gateLocked
             ? <span className="text-tosh-rust">→ 105% PRICE GATE LOCKED</span>
             : exceedsMax
               ? <span className="text-tosh-rust">→ EXCEEDS MAX PER CALL ({fmt(maxMintable)}) — SEND A SECOND TX FOR THE REST</span>
-              : maxMintable > 0n
-                ? <span className="text-[#555]">→ UP TO {fmt(maxMintable)} IN ONE CALL · SWEEPS SHELVES</span>
-                : null
+              : noCapacity && unlocked
+                ? <span className="text-tosh-rust">→ NO SIZE AVAILABLE IN ONE CALL RIGHT NOW — THE LADDER IS FULLY SOLD OR PRICED OUT AT THE MARGIN</span>
+                : maxMintable > 0n
+                  ? <span className="text-[#555]">→ UP TO {fmt(maxMintable)} IN ONE CALL · SWEEPS SHELVES</span>
+                  : null
         }
       />
 
-      {tokenAmountWei > 0n && !exceedsMax && (
+      {quotable && (
         <div className="border border-[#1F1F2E]">
           <div className="grid grid-cols-1 sm:grid-cols-3 divide-x divide-[#1F1F2E]">
             <div className="px-4 py-3 flex flex-col gap-1">
@@ -1352,16 +1434,20 @@ function BondingPanel(p: BondingProps) {
       <WriteButton
         label={`buy ${p.symbol}`}
         lockedLabel={
-          isDust
+          halted
+            ? `[ladder_halted · resumes ${haltTxt}]`
+            : isDust
             ? '[invalid_amount]'
             : exceedsMax
               ? '[exceeds_max_per_call]'
               : sameBlockLock
-                ? '[same_block_swap · wait_one_block]'
+                ? '[minting_shut_this_block · wait_one_block]'
               : awaitingFirstUnlock
                 ? '[awaiting_market_above_p0]'
               : gateLocked
                 ? '[gate_locked]'
+                : noCapacity && unlocked
+                  ? '[no_size_available]'
                 : insufficientBal
                   ? '[insufficient_eth]'
                   : tokenAmountWei <= 0n
@@ -1911,8 +1997,8 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
         args: userAddress ? [userAddress] : undefined },
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',
         args: userAddress ? [userAddress] : undefined },
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'totalGenesisDeposited',
-        args: userAddress ? [userAddress] : undefined },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'eligibility',
+        args: userAddress ? [userAddress, hookAddress] : undefined },
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd',
         args: userAddress ? [userAddress, hookAddress] : undefined },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'shelfP0'           },
@@ -1934,9 +2020,15 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   const currentPrice       = (data?.[8]?.result  as bigint  | undefined) ?? 0n
   const userEthDeposited   = (data?.[9]?.result  as bigint  | undefined) ?? 0n
   const pogQuota           = (data?.[10]?.result as bigint  | undefined) ?? 0n
-  const globalDeposited    = (data?.[11]?.result as bigint  | undefined) ?? 0n
   const cooldownEnd        = (data?.[12]?.result as bigint  | undefined) ?? 0n
   const shelfP0           = (data?.[13]?.result as bigint  | undefined) ?? 0n
+
+  // (eligible, remainingQuota, cooldownRemaining) — the factory's own verdict,
+  // which is the only place that knows whether a lapsed quota window has been
+  // credited back yet.  `cooldownEnd` above still drives the ticking countdown;
+  // this tuple only supplies the spendable headroom.
+  const eligibility        = data?.[11]?.result as readonly [boolean, bigint, bigint] | undefined
+  const quotaRemaining     = eligibility?.[1] ?? 0n
 
   // Read separately rather than appended to the bulk call above: the token
   // address is fixed at deploy, so polling it every 12s would be waste.
@@ -1999,7 +2091,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
           softCap={softCap}
           ethBalance={ethBalance}
           pogQuota={pogQuota}
-          globalDeposited={globalDeposited}
+          quotaRemaining={quotaRemaining}
           cooldownEnd={cooldownEnd}
           nowSec={nowSec}
           perWalletCap={perWalletCap}
@@ -2038,6 +2130,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
             phase2Minted={phase2Minted}
             bondingMax={bondingMax}
             ethBalance={ethBalance}
+            nowSec={nowSec}
             refetch={() => { void refetch() }}
           />
           {launched && (

@@ -27,6 +27,8 @@ import {
   MAINNET_CHAIN_LABEL, TESTNET_CHAIN_LABEL,
   CHAIN_STATUS_BADGE, CHAIN_POSITIONING,
   testnetExplorerTx,
+  GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY,
+  BONDING_MAX, TIER_COUNT, LADDER_SPAN,
 } from '../lib/contracts'
 import type { ProjectPayload } from '../api/projects/route'
 
@@ -35,6 +37,16 @@ const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`
 const basescanTx = (h: string) => testnetExplorerTx(h)
 const trimEth   = (s: string) =>
   s.includes('.') ? s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0' : s
+
+// ─── supply arithmetic, off the shared constants ────────────────────────────
+// Every headline number in the Immutable Pact is derived here rather than
+// typed into a string, so a constants change can never leave the pact quoting
+// terms the hook no longer enforces.
+const TOTAL_SUPPLY = GENESIS_SUPPLY + BONDING_MAX
+
+const millions = (wei: bigint) => `${trimEth(formatUnits(wei / 1_000_000n, 18))}M`
+const shareOf  = (wei: bigint, of: bigint) =>
+  of > 0n ? `${Number((wei * 1000n) / of) / 10}%` : '—'
 
 // ─── styling constant ───────────────────────────────────────────────────────
 const INPUT_CORE =
@@ -492,11 +504,18 @@ export default function GenesisConsole() {
 
   // protocol rules for ImmutablePact
   const protocolRules = useMemo(() => [
-    { key: 'fee',      label: 'Launch Fee',     value: `${feeDisplay} ETH` },
+    { key: 'fee',      label: 'Launch Fee',       value: `${feeDisplay} ETH` },
     { key: 'softcap',  label: 'Genesis Soft Cap', value: `${softCapDisplay} ETH` },
-    { key: 'wallet',   label: 'Per-wallet Cap', value: `${trimEth(formatUnits(perWalletCapWei, 18))} ETH` },
-    { key: 'curve',    label: 'Curve Type',      value: '4 000-shelf ladder · 2 000× span' },
-    { key: 'window',   label: 'Genesis Window',  value: `${genesisDuration / 3600n} hours` },
+    { key: 'wallet',   label: 'Per-wallet Cap',   value: `${trimEth(formatUnits(perWalletCapWei, 18))} ETH` },
+    { key: 'supply',   label: 'Total Supply',     value: `${millions(TOTAL_SUPPLY)} tokens · fixed` },
+    { key: 'genesis',  label: 'Genesis Block',
+      value: `${millions(GENESIS_SUPPLY)} (${shareOf(GENESIS_SUPPLY, TOTAL_SUPPLY)}) · ${millions(GENESIS_CLAIM_SUPPLY)} claimable / ${millions(GENESIS_LP_SUPPLY)} locked LP` },
+    { key: 'premium',  label: 'Genesis Premium',
+      value: '10% — the 55/45 split opens P₀ at 1.10× what depositors paid' },
+    { key: 'ladder',   label: 'Ladder Block',
+      value: `${millions(BONDING_MAX)} (${shareOf(BONDING_MAX, TOTAL_SUPPLY)}) · ${TIER_COUNT} shelves` },
+    { key: 'curve',    label: 'Curve Type',       value: `Discrete shelf ladder · ${LADDER_SPAN}× span` },
+    { key: 'window',   label: 'Genesis Window',   value: `${genesisDuration / 3600n} hours` },
     { key: 'refund',   label: 'Refund Mechanism', value: 'refund()' },
     { key: 'upgrade',  label: 'Upgradeability',   value: 'None — immutable' },
     { key: 'minter',   label: 'Minter',           value: 'This Hook only, forever' },
@@ -678,11 +697,11 @@ export default function GenesisConsole() {
                   autoUpper
                 />
                 <MeritXField
-                  label="Project Treasury"
+                  label="Declared Multisig (Metadata)"
                   value={hydrated ? (treasury ?? '') : ''}
                   readOnly
                   locked={hydrated && Boolean(treasury)}
-                  hint="auto-locked"
+                  hint="AUTO-LOCKED · RECEIVES NO FUNDS · CREATE2 SALT INPUT ONLY — REVENUE ROUTES TO PROJECT ADMIN BELOW"
                   placeholder="Connect wallet to bind…"
                 />
                 <div>

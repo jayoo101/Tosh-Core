@@ -182,6 +182,15 @@ export const LADDER_SPAN = 2000
 export const PRICE_CEILING_BPS = 10_500
 
 /**
+ * Oracle window the anti-spike reference is averaged over (mirrors
+ * `Hook.TWAP_WINDOW`).  `_twapSqrtPriceX96()` reports 0 — not a stub average —
+ * until a FULL window has elapsed, so a zero TWAP means "not mature yet" and
+ * must never be rendered as a price.
+ */
+export const TWAP_WINDOW_SECONDS = 1800
+export const TWAP_WINDOW_LABEL = '30M'
+
+/**
  * Most shelves one `mintBondingCurve` call may sweep (mirrors
  * `Hook.MAX_TIERS_PER_TX`).  A gas bound only — an order larger than this is
  * still reachable, it just needs a second transaction.  Sized so the 105 %

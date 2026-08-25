@@ -237,9 +237,16 @@ function TextAreaField({
 /**
  * Write button.  Locks itself whenever the page-level access verdict says the
  * connected wallet is not the owner, so a panel author cannot forget the guard.
+ *
+ * `bypassOwnerGate` opts a single button out of that verdict.  It exists for
+ * writes whose on-chain authority is NOT `factory.owner()` — `acceptOwnership`,
+ * which by definition is called by a wallet that is not the owner yet, and the
+ * ownership card's own `transferOwnership`, which is authorised against the
+ * contract that card is bound to rather than against the factory.  A button
+ * that sets it MUST carry its own `locked` predicate.
  */
 function WriteButton({
-  label, onClick, locked, busy, small, danger,
+  label, onClick, locked, busy, small, danger, bypassOwnerGate,
 }: {
   label:   React.ReactNode
   onClick: () => void
@@ -247,9 +254,11 @@ function WriteButton({
   busy?:   boolean
   small?:  boolean
   danger?: boolean
+  bypassOwnerGate?: boolean
 }) {
   const { canWrite, reason } = useWriteAccess()
-  const hardLocked = !!locked || !canWrite
+  const ownerGated = !bypassOwnerGate && !canWrite
+  const hardLocked = !!locked || ownerGated
   const disabled   = hardLocked || !!busy
 
   return (
@@ -257,7 +266,7 @@ function WriteButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={!canWrite ? (reason ?? 'read-only') : undefined}
+      title={ownerGated ? (reason ?? 'read-only') : undefined}
       className={`inline-flex items-center justify-center
                   ${small ? 'px-4 py-2 text-[10px]' : 'px-5 py-2.5 text-xs'}
                   font-mono uppercase tracking-wider font-bold rounded-xl
@@ -1938,7 +1947,14 @@ function OwnershipCard({
             until you accept it.
           </p>
           <div className="flex justify-start">
-            <WriteButton label="accept ownership" onClick={submitAccept} busy={txBusy} small />
+            <WriteButton
+              label="accept ownership"
+              onClick={submitAccept}
+              locked={!iAmPending}
+              busy={txBusy}
+              bypassOwnerGate
+              small
+            />
           </div>
         </div>
       )}
@@ -1969,6 +1985,7 @@ function OwnershipCard({
           onClick={() => { setError(null); if (!transferLocked) setConfirming(true) }}
           locked={transferLocked}
           busy={txBusy}
+          bypassOwnerGate
           danger
         />
       </div>

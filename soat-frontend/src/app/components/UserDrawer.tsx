@@ -9,9 +9,16 @@
  *
  * Three stacked telemetry blocks:
  *
- *   [01] PoG QUOTA          factory.pogQuota(user)
- *                         − factory.totalGenesisDeposited(user)
- *                         = absolute residual mint headroom
+ *   [01] PoG QUOTA          factory.eligibility(user, 0x0).remainingQuota
+ *                           = headroom left in the CURRENT quota window.
+ *                           The quota refills every `quotaWindowDuration`
+ *                           (24 h by default), so it is never the lifetime
+ *                           `totalGenesisDeposited` subtracted from
+ *                           `pogQuota` — that reading pins a wallet at zero
+ *                           forever once it has cumulatively spent its
+ *                           allowance.  Only the factory can tell whether a
+ *                           lapsed window has been credited back, so the
+ *                           figure is read, not derived.
  *
  *   [02] COOLDOWN MATRIX    MAX( factory.userLaunchCooldownEnd(user, hook) )
  *                           across the hooks the user has touched.  rAF-driven
@@ -53,6 +60,7 @@ import {
   HOOK_ABI,
   MAINNET_CHAIN_LABEL,
   TESTNET_CHAIN_LABEL,
+  ZERO_ADDRESS,
 } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,21 +190,30 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   useDrawerSideEffects(open, onClose)
 
   // ── Panel [01]: PoG quota telemetry ────────────────────────────────────
+  //
+  // `eligibility` is queried against the ZERO hook on purpose.  The quota
+  // itself is platform-wide; the hook argument only selects which per-project
+  // cooldown to fold in, and no wallet can hold a cooldown against 0x0 — so
+  // this returns the raw window headroom without a live raise masking it.
+  // Per-project cooldowns are surfaced separately by panel [02] below.
   const userQuery = useReadContracts({
     contracts: address ? [
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',              args: [address] as const },
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'totalGenesisDeposited', args: [address] as const },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',    args: [address] as const },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'eligibility', args: [address, ZERO_ADDRESS] as const },
     ] : [],
     query: { enabled: open && Boolean(address) },
   })
 
   const pogQuota:       bigint | undefined =
     userQuery.data?.[0]?.status === 'success' ? userQuery.data[0].result as bigint : undefined
-  const totalDeposited: bigint | undefined =
-    userQuery.data?.[1]?.status === 'success' ? userQuery.data[1].result as bigint : undefined
-  const remainingQuota: bigint | undefined =
-    pogQuota !== undefined && totalDeposited !== undefined
-      ? (pogQuota > totalDeposited ? pogQuota - totalDeposited : 0n)
+  const eligibility =
+    userQuery.data?.[1]?.status === 'success'
+      ? userQuery.data[1].result as readonly [boolean, bigint, bigint]
+      : undefined
+  const remainingQuota: bigint | undefined = eligibility?.[1]
+  const windowSpent:    bigint | undefined =
+    pogQuota !== undefined && remainingQuota !== undefined
+      ? (pogQuota > remainingQuota ? pogQuota - remainingQuota : 0n)
       : undefined
 
   // ── Stage A: how many hooks live on-chain? ─────────────────────────────
@@ -380,7 +397,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
         <div className="flex-1 overflow-y-auto overscroll-contain">
           <PoGQuotaPanel
             pogQuota={pogQuota}
-            totalDeposited={totalDeposited}
+            windowSpent={windowSpent}
             remaining={remainingQuota}
           />
           <CooldownPanel
@@ -513,17 +530,17 @@ function DrawerFooter() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PoGQuotaPanel({
-  pogQuota, totalDeposited, remaining,
+  pogQuota, windowSpent, remaining,
 }: {
-  pogQuota?:       bigint
-  totalDeposited?: bigint
-  remaining?:      bigint
+  pogQuota?:    bigint
+  windowSpent?: bigint
+  remaining?:   bigint
 }) {
   return (
     <section className="px-4 pt-4 pb-2">
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/50 p-4">
         <div className="text-tosh-fluo/70 font-mono text-[9px] font-bold tracking-widest mb-1">
-          POG REMAINING
+          POG REMAINING · THIS WINDOW
         </div>
         <div className="text-tosh-fluo font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
           {formatEth(remaining)}
@@ -531,14 +548,17 @@ function PoGQuotaPanel({
         </div>
         <div className="border-t border-zinc-800/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-zinc-500 font-mono text-[10px] uppercase">Max Allocation</span>
+            <span className="text-zinc-500 font-mono text-[10px] uppercase">Per-window Allocation</span>
             <span className="text-white font-mono text-xs font-bold tabular-nums">{formatEth(pogQuota)} ETH</span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-zinc-500 font-mono text-[10px] uppercase">Consumed</span>
-            <span className="text-zinc-400 font-mono text-xs font-bold tabular-nums">{formatEth(totalDeposited)} ETH</span>
+            <span className="text-zinc-500 font-mono text-[10px] uppercase">Spent This Window</span>
+            <span className="text-zinc-400 font-mono text-xs font-bold tabular-nums">{formatEth(windowSpent)} ETH</span>
           </div>
         </div>
+        <p className="mt-3 text-[9px] font-mono text-zinc-600 leading-relaxed">
+          {'// '}refills every 24h · refunds never credit it back
+        </p>
       </div>
     </section>
   )
