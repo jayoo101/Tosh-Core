@@ -6,9 +6,9 @@ import {
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
-import { Card, Readout } from '@/components/ui'
+import { Card, Readout, ActionButton, useActionGate } from '@/components/ui'
 import { fmt } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +55,14 @@ export function GenesisClaimPanel({
     })
   }, [hookAddress, writeContract])
 
+  // No blockers: the panel unmounts entirely in the two states that would have
+  // produced one, so the only thing left to model is wallet, network and busy.
+  const gate = useActionGate({
+    action: `claim ${symbol}`,
+    onAct: handleClaim,
+    tx: { isPending, isConfirming },
+  })
+
   if (ethDeposited === 0n || hasClaimed) return null
 
   return (
@@ -64,14 +72,7 @@ export function GenesisClaimPanel({
       subtitle="hook.claimGenesis() — your pro-rata share of the genesis block, one claim per wallet"
     >
       <Readout label="YOUR GENESIS DEPOSIT" value={`${fmt(ethDeposited)} ETH`} />
-      <WriteButton
-        label={`claim ${symbol}`}
-        lockedLabel="[claim]"
-        locked={false}
-        busy={isPending || isConfirming}
-        onClick={handleClaim}
-        full
-      />
+      <ActionButton gate={gate} />
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="claimGenesis" />
     </Card>

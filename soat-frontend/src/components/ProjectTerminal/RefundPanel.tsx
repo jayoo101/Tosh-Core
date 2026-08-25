@@ -4,21 +4,24 @@ import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
-import { Card, Readout } from '@/components/ui'
+import {
+  Card, Readout, ActionButton, useActionGate, revertOrder,
+} from '@/components/ui'
 import { fmt } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFUND PANEL  ·  Phase 3
 // ─────────────────────────────────────────────────────────────────────────────
 
+// `isConnected` is gone from the props: the gate resolves wallet state itself,
+// so passing it down only gave the panel a second, staler copy of it.
 export function RefundPanel({
-  hookAddress, ethDeposited, isConnected, refetch,
+  hookAddress, ethDeposited, refetch,
 }: {
   hookAddress:   Address
   ethDeposited:  bigint
-  isConnected:   boolean
   refetch:       () => void
 }) {
   const {
@@ -36,8 +39,18 @@ export function RefundPanel({
     })
   }, [hookAddress, writeContract])
 
-  const txBusy = isPending || isConfirming
-  const locked = !isConnected || ethDeposited === 0n
+  const gate = useActionGate({
+    action: 'claim refund',
+    onAct: handleRefund,
+    tx: { isPending, isConfirming },
+    blockersInRevertOrder: revertOrder({
+      id: 'no-deposit',
+      active: ethDeposited === 0n,
+      label: '[no_deposit]',
+      reason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
+      tone: 'neutral',
+    }),
+  })
 
   return (
     <Card
@@ -49,14 +62,7 @@ export function RefundPanel({
       <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-tosh-fluo">
         → REFUND_GATE: OPEN
       </p>
-      <WriteButton
-        label="claim refund"
-        lockedLabel={ethDeposited === 0n ? '[no_deposit]' : '[claim_refund]'}
-        locked={locked}
-        busy={txBusy}
-        onClick={handleRefund}
-        full
-      />
+      <ActionButton gate={gate} />
       <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={txHash} label="refund" />
     </Card>

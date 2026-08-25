@@ -9,9 +9,10 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS,
   isSupportedPogChain, buildPoGScanAuthMessage,
 } from '@/lib/contracts'
+import { ActionButton, useActionGate } from '@/components/ui'
 import { fmt } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
-import { WriteButton, TxLine } from './primitives'
+import { TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,13 +90,20 @@ export function PogScanButton({
     }
   }, [userAddress, hookAddress, chainId, signMessageAsync, writeRegister])
 
+  // The scan signs off-chain and then calls `registerPoG`, and the attestation is
+  // bound to the chain id it was signed for — so the gate's network check earns
+  // its place here: this write is the one that never pinned `chainId` itself.
+  const scan = useCallback(() => { void run() }, [run])
+
+  const gate = useActionGate({
+    action: 'EXECUTE_GAS_PROOF_SCAN',
+    onAct: scan,
+    tx: { isBusy: busy || isRegistering || isRegConfirming },
+  })
+
   return (
     <div className="flex flex-col items-end gap-1">
-      <WriteButton
-        label="EXECUTE_GAS_PROOF_SCAN"
-        onClick={() => void run()}
-        busy={busy || isRegistering || isRegConfirming}
-      />
+      <ActionButton gate={gate} full={false} />
       {msg && (
         <span className={`font-mono text-[10px] tracking-wider
                           ${tone === 'rust'

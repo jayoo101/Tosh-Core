@@ -9,9 +9,10 @@ import {
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
   Card, Readout, Progress, Field, FieldAffix,
+  ActionButton, useActionGate, revertOrder,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { PogScanButton } from './PogScanButton'
 
@@ -54,7 +55,6 @@ export interface GenesisProps {
 
 export function GenesisPanel(p: GenesisProps) {
   const [amount, setAmount] = useState('')
-  const [error,  setError]  = useState<string | null>(null)
 
   const amountWei = (() => {
     const t = amount.trim()
@@ -129,20 +129,10 @@ export function GenesisPanel(p: GenesisProps) {
 
   const txBusy = isDepositing || isDepositConfirming
 
-  const handleDeposit = useCallback(() => {
-    setError(null)
-    if (!p.userAddress)  { setError('Connect wallet'); return }
-    if (banned)          { setError(`This wallet is blacklisted — the factory rejects every deposit from it (${banTxt.toLowerCase()})`); return }
-    if (unattested)      { setError('No PoG attestation on file — run the gas-proof scan to receive a quota'); return }
-    if (windowClosed)    { setError('Genesis window has closed'); return }
-    if (amountWei <= 0n) { setError('Enter a positive ETH amount'); return }
-    if (insufficientBal) { setError('Insufficient ETH balance'); return }
-    if (quotaBreached)   { return }
-    if (walletCapBreached) {
-      setError(`Exceeds this project's per-wallet cap — ${fmt(walletHeadroom)} ETH left`)
-      return
-    }
-    if (onCooldown)      { setError('Cooldown — wait before re-depositing'); return }
+  // Nothing is re-checked here.  The gate below decides whether this can fire,
+  // and duplicating its conditions in the handler is how the two lists drifted
+  // out of agreement in the first place.
+  const submitDeposit = useCallback(() => {
     writeDeposit({
       address: FACTORY_ADDRESS, abi: FACTORY_ABI,
       functionName: 'deposit',
@@ -150,11 +140,7 @@ export function GenesisPanel(p: GenesisProps) {
       value: amountWei,
       chainId: TARGET_CHAIN_ID,
     })
-  }, [
-    p.userAddress, amountWei, insufficientBal, quotaBreached, onCooldown,
-    p.hookAddress, p.referrer, writeDeposit, windowClosed, walletCapBreached,
-    walletHeadroom, banned, banTxt, unattested,
-  ])
+  }, [p.hookAddress, p.referrer, amountWei, writeDeposit])
 
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
@@ -166,28 +152,93 @@ export function GenesisPanel(p: GenesisProps) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   })()
 
-  const armed = !quotaBreached
-             && amountWei > 0n
-             && !amountInvalid
-             && !insufficientBal
-             && !banned
-             && !unattested
-             && !onCooldown
-             && !windowClosed
-             && !walletCapBreached
-             && p.isConnected
+  // Ordered to match the chain, not the screen.  `factory.deposit` rejects in
+  // exactly this sequence — blacklist, missing quota, cooldown, quota exceeded —
+  // and then hands off to `hook.deposit`, which checks the window before the
+  // per-wallet cap.  The cascade this replaces had `onCooldown` sitting after
+  // `quotaBreached`, so a wallet that was both cooling down and over budget was
+  // told its window was spent when the transaction would actually have reverted
+  // `CooldownActive`: "you have none left" instead of "wait 24 hours".
+  const gate = useActionGate({
+    action: 'deposit',
+    onAct: submitDeposit,
+    tx: { isPending: isDepositing, isConfirming: isDepositConfirming },
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'amount-invalid',
+        active: amountInvalid,
+        label: '[invalid_amount]',
+        reason: 'That is not a number this field can send as ETH.',
+        tone: 'warn',
+      },
+      {
+        id: 'amount-zero',
+        active: !amountInvalid && amountWei === 0n,
+        label: '[enter_amount]',
+        reason: 'Enter the amount of ETH to deposit.',
+        tone: 'neutral',
+      },
+      {
+        id: 'blacklisted',
+        active: banned,
+        label: '[wallet_blacklisted]',
+        reason: `The factory rejects every deposit from this address while the ban stands · ${banTxt}.`,
+      },
+      {
+        id: 'unattested',
+        active: unattested,
+        label: '[pog_attestation_required]',
+        reason: 'This wallet holds no Proof-of-Gas quota — run the gas-proof scan beside this button to have one written on-chain.',
+        tone: 'warn',
+      },
+      {
+        id: 'cooldown',
+        active: onCooldown,
+        label: `[cooldown ${cooldownTxt}]`,
+        reason: `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
+        tone: 'warn',
+      },
+      {
+        id: 'quota-exceeded',
+        active: quotaBreached,
+        label: '[revert: quota_exceeded]',
+        reason: `That is more than this wallet's remaining PoG window · ${fmt(quotaRemaining)} ETH left.`,
+      },
+      {
+        id: 'window-closed',
+        active: windowClosed,
+        label: '[genesis_window_closed]',
+        reason: 'The genesis window has closed — the hook accepts no further deposits.',
+        tone: 'warn',
+      },
+      {
+        id: 'wallet-cap',
+        active: walletCapBreached,
+        label: `[per_wallet_cap · ${fmt(walletHeadroom)} eth left]`,
+        reason: `That is more than this project allows one wallet to hold · ${fmt(walletHeadroom)} ETH left for you.`,
+      },
+      {
+        id: 'balance',
+        active: insufficientBal,
+        label: '[insufficient_balance]',
+        reason: 'This wallet does not hold that much ETH.',
+        tone: 'warn',
+      },
+    ),
+  })
 
-  // The design-system Field carries one message and shows an error in place of
-  // the hint, so this is ordered to match `factory.deposit`'s own revert order —
-  // the field never names a second-order problem while a more fundamental one
-  // stands.  Ban, missing attestation and closed window are deliberately absent:
-  // each already has a callout of its own directly above this input, and saying
-  // it twice reads as two separate problems.
+  const armed = gate.verdict.kind === 'ready'
+
+  // Terse, and only about the number that was typed.  The gate states every
+  // blocker in full under the button, and the three wallet-level states — ban,
+  // missing attestation, closed window — each already have a bordered callout
+  // above this input, so neither is repeated here.  What is left is the red
+  // border and a short tag; the explanation and the remedy live with the button.
   const amountError =
-      amountInvalid     ? 'NOT A VALID ETH AMOUNT'
-    : quotaBreached     ? `EXCEEDS YOUR REMAINING POG WINDOW · ${fmt(quotaRemaining)} ETH LEFT`
-    : walletCapBreached ? `EXCEEDS THIS PROJECT'S PER-WALLET CAP · ${fmt(walletHeadroom)} ETH LEFT`
-    : insufficientBal   ? 'INSUFFICIENT ETH BALANCE'
+      amountInvalid     ? 'NOT A NUMBER'
+    : quotaBreached     ? 'ABOVE YOUR REMAINING WINDOW'
+    : walletCapBreached ? 'ABOVE THIS PROJECT’S WALLET CAP'
+    : insufficientBal   ? 'ABOVE YOUR BALANCE'
     : null
 
   return (
@@ -277,7 +328,7 @@ export function GenesisPanel(p: GenesisProps) {
         <Field
           label="DEPOSIT AMOUNT · ETH"
           value={amount}
-          onValueChange={v => { setAmount(v); setError(null) }}
+          onValueChange={setAmount}
           placeholder="e.g. 0.05"
           inputMode="decimal"
           disabled={txBusy || !p.isConnected || windowClosed || banned || unattested}
@@ -294,30 +345,8 @@ export function GenesisPanel(p: GenesisProps) {
           }
         />
 
-        <div className="flex gap-3 flex-wrap items-center">
-          <WriteButton
-            label="deposit"
-            lockedLabel={
-              banned
-                ? '[wallet_blacklisted]'
-                : unattested
-                ? '[pog_attestation_required]'
-                : windowClosed
-                ? '[genesis_window_closed]'
-                : quotaBreached
-                  ? '[revert: quota_exceeded]'
-                  : walletCapBreached
-                    ? `[per_wallet_cap · ${fmt(walletHeadroom)} eth left]`
-                    : onCooldown
-                      ? `[cooldown ${cooldownTxt}]`
-                      : insufficientBal
-                        ? '[insufficient_balance]'
-                        : '[deposit]'
-            }
-            locked={!armed}
-            busy={isDepositing || isDepositConfirming}
-            onClick={handleDeposit}
-          />
+        <div className="flex gap-3 flex-wrap items-start">
+          <ActionButton gate={gate} full={false} />
           <PogScanButton
             userAddress={p.userAddress}
             hookAddress={p.hookAddress}
@@ -325,7 +354,7 @@ export function GenesisPanel(p: GenesisProps) {
           />
         </div>
 
-        <AlarmLine msg={error ?? (depositError?.message?.slice(0, 200) ?? null)} />
+        <AlarmLine msg={depositError?.message?.slice(0, 200) ?? null} />
         <TxLine hash={depositHash} label="deposit" />
       </Card>
     </div>

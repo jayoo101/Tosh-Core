@@ -9,9 +9,11 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
 } from '@/lib/contracts'
 import { buildReferralLink } from '@/lib/useReferral'
-import { Card, Readout } from '@/components/ui'
+import {
+  Card, Readout, ActionButton, useActionGate, revertOrder,
+} from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL PANEL  ·  share a link, claim the commission it earned
@@ -23,12 +25,13 @@ import { WriteButton, AlarmLine, TxLine } from './primitives'
 // the commission out — which is exactly what `claimableReferral` encodes, so
 // the panel reads that rather than deriving eligibility itself.
 
+// `isConnected` is gone from the props: the gate resolves wallet state itself,
+// so threading it in only gave this panel a second, staler copy of it.
 export function ReferralPanel({
-  hookAddress, userAddress, isConnected, refetch,
+  hookAddress, userAddress, refetch,
 }: {
   hookAddress: Address
   userAddress: Address | undefined
-  isConnected: boolean
   refetch:     () => void
 }) {
   const [copied, setCopied] = useState(false)
@@ -91,7 +94,18 @@ export function ReferralPanel({
     return () => clearTimeout(id)
   }, [copied])
 
-  const txBusy = isPending || isConfirming
+  const gate = useActionGate({
+    action: 'claim commission',
+    onAct: handleClaim,
+    tx: { isPending, isConfirming },
+    blockersInRevertOrder: revertOrder({
+      id: 'nothing-to-claim',
+      active: claimable === 0n,
+      label: '[nothing_to_claim]',
+      reason: 'No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.',
+      tone: 'neutral',
+    }),
+  })
 
   return (
     <Card
@@ -108,14 +122,7 @@ export function ReferralPanel({
         tone={claimable > 0n ? 'ok' : 'mute'}
       />
 
-      <WriteButton
-        label="claim commission"
-        lockedLabel={isConnected ? '[nothing_to_claim]' : '[connect_wallet]'}
-        locked={!isConnected || claimable === 0n}
-        busy={txBusy}
-        onClick={handleClaim}
-        full
-      />
+      <ActionButton gate={gate} />
 
       {link && (
         <div className="border border-[#1F1F2E] flex flex-col gap-2 px-4 py-3">

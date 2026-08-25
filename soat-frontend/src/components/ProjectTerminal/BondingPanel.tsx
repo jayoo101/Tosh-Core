@@ -10,9 +10,11 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
   TIER_COUNT, TIER_SIZE,
 } from '@/lib/contracts'
-import { Card, Readout, Field } from '@/components/ui'
+import {
+  Card, Readout, Field, ActionButton, useActionGate, revertOrder,
+} from '@/components/ui'
 import { fmt } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 import { ShelfLadder } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
@@ -41,7 +43,6 @@ export interface BondingProps {
 
 export function BondingPanel(p: BondingProps) {
   const [tokenAmount, setTokenAmount] = useState('')
-  const [error,       setError]       = useState<string | null>(null)
 
   const tokenAmountWei = (() => {
     const t = tokenAmount.trim()
@@ -159,18 +160,10 @@ export function BondingPanel(p: BondingProps) {
 
   const txBusy = isMinting || isMintConfirming
 
-  const handleMint = useCallback(() => {
-    setError(null)
-    if (!p.userAddress)       { setError('Connect wallet'); return }
-    if (halted)               { setError(`Shelf minting is suspended by the protocol circuit breaker${haltIsGlobal ? ' (platform-wide)' : ''} — it lifts on its own in ${haltTxt}`); return }
-    if (tokenAmountWei <= 0n) { setError('Enter a positive token amount'); return }
-    if (exceedsMax)           { setError(`Exceeds what one call can serve — max ${fmt(maxMintable)} right now`); return }
-    if (sameBlockLock)        { setError('Minting is shut for this block — the ladder reopens on the next one'); return }
-    if (awaitingFirstUnlock)  { setError('Shelf 0 sits 5% over the pool — the ladder opens once the market holds at or above P₀'); return }
-    if (gateLocked)           { setError('105% price gate is locked — wait for spot/TWAP'); return }
-    if (noCapacity)           { setError('The hook will serve no size in one call right now — the ladder is fully sold or priced out at the margin'); return }
-    if (isDust)               { return }
-    if (insufficientBal)      { setError('Insufficient ETH for quoted cost + slippage'); return }
+  // Nothing is re-checked here — the gate owns that, and keeping a second copy
+  // of the conditions is how this list and the button's cascade came to disagree
+  // about which one wins.
+  const submitMint = useCallback(() => {
     writeMint({
       address: p.hookAddress, abi: HOOK_ABI,
       functionName: 'mintBondingCurve',
@@ -178,11 +171,7 @@ export function BondingPanel(p: BondingProps) {
       value: maxEthCost,
       chainId: TARGET_CHAIN_ID,
     })
-  }, [
-    p.userAddress, p.hookAddress, tokenAmountWei, exceedsMax, maxMintable,
-    awaitingFirstUnlock, gateLocked, isDust, insufficientBal, maxEthCost,
-    sameBlockLock, halted, haltIsGlobal, haltTxt, noCapacity, writeMint,
-  ])
+  }, [p.hookAddress, tokenAmountWei, maxEthCost, writeMint])
 
   // Rungs climbed since shelf 0, i.e. STEP^index.  Measured against the LADDER
   // base rather than the pool's opening price, so the flat 5% mint premium
@@ -192,34 +181,100 @@ export function BondingPanel(p: BondingProps) {
       ? Number(p.currentPrice * 1000n / p.shelfP0) / 1000
       : 1
 
-  const armed = !isDust
-             && tokenAmountWei > 0n
-             && !tokenAmountInvalid
-             && !exceedsMax
-             && !insufficientBal
-             && !gateLocked
-             && !sameBlockLock
-             && !halted
-             && !noCapacity
-             && p.isConnected
+  // Ordered to match `hook.mintBondingCurve`, which rejects in exactly this
+  // sequence: LadderMintingHalted, then SameBlockMintForbidden, and only then
+  // reaches the per-leg checks that produce SpanTooManyShelves and
+  // TierPriceAboveCeiling.  The cascade this replaces put `exceedsMax` ahead of
+  // `sameBlockLock`, so a buyer who typed too much during a same-block lockout
+  // was told to send a smaller order — which would have reverted too.  The truth
+  // was "wait one block", and lowering the amount could never reveal it.
+  const gate = useActionGate({
+    action: `buy ${p.symbol}`,
+    onAct: submitMint,
+    tx: { isPending: isMinting, isConfirming: isMintConfirming },
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'amount-invalid',
+        active: tokenAmountInvalid,
+        label: '[invalid_amount]',
+        reason: 'That is not a number this field can send as a token amount.',
+        tone: 'warn',
+      },
+      {
+        id: 'amount-zero',
+        active: !tokenAmountInvalid && tokenAmountWei === 0n,
+        label: '[enter_amount]',
+        reason: `Enter how many ${p.symbol} to mint.`,
+        tone: 'neutral',
+      },
+      {
+        id: 'ladder-halted',
+        active: halted,
+        label: `[ladder_halted · resumes ${haltTxt}]`,
+        reason: `Shelf minting is suspended by the protocol circuit breaker${haltIsGlobal ? ' platform-wide' : ' for this project'} — it lifts on its own in ${haltTxt}, and the pool keeps trading meanwhile.`,
+      },
+      {
+        id: 'same-block',
+        active: sameBlockLock,
+        label: '[minting_shut_this_block]',
+        reason: 'A swap landed in this block and the hook refuses to mint alongside it — the ladder reopens on the next block.',
+        tone: 'warn',
+      },
+      {
+        id: 'exceeds-max',
+        active: exceedsMax,
+        label: '[exceeds_max_per_call]',
+        reason: `One call can serve at most ${fmt(maxMintable)} right now — send the rest in a second transaction.`,
+      },
+      {
+        id: 'awaiting-first-unlock',
+        active: awaitingFirstUnlock,
+        label: '[awaiting_market_above_p0]',
+        reason: 'Shelf 0 sits 5% over the pool by design, so the ladder opens only once the market holds at or above P₀.',
+        tone: 'neutral',
+      },
+      {
+        id: 'gate-locked',
+        active: gateLocked,
+        label: '[gate_locked]',
+        reason: 'The 105% price gate is shut — the next shelf is above the ceiling until spot or TWAP catches up.',
+      },
+      {
+        id: 'no-capacity',
+        active: noCapacity,
+        label: '[no_size_available]',
+        reason: 'The hook will serve no size at all in one call right now — the ladder is either fully sold or priced out at the margin.',
+      },
+      {
+        id: 'dust',
+        active: isDust,
+        label: '[invalid_amount]',
+        reason: 'That amount quotes to zero ETH — raise it until the order is worth a wei.',
+        tone: 'warn',
+      },
+      {
+        id: 'balance',
+        active: insufficientBal,
+        label: '[insufficient_eth]',
+        reason: 'This wallet does not hold the quoted cost plus its slippage headroom.',
+        tone: 'warn',
+      },
+    ),
+  })
 
-  // The design-system Field carries one message and shows an error in place of
-  // the hint, so the seven-way cascade this replaces had to be split by what the
-  // message actually is.
-  //
-  // Ordered to match `handleMint`, which mirrors the hook's revert order, so the
-  // field never names a second-order problem while a more fundamental one
-  // stands.  `halted` is absent on purpose: it already has a callout directly
-  // above this input, and stating it in both places reads as two faults.
+  const armed = gate.verdict.kind === 'ready'
+
+  // Terse, and only about the number that was typed.  The gate below already
+  // states every blocker in full under the button, so anything market-shaped —
+  // a shut gate, a halt, no capacity — is deliberately absent: printing the same
+  // sentence twice, a hundred pixels apart, reads as two separate problems.
+  // What is left here is the red border and a three-word tag; the button carries
+  // the explanation and the remedy.
   const amountError =
-      tokenAmountInvalid ? 'NOT A VALID TOKEN AMOUNT'
-    : exceedsMax         ? `EXCEEDS MAX PER CALL (${fmt(maxMintable)}) — SEND A SECOND TX FOR THE REST`
-    : gateLocked && !awaitingFirstUnlock
-                         ? '105% PRICE GATE LOCKED'
-    : noCapacity && unlocked
-                         ? 'NO SIZE AVAILABLE IN ONE CALL RIGHT NOW — THE LADDER IS FULLY SOLD OR PRICED OUT AT THE MARGIN'
-    : isDust             ? 'TOO SMALL TO QUOTE — RAISE THE AMOUNT'
-    : insufficientBal    ? 'INSUFFICIENT ETH FOR THE QUOTED COST + SLIPPAGE'
+      tokenAmountInvalid ? 'NOT A NUMBER'
+    : exceedsMax         ? 'ABOVE THE PER-CALL MAX'
+    : isDust             ? 'QUOTES TO ZERO'
+    : insufficientBal    ? 'ABOVE YOUR BALANCE'
     : null
 
   // Not faults.  A shut gate before the first mint is the designed opening
@@ -272,7 +327,7 @@ export function BondingPanel(p: BondingProps) {
       <Field
         label="TOKEN AMOUNT TO MINT"
         value={tokenAmount}
-        onValueChange={v => { setTokenAmount(v); setError(null) }}
+        onValueChange={setTokenAmount}
         placeholder="e.g. 1000"
         inputMode="decimal"
         disabled={txBusy || !p.isConnected || halted}
@@ -309,36 +364,9 @@ export function BondingPanel(p: BondingProps) {
         </div>
       )}
 
-      <WriteButton
-        label={`buy ${p.symbol}`}
-        lockedLabel={
-          halted
-            ? `[ladder_halted · resumes ${haltTxt}]`
-            : isDust
-            ? '[invalid_amount]'
-            : exceedsMax
-              ? '[exceeds_max_per_call]'
-              : sameBlockLock
-                ? '[minting_shut_this_block · wait_one_block]'
-              : awaitingFirstUnlock
-                ? '[awaiting_market_above_p0]'
-              : gateLocked
-                ? '[gate_locked]'
-                : noCapacity && unlocked
-                  ? '[no_size_available]'
-                : insufficientBal
-                  ? '[insufficient_eth]'
-                  : tokenAmountWei <= 0n
-                    ? '[enter_amount]'
-                    : `[buy ${p.symbol.toLowerCase()}]`
-        }
-        locked={!armed}
-        busy={isMinting || isMintConfirming}
-        onClick={handleMint}
-        full
-      />
+      <ActionButton gate={gate} />
 
-      <AlarmLine msg={error ?? (mintError?.message?.slice(0, 200) ?? null)} />
+      <AlarmLine msg={mintError?.message?.slice(0, 200) ?? null} />
       <TxLine hash={mintHash} label="mintBondingCurve" />
     </Card>
   )

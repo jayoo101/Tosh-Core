@@ -244,7 +244,6 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
         <RefundPanel
           hookAddress={hookAddress}
           ethDeposited={userEthDeposited}
-          isConnected={wConnected}
           refetch={() => { void refetch() }}
         />
       )}
@@ -253,7 +252,6 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
         <ReferralPanel
           hookAddress={hookAddress}
           userAddress={userAddress}
-          isConnected={wConnected}
           refetch={() => { void refetch() }}
         />
       )}

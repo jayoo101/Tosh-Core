@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   useReadContract, useWriteContract, useWaitForTransactionReceipt,
 } from 'wagmi'
@@ -10,9 +10,11 @@ import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
-import { Card, Readout, Field } from '@/components/ui'
+import {
+  Card, Readout, Field, ActionButton, useActionGate, revertOrder,
+} from '@/components/ui'
 import { fmt } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 
 const LP_SLIPPAGE_PRESETS = [
   { bps: 50n,  label: '0.5%' },
@@ -148,16 +150,18 @@ export function LiquidityPanel({
     })
   }, [tokenAddress, nowSeconds, writeContract])
 
+  // Hoisted out of the click handler so the gate can refuse a deposit that would
+  // mint nothing, instead of the handler discovering it after the user commits.
+  const liquidity = useMemo(
+    () => (ethWei > 0n && sqrtPriceX96 > 0n
+      ? liquidityForAmounts(sqrtPriceX96, ethWei, tokenNeeded)
+      : 0n),
+    [ethWei, sqrtPriceX96, tokenNeeded],
+  )
+
   const addLiquidity = useCallback(() => {
     setError(null)
-    if (!userAddress || !tokenAddress) { setError('Connect wallet'); return }
-    if (ethWei <= 0n)      { setError('Enter a positive ETH amount'); return }
-    if (sqrtPriceX96 === 0n) { setError('Pool price unavailable — retry in a moment'); return }
-    if (insufficientEth)   { setError(`Insufficient ETH for the deposit + ${Number(slippageBps) / 100}% headroom`); return }
-    if (insufficientToken) { setError(`Insufficient ${symbol} — full-range LPs must fund both legs`); return }
-
-    const liquidity = liquidityForAmounts(sqrtPriceX96, ethWei, tokenNeeded)
-    if (liquidity === 0n) { setError('Deposit too small to mint any liquidity'); return }
+    if (!userAddress || !tokenAddress) return
 
     const unlockData = encodeMintPayload({
       token: tokenAddress,
@@ -175,8 +179,8 @@ export function LiquidityPanel({
       chainId: TARGET_CHAIN_ID,
     })
   }, [
-    userAddress, tokenAddress, hookAddress, ethWei, tokenNeeded, ethMax, tokenMax,
-    sqrtPriceX96, insufficientEth, insufficientToken, symbol, nowSeconds, writeContract, slippageBps,
+    userAddress, tokenAddress, hookAddress, liquidity, ethMax, tokenMax,
+    nowSeconds, writeContract,
   ])
 
   const withdraw = useCallback((tokenId: bigint, amount0: bigint, amount1: bigint) => {
@@ -198,28 +202,96 @@ export function LiquidityPanel({
     })
   }, [userAddress, tokenAddress, nowSeconds, writeContract, slippageBps])
 
-  // Both legs have to be funded for a full-range mint, so a short token balance
-  // is a fault and not a hint — it was already coloured as one inside the old
-  // cascade, which is why it moves to `error` rather than staying below.
+  // Terse: the red border plus a short tag.  The gate states each of these in
+  // full under the button, including the numbers, so repeating them here would
+  // show one fault as two.
   const ethError =
-      ethInvalid        ? 'NOT A VALID ETH AMOUNT'
-    : insufficientEth   ? `INSUFFICIENT ETH FOR THE DEPOSIT + ${Number(slippageBps) / 100}% HEADROOM`
-    : insufficientToken ? `NEEDS ${fmt(tokenNeeded)} ${symbol} — YOU HOLD ${fmt(tokenBalance ?? 0n)}`
+      ethInvalid        ? 'NOT A NUMBER'
+    : insufficientEth   ? 'ABOVE YOUR ETH BALANCE'
+    : insufficientToken ? `NEEDS MORE ${symbol}`
     : null
 
   // One live step at a time, so the CTA always says exactly what the next
-  // signature does rather than dumping three buttons on the user at once.
-  const step: { label: string; run: (() => void) | null } = (() => {
-    if (!isConnected)        return { label: 'Connect wallet to provide liquidity', run: null }
-    if (!tokenAddress)       return { label: 'Token not resolved yet', run: null }
-    if (ethWei <= 0n)        return { label: 'Enter an ETH amount', run: null }
-    if (ethInvalid)          return { label: 'Invalid amount', run: null }
-    if (insufficientEth)     return { label: 'Insufficient ETH', run: null }
-    if (insufficientToken)   return { label: `Insufficient ${symbol}`, run: null }
-    if (needsErc20Approval)  return { label: `Step 1 of 3 — approve ${symbol} for Permit2`, run: approveErc20 }
-    if (needsPermit2Approval) return { label: 'Step 2 of 3 — let Permit2 fund the position manager', run: approvePermit2 }
-    return { label: 'Step 3 of 3 — deposit into the pool', run: addLiquidity }
-  })()
+  // signature does rather than dumping three buttons on the user at once.  The
+  // two approvals are blockers that carry a `resolve`, which is what keeps the
+  // button enabled and turns "you are blocked" into "here is the next signature".
+  //
+  // `ethInvalid` now precedes the zero check.  It could not before: an
+  // unparseable box sets `ethWei` to `-1n`, so `ethWei <= 0n` matched first and
+  // typing a stray letter reported "Enter an ETH amount" at a field that was
+  // visibly not empty.
+  const gate = useActionGate({
+    action: 'Step 3 of 3 — deposit into the pool',
+    onAct: addLiquidity,
+    tx: { isBusy: busy },
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'token-unresolved',
+        active: !tokenAddress,
+        label: '[token_not_resolved]',
+        reason: 'Still reading this project’s token address from the factory.',
+        tone: 'neutral',
+      },
+      {
+        id: 'amount-invalid',
+        active: ethInvalid,
+        label: '[invalid_amount]',
+        reason: 'That is not a number this field can send as ETH.',
+        tone: 'warn',
+      },
+      {
+        id: 'amount-zero',
+        active: !ethInvalid && ethWei === 0n,
+        label: '[enter_amount]',
+        reason: 'Enter the amount of ETH to put into the pool.',
+        tone: 'neutral',
+      },
+      {
+        id: 'pool-price',
+        active: sqrtPriceX96 === 0n,
+        label: '[pool_price_unavailable]',
+        reason: 'The pool price has not been read yet — a full-range mint cannot be sized without it.',
+        tone: 'neutral',
+      },
+      {
+        id: 'balance-eth',
+        active: insufficientEth,
+        label: '[insufficient_eth]',
+        reason: `This wallet does not hold the deposit plus its ${Number(slippageBps) / 100}% headroom.`,
+        tone: 'warn',
+      },
+      {
+        id: 'balance-token',
+        active: insufficientToken,
+        label: `[insufficient_${symbol.toLowerCase()}]`,
+        reason: `A full-range position funds both legs — this one needs ${fmt(tokenNeeded)} ${symbol} and the wallet holds ${fmt(tokenBalance ?? 0n)}.`,
+        tone: 'warn',
+      },
+      {
+        id: 'dust',
+        active: liquidity === 0n && ethWei > 0n && sqrtPriceX96 > 0n,
+        label: '[too_small_to_mint]',
+        reason: 'That deposit is too small to mint any liquidity at the current price — raise it.',
+        tone: 'warn',
+      },
+      {
+        id: 'approve-erc20',
+        active: needsErc20Approval,
+        label: `Step 1 of 3 — approve ${symbol} for Permit2`,
+        reason: 'Permit2 needs a one-time allowance on the token before it can move either leg.',
+        tone: 'info',
+        resolve: approveErc20,
+      },
+      {
+        id: 'approve-permit2',
+        active: needsPermit2Approval,
+        label: 'Step 2 of 3 — let Permit2 fund the position manager',
+        reason: 'Permit2 holds the allowance but has not been told the position manager may spend it.',
+        tone: 'info',
+        resolve: approvePermit2,
+      },
+    ),
+  })
 
   return (
     <Card
@@ -250,7 +322,7 @@ export function LiquidityPanel({
         inputMode="decimal"
         disabled={busy || !isConnected}
         error={ethError}
-        armed={!!step.run && !busy}
+        armed={gate.verdict.kind === 'ready'}
         hint={ethWei > 0n && sqrtPriceX96 > 0n
           ? `PAIRS WITH ${fmt(tokenNeeded)} ${symbol} AT THE CURRENT PRICE`
           : 'FULL RANGE · BOTH LEGS REQUIRED · WITHDRAW ANY TIME'}
@@ -285,14 +357,7 @@ export function LiquidityPanel({
         </div>
       </div>
 
-      <WriteButton
-        label={step.label}
-        lockedLabel={`[${step.label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}]`}
-        locked={!step.run}
-        busy={busy}
-        onClick={() => step.run?.()}
-        full
-      />
+      <ActionButton gate={gate} />
 
       {positions.length > 0 && (
         <div className="border border-[#1F1F2E]">

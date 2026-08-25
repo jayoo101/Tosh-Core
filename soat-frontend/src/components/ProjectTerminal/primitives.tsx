@@ -3,59 +3,15 @@
 /**
  * What is left of the terminal's local primitives.
  *
- * `Section`, `Readout`, `ProgressBar` and `Field` moved to `@/components/ui` as
- * `Card`, `Readout`, `Progress` and `Field`.  These three have not:
- *
- *   • `WriteButton` — its `lockedLabel` cascades are the blocker lists that
- *     `useActionGate` exists to hold, and converting them is a behavioural
- *     change (blocker precedence) rather than a swap.
- *   • `AlarmLine` / `TxLine` — belong to the toast and `AddressLink` surfaces.
+ * `Section`, `Readout`, `ProgressBar`, `Field` and `WriteButton` have all moved
+ * to `@/components/ui` — as `Card`, `Readout`, `Progress`, `Field` and
+ * `ActionButton` + `useActionGate`.  These two have not: `AlarmLine` and
+ * `TxLine` belong to the toast and `AddressLink` surfaces.
  */
 
-import type * as React from 'react'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
 import { basescanTx } from './format'
-
-/** The terminal's primary CTA button.  Same three-state pattern as the admin
- *  WriteButton: default white outline, locked gray, busy text swap.
- *
- *  When `lockedLabel` is provided AND `locked` is true, the button's visible
- *  label is replaced with the lockedLabel (e.g. `[INVALID_AMOUNT]` or
- *  `[REVERT: QUOTA_EXCEEDED]`).  This is how the spec wants the L-01 / H-01
- *  cliff to surface — quiet text swap, no glow. */
-export function WriteButton({
-  label, onClick, locked, busy, full, lockedLabel,
-}: {
-  label:       React.ReactNode
-  onClick:     () => void
-  locked?:     boolean
-  busy?:       boolean
-  full?:       boolean
-  lockedLabel?: React.ReactNode
-}) {
-  const disabled = !!(locked || busy)
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center justify-center
-                  px-5 py-3 text-xs font-mono uppercase tracking-wider font-bold
-                  transition-all duration-150 disabled:cursor-not-allowed rounded-xl
-                  ${full ? 'w-full' : ''}
-                  ${locked
-                    ? 'border border-zinc-800 text-zinc-600 bg-transparent'
-                    : 'tosh-nuke-btn'}`}
-    >
-      {busy
-        ? 'transmitting…'
-        : locked && lockedLabel
-          ? lockedLabel
-          : label}
-    </button>
-  )
-}
 
 export function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null

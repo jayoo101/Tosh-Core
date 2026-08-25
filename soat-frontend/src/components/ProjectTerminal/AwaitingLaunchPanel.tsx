@@ -4,9 +4,9 @@ import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI, TARGET_CHAIN_ID, LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
-import { Card, Readout } from '@/components/ui'
+import { Card, Readout, ActionButton, useActionGate } from '@/components/ui'
 import { fmt } from './format'
-import { WriteButton, AlarmLine, TxLine } from './primitives'
+import { AlarmLine, TxLine } from './primitives'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +50,13 @@ export function AwaitingLaunchPanel({
   const expiresAt = genesisDeadline + LAUNCH_WINDOW_SECONDS
   const hoursLeft = Math.max(0, Math.floor((Number(expiresAt) - nowSec) / 3600))
 
-  const txBusy = isPending || isConfirming
+  // Rendered only on the creator branch below, and the panel is never mounted
+  // past the launch window, so `launch()` has no reachable blocker of its own.
+  const gate = useActionGate({
+    action: 'open the pool',
+    onAct: handleLaunch,
+    tx: { isPending, isConfirming },
+  })
 
   return (
     <Card
@@ -75,14 +81,7 @@ export function AwaitingLaunchPanel({
             genesis deadline, the raise is written off: <span className="text-white">launch()</span> stops
             working permanently and every depositor reclaims their ETH in full.
           </p>
-          <WriteButton
-            label="open the pool"
-            lockedLabel="[launch]"
-            locked={false}
-            busy={txBusy}
-            onClick={handleLaunch}
-            full
-          />
+          <ActionButton gate={gate} />
         </>
       ) : (
         <p className="font-mono text-[11px] text-[#888] leading-relaxed">
