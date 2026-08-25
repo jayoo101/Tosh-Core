@@ -60,9 +60,9 @@ import {
   HOOK_ABI,
   MAINNET_CHAIN_LABEL,
   TESTNET_CHAIN_LABEL,
-  UNBOUNDED_BAN_SECONDS,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
+import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FORMATTERS
@@ -344,9 +344,16 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // attestation, which outranks an exhausted window.
   const banned     = banStamp > 0n && knowsWallTime && Number(banStamp) * 1000 > now
   const unattested = !banned && pogQuota === 0n
-  const banTxt     = banStamp - BigInt(Math.floor(now / 1000)) > UNBOUNDED_BAN_SECONDS
-    ? 'PERMANENT · NO EXPIRY'
-    : `LIFTS ${new Date(Number(banStamp) * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+  // `now` is 0 while the clock is parked, which `classifyHorizon` reports as
+  // 'unsynced' — so this no longer formats a date against a wall time it does
+  // not yet know, nor hands an unreachable stamp to `Date`.
+  const banHorizon = classifyHorizon(banStamp, Math.floor(now / 1000))
+  const banTxt     = formatHorizonLabel(banHorizon, {
+    unsynced:  '—',
+    unbounded: 'PERMANENT · NO EXPIRY',
+    elapsed:   'LAPSED',
+    pending:   () => `LIFTS ${formatHorizonUtc(banHorizon) ?? '—'}`,
+  })
 
   // ── REFETCH bus — claim TXs invalidate every cached read so the drawer
   //    snaps from [ CLAIM_TOKENS ] to [ TRANSFERRED_CLOSED ] without an

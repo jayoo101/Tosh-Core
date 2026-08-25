@@ -48,7 +48,6 @@ import {
   TIER_SIZE,
   TWAP_WINDOW_LABEL,
   POG_SESSION_AUTH_TTL_MS,
-  UNBOUNDED_BAN_SECONDS,
   buildPoGScanAuthMessage,
   ZERO_ADDRESS,
   POSITION_MANAGER,
@@ -59,6 +58,7 @@ import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
 import { useBoundReferrer, buildReferralLink } from '@/lib/useReferral'
+import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -686,18 +686,16 @@ function GenesisPanel(p: GenesisProps) {
     : onCooldown ? 'cooldown'
     : null
 
-  const permaBanned = p.blacklistedUntil - BigInt(p.nowSec) > UNBOUNDED_BAN_SECONDS
-  const banTxt = (() => {
-    if (permaBanned) return 'PERMANENT · NO EXPIRY'
-    const rem = Number(p.blacklistedUntil) - p.nowSec
-    const d = Math.floor(rem / 86_400)
-    const h = Math.floor((rem % 86_400) / 3600)
-    const m = Math.floor((rem % 3600) / 60)
-    return `LIFTS IN ${d}D ${String(h).padStart(2, '0')}H ${String(m).padStart(2, '0')}M`
-  })()
-  const banLiftsAt = permaBanned
-    ? null
-    : `${new Date(Number(p.blacklistedUntil) * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+  // One gateway from the raw stamp to anything that formats it, so a permanent
+  // ban cannot reach `Date` and throw.  The horizon decides; the formatters
+  // only ever see a value they have been told is representable.
+  const banHorizon = classifyHorizon(p.blacklistedUntil, p.nowSec)
+  const banTxt = formatHorizonLabel(banHorizon, {
+    unbounded: 'PERMANENT · NO EXPIRY',
+    elapsed:   'LAPSED',
+    pending:   d => `LIFTS IN ${d}`,
+  })
+  const banLiftsAt = formatHorizonUtc(banHorizon)
 
   const quotaRemaining  = p.quotaRemaining
   const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining

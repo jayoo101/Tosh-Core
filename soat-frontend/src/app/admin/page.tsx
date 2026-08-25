@@ -76,6 +76,7 @@ import {
   testnetExplorerAddress,
 } from '@/lib/contracts'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
+import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WRITE ACCESS  —  one verdict, consumed by every lever on the page
@@ -1185,8 +1186,11 @@ function LadderHaltPanel() {
   }, [isSuccess, refetch, refetchHook])
 
   const activeUntil  = scope === 'global' ? (globalUntil as bigint | undefined) : (hookUntil as bigint | undefined)
-  const isHalted     = !!activeUntil && Number(activeUntil) > nowSec
-  const secsLeft     = isHalted ? Number(activeUntil) - nowSec : 0
+  // `haltLadderMinting` caps a halt at MAX_HALT_DURATION, so this stamp is
+  // always representable — but reading it through the horizon means the panel
+  // does not depend on that cap holding forever.
+  const haltHorizon  = classifyHorizon(activeUntil ?? 0n, nowSec)
+  const isHalted     = haltHorizon.kind === 'pending' || haltHorizon.kind === 'unbounded'
   const txBusy       = isPending || isConfirming
   const targetArg    = scope === 'global' ? ZERO_ADDRESS : targeted
   const targetReady  = scope === 'global' || !!targeted
@@ -1235,10 +1239,14 @@ function LadderHaltPanel() {
 
       <Readout
         label="HALTED UNTIL"
-        value={isHalted
-          ? `${new Date(Number(activeUntil) * 1000).toISOString().replace('T', ' ').slice(0, 19)} UTC`
-          : 'not halted'}
-        hint={isHalted ? `${fmtDuration(BigInt(secsLeft), '—')} remaining` : null}
+        value={isHalted ? (formatHorizonUtc(haltHorizon, 'second') ?? 'halted') : 'not halted'}
+        hint={isHalted
+          ? formatHorizonLabel(haltHorizon, {
+              unbounded: 'no representable expiry',
+              elapsed:   'lapsed',
+              pending:   d => `${d} remaining`,
+            })
+          : null}
         tone={isHalted ? 'fluo' : 'mute'}
       />
 
@@ -1382,7 +1390,15 @@ function SingleLiftRow() {
   })
 
   const until    = bannedUntil as bigint | undefined
-  const isBanned = until !== undefined && until > BigInt(nowSec)
+  // `setBlacklist` stores `type(uint256).max` verbatim but any other duration as
+  // `block.timestamp + duration`, so an unreachable ban need not equal the
+  // sentinel.  Testing for the sentinel alone let such a stamp reach `Date` and
+  // take the panel down with a RangeError.
+  const banHorizon  = classifyHorizon(until ?? 0n, nowSec)
+  const isBanned    = banHorizon.kind === 'pending' || banHorizon.kind === 'unbounded'
+  const bannedUntilTxt = banHorizon.kind === 'pending'
+    ? (formatHorizonUtc(banHorizon, 'second') ?? 'PERMANENT')
+    : 'PERMANENT'
 
   const handleLift = useCallback(() => {
     setError(null)
@@ -1411,11 +1427,7 @@ function SingleLiftRow() {
             : until === undefined
               ? <span className="text-[#666]">→ reading blacklistedUntil…</span>
               : isBanned
-                ? <span className="text-tosh-rust">
-                    → BANNED UNTIL {until === (1n << 256n) - 1n
-                      ? 'PERMANENT'
-                      : new Date(Number(until) * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC'}
-                  </span>
+                ? <span className="text-tosh-rust">→ BANNED UNTIL {bannedUntilTxt}</span>
                 : <span className="text-tosh-fluo">→ NOT CURRENTLY BANNED</span>
         }
       />
