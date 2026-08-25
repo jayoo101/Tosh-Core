@@ -212,6 +212,14 @@ export const MAX_COOLDOWN_SECONDS = 7 * 24 * 60 * 60
 export const PERMANENT_BAN: bigint = (1n << 256n) - 1n
 
 /**
+ * How far out a ban expiry stops being a date.  `setBlacklist` stores the
+ * permanent sentinel verbatim but nothing stops an owner storing a duration
+ * just as unreachable, and either one overflows `Date` — so anything past this
+ * horizon is named rather than counted down or formatted as a timestamp.
+ */
+export const UNBOUNDED_BAN_SECONDS: bigint = 100n * 365n * 24n * 60n * 60n
+
+/**
  * Ban presets offered by the console.  `setBlacklist` takes a DURATION and
  * adds it to `block.timestamp` on-chain, except for the permanent sentinel
  * which it stores verbatim.

@@ -48,6 +48,7 @@ import {
   TIER_SIZE,
   TWAP_WINDOW_LABEL,
   POG_SESSION_AUTH_TTL_MS,
+  UNBOUNDED_BAN_SECONDS,
   buildPoGScanAuthMessage,
   ZERO_ADDRESS,
   POSITION_MANAGER,
@@ -374,17 +375,21 @@ function ProgressBar({
 // and the DEPOSIT button locks (handled in the GenesisPanel).
 //
 
+/// Why `eligibility` reports no headroom, when the reason is not that the
+/// window is spent.  A live cooldown, a ban and a never-registered attestation
+/// all short-circuit it to `(false, 0, 0)`, and none of the three is the fact
+/// "you have none left" — so each is named rather than rendered as a balance.
+type QuotaBlock = 'cooldown' | 'banned' | 'unattested' | null
+
 function QuotaLedger({
-  quota, remaining, projected, stale,
+  quota, remaining, projected, blocked,
 }: {
   quota:     bigint
   remaining: bigint
   projected: bigint
-  /// `eligibility` short-circuits on an active per-project cooldown and reports
-  /// zero quota, which is not the same fact as "none left".  Blank the figures
-  /// rather than render that zero as if it were a balance.
-  stale:     boolean
+  blocked:   QuotaBlock
 }) {
+  const stale     = blocked !== null
   const spent     = quota > remaining ? quota - remaining : 0n
   const breached  = !stale && projected > 0n && projected > remaining
   const consumed  = quota > 0n
@@ -393,6 +398,10 @@ function QuotaLedger({
   const projConsumed = quota > 0n && projected > 0n
     ? Number(((spent + projected) * 10_000n) / quota) / 100
     : consumed
+  const statusTxt = blocked === 'cooldown'   ? 'WINDOW UNREADABLE'
+                  : blocked === 'banned'     ? 'BLACKLISTED'
+                  : blocked === 'unattested' ? 'NO ATTESTATION'
+                  : `${consumed.toFixed(1)}% CONSUMED`
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between border-b border-[#1F1F2E]/60 py-1.5">
@@ -410,10 +419,13 @@ function QuotaLedger({
           {'// [H-01] QUOTA LEDGER'}
         </span>
         <span className="font-mono text-[10px] text-[#666] tabular-nums">
-          {stale ? 'WINDOW UNREADABLE' : `${consumed.toFixed(1)}% CONSUMED`}
+          {statusTxt}
         </span>
       </div>
-      {row('POG QUOTA · PER WINDOW', `${fmt(quota)} ETH`)}
+      {row(
+        'POG QUOTA · PER WINDOW',
+        blocked === 'unattested' ? '—' : `${fmt(quota)} ETH`,
+      )}
       {row('SPENT THIS WINDOW',      stale ? '—' : `${fmt(spent)} ETH`)}
       {row('REMAINING',              stale ? '—' : `${fmt(remaining)} ETH`)}
       {!stale && projected > 0n && (
@@ -449,10 +461,15 @@ function QuotaLedger({
 type TierRow = { price: bigint; totalAmount: bigint; soldAmount: bigint }
 
 function ShelfLadder({
-  hookAddress, p0,
+  hookAddress, p0, halted,
 }: {
   hookAddress: Address
   p0:          bigint
+  /// The protocol circuit breaker, lifted from the panel that already reads it
+  /// rather than polled a second time here.  It is orthogonal to the 105% price
+  /// gate — the gate can be wide open while the hook refuses every mint — so it
+  /// gets its own badge state instead of being folded into `unlocked`.
+  halted:      boolean
 }) {
   const { data: statusRaw } = useReadContract({
     address:      hookAddress,
@@ -492,8 +509,11 @@ function ShelfLadder({
         <span className="text-[10px] tracking-[0.4em] uppercase text-[#888] font-bold">
           {'// DISCRETE SHELF LADDER · 4000 RUNGS · 2000× SPAN'}
         </span>
-        <span className="font-mono text-[10px] text-[#666] tabular-nums">
-          {unlocked ? 'GATE OPEN' : 'GATE LOCKED · 105%'}
+        <span className={`font-mono text-[10px] tabular-nums
+                          ${halted ? 'text-tosh-rust' : 'text-[#666]'}`}>
+          {halted
+            ? 'LADDER HALTED · BREAKER'
+            : unlocked ? 'GATE OPEN' : 'GATE LOCKED · 105%'}
         </span>
       </div>
 
@@ -622,6 +642,10 @@ interface GenesisProps {
   /// lapsed window has already been credited back, so this is never derived
   /// client-side from a cumulative deposit total.
   quotaRemaining:     bigint
+  /// `eligibility` short-circuits on a ban and on a missing attestation into the
+  /// same `(false, 0, 0)` an exhausted window produces, so the ban stamp is read
+  /// alongside `pogQuota` to tell the three apart.
+  blacklistedUntil:   bigint
   cooldownEnd:        bigint
   nowSec:             number
   /// This project's own deposit ceiling per wallet, snapshotted into the hook
@@ -648,9 +672,35 @@ function GenesisPanel(p: GenesisProps) {
   })()
   const amountInvalid = amountWei === -1n
 
-  const onCooldown      = p.cooldownEnd > 0n && BigInt(p.nowSec) < p.cooldownEnd
+  // `factory.deposit` rejects in a fixed order — IsBlacklisted, then NoPogQuota,
+  // then the cooldown, then the window budget — and `eligibility` collapses the
+  // first two into the same zero the last one produces.  Mirror that order here
+  // so a ban never reads as an allowance the user can simply wait out.
+  const banned          = p.blacklistedUntil > 0n && BigInt(p.nowSec) < p.blacklistedUntil
+  const unattested      = !banned && p.pogQuota === 0n
+  const onCooldown      = !banned && !unattested
+                       && p.cooldownEnd > 0n && BigInt(p.nowSec) < p.cooldownEnd
+  const quotaBlock: QuotaBlock = banned
+    ? 'banned'
+    : unattested ? 'unattested'
+    : onCooldown ? 'cooldown'
+    : null
+
+  const permaBanned = p.blacklistedUntil - BigInt(p.nowSec) > UNBOUNDED_BAN_SECONDS
+  const banTxt = (() => {
+    if (permaBanned) return 'PERMANENT · NO EXPIRY'
+    const rem = Number(p.blacklistedUntil) - p.nowSec
+    const d = Math.floor(rem / 86_400)
+    const h = Math.floor((rem % 86_400) / 3600)
+    const m = Math.floor((rem % 3600) / 60)
+    return `LIFTS IN ${d}D ${String(h).padStart(2, '0')}H ${String(m).padStart(2, '0')}M`
+  })()
+  const banLiftsAt = permaBanned
+    ? null
+    : `${new Date(Number(p.blacklistedUntil) * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+
   const quotaRemaining  = p.quotaRemaining
-  const quotaBreached   = !onCooldown && amountWei > 0n && amountWei > quotaRemaining
+  const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
   const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
   const pctGenesis      = p.softCap > 0n
     ? Number((p.totalEthDeposited * 10_000n) / p.softCap) / 100
@@ -693,6 +743,8 @@ function GenesisPanel(p: GenesisProps) {
   const handleDeposit = useCallback(() => {
     setError(null)
     if (!p.userAddress)  { setError('Connect wallet'); return }
+    if (banned)          { setError(`This wallet is blacklisted — the factory rejects every deposit from it (${banTxt.toLowerCase()})`); return }
+    if (unattested)      { setError('No PoG attestation on file — run the gas-proof scan to receive a quota'); return }
     if (windowClosed)    { setError('Genesis window has closed'); return }
     if (amountWei <= 0n) { setError('Enter a positive ETH amount'); return }
     if (insufficientBal) { setError('Insufficient ETH balance'); return }
@@ -712,7 +764,7 @@ function GenesisPanel(p: GenesisProps) {
   }, [
     p.userAddress, amountWei, insufficientBal, quotaBreached, onCooldown,
     p.hookAddress, p.referrer, writeDeposit, windowClosed, walletCapBreached,
-    walletHeadroom,
+    walletHeadroom, banned, banTxt, unattested,
   ])
 
   const cooldownTxt = (() => {
@@ -729,6 +781,8 @@ function GenesisPanel(p: GenesisProps) {
              && amountWei > 0n
              && !amountInvalid
              && !insufficientBal
+             && !banned
+             && !unattested
              && !onCooldown
              && !windowClosed
              && !walletCapBreached
@@ -759,11 +813,43 @@ function GenesisPanel(p: GenesisProps) {
           </p>
         )}
 
+        {banned && (
+          <div className="border border-tosh-rust/40 px-4 py-3 flex flex-col gap-1">
+            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-tosh-rust">
+              → WALLET BLACKLISTED · {banTxt}
+            </p>
+            <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+              The factory rejects every <span className="text-white">deposit</span> from this
+              address while the ban stands, whatever quota it holds — so the zero here is a
+              ban, not a spent allowance.{' '}
+              {banLiftsAt
+                ? <>The ban expires on its own at <span className="text-white">{banLiftsAt}</span>, after
+                   which the quota is spendable again with nothing to reset.</>
+                : <>Only the protocol owner can clear a permanent ban.</>}
+            </p>
+          </div>
+        )}
+
+        {unattested && (
+          <div className="border border-tosh-amber/40 px-4 py-3 flex flex-col gap-1">
+            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-tosh-amber">
+              → NO POG ATTESTATION ON FILE
+            </p>
+            <p className="font-mono text-[11px] text-[#888] leading-relaxed">
+              This wallet has never registered Proof-of-Gas, so it holds no quota to spend —
+              nothing has been consumed here. Run{' '}
+              <span className="text-white">EXECUTE_GAS_PROOF_SCAN</span> below to have the
+              oracle size an allocation from this address&apos;s gas history and write it
+              on-chain; deposits open the moment that lands.
+            </p>
+          </div>
+        )}
+
         <QuotaLedger
           quota={p.pogQuota}
           remaining={quotaRemaining}
           projected={amountWei > 0n ? amountWei : 0n}
-          stale={onCooldown}
+          blocked={quotaBlock}
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
@@ -790,11 +876,15 @@ function GenesisPanel(p: GenesisProps) {
           onChange={v => { setAmount(v); setError(null) }}
           placeholder="e.g. 0.05"
           inputMode="decimal"
-          disabled={txBusy || !p.isConnected || windowClosed}
-          errored={amountInvalid || quotaBreached || insufficientBal || walletCapBreached}
+          disabled={txBusy || !p.isConnected || windowClosed || banned || unattested}
+          errored={amountInvalid || quotaBreached || insufficientBal || walletCapBreached || banned}
           fluo={armed}
           hint={
-            windowClosed
+            banned
+              ? <span className="text-tosh-rust">→ WALLET BLACKLISTED · {banTxt}</span>
+              : unattested
+              ? <span className="text-tosh-amber">→ NO POG QUOTA — RUN THE GAS-PROOF SCAN FIRST</span>
+              : windowClosed
               ? <span className="text-tosh-amber">→ GENESIS WINDOW CLOSED — WAITING ON THE CREATOR&apos;S LAUNCH()</span>
               : p.perWalletCap > 0n
                 ? <span className="text-[#555]">
@@ -822,7 +912,11 @@ function GenesisPanel(p: GenesisProps) {
           <WriteButton
             label="deposit"
             lockedLabel={
-              windowClosed
+              banned
+                ? '[wallet_blacklisted]'
+                : unattested
+                ? '[pog_attestation_required]'
+                : windowClosed
                 ? '[genesis_window_closed]'
                 : quotaBreached
                   ? '[revert: quota_exceeded]'
@@ -1343,7 +1437,7 @@ function BondingPanel(p: BondingProps) {
       title={`SHELF LADDER · ${p.symbol}`}
       subtitle="hook.mintBondingCurve{value}(tokenAmount) · 4000 rungs to 2000× · sweeps shelves · 105% min(spot, TWAP) gate"
     >
-      <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} />
+      <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} halted={halted} />
 
       {halted && (
         <div className="border border-tosh-rust/40 px-4 py-3 flex flex-col gap-1">
@@ -1865,11 +1959,11 @@ function AwaitingLaunchPanel({
   }, [hookAddress, writeContract])
 
   // `launch()` reverts with LaunchWindowExpired past this point, after which
-  // every depositor can pull their ETH back out instead.
+  // every depositor can pull their ETH back out instead.  `resolvePhase` routes
+  // to `refund` on the same clock and the same deadline, so this panel is never
+  // mounted past the expiry and carries no expired branch of its own.
   const expiresAt = genesisDeadline + LAUNCH_WINDOW_SECONDS
-  const secsLeft  = Number(expiresAt) - nowSec
-  const expired   = secsLeft <= 0
-  const hoursLeft = Math.max(0, Math.floor(secsLeft / 3600))
+  const hoursLeft = Math.max(0, Math.floor((Number(expiresAt) - nowSec) / 3600))
 
   const txBusy = isPending || isConfirming
 
@@ -1881,17 +1975,9 @@ function AwaitingLaunchPanel({
     >
       <Readout label="RAISED" value={`${fmt(totalEthDeposited)} ETH`} />
       <Readout label="SOFT CAP" value="MET" />
-      <Readout
-        label="LAUNCH WINDOW"
-        value={expired ? 'EXPIRED' : `${hoursLeft}h REMAINING`}
-      />
+      <Readout label="LAUNCH WINDOW" value={`${hoursLeft}h REMAINING`} />
 
-      {expired ? (
-        <p className="font-mono text-[11px] text-tosh-amber leading-relaxed">
-          The 7-day launch window has elapsed without the pool being opened.
-          Depositors can now reclaim their ETH in full from the refund terminal.
-        </p>
-      ) : isCreator ? (
+      {isCreator ? (
         <>
           <p className="font-mono text-[11px] text-[#888] leading-relaxed">
             You are the creator of {symbol}. Calling <span className="text-tosh-fluo">launch()</span> is
@@ -2002,6 +2088,8 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd',
         args: userAddress ? [userAddress, hookAddress] : undefined },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'shelfP0'           },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'blacklistedUntil',
+        args: userAddress ? [userAddress] : undefined },
     ] : []
 
   const { data, refetch } = useReadContracts({
@@ -2022,6 +2110,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   const pogQuota           = (data?.[10]?.result as bigint  | undefined) ?? 0n
   const cooldownEnd        = (data?.[12]?.result as bigint  | undefined) ?? 0n
   const shelfP0           = (data?.[13]?.result as bigint  | undefined) ?? 0n
+  const blacklistedUntil   = (data?.[14]?.result as bigint  | undefined) ?? 0n
 
   // (eligible, remainingQuota, cooldownRemaining) — the factory's own verdict,
   // which is the only place that knows whether a lapsed quota window has been
@@ -2092,6 +2181,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
           ethBalance={ethBalance}
           pogQuota={pogQuota}
           quotaRemaining={quotaRemaining}
+          blacklistedUntil={blacklistedUntil}
           cooldownEnd={cooldownEnd}
           nowSec={nowSec}
           perWalletCap={perWalletCap}

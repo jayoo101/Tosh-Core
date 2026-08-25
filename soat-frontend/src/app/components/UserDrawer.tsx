@@ -60,6 +60,7 @@ import {
   HOOK_ABI,
   MAINNET_CHAIN_LABEL,
   TESTNET_CHAIN_LABEL,
+  UNBOUNDED_BAN_SECONDS,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
 
@@ -196,10 +197,15 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // cooldown to fold in, and no wallet can hold a cooldown against 0x0 — so
   // this returns the raw window headroom without a live raise masking it.
   // Per-project cooldowns are surfaced separately by panel [02] below.
+  // `blacklistedUntil` rides along because `eligibility` short-circuits a ban
+  // and a never-registered attestation into the same `(false, 0, 0)` a spent
+  // window produces — which rendered a banned wallet holding real quota as if
+  // it had simply spent the lot.
   const userQuery = useReadContracts({
     contracts: address ? [
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',    args: [address] as const },
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'eligibility', args: [address, ZERO_ADDRESS] as const },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',         args: [address] as const },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'eligibility',      args: [address, ZERO_ADDRESS] as const },
+      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'blacklistedUntil', args: [address] as const },
     ] : [],
     query: { enabled: open && Boolean(address) },
   })
@@ -210,6 +216,8 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     userQuery.data?.[1]?.status === 'success'
       ? userQuery.data[1].result as readonly [boolean, bigint, bigint]
       : undefined
+  const banStamp:       bigint =
+    userQuery.data?.[2]?.status === 'success' ? userQuery.data[2].result as bigint : 0n
   const remainingQuota: bigint | undefined = eligibility?.[1]
   const windowSpent:    bigint | undefined =
     pogQuota !== undefined && remainingQuota !== undefined
@@ -324,11 +332,21 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // because `active` flips to false.
   const cooldownPresent  = globalCooldownEnd > 0n
   const cooldownEndMs    = Number(globalCooldownEnd) * 1000
-  const clockActive      = open && cooldownPresent
+  // A lapsed ban leaves its stamp behind, so the clock has to run for that too
+  // — only a comparison against now tells a live ban from a spent one.
+  const clockActive      = open && (cooldownPresent || banStamp > 0n)
   const now              = useRafClock(clockActive)
   const knowsWallTime    = now > 0
   const remainingMs      = knowsWallTime ? cooldownEndMs - now : 0
   const cooldownReady    = !cooldownPresent || (knowsWallTime && remainingMs <= 0)
+
+  // Same precedence `factory.deposit` reverts in: the ban outranks a missing
+  // attestation, which outranks an exhausted window.
+  const banned     = banStamp > 0n && knowsWallTime && Number(banStamp) * 1000 > now
+  const unattested = !banned && pogQuota === 0n
+  const banTxt     = banStamp - BigInt(Math.floor(now / 1000)) > UNBOUNDED_BAN_SECONDS
+    ? 'PERMANENT · NO EXPIRY'
+    : `LIFTS ${new Date(Number(banStamp) * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`
 
   // ── REFETCH bus — claim TXs invalidate every cached read so the drawer
   //    snaps from [ CLAIM_TOKENS ] to [ TRANSFERRED_CLOSED ] without an
@@ -399,6 +417,9 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
             pogQuota={pogQuota}
             windowSpent={windowSpent}
             remaining={remainingQuota}
+            banned={banned}
+            banTxt={banTxt}
+            unattested={unattested}
           />
           <CooldownPanel
             cooldownPresent={cooldownPresent}
@@ -530,34 +551,60 @@ function DrawerFooter() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PoGQuotaPanel({
-  pogQuota, windowSpent, remaining,
+  pogQuota, windowSpent, remaining, banned, banTxt, unattested,
 }: {
   pogQuota?:    bigint
   windowSpent?: bigint
   remaining?:   bigint
+  /// A ban and a missing attestation both zero out `eligibility`, so neither is
+  /// allowed to render as a headroom figure — the number would read as a spent
+  /// window the user can wait out, which is the one thing it is not.
+  banned:       boolean
+  banTxt:       string
+  unattested:   boolean
 }) {
+  const blocked = banned || unattested
   return (
     <section className="px-4 pt-4 pb-2">
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/50 p-4">
         <div className="text-tosh-fluo/70 font-mono text-[9px] font-bold tracking-widest mb-1">
           POG REMAINING · THIS WINDOW
         </div>
-        <div className="text-tosh-fluo font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
-          {formatEth(remaining)}
-          <span className="text-sm text-tosh-fluo/60 ml-1">ETH</span>
-        </div>
+        {banned ? (
+          <div className="text-tosh-rust font-mono text-xl font-black tracking-tight leading-none">
+            BLACKLISTED
+          </div>
+        ) : unattested ? (
+          <div className="text-tosh-amber font-mono text-xl font-black tracking-tight leading-none">
+            NO ATTESTATION
+          </div>
+        ) : (
+          <div className="text-tosh-fluo font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
+            {formatEth(remaining)}
+            <span className="text-sm text-tosh-fluo/60 ml-1">ETH</span>
+          </div>
+        )}
         <div className="border-t border-zinc-800/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-zinc-500 font-mono text-[10px] uppercase">Per-window Allocation</span>
-            <span className="text-white font-mono text-xs font-bold tabular-nums">{formatEth(pogQuota)} ETH</span>
+            <span className="text-white font-mono text-xs font-bold tabular-nums">
+              {unattested ? '—' : `${formatEth(pogQuota)} ETH`}
+            </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-zinc-500 font-mono text-[10px] uppercase">Spent This Window</span>
-            <span className="text-zinc-400 font-mono text-xs font-bold tabular-nums">{formatEth(windowSpent)} ETH</span>
+            <span className="text-zinc-400 font-mono text-xs font-bold tabular-nums">
+              {blocked ? '—' : `${formatEth(windowSpent)} ETH`}
+            </span>
           </div>
         </div>
-        <p className="mt-3 text-[9px] font-mono text-zinc-600 leading-relaxed">
-          {'// '}refills every 24h · refunds never credit it back
+        <p className={`mt-3 text-[9px] font-mono leading-relaxed
+                       ${banned ? 'text-tosh-rust' : unattested ? 'text-tosh-amber' : 'text-zinc-600'}`}>
+          {banned
+            ? `${'// '}every deposit is rejected while the ban stands · ${banTxt.toLowerCase()}`
+            : unattested
+              ? `${'// '}no quota was ever issued to this wallet · register proof-of-gas to receive one`
+              : `${'// '}refills every 24h · refunds never credit it back`}
         </p>
       </div>
     </section>
