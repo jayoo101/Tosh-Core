@@ -42,6 +42,7 @@ import type { ProjectPayload } from '../api/projects/route'
 import {
   Badge, Card, CardWell, Field, PageHeader,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
+  shortErrorMessage, EM_DASH,
 } from '@/components/ui'
 
 const trimEth = (s: string) =>
@@ -146,11 +147,24 @@ export default function GenesisConsole() {
   })
   const { data: ethBal } = useBalance({ address, query: { enabled: walletEnabled } })
 
-  const launchFeeWei = (feeRead.data?.[0]?.result as bigint | undefined) ?? 0n
-  const softCapWei = (feeRead.data?.[1]?.result as bigint | undefined) ?? 0n
-  const perWalletCapWei = (feeRead.data?.[2]?.result as bigint | undefined) ?? 0n
-  const feeDisplay = useMemo(() => trimEth(formatUnits(launchFeeWei, 18)), [launchFeeWei])
-  const softCapDisplay = useMemo(() => trimEth(formatUnits(softCapWei, 18)), [softCapWei])
+  // A zero launch fee is legal, so an unread dial must never collapse into 0n:
+  // that reading is both a lie in the pact the depositor ticks and the wrong
+  // msg.value to sign. Treat the three dials as one all-or-nothing quote.
+  const dials = feeRead.data
+  const dialsReady = dials !== undefined && dials.every(d => d.status === 'success')
+  const dialsFailed = dials !== undefined && dials.some(d => d.status === 'failure')
+
+  const launchFeeWei = dialsReady ? (dials[0].result as bigint) : 0n
+  const softCapWei = dialsReady ? (dials[1].result as bigint) : 0n
+  const perWalletCapWei = dialsReady ? (dials[2].result as bigint) : 0n
+  const feeDisplay = useMemo(
+    () => (dialsReady ? trimEth(formatUnits(launchFeeWei, 18)) : EM_DASH),
+    [dialsReady, launchFeeWei],
+  )
+  const softCapDisplay = useMemo(
+    () => (dialsReady ? trimEth(formatUnits(softCapWei, 18)) : EM_DASH),
+    [dialsReady, softCapWei],
+  )
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
   const mineSalt = useCallback(async (): Promise<`0x${string}` | null> => {
@@ -176,7 +190,7 @@ export default function GenesisConsole() {
       setSaltCaps({ soft: liveSoftCap, wallet: liveWalletCap })
       return rawSalt
     } catch (e: unknown) {
-      setMineError(e instanceof Error ? e.message : 'salt mining failed')
+      setMineError(shortErrorMessage(e))
       return null
     } finally {
       setIsMining(false)
@@ -185,22 +199,22 @@ export default function GenesisConsole() {
 
   useEffect(() => {
     if (!saltCaps) return
-    if (softCapWei === 0n && perWalletCapWei === 0n) return
+    if (!dialsReady) return
     if (saltCaps.soft === softCapWei && saltCaps.wallet === perWalletCapWei) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSalt(''); setPredictedHook(''); setSaltCaps(null)
     setMineError('Factory soft cap / wallet cap changed — the next deploy will grind a fresh salt.')
-  }, [saltCaps, softCapWei, perWalletCapWei])
+  }, [saltCaps, dialsReady, softCapWei, perWalletCapWei])
 
   const nameTrimmed = name.trim()
   const symbolTrimmed = symbol.trim().toUpperCase()
   const identityComplete = Boolean(nameTrimmed) && Boolean(symbolTrimmed) && Boolean(address) && Boolean(adminAddr)
   const ethBalance = ethBal?.value ?? 0n
-  const insufficientFee = walletEnabled && !feeRead.isPending && ethBalance < launchFeeWei
-  const feeLoading = !walletEnabled || feeRead.isPending
+  const insufficientFee = walletEnabled && dialsReady && ethBalance < launchFeeWei
 
   const handleLaunch = useCallback(async () => {
     if (!address || !adminAddr) return
+    if (!dialsReady) return
     if (chainId !== TARGET_CHAIN_ID) {
       try {
         await switchChainAsync({ chainId: TARGET_CHAIN_ID })
@@ -248,6 +262,7 @@ export default function GenesisConsole() {
     address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
     logoUrl, website, twitter, telegram, description, salt, mineSalt,
     createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
+    dialsReady,
   ])
 
   useEffect(() => {
@@ -314,18 +329,25 @@ export default function GenesisConsole() {
         tone: 'neutral',
       },
       {
+        id: 'dials-unread',
+        active: !dialsReady && !dialsFailed,
+        label: 'Reading factory terms…',
+        reason: 'Waiting on launchFee, defaultSoftCap and maxPogAllocationLimit before quoting the payable.',
+        tone: 'neutral',
+      },
+      {
+        id: 'dials-unreachable',
+        active: dialsFailed,
+        label: 'Factory unreachable',
+        reason: `No dials came back from ${FACTORY_ADDRESS} on chain ${TARGET_CHAIN_ID}. Signing a launch against an unknown fee would either revert or overpay, so the deploy stays locked until the factory answers.`,
+        tone: 'danger',
+      },
+      {
         id: 'ack',
         active: !ack,
         label: 'Acknowledge the pact',
         reason: 'The rules on the right are immutable once this transaction lands. Tick the box to proceed.',
         tone: 'warn',
-      },
-      {
-        id: 'fee-loading',
-        active: feeLoading,
-        label: 'Reading launch fee…',
-        reason: 'Waiting on factory.launchFee() before quoting the payable.',
-        tone: 'neutral',
       },
       {
         id: 'insufficient-fee',
@@ -552,15 +574,21 @@ export default function GenesisConsole() {
                   <dl className="mt-gap-tight flex flex-col gap-1 font-mono text-note">
                     <div className="flex justify-between gap-4">
                       <dt className="text-text-tertiary">Launch fee</dt>
-                      <dd className="text-text-primary">{feeDisplay} ETH</dd>
+                      <dd className="text-text-primary">
+                        {dialsReady ? `${feeDisplay} ETH` : EM_DASH}
+                      </dd>
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-text-tertiary">Soft cap</dt>
-                      <dd className="text-text-primary">{softCapDisplay} ETH</dd>
+                      <dd className="text-text-primary">
+                        {dialsReady ? `${softCapDisplay} ETH` : EM_DASH}
+                      </dd>
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-text-tertiary">Per-wallet cap</dt>
-                      <dd className="text-text-primary">{trimEth(formatUnits(perWalletCapWei, 18))} ETH</dd>
+                      <dd className="text-text-primary">
+                        {dialsReady ? `${trimEth(formatUnits(perWalletCapWei, 18))} ETH` : EM_DASH}
+                      </dd>
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-text-tertiary">Network</dt>

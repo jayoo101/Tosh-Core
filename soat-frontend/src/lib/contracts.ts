@@ -54,6 +54,26 @@ if (!process.env.NEXT_PUBLIC_FACTORY_ADDRESS) {
   throw new Error('Missing env: NEXT_PUBLIC_FACTORY_ADDRESS')
 }
 
+/**
+ * A present-but-unusable factory address is worse than a missing one: the app
+ * boots, every read returns `0x`, and the failure surfaces as a viem decode
+ * error deep inside whichever panel happened to call first.
+ *
+ * The addresses below 0x100 are the precompile range and can never host
+ * ToshFactory, so seeing one means the value came from somewhere other than
+ * `.env.local` — most often a stale `NEXT_PUBLIC_FACTORY_ADDRESS` exported in
+ * the shell that launched the editor. Next's env loader does not override
+ * variables already present in `process.env`, so `.env.local` loses that race
+ * silently and a dev-server restart does not clear it.
+ */
+if (/^0x0{38}[0-9a-fA-F]{2}$/.test(process.env.NEXT_PUBLIC_FACTORY_ADDRESS)) {
+  throw new Error(
+    `NEXT_PUBLIC_FACTORY_ADDRESS is ${process.env.NEXT_PUBLIC_FACTORY_ADDRESS}, which is in the ` +
+    'precompile range and cannot be a ToshFactory. An exported shell variable of the same name ' +
+    'takes precedence over .env.local — clear it and restart the dev server.',
+  )
+}
+
 export const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS as Address
 
 /**
