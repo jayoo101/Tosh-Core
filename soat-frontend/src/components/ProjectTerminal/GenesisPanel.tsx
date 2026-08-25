@@ -298,7 +298,7 @@ export function GenesisPanel(p: GenesisProps) {
           blocked={quotaBlock}
         />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
           <Readout label="ETH BALANCE"
                    value={`${fmt(p.ethBalance)} ETH`}
                    hint={fmtFull(p.ethBalance, 18)} />

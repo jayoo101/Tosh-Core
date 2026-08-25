@@ -70,7 +70,7 @@ export function HeroStats({
     : 'in this raise'
 
   return (
-    <div className="grid grid-cols-2 gap-card lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-card @lg:grid-cols-4">
       <Readout
         layout="stack"
         size="figure"
@@ -84,7 +84,7 @@ export function HeroStats({
         <Badge tone={meta.tone} pip live={meta.live}>{meta.label}</Badge>
         <span className="text-note text-text-tertiary">{symbol}</span>
       </div>
-      <div className="col-span-2 flex flex-col gap-gap-tight lg:col-span-1">
+      <div className="col-span-2 flex flex-col gap-gap-tight @lg:col-span-1">
         <Progress
           pct={pct}
           variant="bar"

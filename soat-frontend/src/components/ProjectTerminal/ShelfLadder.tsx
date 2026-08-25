@@ -69,7 +69,7 @@ export function ShelfLadder({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 px-4 py-3">
+      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-4 px-4 py-3">
         <Readout label="ACTIVE SHELF" value={`#${tierIndex.toString()} / ${TIER_COUNT}`} />
         <Readout label="SHELF PRICE"  value={`${fmt(tierPrice)} ETH`} hint="per whole token" />
         <Readout label="REMAINING"    value={fmt(remaining)} hint="tokens on this rung" />

@@ -7,6 +7,7 @@ import { formatUnits, type Address } from 'viem'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI, LAUNCH_WINDOW_SECONDS,
 } from '@/lib/contracts'
+import { useNowSec } from '@/components/ui'
 
 export type DirectoryTab = 'live' | 'launching' | 'completed' | 'archived'
 
@@ -74,15 +75,11 @@ function bucket(
 }
 
 export function useDirectoryProjects() {
-  const [nowSec, setNowSec] = useState(0)
+  // One shared store instead of a per-hook interval; `CLOCK_UNSYNCED` (0)
+  // carries the same "not known yet" reading the local `useState(0)` did, and
+  // `bucketOf` below already treats an unread deadline as live.
+  const nowSec = useNowSec()
   const [registry, setRegistry] = useState<Map<string, RegistryRow>>(new Map())
-
-  useEffect(() => {
-    const tick = () => setNowSec(Math.floor(Date.now() / 1000))
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [])
 
   useEffect(() => {
     let cancelled = false

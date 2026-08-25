@@ -168,11 +168,27 @@ const RAW_PALETTE = /\b(bg|text|border|ring|divide|from|to|via|outline|fill|stro
 const RAW_HEX = /\b(bg|text|border|ring|divide|from|to|via|outline|fill|stroke|shadow)-\[#[0-9A-Fa-f]{3,8}\]/g
 const ALIAS = /\b(?:bg|text|border|ring|divide|from|to|via|outline|fill|stroke)-tosh-[a-z-]+\b/g
 
+/**
+ * Tailwind's stock type and radius steps, which bypass the semantic scale in
+ * `@theme`.
+ *
+ * Reported, never fatal. The named steps carry `letter-spacing` and
+ * `font-weight` alongside the size, so `text-sm` -> `text-readout` is not a
+ * pure size swap — it also restyles weight and tracking, and can collide with
+ * an explicit `font-black` on the same element depending on which utility the
+ * generated stylesheet emits last. Each site needs a human decision, so this
+ * exists to keep the remaining count visible rather than to gate the build.
+ */
+const RAW_SCALE =
+  /\b(?:text-(?:xs|sm|base|lg|xl|[2-9]xl)|rounded-(?:sm|md|lg|xl|[23]xl|full))\b/g
+
 const unknown = []
 const rawPalette = []
 const rawHex = []
 let aliasCount = 0
 const aliasFiles = new Map()
+let rawScaleCount = 0
+const rawScaleFiles = new Map()
 
 for (const file of walk(SRC)) {
   if (file === CSS) continue // the definition file is not a call site
@@ -195,6 +211,12 @@ for (const file of walk(SRC)) {
   if (aliases.length > 0) {
     aliasCount += aliases.length
     aliasFiles.set(rel, aliases.length)
+  }
+
+  const rawScale = [...src.matchAll(RAW_SCALE)]
+  if (rawScale.length > 0) {
+    rawScaleCount += rawScale.length
+    rawScaleFiles.set(rel, rawScale.length)
   }
 }
 
@@ -254,6 +276,16 @@ if (aliasCount > 0) {
                 `across ${aliasFiles.size} file(s).`)
   console.error('         globals.css no longer defines these. They render as NO STYLE.\n')
   for (const [rel, n] of [...aliasFiles].sort((a, b) => b[1] - a[1])) {
+    console.error(`  ${String(n).padStart(4)}  ${rel}`)
+  }
+}
+
+if (rawScaleCount > 0) {
+  console.error(`\n[tokens] note -- ${rawScaleCount} stock Tailwind type/radius step(s) across ` +
+                `${rawScaleFiles.size} file(s) bypass the semantic scale.`)
+  console.error('         Deliberately not fatal: the named steps also set weight and tracking,')
+  console.error('         so each swap is a design call, not a rename. See RAW_SCALE above.\n')
+  for (const [rel, n] of [...rawScaleFiles].sort((a, b) => b[1] - a[1])) {
     console.error(`  ${String(n).padStart(4)}  ${rel}`)
   }
 }

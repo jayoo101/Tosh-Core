@@ -165,33 +165,33 @@ export default async function ProjectDetailPage({ params }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* LEFT — MeritX invest column */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-5">
+            <div className="rounded-card border border-border-subtle bg-surface-card/50 p-5">
               <div className="flex items-start gap-4">
-                <div className="w-16 h-16 rounded-xl bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
+                <div className="w-16 h-16 rounded-card bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
                   {p.logo_url
                     // eslint-disable-next-line @next/next/no-img-element
                     ? <img src={p.logo_url} alt={p.name} className="w-full h-full object-cover" />
-                    : <span className="text-2xl font-black text-brand">{initial}</span>}
+                    : <span className="text-figure text-brand">{initial}</span>}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-mono text-brand mb-1">${p.symbol}</p>
+                  <p className="text-note font-mono text-brand mb-1">${p.symbol}</p>
                   <h1 className="text-2xl md:text-3xl font-black text-text-primary truncate">{p.name}</h1>
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     {tw && (
                       <a href={tw} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-input bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <AtSign className="w-4 h-4" />
                       </a>
                     )}
                     {tg && (
                       <a href={tg} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-input bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <Send className="w-4 h-4" />
                       </a>
                     )}
                     {web && (
                       <a href={web} target="_blank" rel="noopener noreferrer"
-                         className="w-9 h-9 rounded-lg bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
+                         className="w-9 h-9 rounded-input bg-surface-card/80 border border-border-strong flex items-center justify-center text-text-tertiary hover:text-brand hover:border-brand/40 transition-colors">
                         <Globe className="w-4 h-4" />
                       </a>
                     )}
@@ -213,9 +213,9 @@ export default async function ProjectDetailPage({ params }: Props) {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-5">
-              <div className="text-label font-bold text-text-tertiary uppercase tracking-widest mb-3 font-mono">{`/// Project Manifesto`}</div>
-              <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+            <div className="rounded-card border border-border-subtle bg-surface-card/50 p-5">
+              <div className="text-label font-bold text-text-tertiary uppercase mb-3 font-mono">{`/// Project Manifesto`}</div>
+              <p className="text-body text-text-secondary whitespace-pre-wrap">
                 {projectManifesto(p)}
               </p>
             </div>

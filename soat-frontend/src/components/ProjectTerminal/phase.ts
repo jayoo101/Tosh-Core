@@ -17,6 +17,12 @@ export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
 ///   • Deposits stay open for the whole genesis window.  The soft cap is a
 ///     floor, not a ceiling, so closing the deposit panel on contact with it
 ///     capped every raise at exactly its minimum.
+///
+/// PRECONDITION: `nowSec` must be a synced wall clock, never the shared clock
+/// store's `CLOCK_UNSYNCED` (0).  At 0 every comparison below reads as "the
+/// window is still open", so an expired genesis resolves back to `'genesis'`
+/// and the caller mounts a deposit panel over a raise that has already failed.
+/// ProjectTerminal holds its whole body behind a clock gate for this reason.
 export function resolvePhase({
   totalEthDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
 }: {

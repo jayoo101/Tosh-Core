@@ -23,13 +23,19 @@
  *      spinning a timer it cannot see — the drawer's "only tick while open"
  *      behaviour, generalised.
  *
- * REPLACES (Phase 2 should delete these and import from here):
- *   • ProjectTerminal.tsx      — `useState(() => Date.now()/1000)` + 1s setInterval
- *   • admin/page.tsx           — local `useNowSec(intervalMs = 15_000)`
- *   • UserDrawer.tsx           — `useRafClock(active)`, ms, rAF-driven
- *   • meritx/InvestLeftPanel   — `useState(0)` + 1s setInterval
- *   • meritx/useDirectoryProjects — `useState(0)` + 1s setInterval
- *   • meritx/MeritXProjectCard — `Date.now()` inside its own tick
+ *   4. A caller that cannot render a placeholder must gate instead of
+ *      substituting.  ProjectTerminal holds its entire body behind
+ *      `nowSec !== CLOCK_UNSYNCED` because its panels feed the clock into
+ *      on-chain deadline comparisons — `resolvePhase` would read an expired
+ *      genesis as still open, and LiquidityPanel would sign a Permit2 deadline
+ *      in 1970.  Zero is not a small error in that position; it is a wrong
+ *      answer that costs a transaction.
+ *
+ * This store is now the only clock in the app.  The six local implementations
+ * it replaced — ProjectTerminal's seeded interval, admin's `useNowSec`,
+ * UserDrawer's `useRafClock`, and the three in `components/directory` — are all
+ * gone; `scripts/checkTokens.mjs` has no equivalent guard, so a new local
+ * `setInterval` clock will only be caught in review.
  */
 
 import { useSyncExternalStore } from 'react'

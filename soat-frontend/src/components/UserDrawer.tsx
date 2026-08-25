@@ -41,7 +41,7 @@
  *         erc20.symbol)                              (7 calls × M participated)
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   useAccount,
   useDisconnect,
@@ -61,6 +61,7 @@ import {
 } from '@/lib/contracts'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
+  useNowMs, CLOCK_UNSYNCED,
 } from '@/components/ui'
 
 /**
@@ -106,32 +107,6 @@ function formatCooldown(remainingMs: number): string {
   const s  = totalSec % 60
   const cs = Math.floor((remainingMs % 1000) / 10)
   return `${pad2(h)}:${pad2(m)}:${pad2(s)}_${pad2(cs)}`
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// rAF CLOCK — only ticks while the drawer is open AND a cooldown is active
-// ─────────────────────────────────────────────────────────────────────────────
-
-function useRafClock(active: boolean): number {
-  // Initialised to 0 so SSR and the first client paint agree (no hydration
-  // mismatch).  The first rAF callback patches the real wall-clock in.
-  const [now, setNow] = useState(0)
-
-  useEffect(() => {
-    if (!active) return
-    let raf = 0
-    const tick = () => {
-      // setState here is deferred inside the rAF callback (not synchronous
-      // inside the effect body), so the react-hooks/set-state-in-effect rule
-      // is satisfied.
-      setNow(Date.now())
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [active])
-
-  return now
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -348,8 +323,11 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // A lapsed ban leaves its stamp behind, so the clock has to run for that too
   // — only a comparison against now tells a live ban from a spent one.
   const clockActive      = open && (cooldownPresent || banStamp > 0n)
-  const now              = useRafClock(clockActive)
-  const knowsWallTime    = now > 0
+  // The shared store's frame cadence, which is what the local rAF clock this
+  // replaces was hand-rolling — same per-frame tick, same "0 until the first
+  // client tick" contract, and it stays parked while `clockActive` is false.
+  const now              = useNowMs('frame', clockActive)
+  const knowsWallTime    = now !== CLOCK_UNSYNCED
   const remainingMs      = knowsWallTime ? cooldownEndMs - now : 0
   const cooldownReady    = !cooldownPresent || (knowsWallTime && remainingMs <= 0)
 

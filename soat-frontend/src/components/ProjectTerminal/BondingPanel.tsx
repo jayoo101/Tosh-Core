@@ -299,7 +299,7 @@ export function BondingPanel(p: BondingProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6">
+      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-6">
         <Readout label="P₀ · POOL OPEN"
                  value={`${fmt(p.p0)} ETH`}
                  hint="genesis LP price" />
@@ -342,7 +342,7 @@ export function BondingPanel(p: BondingProps) {
 
       {quotable && (
         <div className="border border-border-subtle">
-          <div className="grid grid-cols-1 sm:grid-cols-3 divide-x divide-border-subtle">
+          <div className="grid grid-cols-1 @md:grid-cols-3 divide-x divide-border-subtle">
             <div className="px-4 py-3 flex flex-col gap-1">
               <span className="font-mono text-label text-text-tertiary">QUOTED COST</span>
               <span className="font-mono text-base text-text-primary tabular-nums">

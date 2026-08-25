@@ -10,6 +10,7 @@ import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
 import {
   Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction, toshToast,
+  CLOCK_UNSYNCED,
 } from '@/components/ui'
 import { fmt } from './format'
 
@@ -220,6 +221,13 @@ export function LiquidityPanel({
     tx: { isBusy: busy },
     blockersInRevertOrder: revertOrder(
       {
+        id: 'clock-unsynced',
+        active: nowSec === CLOCK_UNSYNCED,
+        label: '[clock_not_synced]',
+        reason: 'Every signature below carries a deadline derived from the wall clock. Until it syncs, that deadline would land in 1970 and Permit2 would reject the position.',
+        tone: 'neutral',
+      },
+      {
         id: 'token-unresolved',
         active: !tokenAddress,
         label: '[token_not_resolved]',
@@ -293,7 +301,7 @@ export function LiquidityPanel({
       title={`MARKET MAKING · ${symbol}/ETH`}
       subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
     >
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6">
+      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-6">
         <Readout label="POOL DEPTH · ETH"
                  value={fmt(poolAmounts.amount0)}
                  hint="all LPs incl. genesis" />

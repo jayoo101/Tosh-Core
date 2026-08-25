@@ -66,7 +66,7 @@ export function Badge({
       {pip && (
         <span
           aria-hidden
-          className={cn('h-1.5 w-1.5 shrink-0 rounded-full bg-current', live && 'dot-breathe')}
+          className={cn('h-1.5 w-1.5 shrink-0 rounded-pill bg-current', live && 'dot-breathe')}
         />
       )}
       {children}

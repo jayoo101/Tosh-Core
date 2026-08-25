@@ -15,14 +15,15 @@
  *   PHASE 3 · REFUND
  *     ▸ hook.refund() returns 100 % of the ETH deposit
  */
-import { useState, useEffect } from 'react'
 import { useAccount, useBalance, useReadContract, useReadContracts } from 'wagmi'
 import type { Address, ContractFunctionParameters } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX } from '@/lib/contracts'
 import { useBoundReferrer } from '@/lib/useReferral'
-import { Card } from '@/components/ui'
+import {
+  Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
+} from '@/components/ui'
 import { resolvePhase, type Phase } from './phase'
 import { HeroStats } from './HeroStats'
 import { ConnectGate } from './ConnectGate'
@@ -40,12 +41,9 @@ import { ReferralPanel } from './ReferralPanel'
 
 export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   const { address, isConnected } = useAccount()
-  const [mounted, setMounted] = useState(false)
-  // SSR/CSR mount guard — defers wagmi-dependent state to the client paint.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setMounted(true) }, [])
-  const userAddress = mounted ? (address as Address | undefined) : undefined
-  const wConnected  = mounted ? isConnected : false
+  const hydrated    = useIsHydrated()
+  const userAddress = hydrated ? (address as Address | undefined) : undefined
+  const wConnected  = hydrated ? isConnected : false
 
   const hookAddress = project.hook_address as Address | undefined
   const symbol      = project.symbol || 'TOK'
@@ -56,14 +54,24 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   })
   const ethBalance = ethBal?.value ?? 0n
 
-  // External-clock pattern — single ticking second used by Genesis countdown
-  // and cooldown logic.  Lifted to the top of the component so React's purity
-  // rule never sees Date.now() called from render.
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
-  useEffect(() => {
-    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000)
-    return () => clearInterval(id)
-  }, [])
+  /**
+   * The shared clock store, not a locally-seeded one.
+   *
+   * The local version this replaces seeded its state with `Date.now()`, which
+   * makes the server snapshot and the hydration snapshot disagree by
+   * construction; it only went unnoticed because a dev machine renders both
+   * with the same clock.
+   *
+   * The store's contract is that it reads `CLOCK_UNSYNCED` (0) until the first
+   * client tick, and 0 is NOT a usable stand-in for the wall clock here. Every
+   * panel below compares it against on-chain timestamps, and LiquidityPanel
+   * derives Permit2 and swap deadlines from it — at 0 those become deadlines in
+   * 1970, which the router is guaranteed to reject, and `resolvePhase` would
+   * read an expired genesis as still open. So rather than teach all five
+   * consumers to recognise 0, nothing clock-derived renders until it lands.
+   */
+  const nowSec = useNowSec()
+  const clockReady = nowSec !== CLOCK_UNSYNCED
 
   // Bulk chain reads.
   //
@@ -171,8 +179,28 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   // Vertical rhythm lives on the container rather than as `mt-6` on each panel:
   // a Card carrying its own top margin only spaces correctly when it happens to
   // have a sibling above it.
+  if (!clockReady) {
+    return (
+      <div className="flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
+        <Card id="SYNC" title="Synchronising" subtitle="Waiting on the wall clock before reading this project's phase">
+          <div className="flex flex-col gap-gap">
+            <Skeleton className="h-8 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // `@container` is load-bearing, not decoration. Every grid in the panels below
+  // sized itself off viewport breakpoints (`sm:grid-cols-4`), and this terminal
+  // renders inside a ~290px sidebar on the project page — so on any desktop the
+  // viewport cleared `sm:` and those grids laid four columns into ~60px each,
+  // hard-wrapping "0 ETH" into "0 ET / H". The panels have to measure their own
+  // column, not the window.
   return (
-    <div className="flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
+    <div className="@container flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
       <HeroStats
         phase={phase}
         symbol={symbol}

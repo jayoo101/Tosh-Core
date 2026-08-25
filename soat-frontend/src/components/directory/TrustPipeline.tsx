@@ -52,7 +52,7 @@ export function TrustPipeline() {
   return (
     <section className="relative z-10 pt-28 md:pt-36 pb-12 md:pb-16 overflow-hidden">
       <div className="mb-16 md:mb-20">
-        <h3 className="text-xs font-mono text-text-quiet tracking-widest uppercase mb-4">
+        <h3 className="text-label font-mono text-text-quiet uppercase mb-4">
           {`// PROTOCOL_WORKFLOW`}
         </h3>
         <h2 className="text-3xl md:text-5xl font-medium text-text-primary tracking-tight leading-tight">
@@ -70,10 +70,10 @@ export function TrustPipeline() {
                   <div className="h-0.5 bg-surface-elevated/80" />
                 </div>
               )}
-              <div className={`relative w-full mx-2 rounded-2xl border overflow-hidden transition-all duration-500 md:min-h-[320px] flex flex-col ${s.chassis} group-hover:scale-[1.01]`}>
+              <div className={`relative w-full mx-2 rounded-panel border overflow-hidden transition-all duration-500 md:min-h-[320px] flex flex-col ${s.chassis} group-hover:scale-[1.01]`}>
                 <div className={`h-1 w-full ${s.ledStrip}`} />
                 <div className="absolute top-4 right-4 flex items-center gap-1.5">
-                  <div className={`w-2 h-2 rounded-full ${s.led} led-breathe`} />
+                  <div className={`w-2 h-2 rounded-pill ${s.led} led-breathe`} />
                   <span className="text-micro font-mono text-text-quiet uppercase">Active</span>
                 </div>
                 <div className="flex-1 flex flex-col p-6 pt-8">
@@ -82,7 +82,7 @@ export function TrustPipeline() {
                     <span className="text-micro font-mono text-text-quiet">|</span>
                     <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
                   </div>
-                  <h4 className="text-lg font-bold text-text-primary mb-3 tracking-tight group-hover:text-text-primary transition-colors">{s.title}</h4>
+                  <h4 className="text-title text-text-primary mb-3 group-hover:text-text-primary transition-colors">{s.title}</h4>
                   <p className="text-body text-text-secondary leading-relaxed mt-auto">{s.description}</p>
                 </div>
                 <div className="h-px mx-4 mb-3 bg-gradient-to-r from-transparent via-surface-elevated to-transparent" />
@@ -94,14 +94,14 @@ export function TrustPipeline() {
 
       <div className="md:hidden space-y-8 pl-4 pr-2">
         {STEPS.map(s => (
-          <div key={s.step} className={`rounded-xl border overflow-hidden ${s.chassis}`}>
+          <div key={s.step} className={`rounded-card border overflow-hidden ${s.chassis}`}>
             <div className={`h-0.5 w-full ${s.ledStrip}`} />
             <div className="p-5">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-micro font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
                 <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
               </div>
-              <h4 className="text-base font-bold text-text-primary mb-2">{s.title}</h4>
+              <h4 className="text-title text-text-primary mb-2">{s.title}</h4>
               <p className="text-body text-text-secondary leading-relaxed">{s.description}</p>
             </div>
           </div>

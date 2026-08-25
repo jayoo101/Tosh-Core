@@ -1,10 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtEth } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
+import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
 
 function statusBadge(tab: DirectoryProject['tab']) {
   switch (tab) {
@@ -19,32 +19,38 @@ function statusBadge(tab: DirectoryProject['tab']) {
   }
 }
 
+function hms(totalSeconds: number): string {
+  const h = String(Math.floor(totalSeconds / 3_600)).padStart(2, '0')
+  const m = String(Math.floor((totalSeconds % 3_600) / 60)).padStart(2, '0')
+  const s = String(Math.floor(totalSeconds % 60)).padStart(2, '0')
+  return `${h}:${m}:${s}`
+}
+
+/**
+ * Derived during render off the shared clock, where it used to be a `setState`
+ * inside a per-card interval. One store now drives every card on the page
+ * instead of one timer each, and there is no seeded value for the server and
+ * the client to disagree about.
+ */
 function CardCountdown({ deadline, tab }: { deadline: bigint; tab: DirectoryProject['tab'] }) {
-  const [text, setText] = useState('--:--:--')
-  useEffect(() => {
-    if (tab !== 'live' && tab !== 'launching') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setText(tab === 'archived' ? 'EXPIRED' : 'LIVE')
-      return
-    }
+  const nowSec = useNowSec()
+
+  let text: string
+  if (tab !== 'live' && tab !== 'launching') {
+    text = tab === 'archived' ? 'EXPIRED' : 'LIVE'
+  } else if (nowSec === CLOCK_UNSYNCED) {
+    text = '--:--:--'
+  } else {
     // A `launching` card is already PAST its genesis deadline, so counting to
     // that would just pin it at 00:00:00.  The clock that still matters is the
     // creator's launch window; when it runs out, refunds open instead.
     const target = tab === 'launching'
       ? deadline + LAUNCH_WINDOW_SECONDS
       : deadline
-    const tick = () => {
-      const diff = Number(target) * 1000 - Date.now()
-      if (diff <= 0) { setText('00:00:00'); return }
-      const h = String(Math.floor(diff / 3_600_000)).padStart(2, '0')
-      const m = String(Math.floor((diff % 3_600_000) / 60_000)).padStart(2, '0')
-      const s = String(Math.floor((diff % 60_000) / 1000)).padStart(2, '0')
-      setText(`${h}:${m}:${s}`)
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [deadline, tab])
+    const diff = Number(target) - nowSec
+    text = diff <= 0 ? '00:00:00' : hms(diff)
+  }
+
   return <span className="text-label font-mono tabular-nums text-text-tertiary">{text}</span>
 }
 

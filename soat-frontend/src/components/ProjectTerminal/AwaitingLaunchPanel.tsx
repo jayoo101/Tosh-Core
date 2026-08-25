@@ -54,7 +54,7 @@ export function AwaitingLaunchPanel({
       subtitle="hook.launch() seeds the V4 pool, mints genesis LP, and opens the shelf ladder. Irreversible."
       tone={isCreator ? 'ok' : 'default'}
     >
-      <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
         <Readout label="Raised" value={`${fmt(totalEthDeposited)} ETH`} />
         <Readout label="Soft cap" value="Met" tone="ok" />
         <Readout label="Window remaining" value={countdown} tone="warn" />
