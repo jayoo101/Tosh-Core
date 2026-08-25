@@ -1,14 +1,15 @@
 # Tosh Protocol — Incident Response Runbook
 
-**Version:** v4.4 (pre-mainnet baseline)
+**Version:** v5.0 (pre-mainnet baseline)
 **Owner:** Protocol Engineering + Operations
 **Audience:** On-call engineers, Gnosis Safe signers, support staff
-**Companion documents:** `docs/SECURITY_AUDIT.md`, `test/ToshPauseBlacklist.t.sol`
+**Companion documents:** `docs/PRD-v5.0.md` (§11 decision record, §8 forensics),
+`test/ToshV5Factory.t.sol` (pause / blacklist), `test/ToshV5.t.sol` (ladder halt)
 
-This runbook is the operational counterpart of the on-chain kill switches. The
-contract code is exhaustively covered by `ToshPauseBlacklistTest` (9/9 green) —
-this file is the **human procedure** that the kill switches are designed to
-support.
+This runbook is the operational counterpart of the on-chain kill switches. Every
+switch named here is covered by `ToshV5FactoryTest` (100/100 green) and by the
+`test_ladderHalt_*` group in `ToshV5Test` — this file is the **human procedure**
+that those switches are designed to support.
 
 > **Golden rule.** The platform must always be capable of stopping *new*
 > launches in under 60 seconds. A pause does **not** halt live genesis
@@ -125,8 +126,8 @@ After `paused() == true`, **exactly two** surfaces revert with
 > working; it cuts both ways.
 
 `hook.refund()` is **intentionally not gated** — depositors who deposited
-before the incident must keep their exit. This is property #2 in
-`ToshPauseBlacklistTest`.
+before the incident must keep their exit. Pinned by
+`test_pause_doesNotBlockRefund` in `test/ToshV5Factory.t.sol`.
 
 > **If you are blocking refunds, you have escalated the incident from "funds
 > at risk" to "funds trapped". Roll back immediately.**
@@ -189,9 +190,11 @@ until all four of the following hold:**
 - [ ] At least one signer outside the engineering org has signed off on the
       unpause transaction.
 
-After unpause, atomic restoration of `registerPoG`, `createLaunch`, and
-`deposit` is guaranteed by the contract (property #3 in
-`ToshPauseBlacklistTest`) — you do not need to manually verify each surface.
+After unpause, atomic restoration of `registerPoG` and `createLaunch` is
+guaranteed by the contract (`test_unpause_restoresAllPaths` in
+`test/ToshV5Factory.t.sol`) — you do not need to manually verify each surface.
+`deposit` needs no restoration because it was never paused; see the golden rule
+above.
 
 ---
 
@@ -289,7 +292,9 @@ actor's address(es) precisely.
 
 The blacklist is **global** (covers every hook, every future hook) and
 **defence-in-depth** — applies on every deposit, regardless of pre-registered
-PoG quota (properties #4, #4b, #4c in `ToshPauseBlacklistTest`).
+PoG quota (`test_blacklist_blocksAttackerAcrossAllHooks`,
+`test_blacklist_blocksEvenAfterPreRegisteredQuota`,
+`test_deposit_blockedWhenBlacklisted` in `test/ToshV5Factory.t.sol`).
 
 False-positive cost is real (banned user cannot deposit anywhere), so the
 target list goes through:
@@ -310,7 +315,10 @@ permanent  = type(uint256).max
            = 115792089237316195423570985008687907853269984665640564039457584007913129639935
 ```
 
-Permanent ban truly never expires (property #6). It is a one-way switch unless
+Permanent ban truly never expires — `setBlacklist` stores the
+`type(uint256).max` sentinel verbatim instead of adding it to `block.timestamp`
+(`test_setBlacklist_permanentSentinel` in `test/ToshV5Factory.t.sol`). It is a
+one-way switch unless
 followed by an explicit `liftBlacklist(...)`.
 
 ### Step 3 — Apply
@@ -347,8 +355,11 @@ cast send $FACTORY_ADDRESS \
   --private-key $PRIVATE_KEY
 ```
 
-Lift is **immediate** — same-block deposits succeed (property #5 in
-`ToshPauseBlacklistTest`). No second-block waiting period.
+Lift is **immediate** — same-block deposits succeed
+(`test_liftBlacklist_immediatelyRestores` in `test/ToshV5Factory.t.sol`). No
+second-block waiting period. A ban also lapses on its own when its duration
+expires (`test_blacklist_expiresAfterBanDuration`), so a lift is only needed to
+end one early.
 
 ---
 

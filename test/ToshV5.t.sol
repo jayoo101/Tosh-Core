@@ -1144,6 +1144,92 @@ contract ToshV5Test is Test {
         factory.resumeLadderMinting(address(0));
     }
 
+    /// @notice A halt cannot hold a FAILED GENESIS hostage.
+    ///
+    ///   `haltLadderMinting` takes any address and never checks that the target
+    ///   has launched, so an owner can arm one against a round that is still
+    ///   collecting. That is safe by construction rather than by accident — the
+    ///   only guard it installs sits on `mintBondingCurve`, which is not a
+    ///   reachable path before `launch()` — but "safe by construction" is a
+    ///   claim, and an un-pinned claim about a brake reaching a depositor's own
+    ///   ETH is exactly the one worth being wrong about.
+    ///
+    ///   This is the scenario the runbook calls a hostage situation: money in,
+    ///   soft cap missed, and a platform switch standing between the depositor
+    ///   and their refund. It must not exist.
+    function test_ladderHalt_cannotHoldAFailedGenesisHostage() public {
+        (, ToshLaunchpadHook hook) = _createProject("Strand", "STR");
+        _deposit(alice, hook, 0.3 ether, address(0));
+
+        // Arm the longest possible halt against a round that has not launched.
+        uint256 maxHalt = factory.MAX_HALT_DURATION();
+        vm.prank(admin);
+        factory.haltLadderMinting(address(hook), maxHalt);
+        assertTrue(factory.ladderMintingHalted(address(hook)), "halting a pre-launch hook is permitted");
+
+        // The round misses its soft cap while the halt is still live.
+        vm.warp(block.timestamp + 25 hours);
+        assertTrue(factory.ladderMintingHalted(address(hook)), "and the halt outlives the genesis window");
+        assertTrue(hook.canRefund(), "a halt must not close the refund path");
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        hook.refund();
+        assertEq(alice.balance - before, 0.3 ether, "the depositor exits in full, mid-halt");
+    }
+
+    /// @notice A halt blocks minting and no other post-launch path — including
+    ///         the two that pay a user out.
+    ///
+    ///   `launch()` itself is not gated either: a funded round still opens while
+    ///   the platform is halted, it just opens with its ladder already shut.
+    ///   Gating `launch()` would strand a round that had met its soft cap in the
+    ///   window between the halt and the `LAUNCH_WINDOW` expiry, converting a
+    ///   brake into exactly the hostage this design refuses to be.
+    function test_ladderHalt_blocksNeitherLaunchNorPayouts() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _createProject("HaltRef", "HRF");
+
+        // A referrer must hold PoG quota of their own — see `_recordReferral`.
+        _registerPoG(bob, POG_CAP);
+        _deposit(alice, hook, SOFT_CAP, bob);
+
+        // The halt has to OUTLIVE the genesis window, because `_launch` warps to
+        // `genesisDeadline + 1` to get there.  A `1 days` halt armed here lapses
+        // exactly one second before that warp lands, and every assertion below
+        // would then be measured against a platform that is not halted at all.
+        uint256 maxHalt = factory.MAX_HALT_DURATION();
+        vm.prank(admin);
+        factory.haltLadderMinting(address(0), maxHalt);
+
+        _launch(hook);
+        assertTrue(hook.launched(), "a global halt must not stop a funded round from opening");
+        assertTrue(factory.ladderMintingHalted(address(hook)), "and the halt is still live on the other side");
+
+        // `launch()` stamps the same-block lockout AND the ladder opens below its
+        // price gate, so a bare `maxMintable() == 0` here would read zero with no
+        // halt in place.  Clear both, then attribute the zero to the halt by
+        // lifting it and watching the ladder come back.
+        _openLadder(hook, 0.01 ether);
+        assertEq(hook.maxMintable(), 0, "it opens with the ladder shut, which is the point");
+
+        vm.prank(admin);
+        factory.resumeLadderMinting(address(0));
+        assertGt(hook.maxMintable(), 0, "and nothing but the halt was holding it shut");
+
+        vm.prank(admin);
+        factory.haltLadderMinting(address(0), maxHalt);
+        assertTrue(factory.ladderMintingHalted(address(hook)), "re-armed for the payout paths below");
+
+        uint256 bobBefore = bob.balance;
+        vm.prank(bob);
+        hook.claimReferralReward();
+        assertEq(bob.balance - bobBefore, SOFT_CAP / 10, "referral commission pays out mid-halt");
+
+        vm.prank(alice);
+        hook.claimGenesis();
+        assertGt(token.balanceOf(alice), 0, "so does the genesis claim");
+    }
+
     /// @notice The launch-block lock holds for EVERY raise, not just the one
     ///         this suite happens to fixture on.
     ///
