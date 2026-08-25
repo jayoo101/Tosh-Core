@@ -24,9 +24,17 @@ export function useTosh() {
 
   const {
     isLoading: isConfirmingA,
-    isSuccess: isConfirmedA,
+    isSuccess: settledA,
+    error:     receiptErrorA,
     data:      receiptA,
   } = useWaitForTransactionReceipt({ hash: hashA })
+
+  // `isSuccess` here means the receipt arrived, not that createLaunch worked:
+  // viem resolves normally for a transaction that mined and then reverted. Both
+  // this and `receiptErrorA` were previously dropped, so a reverted launch
+  // rendered as "Confirmed" and an RPC failure left the toast spinning forever.
+  const revertedA    = receiptA?.status === 'reverted'
+  const isConfirmedA = settledA && !revertedA
 
   // ── Slot B: registerPoG ──────────────────────────────────────────────────
   const {
@@ -39,8 +47,13 @@ export function useTosh() {
 
   const {
     isLoading: isConfirmingB,
-    isSuccess: isConfirmedB,
+    isSuccess: settledB,
+    error:     receiptErrorB,
+    data:      receiptB,
   } = useWaitForTransactionReceipt({ hash: hashB })
+
+  const revertedB    = receiptB?.status === 'reverted'
+  const isConfirmedB = settledB && !revertedB
 
   // ── createLaunch (v3.4) ──────────────────────────────────────────────────
   // Explicit gas cap bypasses eth_estimateGas so Base Sepolia RPCs can't
@@ -107,7 +120,9 @@ export function useTosh() {
     isPending:   isPendingA,
     isConfirming:isConfirmingA,
     isConfirmed: isConfirmedA,
-    error:       errorA,
+    error:       errorA ?? receiptErrorA ?? (revertedA
+      ? new Error('Reverted on-chain — createLaunch was rejected by the factory.')
+      : null),
     reset:       resetA,
 
     // ── Slot B: registerPoG ────────────────────────────────────────────────
@@ -116,7 +131,9 @@ export function useTosh() {
     pogIsPending:   isPendingB,
     pogIsConfirming:isConfirmingB,
     pogIsConfirmed: isConfirmedB,
-    pogError:       errorB,
+    pogError:       errorB ?? receiptErrorB ?? (revertedB
+      ? new Error('Reverted on-chain — registerPoG was rejected by the factory.')
+      : null),
     pogReset:       resetB,
   }
 }

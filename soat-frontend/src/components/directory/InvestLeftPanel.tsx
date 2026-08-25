@@ -6,6 +6,7 @@ import { type Address } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import { HOOK_ABI } from '@/lib/contracts'
+import { EM_DASH } from '@/components/ui'
 import { fmtEth } from './useDirectoryProjects'
 
 export function InvestLeftPanel({ project }: { project: ProjectRow }) {
@@ -29,25 +30,34 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
     query: { enabled: Boolean(hook), refetchInterval: 12_000 },
   })
 
+  // `?? 0n` on its own cannot distinguish "not read yet" from "genuinely zero",
+  // and this panel states its numbers as fact: a 10 ETH raise rendered
+  // "Soft Cap 0 ETH · GENESIS TARGET · 0.0%" on every load until the read
+  // landed, and stayed there permanently whenever it failed.
+  const ready = data !== undefined && data.every(d => d.status === 'success')
+
   const launched    = (data?.[0]?.result as boolean | undefined) ?? false
   const totalEth    = (data?.[1]?.result as bigint | undefined) ?? 0n
   const softCap     = (data?.[2]?.result as bigint | undefined) ?? 0n
   const deadline    = (data?.[3]?.result as bigint | undefined) ?? 0n
   const canRefund   = (data?.[4]?.result as boolean | undefined) ?? false
 
-  const progress = softCap > 0n ? Math.min(100, Number((totalEth * 10000n) / softCap) / 100) : 0
+  const progress = ready && softCap > 0n
+    ? Math.min(100, Number((totalEth * 10000n) / softCap) / 100)
+    : 0
 
   // The window is the only thing that closes deposits — clearing the soft cap
   // does not.  Treat a zero deadline as "still loading" rather than expired.
   const windowOpen = deadline === 0n || nowSec === 0 || Number(deadline) > nowSec
 
   const status = useMemo(() => {
+    if (!ready) return { label: 'SYNCING HOOK STATE', cls: 'border-border-subtle bg-surface-card/50 text-text-tertiary', dot: 'bg-text-quiet' }
     if (canRefund) return { label: 'REFUND ELIGIBLE', cls: 'border-danger/30 bg-danger/[0.06] text-danger', dot: 'bg-danger' }
     if (launched) return { label: 'SHELF ACTIVE', cls: 'border-success/30 bg-success/[0.06] text-success', dot: 'bg-success' }
     if (!windowOpen) return { label: 'AWAITING LAUNCH', cls: 'border-admin/30 bg-admin/[0.06] text-admin', dot: 'bg-admin' }
     if (softCap > 0n && totalEth >= softCap) return { label: 'GENESIS OVERSUBSCRIBED', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
     return { label: 'GENESIS FUNDING', cls: 'border-brand/30 bg-brand/[0.06] text-brand', dot: 'bg-brand' }
-  }, [canRefund, launched, windowOpen, softCap, totalEth])
+  }, [ready, canRefund, launched, windowOpen, softCap, totalEth])
 
   const countdown = useMemo(() => {
     if (launched || deadline === 0n || nowSec === 0) return '--:--:--'
@@ -69,11 +79,19 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-4">
           <p className="text-label font-bold text-text-tertiary uppercase tracking-widest mb-1">Total Deposited</p>
-          <p className="text-xl font-black text-brand tabular-nums">{fmtEth(totalEth)} <span className="text-sm text-text-tertiary">ETH</span></p>
+          <p className="text-xl font-black text-brand tabular-nums">
+            {ready
+              ? <>{fmtEth(totalEth)} <span className="text-sm text-text-tertiary">ETH</span></>
+              : EM_DASH}
+          </p>
         </div>
         <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-4">
           <p className="text-label font-bold text-text-tertiary uppercase tracking-widest mb-1">Soft Cap</p>
-          <p className="text-xl font-black text-admin tabular-nums">{fmtEth(softCap)} <span className="text-sm text-text-tertiary">ETH</span></p>
+          <p className="text-xl font-black text-admin tabular-nums">
+            {ready
+              ? <>{fmtEth(softCap)} <span className="text-sm text-text-tertiary">ETH</span></>
+              : EM_DASH}
+          </p>
           <span className="inline-flex mt-2 px-2 py-0.5 rounded-md bg-admin/10 border border-admin/20 text-micro font-bold text-admin">GENESIS TARGET</span>
         </div>
       </div>
@@ -81,13 +99,15 @@ export function InvestLeftPanel({ project }: { project: ProjectRow }) {
       <div className="rounded-xl border border-border-subtle bg-surface-card/20 p-4">
         <div className="flex justify-between items-baseline text-sm mb-2.5">
           <span className="text-text-secondary text-label font-mono uppercase tracking-widest">Genesis Progress</span>
-          <span className="font-mono tabular-nums font-bold text-text-primary">{progress.toFixed(1)}%</span>
+          <span className="font-mono tabular-nums font-bold text-text-primary">
+            {ready ? `${progress.toFixed(1)}%` : EM_DASH}
+          </span>
         </div>
         <div className="w-full h-2 bg-surface-elevated rounded-full overflow-hidden">
           <div className="h-full rounded-full bar-glow transition-all duration-1000" style={{ width: `${Math.min(100, progress)}%` }} />
         </div>
         <div className="flex justify-between mt-2 text-label font-mono text-text-quiet">
-          <span>{fmtEth(totalEth)} / {fmtEth(softCap)} ETH</span>
+          <span>{ready ? `${fmtEth(totalEth)} / ${fmtEth(softCap)} ETH` : 'reading hook state…'}</span>
           <span>Soft cap · 4000-rung shelf · 12.6M tokens</span>
         </div>
       </div>

@@ -5,8 +5,8 @@ import { testnetExplorerTx } from '@/lib/contracts'
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function fmt(wei: bigint | undefined, dec = 18, precision = 4): string {
-  if (wei === undefined) return '—'
+export function fmt(wei: bigint | null | undefined, dec = 18, precision = 4): string {
+  if (wei === null || wei === undefined) return '—'
   try {
     const s = formatUnits(wei, dec)
     const n = parseFloat(s)
@@ -19,8 +19,8 @@ export function fmt(wei: bigint | undefined, dec = 18, precision = 4): string {
   } catch { return '0' }
 }
 
-export function fmtFull(wei: bigint | undefined, dec = 18): string {
-  if (wei === undefined) return '—'
+export function fmtFull(wei: bigint | null | undefined, dec = 18): string {
+  if (wei === null || wei === undefined) return '—'
   try { return formatUnits(wei, dec) } catch { return '0' }
 }
 

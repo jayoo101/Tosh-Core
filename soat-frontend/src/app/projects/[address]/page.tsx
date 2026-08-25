@@ -73,23 +73,52 @@ async function getProjectFromChain(tokenAddr: string): Promise<ProjectRow | null
   } catch { return null }
 }
 
+/**
+ * Ceiling on the registry lookup.
+ *
+ * Supabase holds presentation metadata only — `getProjectFromChain` can answer
+ * this route without it. But the client carries its own ~11 s timeout, so an
+ * unreachable registry blocked the whole server render for that long before the
+ * fallback even started, and the page read as hung rather than degraded.
+ */
+const REGISTRY_TIMEOUT_MS = 2_500
+
+async function queryRegistry(raw: string): Promise<ProjectRow[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const lookup = supabase
+      .from('projects')
+      .select('*')
+      .or(`token_address.ilike.${raw},hook_address.ilike.${raw}`)
+      .limit(1)
+    const ceiling = new Promise<null>(resolve => {
+      timer = setTimeout(() => resolve(null), REGISTRY_TIMEOUT_MS)
+    })
+    const settled = await Promise.race([lookup, ceiling])
+    if (settled === null) {
+      console.warn('[getProject] registry lookup exceeded its ceiling, using on-chain data')
+      return null
+    }
+    if (settled.error) {
+      console.warn('[getProject] registry error, using on-chain data', settled.error.message)
+      return null
+    }
+    return settled.data as ProjectRow[]
+  } catch (e) {
+    console.warn('[getProject] registry threw, using on-chain data', e)
+    return null
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 async function getProject(address: string): Promise<ProjectRow | null> {
   const raw = address.trim()
   if (!/^0x[a-fA-F0-9]{40}$/.test(raw)) return null
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .or(`token_address.ilike.${raw},hook_address.ilike.${raw}`)
-    .limit(1)
-  if (error) {
-    // Supabase query failed — fall through to on-chain fallback instead of
-    // returning null (which would produce a 404 for valid on-chain launches).
-    console.warn('[getProject] Supabase error, trying on-chain fallback', error.message)
-    return getProjectFromChain(raw)
-  }
-  // Return DB row if found; otherwise attempt on-chain fallback so valid
-  // launches that missed /api/projects registration don't hard 404.
-  return data?.[0] ?? getProjectFromChain(raw)
+  const rows = await queryRegistry(raw)
+  // On-chain fallback covers both a dead registry and a launch that never
+  // registered, so a valid on-chain project never hard 404s.
+  return rows?.[0] ?? getProjectFromChain(raw)
 }
 
 function safeHref(url: string | null | undefined): string | null {

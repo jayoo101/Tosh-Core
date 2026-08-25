@@ -78,10 +78,21 @@ export function useTxAction(options: TxActionOptions): TxAction {
   } = useWriteContract()
 
   const {
+    data: receipt,
     isLoading: isConfirming,
-    isSuccess: isConfirmed,
+    isSuccess: receiptSettled,
     error: receiptError,
   } = useWaitForTransactionReceipt({ hash })
+
+  /**
+   * `isSuccess` on this query means "the receipt arrived", not "the call
+   * worked". viem resolves normally for a transaction that mined and then
+   * reverted, so the outcome lives in `receipt.status` and nowhere else.
+   * Reading only `isSuccess` reported every on-chain revert as "Confirmed"
+   * and fired `onConfirmed`, refetching state that had not changed.
+   */
+  const reverted = receipt?.status === 'reverted'
+  const isConfirmed = receiptSettled && !reverted
 
   const send = useCallback(
     (request: TxRequest) => {
@@ -95,7 +106,12 @@ export function useTxAction(options: TxActionOptions): TxAction {
     [writeContractAsync],
   )
 
-  const error = writeError ?? receiptError ?? null
+  const error =
+    writeError ??
+    receiptError ??
+    (reverted
+      ? new Error('Reverted on-chain — the contract rejected this call.')
+      : null)
 
   useTxLifecycleToast({
     labels: { action, ...labels },

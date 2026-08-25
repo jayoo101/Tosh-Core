@@ -13,7 +13,7 @@
  * on that mechanism's ambient gate, set once in page.tsx.
  */
 
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
 import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
 
@@ -341,15 +341,14 @@ export function shortErr(e: { message?: string } | null | undefined): string | n
 }
 
 /**
- * External-clock pattern used throughout this app: `Date.now()` is impure and
- * must not be read during render, so the wall clock is pulled into state and
- * ticked from an effect instead.
+ * Re-exported so the admin modules keep importing the clock from one place.
+ *
+ * The local implementation this replaces seeded its state with `Date.now()`,
+ * which makes the server snapshot and the hydration snapshot disagree by
+ * construction — it only went unnoticed because a dev machine renders both with
+ * the same clock. The shared store returns `CLOCK_UNSYNCED` (0) until the first
+ * client tick instead, and both call sites here already funnel through
+ * `classifyHorizon`, which reads 0 as "wall time not known yet" rather than
+ * as 1970.
  */
-export function useNowSec(intervalMs = 15_000): number {
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
-  useEffect(() => {
-    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), intervalMs)
-    return () => clearInterval(id)
-  }, [intervalMs])
-  return nowSec
-}
+export { useNowSec } from '@/components/ui'

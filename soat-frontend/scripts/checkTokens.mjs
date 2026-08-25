@@ -237,9 +237,22 @@ if (rawTotal > 0) {
   }
 }
 
+/**
+ * Now FATAL, and the alias block's deletion is exactly why.
+ *
+ * The family test above derives its vocabulary from what `@theme` defines. While
+ * the transitional `--color-tosh-*` block existed, `tosh` was a live family, so
+ * a dangling `text-tosh-mute` failed the `unknown` check on its own. Deleting
+ * that block removed `tosh` from the vocabulary — which also removed those
+ * classes from the one check that was catching them, leaving this counter as the
+ * only thing that still saw them. A count that nothing enforces is not a guard,
+ * and the correct count is now permanently zero.
+ */
 if (aliasCount > 0) {
-  console.error(`\n[tokens] ${aliasCount} transitional \`tosh-*\` alias use(s) across ${aliasFiles.size} file(s).`)
-  console.error('         Delete the alias block in globals.css when this reaches 0.')
+  failed = true
+  console.error(`\n[tokens] FAIL -- ${aliasCount} reference(s) to the deleted \`tosh-*\` alias layer ` +
+                `across ${aliasFiles.size} file(s).`)
+  console.error('         globals.css no longer defines these. They render as NO STYLE.\n')
   for (const [rel, n] of [...aliasFiles].sort((a, b) => b[1] - a[1])) {
     console.error(`  ${String(n).padStart(4)}  ${rel}`)
   }

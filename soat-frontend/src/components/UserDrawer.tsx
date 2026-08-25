@@ -47,13 +47,10 @@ import {
   useDisconnect,
   useReadContract,
   useReadContracts,
-  useWaitForTransactionReceipt,
-  useWriteContract,
 } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
 
 import {
-  TARGET_CHAIN_ID,
   ERC20_ABI,
   FACTORY_ABI,
   FACTORY_ADDRESS,
@@ -62,7 +59,16 @@ import {
   TESTNET_CHAIN_LABEL,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
-import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
+import {
+  classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
+} from '@/components/ui'
+
+/**
+ * How many launches back the drawer walks when rebuilding a wallet's positions.
+ * Generous on purpose — this is a ceiling that bounds the multicall and the
+ * `Array.from` length, not a display window.
+ */
+const DRAWER_SCAN_DEPTH = 512
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FORMATTERS
@@ -235,9 +241,16 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     launchCountQuery.data !== undefined ? Number(launchCountQuery.data as bigint) : 0
 
   // ── Stage B: pull each LaunchRow ────────────────────────────────────────
+  // Bounded, unlike the raw `launchCount`. This drawer lists the wallet's own
+  // positions, so it walks the newest launches backwards rather than taking the
+  // directory's recent-48 window — a depositor's older position must not vanish
+  // from their own ledger. The ceiling is what keeps `Array.from` from being
+  // handed an unbounded length, and keeps one drawer open from turning into
+  // `launchCount * 6` multicall entries.
+  const scanDepth = Math.min(launchCount, DRAWER_SCAN_DEPTH)
   const launchIds = useMemo(
-    () => Array.from({ length: launchCount }, (_, i) => BigInt(i)),
-    [launchCount],
+    () => Array.from({ length: scanDepth }, (_, i) => BigInt(launchCount - scanDepth + i)),
+    [launchCount, scanDepth],
   )
   const launchesQuery = useReadContracts({
     contracts: launchIds.map(id => ({
@@ -711,23 +724,21 @@ function AssetRow({
 }) {
   const { row, launched, totalEth, softCap, hasClaimed, claimable, symbol } = snapshot
 
-  const { writeContract, data: txHash, isPending, reset } = useWriteContract()
-  const { isLoading: isMining, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash: txHash })
-
-  useEffect(() => {
-    if (!isConfirmed) return
-    onClaimed()
-    reset()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConfirmed])
+  // Routed through useTxAction rather than a bare useWriteContract: this row
+  // previously read neither the write error nor the receipt, so a rejected
+  // signature or an on-chain revert just returned the button to its idle label
+  // with nothing said anywhere.
+  const claim = useTxAction({
+    action: `claim ${symbol}`,
+    onConfirmed: onClaimed,
+  })
 
   const handleClaim = () => {
-    writeContract({
+    claim.send({
       address:      row.hook,
       abi:          HOOK_ABI,
       functionName: 'claimGenesis',
-      chainId:      TARGET_CHAIN_ID,
+      args:         [],
     })
   }
 
@@ -795,13 +806,13 @@ function AssetRow({
             <button
               type="button"
               onClick={handleClaim}
-              disabled={isPending || isMining}
+              disabled={claim.isBusy}
               className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                          border border-brand text-brand
                          hover:bg-brand hover:text-bg-base transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
-              {isPending ? '[ SIGN… ]' : isMining ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}
+              {claim.isPending ? '[ SIGN… ]' : claim.isConfirming ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}
             </button>
           ) : (
             <span className="text-label tracking-[0.32em] uppercase px-3 py-1.5

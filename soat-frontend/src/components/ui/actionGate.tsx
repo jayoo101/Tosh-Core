@@ -43,7 +43,19 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useAccount, useChainId, useConnect, useSwitchChain } from 'wagmi'
 import { TARGET_CHAIN_ID, TESTNET_CHAIN_LABEL } from '@/lib/contracts'
 import { useIsHydrated } from './useClock'
+import { toshToast } from './toast'
 import type { Tone } from './Badge'
+
+/**
+ * Connect and switch-chain used the `mutate` variants, so a failure landed on
+ * hook state nobody read: dismissing the wallet's network prompt just
+ * re-enabled the button with nothing said. `fromError` is already silent for a
+ * user-dismissed prompt, so this only speaks up for the failures worth
+ * reporting — a locked wallet, or a chain the wallet refuses to add.
+ */
+function reportWalletFailure(error: unknown): void {
+  toshToast.fromError(error)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BLOCKERS
@@ -230,8 +242,8 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
   const hydrated = useIsHydrated()
   const { isConnected } = useAccount()
   const chainId = useChainId()
-  const { connect, connectors, isPending: isConnecting } = useConnect()
-  const { switchChain, isPending: isSwitching } = useSwitchChain()
+  const { connectAsync, connectors, isPending: isConnecting } = useConnect()
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain()
   const ambient = useAmbientGate()
 
   const connected = hydrated && isConnected
@@ -268,7 +280,9 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
         reason: 'No wallet is connected to this session.',
         tone: 'info',
         disabled: isConnecting || connector === undefined,
-        act: connector === undefined ? null : () => connect({ connector }),
+        act: connector === undefined
+          ? null
+          : () => { void connectAsync({ connector }).catch(reportWalletFailure) },
       }
     }
 
@@ -279,7 +293,9 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
         reason: `This wallet is on chain ${chainId}. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from here.`,
         tone: 'warn',
         disabled: isSwitching,
-        act: () => switchChain({ chainId: TARGET_CHAIN_ID }),
+        act: () => {
+          void switchChainAsync({ chainId: TARGET_CHAIN_ID }).catch(reportWalletFailure)
+        },
       }
     }
 
@@ -326,11 +342,11 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     isConnected,
     isConnecting,
     connectors,
-    connect,
+    connectAsync,
     requiresNetwork,
     isWrongNetwork,
     isSwitching,
-    switchChain,
+    switchChainAsync,
     chainId,
     busy,
     isConfirming,

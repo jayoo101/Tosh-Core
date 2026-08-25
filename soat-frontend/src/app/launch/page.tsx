@@ -123,14 +123,29 @@ export default function GenesisConsole() {
     error,
   })
 
+  // Which address this effect last auto-filled. Switching accounts has to
+  // re-point the admin field, because the previous account's address is a
+  // legal-looking value that silently hands the 99 % shelf cut to the wallet
+  // the user just switched away from. A hand-typed address is left alone: an
+  // account switch must not overwrite a deliberate choice.
+  const autofilledAdminRef = useRef<string | null>(null)
+
+  /* eslint-disable react-hooks/set-state-in-effect -- the account is the
+     external system this effect synchronises against, and resetting the form
+     state it invalidates is the entire job. */
   useEffect(() => {
     if (!address) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!projectAdmin) setProjectAdmin(address)
+    if (!projectAdmin || projectAdmin === autofilledAdminRef.current) {
+      autofilledAdminRef.current = address
+      setProjectAdmin(address)
+    }
+    // A salt is only valid for the account it was mined against.
     setSalt('')
     setPredictedHook('')
+    setSaltCaps(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const pendingRef = useRef<Omit<ProjectPayload, 'txHash'> | null>(null)
   const syncedHashRef = useRef<string | null>(null)
