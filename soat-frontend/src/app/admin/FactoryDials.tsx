@@ -1,38 +1,69 @@
 'use client'
 
+/**
+ * G1 · FACTORY CONTROL — the five forward-looking dials on ToshFactory.
+ *
+ * Every panel here is the same shape: read the live value, take a new one, and
+ * refuse to open the wallet for a value the contract would reject.  Those
+ * refusals are named blockers rather than a `locked` boolean, so the button
+ * says which guard is holding it and what would clear it.
+ */
 
-import { useState, useCallback, useEffect } from 'react'
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useState, useCallback } from 'react'
+import { useReadContract } from 'wagmi'
+import type { Abi } from 'viem'
 import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
-  TARGET_CHAIN_ID,
   MIN_SOFT_CAP_PROD,
   MIN_SOFT_CAP_PROD_LABEL,
   MAX_COOLDOWN_SECONDS,
 } from '@/lib/contracts'
 import {
+  ActionButton, useActionGate, useTxAction, revertOrder,
+  type ActionBlocker,
+} from '@/components/ui'
+import {
   Section,
   ScopeNote,
   Field,
-  WriteButton,
   Readout,
-  AlarmLine,
-  TxLine,
   ConfirmDialog,
   fmtEth,
   fmtDuration,
   parseEthInput,
-  shortErr,
 } from './shared'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// G1 · FACTORY CONTROL
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The two blockers every numeric dial shares: nothing typed yet, and something
+ * typed that is not a number.  Split because "fill the field in" and "that is
+ * not a number" are different instructions.
+ */
+function amountBlockers(
+  raw: string,
+  parsed: ReturnType<typeof parseEthInput>,
+  noun: string,
+): readonly [ActionBlocker, ActionBlocker] {
+  const empty = raw.trim() === ''
+  return [
+    {
+      id: 'amount-missing',
+      active: empty,
+      label: `Enter a ${noun}`,
+      reason: `Type the new ${noun} above.`,
+      tone: 'neutral',
+    },
+    {
+      id: 'amount-invalid',
+      active: !empty && !parsed.ok,
+      label: '[not_a_number]',
+      reason: (!parsed.ok && parsed.reason) || 'That is not an amount this field can parse.',
+    },
+  ]
+}
 
 export function LaunchFeePanel() {
   const [feeInput, setFeeInput] = useState('')
-  const [error, setError]       = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
   const {
@@ -41,22 +72,26 @@ export function LaunchFeePanel() {
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchFee',
   })
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
-
+  const tx = useTxAction({ action: 'update the launch fee', onConfirmed: () => { void refetch() } })
   const parsed = parseEthInput(feeInput)
-  const txBusy = isPending || isConfirming
 
   const submit = useCallback(() => {
     setConfirming(false)
-    if (!parsed.ok) { setError(parsed.reason ?? 'Invalid number format'); return }
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
-      functionName: 'setLaunchFee', args: [parsed.value],
-      chainId: TARGET_CHAIN_ID,
+    if (!parsed.ok) return
+    tx.send({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI as unknown as Abi,
+      functionName: 'setLaunchFee',
+      args: [parsed.value],
     })
-  }, [parsed, writeContract])
+  }, [parsed, tx])
+
+  const gate = useActionGate({
+    action: 'Update launch fee',
+    onAct: () => setConfirming(true),
+    tx,
+    blockersInRevertOrder: revertOrder(...amountBlockers(feeInput, parsed, 'fee')),
+  })
 
   return (
     <Section
@@ -71,10 +106,10 @@ export function LaunchFeePanel() {
       <Field
         label="NEW FEE · ETH · 0 ALLOWED"
         value={feeInput}
-        onChange={v => { setFeeInput(v); setError(null) }}
+        onChange={setFeeInput}
         placeholder="e.g. 0.1"
         inputMode="decimal"
-        disabled={txBusy}
+        disabled={tx.isBusy}
         fluo={parsed.ok}
       />
       <ScopeNote>
@@ -82,16 +117,8 @@ export function LaunchFeePanel() {
         applies to the next createLaunch onward; launches already in flight paid
         the old fee and are unaffected.
       </ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label="update launch fee"
-          onClick={() => { setError(null); if (parsed.ok) setConfirming(true) }}
-          locked={!parsed.ok}
-          busy={txBusy}
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="setLaunchFee" />
+
+      <ActionButton gate={gate} full={false} />
 
       <ConfirmDialog
         open={confirming}
@@ -121,31 +148,39 @@ export function LaunchFeePanel() {
 
 export function SoftCapPanel() {
   const [capInput, setCapInput] = useState('')
-  const [error, setError]       = useState<string | null>(null)
 
   const {
     data: currentCapWei, isLoading, isFetching, refetch,
   } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'defaultSoftCap',
   })
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
 
-  const parsed     = parseEthInput(capInput)
+  const tx = useTxAction({ action: 'set the default soft cap', onConfirmed: () => { void refetch() } })
+  const parsed = parseEthInput(capInput)
   const belowFloor = parsed.ok && parsed.value < MIN_SOFT_CAP_PROD
-  const txBusy     = isPending || isConfirming
 
-  const handleSet = useCallback(() => {
-    setError(null)
-    if (!parsed.ok) { setError(parsed.reason ?? 'Enter a valid ETH amount'); return }
-    if (parsed.value < MIN_SOFT_CAP_PROD) return
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
-      functionName: 'setDefaultSoftCap', args: [parsed.value],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [parsed, writeContract])
+  const gate = useActionGate({
+    action: 'Set default cap',
+    onAct: () => {
+      if (!parsed.ok) return
+      tx.send({
+        address: FACTORY_ADDRESS,
+        abi: FACTORY_ABI as unknown as Abi,
+        functionName: 'setDefaultSoftCap',
+        args: [parsed.value],
+      })
+    },
+    tx,
+    blockersInRevertOrder: revertOrder(
+      ...amountBlockers(capInput, parsed, 'cap'),
+      {
+        id: 'below-min-soft-cap',
+        active: belowFloor,
+        label: '[min_soft_cap_violation]',
+        reason: `The factory reverts InvalidSoftCap below ${MIN_SOFT_CAP_PROD_LABEL} ETH, because a smaller raise rounds p0 toward zero against the 3.78 M genesis LP supply.`,
+      },
+    ),
+  })
 
   return (
     <Section
@@ -160,69 +195,60 @@ export function SoftCapPanel() {
       <Field
         label={`NEW CAP · ETH ≥ ${MIN_SOFT_CAP_PROD_LABEL}`}
         value={capInput}
-        onChange={v => { setCapInput(v); setError(null) }}
+        onChange={setCapInput}
         placeholder="e.g. 10"
         inputMode="decimal"
-        disabled={txBusy}
+        disabled={tx.isBusy}
         errored={belowFloor}
         fluo={parsed.ok && !belowFloor}
       />
-      {belowFloor && (
-        <p className="font-mono text-label tracking-[0.32em] text-brand uppercase">
-          → GUARD LOCKED · MIN_SOFT_CAP_VIOLATION
-        </p>
-      )}
       <ScopeNote tone={belowFloor ? 'warn' : 'mute'}>
         The 0.01 ETH floor is a price-truncation guard, not a business rule:
         p0 = lpEth × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
         below the floor rounds p0 toward zero. The contract reverts InvalidSoftCap
         below it, so this button stays inert rather than burning gas.
       </ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label="set default cap"
-          onClick={handleSet}
-          locked={!parsed.ok || belowFloor}
-          busy={txBusy}
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="setDefaultSoftCap" />
+
+      <ActionButton gate={gate} full={false} />
     </Section>
   )
 }
 
 export function PogLimitPanel() {
   const [limitInput, setLimitInput] = useState('')
-  const [error, setError]           = useState<string | null>(null)
 
   const {
     data: currentLimitWei, isLoading, isFetching, refetch,
   } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'maxPogAllocationLimit',
   })
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
 
+  const tx = useTxAction({ action: 'update the PoG ceiling', onConfirmed: () => { void refetch() } })
   const parsed = parseEthInput(limitInput)
-  const txBusy = isPending || isConfirming
-
   const zero = parsed.ok && parsed.value === 0n
 
-  const handleSet = useCallback(() => {
-    setError(null)
-    if (!parsed.ok) { setError(parsed.reason ?? 'Invalid number format'); return }
-    if (parsed.value === 0n) {
-      setError('Zero is rejected on-chain (InvalidPogLimit). It is snapshotted into every new hook constructor, which requires a non-zero per-wallet cap — at zero createLaunch reverts for every creator. Use PAUSE to stop taking on projects.')
-      return
-    }
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
-      functionName: 'setMaxPogAllocationLimit', args: [parsed.value],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [parsed, writeContract])
+  const gate = useActionGate({
+    action: 'Update PoG ceiling',
+    onAct: () => {
+      if (!parsed.ok) return
+      tx.send({
+        address: FACTORY_ADDRESS,
+        abi: FACTORY_ABI as unknown as Abi,
+        functionName: 'setMaxPogAllocationLimit',
+        args: [parsed.value],
+      })
+    },
+    tx,
+    blockersInRevertOrder: revertOrder(
+      ...amountBlockers(limitInput, parsed, 'ceiling'),
+      {
+        id: 'zero-pog-limit',
+        active: zero,
+        label: '[invalid_pog_limit]',
+        reason: 'Zero is rejected on-chain. This value is snapshotted into every new hook constructor, which requires a non-zero per-wallet cap, so a zero ceiling would make createLaunch revert for every creator. Use the circuit breaker in G3 to stop taking on projects.',
+      },
+    ),
+  })
 
   return (
     <Section
@@ -237,10 +263,11 @@ export function PogLimitPanel() {
       <Field
         label="NEW CEILING · ETH · MUST BE NON-ZERO"
         value={limitInput}
-        onChange={v => { setLimitInput(v); setError(null) }}
+        onChange={setLimitInput}
         placeholder="e.g. 0.1"
         inputMode="decimal"
-        disabled={txBusy}
+        disabled={tx.isBusy}
+        errored={zero}
         fluo={parsed.ok && !zero}
       />
       <ScopeNote>
@@ -258,16 +285,8 @@ export function PogLimitPanel() {
         factory now rejects it outright — use the circuit breaker in G3 to stop
         taking on new projects.
       </ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label="update pog ceiling"
-          onClick={handleSet}
-          locked={!parsed.ok || zero}
-          busy={txBusy}
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="setMaxPogAllocationLimit" />
+
+      <ActionButton gate={gate} full={false} />
     </Section>
   )
 }
@@ -287,40 +306,56 @@ export function DurationSetterPanel({
   zeroNote:     React.ReactNode
 }) {
   const [secInput, setSecInput] = useState('')
-  const [error, setError]       = useState<string | null>(null)
 
   const {
     data: currentSec, isLoading, isFetching, refetch,
   } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: readFn,
   })
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
 
-  const parsed = (() => {
-    const trimmed = secInput.trim()
-    if (!trimmed) return { ok: false as const }
-    if (!/^\d+$/.test(trimmed)) return { ok: false as const }
-    return { ok: true as const, value: BigInt(trimmed) }
-  })()
-  const overMax    = parsed.ok && parsed.value > BigInt(MAX_COOLDOWN_SECONDS)
+  const tx = useTxAction({ action: `set ${title.toLowerCase()}`, onConfirmed: () => { void refetch() } })
+
+  const trimmed = secInput.trim()
+  const parsed = /^\d+$/.test(trimmed)
+    ? { ok: true as const, value: BigInt(trimmed) }
+    : { ok: false as const }
+  const overMax     = parsed.ok && parsed.value > BigInt(MAX_COOLDOWN_SECONDS)
   const settingZero = parsed.ok && parsed.value === 0n
-  const txBusy     = isPending || isConfirming
 
-  const handleSet = useCallback(() => {
-    setError(null)
-    if (!parsed.ok) { setError('Enter a non-negative integer (seconds)'); return }
-    if (parsed.value > BigInt(MAX_COOLDOWN_SECONDS)) {
-      setError(`Exceeds MAX_COOLDOWN (${MAX_COOLDOWN_SECONDS} s = 7 d) — would revert.`)
-      return
-    }
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
-      functionName: writeFn, args: [parsed.value],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [parsed, writeContract, writeFn])
+  const gate = useActionGate({
+    action: buttonLabel,
+    onAct: () => {
+      if (!parsed.ok) return
+      tx.send({
+        address: FACTORY_ADDRESS,
+        abi: FACTORY_ABI as unknown as Abi,
+        functionName: writeFn,
+        args: [parsed.value],
+      })
+    },
+    tx,
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'seconds-missing',
+        active: trimmed === '',
+        label: 'Enter a duration',
+        reason: 'Type the new duration above, in whole seconds.',
+        tone: 'neutral',
+      },
+      {
+        id: 'seconds-invalid',
+        active: trimmed !== '' && !parsed.ok,
+        label: '[not_whole_seconds]',
+        reason: 'Durations are whole seconds — no decimals, no units.',
+      },
+      {
+        id: 'over-max-cooldown',
+        active: overMax,
+        label: '[above_max_cooldown]',
+        reason: `The factory caps this at MAX_COOLDOWN (${MAX_COOLDOWN_SECONDS} s = 7 days) and would revert above it.`,
+      },
+    ),
+  })
 
   return (
     <Section id={id} title={title} subtitle={subtitle}>
@@ -339,28 +374,17 @@ export function DurationSetterPanel({
       <Field
         label={`NEW VALUE · SECONDS · MAX ${MAX_COOLDOWN_SECONDS} (7 d)`}
         value={secInput}
-        onChange={v => { setSecInput(v); setError(null) }}
+        onChange={setSecInput}
         placeholder="e.g. 86400"
         inputMode="numeric"
         pattern="[0-9]*"
-        disabled={txBusy}
+        disabled={tx.isBusy}
         errored={overMax}
         fluo={parsed.ok && !overMax}
-        hint={overMax
-          ? <span className="text-danger">→ ABOVE_MAX_COOLDOWN (WOULD_REVERT)</span>
-          : null}
       />
       <ScopeNote tone={settingZero ? 'warn' : 'mute'}>{zeroNote}</ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label={buttonLabel}
-          onClick={handleSet}
-          locked={!parsed.ok || overMax}
-          busy={txBusy}
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label={writeFn} />
+
+      <ActionButton gate={gate} full={false} />
     </Section>
   )
 }
@@ -372,7 +396,7 @@ export function CooldownDurationPanel() {
       title="RE-DEPOSIT COOLDOWN"
       subtitle="setCooldownDuration · per-(wallet, hook) throttle between deposits"
       readoutLabel="LIVE COOLDOWN"
-      buttonLabel="set cooldown"
+      buttonLabel="Set cooldown"
       readFn="cooldownDuration"
       writeFn="setCooldownDuration"
       zeroHint="0 (throttle disabled)"
@@ -395,7 +419,7 @@ export function QuotaWindowPanel() {
       title="POG QUOTA WINDOW"
       subtitle="setQuotaWindowDuration · how long a wallet's PoG spend ledger lasts before it refills"
       readoutLabel="LIVE WINDOW"
-      buttonLabel="set quota window"
+      buttonLabel="Set quota window"
       readFn="quotaWindowDuration"
       writeFn="setQuotaWindowDuration"
       zeroHint="0 (lifetime budget)"

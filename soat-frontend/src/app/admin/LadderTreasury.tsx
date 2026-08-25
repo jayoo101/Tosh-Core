@@ -1,15 +1,13 @@
 'use client'
 
+/**
+ * G4 · LADDER TREASURY CURATION — the roster the piggyback buyback spends
+ * against, and the only owner authority the treasury exposes.
+ */
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import {
-  useBalance,
-  useReadContract,
-  useReadContracts,
-  useWriteContract,
-  useWaitForTransactionReceipt,
-} from 'wagmi'
-import { isAddress, getAddress, type Address } from 'viem'
+import { useState, useCallback, useMemo } from 'react'
+import { useBalance, useReadContract, useReadContracts } from 'wagmi'
+import { isAddress, getAddress, type Abi, type Address } from 'viem'
 import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
@@ -17,29 +15,24 @@ import {
   TREASURY_ABI,
   LADDER_TREASURY_ADDRESS,
   hasLadderTreasury,
-  TARGET_CHAIN_ID,
   DEAD_ADDRESS,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
+import {
+  ActionButton, useActionGate, useTxAction, revertOrder,
+  type TxAction,
+} from '@/components/ui'
 import {
   Section,
   labelCls,
   ScopeNote,
   Field,
-  WriteButton,
   Readout,
-  AlarmLine,
-  TxLine,
   AddressLink,
   StatusBadge,
   ConfirmDialog,
   fmtEth,
-  shortErr,
 } from './shared'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// G4 · LADDER TREASURY CURATION
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Mirrors `ToshLadderTreasury.addLadderToken`'s own admission test before the
@@ -54,7 +47,7 @@ import {
  */
 export function useLadderTokenEligibility(raw: string) {
   const trimmed = raw.trim()
-  const valid   = !!trimmed && isAddress(trimmed)
+  const valid   = trimmed !== '' && isAddress(trimmed)
   const token   = valid ? getAddress(trimmed) : undefined
 
   const { data: hookAddr, isLoading: hookLoading } = useReadContract({
@@ -83,9 +76,45 @@ export function useLadderTokenEligibility(raw: string) {
   }
 }
 
+/**
+ * One roster entry.  A component rather than inline JSX because each row owns a
+ * gate, and a gate is a hook — sixteen of them cannot be called from a loop.
+ */
+function RosterRow({
+  token, index, isNext, tx, onRemove,
+}: {
+  token: Address
+  index: number
+  isNext: boolean
+  tx: TxAction
+  onRemove: (t: Address) => void
+}) {
+  const gate = useActionGate({
+    action: 'Remove',
+    onAct: () => onRemove(token),
+    tx,
+  })
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="font-mono text-label text-text-quiet tabular-nums">
+          {index.toString().padStart(2, '0')}
+        </span>
+        {isNext && (
+          <span className="text-micro font-mono tracking-widest text-brand">▸NEXT</span>
+        )}
+        <span className="font-mono text-note text-text-secondary break-all">
+          <AddressLink addr={token} />
+        </span>
+      </div>
+      <ActionButton gate={gate} size="sm" full={false} intent="danger" showReason={false} />
+    </div>
+  )
+}
+
 export function LadderTreasuryPanel() {
   const [tokenInput, setTokenInput] = useState('')
-  const [error, setError]           = useState<string | null>(null)
   const [pendingRemoval, setPendingRemoval] = useState<Address | null>(null)
 
   const treasury = LADDER_TREASURY_ADDRESS as Address
@@ -136,57 +165,90 @@ export function LadderTreasuryPanel() {
 
   const alreadyListed = !!token && listed.some(t => t.toLowerCase() === token.toLowerCase())
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => {
-    if (!isSuccess) return
-    void refetchCore()
-    void refetchTokens()
-    void refetchBalance()
-  }, [isSuccess, refetchCore, refetchTokens, refetchBalance])
+  const tx = useTxAction({
+    action: 'curate the roster',
+    onConfirmed: () => {
+      void refetchCore()
+      void refetchTokens()
+      void refetchBalance()
+    },
+  })
 
-  const txBusy = isPending || isConfirming
+  const addGate = useActionGate({
+    action: 'List token',
+    onAct: () => {
+      if (!token) return
+      tx.send({
+        address: treasury,
+        abi: TREASURY_ABI as unknown as Abi,
+        functionName: 'addLadderToken',
+        args: [token],
+      })
+    },
+    tx,
+    // Same order the treasury checks in, so the button never names a later
+    // failure than the one that would actually revert.
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'token-missing',
+        active: trimmed === '',
+        label: 'Enter a token',
+        reason: 'Paste the project token address — not its hook.',
+        tone: 'neutral',
+      },
+      {
+        id: 'token-invalid',
+        active: trimmed !== '' && !valid,
+        label: '[not_an_address]',
+        reason: 'That is not a well-formed 20-byte address.',
+      },
+      {
+        id: 'hook-resolving',
+        active: valid && hookLoading,
+        label: 'Resolving project…',
+        reason: 'Reading factory.tokenToHook for this token.',
+        tone: 'neutral',
+      },
+      {
+        id: 'not-launched-here',
+        active: valid && !hookLoading && !knownToken,
+        label: '[not_launched_here]',
+        reason: 'factory.tokenToHook returned zero — this platform did not launch this token, and the treasury only lists tokens it can price.',
+      },
+      {
+        id: 'already-listed',
+        active: alreadyListed,
+        label: '[already_listed]',
+        reason: 'This token is already on the roster.',
+        tone: 'neutral',
+      },
+      {
+        id: 'launch-resolving',
+        active: knownToken && !alreadyListed && launchedLoading,
+        label: 'Reading launch state…',
+        reason: 'Checking whether that project has opened its pool.',
+        tone: 'neutral',
+      },
+      {
+        id: 'hook-not-launched',
+        active: knownToken && !alreadyListed && !launchedLoading && !launched,
+        label: '[hook_not_launched]',
+        reason: 'That project has not called launch() yet, so it has no pool key and the treasury would revert InvalidPoolKey.',
+      },
+    ),
+  })
 
-  const eligibility: { ok: boolean; note: React.ReactNode } = (() => {
-    if (!trimmed)        return { ok: false, note: null }
-    if (!valid)          return { ok: false, note: <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> }
-    if (hookLoading)     return { ok: false, note: <span className="text-text-tertiary">→ resolving factory.tokenToHook…</span> }
-    if (!knownToken)     return { ok: false, note: <span className="text-danger">→ NOT_LAUNCHED_HERE · factory.tokenToHook returned 0</span> }
-    if (alreadyListed)   return { ok: false, note: <span className="text-text-tertiary">→ ALREADY_LISTED</span> }
-    if (launchedLoading) return { ok: false, note: <span className="text-text-tertiary">→ reading hook.launched()…</span> }
-    if (!launched) {
-      return {
-        ok: false,
-        note: <span className="text-danger">→ HOOK_NOT_LAUNCHED · no pool key yet, treasury would revert InvalidPoolKey</span>,
-      }
-    }
-    return {
-      ok: true,
-      note: <span className="text-brand">→ HOOK {hook!.slice(0, 10)}… · LAUNCHED · ELIGIBLE</span>,
-    }
-  })()
-
-  const handleAdd = useCallback(() => {
-    setError(null)
-    if (!eligibility.ok || !token) return
-    writeContract({
-      address: treasury, abi: TREASURY_ABI, functionName: 'addLadderToken',
-      args: [token],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [eligibility.ok, token, treasury, writeContract])
-
-  const handleRemove = useCallback(() => {
+  const confirmRemoval = useCallback(() => {
     if (!pendingRemoval) return
     const target = pendingRemoval
     setPendingRemoval(null)
-    setError(null)
-    writeContract({
-      address: treasury, abi: TREASURY_ABI, functionName: 'removeLadderToken',
+    tx.send({
+      address: treasury,
+      abi: TREASURY_ABI as unknown as Abi,
+      functionName: 'removeLadderToken',
       args: [target],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [pendingRemoval, treasury, writeContract])
+  }, [pendingRemoval, treasury, tx])
 
   if (!hasLadderTreasury) {
     return (
@@ -250,26 +312,14 @@ export function LadderTreasuryPanel() {
         ) : (
           <div className="border border-border-subtle rounded-lg divide-y divide-border-subtle/60">
             {listed.map((t, i) => (
-              <div key={t} className="flex items-center justify-between gap-3 px-3 py-2">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="font-mono text-label text-text-quiet tabular-nums">
-                    {i.toString().padStart(2, '0')}
-                  </span>
-                  {BigInt(i) === cursor && (
-                    <span className="text-micro font-mono tracking-widest text-brand">▸NEXT</span>
-                  )}
-                  <span className="font-mono text-note text-text-secondary break-all">
-                    <AddressLink addr={t} />
-                  </span>
-                </div>
-                <WriteButton
-                  label="remove"
-                  onClick={() => setPendingRemoval(t)}
-                  busy={txBusy}
-                  small
-                  danger
-                />
-              </div>
+              <RosterRow
+                key={t}
+                token={t}
+                index={i}
+                isNext={BigInt(i) === cursor}
+                tx={tx}
+                onRemove={setPendingRemoval}
+              />
             ))}
           </div>
         )}
@@ -279,24 +329,17 @@ export function LadderTreasuryPanel() {
       <Field
         label="ADD TOKEN · MUST BE LAUNCHED BY THIS FACTORY"
         value={tokenInput}
-        onChange={v => { setTokenInput(v); setError(null) }}
+        onChange={setTokenInput}
         placeholder="0x… project token address"
-        disabled={txBusy}
-        errored={!!trimmed && !eligibility.ok && !hookLoading}
-        fluo={eligibility.ok}
-        hint={eligibility.note}
+        disabled={tx.isBusy}
+        errored={trimmed !== '' && !valid}
+        fluo={addGate.verdict.kind === 'ready'}
+        hint={hook && launched && !alreadyListed
+          ? <span className="text-brand">→ HOOK {hook.slice(0, 10)}… · LAUNCHED · ELIGIBLE</span>
+          : null}
       />
-      <div className="flex justify-start">
-        <WriteButton
-          label="list token"
-          onClick={handleAdd}
-          locked={!eligibility.ok}
-          busy={txBusy}
-        />
-      </div>
 
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="addLadderToken / removeLadderToken" />
+      <ActionButton gate={addGate} full={false} />
 
       <ConfirmDialog
         open={!!pendingRemoval}
@@ -313,7 +356,7 @@ export function LadderTreasuryPanel() {
           </>
         }
         confirmLabel="delist"
-        onConfirm={handleRemove}
+        onConfirm={confirmRemoval}
         onCancel={() => setPendingRemoval(null)}
         danger
       />

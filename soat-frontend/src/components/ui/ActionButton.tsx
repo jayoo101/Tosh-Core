@@ -13,6 +13,11 @@
  * button with no explanation was the failure this whole mechanism exists to
  * prevent, so `showReason` defaults to on and turning it off should be a
  * deliberate choice made because the reason is already on screen.
+ *
+ * The `connect` verdict is the one exception, and it is not a judgement call:
+ * its label already reads "Connect Wallet", so the hint would restate it.  On a
+ * page with sixteen levers — the admin console — that restatement printed the
+ * same sentence sixteen times down the page.
  */
 
 import { cn } from './cn'
@@ -63,8 +68,16 @@ export function ActionButton({
           ? 'ghost'
           : 'ghost'
 
+  // `items-start` matters: a flex column stretches its children, so without it
+  // a `full={false}` button still spans the card it sits in.
   return (
-    <div className={cn('flex flex-col gap-gap-tight', full && 'w-full', className)}>
+    <div
+      className={cn(
+        'flex flex-col gap-gap-tight',
+        full ? 'w-full' : 'items-start',
+        className,
+      )}
+    >
       {busy ? (
         <Button label={verdict.label} busy busyLabel={verdict.label} size={size} full={full} />
       ) : (
@@ -80,7 +93,7 @@ export function ActionButton({
         />
       )}
 
-      {showReason && verdict.reason !== null && (
+      {showReason && verdict.reason !== null && verdict.kind !== 'connect' && (
         <p
           className={cn(
             'font-mono text-label leading-relaxed tracking-[0.12em]',

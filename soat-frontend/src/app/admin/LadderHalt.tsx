@@ -1,23 +1,23 @@
 'use client'
 
 
-import { useState, useCallback, useEffect } from 'react'
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
-import { isAddress, getAddress, type Address } from 'viem'
-import { FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS } from '@/lib/contracts'
-import { classifyHorizon, formatHorizonLabel, formatHorizonUtc } from '@/components/ui'
+import { useState, useCallback } from 'react'
+import { useReadContract } from 'wagmi'
+import { isAddress, getAddress, type Abi, type Address } from 'viem'
+import { FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS } from '@/lib/contracts'
+import {
+  ActionButton, useActionGate, useTxAction, revertOrder,
+  classifyHorizon, formatHorizonLabel, formatHorizonUtc,
+  type ActionBlocker,
+} from '@/components/ui'
 import {
   Section,
   labelCls,
   ScopeNote,
   Field,
-  WriteButton,
   Readout,
-  AlarmLine,
-  TxLine,
   StatusBadge,
   ConfirmDialog,
-  shortErr,
   useNowSec,
 } from './shared'
 
@@ -48,7 +48,6 @@ export function LadderHaltPanel() {
   const [hookInput, setHookInput]   = useState('')
   const [duration, setDuration]     = useState<bigint>(86_400n)
   const [confirming, setConfirming] = useState(false)
-  const [error, setError]           = useState<string | null>(null)
 
   const { data: globalUntil, refetch } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'globalLadderHaltedUntil',
@@ -65,12 +64,10 @@ export function LadderHaltPanel() {
     query: { enabled: !!targeted, refetchInterval: 10_000 },
   })
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => {
-    if (!isSuccess) return
-    void refetch(); void refetchHook()
-  }, [isSuccess, refetch, refetchHook])
+  const tx = useTxAction({
+    action: 'change the ladder halt',
+    onConfirmed: () => { void refetch(); void refetchHook() },
+  })
 
   const activeUntil  = scope === 'global' ? (globalUntil as bigint | undefined) : (hookUntil as bigint | undefined)
   // `haltLadderMinting` caps a halt at MAX_HALT_DURATION, so this stamp is
@@ -78,20 +75,43 @@ export function LadderHaltPanel() {
   // does not depend on that cap holding forever.
   const haltHorizon  = classifyHorizon(activeUntil ?? 0n, nowSec)
   const isHalted     = haltHorizon.kind === 'pending' || haltHorizon.kind === 'unbounded'
-  const txBusy       = isPending || isConfirming
   const targetArg    = scope === 'global' ? ZERO_ADDRESS : targeted
-  const targetReady  = scope === 'global' || !!targeted
 
   const submit = useCallback((resume: boolean) => {
-    setConfirming(false); setError(null)
-    if (!targetArg) { setError('Enter a valid hook address, or switch to platform-wide'); return }
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+    setConfirming(false)
+    if (!targetArg) return
+    tx.send({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI as unknown as Abi,
       functionName: resume ? 'resumeLadderMinting' : 'haltLadderMinting',
       args: resume ? [targetArg] : [targetArg, duration],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [targetArg, duration, writeContract])
+  }, [targetArg, duration, tx])
+
+  // Shared by both levers: a project-scoped halt needs a project.
+  const targetBlocker: ActionBlocker = {
+    id: 'halt-target-missing',
+    active: scope === 'hook' && targeted === undefined,
+    label: hookInput.trim() === '' ? 'Enter a hook address' : '[not_an_address]',
+    reason: hookInput.trim() === ''
+      ? 'Paste the hook address this halt applies to, or switch back to platform-wide.'
+      : 'That is not a well-formed hook address.',
+    tone: hookInput.trim() === '' ? 'neutral' : 'danger',
+  }
+
+  const haltGate = useActionGate({
+    action: `Halt ladder · ${HALT_PRESETS.find(p => p.secs === duration)?.label ?? ''}`,
+    onAct: () => setConfirming(true),
+    tx,
+    blockersInRevertOrder: revertOrder(targetBlocker),
+  })
+
+  const resumeGate = useActionGate({
+    action: 'Resume now',
+    onAct: () => submit(true),
+    tx,
+    blockersInRevertOrder: revertOrder(targetBlocker),
+  })
 
   return (
     <Section
@@ -102,7 +122,7 @@ export function LadderHaltPanel() {
       <div className="flex gap-2">
         {(['global', 'hook'] as const).map(s => (
           <button
-            key={s} type="button" onClick={() => { setScope(s); setError(null) }}
+            key={s} type="button" onClick={() => setScope(s)}
             className={'px-3 py-1.5 text-label tracking-[0.28em] uppercase font-bold border transition-colors ' +
               (scope === s
                 ? 'border-brand text-brand'
@@ -117,10 +137,10 @@ export function LadderHaltPanel() {
         <Field
           label="HOOK ADDRESS"
           value={hookInput}
-          onChange={v => { setHookInput(v); setError(null) }}
+          onChange={setHookInput}
           placeholder="0x… the project's hook, not its token"
-          disabled={txBusy}
-          fluo={!!targeted}
+          disabled={tx.isBusy}
+          fluo={targeted !== undefined}
         />
       )}
 
@@ -143,7 +163,7 @@ export function LadderHaltPanel() {
           {HALT_PRESETS.map(p => (
             <button
               key={p.label} type="button" onClick={() => setDuration(p.secs)}
-              disabled={txBusy}
+              disabled={tx.isBusy}
               className={'px-3 py-1.5 text-label tracking-[0.28em] uppercase font-bold border transition-colors ' +
                 (duration === p.secs
                   ? 'border-brand text-brand'
@@ -168,26 +188,10 @@ export function LadderHaltPanel() {
         outage that has to be renewed on-chain, in public, every week.
       </ScopeNote>
 
-      <div className="flex justify-start gap-2 flex-wrap">
-        <WriteButton
-          label={`halt ladder · ${HALT_PRESETS.find(p => p.secs === duration)?.label ?? ''}`}
-          onClick={() => setConfirming(true)}
-          locked={!targetReady}
-          busy={txBusy}
-          danger
-        />
-        {isHalted && (
-          <WriteButton
-            label="resume now"
-            onClick={() => submit(true)}
-            locked={!targetReady}
-            busy={txBusy}
-          />
-        )}
+      <div className="flex items-start gap-4 flex-wrap">
+        <ActionButton gate={haltGate} full={false} intent="danger" />
+        {isHalted && <ActionButton gate={resumeGate} full={false} showReason={false} />}
       </div>
-
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="haltLadderMinting" />
 
       <ConfirmDialog
         open={confirming}

@@ -32,8 +32,11 @@
  * hide anything to be safe — it needs to stop a non-owner from burning gas on a
  * transaction the contract will reject.  A non-owner therefore gets the full
  * read-only console with every write lever disabled, rather than a redirect.
- * `WriteAccessContext` carries that verdict; `WriteButton` reads it directly so
- * a new panel cannot forget to honour it.
+ * `ActionGateProvider` carries that verdict as the page's ambient gate, and
+ * every `useActionGate` on the page consults it before anything else, so a new
+ * panel cannot forget to honour it.  A wallet that is merely disconnected is
+ * NOT an authority failure and must not be reported as one: the gate resolves
+ * that case to `Connect Wallet` before it ever asks about ownership.
  *
  * Local guards mirrored from Solidity (so the wallet never opens for a
  * transaction that is already known to revert):
@@ -57,7 +60,8 @@ import {
   TESTNET_CHAIN_LABEL,
 } from '@/lib/contracts'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
-import { WriteAccessContext, Line, GroupHeader, AddressLink, type WriteAccess } from './shared'
+import { ActionGateProvider, type AmbientGate } from '@/components/ui'
+import { Line, GroupHeader, AddressLink } from './shared'
 import { LaunchFeePanel, SoftCapPanel, PogLimitPanel, CooldownDurationPanel, QuotaWindowPanel } from './FactoryDials'
 import { PogSignerPanel, PlatformTreasuryPanel } from './Signers'
 import { CircuitBreakerPanel } from './CircuitBreaker'
@@ -104,7 +108,14 @@ function WalletBar() {
   )
 }
 
-/** Page-wide verdict banner shown whenever writes are unavailable. */
+/**
+ * Page-wide verdict banner shown whenever writes are unavailable.
+ *
+ * The arms are ordered the way the action gate resolves them — disconnected
+ * before unresolved — so the banner and the buttons never disagree about why
+ * the page is read-only.  A visitor with no wallet gets "connect one", not
+ * "reading factory.owner()", which is a question they cannot answer.
+ */
 function AccessBanner({
   isConnected, ownerLoading, owner, isOwner,
 }: {
@@ -115,11 +126,11 @@ function AccessBanner({
 }) {
   if (isOwner) return null
 
-  const [title, body] = ownerLoading
-    ? ['RESOLVING AUTHORITY', 'Reading factory.owner() — levers stay locked until it resolves.']
-    : !isConnected
-      ? ['VIEW ONLY · WALLET DISCONNECTED',
-         'Every value below is live on-chain and safe to read. Connect the owner wallet to unlock writes.']
+  const [title, body] = !isConnected
+    ? ['VIEW ONLY · WALLET DISCONNECTED',
+       'Every value below is live on-chain and safe to read. Connect the owner wallet to unlock writes.']
+    : ownerLoading
+      ? ['RESOLVING AUTHORITY', 'Reading factory.owner() — levers stay locked until it resolves.']
       : ['VIEW ONLY · NOT THE OWNER',
          'This wallet is not the factory owner. Every write on this page is onlyOwner on-chain and would revert, so the levers are disabled rather than left to burn gas.']
 
@@ -149,15 +160,22 @@ export default function AdminPage() {
   const { address, isConnected } = useAccount()
   const { owner, isOwner, isLoading: ownerLoading } = useProtocolOwner()
 
-  const access = useMemo<WriteAccess>(() => {
-    if (ownerLoading)  return { canWrite: false, reason: 'resolving factory.owner()' }
-    if (!isConnected)  return { canWrite: false, reason: 'wallet not connected' }
-    if (!isOwner)      return { canWrite: false, reason: 'connected wallet is not the factory owner' }
-    return { canWrite: true, reason: null }
-  }, [ownerLoading, isConnected, isOwner])
+  const access = useMemo<AmbientGate>(() => {
+    if (ownerLoading) {
+      return { allowed: false, reason: 'Reading factory.owner().', label: '[resolving]' }
+    }
+    if (!isOwner) {
+      return {
+        allowed: false,
+        reason: 'This wallet is not the factory owner. Every write here is onlyOwner on-chain and would revert.',
+        label: '[read_only]',
+      }
+    }
+    return { allowed: true, reason: null }
+  }, [ownerLoading, isOwner])
 
   return (
-    <WriteAccessContext.Provider value={access}>
+    <ActionGateProvider value={access}>
       <div className="min-h-screen bg-bg-base text-text-primary font-sans">
         <header className="border-b border-border-subtle/60 px-6 py-6">
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
@@ -167,7 +185,7 @@ export default function AdminPage() {
                 <span className="text-label font-mono text-admin uppercase tracking-widest">
                   Operator Console
                 </span>
-                {!access.canWrite && (
+                {!access.allowed && (
                   <span className="text-label font-mono text-danger uppercase tracking-widest">
                     · read-only
                   </span>
@@ -251,6 +269,6 @@ export default function AdminPage() {
           </div>
         </main>
       </div>
-    </WriteAccessContext.Provider>
+    </ActionGateProvider>
   )
 }

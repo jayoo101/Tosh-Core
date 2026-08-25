@@ -1,8 +1,8 @@
 'use client'
 
 
-import { useState, useCallback, useEffect } from 'react'
-import { useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useState } from 'react'
+import { useReadContracts } from 'wagmi'
 import { isAddress, getAddress, type Abi, type Address } from 'viem'
 import {
   FACTORY_ABI,
@@ -10,21 +10,17 @@ import {
   TREASURY_ABI,
   LADDER_TREASURY_ADDRESS,
   hasLadderTreasury,
-  TARGET_CHAIN_ID,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
+import { ActionButton, useActionGate, useTxAction, revertOrder } from '@/components/ui'
 import {
   Section,
   ScopeNote,
   Field,
-  WriteButton,
   Readout,
-  AlarmLine,
-  TxLine,
   AddressLink,
   StatusBadge,
   ConfirmDialog,
-  shortErr,
 } from './shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,6 +34,14 @@ import {
  * Both contracts expose an identical `owner / pendingOwner / transferOwnership
  * / acceptOwnership` surface, and widening here is what lets one component
  * serve both without a union that wagmi's inference cannot narrow.
+ *
+ * NON-OBVIOUS CONSTRAINT — both levers here set `bypassAmbientGate`, because
+ * neither is authorised against `factory.owner()`.  `acceptOwnership` is called
+ * by definition by a wallet that is NOT the owner yet, and `transferOwnership`
+ * is authorised against whichever contract this card is bound to, which for the
+ * treasury card is not the factory.  Each therefore carries its own blocker in
+ * exchange, and `transferOwnership` puts `not-owner` first because Ownable2Step
+ * runs `onlyOwner` before it ever looks at the argument.
  */
 export function OwnershipCard({
   label, contractAddress, abi, connected,
@@ -48,7 +52,6 @@ export function OwnershipCard({
   connected:       Address | undefined
 }) {
   const [target, setTarget]         = useState('')
-  const [error, setError]           = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
   const { data, refetch } = useReadContracts({
@@ -62,11 +65,10 @@ export function OwnershipCard({
   const owner        = data?.[0]?.result as Address | undefined
   const pendingOwner = data?.[1]?.result as Address | undefined
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
-
-  const txBusy = isPending || isConfirming
+  const tx = useTxAction({
+    action: `move ${label} ownership`,
+    onConfirmed: () => { void refetch() },
+  })
 
   const hasPending = !!pendingOwner && pendingOwner !== ZERO_ADDRESS
   const iAmPending = hasPending && !!connected
@@ -75,28 +77,74 @@ export function OwnershipCard({
                   && owner.toLowerCase() === connected.toLowerCase()
 
   const trimmed  = target.trim()
-  const valid    = !!trimmed && isAddress(trimmed)
+  const valid    = trimmed !== '' && isAddress(trimmed)
   const zeroAddr = trimmed.toLowerCase() === ZERO_ADDRESS.toLowerCase()
   const sameAsOwner = valid && !!owner && trimmed.toLowerCase() === owner.toLowerCase()
-  const transferLocked = !valid || zeroAddr || sameAsOwner || !iAmOwner
 
-  const submitTransfer = useCallback(() => {
+  const submitTransfer = () => {
     setConfirming(false)
-    writeContract({
+    tx.send({
       address: contractAddress, abi, functionName: 'transferOwnership',
       args: [getAddress(trimmed)],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [contractAddress, abi, trimmed, writeContract])
+  }
 
-  const submitAccept = useCallback(() => {
-    setError(null)
-    writeContract({
-      address: contractAddress, abi, functionName: 'acceptOwnership',
-      args: [],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [contractAddress, abi, writeContract])
+  const acceptGate = useActionGate({
+    action: 'Accept ownership',
+    onAct: () => {
+      tx.send({ address: contractAddress, abi, functionName: 'acceptOwnership', args: [] })
+    },
+    tx,
+    bypassAmbientGate: true,
+    blockersInRevertOrder: revertOrder({
+      id: 'not-pending-owner',
+      active: !iAmPending,
+      label: '[not_pending_owner]',
+      reason: `Only the address ${label} has named as pending owner can accept.`,
+    }),
+  })
+
+  const transferGate = useActionGate({
+    action: 'Initiate transfer',
+    onAct: () => setConfirming(true),
+    tx,
+    bypassAmbientGate: true,
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'not-owner',
+        active: !iAmOwner,
+        label: '[not_the_owner]',
+        reason: `Only ${label}'s current owner may start a handoff, and this wallet is not it.`,
+        tone: 'neutral',
+      },
+      {
+        id: 'target-missing',
+        active: trimmed === '',
+        label: 'Enter a recipient',
+        reason: 'Paste the address that should receive ownership.',
+        tone: 'neutral',
+      },
+      {
+        id: 'target-invalid',
+        active: trimmed !== '' && !valid,
+        label: '[not_an_address]',
+        reason: 'That is not a well-formed 20-byte address.',
+      },
+      {
+        id: 'target-zero',
+        active: zeroAddr,
+        label: '[zero_address]',
+        reason: 'Transferring to the zero address would strand this contract with no owner and no way back.',
+      },
+      {
+        id: 'target-is-owner',
+        active: sameAsOwner,
+        label: '[already_the_owner]',
+        reason: 'That is the current owner — the handoff would change nothing.',
+        tone: 'neutral',
+      },
+    ),
+  })
 
   return (
     <div className="flex flex-col gap-3 border border-border-subtle rounded-xl p-4">
@@ -122,52 +170,21 @@ export function OwnershipCard({
             You are the pending owner of this contract. Ownership does not move
             until you accept it.
           </p>
-          <div className="flex justify-start">
-            <WriteButton
-              label="accept ownership"
-              onClick={submitAccept}
-              locked={!iAmPending}
-              busy={txBusy}
-              bypassOwnerGate
-              small
-            />
-          </div>
+          <ActionButton gate={acceptGate} size="sm" full={false} />
         </div>
       )}
 
       <Field
         label="TRANSFER TO · SAFE MULTISIG"
         value={target}
-        onChange={v => { setTarget(v); setError(null) }}
+        onChange={setTarget}
         placeholder="0x… receiving Gnosis Safe"
-        disabled={txBusy}
+        disabled={tx.isBusy}
         errored={trimmed.length > 0 && (!valid || zeroAddr || sameAsOwner)}
-        fluo={!transferLocked}
-        hint={
-          trimmed.length > 0 && !valid
-            ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span>
-            : zeroAddr
-              ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
-              : sameAsOwner
-                ? <span className="text-text-tertiary">→ EQUALS_CURRENT_OWNER (NO_OP)</span>
-                : !iAmOwner
-                  ? <span className="text-text-tertiary">→ ONLY THE CURRENT OWNER MAY INITIATE</span>
-                  : null
-        }
+        fluo={transferGate.verdict.kind === 'ready'}
       />
-      <div className="flex justify-start">
-        <WriteButton
-          label="initiate transfer"
-          onClick={() => { setError(null); if (!transferLocked) setConfirming(true) }}
-          locked={transferLocked}
-          busy={txBusy}
-          bypassOwnerGate
-          danger
-        />
-      </div>
 
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label={`${label} ownership`} />
+      <ActionButton gate={transferGate} full={false} intent="danger" />
 
       <ConfirmDialog
         open={confirming}

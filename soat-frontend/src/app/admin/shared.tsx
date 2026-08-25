@@ -3,36 +3,19 @@
 /**
  * Admin console · shared surface.
  *
- * The page-level write verdict, the minimal primitives every governance panel
- * renders through, and the parsing helpers they share.  Split out of the
- * former 2.4k-line page.tsx so a panel is editable without scrolling past
- * eighteen others.
+ * The minimal primitives every governance panel renders through, and the
+ * parsing helpers they share.  Split out of the former 2.4k-line page.tsx so a
+ * panel is editable without scrolling past eighteen others.
+ *
+ * Buttons and transaction feedback are deliberately NOT here: they come from
+ * `@/components/ui` (`ActionButton` + `useActionGate` + `useTxAction`), which is
+ * the same mechanism the rest of the app uses.  The page's owner verdict rides
+ * on that mechanism's ambient gate, set once in page.tsx.
  */
 
-import { useState, useEffect, createContext, useContext } from 'react'
-import { useWaitForTransactionReceipt } from 'wagmi'
+import { useState, useEffect } from 'react'
 import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
-import { ADMIN_BATCH_MAX, testnetExplorerTx, testnetExplorerAddress } from '@/lib/contracts'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WRITE ACCESS  —  one verdict, consumed by every lever on the page
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface WriteAccess {
-  /** True only when the connected wallet is the on-chain factory owner. */
-  canWrite: boolean
-  /** Why writes are disabled, rendered on hover / in the banner. */
-  reason: string | null
-}
-
-export const WriteAccessContext = createContext<WriteAccess>({
-  canWrite: false,
-  reason:   'resolving owner',
-})
-
-export function useWriteAccess(): WriteAccess {
-  return useContext(WriteAccessContext)
-}
+import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MINIMAL PRIMITIVES — every visual is a 1 px line or a typeface contrast
@@ -171,55 +154,6 @@ export function TextAreaField({
   )
 }
 
-/**
- * Write button.  Locks itself whenever the page-level access verdict says the
- * connected wallet is not the owner, so a panel author cannot forget the guard.
- *
- * `bypassOwnerGate` opts a single button out of that verdict.  It exists for
- * writes whose on-chain authority is NOT `factory.owner()` — `acceptOwnership`,
- * which by definition is called by a wallet that is not the owner yet, and the
- * ownership card's own `transferOwnership`, which is authorised against the
- * contract that card is bound to rather than against the factory.  A button
- * that sets it MUST carry its own `locked` predicate.
- */
-export function WriteButton({
-  label, onClick, locked, busy, small, danger, bypassOwnerGate,
-}: {
-  label:   React.ReactNode
-  onClick: () => void
-  locked?: boolean
-  busy?:   boolean
-  small?:  boolean
-  danger?: boolean
-  bypassOwnerGate?: boolean
-}) {
-  const { canWrite, reason } = useWriteAccess()
-  const ownerGated = !bypassOwnerGate && !canWrite
-  const hardLocked = !!locked || ownerGated
-  const disabled   = hardLocked || !!busy
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={ownerGated ? (reason ?? 'read-only') : undefined}
-      className={`inline-flex items-center justify-center
-                  ${small ? 'px-4 py-2 text-label' : 'px-5 py-2.5 text-xs'}
-                  font-mono uppercase tracking-wider font-bold rounded-input
-                  transition-colors disabled:cursor-not-allowed
-                  ${hardLocked
-                    ? 'border border-border-subtle text-text-quiet bg-transparent'
-                    : danger
-                      ? 'border border-danger text-danger hover:bg-danger hover:text-bg-base'
-                      : 'border border-brand/40 bg-brand/10 text-brand hover:bg-brand hover:text-bg-base'}
-                  disabled:opacity-40`}
-    >
-      {busy ? 'transmitting…' : label}
-    </button>
-  )
-}
-
 export function Readout({
   label, value, tone = 'ink', hint,
 }: {
@@ -242,41 +176,6 @@ export function Readout({
       </div>
       {hint && <div className="text-label text-text-quiet tracking-wider text-right">{hint}</div>}
     </div>
-  )
-}
-
-export function AlarmLine({ msg }: { msg: string | null }) {
-  if (!msg) return null
-  return (
-    <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
-      <span className="text-danger">[REVERT]</span> {msg}
-    </p>
-  )
-}
-
-/** Minimal tx status line — state + explorer link for the broadcast hash. */
-export function TxLine({ hash, label }: { hash?: `0x${string}`; label: string }) {
-  const { isLoading, isSuccess, isError } = useWaitForTransactionReceipt({ hash })
-  if (!hash) return null
-  const stateTxt = isLoading
-    ? 'CONFIRMING'
-    : isSuccess ? 'ACKNOWLEDGED'
-    : isError ? 'REVERTED'
-    : 'PENDING'
-  const tone = isSuccess ? 'text-brand' : isError ? 'text-danger' : 'text-text-tertiary'
-  return (
-    <p className="text-label font-mono tracking-wider flex items-center gap-3 flex-wrap">
-      <span className={tone}>[TX]</span>
-      <span className="text-text-tertiary">{label}</span>
-      <span className={tone}>{stateTxt}</span>
-      <a
-        href={testnetExplorerTx(hash)}
-        target="_blank" rel="noopener noreferrer"
-        className="text-text-quiet hover:text-brand break-all underline decoration-dotted"
-      >
-        {hash.slice(0, 10)}…{hash.slice(-6)} ↗
-      </a>
-    </p>
   )
 }
 

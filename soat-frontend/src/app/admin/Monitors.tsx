@@ -4,7 +4,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useReadContract, useSignMessage } from 'wagmi'
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
-import { Section, ScopeNote, Field, WriteButton } from './shared'
+import {
+  ActionButton, useActionGate, revertOrder,
+  toshToast, isUserRejection, shortErrorMessage,
+} from '@/components/ui'
+import { Section, ScopeNote, Field } from './shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DIAGNOSTICS  ·  live initcode hash + off-chain rate
@@ -80,48 +84,58 @@ export function buildAdminConfigMessage(rate: number, nonce: bigint, expiresAt: 
 
 export function ExchangeRatePanel() {
   const [rateInput, setRateInput] = useState('')
-  const [status, setStatus]   = useState<'idle' | 'signing' | 'submitting' | 'ok' | 'error'>('idle')
-  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const { signMessageAsync } = useSignMessage()
 
+  const rate  = parseFloat(rateInput)
+  const armed = !isNaN(rate) && rate > 0
+
   const handleUpdate = useCallback(async () => {
-    setMessage('')
-    const num = parseFloat(rateInput)
-    if (isNaN(num) || num <= 0) {
-      setStatus('error'); setMessage('Rate must be a positive number'); return
-    }
+    if (!armed) return
     const nonce     = BigInt(Date.now())
     const expiresAt = Math.floor(Date.now() / 1000) + 120
-    const msg       = buildAdminConfigMessage(num, nonce, expiresAt)
+    const msg       = buildAdminConfigMessage(rate, nonce, expiresAt)
 
-    let signature: `0x${string}`
-    setStatus('signing')
-    try { signature = await signMessageAsync({ message: msg }) }
-    catch (err) {
-      setStatus('error')
-      setMessage(err instanceof Error ? err.message : 'Signature rejected')
-      return
-    }
-    setStatus('submitting')
+    setBusy(true)
     try {
+      const signature = await signMessageAsync({ message: msg })
       const res = await fetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newRate: num, nonce: nonce.toString(), expiresAt, signature }),
+        body: JSON.stringify({ newRate: rate, nonce: nonce.toString(), expiresAt, signature }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      setStatus('ok')
-      setMessage(`Rate updated: ${data.previous} → ${data.globalGasToSatoRate} (${data.authMethod})`)
+      toshToast.success(
+        `Rate updated — ${data.previous} → ${data.globalGasToSatoRate} (${data.authMethod})`,
+      )
     } catch (err) {
-      setStatus('error')
-      setMessage(err instanceof Error ? err.message : 'Unknown error')
+      if (!isUserRejection(err)) {
+        toshToast.error(shortErrorMessage(err) ?? 'Could not update the rate.')
+      }
+    } finally {
+      setBusy(false)
     }
-  }, [rateInput, signMessageAsync])
+  }, [armed, rate, signMessageAsync])
 
-  const busy  = status === 'signing' || status === 'submitting'
-  const armed = !isNaN(parseFloat(rateInput)) && parseFloat(rateInput) > 0
+  // A signed instruction to our own backend, so no chain is involved — but the
+  // ambient owner gate still is, which is why this goes through the gate at all.
+  const gate = useActionGate({
+    action: 'Update rate',
+    onAct: () => { void handleUpdate() },
+    tx: { isBusy: busy },
+    requiresNetwork: false,
+    blockersInRevertOrder: revertOrder({
+      id: 'rate-invalid',
+      active: !armed,
+      label: rateInput.trim() === '' ? 'Enter a rate' : '[not_a_positive_number]',
+      reason: rateInput.trim() === ''
+        ? 'Type the new quota-per-gas rate above.'
+        : 'The rate must be a positive number.',
+      tone: rateInput.trim() === '' ? 'neutral' : 'danger',
+    }),
+  })
 
   return (
     <Section
@@ -142,20 +156,8 @@ export function ExchangeRatePanel() {
         backend, so it costs no gas and leaves no on-chain trace — and it is only
         as trustworthy as the API server holding the other end.
       </ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label={status === 'signing' ? 'sign in wallet…' : status === 'submitting' ? 'submitting…' : 'update rate'}
-          onClick={() => void handleUpdate()}
-          busy={busy}
-          locked={!armed}
-        />
-      </div>
-      {message && (
-        <p className={`font-mono text-label tracking-wider leading-relaxed
-                       ${status === 'ok' ? 'text-brand' : 'text-danger'}`}>
-          {status === 'ok' ? '✓' : '⛔'} {message}
-        </p>
-      )}
+
+      <ActionButton gate={gate} full={false} />
     </Section>
   )
 }

@@ -1,26 +1,27 @@
 'use client'
 
+/**
+ * G2 · POG AUTHORITY — the oracle signer, plus the legacy treasury pointer.
+ *
+ * Both are the same write: swap one address for another.  The refusals are the
+ * interesting part, and two of the three are ours rather than the contract's —
+ * the factory would happily accept the zero address or the value it already
+ * holds, and neither is ever what an operator meant.
+ */
 
-import { useState, useCallback, useEffect } from 'react'
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
-import { isAddress, getAddress } from 'viem'
-import { FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS } from '@/lib/contracts'
+import { useState } from 'react'
+import { useReadContract } from 'wagmi'
+import { isAddress, getAddress, type Abi } from 'viem'
+import { FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS } from '@/lib/contracts'
+import { ActionButton, useActionGate, useTxAction, revertOrder } from '@/components/ui'
 import {
   Section,
   ScopeNote,
   Field,
-  WriteButton,
   Readout,
-  AlarmLine,
-  TxLine,
   AddressLink,
   ConfirmDialog,
-  shortErr,
 } from './shared'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// G2 · POG SIGNER
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function AddressRotationPanel({
   id, title, subtitle, readFn, writeFn, txLabel, placeholder, note, confirmBody,
@@ -36,7 +37,6 @@ export function AddressRotationPanel({
   confirmBody: React.ReactNode
 }) {
   const [addrInput, setAddrInput]   = useState('')
-  const [error, setError]           = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
   const {
@@ -44,26 +44,61 @@ export function AddressRotationPanel({
   } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: readFn,
   })
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
+
+  const tx = useTxAction({
+    action: `rotate the ${txLabel.toLowerCase()}`,
+    onConfirmed: () => { void refetch() },
+  })
 
   const trimmed    = addrInput.trim()
-  const validAddr  = !!trimmed && isAddress(trimmed)
+  const validAddr  = trimmed !== '' && isAddress(trimmed)
   const sameAsLive = validAddr && typeof currentAddr === 'string'
                   && trimmed.toLowerCase() === (currentAddr as string).toLowerCase()
   const zeroAddr   = trimmed.toLowerCase() === ZERO_ADDRESS.toLowerCase()
-  const locked     = !validAddr || sameAsLive || zeroAddr
-  const txBusy     = isPending || isConfirming
 
-  const submit = useCallback(() => {
+  const submit = () => {
     setConfirming(false)
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: writeFn,
+    tx.send({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI as unknown as Abi,
+      functionName: writeFn,
       args: [getAddress(trimmed)],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [trimmed, writeFn, writeContract])
+  }
+
+  const gate = useActionGate({
+    action: `Rotate ${txLabel.toLowerCase()}`,
+    onAct: () => setConfirming(true),
+    tx,
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'address-missing',
+        active: trimmed === '',
+        label: 'Enter an address',
+        reason: `Paste the new ${txLabel.toLowerCase()} address above.`,
+        tone: 'neutral',
+      },
+      {
+        id: 'address-invalid',
+        active: trimmed !== '' && !validAddr,
+        label: '[not_an_address]',
+        reason: 'That is not a well-formed 20-byte address.',
+      },
+      {
+        id: 'address-zero',
+        active: zeroAddr,
+        label: '[zero_address]',
+        reason: 'Rotating to the zero address would strand this authority with no way to recover it.',
+      },
+      {
+        id: 'address-unchanged',
+        active: sameAsLive,
+        label: '[already_live]',
+        reason: 'This is the address already on-chain — the rotation would spend gas to change nothing.',
+        tone: 'neutral',
+      },
+    ),
+  })
 
   return (
     <Section id={id} title={title} subtitle={subtitle}>
@@ -77,32 +112,15 @@ export function AddressRotationPanel({
       <Field
         label="NEW ADDRESS"
         value={addrInput}
-        onChange={v => { setAddrInput(v); setError(null) }}
+        onChange={setAddrInput}
         placeholder={placeholder}
-        disabled={txBusy}
+        disabled={tx.isBusy}
         errored={trimmed.length > 0 && !validAddr}
-        fluo={!locked}
-        hint={
-          trimmed.length > 0 && !validAddr
-            ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span>
-            : sameAsLive
-              ? <span className="text-text-tertiary">→ EQUALS_LIVE_VALUE (NO_OP)</span>
-              : zeroAddr
-                ? <span className="text-danger">→ ZERO_ADDRESS_REFUSED</span>
-                : null
-        }
+        fluo={validAddr && !sameAsLive && !zeroAddr}
       />
       <ScopeNote>{note}</ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label={`rotate ${txLabel.toLowerCase()}`}
-          onClick={() => { setError(null); if (!locked) setConfirming(true) }}
-          locked={locked}
-          busy={txBusy}
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label={writeFn} />
+
+      <ActionButton gate={gate} full={false} intent="danger" />
 
       <ConfirmDialog
         open={confirming}

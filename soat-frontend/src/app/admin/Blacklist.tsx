@@ -1,18 +1,28 @@
 'use client'
 
+/**
+ * G3-C · BLACKLIST — batch bans, plus a single-wallet release.
+ *
+ * The textarea is deliberately forgiving about what it is fed and strict about
+ * what it sends: rows are classified, counted and shown before anything is
+ * signed, and only the valid ones go on the wire.
+ */
 
 import { useState, useCallback, useMemo } from 'react'
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
-import { isAddress, getAddress, type Address } from 'viem'
+import { useReadContract } from 'wagmi'
+import { isAddress, getAddress, type Abi, type Address } from 'viem'
 import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
-  TARGET_CHAIN_ID,
   ADMIN_BATCH_MAX,
   BAN_DURATIONS,
   type BanDurationKey,
 } from '@/lib/contracts'
-import { classifyHorizon, formatHorizonUtc } from '@/components/ui'
+import {
+  ActionButton, useActionGate, useTxAction, revertOrder,
+  classifyHorizon, formatHorizonUtc,
+  type ActionBlocker,
+} from '@/components/ui'
 import {
   Line,
   Section,
@@ -20,11 +30,7 @@ import {
   ScopeNote,
   Field,
   TextAreaField,
-  WriteButton,
-  AlarmLine,
-  TxLine,
   parseAddressGrid,
-  shortErr,
   useNowSec,
   type AddressRowStatus,
   type ParsedAddressRow,
@@ -81,15 +87,10 @@ export function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
 /** Single-address lift, kept separate from the batch textarea. */
 export function SingleLiftRow() {
   const [addr, setAddr] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const nowSec = useNowSec()
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash })
-
   const trimmed = addr.trim()
-  const valid   = !!trimmed && isAddress(trimmed)
-  const txBusy  = isPending || isConfirming
+  const valid   = trimmed !== '' && isAddress(trimmed)
 
   const { data: bannedUntil, refetch } = useReadContract({
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'blacklistedUntil',
@@ -97,59 +98,80 @@ export function SingleLiftRow() {
     query: { enabled: valid },
   })
 
-  const until    = bannedUntil as bigint | undefined
+  const tx = useTxAction({
+    action: 'lift the ban',
+    onConfirmed: () => { void refetch() },
+  })
+
+  const until = bannedUntil as bigint | undefined
   // `setBlacklist` stores `type(uint256).max` verbatim but any other duration as
   // `block.timestamp + duration`, so an unreachable ban need not equal the
   // sentinel.  Testing for the sentinel alone let such a stamp reach `Date` and
   // take the panel down with a RangeError.
-  const banHorizon  = classifyHorizon(until ?? 0n, nowSec)
-  const isBanned    = banHorizon.kind === 'pending' || banHorizon.kind === 'unbounded'
+  const banHorizon = classifyHorizon(until ?? 0n, nowSec)
+  const isBanned   = banHorizon.kind === 'pending' || banHorizon.kind === 'unbounded'
   const bannedUntilTxt = banHorizon.kind === 'pending'
     ? (formatHorizonUtc(banHorizon, 'second') ?? 'PERMANENT')
     : 'PERMANENT'
 
-  const handleLift = useCallback(() => {
-    setError(null)
-    if (!valid) { setError('Not a valid Ethereum address'); return }
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'liftBlacklist',
-      args: [[getAddress(trimmed)]],
-      chainId: TARGET_CHAIN_ID,
-    })
-    void refetch()
-  }, [valid, trimmed, writeContract, refetch])
+  const gate = useActionGate({
+    action: 'Lift single ban',
+    onAct: () => {
+      if (!valid) return
+      tx.send({
+        address: FACTORY_ADDRESS,
+        abi: FACTORY_ABI as unknown as Abi,
+        functionName: 'liftBlacklist',
+        args: [[getAddress(trimmed)]],
+      })
+    },
+    tx,
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'address-missing',
+        active: trimmed === '',
+        label: 'Enter an address',
+        reason: 'Paste the wallet to release.',
+        tone: 'neutral',
+      },
+      {
+        id: 'address-invalid',
+        active: trimmed !== '' && !valid,
+        label: '[not_an_address]',
+        reason: 'That is not a well-formed 20-byte address.',
+      },
+      {
+        id: 'ban-lookup-pending',
+        active: valid && until === undefined,
+        label: 'Reading ban status…',
+        reason: 'Waiting on blacklistedUntil for this wallet.',
+        tone: 'neutral',
+      },
+      {
+        id: 'not-banned',
+        active: valid && until !== undefined && !isBanned,
+        label: '[not_banned]',
+        reason: 'This wallet is not currently banned, so there is nothing to lift.',
+        tone: 'neutral',
+      },
+    ),
+  })
 
   return (
     <div className="flex flex-col gap-3 pt-2">
       <Field
         label="SINGLE-ADDRESS LIFT · LOOKUP + RELEASE"
         value={addr}
-        onChange={v => { setAddr(v); setError(null) }}
+        onChange={setAddr}
         placeholder="0x… one wallet to release"
-        disabled={txBusy}
+        disabled={tx.isBusy}
         errored={trimmed.length > 0 && !valid}
         fluo={valid && isBanned}
-        hint={
-          !valid
-            ? (trimmed.length > 0 ? <span className="text-danger">→ NOT_A_VALID_ADDRESS</span> : null)
-            : until === undefined
-              ? <span className="text-text-tertiary">→ reading blacklistedUntil…</span>
-              : isBanned
-                ? <span className="text-danger">→ BANNED UNTIL {bannedUntilTxt}</span>
-                : <span className="text-brand">→ NOT CURRENTLY BANNED</span>
-        }
+        hint={valid && isBanned
+          ? <span className="text-danger">→ BANNED UNTIL {bannedUntilTxt}</span>
+          : null}
       />
-      <div className="flex justify-start">
-        <WriteButton
-          label="lift single ban"
-          onClick={handleLift}
-          locked={!valid || !isBanned}
-          busy={txBusy}
-          small
-        />
-      </div>
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="liftBlacklist (single)" />
+      <ActionButton gate={gate} size="sm" full={false} />
     </div>
   )
 }
@@ -157,10 +179,8 @@ export function SingleLiftRow() {
 export function BlacklistConsole() {
   const [addresses, setAddresses] = useState('')
   const [duration, setDuration]   = useState<BanDurationKey>('24 HOURS')
-  const [error, setError]         = useState<string | null>(null)
 
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming } = useWaitForTransactionReceipt({ hash: txHash })
+  const tx = useTxAction({ action: 'update the blacklist' })
 
   const rows   = useMemo(() => parseAddressGrid(addresses), [addresses])
   const counts = useMemo(() => {
@@ -179,32 +199,47 @@ export function BlacklistConsole() {
     [rows],
   )
   const overBatchLimit = counts.overCap > 0
-  const locked = sendable.length === 0
-  const txBusy = isPending || isConfirming
 
-  const handleBan = useCallback(() => {
-    setError(null)
-    if (locked) return
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'setBlacklist',
-      args: [sendable, BAN_DURATIONS[duration]],
-      chainId: TARGET_CHAIN_ID,
+  const send = useCallback((functionName: 'setBlacklist' | 'liftBlacklist') => {
+    if (sendable.length === 0) return
+    tx.send({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI as unknown as Abi,
+      functionName,
+      args: functionName === 'setBlacklist'
+        ? [sendable, BAN_DURATIONS[duration]]
+        : [sendable],
     })
-  }, [locked, sendable, duration, writeContract])
+  }, [sendable, duration, tx])
 
-  const handleLift = useCallback(() => {
-    setError(null)
-    if (locked) return
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'liftBlacklist',
-      args: [sendable],
-      chainId: TARGET_CHAIN_ID,
-    })
-  }, [locked, sendable, writeContract])
+  // Both levers send the same list, so they refuse for the same reason.
+  const emptyBatch: ActionBlocker = {
+    id: 'no-sendable-addresses',
+    active: sendable.length === 0,
+    label: addresses.trim() === '' ? 'Paste addresses' : '[no_valid_addresses]',
+    reason: addresses.trim() === ''
+      ? 'Paste one or more wallets above, one per line or comma-separated.'
+      : 'Nothing in that dump parsed as a fresh, valid address.',
+    tone: addresses.trim() === '' ? 'neutral' : 'danger',
+  }
+
+  const banGate = useActionGate({
+    action: `Engage ban · ${sendable.length}`,
+    onAct: () => send('setBlacklist'),
+    tx,
+    blockersInRevertOrder: revertOrder(emptyBatch),
+  })
+
+  const liftGate = useActionGate({
+    action: `Lift batch · ${sendable.length}`,
+    onAct: () => send('liftBlacklist'),
+    tx,
+    blockersInRevertOrder: revertOrder(emptyBatch),
+  })
 
   return (
     <Section
-      id="G3-B" title="BLACKLIST BATCH"
+      id="G3-C" title="BLACKLIST BATCH"
       subtitle={`setBlacklist / liftBlacklist · hard cap ${ADMIN_BATCH_MAX} wallets per transaction`}
     >
       <TextAreaField
@@ -213,7 +248,7 @@ export function BlacklistConsole() {
         onChange={setAddresses}
         placeholder={'0xAbCdEf…\n0x1234567…'}
         rows={4}
-        disabled={txBusy}
+        disabled={tx.isBusy}
       />
 
       <div className="grid grid-cols-4 border border-border-subtle divide-x divide-border-subtle rounded-lg overflow-hidden">
@@ -245,7 +280,7 @@ export function BlacklistConsole() {
         <select
           value={duration}
           onChange={e => setDuration(e.target.value as BanDurationKey)}
-          disabled={txBusy}
+          disabled={tx.isBusy}
           className="bg-surface-card/50 border border-border-subtle focus:border-brand rounded-lg
                      px-3 py-2.5 font-mono text-sm text-text-primary tabular-nums
                      transition-colors duration-150 disabled:opacity-40"
@@ -262,24 +297,10 @@ export function BlacklistConsole() {
         verbatim instead of adding, so it never overflows and never expires.
       </ScopeNote>
 
-      <div className="flex gap-3 flex-wrap">
-        <WriteButton
-          label={`engage ban · ${sendable.length}`}
-          onClick={handleBan}
-          locked={locked}
-          busy={txBusy}
-          danger
-        />
-        <WriteButton
-          label={`lift batch · ${sendable.length}`}
-          onClick={handleLift}
-          locked={locked}
-          busy={txBusy}
-        />
+      <div className="flex items-start gap-4 flex-wrap">
+        <ActionButton gate={banGate} full={false} intent="danger" />
+        <ActionButton gate={liftGate} full={false} showReason={false} />
       </div>
-
-      <AlarmLine msg={error ?? shortErr(writeError)} />
-      <TxLine hash={txHash} label="setBlacklist / liftBlacklist" />
 
       <Line className="mt-2" />
       <SingleLiftRow />

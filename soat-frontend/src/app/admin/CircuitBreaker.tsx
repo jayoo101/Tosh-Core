@@ -1,19 +1,11 @@
 'use client'
 
-
-import { useState, useCallback, useEffect } from 'react'
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
-import { FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID } from '@/lib/contracts'
-import {
-  Section,
-  ScopeNote,
-  WriteButton,
-  AlarmLine,
-  TxLine,
-  StatusBadge,
-  ConfirmDialog,
-  shortErr,
-} from './shared'
+import { useState, useCallback } from 'react'
+import { useReadContract } from 'wagmi'
+import type { Abi } from 'viem'
+import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
+import { ActionButton, useActionGate, useTxAction } from '@/components/ui'
+import { Section, ScopeNote, StatusBadge, ConfirmDialog } from './shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // G3 · SAFETY & RISK
@@ -26,22 +18,29 @@ export function CircuitBreakerPanel() {
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'paused',
     query: { refetchInterval: 10_000 },
   })
-  const { writeContract, isPending, data: txHash, error: writeError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) void refetch() }, [isSuccess, refetch])
 
   const isPaused = paused === true
-  const txBusy   = isPending || isConfirming
+
+  const tx = useTxAction({
+    action: isPaused ? 'resume the platform' : 'engage the circuit breaker',
+    onConfirmed: () => { void refetch() },
+  })
 
   const submit = useCallback(() => {
     setConfirming(false)
-    writeContract({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+    tx.send({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI as unknown as Abi,
       functionName: isPaused ? 'unpause' : 'pause',
       args: [],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [isPaused, writeContract])
+  }, [isPaused, tx])
+
+  const gate = useActionGate({
+    action: isPaused ? 'Resume platform' : 'Engage circuit breaker',
+    onAct: () => setConfirming(true),
+    tx,
+  })
 
   return (
     <Section
@@ -70,16 +69,8 @@ export function CircuitBreakerPanel() {
         it — but it cuts both ways: if an incident requires stopping the inflow,
         this button is not sufficient and you need the blacklist below.
       </ScopeNote>
-      <div className="flex justify-start">
-        <WriteButton
-          label={isPaused ? 'resume platform' : 'engage circuit breaker'}
-          onClick={() => setConfirming(true)}
-          busy={txBusy}
-          danger={!isPaused}
-        />
-      </div>
-      <AlarmLine msg={shortErr(writeError)} />
-      <TxLine hash={txHash} label={isPaused ? 'unpause' : 'pause'} />
+
+      <ActionButton gate={gate} full={false} intent={isPaused ? 'primary' : 'danger'} />
 
       <ConfirmDialog
         open={confirming}
