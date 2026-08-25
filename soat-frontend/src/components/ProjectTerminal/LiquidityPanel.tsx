@@ -10,9 +10,9 @@ import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
-import { Card, Readout } from '@/components/ui'
+import { Card, Readout, Field } from '@/components/ui'
 import { fmt } from './format'
-import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 
 const LP_SLIPPAGE_PRESETS = [
   { bps: 50n,  label: '0.5%' },
@@ -198,6 +198,15 @@ export function LiquidityPanel({
     })
   }, [userAddress, tokenAddress, nowSeconds, writeContract, slippageBps])
 
+  // Both legs have to be funded for a full-range mint, so a short token balance
+  // is a fault and not a hint — it was already coloured as one inside the old
+  // cascade, which is why it moves to `error` rather than staying below.
+  const ethError =
+      ethInvalid        ? 'NOT A VALID ETH AMOUNT'
+    : insufficientEth   ? `INSUFFICIENT ETH FOR THE DEPOSIT + ${Number(slippageBps) / 100}% HEADROOM`
+    : insufficientToken ? `NEEDS ${fmt(tokenNeeded)} ${symbol} — YOU HOLD ${fmt(tokenBalance ?? 0n)}`
+    : null
+
   // One live step at a time, so the CTA always says exactly what the next
   // signature does rather than dumping three buttons on the user at once.
   const step: { label: string; run: (() => void) | null } = (() => {
@@ -236,19 +245,15 @@ export function LiquidityPanel({
       <Field
         label="ETH TO DEPOSIT"
         value={ethAmount}
-        onChange={v => { setEthAmount(v); setError(null) }}
+        onValueChange={v => { setEthAmount(v); setError(null) }}
         placeholder="e.g. 0.05"
         inputMode="decimal"
         disabled={busy || !isConnected}
-        errored={ethInvalid || insufficientEth || insufficientToken}
-        fluo={!!step.run && !busy}
-        hint={
-          ethWei > 0n && sqrtPriceX96 > 0n
-            ? insufficientToken
-              ? <span className="text-tosh-rust">→ NEEDS {fmt(tokenNeeded)} {symbol} — YOU HOLD {fmt(tokenBalance ?? 0n)}</span>
-              : <span className="text-[#555]">→ PAIRS WITH {fmt(tokenNeeded)} {symbol} AT THE CURRENT PRICE</span>
-            : <span className="text-[#555]">→ FULL RANGE · BOTH LEGS REQUIRED · WITHDRAW ANY TIME</span>
-        }
+        error={ethError}
+        armed={!!step.run && !busy}
+        hint={ethWei > 0n && sqrtPriceX96 > 0n
+          ? `PAIRS WITH ${fmt(tokenNeeded)} ${symbol} AT THE CURRENT PRICE`
+          : 'FULL RANGE · BOTH LEGS REQUIRED · WITHDRAW ANY TIME'}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">

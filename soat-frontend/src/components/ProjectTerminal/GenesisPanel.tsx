@@ -6,9 +6,12 @@ import { parseUnits, formatUnits, type Address } from 'viem'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS,
 } from '@/lib/contracts'
-import { classifyHorizon, formatHorizonLabel, formatHorizonUtc, Card, Readout, Progress } from '@/components/ui'
+import {
+  classifyHorizon, formatHorizonLabel, formatHorizonUtc,
+  Card, Readout, Progress, Field, FieldAffix,
+} from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { PogScanButton } from './PogScanButton'
 
@@ -174,6 +177,19 @@ export function GenesisPanel(p: GenesisProps) {
              && !walletCapBreached
              && p.isConnected
 
+  // The design-system Field carries one message and shows an error in place of
+  // the hint, so this is ordered to match `factory.deposit`'s own revert order —
+  // the field never names a second-order problem while a more fundamental one
+  // stands.  Ban, missing attestation and closed window are deliberately absent:
+  // each already has a callout of its own directly above this input, and saying
+  // it twice reads as two separate problems.
+  const amountError =
+      amountInvalid     ? 'NOT A VALID ETH AMOUNT'
+    : quotaBreached     ? `EXCEEDS YOUR REMAINING POG WINDOW · ${fmt(quotaRemaining)} ETH LEFT`
+    : walletCapBreached ? `EXCEEDS THIS PROJECT'S PER-WALLET CAP · ${fmt(walletHeadroom)} ETH LEFT`
+    : insufficientBal   ? 'INSUFFICIENT ETH BALANCE'
+    : null
+
   return (
     <div className="flex flex-col">
       <Card
@@ -261,38 +277,20 @@ export function GenesisPanel(p: GenesisProps) {
         <Field
           label="DEPOSIT AMOUNT · ETH"
           value={amount}
-          onChange={v => { setAmount(v); setError(null) }}
+          onValueChange={v => { setAmount(v); setError(null) }}
           placeholder="e.g. 0.05"
           inputMode="decimal"
           disabled={txBusy || !p.isConnected || windowClosed || banned || unattested}
-          errored={amountInvalid || quotaBreached || insufficientBal || walletCapBreached || banned}
-          fluo={armed}
-          hint={
-            banned
-              ? <span className="text-tosh-rust">→ WALLET BLACKLISTED · {banTxt}</span>
-              : unattested
-              ? <span className="text-tosh-amber">→ NO POG QUOTA — RUN THE GAS-PROOF SCAN FIRST</span>
-              : windowClosed
-              ? <span className="text-tosh-amber">→ GENESIS WINDOW CLOSED — WAITING ON THE CREATOR&apos;S LAUNCH()</span>
-              : p.perWalletCap > 0n
-                ? <span className="text-[#555]">
-                    → THIS PROJECT ALLOWS {fmt(p.perWalletCap)} ETH PER WALLET · {fmt(walletHeadroom)} ETH LEFT FOR YOU
-                  </span>
-                : null
-          }
-          suffix={
-            <button
-              type="button"
+          error={amountError}
+          armed={armed}
+          hint={p.perWalletCap > 0n
+            ? `THIS PROJECT ALLOWS ${fmt(p.perWalletCap)} ETH PER WALLET · ${fmt(walletHeadroom)} ETH LEFT FOR YOU`
+            : undefined}
+          affix={
+            <FieldAffix
               onClick={() => setAmount(formatUnits(spendable, 18))}
               disabled={txBusy || !p.isConnected || windowClosed || spendable === 0n}
-              className="px-3 py-2 border border-[#1F1F2E] text-[#888] text-[10px]
-                         tracking-[0.32em] uppercase font-bold
-                         hover:border-tosh-fluo hover:text-tosh-fluo
-                         disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-colors duration-150"
-            >
-              max
-            </button>
+            />
           }
         />
 

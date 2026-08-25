@@ -10,9 +10,9 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
   TIER_COUNT, TIER_SIZE,
 } from '@/lib/contracts'
-import { Card, Readout } from '@/components/ui'
+import { Card, Readout, Field } from '@/components/ui'
 import { fmt } from './format'
-import { Field, WriteButton, AlarmLine, TxLine } from './primitives'
+import { WriteButton, AlarmLine, TxLine } from './primitives'
 import { ShelfLadder } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
@@ -203,6 +203,34 @@ export function BondingPanel(p: BondingProps) {
              && !noCapacity
              && p.isConnected
 
+  // The design-system Field carries one message and shows an error in place of
+  // the hint, so the seven-way cascade this replaces had to be split by what the
+  // message actually is.
+  //
+  // Ordered to match `handleMint`, which mirrors the hook's revert order, so the
+  // field never names a second-order problem while a more fundamental one
+  // stands.  `halted` is absent on purpose: it already has a callout directly
+  // above this input, and stating it in both places reads as two faults.
+  const amountError =
+      tokenAmountInvalid ? 'NOT A VALID TOKEN AMOUNT'
+    : exceedsMax         ? `EXCEEDS MAX PER CALL (${fmt(maxMintable)}) — SEND A SECOND TX FOR THE REST`
+    : gateLocked && !awaitingFirstUnlock
+                         ? '105% PRICE GATE LOCKED'
+    : noCapacity && unlocked
+                         ? 'NO SIZE AVAILABLE IN ONE CALL RIGHT NOW — THE LADDER IS FULLY SOLD OR PRICED OUT AT THE MARGIN'
+    : isDust             ? 'TOO SMALL TO QUOTE — RAISE THE AMOUNT'
+    : insufficientBal    ? 'INSUFFICIENT ETH FOR THE QUOTED COST + SLIPPAGE'
+    : null
+
+  // Not faults.  A shut gate before the first mint is the designed opening
+  // state, and a same-block lock clears by itself on the next block — colouring
+  // either of them as an error was the thing the old cascade got wrong.
+  const amountHint =
+      sameBlockLock       ? 'MINTING IS SHUT FOR THIS BLOCK — THE LADDER REOPENS NEXT BLOCK'
+    : awaitingFirstUnlock ? 'LADDER OPENS ONCE THE MARKET HOLDS AT OR ABOVE P₀'
+    : maxMintable > 0n    ? `UP TO ${fmt(maxMintable)} IN ONE CALL · SWEEPS SHELVES`
+    : undefined
+
   return (
     <Card
       id="P-2"
@@ -244,29 +272,13 @@ export function BondingPanel(p: BondingProps) {
       <Field
         label="TOKEN AMOUNT TO MINT"
         value={tokenAmount}
-        onChange={v => { setTokenAmount(v); setError(null) }}
+        onValueChange={v => { setTokenAmount(v); setError(null) }}
         placeholder="e.g. 1000"
         inputMode="decimal"
         disabled={txBusy || !p.isConnected || halted}
-        errored={tokenAmountInvalid || exceedsMax || isDust || insufficientBal || gateLocked || halted}
-        fluo={armed}
-        hint={
-          halted
-            ? <span className="text-tosh-rust">→ CIRCUIT BREAKER ENGAGED — SHELF MINTING RESUMES IN {haltTxt}</span>
-            : sameBlockLock
-            ? <span className="text-tosh-amber">→ MINTING IS SHUT FOR THIS BLOCK — THE LADDER REOPENS NEXT BLOCK</span>
-            : awaitingFirstUnlock
-            ? <span className="text-[#888]">→ LADDER OPENS ONCE THE MARKET HOLDS AT OR ABOVE P₀</span>
-            : gateLocked
-            ? <span className="text-tosh-rust">→ 105% PRICE GATE LOCKED</span>
-            : exceedsMax
-              ? <span className="text-tosh-rust">→ EXCEEDS MAX PER CALL ({fmt(maxMintable)}) — SEND A SECOND TX FOR THE REST</span>
-              : noCapacity && unlocked
-                ? <span className="text-tosh-rust">→ NO SIZE AVAILABLE IN ONE CALL RIGHT NOW — THE LADDER IS FULLY SOLD OR PRICED OUT AT THE MARGIN</span>
-                : maxMintable > 0n
-                  ? <span className="text-[#555]">→ UP TO {fmt(maxMintable)} IN ONE CALL · SWEEPS SHELVES</span>
-                  : null
-        }
+        error={amountError}
+        armed={armed}
+        hint={amountHint}
       />
 
       {quotable && (

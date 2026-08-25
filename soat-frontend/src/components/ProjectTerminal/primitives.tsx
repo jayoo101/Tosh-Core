@@ -3,14 +3,9 @@
 /**
  * What is left of the terminal's local primitives.
  *
- * `Section`, `Readout` and `ProgressBar` moved to `@/components/ui` as `Card`,
- * `Readout` and `Progress`.  These four have not, because each needs a decision
- * at every call site rather than a rename:
+ * `Section`, `Readout`, `ProgressBar` and `Field` moved to `@/components/ui` as
+ * `Card`, `Readout`, `Progress` and `Field`.  These three have not:
  *
- *   • `Field` — the design-system Field treats `error` and `hint` as mutually
- *     exclusive and takes an error *string*, while this one takes an `errored`
- *     boolean and always shows the hint.  Each call site has to say what its
- *     error actually reads as.
  *   • `WriteButton` — its `lockedLabel` cascades are the blocker lists that
  *     `useActionGate` exists to hold, and converting them is a behavioural
  *     change (blocker precedence) rather than a swap.
@@ -21,48 +16,6 @@ import type * as React from 'react'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
 import { basescanTx } from './format'
-
-export function Field({
-  label, hint, value, onChange, placeholder, disabled, inputMode,
-  errored, fluo, suffix,
-}: {
-  label:      string
-  hint?:      React.ReactNode
-  value:      string
-  onChange:   (v: string) => void
-  placeholder?: string
-  disabled?:  boolean
-  inputMode?: 'numeric' | 'decimal'
-  errored?:   boolean
-  fluo?:      boolean
-  /** Optional inline suffix button (MAX, etc.) rendered to the right of the
-   *  input.  Pass <button>…</button> with .border / .text-* styling. */
-  suffix?:    React.ReactNode
-}) {
-  const borderCls = fluo
-    ? 'border-tosh-fluo'
-    : errored
-      ? 'border-[#444] focus:border-tosh-fluo'
-      : 'border-tosh-line focus:border-tosh-fluo'
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="font-mono text-label text-tosh-mute">{label}</span>
-      <div className="flex gap-2">
-        <input
-          type="text" value={value} placeholder={placeholder} disabled={disabled}
-          inputMode={inputMode}
-          onChange={e => onChange(e.target.value)}
-          className={`flex-1 bg-zinc-900/50 border ${borderCls} rounded-lg px-3 py-2.5 font-mono text-sm
-                      text-white placeholder:text-zinc-600 tabular-nums
-                      disabled:opacity-40 disabled:cursor-not-allowed
-                      transition-colors duration-150`}
-        />
-        {suffix}
-      </div>
-      {hint && <span className="text-[10px] text-[#666] tracking-wider">{hint}</span>}
-    </label>
-  )
-}
 
 /** The terminal's primary CTA button.  Same three-state pattern as the admin
  *  WriteButton: default white outline, locked gray, busy text swap.
