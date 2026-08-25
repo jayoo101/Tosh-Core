@@ -1,20 +1,17 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import {
   useReadContract, useReadContracts, useBlockNumber,
-  useWriteContract, useWaitForTransactionReceipt,
 } from 'wagmi'
 import { parseUnits, type Address, type ContractFunctionParameters } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
-  TIER_COUNT, TIER_SIZE,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
 } from '@/lib/contracts'
 import {
-  Card, Readout, Field, ActionButton, useActionGate, revertOrder,
+  Badge, Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt } from './format'
-import { AlarmLine, TxLine } from './primitives'
 import { ShelfLadder } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
@@ -148,30 +145,23 @@ export function BondingPanel(p: BondingProps) {
   const awaitingFirstUnlock = gateLocked && p.phase2Minted === 0n
 
   const {
-    writeContract: writeMint,
-    isPending:     isMinting,
-    data:          mintHash,
-    error:         mintError,
-  } = useWriteContract()
-  const { isLoading: isMintConfirming, isSuccess: mintedNow } =
-    useWaitForTransactionReceipt({ hash: mintHash })
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (mintedNow) { p.refetch(); setTokenAmount('') } }, [mintedNow, p])
+    send: sendMint,
+    isPending: isMinting,
+    isConfirming: isMintConfirming,
+    isBusy: txBusy,
+  } = useTxAction({
+    action: `buy ${p.symbol}`,
+    onConfirmed: () => { p.refetch(); setTokenAmount('') },
+  })
 
-  const txBusy = isMinting || isMintConfirming
-
-  // Nothing is re-checked here — the gate owns that, and keeping a second copy
-  // of the conditions is how this list and the button's cascade came to disagree
-  // about which one wins.
   const submitMint = useCallback(() => {
-    writeMint({
+    sendMint({
       address: p.hookAddress, abi: HOOK_ABI,
       functionName: 'mintBondingCurve',
       args: [tokenAmountWei],
       value: maxEthCost,
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [p.hookAddress, tokenAmountWei, maxEthCost, writeMint])
+  }, [p.hookAddress, tokenAmountWei, maxEthCost, sendMint])
 
   // Rungs climbed since shelf 0, i.e. STEP^index.  Measured against the LADDER
   // base rather than the pool's opening price, so the flat 5% mint premium
@@ -319,9 +309,23 @@ export function BondingPanel(p: BondingProps) {
         <Readout label="ACTIVE SHELF"
                  value={`${fmt(p.currentPrice)} ETH`}
                  hint={`${premiumRaw.toFixed(2)}× ladder base`} />
-        <Readout label="PHASE-2 MINTED"
-                 value={`${fmt(p.phase2Minted)} / ${fmt(p.bondingMax)}`}
-                 hint={`${TIER_COUNT} shelves × ${fmt(TIER_SIZE)}`} />
+        <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
+          <span className="font-mono text-label text-text-quiet">105% gate</span>
+          {halted ? (
+            <Badge tone="danger">halted</Badge>
+          ) : sameBlockLock ? (
+            <Badge tone="warn">same-block lock</Badge>
+          ) : awaitingFirstUnlock ? (
+            <Badge tone="neutral">awaits P₀</Badge>
+          ) : unlocked ? (
+            <Badge tone="ok" pip live>open</Badge>
+          ) : (
+            <Badge tone="warn">locked</Badge>
+          )}
+          <span className="text-note text-text-tertiary">
+            {fmt(p.phase2Minted)} / {fmt(p.bondingMax)} minted
+          </span>
+        </div>
       </div>
 
       <Field
@@ -350,6 +354,7 @@ export function BondingPanel(p: BondingProps) {
               <span className="font-mono text-base text-text-primary tabular-nums">
                 {fmt(maxEthCost)} ETH
               </span>
+              <span className="font-mono text-micro text-text-quiet">excess refunded on-chain</span>
             </div>
             <div className="px-4 py-3 flex flex-col gap-1">
               <span className="font-mono text-label text-text-tertiary">L-01 GUARD</span>
@@ -365,9 +370,6 @@ export function BondingPanel(p: BondingProps) {
       )}
 
       <ActionButton gate={gate} />
-
-      <AlarmLine msg={mintError?.message?.slice(0, 200) ?? null} />
-      <TxLine hash={mintHash} label="mintBondingCurve" />
     </Card>
   )
 }

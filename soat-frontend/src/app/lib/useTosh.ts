@@ -3,7 +3,7 @@
 import { useCallback } from 'react'
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import type { Address } from 'viem'
-import { FACTORY_ADDRESS, FACTORY_ABI, TARGET_CHAIN_ID } from './contracts'
+import { FACTORY_ADDRESS, FACTORY_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // useTosh — wagmi v2 hook for ToshFactory interactions

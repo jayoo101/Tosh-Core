@@ -6,7 +6,7 @@ import { type Address } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import { HOOK_ABI } from '@/lib/contracts'
-import { fmtEth } from '../meritx/useDirectoryProjects'
+import { fmtEth } from './useDirectoryProjects'
 
 export function InvestLeftPanel({ project }: { project: ProjectRow }) {
   const hook = project.hook_address as Address | undefined

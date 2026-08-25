@@ -1,22 +1,14 @@
 'use client'
-import { useEffect, useCallback } from 'react'
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useCallback } from 'react'
 import type { Address } from 'viem'
 
-import { HOOK_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { HOOK_ABI } from '@/lib/contracts'
 import {
-  Card, Readout, ActionButton, useActionGate, revertOrder,
+  Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt } from './format'
-import { AlarmLine, TxLine } from './primitives'
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REFUND PANEL  ·  Phase 3
-// ─────────────────────────────────────────────────────────────────────────────
-
-// `isConnected` is gone from the props: the gate resolves wallet state itself,
-// so passing it down only gave the panel a second, staler copy of it.
 export function RefundPanel({
   hookAddress, ethDeposited, refetch,
 }: {
@@ -24,23 +16,21 @@ export function RefundPanel({
   ethDeposited:  bigint
   refetch:       () => void
 }) {
-  const {
-    writeContract, isPending, data: txHash, error: writeError,
-  } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } =
-    useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => { if (isSuccess) refetch() }, [isSuccess, refetch])
+  const { send, isPending, isConfirming } = useTxAction({
+    action: 'claim your refund',
+    labels: { confirmed: 'Refund received — 100% returned' },
+    onConfirmed: refetch,
+  })
 
   const handleRefund = useCallback(() => {
-    writeContract({
+    send({
       address: hookAddress, abi: HOOK_ABI,
       functionName: 'refund', args: [],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [hookAddress, writeContract])
+  }, [hookAddress, send])
 
   const gate = useActionGate({
-    action: 'claim refund',
+    action: 'Claim 100% Refund',
     onAct: handleRefund,
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder({
@@ -55,16 +45,12 @@ export function RefundPanel({
   return (
     <Card
       id="P-3"
-      title="REFUND TERMINAL"
-      subtitle="hook.refund() — soft-cap not met OR zombie window elapsed · full claim, no penalty"
+      title="Claim refund"
+      subtitle="hook.refund() — soft cap missed, or the 7-day launch window lapsed. Full ETH back, no penalty."
+      tone="warn"
     >
-      <Readout label="YOUR DEPOSIT" value={`${fmt(ethDeposited)} ETH`} />
-      <p className="font-mono text-label tracking-[0.4em] uppercase text-brand">
-        → REFUND_GATE: OPEN
-      </p>
-      <ActionButton gate={gate} />
-      <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
-      <TxLine hash={txHash} label="refund" />
+      <Readout label="Your deposit" value={`${fmt(ethDeposited)} ETH`} tone="warn" />
+      <ActionButton gate={gate} size="lg" intent="danger" />
     </Card>
   )
 }

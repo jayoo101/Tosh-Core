@@ -8,12 +8,12 @@ import { AtSign, Globe, Send } from 'lucide-react'
 import { createPublicClient, http } from 'viem'
 import type { Address } from 'viem'
 
-import { testnetExplorerAddress, FACTORY_ADDRESS, FACTORY_ABI, ERC20_ABI } from '../../lib/contracts'
+import { testnetExplorerAddress, FACTORY_ADDRESS, FACTORY_ABI, ERC20_ABI } from '@/lib/contracts'
 import { targetChain } from '@/lib/chain'
 import { supabase } from '../../lib/supabase'
 import type { ProjectRow } from '../../lib/supabase'
 import ProjectTerminal from '@/components/ProjectTerminal'
-import { InvestLeftPanel } from '../../components/meritx/InvestLeftPanel'
+import { InvestLeftPanel } from '@/components/directory/InvestLeftPanel'
 
 export const revalidate = 30
 

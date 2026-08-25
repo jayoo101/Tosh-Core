@@ -1,20 +1,17 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import {
-  useReadContract, useWriteContract, useWaitForTransactionReceipt,
-} from 'wagmi'
+import { useReadContract, useWaitForTransactionReceipt } from 'wagmi'
 import { parseUnits, parseEventLogs, erc20Abi, type Address } from 'viem'
 
-import { PERMIT2, POSITION_MANAGER, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { PERMIT2, POSITION_MANAGER } from '@/lib/contracts'
 import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
 import {
-  Card, Readout, Field, ActionButton, useActionGate, revertOrder,
+  Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction, toshToast,
 } from '@/components/ui'
 import { fmt } from './format'
-import { AlarmLine, TxLine } from './primitives'
 
 const LP_SLIPPAGE_PRESETS = [
   { bps: 50n,  label: '0.5%' },
@@ -56,7 +53,6 @@ export function LiquidityPanel({
   nowSec:       number
 }) {
   const [ethAmount, setEthAmount] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [slippageBps, setSlippageBps] = useState(100n)
 
   const { sqrtPriceX96, totalLiquidity } = useLpPoolState(tokenAddress, hookAddress)
@@ -104,10 +100,12 @@ export function LiquidityPanel({
   const insufficientEth   = ethMax > 0n && ethMax > ethBalance
   const insufficientToken = tokenMax > 0n && tokenMax > (tokenBalance ?? 0n)
 
-  const { writeContract, isPending, data: txHash, error: txError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess, data: receipt } =
-    useWaitForTransactionReceipt({ hash: txHash })
-  const busy = isPending || isConfirming
+  const {
+    send, hash: txHash, isBusy: busy,
+  } = useTxAction({
+    action: 'liquidity',
+  })
+  const { data: receipt, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
   // Cache the minted tokenId so the position shows up even when the RPC's log
   // index lags or `eth_getLogs` is unavailable on this endpoint.
@@ -130,25 +128,22 @@ export function LiquidityPanel({
 
   const approveErc20 = useCallback(() => {
     if (!tokenAddress) return
-    setError(null)
-    writeContract({
+    send({
       address: tokenAddress, abi: erc20Abi, functionName: 'approve',
-      args: [PERMIT2, MAX_UINT160], chainId: TARGET_CHAIN_ID,
+      args: [PERMIT2, MAX_UINT160],
     })
-  }, [tokenAddress, writeContract])
+  }, [tokenAddress, send])
 
   const approvePermit2 = useCallback(() => {
     if (!tokenAddress) return
-    setError(null)
-    writeContract({
+    send({
       address: PERMIT2, abi: PERMIT2_ABI, functionName: 'approve',
       args: [
         tokenAddress, POSITION_MANAGER, MAX_UINT160,
         Number(nowSeconds + PERMIT2_TTL_SECONDS),
       ],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [tokenAddress, nowSeconds, writeContract])
+  }, [tokenAddress, nowSeconds, send])
 
   // Hoisted out of the click handler so the gate can refuse a deposit that would
   // mint nothing, instead of the handler discovering it after the user commits.
@@ -160,7 +155,6 @@ export function LiquidityPanel({
   )
 
   const addLiquidity = useCallback(() => {
-    setError(null)
     if (!userAddress || !tokenAddress) return
 
     const unlockData = encodeMintPayload({
@@ -172,20 +166,21 @@ export function LiquidityPanel({
       amount1Max: tokenMax,
     })
 
-    writeContract({
+    send({
       address: POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
       value: ethMax,
-      chainId: TARGET_CHAIN_ID,
     })
   }, [
     userAddress, tokenAddress, hookAddress, liquidity, ethMax, tokenMax,
-    nowSeconds, writeContract,
+    nowSeconds, send,
   ])
 
   const withdraw = useCallback((tokenId: bigint, amount0: bigint, amount1: bigint) => {
-    setError(null)
-    if (!userAddress || !tokenAddress) { setError('Connect wallet'); return }
+    if (!userAddress || !tokenAddress) {
+      toshToast.error('Connect a wallet first')
+      return
+    }
 
     const unlockData = encodeBurnPayload({
       token: tokenAddress,
@@ -195,12 +190,11 @@ export function LiquidityPanel({
       amount1Min: amount1 - (amount1 * slippageBps) / 10_000n,
     })
 
-    writeContract({
+    send({
       address: POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [userAddress, tokenAddress, nowSeconds, writeContract, slippageBps])
+  }, [userAddress, tokenAddress, nowSeconds, send, slippageBps])
 
   // Terse: the red border plus a short tag.  The gate states each of these in
   // full under the button, including the numbers, so repeating them here would
@@ -317,7 +311,7 @@ export function LiquidityPanel({
       <Field
         label="ETH TO DEPOSIT"
         value={ethAmount}
-        onValueChange={v => { setEthAmount(v); setError(null) }}
+        onValueChange={setEthAmount}
         placeholder="e.g. 0.05"
         inputMode="decimal"
         disabled={busy || !isConnected}
@@ -357,6 +351,30 @@ export function LiquidityPanel({
         </div>
       </div>
 
+      <ol className="grid grid-cols-3 gap-gap-tight">
+        {(['Approve', 'Permit2', 'Deposit'] as const).map((label, i) => {
+          const current =
+            needsErc20Approval ? 0 : needsPermit2Approval ? 1 : 2
+          const done = i < current
+          const active = i === current
+          return (
+            <li
+              key={label}
+              className={
+                'rounded-input border px-3 py-2 text-center font-mono text-label ' +
+                (done
+                  ? 'border-success/40 bg-success/10 text-success'
+                  : active
+                    ? 'border-border-accent bg-brand/10 text-brand'
+                    : 'border-border-subtle text-text-quiet')
+              }
+            >
+              {i + 1} · {label}
+            </li>
+          )
+        })}
+      </ol>
+
       <ActionButton gate={gate} />
 
       {positions.length > 0 && (
@@ -395,9 +413,6 @@ export function LiquidityPanel({
           through any Uniswap V4 interface.
         </p>
       )}
-
-      <AlarmLine msg={error ?? (txError?.message?.slice(0, 200) ?? null)} />
-      <TxLine hash={txHash} label="modifyLiquidities" />
     </Card>
   )
 }

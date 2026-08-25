@@ -13,8 +13,8 @@
 //
 // LAYOUT NOTE
 // ───────────
-// This file lives at the conventional Next.js `src/lib/` path.  The legacy
-// import surface at `src/app/lib/contracts.ts` re-exports from here.
+// Canonical import: `@/lib/contracts`. Generated ABIs live at
+// `@/app/lib/abis` because the extract scripts write them there.
 //
 // ENV WIRING
 // ──────────

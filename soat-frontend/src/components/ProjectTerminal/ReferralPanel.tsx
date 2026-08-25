@@ -1,19 +1,16 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import {
-  useReadContract, useWriteContract, useWaitForTransactionReceipt,
-} from 'wagmi'
+import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, TARGET_CHAIN_ID,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
 } from '@/lib/contracts'
 import { buildReferralLink } from '@/lib/useReferral'
 import {
-  Card, Readout, ActionButton, useActionGate, revertOrder,
+  Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import { AlarmLine, TxLine } from './primitives'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL PANEL  ·  share a link, claim the commission it earned
@@ -60,23 +57,17 @@ export function ReferralPanel({
   })
   const linkIsLive = ((ownQuotaRaw as bigint | undefined) ?? 0n) > 0n
 
-  const {
-    writeContract, isPending, data: txHash, error: writeError,
-  } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } =
-    useWaitForTransactionReceipt({ hash: txHash })
-  useEffect(() => {
-    if (!isSuccess) return
-    refetch(); void refetchClaimable()
-  }, [isSuccess, refetch, refetchClaimable])
+  const { send, isPending, isConfirming } = useTxAction({
+    action: 'claim commission',
+    onConfirmed: () => { refetch(); void refetchClaimable() },
+  })
 
   const handleClaim = useCallback(() => {
-    writeContract({
+    send({
       address: hookAddress, abi: HOOK_ABI,
       functionName: 'claimReferralReward', args: [],
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [hookAddress, writeContract])
+  }, [hookAddress, send])
 
   const link = userAddress ? buildReferralLink(userAddress) : ''
 
@@ -153,9 +144,6 @@ export function ReferralPanel({
           )}
         </div>
       )}
-
-      <AlarmLine msg={writeError?.message?.slice(0, 200) ?? null} />
-      <TxLine hash={txHash} label="claimReferralReward" />
     </Card>
   )
 }

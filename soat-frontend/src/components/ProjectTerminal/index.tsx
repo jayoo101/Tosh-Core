@@ -24,6 +24,7 @@ import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX } from '@/lib/contr
 import { useBoundReferrer } from '@/lib/useReferral'
 import { Card } from '@/components/ui'
 import { resolvePhase, type Phase } from './phase'
+import { HeroStats } from './HeroStats'
 import { ConnectGate } from './ConnectGate'
 import { GenesisPanel } from './GenesisPanel'
 import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
@@ -172,7 +173,29 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   // have a sibling above it.
   return (
     <div className="flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
-      <p className="font-mono text-label text-text-tertiary uppercase">{`/// Action Terminal`}</p>
+      <HeroStats
+        phase={phase}
+        symbol={symbol}
+        p0={p0}
+        currentPrice={currentPrice}
+        shelfP0={shelfP0}
+        totalEthDeposited={totalEthDeposited}
+        softCap={softCap}
+        phase2Minted={phase2Minted}
+        bondingMax={bondingMax}
+        userEthDeposited={userEthDeposited}
+      />
+
+      {phase === 'refund' && (
+        <div className="rounded-card border border-warning/40 bg-warning/10 px-card py-gap">
+          <p className="font-mono text-label text-warning">Refund window open</p>
+          <p className="mt-1 text-note text-text-secondary leading-relaxed">
+            This raise did not open a pool. Every depositor can reclaim 100% of
+            their ETH — no penalty, no haircut, no expiry on the claim itself.
+          </p>
+        </div>
+      )}
+
       {!wConnected ? (
         <ConnectGate />
       ) : phase === 'genesis' ? (

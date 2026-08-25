@@ -3,9 +3,9 @@ import { Suspense } from 'react'
 import { JetBrains_Mono, Geist } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
-import { ToshNavbar } from './components/ToshNavbar'
-import { NetworkGuardClient } from './components/NetworkGuardClient'
-import { ReferralCapture } from './components/ReferralCapture'
+import { ToshNavbar } from '@/components/ToshNavbar'
+import { NetworkGuardClient } from '@/components/NetworkGuardClient'
+import { ReferralCapture } from '@/components/ReferralCapture'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({

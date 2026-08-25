@@ -1,18 +1,16 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useState, useCallback } from 'react'
 import { parseUnits, formatUnits, type Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID, ZERO_ADDRESS,
+  FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS,
 } from '@/lib/contracts'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
   Card, Readout, Progress, Field, FieldAffix,
-  ActionButton, useActionGate, revertOrder,
+  ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
-import { AlarmLine, TxLine } from './primitives'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { PogScanButton } from './PogScanButton'
 
@@ -117,30 +115,23 @@ export function GenesisPanel(p: GenesisProps) {
   })()
 
   const {
-    writeContract: writeDeposit,
-    isPending:     isDepositing,
-    data:          depositHash,
-    error:         depositError,
-  } = useWriteContract()
-  const { isLoading: isDepositConfirming, isSuccess: depositedNow } =
-    useWaitForTransactionReceipt({ hash: depositHash })
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (depositedNow) { p.refetch(); setAmount('') } }, [depositedNow, p])
+    send: sendDeposit,
+    isPending: isDepositing,
+    isConfirming: isDepositConfirming,
+    isBusy: txBusy,
+  } = useTxAction({
+    action: 'deposit',
+    onConfirmed: () => { p.refetch(); setAmount('') },
+  })
 
-  const txBusy = isDepositing || isDepositConfirming
-
-  // Nothing is re-checked here.  The gate below decides whether this can fire,
-  // and duplicating its conditions in the handler is how the two lists drifted
-  // out of agreement in the first place.
   const submitDeposit = useCallback(() => {
-    writeDeposit({
+    sendDeposit({
       address: FACTORY_ADDRESS, abi: FACTORY_ABI,
       functionName: 'deposit',
       args: [p.hookAddress, p.referrer],
       value: amountWei,
-      chainId: TARGET_CHAIN_ID,
     })
-  }, [p.hookAddress, p.referrer, amountWei, writeDeposit])
+  }, [p.hookAddress, p.referrer, amountWei, sendDeposit])
 
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
@@ -160,7 +151,7 @@ export function GenesisPanel(p: GenesisProps) {
   // told its window was spent when the transaction would actually have reverted
   // `CooldownActive`: "you have none left" instead of "wait 24 hours".
   const gate = useActionGate({
-    action: 'deposit',
+    action: 'Deposit ETH',
     onAct: submitDeposit,
     tx: { isPending: isDepositing, isConfirming: isDepositConfirming },
     blockersInRevertOrder: revertOrder(
@@ -345,17 +336,30 @@ export function GenesisPanel(p: GenesisProps) {
           }
         />
 
+        {spendable > 0n && !windowClosed && !banned && !unattested && (
+          <div className="flex flex-wrap gap-gap-tight">
+            {([25n, 50n, 75n, 100n] as const).map(pct => (
+              <button
+                key={pct.toString()}
+                type="button"
+                disabled={txBusy}
+                onClick={() => setAmount(formatUnits((spendable * pct) / 100n, 18))}
+                className="rounded-input border border-border-subtle px-3 py-1 font-mono text-label text-text-tertiary hover:border-brand hover:text-brand disabled:opacity-40"
+              >
+                {pct === 100n ? 'MAX' : `${pct}%`}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-3 flex-wrap items-start">
-          <ActionButton gate={gate} full={false} />
+          <ActionButton gate={gate} />
           <PogScanButton
             userAddress={p.userAddress}
             hookAddress={p.hookAddress}
             refetch={p.refetch}
           />
         </div>
-
-        <AlarmLine msg={depositError?.message?.slice(0, 200) ?? null} />
-        <TxLine hash={depositHash} label="deposit" />
       </Card>
     </div>
   )

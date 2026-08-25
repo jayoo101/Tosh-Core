@@ -1,20 +1,27 @@
 ﻿'use client'
 
 /**
- * /launch — Genesis Console (v4.3 MeritX layout)
- * max-w-7xl · zinc-950 · rounded-xl · 2+1 column grid
+ * /launch — three beats, then one signature.
+ *
+ *   1. Identity     name, ticker, who receives the 99 % shelf cut
+ *   2. Window       3 h / 24 h / 72 h, baked into the hook initcode
+ *   3. Deploy       CREATE2 salt is ground inside the button, then createLaunch
+ *
+ * The CREATE2 grind is not a separate click. A salt is only valid for the
+ * factory dials and genesis window it was mined against, so mining on the
+ * same click that spends the fee is the only sequence that cannot go stale
+ * between the two.
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import {
   useAccount, useBalance, useChainId, useSwitchChain,
   useReadContracts, usePublicClient,
 } from 'wagmi'
 import { formatUnits, parseEventLogs, isAddress, type Address } from 'viem'
-import { Rocket, FileText, Cpu, Shield } from 'lucide-react'
 
-import { useTosh }       from '../lib/useTosh'
+import { useTosh } from '../lib/useTosh'
 import {
   mineHookSalt,
   GENESIS_DURATION_FAST,
@@ -29,445 +36,92 @@ import {
   testnetExplorerTx,
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY,
   BONDING_MAX, TIER_COUNT, LADDER_SPAN,
-} from '../lib/contracts'
+  LAUNCH_WINDOW_SECONDS,
+} from '@/lib/contracts'
 import type { ProjectPayload } from '../api/projects/route'
+import {
+  Badge, Card, CardWell, Field, PageHeader,
+  ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
+} from '@/components/ui'
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-const shortHash = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`
-const basescanTx = (h: string) => testnetExplorerTx(h)
-const trimEth   = (s: string) =>
+const trimEth = (s: string) =>
   s.includes('.') ? s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0' : s
 
-// ─── supply arithmetic, off the shared constants ────────────────────────────
-// Every headline number in the Immutable Pact is derived here rather than
-// typed into a string, so a constants change can never leave the pact quoting
-// terms the hook no longer enforces.
 const TOTAL_SUPPLY = GENESIS_SUPPLY + BONDING_MAX
-
 const millions = (wei: bigint) => `${trimEth(formatUnits(wei / 1_000_000n, 18))}M`
-const shareOf  = (wei: bigint, of: bigint) =>
+const shareOf = (wei: bigint, of: bigint) =>
   of > 0n ? `${Number((wei * 1000n) / of) / 10}%` : '—'
 
-// ─── styling constant ───────────────────────────────────────────────────────
-const INPUT_CORE =
-  'w-full py-3.5 px-4 rounded-xl font-mono text-sm text-text-primary placeholder:text-text-quiet ' +
-  'bg-bg-base/50 border border-border-strong focus:outline-none focus:ring-1 ' +
-  'focus:border-brand focus:ring-brand/20 transition-colors'
-
-// ─── sub-components ─────────────────────────────────────────────────────────
-
-function MeritXCard({
-  icon: Icon, title, children,
-}: {
-  icon:     React.ComponentType<{ className?: string }>
-  title:    string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
-      <div className="flex items-center gap-2 mb-5">
-        <Icon className="w-5 h-5 text-brand" />
-        <h2 className="text-label font-bold text-text-secondary uppercase tracking-[0.2em]">{title}</h2>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function MeritXField({
-  label, hint, value, onChange, placeholder, readOnly, autoUpper, locked,
-}: {
-  label:        string
-  hint?:        string
-  value:        string
-  onChange?:    (v: string) => void
-  placeholder?: string
-  readOnly?:    boolean
-  autoUpper?:   boolean
-  locked?:      boolean
-}) {
-  const borderCls = locked
-    ? 'border-brand focus:border-brand focus:ring-brand/20'
-    : 'border-border-strong focus:border-brand focus:ring-brand/20'
-
-  return (
-    <div>
-      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
-        {label}
-        {hint && <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">{hint}</span>}
-        {locked && <span className="ml-auto text-micro text-brand font-bold tracking-wider">● LOCKED</span>}
-      </label>
-      <input
-        type="text"
-        value={value}
-        readOnly={readOnly}
-        onChange={e => onChange?.(autoUpper ? e.target.value.toUpperCase() : e.target.value)}
-        placeholder={placeholder}
-        spellCheck={false}
-        autoCorrect="off"
-        className={`${INPUT_CORE} ${borderCls} ${readOnly ? 'cursor-default' : ''} ${locked ? 'bg-brand/5' : ''}`}
-      />
-    </div>
-  )
-}
-
-// The three windows the hook's constructor accepts.  `blurb` is what the
-// creator is actually choosing between — the trade-off is urgency vs. reach.
 const GENESIS_WINDOWS = [
-  { seconds: GENESIS_DURATION_FAST,     label: '3 Hours',  tag: 'Fast',     blurb: 'Momentum play — hits the cap fast or fails fast.' },
-  { seconds: GENESIS_DURATION_STANDARD, label: '24 Hours', tag: 'Standard', blurb: 'Covers every timezone once. The default.' },
-  { seconds: GENESIS_DURATION_SLOW,     label: '72 Hours', tag: 'Slow',     blurb: 'Maximum reach for a wider raise.' },
+  {
+    seconds: GENESIS_DURATION_FAST,
+    label: '3 hours',
+    tag: 'Fast',
+    blurb: 'Hits the cap or fails in one sitting. For a raise that already has an audience.',
+  },
+  {
+    seconds: GENESIS_DURATION_STANDARD,
+    label: '24 hours',
+    tag: 'Standard',
+    blurb: 'One full rotation of timezones. The default.',
+  },
+  {
+    seconds: GENESIS_DURATION_SLOW,
+    label: '72 hours',
+    tag: 'Slow',
+    blurb: 'Maximum reach. The window still cannot close early, even if the cap fills in minutes.',
+  },
 ] as const
 
-function GenesisWindowSelect({
-  value, onChange,
-}: {
-  value:    bigint
-  onChange: (seconds: bigint) => void
-}) {
-  const active = GENESIS_WINDOWS.find(w => w.seconds === value) ?? GENESIS_WINDOWS[1]
-
+function PactRule({ kicker, title, body }: { kicker: string; title: string; body: string }) {
   return (
-    <div>
-      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
-        Genesis Window
-        <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">
-          immutable once deployed
-        </span>
-      </label>
-
-      <div
-        role="radiogroup"
-        aria-label="Genesis window"
-        className="grid grid-cols-3 gap-1 rounded-xl border border-border-strong bg-bg-base/50 p-1"
-      >
-        {GENESIS_WINDOWS.map(w => {
-          const selected = w.seconds === active.seconds
-          return (
-            <button
-              key={w.label}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => onChange(w.seconds)}
-              className={
-                'rounded-lg py-2.5 px-2 font-mono transition-colors ' +
-                (selected
-                  ? 'bg-brand/10 border border-brand text-text-primary'
-                  : 'border border-transparent text-text-tertiary hover:text-text-secondary hover:bg-white/5')
-              }
-            >
-              <span className="block text-sm font-bold tabular-nums">{w.label}</span>
-              <span
-                className={
-                  'block text-micro uppercase tracking-widest mt-0.5 ' +
-                  (selected ? 'text-brand' : 'text-text-quiet')
-                }
-              >
-                {w.tag}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      <p className="mt-1.5 text-label font-mono text-text-tertiary">{active.blurb}</p>
-      <p className="mt-1 text-label font-mono text-warning/80 leading-relaxed">
-        The window must run to completion — even if the soft cap fills in minutes,
-        launch() cannot be called early. Pick the shortest window you can live with.
-      </p>
-    </div>
+    <li className="flex flex-col gap-1 border-b border-border-subtle pb-gap last:border-0 last:pb-0">
+      <span className="font-mono text-label text-brand">{kicker}</span>
+      <span className="text-title text-text-primary">{title}</span>
+      <span className="text-note text-text-tertiary leading-relaxed">{body}</span>
+    </li>
   )
 }
 
-function MeritXTextarea({
-  label, hint, value, onChange, placeholder,
-}: {
-  label:        string
-  hint?:        string
-  value:        string
-  onChange:     (v: string) => void
-  placeholder?: string
-}) {
-  return (
-    <div>
-      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
-        {label}
-        {hint && <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">{hint}</span>}
-      </label>
-      <textarea
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={4}
-        spellCheck={false}
-        className={`${INPUT_CORE} resize-none`}
-      />
-    </div>
-  )
-}
-
-function ImmutablePact({ rules }: { rules: { key: string; label: string; value: string }[] }) {
-  return (
-    <div className="sticky top-24">
-      <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
-        <div className="flex items-center gap-2 mb-5">
-          <Shield className="w-5 h-5 text-brand" />
-          <h2 className="text-label font-bold text-text-secondary uppercase tracking-[0.2em]">
-            The Immutable Pact
-          </h2>
-        </div>
-        <p className="text-label text-text-tertiary font-mono mb-4 leading-relaxed">
-          Protocol mechanics — unalterable rules you agree to by initializing:
-        </p>
-        <ul className="space-y-3 font-mono text-xs">
-          {rules.map(({ key, label, value }) => (
-            <li key={key} className="flex justify-between gap-4 py-2 border-b border-border-subtle/60 last:border-0">
-              <span className="text-text-tertiary shrink-0">{label}:</span>
-              <span className="text-text-primary font-bold text-right tabular-nums">{value}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-5 rounded-lg border border-brand/30 bg-brand/5 p-3">
-          <p className="text-label font-bold text-brand uppercase tracking-[0.18em] mb-1.5">
-            Decentralization invariant
-          </p>
-          <p className="text-label text-text-secondary font-mono leading-relaxed">
-            No proxy, no admin key, no upgrade. <span className="text-text-primary">MINTER_ROLE</span> is
-            granted once to this project&apos;s Hook and <span className="text-text-primary">DEFAULT_ADMIN_ROLE</span> is
-            left permanently vacant. The token cannot migrate to a v5.1 Hook; unsold ladder
-            supply can never be reminted elsewhere.
-          </p>
-        </div>
-        <div className="mt-6 pt-4 border-t border-border-subtle">
-          <p className="text-label text-warning/80 font-mono leading-relaxed">
-            If genesis fails (soft cap not met) or the 7-day launch window expires without curve
-            activation, depositors can call{' '}
-            <span className="text-warning">refund()</span> for full ETH return — no penalty.
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 p-3 rounded-lg border border-border-subtle/60 bg-surface-card/20">
-        <p className="text-micro text-text-quiet font-mono break-all">
-          Factory: {FACTORY_ADDRESS}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function CryptoEngine({
-  isMining, salt, mineError, onMine, canMine, predictedHook,
-}: {
-  isMining:       boolean
-  salt:           string
-  mineError:      string
-  onMine:         () => void
-  canMine:        boolean
-  predictedHook:  string
-}) {
-  const locked = Boolean(salt) && !isMining
-
-  // hex stream animation
-  const [stream, setStream] = useState('')
-  const rollHex = useCallback((): `0x${string}` => {
-    const b = new Uint8Array(32)
-    crypto.getRandomValues(b)
-    return ('0x' + Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('')) as `0x${string}`
-  }, [])
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!isMining) { setStream(''); return }
-    setStream(rollHex())
-    const id = setInterval(() => setStream(rollHex()), 50)
-    return () => clearInterval(id)
-  }, [isMining, rollHex])
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onMine}
-          disabled={!canMine || isMining}
-          className={`px-4 py-2.5 rounded-xl border text-label tracking-widest uppercase font-bold transition-all
-            ${canMine && !isMining
-              ? 'border-brand text-brand hover:bg-brand hover:text-bg-base'
-              : 'border-border-strong text-text-quiet cursor-not-allowed'}`}
-        >
-          {isMining ? '⌛ Mining…' : '[ Mine Salt ]'}
-        </button>
-        {locked && (
-          <span className="flex items-center gap-1.5 text-label font-bold text-brand border border-brand/30 px-2 py-1 rounded">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand dot-breathe" />
-            ENGINE LOCKED
-          </span>
-        )}
-      </div>
-
-      <div className={`rounded-xl border px-4 py-3 font-mono text-xs break-all leading-relaxed
-        ${locked ? 'border-brand/50 bg-brand/5 text-brand' : 'border-border-subtle bg-bg-base/40 text-text-tertiary'}`}>
-        {locked ? salt : isMining ? (stream || '0x' + '0'.repeat(64)) : '0x' + '—'.repeat(16)}
-      </div>
-
-      {predictedHook && (
-        <div className="rounded-xl border border-border-subtle bg-surface-card/30 px-4 py-3">
-          <p className="text-micro text-text-tertiary font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
-          <p className="text-note text-brand/80 font-mono break-all">{predictedHook}</p>
-        </div>
-      )}
-
-      {mineError && (
-        <p className="text-xs text-danger font-mono">Error: {mineError}</p>
-      )}
-    </div>
-  )
-}
-
-// ─── LaunchCTA types ─────────────────────────────────────────────────────────
-type FeeMode = 'loading'|'insufficient'|'launch'|'broadcasting'|'confirmed'
-
-function LaunchCTA({
-  feeMode, feeDisplay, identityComplete, saltLocked, ack, isWrongNetwork, isConnected,
-  onLaunch, onSwitchChain, hash, errorMessage, syncState,
-}: {
-  feeMode:          FeeMode
-  feeDisplay:       string
-  identityComplete: boolean
-  saltLocked:       boolean
-  ack:              boolean
-  isWrongNetwork:   boolean
-  isConnected:      boolean
-  onLaunch:         () => void
-  onSwitchChain:    () => void
-  hash:             string | undefined
-  errorMessage:     string
-  syncState:        'idle'|'syncing'|'done'|'error'
-}) {
-  const [hydrated, setHydrated] = useState(false)
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setHydrated(true) }, [])
-
-  const broadcasting = feeMode === 'broadcasting'
-  const confirmed    = feeMode === 'confirmed'
-
-  type Action = { label: string; action: (() => void) | null; armed: boolean; readyToFire?: boolean }
-
-  const { label: displayLabel, action, armed, readyToFire }: Action = (() => {
-    if (!isConnected)     return { label: 'Connect wallet to continue', action: null, armed: false }
-    if (isWrongNetwork)   return { label: `Switch to ${TESTNET_CHAIN_LABEL}`, action: onSwitchChain, armed: true }
-    if (!identityComplete) return { label: 'Fill in Agent Name, Ticker & valid Admin first', action: null, armed: false }
-    if (!saltLocked)       return { label: 'Mine a hook salt first', action: null, armed: false }
-    if (!ack)              return { label: 'Acknowledge the Immutable Pact first', action: null, armed: false }
-    switch (feeMode) {
-      case 'loading':       return { label: 'Reading fee…', action: null, armed: false }
-      case 'insufficient':  return { label: `Insufficient ETH (need ${feeDisplay} ETH)`, action: null, armed: false }
-      case 'broadcasting':  return { label: '⌛ Broadcasting transaction…', action: null, armed: false }
-      case 'confirmed':     return { label: `✓ Launch confirmed! ${hash ? shortHash(hash) : ''}`, action: null, armed: true, readyToFire: true }
-      case 'launch':        return { label: `Create Launch — pay ${feeDisplay} ETH`, action: onLaunch, armed: true, readyToFire: true }
-      default:              return { label: 'Create Launch', action: onLaunch, armed: true }
-    }
-  })()
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-4">
-        <Link
-          href="/"
-          className="order-2 sm:order-1 shrink-0 px-8 py-4 rounded-xl flex items-center justify-center font-bold text-sm border border-border-strong bg-surface-card/50 text-text-secondary hover:bg-surface-elevated/50 hover:text-text-secondary hover:border-border-strong transition-colors"
-        >
-          Cancel
-        </Link>
-        <button
-          type="button"
-          onClick={hydrated ? (action ?? undefined) : undefined}
-          disabled={!hydrated || !action}
-          className={[
-            'order-1 sm:order-2 relative flex-1 min-w-[200px] py-4 rounded-xl font-black text-sm uppercase tracking-wider transition-all overflow-hidden',
-            confirmed
-              ? 'text-brand bg-brand/10 border border-brand/40'
-              : readyToFire || (armed && action)
-                ? 'text-bg-base bg-brand hover:bg-brand/90 border border-brand hover:shadow-[0_0_24px_rgba(0,255,163,0.25)]'
-                : broadcasting
-                  ? 'text-text-primary bg-brand/80 border border-brand/50 cursor-wait'
-                  : 'text-text-tertiary bg-surface-elevated border border-border-strong cursor-not-allowed opacity-60',
-          ].join(' ')}
-        >
-          {broadcasting && (
-            <span aria-hidden className="absolute inset-0 tosh-shimmer pointer-events-none" />
-          )}
-          <span className="relative" suppressHydrationWarning>{hydrated ? displayLabel : 'Create Launch'}</span>
-        </button>
-      </div>
-
-      {/* tx / sync status row */}
-      {(hash || errorMessage || syncState !== 'idle') && (
-        <div className="flex flex-wrap items-center gap-4 text-xs font-mono px-1">
-          {hash && (
-            <a href={basescanTx(hash)} target="_blank" rel="noopener noreferrer"
-               className="text-brand hover:underline">
-              TX {shortHash(hash)} ↗
-            </a>
-          )}
-          {errorMessage  && <span className="text-danger">Error: {errorMessage}</span>}
-          {syncState === 'syncing' && <span className="text-text-tertiary animate-pulse">Syncing to directory…</span>}
-          {syncState === 'done'    && <span className="text-brand">✓ Directory synced</span>}
-          {syncState === 'error'   && <span className="text-warning">Directory sync deferred</span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── PAGE ────────────────────────────────────────────────────────────────────
 export default function GenesisConsole() {
   const { address, isConnected } = useAccount()
-  const chainId                  = useChainId()
-  const { switchChainAsync }     = useSwitchChain()
-  const publicClient             = usePublicClient()
+  const chainId = useChainId()
+  const { switchChainAsync } = useSwitchChain()
+  const publicClient = usePublicClient()
 
   const {
     createLaunch,
     hash, receipt, isPending, isConfirming, isConfirmed, error, reset,
   } = useTosh()
 
-  // form state
-  const [name,        setName]        = useState('')
-  const [symbol,      setSymbol]      = useState('')
+  const [name, setName] = useState('')
+  const [symbol, setSymbol] = useState('')
   const [description, setDescription] = useState('')
   const [genesisDuration, setGenesisDuration] = useState<bigint>(GENESIS_DURATION_STANDARD)
-  const [logoUrl,     setLogoUrl]     = useState('')
-  const [website,     setWebsite]     = useState('')
-  const [twitter,     setTwitter]     = useState('')
-  const [telegram,    setTelegram]    = useState('')
-  const [ack,         setAck]         = useState(false)
+  const [logoUrl, setLogoUrl] = useState('')
+  const [website, setWebsite] = useState('')
+  const [twitter, setTwitter] = useState('')
+  const [telegram, setTelegram] = useState('')
+  const [ack, setAck] = useState(false)
   const [projectAdmin, setProjectAdmin] = useState('')
 
-  // salt state
-  const [salt,          setSalt]          = useState('')
+  const [salt, setSalt] = useState('')
   const [predictedHook, setPredictedHook] = useState('')
-  const [isMining,      setIsMining]      = useState(false)
-  const [mineError,     setMineError]     = useState('')
-
-  // The factory bakes its CURRENT `defaultSoftCap` and `maxPogAllocationLimit`
-  // into the hook initcode at createLaunch time, so a salt is only valid for
-  // the values that were live when it was mined.  Remember them; if the owner
-  // retunes either dial in between, the salt is silently dead and the launch
-  // would revert with the opaque `InvalidHookSalt`.
+  const [isMining, setIsMining] = useState(false)
+  const [mineError, setMineError] = useState('')
   const [saltCaps, setSaltCaps] = useState<{ soft: bigint; wallet: bigint } | null>(null)
 
-  const [syncState, setSyncState] = useState<'idle'|'syncing'|'done'|'error'>('idle')
-  const [hydrated,  setHydrated]  = useState(false)
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setHydrated(true) }, [])
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
 
-  // Auto-fill projectAdmin with the connected wallet the first time it's available.
-  // Deliberately not overwriting if the user has already typed a custom address.
-  //
-  // CRITICAL: also wipe any cached salt when `address` changes.  `address` is
-  // passed as `creator_` to hookInitcodeHash — a different wallet produces a
-  // different initcode hash, so any previously mined salt is invalid and would
-  // cause createLaunch to revert with InvalidHookSalt.
+  useTxLifecycleToast({
+    labels: { action: 'create launch' },
+    hash,
+    isPending,
+    isConfirming,
+    isConfirmed,
+    error,
+  })
+
   useEffect(() => {
     if (!address) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -477,13 +131,11 @@ export default function GenesisConsole() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address])
 
-  const pendingRef    = React.useRef<Omit<ProjectPayload,'txHash'>|null>(null)
-  const syncedHashRef = React.useRef<string|null>(null)
+  const pendingRef = useRef<Omit<ProjectPayload, 'txHash'> | null>(null)
+  const syncedHashRef = useRef<string | null>(null)
 
   const isWrongNetwork = isConnected && chainId !== TARGET_CHAIN_ID
-  const isBusy         = isPending || isConfirming || isMining
 
-  // contract reads
   const walletEnabled = Boolean(address) && isConnected && !isWrongNetwork
   const feeRead = useReadContracts({
     contracts: [
@@ -494,39 +146,17 @@ export default function GenesisConsole() {
   })
   const { data: ethBal } = useBalance({ address, query: { enabled: walletEnabled } })
 
-  const launchFeeWei  = (feeRead.data?.[0]?.result as bigint|undefined) ?? 0n
-  const softCapWei    = (feeRead.data?.[1]?.result as bigint|undefined) ?? 0n
-  const perWalletCapWei = (feeRead.data?.[2]?.result as bigint|undefined) ?? 0n
-  const feeDisplay    = useMemo(() => trimEth(formatUnits(launchFeeWei, 18)), [launchFeeWei])
+  const launchFeeWei = (feeRead.data?.[0]?.result as bigint | undefined) ?? 0n
+  const softCapWei = (feeRead.data?.[1]?.result as bigint | undefined) ?? 0n
+  const perWalletCapWei = (feeRead.data?.[2]?.result as bigint | undefined) ?? 0n
+  const feeDisplay = useMemo(() => trimEth(formatUnits(launchFeeWei, 18)), [launchFeeWei])
   const softCapDisplay = useMemo(() => trimEth(formatUnits(softCapWei, 18)), [softCapWei])
-  const treasury: Address|undefined = address
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
-  // protocol rules for ImmutablePact
-  const protocolRules = useMemo(() => [
-    { key: 'fee',      label: 'Launch Fee',       value: `${feeDisplay} ETH` },
-    { key: 'softcap',  label: 'Genesis Soft Cap', value: `${softCapDisplay} ETH` },
-    { key: 'wallet',   label: 'Per-wallet Cap',   value: `${trimEth(formatUnits(perWalletCapWei, 18))} ETH` },
-    { key: 'supply',   label: 'Total Supply',     value: `${millions(TOTAL_SUPPLY)} tokens · fixed` },
-    { key: 'genesis',  label: 'Genesis Block',
-      value: `${millions(GENESIS_SUPPLY)} (${shareOf(GENESIS_SUPPLY, TOTAL_SUPPLY)}) · ${millions(GENESIS_CLAIM_SUPPLY)} claimable / ${millions(GENESIS_LP_SUPPLY)} locked LP` },
-    { key: 'premium',  label: 'Genesis Premium',
-      value: '10% — the 55/45 split opens P₀ at 1.10× what depositors paid' },
-    { key: 'ladder',   label: 'Ladder Block',
-      value: `${millions(BONDING_MAX)} (${shareOf(BONDING_MAX, TOTAL_SUPPLY)}) · ${TIER_COUNT} shelves` },
-    { key: 'curve',    label: 'Curve Type',       value: `Discrete shelf ladder · ${LADDER_SPAN}× span` },
-    { key: 'window',   label: 'Genesis Window',   value: `${genesisDuration / 3600n} hours` },
-    { key: 'refund',   label: 'Refund Mechanism', value: 'refund()' },
-    { key: 'upgrade',  label: 'Upgradeability',   value: 'None — immutable' },
-    { key: 'minter',   label: 'Minter',           value: 'This Hook only, forever' },
-    { key: 'network',  label: 'Deploy Network',   value: TESTNET_CHAIN_LABEL },
-    { key: 'mainnet',  label: 'Target Mainnet',   value: MAINNET_CHAIN_LABEL },
-  ], [feeDisplay, softCapDisplay, perWalletCapWei, genesisDuration])
-
-  // salt mining — uses adminAddr so the initcode hash matches what the contract will deploy
-  const handleMineSalt = useCallback(async () => {
-    if (!address || !publicClient || !treasury || !adminAddr) return
-    setMineError(''); setSalt(''); setPredictedHook(''); setIsMining(true)
+  const mineSalt = useCallback(async (): Promise<`0x${string}` | null> => {
+    if (!address || !publicClient || !adminAddr) return null
+    setMineError('')
+    setIsMining(true)
     try {
       const liveSoftCap = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'defaultSoftCap',
@@ -536,59 +166,59 @@ export default function GenesisConsole() {
       }) as bigint
       const initcodeHash = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookInitcodeHash',
-        args: [treasury, address, adminAddr, liveSoftCap, liveWalletCap, genesisDuration],
+        args: [address, address, adminAddr, liveSoftCap, liveWalletCap, genesisDuration],
       }) as `0x${string}`
       const { rawSalt, hookAddress } = mineHookSalt(
         FACTORY_ADDRESS as `0x${string}`, address as `0x${string}`, initcodeHash,
       )
-      setSalt(rawSalt); setPredictedHook(hookAddress)
+      setSalt(rawSalt)
+      setPredictedHook(hookAddress)
       setSaltCaps({ soft: liveSoftCap, wallet: liveWalletCap })
+      return rawSalt
     } catch (e: unknown) {
       setMineError(e instanceof Error ? e.message : 'salt mining failed')
-    } finally { setIsMining(false) }
-  }, [address, publicClient, treasury, adminAddr, genesisDuration])
+      return null
+    } finally {
+      setIsMining(false)
+    }
+  }, [address, publicClient, adminAddr, genesisDuration])
 
-  // Drop a salt the moment the polled factory dials move away from what it was
-  // mined against, rather than letting the user discover it as a failed tx.
   useEffect(() => {
     if (!saltCaps) return
-    if (softCapWei === 0n && perWalletCapWei === 0n) return // not yet loaded
+    if (softCapWei === 0n && perWalletCapWei === 0n) return
     if (saltCaps.soft === softCapWei && saltCaps.wallet === perWalletCapWei) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSalt(''); setPredictedHook(''); setSaltCaps(null)
-    setMineError('Factory soft cap / wallet cap changed — re-mine the salt before launching.')
+    setMineError('Factory soft cap / wallet cap changed — the next deploy will grind a fresh salt.')
   }, [saltCaps, softCapWei, perWalletCapWei])
 
-  // validation
-  const nameTrimmed    = name.trim()
-  const symbolTrimmed  = symbol.trim().toUpperCase()
+  const nameTrimmed = name.trim()
+  const symbolTrimmed = symbol.trim().toUpperCase()
   const identityComplete = Boolean(nameTrimmed) && Boolean(symbolTrimmed) && Boolean(address) && Boolean(adminAddr)
-  const saltLocked       = Boolean(salt) && !isMining
-  const canMineSalt      = isConnected && !isWrongNetwork && !isBusy && identityComplete
-
-  // fee mode — native ETH, no ERC-20 approve step
   const ethBalance = ethBal?.value ?? 0n
-  const feeMode: FeeMode = isConfirmed ? 'confirmed'
-    : isPending||isConfirming ? 'broadcasting'
-    : !walletEnabled||feeRead.isPending ? 'loading'
-    : ethBalance < launchFeeWei ? 'insufficient'
-    : 'launch'
+  const insufficientFee = walletEnabled && !feeRead.isPending && ethBalance < launchFeeWei
+  const feeLoading = !walletEnabled || feeRead.isPending
 
   const handleLaunch = useCallback(async () => {
-    if (!address || !adminAddr || feeMode !== 'launch') return
+    if (!address || !adminAddr) return
     if (chainId !== TARGET_CHAIN_ID) {
-      try { await switchChainAsync({ chainId: TARGET_CHAIN_ID }); await new Promise<void>(r => setTimeout(r, 300)) }
-      catch { return }
+      try {
+        await switchChainAsync({ chainId: TARGET_CHAIN_ID })
+        await new Promise<void>(r => setTimeout(r, 300))
+      } catch { return }
     }
+
     pendingRef.current = {
       name: nameTrimmed, symbol: symbolTrimmed,
       logoUrl, website, twitter, telegram, description,
     }
-    // Final read-through before spending the fee.  The reactive check above
-    // runs off a poll and can be up to one interval stale, which is exactly
-    // long enough for an owner retune to land between the last refresh and
-    // this click.
-    if (publicClient && saltCaps) {
+
+    let saltToUse = salt as `0x${string}` | ''
+    if (!saltToUse) {
+      const mined = await mineSalt()
+      if (!mined) return
+      saltToUse = mined
+    } else if (publicClient && saltCaps) {
       try {
         const [nowSoft, nowWallet] = await Promise.all([
           publicClient.readContract({
@@ -600,229 +230,357 @@ export default function GenesisConsole() {
         ])
         if (nowSoft !== saltCaps.soft || nowWallet !== saltCaps.wallet) {
           setSalt(''); setPredictedHook(''); setSaltCaps(null)
-          setMineError('Factory soft cap / wallet cap changed — re-mine the salt before launching.')
-          return
+          const mined = await mineSalt()
+          if (!mined) return
+          saltToUse = mined
         }
-      } catch { /* fall through: the contract still rejects a stale salt */ }
+      } catch { /* contract still rejects a stale salt */ }
     }
 
     reset(); setSyncState('idle')
     try {
       await createLaunch(
         nameTrimmed, symbolTrimmed, address, adminAddr,
-        salt as `0x${string}`, launchFeeWei, genesisDuration,
+        saltToUse as `0x${string}`, launchFeeWei, genesisDuration,
       )
-    } catch { /* wagmi surfaces */ }
-  }, [address, adminAddr, feeMode, chainId, switchChainAsync, nameTrimmed, symbolTrimmed, logoUrl, website, twitter, telegram, description, salt, createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps])
+    } catch { /* wagmi + toast */ }
+  }, [
+    address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
+    logoUrl, website, twitter, telegram, description, salt, mineSalt,
+    createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
+  ])
 
-  // error message
-  const errorMessage = (() => {
-    if (!error) return ''
-    const cause = (error as { cause?: { data?: { errorName?: string } } }).cause
-    if (cause?.data?.errorName) return cause.data.errorName
-    const m = error.message.match(/reason:\s*([^\n.]+)/)
-    return m ? m[1].trim() : error.message.split('(')[0].trim()
-  })()
-
-  // off-chain sync
   useEffect(() => {
     if (!isConfirmed || !hash || !receipt) return
     if (syncedHashRef.current === hash) return
     syncedHashRef.current = hash
-    const snap = pendingRef.current; if (!snap) return
+    const snap = pendingRef.current
+    if (!snap) return
     const sync = async () => {
-      let tokenAddress: string|undefined, hookAddress: string|undefined
+      let tokenAddress: string | undefined
+      let hookAddress: string | undefined
       try {
         const logs = parseEventLogs({ abi: FACTORY_ABI, eventName: 'LaunchCreated', logs: receipt.logs })
-        if (logs.length > 0) { tokenAddress = logs[0].args.token as string; hookAddress = logs[0].args.hook as string }
+        if (logs.length > 0) {
+          tokenAddress = logs[0].args.token as string
+          hookAddress = logs[0].args.hook as string
+        }
       } catch { /* fallback */ }
       if ((!tokenAddress || !hookAddress) && publicClient) {
         try {
-          const count = await publicClient.readContract({ address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchCount' }) as bigint
+          const count = await publicClient.readContract({
+            address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchCount',
+          }) as bigint
           if (count > 0n) {
-            const l = await publicClient.readContract({ address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches', args: [count-1n] }) as readonly [string,string,string,bigint]
-            tokenAddress = tokenAddress ?? l[0]; hookAddress = hookAddress ?? l[1]
+            const l = await publicClient.readContract({
+              address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches', args: [count - 1n],
+            }) as readonly [string, string, string, bigint]
+            tokenAddress = tokenAddress ?? l[0]
+            hookAddress = hookAddress ?? l[1]
           }
         } catch { /* non-fatal */ }
       }
       const payload: ProjectPayload = { ...snap, txHash: hash, tokenAddress, hookAddress }
       setSyncState('syncing')
       try {
-        const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         setSyncState('done')
       } catch { setSyncState('error') }
     }
-    sync()
+    void sync()
   }, [isConfirmed, hash, receipt, publicClient])
 
-  // ─── RENDER ────────────────────────────────────────────────────────────────
+  const pickWindow = (next: bigint) => {
+    if (next === genesisDuration) return
+    setGenesisDuration(next)
+    if (salt) { setSalt(''); setPredictedHook('') }
+  }
+
+  const gate = useActionGate({
+    action: `Deploy — ${feeDisplay} ETH`,
+    onAct: () => { void handleLaunch() },
+    tx: { isPending, isConfirming },
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'identity',
+        active: !identityComplete,
+        label: 'Name the token first',
+        reason: 'Agent name, ticker and a valid project-admin address are baked into the hook initcode.',
+        tone: 'neutral',
+      },
+      {
+        id: 'ack',
+        active: !ack,
+        label: 'Acknowledge the pact',
+        reason: 'The rules on the right are immutable once this transaction lands. Tick the box to proceed.',
+        tone: 'warn',
+      },
+      {
+        id: 'fee-loading',
+        active: feeLoading,
+        label: 'Reading launch fee…',
+        reason: 'Waiting on factory.launchFee() before quoting the payable.',
+        tone: 'neutral',
+      },
+      {
+        id: 'insufficient-fee',
+        active: insufficientFee,
+        label: `Need ${feeDisplay} ETH`,
+        reason: `The factory takes ${feeDisplay} ETH as the launch fee. This wallet does not hold that much.`,
+        tone: 'warn',
+      },
+      {
+        id: 'mining',
+        active: isMining,
+        label: 'Mining CREATE2 salt…',
+        reason: `Grinding until the predicted hook address carries the 0x20CC flag for a ${genesisDuration / 3600n}h window.`,
+        tone: 'info',
+      },
+      {
+        id: 'confirmed',
+        active: isConfirmed,
+        label: 'Launch confirmed',
+        reason: 'The hook is on-chain. Directory sync runs in the background.',
+        tone: 'info',
+      },
+    ),
+  })
+
+  const activeWindow = GENESIS_WINDOWS.find(w => w.seconds === genesisDuration) ?? GENESIS_WINDOWS[1]
+
   return (
-    <main className="min-h-screen bg-bg-base text-text-primary font-sans">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-12">
+    <main className="min-h-screen">
+      <div className="mx-auto max-w-6xl px-4 py-page md:px-6">
+        <PageHeader
+          eyebrow={`Mainnet · ${MAINNET_CHAIN_LABEL}`}
+          status={<Badge tone="ok" pip>{CHAIN_STATUS_BADGE}</Badge>}
+          title="Create a"
+          accent="Tosh Launch"
+          subtitle={`${CHAIN_POSITIONING} One signature mines a Uniswap V4 hook salt and opens a Proof-of-Gas gated genesis.`}
+        />
 
-        {/* Header */}
-        <header className="mb-10 border-b border-border-subtle pb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <span className="bg-brand text-bg-base text-label font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
-            <span className="text-text-tertiary text-label font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-text-primary leading-tight">
-            Create a <span className="text-brand">Tosh Launch</span>
-          </h1>
-          <p className="text-text-secondary text-sm mt-3 max-w-2xl">
-            {CHAIN_POSITIONING} Pay the ETH launch fee, mine a Uniswap V4 hook salt, and open a Proof-of-Gas gated genesis window.
-          </p>
-        </header>
+        <div className="mt-section grid grid-cols-1 items-start gap-section lg:grid-cols-3">
+          <section className="flex flex-col gap-section lg:col-span-2">
 
-        {/* 2-col layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-
-          {/* Left — forms */}
-          <section className="lg:col-span-2 space-y-6">
-
-            <MeritXCard icon={Rocket} title="Agent Identity">
-              <div className="space-y-4">
-                <MeritXField
-                  label="Agent Name"
+            <Card id="01" title="Token" subtitle="What the directory and the ticker tape will call this.">
+              <div className="grid grid-cols-1 gap-gap sm:grid-cols-2">
+                <Field
+                  label="Name"
                   value={name}
-                  onChange={setName}
-                  placeholder="e.g. QuantMind"
+                  onValueChange={setName}
+                  placeholder="QuantMind"
                 />
-                <MeritXField
-                  label="Ticker (Symbol)"
+                <Field
+                  label="Ticker"
                   value={symbol}
-                  onChange={setSymbol}
-                  placeholder="e.g. QMT"
-                  autoUpper
-                />
-                <MeritXField
-                  label="Declared Multisig (Metadata)"
-                  value={hydrated ? (treasury ?? '') : ''}
-                  readOnly
-                  locked={hydrated && Boolean(treasury)}
-                  hint="AUTO-LOCKED · RECEIVES NO FUNDS · CREATE2 SALT INPUT ONLY — REVENUE ROUTES TO PROJECT ADMIN BELOW"
-                  placeholder="Connect wallet to bind…"
-                />
-                <div>
-                  <MeritXField
-                    label="Project Admin"
-                    hint="99% BONDING CURVE REVENUE ROUTE · ROTATIONAL PRIVILEGES LCKD"
-                    value={hydrated ? projectAdmin : ''}
-                    onChange={v => {
-                      setProjectAdmin(v)
-                      // projectAdmin is baked into hook initcode — salt is no longer valid
-                      if (salt) { setSalt(''); setPredictedHook('') }
-                    }}
-                    placeholder="0x… (defaults to your wallet)"
-                  />
-                  {hydrated && projectAdmin && !isAddress(projectAdmin) && (
-                    <p className="mt-1.5 text-label font-mono text-danger">
-                      Invalid address — must be a valid 0x Ethereum address
-                    </p>
-                  )}
-                  {hydrated && projectAdmin && isAddress(projectAdmin) && projectAdmin.toLowerCase() !== address?.toLowerCase() && (
-                    <p className="mt-1.5 text-label font-mono text-warning/80">
-                      Custom admin — this address will receive the 99 % Phase-2 shelf cut
-                    </p>
-                  )}
-                </div>
-                <GenesisWindowSelect
-                  value={genesisDuration}
-                  onChange={next => {
-                    if (next === genesisDuration) return
-                    setGenesisDuration(next)
-                    // The window is baked into the hook initcode — salt is no longer valid
-                    if (salt) { setSalt(''); setPredictedHook('') }
-                  }}
+                  onValueChange={setSymbol}
+                  placeholder="QMT"
+                  uppercase
                 />
               </div>
-            </MeritXCard>
-
-            <MeritXCard icon={FileText} title="Project Details">
-              <div className="space-y-4">
-                <MeritXTextarea
-                  label="Project Manifesto"
-                  hint="optional"
-                  value={description}
-                  onChange={setDescription}
-                  placeholder="Describe your agent's utility, economic model, and roadmap — shown on the project page and directory cards."
-                />
-                <MeritXField label="Image URL"          value={logoUrl}  onChange={setLogoUrl}  placeholder="https://…/logo.png" />
-                <MeritXField label="Website"            value={website}  onChange={setWebsite}  placeholder="https://yourproject.xyz" />
-                <MeritXField label="Twitter (X)"        value={twitter}  onChange={setTwitter}  placeholder="@handle or x.com/…" />
-                <MeritXField label="Telegram / Discord" value={telegram} onChange={setTelegram} placeholder="t.me/… or discord.gg/…" />
-              </div>
-            </MeritXCard>
-
-            <MeritXCard icon={Cpu} title="Crypto Engine">
-              <p className="text-label text-text-quiet font-mono mb-4 leading-relaxed">
-                CREATE2 salt grinder — bind name + ticker first, then mine until the engine locks.
-              </p>
-              <CryptoEngine
-                isMining={isMining}
-                salt={salt}
-                mineError={mineError}
-                onMine={() => void handleMineSalt()}
-                canMine={canMineSalt}
-                predictedHook={predictedHook}
+              <Field
+                label="Project admin"
+                hint="Receives 99% of Phase-2 shelf revenue. Defaults to the connected wallet. The CREATE2 salt input is the same address — it receives no funds."
+                value={projectAdmin}
+                onValueChange={v => {
+                  setProjectAdmin(v)
+                  if (salt) { setSalt(''); setPredictedHook('') }
+                }}
+                placeholder="0x…"
+                error={projectAdmin && !isAddress(projectAdmin) ? 'NOT A VALID ADDRESS' : null}
               />
-            </MeritXCard>
+              {isAddress(projectAdmin) && address && projectAdmin.toLowerCase() !== address.toLowerCase() && (
+                <p className="text-note text-warning">
+                  Custom admin — this address, not yours, receives the 99% shelf cut.
+                </p>
+              )}
 
-            {/* Acknowledgement */}
-            <div className="rounded-xl border border-warning/30 bg-warning/5 p-5">
-              <label className="flex items-start gap-3 cursor-pointer select-none">
+              <details className="group">
+                <summary className="cursor-pointer list-none font-mono text-label text-text-tertiary hover:text-text-secondary">
+                  Optional manifesto, links, artwork
+                  <span className="ml-2 text-text-quiet group-open:hidden">+</span>
+                  <span className="ml-2 hidden text-text-quiet group-open:inline">−</span>
+                </summary>
+                <div className="mt-gap flex flex-col gap-gap">
+                  <Field
+                    label="Manifesto"
+                    multiline
+                    rows={4}
+                    value={description}
+                    onValueChange={setDescription}
+                    placeholder="Utility, economic model, roadmap."
+                  />
+                  <Field label="Image URL" value={logoUrl} onValueChange={setLogoUrl} placeholder="https://…/logo.png" />
+                  <Field label="Website" value={website} onValueChange={setWebsite} placeholder="https://…" />
+                  <Field label="Twitter / X" value={twitter} onValueChange={setTwitter} placeholder="@handle" />
+                  <Field label="Telegram / Discord" value={telegram} onValueChange={setTelegram} placeholder="t.me/…" />
+                </div>
+              </details>
+            </Card>
+
+            <Card
+              id="02"
+              title="Genesis window"
+              subtitle="Immutable. The window runs to completion even if the soft cap fills in minutes."
+            >
+              <div role="radiogroup" aria-label="Genesis window" className="grid grid-cols-1 gap-gap sm:grid-cols-3">
+                {GENESIS_WINDOWS.map(w => {
+                  const selected = w.seconds === activeWindow.seconds
+                  return (
+                    <button
+                      key={w.label}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => pickWindow(w.seconds)}
+                      className={
+                        'flex flex-col gap-gap-tight rounded-card border px-card py-card text-left transition-colors ' +
+                        (selected
+                          ? 'border-border-accent bg-brand/10 shadow-armed'
+                          : 'border-border-subtle bg-surface-elevated hover:border-border-strong hover:bg-surface-hover')
+                      }
+                    >
+                      <span className={`font-mono text-label ${selected ? 'text-brand' : 'text-text-quiet'}`}>
+                        {w.tag}
+                      </span>
+                      <span className="text-title text-text-primary">{w.label}</span>
+                      <span className="text-note text-text-tertiary leading-relaxed">{w.blurb}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </Card>
+
+            <Card
+              id="03"
+              title="Mine and deploy"
+              subtitle="The button grinds a 0x20CC CREATE2 salt, then pays the launch fee in the same flow."
+              status={salt ? <Badge tone="ok" pip live>salt locked</Badge> : undefined}
+            >
+              {predictedHook && (
+                <CardWell padding="card">
+                  <p className="font-mono text-label text-text-quiet">Predicted hook</p>
+                  <p className="mt-1 break-all font-mono text-note text-brand">{predictedHook}</p>
+                </CardWell>
+              )}
+
+              <label className="flex cursor-pointer items-start gap-gap select-none">
                 <input
                   type="checkbox"
                   checked={ack}
                   onChange={() => setAck(a => !a)}
-                  className="mt-1 h-4 w-4 rounded border border-border-strong bg-bg-base/50 accent-warning"
+                  className="mt-1 h-4 w-4 accent-brand"
                 />
-                <div>
-                  <span className="text-label font-bold text-warning/90 uppercase tracking-wider">Acknowledgement</span>
-                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                    I acknowledge the Immutable Pact: ETH launch fee ({feeDisplay} ETH), genesis soft
-                    cap ({softCapDisplay} ETH), deposit cooldown per hook, a genesis window that
-                    runs in full even after the soft cap is met, and that this Hook and its token
-                    are not upgradeable — MINTER_ROLE stays with this Hook forever. Full ETH refund
-                    via{' '}
-                    <span className="text-warning">refund()</span> if genesis fails or the launch
-                    window expires.
-                  </p>
-                </div>
+                <span className="text-note text-text-secondary leading-relaxed">
+                  I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
+                  soft cap, a genesis window that cannot close early, and a full{' '}
+                  <span className="text-warning">refund()</span> if the raise misses or the{' '}
+                  {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day launch window expires unopened.
+                </span>
               </label>
-            </div>
 
-            <LaunchCTA
-              feeMode={feeMode}
-              feeDisplay={feeDisplay}
-              identityComplete={identityComplete}
-              saltLocked={saltLocked}
-              ack={ack}
-              isWrongNetwork={isWrongNetwork}
-              isConnected={isConnected}
-              onLaunch={handleLaunch}
-              onSwitchChain={async () => {
-                try { await switchChainAsync({ chainId: TARGET_CHAIN_ID }) } catch { /* user cancel */ }
-              }}
-              hash={hash}
-              errorMessage={errorMessage}
-              syncState={syncState}
-            />
+              {mineError && (
+                <p className="text-note text-danger">{mineError}</p>
+              )}
 
+              <ActionButton gate={gate} size="lg" />
+
+              {isConfirmed && hash && (
+                <p className="font-mono text-note text-success">
+                  Confirmed.{' '}
+                  <a
+                    href={testnetExplorerTx(hash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand underline decoration-dotted underline-offset-2"
+                  >
+                    {hash.slice(0, 10)}…{hash.slice(-6)}
+                  </a>
+                  {syncState === 'syncing' && ' · syncing directory'}
+                  {syncState === 'done' && ' · directory synced'}
+                  {syncState === 'error' && ' · directory sync deferred'}
+                </p>
+              )}
+
+              <Link
+                href="/"
+                className="self-start font-mono text-label text-text-tertiary hover:text-text-secondary"
+              >
+                Cancel
+              </Link>
+            </Card>
           </section>
 
-          {/* Right — immutable pact rail */}
-          <div className="lg:col-span-1">
-            <ImmutablePact rules={protocolRules} />
-          </div>
+          <aside className="lg:col-span-1">
+            <div className="sticky top-24">
+              <Card
+                id="PACT"
+                title="Immutable rules"
+                subtitle="Unalterable the moment createLaunch confirms."
+                interactive={false}
+              >
+                <ul className="flex flex-col gap-gap">
+                  <PactRule
+                    kicker={shareOf(GENESIS_SUPPLY, TOTAL_SUPPLY)}
+                    title={`${millions(GENESIS_SUPPLY)} genesis`}
+                    body={`${millions(GENESIS_CLAIM_SUPPLY)} claimable to depositors · ${millions(GENESIS_LP_SUPPLY)} locked as genesis LP.`}
+                  />
+                  <PactRule
+                    kicker={shareOf(BONDING_MAX, TOTAL_SUPPLY)}
+                    title={`${millions(BONDING_MAX)} ladder`}
+                    body={`${TIER_COUNT} equal shelves across a ${LADDER_SPAN}× span. Unsold supply can never be reminted.`}
+                  />
+                  <PactRule
+                    kicker="10%"
+                    title="Genesis premium"
+                    body="The 55/45 claim/LP split opens P₀ at 1.10× what depositors paid."
+                  />
+                  <PactRule
+                    kicker={`${Number(LAUNCH_WINDOW_SECONDS / 86400n)} days`}
+                    title="Unopened raise refunds in full"
+                    body="If launch() is not called after a successful genesis, every depositor reclaims 100% of their ETH. No penalty, no haircut."
+                  />
+                </ul>
 
+                <CardWell padding="card">
+                  <p className="font-mono text-label text-text-quiet">Live factory dials</p>
+                  <dl className="mt-gap-tight flex flex-col gap-1 font-mono text-note">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Launch fee</dt>
+                      <dd className="text-text-primary">{feeDisplay} ETH</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Soft cap</dt>
+                      <dd className="text-text-primary">{softCapDisplay} ETH</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Per-wallet cap</dt>
+                      <dd className="text-text-primary">{trimEth(formatUnits(perWalletCapWei, 18))} ETH</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Network</dt>
+                      <dd className="text-text-primary">{TESTNET_CHAIN_LABEL}</dd>
+                    </div>
+                  </dl>
+                </CardWell>
+
+                <p className="text-note text-text-quiet leading-relaxed">
+                  No proxy, no admin key, no upgrade. MINTER_ROLE is granted once to this
+                  project&apos;s Hook. DEFAULT_ADMIN_ROLE is left vacant.
+                </p>
+                <p className="break-all font-mono text-micro text-text-quiet">
+                  Factory {FACTORY_ADDRESS}
+                </p>
+              </Card>
+            </div>
+          </aside>
         </div>
       </div>
-
-      <footer className="border-t border-border-subtle mt-12 py-6 text-center text-label text-text-quiet font-mono tracking-widest uppercase">
-        Tosh Protocol · v4.3 · {MAINNET_CHAIN_LABEL} · testnet: {TESTNET_CHAIN_LABEL}
-      </footer>
     </main>
   )
 }

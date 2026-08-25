@@ -102,7 +102,7 @@ export function ShelfLadder({
             <div
               key={idx.toString()}
               className={`grid grid-cols-[4rem_1fr_6rem_5rem] gap-3 px-4 py-1.5 font-mono text-note tabular-nums
-                          ${active ? 'text-text-primary bg-white/[0.03]' : 'text-text-tertiary'}`}
+                          ${active ? 'text-text-primary bg-surface-hover' : 'text-text-tertiary'}`}
             >
               <span>#{idx.toString()}</span>
               <span>{fmt(t.price)} ETH</span>
