@@ -59,7 +59,7 @@ export function RefundPanel({
       subtitle="hook.refund() — soft-cap not met OR zombie window elapsed · full claim, no penalty"
     >
       <Readout label="YOUR DEPOSIT" value={`${fmt(ethDeposited)} ETH`} />
-      <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-brand">
+      <p className="font-mono text-label tracking-[0.4em] uppercase text-brand">
         → REFUND_GATE: OPEN
       </p>
       <ActionButton gate={gate} />

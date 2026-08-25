@@ -32,14 +32,14 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
        uppercase tracking-wider hover:bg-brand hover:text-bg-base transition-all
        shadow-[0_0_8px_rgba(0,255,163,0.15)]`
     : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-subtle text-text-tertiary
-       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand
+       font-mono text-label tracking-[0.32em] uppercase hover:border-brand
        hover:text-brand transition-colors`
 
   const pipCls = variant === 'navbar'
     ? `group flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border-subtle
        bg-surface-card/80 hover:border-brand/40 transition-all text-xs font-mono`
     : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-subtle text-text-primary
-       font-mono text-[10px] tracking-[0.32em] uppercase hover:border-brand transition-colors`
+       font-mono text-label tracking-[0.32em] uppercase hover:border-brand transition-colors`
 
   // Always render a stable outer wrapper so the root element never changes
   // type between SSR (<button>) and CSR (<div> / Fragment). React reconciles
@@ -66,7 +66,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
               title="protocol operator console"
               className="hidden sm:inline-flex items-center px-2.5 py-1.5 rounded-lg
                          border border-admin/30 text-admin font-mono
-                         text-[10px] tracking-widest uppercase hover:border-admin
+                         text-label tracking-widest uppercase hover:border-admin
                          transition-colors"
             >
               sys_control

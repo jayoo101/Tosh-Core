@@ -329,7 +329,7 @@ export function LiquidityPanel({
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest">
+        <span className="text-label font-semibold text-text-tertiary uppercase tracking-widest">
           Slippage
         </span>
         <div role="radiogroup" aria-label="LP slippage tolerance" className="flex gap-1">
@@ -344,7 +344,7 @@ export function LiquidityPanel({
                 onClick={() => setSlippageBps(p.bps)}
                 disabled={busy}
                 className={
-                  'text-[10px] font-mono px-2 py-1 rounded-md border transition-colors ' +
+                  'text-label font-mono px-2 py-1 rounded-md border transition-colors ' +
                   (selected
                     ? 'border-brand text-text-primary bg-brand/10'
                     : 'border-border-strong text-text-tertiary hover:text-text-secondary')
@@ -369,7 +369,7 @@ export function LiquidityPanel({
               key={pos.tokenId.toString()}
               className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-border-subtle last:border-b-0"
             >
-              <div className="font-mono text-[11px] text-text-tertiary tabular-nums">
+              <div className="font-mono text-note text-text-tertiary tabular-nums">
                 <span className="text-text-primary">#{pos.tokenId.toString()}</span>
                 {' · '}{fmt(pos.amount0)} ETH{' + '}{fmt(pos.amount1)} {symbol}
               </div>
@@ -377,7 +377,7 @@ export function LiquidityPanel({
                 type="button"
                 disabled={busy}
                 onClick={() => withdraw(pos.tokenId, pos.amount0, pos.amount1)}
-                className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-md
+                className="text-label font-bold uppercase tracking-wider px-3 py-1 rounded-md
                            border border-border-strong text-text-secondary hover:bg-surface-elevated/60
                            disabled:opacity-40 transition-colors"
               >
@@ -389,7 +389,7 @@ export function LiquidityPanel({
       )}
 
       {degraded && (
-        <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
+        <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
           {'// '}This RPC would not serve position logs, so only positions minted from this
           browser are listed. Your other positions are safe on-chain and remain withdrawable
           through any Uniswap V4 interface.

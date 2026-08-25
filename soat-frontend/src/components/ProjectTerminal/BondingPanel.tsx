@@ -296,10 +296,10 @@ export function BondingPanel(p: BondingProps) {
 
       {halted && (
         <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
-          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
+          <p className="font-mono text-label tracking-[0.32em] uppercase text-danger">
             → LADDER SUSPENDED · {haltIsGlobal ? 'PLATFORM-WIDE' : 'THIS PROJECT'} · LIFTS IN {haltTxt}
           </p>
-          <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
+          <p className="font-mono text-note text-text-tertiary leading-relaxed">
             The protocol owner has tripped the circuit breaker, so the hook
             rejects every <span className="text-text-primary">mintBondingCurve</span> call
             until it expires. The pool itself is untouched — the token still
@@ -358,7 +358,7 @@ export function BondingPanel(p: BondingProps) {
                 : <span className="font-mono text-base text-brand">L-01_invariant: verified.</span>}
             </div>
           </div>
-          <p className="px-4 py-2 border-t border-border-subtle text-[10px] font-mono text-text-quiet tracking-wider break-all">
+          <p className="px-4 py-2 border-t border-border-subtle text-label font-mono text-text-quiet tracking-wider break-all">
             msg.value = {maxEthCost.toString()} wei · excess refunded
           </p>
         </div>

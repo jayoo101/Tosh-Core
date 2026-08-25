@@ -67,7 +67,7 @@ function MeritXCard({
     <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
       <div className="flex items-center gap-2 mb-5">
         <Icon className="w-5 h-5 text-brand" />
-        <h2 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.2em]">{title}</h2>
+        <h2 className="text-label font-bold text-text-secondary uppercase tracking-[0.2em]">{title}</h2>
       </div>
       {children}
     </div>
@@ -92,10 +92,10 @@ function MeritXField({
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
         {label}
-        {hint && <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">{hint}</span>}
-        {locked && <span className="ml-auto text-[9px] text-brand font-bold tracking-wider">● LOCKED</span>}
+        {hint && <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">{hint}</span>}
+        {locked && <span className="ml-auto text-micro text-brand font-bold tracking-wider">● LOCKED</span>}
       </label>
       <input
         type="text"
@@ -129,9 +129,9 @@ function GenesisWindowSelect({
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
         Genesis Window
-        <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">
+        <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">
           immutable once deployed
         </span>
       </label>
@@ -160,7 +160,7 @@ function GenesisWindowSelect({
               <span className="block text-sm font-bold tabular-nums">{w.label}</span>
               <span
                 className={
-                  'block text-[9px] uppercase tracking-widest mt-0.5 ' +
+                  'block text-micro uppercase tracking-widest mt-0.5 ' +
                   (selected ? 'text-brand' : 'text-text-quiet')
                 }
               >
@@ -171,8 +171,8 @@ function GenesisWindowSelect({
         })}
       </div>
 
-      <p className="mt-1.5 text-[10px] font-mono text-text-tertiary">{active.blurb}</p>
-      <p className="mt-1 text-[10px] font-mono text-warning/80 leading-relaxed">
+      <p className="mt-1.5 text-label font-mono text-text-tertiary">{active.blurb}</p>
+      <p className="mt-1 text-label font-mono text-warning/80 leading-relaxed">
         The window must run to completion — even if the soft cap fills in minutes,
         launch() cannot be called early. Pick the shortest window you can live with.
       </p>
@@ -191,9 +191,9 @@ function MeritXTextarea({
 }) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-[10px] font-semibold text-text-secondary uppercase tracking-widest mb-2">
+      <label className="flex items-center gap-2 text-label font-semibold text-text-secondary uppercase tracking-widest mb-2">
         {label}
-        {hint && <span className="ml-auto normal-case text-[9px] text-text-quiet font-normal tracking-normal">{hint}</span>}
+        {hint && <span className="ml-auto normal-case text-micro text-text-quiet font-normal tracking-normal">{hint}</span>}
       </label>
       <textarea
         value={value}
@@ -213,11 +213,11 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
       <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-6">
         <div className="flex items-center gap-2 mb-5">
           <Shield className="w-5 h-5 text-brand" />
-          <h2 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.2em]">
+          <h2 className="text-label font-bold text-text-secondary uppercase tracking-[0.2em]">
             The Immutable Pact
           </h2>
         </div>
-        <p className="text-[10px] text-text-tertiary font-mono mb-4 leading-relaxed">
+        <p className="text-label text-text-tertiary font-mono mb-4 leading-relaxed">
           Protocol mechanics — unalterable rules you agree to by initializing:
         </p>
         <ul className="space-y-3 font-mono text-xs">
@@ -229,10 +229,10 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
           ))}
         </ul>
         <div className="mt-5 rounded-lg border border-brand/30 bg-brand/5 p-3">
-          <p className="text-[10px] font-bold text-brand uppercase tracking-[0.18em] mb-1.5">
+          <p className="text-label font-bold text-brand uppercase tracking-[0.18em] mb-1.5">
             Decentralization invariant
           </p>
-          <p className="text-[10px] text-text-secondary font-mono leading-relaxed">
+          <p className="text-label text-text-secondary font-mono leading-relaxed">
             No proxy, no admin key, no upgrade. <span className="text-text-primary">MINTER_ROLE</span> is
             granted once to this project&apos;s Hook and <span className="text-text-primary">DEFAULT_ADMIN_ROLE</span> is
             left permanently vacant. The token cannot migrate to a v5.1 Hook; unsold ladder
@@ -240,7 +240,7 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
           </p>
         </div>
         <div className="mt-6 pt-4 border-t border-border-subtle">
-          <p className="text-[10px] text-warning/80 font-mono leading-relaxed">
+          <p className="text-label text-warning/80 font-mono leading-relaxed">
             If genesis fails (soft cap not met) or the 7-day launch window expires without curve
             activation, depositors can call{' '}
             <span className="text-warning">refund()</span> for full ETH return — no penalty.
@@ -248,7 +248,7 @@ function ImmutablePact({ rules }: { rules: { key: string; label: string; value: 
         </div>
       </div>
       <div className="mt-4 p-3 rounded-lg border border-border-subtle/60 bg-surface-card/20">
-        <p className="text-[9px] text-text-quiet font-mono break-all">
+        <p className="text-micro text-text-quiet font-mono break-all">
           Factory: {FACTORY_ADDRESS}
         </p>
       </div>
@@ -290,7 +290,7 @@ function CryptoEngine({
           type="button"
           onClick={onMine}
           disabled={!canMine || isMining}
-          className={`px-4 py-2.5 rounded-xl border text-[10px] tracking-widest uppercase font-bold transition-all
+          className={`px-4 py-2.5 rounded-xl border text-label tracking-widest uppercase font-bold transition-all
             ${canMine && !isMining
               ? 'border-brand text-brand hover:bg-brand hover:text-bg-base'
               : 'border-border-strong text-text-quiet cursor-not-allowed'}`}
@@ -298,7 +298,7 @@ function CryptoEngine({
           {isMining ? '⌛ Mining…' : '[ Mine Salt ]'}
         </button>
         {locked && (
-          <span className="flex items-center gap-1.5 text-[10px] font-bold text-brand border border-brand/30 px-2 py-1 rounded">
+          <span className="flex items-center gap-1.5 text-label font-bold text-brand border border-brand/30 px-2 py-1 rounded">
             <span className="w-1.5 h-1.5 rounded-full bg-brand dot-breathe" />
             ENGINE LOCKED
           </span>
@@ -312,8 +312,8 @@ function CryptoEngine({
 
       {predictedHook && (
         <div className="rounded-xl border border-border-subtle bg-surface-card/30 px-4 py-3">
-          <p className="text-[9px] text-text-tertiary font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
-          <p className="text-[11px] text-brand/80 font-mono break-all">{predictedHook}</p>
+          <p className="text-micro text-text-tertiary font-mono mb-1 uppercase tracking-wider">Predicted Hook Address:</p>
+          <p className="text-note text-brand/80 font-mono break-all">{predictedHook}</p>
         </div>
       )}
 
@@ -664,8 +664,8 @@ export default function GenesisConsole() {
         {/* Header */}
         <header className="mb-10 border-b border-border-subtle pb-8">
           <div className="flex items-center gap-3 mb-4">
-            <span className="bg-brand text-bg-base text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
-            <span className="text-text-tertiary text-[10px] font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
+            <span className="bg-brand text-bg-base text-label font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
+            <span className="text-text-tertiary text-label font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-text-primary leading-tight">
             Create a <span className="text-brand">Tosh Launch</span>
@@ -717,12 +717,12 @@ export default function GenesisConsole() {
                     placeholder="0x… (defaults to your wallet)"
                   />
                   {hydrated && projectAdmin && !isAddress(projectAdmin) && (
-                    <p className="mt-1.5 text-[10px] font-mono text-danger">
+                    <p className="mt-1.5 text-label font-mono text-danger">
                       Invalid address — must be a valid 0x Ethereum address
                     </p>
                   )}
                   {hydrated && projectAdmin && isAddress(projectAdmin) && projectAdmin.toLowerCase() !== address?.toLowerCase() && (
-                    <p className="mt-1.5 text-[10px] font-mono text-warning/80">
+                    <p className="mt-1.5 text-label font-mono text-warning/80">
                       Custom admin — this address will receive the 99 % Phase-2 shelf cut
                     </p>
                   )}
@@ -756,7 +756,7 @@ export default function GenesisConsole() {
             </MeritXCard>
 
             <MeritXCard icon={Cpu} title="Crypto Engine">
-              <p className="text-[10px] text-text-quiet font-mono mb-4 leading-relaxed">
+              <p className="text-label text-text-quiet font-mono mb-4 leading-relaxed">
                 CREATE2 salt grinder — bind name + ticker first, then mine until the engine locks.
               </p>
               <CryptoEngine
@@ -779,7 +779,7 @@ export default function GenesisConsole() {
                   className="mt-1 h-4 w-4 rounded border border-border-strong bg-bg-base/50 accent-warning"
                 />
                 <div>
-                  <span className="text-[10px] font-bold text-warning/90 uppercase tracking-wider">Acknowledgement</span>
+                  <span className="text-label font-bold text-warning/90 uppercase tracking-wider">Acknowledgement</span>
                   <p className="text-xs text-text-secondary mt-1 leading-relaxed">
                     I acknowledge the Immutable Pact: ETH launch fee ({feeDisplay} ETH), genesis soft
                     cap ({softCapDisplay} ETH), deposit cooldown per hook, a genesis window that
@@ -820,7 +820,7 @@ export default function GenesisConsole() {
         </div>
       </div>
 
-      <footer className="border-t border-border-subtle mt-12 py-6 text-center text-[10px] text-text-quiet font-mono tracking-widest uppercase">
+      <footer className="border-t border-border-subtle mt-12 py-6 text-center text-label text-text-quiet font-mono tracking-widest uppercase">
         Tosh Protocol · v4.3 · {MAINNET_CHAIN_LABEL} · testnet: {TESTNET_CHAIN_LABEL}
       </footer>
     </main>

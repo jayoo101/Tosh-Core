@@ -235,7 +235,7 @@ const KIND_TEXT: Record<TxKind, string> = {
 
 function FeedPill({ item }: { item: FeedItem }) {
   return (
-    <span className="inline-flex items-center gap-2 text-[10px] tracking-[0.32em] uppercase">
+    <span className="inline-flex items-center gap-2 text-label tracking-[0.32em] uppercase">
       <span aria-hidden className={`inline-block h-1.5 w-1.5 ${KIND_DOT[item.kind]}`} />
       <span className={KIND_TEXT[item.kind]}>[ {item.kind} ]</span>
       <span className="text-text-tertiary normal-case tracking-normal">{item.payload}</span>

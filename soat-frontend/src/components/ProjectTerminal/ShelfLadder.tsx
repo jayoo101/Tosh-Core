@@ -58,10 +58,10 @@ export function ShelfLadder({
   return (
     <div className="border border-border-subtle">
       <div className="flex items-baseline justify-between px-4 py-2 border-b border-border-subtle">
-        <span className="text-[10px] tracking-[0.4em] uppercase text-text-tertiary font-bold">
+        <span className="text-label tracking-[0.4em] uppercase text-text-tertiary font-bold">
           {'// DISCRETE SHELF LADDER · 4000 RUNGS · 2000× SPAN'}
         </span>
-        <span className={`font-mono text-[10px] tabular-nums
+        <span className={`font-mono text-label tabular-nums
                           ${halted ? 'text-danger' : 'text-text-tertiary'}`}>
           {halted
             ? 'LADDER HALTED · BREAKER'
@@ -101,7 +101,7 @@ export function ShelfLadder({
           return (
             <div
               key={idx.toString()}
-              className={`grid grid-cols-[4rem_1fr_6rem_5rem] gap-3 px-4 py-1.5 font-mono text-[11px] tabular-nums
+              className={`grid grid-cols-[4rem_1fr_6rem_5rem] gap-3 px-4 py-1.5 font-mono text-note tabular-nums
                           ${active ? 'text-text-primary bg-white/[0.03]' : 'text-text-tertiary'}`}
             >
               <span>#{idx.toString()}</span>
@@ -114,7 +114,7 @@ export function ShelfLadder({
       </div>
 
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle
-                      font-mono text-[10px] text-text-tertiary tabular-nums">
+                      font-mono text-label text-text-tertiary tabular-nums">
         <span>P₀ = <span className="text-text-primary">{fmt(p0)} ETH</span></span>
         <span>spot = <span className="text-text-primary">{fmt(spotPrice)}</span></span>
         {/* A zero TWAP is the hook's "no full window yet" signal, not a price of

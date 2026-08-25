@@ -257,23 +257,23 @@ export function GenesisPanel(p: GenesisProps) {
         />
 
         {oversubscribed && !windowClosed && (
-          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-brand leading-relaxed">
+          <p className="font-mono text-label tracking-[0.32em] uppercase text-brand leading-relaxed">
             → OVERSUBSCRIBED · SOFT CAP CLEARED, DEPOSITS STAY OPEN UNTIL THE WINDOW ENDS
           </p>
         )}
 
         {windowClosed && (
-          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-warning leading-relaxed">
+          <p className="font-mono text-label tracking-[0.32em] uppercase text-warning leading-relaxed">
             → WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED
           </p>
         )}
 
         {banned && (
           <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
-            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
+            <p className="font-mono text-label tracking-[0.32em] uppercase text-danger">
               → WALLET BLACKLISTED · {banTxt}
             </p>
-            <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
+            <p className="font-mono text-note text-text-tertiary leading-relaxed">
               The factory rejects every <span className="text-text-primary">deposit</span> from this
               address while the ban stands, whatever quota it holds — so the zero here is a
               ban, not a spent allowance.{' '}
@@ -287,10 +287,10 @@ export function GenesisPanel(p: GenesisProps) {
 
         {unattested && (
           <div className="border border-warning/40 px-4 py-3 flex flex-col gap-1">
-            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-warning">
+            <p className="font-mono text-label tracking-[0.32em] uppercase text-warning">
               → NO POG ATTESTATION ON FILE
             </p>
-            <p className="font-mono text-[11px] text-text-tertiary leading-relaxed">
+            <p className="font-mono text-note text-text-tertiary leading-relaxed">
               This wallet has never registered Proof-of-Gas, so it holds no quota to spend —
               nothing has been consumed here. Run{' '}
               <span className="text-text-primary">EXECUTE_GAS_PROOF_SCAN</span> below to have the

@@ -48,8 +48,8 @@ export default function AgentDirectoryHome() {
         <section className="pt-10 pb-8 border-b border-border-subtle/60">
           <div className="max-w-3xl">
             <div className="flex items-center gap-3 mb-4">
-              <span className="bg-brand text-bg-base text-[10px] font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
-              <span className="text-text-tertiary text-[10px] font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
+              <span className="bg-brand text-bg-base text-label font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
+              <span className="text-text-tertiary text-label font-mono tracking-widest uppercase">Mainnet: {MAINNET_CHAIN_LABEL}</span>
             </div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-text-primary leading-[1.08] mb-3">
               Fair-Launch Terminal for{' '}
@@ -84,7 +84,7 @@ export default function AgentDirectoryHome() {
         <section id="directory" className="pt-8">
           <div className="flex items-center gap-2 mb-6">
             <span className={`w-2 h-2 rounded-full ${loading ? 'bg-brand animate-pulse' : 'bg-brand/40'}`} />
-            <span className="text-[10px] font-mono text-text-tertiary tracking-wider flex-1 min-w-0">
+            <span className="text-label font-mono text-text-tertiary tracking-wider flex-1 min-w-0">
               {loading && isFirstLoad
                 ? 'Scanning hooks…'
                 : `Hook radar — ${counts.live} funding — ${counts.launching} initializing — ${counts.completed} active — testnet ${TESTNET_CHAIN_LABEL}`}
@@ -94,7 +94,7 @@ export default function AgentDirectoryHome() {
                 type="button"
                 onClick={() => void handleRefresh()}
                 disabled={refreshing}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black font-mono uppercase tracking-wider border transition-all
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-micro font-black font-mono uppercase tracking-wider border transition-all
                   ${refreshing
                     ? 'border-brand/30 bg-brand/10 text-brand cursor-wait'
                     : 'border-border-strong bg-surface-card/60 text-text-secondary hover:border-brand/40 hover:text-brand hover:bg-brand/10'}`}
@@ -114,12 +114,12 @@ export default function AgentDirectoryHome() {
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`py-2.5 px-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-1.5
+                  className={`py-2.5 px-3 text-label font-bold uppercase tracking-widest rounded-lg transition-all flex items-center justify-center gap-1.5
                     ${active ? 'bg-surface-elevated text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}
                 >
                   {tab.label}
                   {count > 0 && (
-                    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[9px] font-black px-1
+                    <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-micro font-black px-1
                       ${active ? 'bg-brand/20 text-brand' : 'bg-surface-elevated/80 text-text-quiet'}`}>
                       {count}
                     </span>
@@ -138,10 +138,10 @@ export default function AgentDirectoryHome() {
                   <span className="w-3 h-3 rounded-full bg-brand/60 shadow-[0_0_12px_rgba(0,255,163,0.5)]" />
                 </span>
               </div>
-              <p className="text-[11px] font-mono font-bold uppercase tracking-[0.25em] text-text-tertiary mb-2">
+              <p className="text-note font-mono font-bold uppercase tracking-[0.25em] text-text-tertiary mb-2">
                 No Active Agents Detected
               </p>
-              <p className="text-[10px] font-mono text-text-quiet max-w-xs mb-6">
+              <p className="text-label font-mono text-text-quiet max-w-xs mb-6">
                 {activeTab === 'live'      && `No genesis windows open. Create the first fair-launch hook on ${TESTNET_CHAIN_LABEL} (Ethereum mainnet target).`}
                 {activeTab === 'launching' && 'No launches awaiting creator launch() — soft cap met, curve pending.'}
                 {activeTab === 'completed' && 'No agents on the shelf ladder yet.'}
@@ -164,7 +164,7 @@ export default function AgentDirectoryHome() {
           )}
 
           {launchCount === 0 && !loading && (
-            <p className="mt-6 text-center text-[10px] font-mono text-text-quiet">
+            <p className="mt-6 text-center text-label font-mono text-text-quiet">
               {TESTNET_CHAIN_LABEL} testnet — awaiting first createLaunch() — pay ETH fee, mine hook salt, open genesis
             </p>
           )}
@@ -177,7 +177,7 @@ export default function AgentDirectoryHome() {
             <span className="text-sm font-black text-text-primary tracking-tighter">
               Tosh<span className="text-brand"> Protocol</span>
             </span>
-            <span className="text-[10px] text-text-quiet font-mono" suppressHydrationWarning>
+            <span className="text-label text-text-quiet font-mono" suppressHydrationWarning>
               © {new Date().getFullYear()} Tosh Protocol — {MAINNET_CHAIN_LABEL} — testnet: {TESTNET_CHAIN_LABEL}
             </span>
           </div>

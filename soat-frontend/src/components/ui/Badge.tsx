@@ -58,7 +58,7 @@ export function Badge({
       title={title}
       className={cn(
         'inline-flex items-center gap-gap-tight rounded-pill border font-mono uppercase',
-        size === 'sm' ? 'px-2 py-0.5 text-[0.5625rem] tracking-[0.2em]' : 'px-3 py-1 text-label',
+        size === 'sm' ? 'px-2 py-0.5 text-micro tracking-[0.2em]' : 'px-3 py-1 text-label',
         TONES[tone],
         className,
       )}

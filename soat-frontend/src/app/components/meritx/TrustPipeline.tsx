@@ -74,16 +74,16 @@ export function TrustPipeline() {
                 <div className={`h-1 w-full ${s.ledStrip}`} />
                 <div className="absolute top-4 right-4 flex items-center gap-1.5">
                   <div className={`w-2 h-2 rounded-full ${s.led} led-breathe`} />
-                  <span className="text-[7px] font-mono text-text-quiet uppercase">Active</span>
+                  <span className="text-micro font-mono text-text-quiet uppercase">Active</span>
                 </div>
                 <div className="flex-1 flex flex-col p-6 pt-8">
                   <div className="flex items-center gap-2 mb-5">
-                    <span className="text-[9px] font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
-                    <span className="text-[9px] font-mono text-text-quiet">|</span>
-                    <span className={`text-[9px] font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
+                    <span className="text-micro font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
+                    <span className="text-micro font-mono text-text-quiet">|</span>
+                    <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
                   </div>
                   <h4 className="text-lg font-bold text-text-primary mb-3 tracking-tight group-hover:text-text-primary transition-colors">{s.title}</h4>
-                  <p className="text-[12px] text-text-secondary leading-relaxed mt-auto">{s.description}</p>
+                  <p className="text-body text-text-secondary leading-relaxed mt-auto">{s.description}</p>
                 </div>
                 <div className="h-px mx-4 mb-3 bg-gradient-to-r from-transparent via-surface-elevated to-transparent" />
               </div>
@@ -98,11 +98,11 @@ export function TrustPipeline() {
             <div className={`h-0.5 w-full ${s.ledStrip}`} />
             <div className="p-5">
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-[9px] font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
-                <span className={`text-[9px] font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
+                <span className="text-micro font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
+                <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
               </div>
               <h4 className="text-base font-bold text-text-primary mb-2">{s.title}</h4>
-              <p className="text-[12px] text-text-secondary leading-relaxed">{s.description}</p>
+              <p className="text-body text-text-secondary leading-relaxed">{s.description}</p>
             </div>
           </div>
         ))}

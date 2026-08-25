@@ -45,7 +45,7 @@ function CardCountdown({ deadline, tab }: { deadline: bigint; tab: DirectoryProj
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [deadline, tab])
-  return <span className="text-[10px] font-mono tabular-nums text-text-tertiary">{text}</span>
+  return <span className="text-label font-mono tabular-nums text-text-tertiary">{text}</span>
 }
 
 function ctaLabel(tab: DirectoryProject['tab']) {
@@ -93,7 +93,7 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
             ? <img src={p.logoUrl} alt={p.name} className="w-full h-full object-cover" />
             : <span className="text-2xl font-black text-brand">{sigil}</span>}
         </div>
-        <span className={`flex items-center gap-1.5 text-[9px] font-bold px-2 py-1 rounded border uppercase tracking-widest ${badge.color}`}>
+        <span className={`flex items-center gap-1.5 text-micro font-bold px-2 py-1 rounded border uppercase tracking-widest ${badge.color}`}>
           {(p.tab === 'live' || p.tab === 'completed') && (
             <span className="w-1.5 h-1.5 rounded-full bg-current dot-breathe" />
           )}
@@ -120,7 +120,7 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
         <div className="w-full h-1.5 bg-surface-elevated rounded-full overflow-hidden">
           <div className={`h-full rounded-full transition-all duration-1000 ${barCls}`} style={{ width: `${Math.min(100, p.progress)}%` }} />
         </div>
-        <div className="flex justify-between text-[10px] font-mono text-text-tertiary">
+        <div className="flex justify-between text-label font-mono text-text-tertiary">
           <span>Raised: {fmtEth(p.totalEth)} ETH</span>
           <span>Target: {fmtEth(p.softCap)} ETH</span>
         </div>

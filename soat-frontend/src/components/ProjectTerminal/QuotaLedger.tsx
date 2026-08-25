@@ -53,7 +53,7 @@ export function QuotaLedger({
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between border-b border-border-subtle/60 py-1.5">
       <span className="font-mono text-label text-text-tertiary">{label}</span>
-      <span className="font-mono text-[11px] text-text-primary tabular-nums break-all text-right">
+      <span className="font-mono text-note text-text-primary tabular-nums break-all text-right">
         {value}
       </span>
     </div>
@@ -62,10 +62,10 @@ export function QuotaLedger({
   return (
     <div className="border border-border-subtle px-4 py-3 flex flex-col gap-1">
       <div className="flex items-center justify-between pb-1">
-        <span className="text-[10px] tracking-[0.4em] uppercase text-text-tertiary font-bold">
+        <span className="text-label tracking-[0.4em] uppercase text-text-tertiary font-bold">
           {'// [H-01] QUOTA LEDGER'}
         </span>
-        <span className="font-mono text-[10px] text-text-tertiary tabular-nums">
+        <span className="font-mono text-label text-text-tertiary tabular-nums">
           {statusTxt}
         </span>
       </div>
@@ -87,12 +87,12 @@ export function QuotaLedger({
       <div className="pt-2">
         {breached
           ? (
-            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-brand">
+            <p className="font-mono text-label tracking-[0.4em] uppercase text-brand">
               → H-01_BREACH: INTERCEPTED
             </p>
           )
           : (
-            <p className="font-mono text-[10px] tracking-[0.4em] uppercase text-text-tertiary">
+            <p className="font-mono text-label tracking-[0.4em] uppercase text-text-tertiary">
               → H-01_GUARD: ACTIVE
             </p>
           )}

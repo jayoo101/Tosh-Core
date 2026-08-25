@@ -48,7 +48,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
                  justify-center gap-6 px-6 py-12 font-mono text-text-primary"
     >
       <header className="flex flex-col gap-2 border-b border-border-subtle pb-4">
-        <span className="text-[11px] uppercase tracking-[0.4em] text-brand">
+        <span className="text-note uppercase tracking-[0.4em] text-brand">
           {'// RUNTIME // ANOMALY_DETECTED'}
         </span>
         <h1 className="text-2xl font-light tracking-wide text-text-primary">
@@ -80,7 +80,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
         <button
           type="button"
           onClick={reset}
-          className="flex-1 border border-brand bg-bg-base px-4 py-3 text-[12px]
+          className="flex-1 border border-brand bg-bg-base px-4 py-3 text-body
                      uppercase tracking-[0.3em] text-brand
                      hover:bg-brand/10 focus:outline-none focus:ring-2
                      focus:ring-brand focus:ring-offset-2 focus:ring-offset-black
@@ -91,7 +91,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
         <Link
           href="/"
           className="flex-1 border border-border-strong bg-bg-base px-4 py-3 text-center
-                     text-[12px] uppercase tracking-[0.3em] text-text-secondary
+                     text-body uppercase tracking-[0.3em] text-text-secondary
                      hover:border-border-strong hover:text-text-primary
                      focus:outline-none focus:ring-2 focus:ring-border-strong
                      focus:ring-offset-2 focus:ring-offset-black
@@ -101,7 +101,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
         </Link>
       </div>
 
-      <p className="text-[10px] uppercase tracking-[0.25em] text-text-quiet">
+      <p className="text-label uppercase tracking-[0.25em] text-text-quiet">
         {'// If this persists, share the digest above with @tosh-support'}
       </p>
     </section>

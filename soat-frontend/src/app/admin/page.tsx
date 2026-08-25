@@ -118,7 +118,7 @@ function GroupHeader({
     <div className="mt-12 first:mt-4">
       <Line />
       <div className="pt-5 flex flex-col gap-1">
-        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-brand">
+        <span className="text-label font-mono tracking-[0.4em] uppercase text-brand">
           {index}
         </span>
         <h2 className="text-xl font-black text-text-primary tracking-tight">{title}</h2>
@@ -156,7 +156,7 @@ function Section({
   )
 }
 
-const labelCls = 'text-[10px] tracking-[0.32em] uppercase text-text-tertiary font-light'
+const labelCls = 'text-label tracking-[0.32em] uppercase text-text-tertiary font-light'
 
 /** Governance-boundary note — states what a control does NOT reach. */
 function ScopeNote({ tone = 'mute', children }: { tone?: 'mute' | 'warn'; children: React.ReactNode }) {
@@ -164,7 +164,7 @@ function ScopeNote({ tone = 'mute', children }: { tone?: 'mute' | 'warn'; childr
     ? 'border-danger/40 text-danger'
     : 'border-border-subtle text-text-tertiary'
   return (
-    <p className={`border-l-2 ${cls} pl-3 text-[11px] leading-relaxed font-mono`}>
+    <p className={`border-l-2 ${cls} pl-3 text-note leading-relaxed font-mono`}>
       {children}
     </p>
   )
@@ -203,7 +203,7 @@ function Field({
                     disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors duration-150`}
       />
-      {hint && <span className="text-[10px] text-text-tertiary tracking-wider">{hint}</span>}
+      {hint && <span className="text-label text-text-tertiary tracking-wider">{hint}</span>}
     </label>
   )
 }
@@ -230,7 +230,7 @@ function TextAreaField({
                    tabular-nums resize-y transition-colors duration-150
                    disabled:opacity-40"
       />
-      {hint && <span className="text-[10px] text-text-tertiary tracking-wider">{hint}</span>}
+      {hint && <span className="text-label text-text-tertiary tracking-wider">{hint}</span>}
     </label>
   )
 }
@@ -269,7 +269,7 @@ function WriteButton({
       disabled={disabled}
       title={ownerGated ? (reason ?? 'read-only') : undefined}
       className={`inline-flex items-center justify-center
-                  ${small ? 'px-4 py-2 text-[10px]' : 'px-5 py-2.5 text-xs'}
+                  ${small ? 'px-4 py-2 text-label' : 'px-5 py-2.5 text-xs'}
                   font-mono uppercase tracking-wider font-bold rounded-input
                   transition-colors disabled:cursor-not-allowed
                   ${hardLocked
@@ -304,7 +304,7 @@ function Readout({
           {value}
         </span>
       </div>
-      {hint && <div className="text-[10px] text-text-quiet tracking-wider text-right">{hint}</div>}
+      {hint && <div className="text-label text-text-quiet tracking-wider text-right">{hint}</div>}
     </div>
   )
 }
@@ -312,7 +312,7 @@ function Readout({
 function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
-    <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
+    <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
       <span className="text-danger">[REVERT]</span> {msg}
     </p>
   )
@@ -329,7 +329,7 @@ function TxLine({ hash, label }: { hash?: `0x${string}`; label: string }) {
     : 'PENDING'
   const tone = isSuccess ? 'text-brand' : isError ? 'text-danger' : 'text-text-tertiary'
   return (
-    <p className="text-[10px] font-mono tracking-wider flex items-center gap-3 flex-wrap">
+    <p className="text-label font-mono tracking-wider flex items-center gap-3 flex-wrap">
       <span className={tone}>[TX]</span>
       <span className="text-text-tertiary">{label}</span>
       <span className={tone}>{stateTxt}</span>
@@ -362,7 +362,7 @@ function StatusBadge({ ok, okLabel, badLabel }: { ok: boolean; okLabel: string; 
   return (
     <span
       className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border
-                  font-mono text-[10px] tracking-[0.32em] uppercase
+                  font-mono text-label tracking-[0.32em] uppercase
                   ${ok
                     ? 'border-brand/50 text-brand'
                     : 'border-danger/50 text-danger'}`}
@@ -413,7 +413,7 @@ function ConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-[10px] font-mono uppercase tracking-wider
+            className="px-4 py-2 text-label font-mono uppercase tracking-wider
                        border border-border-subtle text-text-secondary rounded-xl
                        hover:text-text-primary hover:border-border-strong transition-colors"
           >
@@ -422,7 +422,7 @@ function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider font-bold
+            className={`px-4 py-2 text-label font-mono uppercase tracking-wider font-bold
                         rounded-xl border transition-colors
                         ${danger
                           ? 'border-danger text-danger hover:bg-danger hover:text-bg-base'
@@ -661,7 +661,7 @@ function SoftCapPanel() {
         fluo={parsed.ok && !belowFloor}
       />
       {belowFloor && (
-        <p className="font-mono text-[10px] tracking-[0.32em] text-brand uppercase">
+        <p className="font-mono text-label tracking-[0.32em] text-brand uppercase">
           → GUARD LOCKED · MIN_SOFT_CAP_VIOLATION
         </p>
       )}
@@ -1086,7 +1086,7 @@ function CircuitBreakerPanel() {
       id="G3-A" title="PLATFORM CIRCUIT BREAKER"
       subtitle="pause / unpause · Pausable guard on the factory's entry points"
       action={isLoading && paused === undefined
-        ? <span className="text-[10px] font-mono text-text-tertiary">reading…</span>
+        ? <span className="text-label font-mono text-text-tertiary">reading…</span>
         : <StatusBadge ok={!isPaused} okLabel="live" badLabel="paused" />}
     >
       <ScopeNote tone={isPaused ? 'warn' : 'mute'}>
@@ -1216,7 +1216,7 @@ function LadderHaltPanel() {
         {(['global', 'hook'] as const).map(s => (
           <button
             key={s} type="button" onClick={() => { setScope(s); setError(null) }}
-            className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
+            className={'px-3 py-1.5 text-label tracking-[0.28em] uppercase font-bold border transition-colors ' +
               (scope === s
                 ? 'border-brand text-brand'
                 : 'border-border-subtle text-text-tertiary hover:text-text-secondary')}
@@ -1257,7 +1257,7 @@ function LadderHaltPanel() {
             <button
               key={p.label} type="button" onClick={() => setDuration(p.secs)}
               disabled={txBusy}
-              className={'px-3 py-1.5 text-[10px] tracking-[0.28em] uppercase font-bold border transition-colors ' +
+              className={'px-3 py-1.5 text-label tracking-[0.28em] uppercase font-bold border transition-colors ' +
                 (duration === p.secs
                   ? 'border-brand text-brand'
                   : 'border-border-subtle text-text-tertiary hover:text-text-secondary')}
@@ -1337,7 +1337,7 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
   return (
     <div className="border border-border-subtle rounded-lg overflow-hidden">
       <div className="grid grid-cols-[3rem_5rem_1fr] gap-3 px-3 py-1.5 border-b border-border-subtle
-                      text-[10px] tracking-[0.32em] uppercase text-text-tertiary">
+                      text-label tracking-[0.32em] uppercase text-text-tertiary">
         <span>idx</span>
         <span>state</span>
         <span>address</span>
@@ -1348,7 +1348,7 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
           return (
             <div
               key={`${row.index}-${row.raw}`}
-              className="grid grid-cols-[3rem_5rem_1fr] gap-3 items-center px-3 py-1 text-[11px] tabular-nums"
+              className="grid grid-cols-[3rem_5rem_1fr] gap-3 items-center px-3 py-1 text-note tabular-nums"
             >
               <span className="text-text-quiet">
                 {row.index.toString(16).toUpperCase().padStart(3, '0')}
@@ -1362,7 +1362,7 @@ function BlacklistRowList({ rows }: { rows: ParsedAddressRow[] }) {
         })}
       </div>
       {truncated > 0 && (
-        <p className="px-3 py-1.5 text-center text-[10px] text-text-tertiary border-t border-border-subtle tracking-wider">
+        <p className="px-3 py-1.5 text-center text-label text-text-tertiary border-t border-border-subtle tracking-wider">
           +{truncated} ROWS BUFFERED · DUMP CAPPED AT {RENDER_CAP}
         </p>
       )}
@@ -1527,7 +1527,7 @@ function BlacklistConsole() {
       {rows.length > 0 && <BlacklistRowList rows={rows} />}
 
       {overBatchLimit && (
-        <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-danger">
+        <p className="font-mono text-label tracking-[0.32em] uppercase text-danger">
           → BATCH OVER {ADMIN_BATCH_MAX} · rows past index {ADMIN_BATCH_MAX - 1} dropped from the wire
         </p>
       )}
@@ -1786,7 +1786,7 @@ function LadderTreasuryPanel() {
       <div className="flex flex-col gap-1.5">
         <span className={labelCls}>LISTED TOKENS</span>
         {listed.length === 0 ? (
-          <p className="text-[11px] font-mono text-text-tertiary py-3">
+          <p className="text-note font-mono text-text-tertiary py-3">
             roster empty — buybacks are inert until at least one token is listed
           </p>
         ) : (
@@ -1794,13 +1794,13 @@ function LadderTreasuryPanel() {
             {listed.map((t, i) => (
               <div key={t} className="flex items-center justify-between gap-3 px-3 py-2">
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="font-mono text-[10px] text-text-quiet tabular-nums">
+                  <span className="font-mono text-label text-text-quiet tabular-nums">
                     {i.toString().padStart(2, '0')}
                   </span>
                   {BigInt(i) === cursor && (
-                    <span className="text-[9px] font-mono tracking-widest text-brand">▸NEXT</span>
+                    <span className="text-micro font-mono tracking-widest text-brand">▸NEXT</span>
                   )}
-                  <span className="font-mono text-[11px] text-text-secondary break-all">
+                  <span className="font-mono text-note text-text-secondary break-all">
                     <AddressLink addr={t} />
                   </span>
                 </div>
@@ -1954,7 +1954,7 @@ function OwnershipCard({
 
       {iAmPending && (
         <div className="flex flex-col gap-2 border border-brand/40 rounded-lg p-3">
-          <p className="text-[11px] font-mono text-brand leading-relaxed">
+          <p className="text-note font-mono text-brand leading-relaxed">
             You are the pending owner of this contract. Ownership does not move
             until you accept it.
           </p>
@@ -2110,10 +2110,10 @@ function InitcodeHashMonitor() {
       id="DIAG-A" title="LIVE INITCODE HASH"
       subtitle="factory.getLiveHookInitcodeHash() · build fingerprint · 8 s probe"
     >
-      <p className="font-mono text-[11px] text-text-tertiary tracking-wider break-all leading-relaxed">
+      <p className="font-mono text-note text-text-tertiary tracking-wider break-all leading-relaxed">
         hash{'  '}<span className="text-text-secondary">{display}</span>
       </p>
-      <p className="font-mono text-[10px] tracking-[0.32em] uppercase flex items-center gap-3">
+      <p className="font-mono text-label tracking-[0.32em] uppercase flex items-center gap-3">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${hashOk ? 'bg-brand' : 'bg-surface-hover'}`} aria-hidden />
         {statusLine}
         {isFetching && !isLoading && <span className="text-text-quiet">· syncing</span>}
@@ -2210,7 +2210,7 @@ function ExchangeRatePanel() {
         />
       </div>
       {message && (
-        <p className={`font-mono text-[10px] tracking-wider leading-relaxed
+        <p className={`font-mono text-label tracking-wider leading-relaxed
                        ${status === 'ok' ? 'text-brand' : 'text-danger'}`}>
           {status === 'ok' ? '✓' : '⛔'} {message}
         </p>
@@ -2232,7 +2232,7 @@ function WalletBar() {
     return (
       <button
         onClick={() => connect({ connector: injected() })}
-        className="px-4 py-1.5 border border-text-primary text-text-primary text-[10px] font-mono
+        className="px-4 py-1.5 border border-text-primary text-text-primary text-label font-mono
                    tracking-[0.32em] uppercase font-bold rounded-xl
                    hover:border-brand hover:text-brand transition-colors"
       >
@@ -2241,7 +2241,7 @@ function WalletBar() {
     )
   }
   return (
-    <div className="flex items-center gap-3 font-mono text-[10px] tracking-wider">
+    <div className="flex items-center gap-3 font-mono text-label tracking-wider">
       <span className="text-brand tabular-nums">
         {address?.slice(0, 6)}…{address?.slice(-4)}
       </span>
@@ -2279,13 +2279,13 @@ function AccessBanner({
     <div className="mt-6 border border-danger/40 rounded-2xl p-5 flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-danger" aria-hidden />
-        <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-danger">
+        <span className="text-label font-mono tracking-[0.4em] uppercase text-danger">
           {title}
         </span>
       </div>
       <p className="text-xs text-text-secondary leading-relaxed max-w-2xl">{body}</p>
       {owner && (
-        <p className="text-[11px] font-mono text-text-tertiary break-all">
+        <p className="text-note font-mono text-text-tertiary break-all">
           owner <AddressLink addr={owner} />
         </p>
       )}
@@ -2316,11 +2316,11 @@ export default function AdminPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-2 h-2 rounded-full bg-admin dot-breathe" />
-                <span className="text-[10px] font-mono text-admin uppercase tracking-widest">
+                <span className="text-label font-mono text-admin uppercase tracking-widest">
                   Operator Console
                 </span>
                 {!access.canWrite && (
-                  <span className="text-[10px] font-mono text-danger uppercase tracking-widest">
+                  <span className="text-label font-mono text-danger uppercase tracking-widest">
                     · read-only
                   </span>
                 )}
@@ -2397,7 +2397,7 @@ export default function AdminPage() {
 
           <div className="pt-12">
             <Line />
-            <p className="text-[10px] text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
+            <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
               every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
             </p>
           </div>

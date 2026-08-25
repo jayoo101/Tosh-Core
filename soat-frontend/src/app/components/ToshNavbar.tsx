@@ -43,7 +43,7 @@ export function ToshNavbar() {
                 <Link
                   key={href}
                   href={href}
-                  className={`px-3 py-1.5 rounded-input text-[11px] font-medium transition-colors
+                  className={`px-3 py-1.5 rounded-input text-note font-medium transition-colors
                     ${active
                       ? 'text-brand bg-brand/10'
                       : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}`}

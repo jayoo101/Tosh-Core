@@ -16,7 +16,7 @@ import { basescanTx } from './format'
 export function AlarmLine({ msg }: { msg: string | null }) {
   if (!msg) return null
   return (
-    <p className="text-[10px] font-mono text-text-tertiary tracking-wider leading-relaxed">
+    <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
       <span className="text-danger">[REVERT]</span> {msg}
     </p>
   )
@@ -30,7 +30,7 @@ export function TxLine({ hash, label }: { hash?: `0x${string}`; label: string })
     : isSuccess ? 'ACKNOWLEDGED' : 'PENDING'
   const tone = isSuccess ? 'text-brand' : 'text-text-tertiary'
   return (
-    <p className="text-[10px] font-mono tracking-wider flex items-center gap-3 flex-wrap">
+    <p className="text-label font-mono tracking-wider flex items-center gap-3 flex-wrap">
       <span className={tone}>[TX]</span>
       <span className="text-text-tertiary">{label}</span>
       <span className={tone}>{stateTxt}</span>

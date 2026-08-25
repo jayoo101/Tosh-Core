@@ -105,7 +105,7 @@ export function PogScanButton({
     <div className="flex flex-col items-end gap-1">
       <ActionButton gate={gate} full={false} />
       {msg && (
-        <span className={`font-mono text-[10px] tracking-wider
+        <span className={`font-mono text-label tracking-wider
                           ${tone === 'rust'
                             ? 'text-danger'
                             : tone === 'mute' ? 'text-text-tertiary' : 'text-brand'}`}>

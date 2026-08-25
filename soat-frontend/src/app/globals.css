@@ -184,9 +184,17 @@
    *    text-section  governance-group / section heading
    *    text-title    card title
    *    text-body     prose, descriptions, blurbs
+   *    text-note     inline note / hint / secondary prose
    *    text-label    uppercase caption / field label / status pill
+   *    text-micro    densest status text: pips, chain badges, tx tails
    *    text-readout  numeric + address readout value (pair with font-mono)
    *    text-figure   the one big number on a card (pair with font-mono)
+   *
+   * `note` (11px) and `micro` (9px) were added rather than rounded away. The
+   * codebase had 27 hand-written `text-[11px]` and 28 `text-[9px]`, and folding
+   * them into the nearest existing step would have resized 55 places to make
+   * the scale look tidier. A scale is supposed to describe the design, not
+   * argue with it.
    */
   --text-hero: 2.5rem;
   --text-hero--line-height: 1.06;
@@ -208,10 +216,20 @@
   --text-body--letter-spacing: 0em;
   --text-body--font-weight: 400;
 
+  --text-note: 0.6875rem;
+  --text-note--line-height: 1.55;
+  --text-note--letter-spacing: 0.01em;
+  --text-note--font-weight: 400;
+
   --text-label: 0.625rem;
   --text-label--line-height: 1.4;
   --text-label--letter-spacing: 0.28em;
   --text-label--font-weight: 600;
+
+  --text-micro: 0.5625rem;
+  --text-micro--line-height: 1.35;
+  --text-micro--letter-spacing: 0.22em;
+  --text-micro--font-weight: 600;
 
   --text-readout: 0.875rem;
   --text-readout--line-height: 1.25;

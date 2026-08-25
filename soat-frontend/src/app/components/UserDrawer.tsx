@@ -478,7 +478,7 @@ function DrawerHeader({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-black text-text-primary uppercase tracking-widest">My Profile</h2>
-          <p className="text-[10px] text-text-quiet font-mono mt-0.5">{MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</p>
+          <p className="text-label text-text-quiet font-mono mt-0.5">{MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</p>
         </div>
         <button
           type="button"
@@ -508,7 +508,7 @@ function DrawerHeader({
           title="Re-open wallet account picker (EIP-2255)"
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
                      border border-border-subtle bg-surface-card/50
-                     text-[10px] tracking-[0.32em] uppercase font-mono text-text-secondary
+                     text-label tracking-[0.32em] uppercase font-mono text-text-secondary
                      hover:border-brand/40 hover:text-brand hover:bg-brand/5
                      transition-all"
         >
@@ -527,7 +527,7 @@ function DrawerHeader({
           title="Terminate wagmi session for this address"
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
                      border border-border-subtle bg-surface-card/50
-                     text-[10px] tracking-[0.32em] uppercase font-mono text-text-secondary
+                     text-label tracking-[0.32em] uppercase font-mono text-text-secondary
                      hover:border-danger/40 hover:text-danger hover:bg-danger/5
                      transition-all"
         >
@@ -545,7 +545,7 @@ function DrawerHeader({
 function DrawerFooter() {
   return (
     <footer className="px-5 py-3 border-t border-border-subtle
-                       text-[9px] tracking-[0.32em] uppercase text-text-quiet
+                       text-micro tracking-[0.32em] uppercase text-text-quiet
                        flex items-center justify-between gap-3">
       <span>v4.3 · {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</span>
       <span>esc · click_outside</span>
@@ -574,7 +574,7 @@ function PoGQuotaPanel({
   return (
     <section className="px-4 pt-4 pb-2">
       <div className="rounded-xl border border-border-subtle/70 bg-surface-card/50 p-4">
-        <div className="text-brand/70 font-mono text-[9px] font-bold tracking-widest mb-1">
+        <div className="text-brand/70 font-mono text-micro font-bold tracking-widest mb-1">
           POG REMAINING · THIS WINDOW
         </div>
         {banned ? (
@@ -593,19 +593,19 @@ function PoGQuotaPanel({
         )}
         <div className="border-t border-border-subtle/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-text-tertiary font-mono text-[10px] uppercase">Per-window Allocation</span>
+            <span className="text-text-tertiary font-mono text-label uppercase">Per-window Allocation</span>
             <span className="text-text-primary font-mono text-xs font-bold tabular-nums">
               {unattested ? '—' : `${formatEth(pogQuota)} ETH`}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-text-tertiary font-mono text-[10px] uppercase">Spent This Window</span>
+            <span className="text-text-tertiary font-mono text-label uppercase">Spent This Window</span>
             <span className="text-text-secondary font-mono text-xs font-bold tabular-nums">
               {blocked ? '—' : `${formatEth(windowSpent)} ETH`}
             </span>
           </div>
         </div>
-        <p className={`mt-3 text-[9px] font-mono leading-relaxed
+        <p className={`mt-3 text-micro font-mono leading-relaxed
                        ${banned ? 'text-danger' : unattested ? 'text-warning' : 'text-text-quiet'}`}>
           {banned
             ? `${'// '}every deposit is rejected while the ban stands · ${banTxt.toLowerCase()}`
@@ -632,12 +632,12 @@ function CooldownPanel({
 }) {
   return (
     <section className="px-4 py-3">
-      <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-widest mb-2">Cooldown Matrix</p>
+      <p className="text-label font-mono text-text-tertiary uppercase tracking-widest mb-2">Cooldown Matrix</p>
       <div className="rounded-xl border border-border-subtle/70 bg-surface-card/30 px-4 py-3">
       {!cooldownPresent ? (
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
-          <span className="text-brand font-bold tracking-wider text-[9px]">READY TO DEPOSIT</span>
+          <span className="text-brand font-bold tracking-wider text-micro">READY TO DEPOSIT</span>
         </div>
       ) : cooldownReady ? (
         <div className="flex items-center gap-2 text-xs font-mono">
@@ -677,18 +677,18 @@ function ParticipatedAssetsPanel({
 }) {
   return (
     <section className="px-4 pt-2 pb-8">
-      <p className="text-success/80 font-mono text-[10px] font-bold tracking-widest mb-3 px-1">
+      <p className="text-success/80 font-mono text-label font-bold tracking-widest mb-3 px-1">
         {`/// Participated Assets`}
       </p>
 
       {loading && snapshots.length === 0 && (
-        <p className="text-[10px] tracking-wider text-text-tertiary uppercase">
+        <p className="text-label tracking-wider text-text-tertiary uppercase">
           / scanning on-chain registry…
         </p>
       )}
 
       {empty && (
-        <p className="text-[10px] tracking-wider text-text-tertiary uppercase leading-relaxed">
+        <p className="text-label tracking-wider text-text-tertiary uppercase leading-relaxed">
           / no genesis deposits detected ·{' '}
           <span className="text-text-primary">deposit ETH in any live genesis window, then claim after launch()</span>
         </p>
@@ -742,14 +742,14 @@ function AssetRow({
     <li className="rounded-xl border border-border-subtle/70 bg-surface-card/30 p-4 mb-3">
       <header className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[12px] text-text-primary font-bold tracking-wider uppercase">
+          <span className="text-body text-text-primary font-bold tracking-wider uppercase">
             ${symbol}
           </span>
-          <span className="text-[9px] tracking-[0.32em] uppercase text-text-quiet truncate">
+          <span className="text-micro tracking-[0.32em] uppercase text-text-quiet truncate">
             / {shortAddr(row.hook)}
           </span>
         </div>
-        <span className={`text-[9px] tracking-[0.32em] uppercase
+        <span className={`text-micro tracking-[0.32em] uppercase
                           ${launched ? 'text-brand' : 'text-text-tertiary'}`}>
           {launched ? 'CURVE' : 'GENESIS'}
         </span>
@@ -765,7 +765,7 @@ function AssetRow({
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[9px] tracking-[0.32em] uppercase
+          <p className="mt-1.5 text-micro tracking-[0.32em] uppercase
                         text-text-tertiary flex items-baseline justify-between gap-2">
             <span>RAISE_PROGRESS</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
@@ -778,16 +778,16 @@ function AssetRow({
       {launched && (
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[9px] tracking-[0.32em] uppercase text-text-tertiary">
+            <p className="text-micro tracking-[0.32em] uppercase text-text-tertiary">
               CLAIMABLE
             </p>
-            <p className="text-[12px] text-text-primary tabular-nums truncate">
+            <p className="text-body text-text-primary tabular-nums truncate">
               {formatToken(claimable)} {symbol}
             </p>
           </div>
 
           {hasClaimed ? (
-            <span className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
+            <span className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                              border border-border-subtle text-text-quiet shrink-0">
               [ TRANSFERRED_CLOSED ]
             </span>
@@ -796,7 +796,7 @@ function AssetRow({
               type="button"
               onClick={handleClaim}
               disabled={isPending || isMining}
-              className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
+              className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                          border border-brand text-brand
                          hover:bg-brand hover:text-bg-base transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
@@ -804,7 +804,7 @@ function AssetRow({
               {isPending ? '[ SIGN… ]' : isMining ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}
             </button>
           ) : (
-            <span className="text-[10px] tracking-[0.32em] uppercase px-3 py-1.5
+            <span className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                              border border-border-subtle text-text-quiet shrink-0">
               [ NO_ALLOCATION ]
             </span>
@@ -822,7 +822,7 @@ function AssetRow({
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PanelHeader({ index, label }: { index: string, label: string }) {
   return (
-    <div className="flex items-center gap-3 text-[10px] tracking-[0.4em] uppercase text-text-tertiary mb-4">
+    <div className="flex items-center gap-3 text-label tracking-[0.4em] uppercase text-text-tertiary mb-4">
       <span className="text-text-quiet">{'// ['}{index}{']'}</span>
       <span className="text-text-primary">{label}</span>
     </div>
@@ -832,10 +832,10 @@ function PanelHeader({ index, label }: { index: string, label: string }) {
 function Row({ label, value }: { label: string, value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[9px] tracking-[0.32em] uppercase text-text-tertiary">
+      <span className="text-micro tracking-[0.32em] uppercase text-text-tertiary">
         {label}
       </span>
-      <span className="text-[12px] text-text-primary tabular-nums normal-case tracking-wider">
+      <span className="text-body text-text-primary tabular-nums normal-case tracking-wider">
         {value}
       </span>
     </div>

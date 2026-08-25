@@ -127,7 +127,7 @@ export default async function ProjectDetailPage({ params }: Props) {
   return (
     <div className="min-h-screen bg-bg-base text-text-primary font-sans">
       <main className="max-w-7xl mx-auto py-12 px-4 md:px-6 lg:px-8">
-        <nav className="text-[11px] font-mono text-text-tertiary flex items-center gap-2 mb-8">
+        <nav className="text-note font-mono text-text-tertiary flex items-center gap-2 mb-8">
           <Link href="/#directory" className="hover:text-brand transition-colors">Agent Directory</Link>
           <span>/</span>
           <span className="text-brand">{p.symbol}</span>
@@ -167,7 +167,7 @@ export default async function ProjectDetailPage({ params }: Props) {
                       </a>
                     )}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono text-text-quiet">
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-label font-mono text-text-quiet">
                     <span>Created {isoDate(p.created_at)}</span>
                     {p.token_address && (
                       <a href={testnetExplorerAddress(p.token_address)} target="_blank" rel="noopener noreferrer" className="hover:text-brand transition-colors">
@@ -185,7 +185,7 @@ export default async function ProjectDetailPage({ params }: Props) {
             </div>
 
             <div className="rounded-xl border border-border-subtle bg-surface-card/50 p-5">
-              <div className="text-[10px] font-bold text-text-tertiary uppercase tracking-widest mb-3 font-mono">{`/// Project Manifesto`}</div>
+              <div className="text-label font-bold text-text-tertiary uppercase tracking-widest mb-3 font-mono">{`/// Project Manifesto`}</div>
               <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
                 {projectManifesto(p)}
               </p>
