@@ -400,11 +400,25 @@ gate.
 | ID | Item | Evidence of done |
 |---|---|---|
 | **RH-F0** | Deployer funded on 46630 | ✅ `0x73db078fa94607893270079AC8F5c7492aB480cd`, funded from `faucet.testnet.chain.robinhood.com` |
-| **RH-F0b** | Contracts deployed and Blockscout-verified on 46630 | ✅ §F.2 |
-| **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | ✅ create → genesis → launch → buy → mint all on-chain, §F.6. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2 |
+| **RH-F0b** | Contracts deployed and Blockscout-verified on 46630 | 🔁 was ✅ §F.2 — **superseded**, see below |
+| **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | 🔁 was ✅ create → genesis → launch → buy → mint all on-chain, §F.6. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2. **Superseded**, see below |
 | **RH-F2** | Lockout behaviour observed live under real 100 ms blocks | ✅ `lastSwapBlock` = 108,111,395 against an L1 height of ~25.8 M, so `_blockNumber()` is demonstrably on ArbSys. Re-armed correctly after the phase 3 swap. §F.6 |
 | **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | Addresses recorded |
 | **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | `.env.production` populated |
+
+**RH-F0b and RH-F1 were reset on 2026-09-03.** Not because anything about the
+rehearsal was wrong — the sequence it proved still holds — but because the
+contracts it proved it against no longer exist in this source tree. Pinning the
+remappings (`PRE_MAINNET_CHECKLIST.md` §6.2) moved the metadata hash, so the
+46630 factory embeds a creation code the current tree does not produce. The
+frontend mines CREATE2 salts over that creation code, which means it can no
+longer mine one that deployment will accept: `createLaunch` reverts with
+`InvalidHookSalt` against it, and Blockscout verification fails against it.
+
+Both rows go green again on a fresh deploy and a fresh run-through, at which
+point RH-F2's evidence should be re-observed on the new contracts as well —
+its finding is about ArbOS rather than about our bytecode, so it is not
+invalidated, but the block heights cited belong to the old deployment.
 
 #### F.1 Two wall-clock constraints, both of them the contracts working correctly
 

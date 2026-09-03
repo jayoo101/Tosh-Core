@@ -398,8 +398,8 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-F1** *(legacy `#6`)* | API route hardening: CORS allow-list, rate limit, body cap | `apiGuard.ts` primitives adopted by every route under `src/app/api/**` | ✅ |
 | **PM-F2** *(legacy `#24`)* | Multi-RPC fallback rather than one hard-coded endpoint | `providers.tsx` uses `fallback()` over a ranked list | ✅ |
-| **PM-F3** | Frontend CI: typecheck, lint, build, token check | `.github/workflows/frontend.yml` `verify` job | 🟡 written, never executed — see §6.1 |
-| **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job — `npm audit --audit-level=high` | 🟡 written, never executed — see §6.1 |
+| **PM-F3** | Frontend CI: typecheck, lint, build, token check | `frontend.yml` `verify` job green on `jayoo101/Tosh-Core@3c82f73` — see §6.1 | ✅ |
+| **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
 | **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 code done, needs credentials |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | ❌ |
@@ -408,25 +408,83 @@ is not spent on an unlisted token.
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
 Both rows were `✅` on the strength of the YAML existing. Checked against the
-repository on 2026-09-03, neither job has ever run, and one of them could not
-have:
+repository on 2026-09-03, neither job had ever run and one of them could not
+have: there was no git remote, and `frontend.yml` was not tracked by git at
+all. They were reset to 🟡, and are green now on a run rather than on a file —
+`jayoo101/Tosh-Core` (private), `main` green on both workflows at `3c82f73`.
 
-- **This repository has no git remote.** `git remote -v` is empty and `main`
-  has no upstream, so nothing has ever been pushed and GitHub Actions has never
-  had an opportunity to execute anything here.
-- **`.github/workflows/frontend.yml` is not tracked by git.** PM-F3 and PM-F4
-  both cite it as their evidence, and it has never been committed. `test.yml`
-  *is* tracked, and has also never run, for the reason above.
+The first run is the argument for §0.2, so what it cost is worth recording.
+Five defects were sitting in a tree that every local check called clean, and
+four of them share a shape: **a check that passes on a developer machine and
+cannot pass anywhere else.**
 
-This is precisely the failure §0.2 exists to prevent: the evidence column named
-an artifact rather than an outcome, and an artifact can be produced without the
-outcome ever occurring. **The rows go green when a run on the canonical
-repository is green**, not when the file lands.
+- `soat-frontend/.env.production.example` had never been committed. The
+  frontend `.gitignore` carries a blanket `.env*` with no exemption, unlike
+  the root one, which names both templates. `checkPublicEnv.mjs` derives the
+  `NEXT_PUBLIC_*` keys it verifies from that template — so the guard read a
+  file git had been hiding since the day it was written, and died with ENOENT
+  on the runner.
+- `next build` could not collect route config for `/api/projects/lookup`:
+  `supabase.ts` builds its client at module scope and throws without
+  `NEXT_PUBLIC_SUPABASE_URL` / `_ANON_KEY`, which the workflow never set. The
+  build had only ever succeeded on machines with a populated `.env.local`.
+- Foundry was unpinned. `stable` resolved to 1.8.1, whose formatter wants a
+  line break 1.7.1 does not, so `forge fmt --check` failed on a tree nobody
+  had edited. Now pinned; the isolated-gas step is the reason it matters more
+  than formatting.
+- `FOUNDRY_PROFILE: ci` named a profile `foundry.toml` does not define. Every
+  run fell back to default and said so in a warning nobody was there to read.
+- `forge build --sizes` failed on `CloneDeployer`, a 27 KB test helper. The
+  step reports one verdict for the whole tree, so an over-limit test contract
+  masks the size gate for every contract that ships.
+
+The fifth was not CI hygiene at all — see §6.2.
 
 Note also that these workflows are GitHub Actions specific — `secrets.*`,
 `github.event.repository.fork` and `::error::` annotations. Hosting the
 repository anywhere that does not run Actions satisfies neither row, and does
 not create the secret store PM-D3 needs either.
+
+### 6.2 The deployed bytecode depended on the machine that built it
+
+`test_hookBytecode_inSyncWithArtifact` failed on the runner. The two artifacts
+were compared field by field, and almost everything matched:
+
+| | local | runner |
+|---|---|---|
+| source hashes | 44 | 44, all identical |
+| compiler, optimizer, viaIR, evmVersion | | identical |
+| executable code | | byte-identical |
+| `settings.remappings` | **12** | **15** |
+
+That last row is the whole difference and it is sufficient. solc records the
+remappings in the contract metadata and appends the metadata hash to the
+creation code, so the trailing 32 bytes moved. Auto-detection builds that list
+by scanning `lib/`, and this tree carries `permit2`, `erc4626-tests` and
+`halmos-cheatcodes` as *empty* directories — uninitialised submodules — while
+CI checks out `recursive` and gets them populated.
+
+This is not a CI problem wearing a disguise. The frontend mines CREATE2 salts
+over this creation code, so a factory deployed from one machine rejects every
+salt mined against the other with `InvalidHookSalt`: **every launch reverting
+for every user**, with both sides compiling and all 336 tests green. Blockscout
+verification fails the same way against a clean clone, which is the tree an
+auditor builds.
+
+Fixed by removing the dependency rather than by matching the two machines:
+`auto_detect_remappings = false` with all eight prefixes listed explicitly in
+`foundry.toml`, derived by scanning imports rather than by copying what
+auto-detection produced. A `.gitattributes` was added in the same change for
+the same reason — `core.autocrlf=true` is the Git for Windows default and
+metadata hashes source *bytes*, so a clone on Windows would have changed all
+44 source hashes. This tree escaped that only because its files were written
+LF by an editor rather than materialised by a checkout.
+
+**Consequence:** the metadata hash is now `3ae40d72…`, replacing two accidental
+values (`da4562f8…` local, `bd0f4787…` runner). Testnet 46630 has to be
+redeployed — its factory embeds the old creation code, so the frontend can no
+longer mine a salt it will accept. The `broadcast/` records below predate this
+change.
 
 > **PM-F6 was worse than a wording pass.** Five components — navbar, footer,
 > user drawer, admin header, and the directory hero — each built the same byline
@@ -497,7 +555,7 @@ get marked done while the on-chain alerting still does not exist.
 | C — Deploy & handoff | 6 (+1 gated) | 1 |
 | D — Keys & secrets | 3 (+1 partial) | 0 |
 | E — Observability & ops | 4 (+1 partial) | 1 |
-| F — Frontend & platform | 1 (+3 partial) | 4 |
+| F — Frontend & platform | 1 (+1 partial) | 6 |
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem, and Gates C and D need
@@ -517,11 +575,10 @@ What is left that is purely engineering:
   which is the one source that cannot be out of date, and pins the router's
   calldata layout. Verified 8/8 green by hand.
 
-  What is left of it is a credential, not a commit: the CI step reads
-  `ROBINHOOD_RPC` from a repository secret, and that secret does not exist yet.
-  Nor, as of 2026-09-03, does the repository — see §6.1. A secret has to be
-  stored somewhere, and there is no somewhere until the project is pushed to a
-  host that runs Actions.
+  It is now also 8/8 green **in CI**, not by hand: the `ROBINHOOD_RPC`
+  repository secret exists on `jayoo101/Tosh-Core` and the fork step reported
+  `8 passed; 0 failed; 0 skipped` against the live singleton on chain 4663 at
+  `3c82f73`. Zero skipped is the number that matters — see the next paragraph.
 
   **The step no longer passes quietly without it.** An earlier version of this
   paragraph warned that a green CI run did not mean the fork tests ran, which was
@@ -534,14 +591,12 @@ What is left that is purely engineering:
   endpoint looks like, since `setUp()` then never forks — and fails on a PARTIAL
   skip, so no subset of `_requireFork` can go quiet.
 
-  So the current honest reading is the opposite of the old warning: on the
-  canonical repository this step is **red until the secret is added**, and it
-  cannot be made green by anything other than a real run. Verified 8/8 by hand in
-  the meantime, most recently 2026-08-27.
-
-  One step further back than that, though: today it is neither red nor green,
-  because no canonical repository exists to run it. "Red until the secret is
-  added" describes the state *after* the push, not the state now.
+  So the honest reading was: on the canonical repository this step is **red
+  until the secret is added**, and cannot be made green by anything other than a
+  real run. That has now happened — the repository exists, the secret is set to
+  Robinhood's public mainnet endpoint (verified `eth_chainId` = `0x1237` and the
+  singleton carrying 24 KB of code before it was stored), and the step is green
+  on its own terms rather than on a tolerated skip.
 
   To run locally:
 
