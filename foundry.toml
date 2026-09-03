@@ -29,9 +29,15 @@ evm_version = "cancun"
 # build detected 12 remappings while CI's `submodules: recursive` checkout
 # detected 15. Identical sources (all 44 hashes matched), identical compiler,
 # identical settings, byte-identical executable code — and a different hook
-# address, because the frontend mines CREATE2 salts over this creation code.
-# A factory deployed from one machine rejects every salt mined against the
-# other with `InvalidHookSalt`. Source verification fails for the same reason.
+# implementation address, because CREATE2 hashes the whole creation code and
+# the metadata hash is part of it.
+#
+# Be precise about what that costs, because the first version of this comment
+# was not. It does NOT break launching: the launch page reads
+# `factory.hookInitcodeHash(...)` off the chain and mines against the answer,
+# so it tracks whatever factory is deployed. What it breaks is verification —
+# a clean clone does not rebuild what was deployed, which is the tree an
+# auditor builds and the tree Blockscout compares against.
 #
 # So: every prefix any compiled source imports, listed here and nowhere else.
 # Derived by scanning imports across src, test, script and the vendored trees,
@@ -40,9 +46,9 @@ evm_version = "cancun"
 # reachable imports it and the STRING still has to be identical everywhere.
 #
 # Adding a dependency means adding its prefix here, and that changes the
-# metadata hash — regenerate soat-frontend/src/app/lib/hookBytecode.ts and
-# redeploy in the same change. `test_hookBytecode_inSyncWithArtifact` fails if
-# you forget the first half; nothing but a reverted launch catches the second.
+# metadata hash, and so the deployed address of any contract CREATE2'd from it.
+# Re-verify and re-publish the initcode hash (PM-C6) in the same change.
+# Nothing fails loudly if you do not — that is precisely why it is written here.
 # ---------------------------------------------------------------------------
 auto_detect_remappings = false
 remappings = [
@@ -56,9 +62,19 @@ remappings = [
     "solmate/=lib/v4-core/lib/solmate/",
 ]
 
-# Cheatcode FS permissions — needed by test_hookBytecode_inSyncWithArtifact()
-# Reads the compiled hook artifact and the frontend's HOOK_BYTECODE constant
-# to detect a stale `soat-frontend/src/app/lib/hookBytecode.ts`.
+# Cheatcode FS permissions.
+#
+# `./out` and `./soat-frontend` are read by ToshV5AbiTest, which compares the
+# frontend's `abis.ts` against the compiled artifacts. A stale ABI is the
+# failure that is worth catching here: wagmi encodes against a signature the
+# deployed contract no longer has, and the user sees an opaque revert at the
+# wallet prompt.
+#
+# There was a sibling permission for a hook-bytecode guard. It is gone, and the
+# reason is worth keeping: since hooks became EIP-1167 clones, the launch page
+# mines against `factory.hookInitcodeHash(...)` read from chain, so no local
+# copy of the hook's creation code is on the launch path at all. The guard was
+# pinning a constant nothing imported.
 #
 # `./src` is read by ToshV5LpMathVectorsTest, which needs the hook's genesis
 # tick bounds. They are `internal constant`, so there is neither a getter to

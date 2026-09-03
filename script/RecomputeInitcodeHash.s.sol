@@ -99,10 +99,10 @@ contract RecomputeInitcodeHashScript is Script {
         console2.log("3h or 72h launch hashes differently and the miner must");
         console2.log("rebuild the hash for whichever window the creator picked.");
         console2.log("");
-        console2.log("After updating the frontend config, also regenerate the");
-        console2.log("hook bytecode with:");
-        console2.log("    forge build && node scripts/extractBytecode.js");
-        console2.log("Both the bytecode AND the codehash must match for the");
-        console2.log("CREATE2 miner to find a valid salt on the first try.");
+        console2.log("The frontend needs no copy of this: the launch page reads");
+        console2.log("factory.hookInitcodeHash(...) from chain and mines against");
+        console2.log("that. This value is for publication and for checking a");
+        console2.log("deployment against its source -- so commit it, but never");
+        console2.log("hardcode it in tooling that could instead ask the factory.");
     }
 }

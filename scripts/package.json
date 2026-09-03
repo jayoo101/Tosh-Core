@@ -4,8 +4,6 @@
   "private": true,
   "scripts": {
     "pog": "npx ts-node --esm pogSigner.ts",
-    "sync-bytecode": "node extractBytecode.js",
-    "rebuild-and-sync": "cd .. && forge build && node scripts/extractBytecode.js",
     "typecheck": "npx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

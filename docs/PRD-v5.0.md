@@ -970,8 +970,6 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 | `SafeCast.toInt128(tax)` | 交回 V4 flash accounting 的唯一数值做了检查转换，静默截断会错报抽税额 | `src/ToshLaunchpadHook.sol:1118-1120` |
 | TWAP 向负无穷取整 | 对齐 Uniswap V3 `OracleLibrary`，保证 TWAP 不被截断上偏 | `src/ToshLaunchpadHook.sol` 的 `_twapSqrtPriceX96` |
 | 部署后不变量巡检脚本 | `VerifyDeployment.s.sol` 断言 6 类不变量，包括 `treasury.factory() == factory`（未接线会静默关掉本次部署的所有回购） | `script/VerifyDeployment.s.sol:55-109` |
-| 前端字节码同步守卫 | `test_hookBytecode_inSyncWithArtifact` 比对 Foundry artifact 与 `hookBytecode.ts` 的 keccak，防止 UI 挖出死盐 | `test/ToshV5Bytecode.t.sol` |
-
 > **⚠️ 8.12**：`Pausable` 只覆盖工厂的**两个**入口——`createLaunch` 与 `registerPoG`。
 >
 > **`deposit` 不在其中。** 它只有 `nonReentrant`，没有 `whenNotPaused`（`src/ToshFactory.sol` `deposit`），所以**暂停期间一个已开启的创世轮次仍然照常收款**。这是刻意的，与退款不被暂停是同一条原则：平台已经开门收钱的轮次，不能被一个 owner 开关中途掐断。测试 `test_pause_doesNotBlockDepositIntoALiveRound` 与 `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` 两面都钉住了。
@@ -1009,7 +1007,6 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 | `soat-frontend/src/lib/contracts.ts` | **唯一真源**：地址、链 ID、以及从 Solidity 镜像过来的常量护栏。`src/app/lib/contracts.ts` 只是 re-export shim |
 | `soat-frontend/src/app/lib/abis.ts` / `src/abis/index.ts` | FACTORY/HOOK/ERC20 ABI（76KB，两处同内容） |
 | `soat-frontend/src/app/lib/hookMiner.ts` | TS 版 CREATE2 矿机（Solidity `HookMiner` 的镜像） |
-| `soat-frontend/src/app/lib/hookBytecode.ts` / `src/constants/hookBytecode.ts` | hook creationCode 快照（41KB），由 `node scripts/extractBytecode.js` 生成 |
 | `soat-frontend/src/lib/v4Math.ts` | LP 面板需要的 V4 定点数学切片 |
 | `soat-frontend/src/lib/lpActions.ts` | posm action payload 编码 |
 | `soat-frontend/src/lib/useLpPosition.ts` | 散户 LP 数据层（仓位发现） |
@@ -1128,7 +1125,11 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 
 矿机实现：`soat-frontend/src/app/lib/hookMiner.ts:128-143`（`computeCreate2Address` @ `:17-24`，`isValidHookAddress` @ `:27-35`，`deriveFinalSalt` @ `:105-115`）。这是 Solidity `HookMiner` 的逐行镜像，包括四条 return-delta 一致性规则。
 
-**关键设计**：`initcodeHash` **从工厂链上读回**（`factory.hookInitcodeHash(...)`），而不是在前端用 `hookBytecode.ts` 本地重算。本地重算的入口 `computeBundledHookInitcodeHash` 存在（`hookMiner.ts:82-98`）但发射台不用它。这消除了"字节码快照过期 → 挖出死盐"这一整类问题。（不过 `test/ToshV5Bytecode.t.sol` 仍在守护那个快照，说明它在别处仍被依赖。）
+**关键设计**：`initcodeHash` **从工厂链上读回**（`factory.hookInitcodeHash(...)`），而不是在前端本地重算。这消除了"字节码快照过期 → 挖出死盐"这一整类问题。
+
+> **这段话本身值得记一笔。** 它原本还有个括号：「不过 `test/ToshV5Bytecode.t.sol` 仍在守护那个快照，说明它在别处仍被依赖。」那句推断是错的，而且错得很典型——**守卫的存在被当成了"被依赖"的证据**。实际上没有任何文件 import 过 `HOOK_BYTECODE`；它是 EIP-1167 克隆重构之前的遗留物，重构后 hook 的初始化码里装的是实现合约地址，前端再也不碰 hook 的创建码。
+>
+> 代价不是零：那个守卫、它的提取脚本、CI 步骤、`foundry.toml` 里为它开的权限，以及三处声称它至关重要的注释（其中一处是自动生成的，改了会被重新写回），合起来造成过一次数小时的 CI 红灯和一整轮元数据调查。快照、守卫、脚本与相关注释已于 2026-09-03 全部删除，详见 `PRE_MAINNET_CHECKLIST.md` §6.2。
 
 **三处缓存失效条件**（任何一项变化都会让已挖的盐立即作废，因为它们都在 initcode hash 里）：
 
@@ -1577,7 +1578,6 @@ encodeBurnPayload({
 | 孤儿佣金转入国库 | `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` | `:537` |
 | 掩码 = `0x20CC` | `test_minedHookAddress_carriesV5FlagMask` / `test_hookMiner_requiredFlagsAre0x20CC` | `:314` / `Guards` |
 | 三档窗口接受 / 未列窗口拒绝 / 跨窗口盐拒绝 | `Guards:184` / `Guards:206` / `Factory:928` | — |
-| 前端字节码同步 | `test_hookBytecode_inSyncWithArtifact` | `test/ToshV5Bytecode.t.sol` |
 | 供应切分闭合 / 硬顶 21M | `test_supplyPartitioning` / `test_tokenMaxSupply_is21M` | `Guards:458` / `:464` |
 | 铸币权永久冻结在 Hook | `test_token_minterSetIsFrozenAtOneAddress` | `Guards` |
 
@@ -1744,8 +1744,15 @@ encodeBurnPayload({
 - **§8.12 的「pause 覆盖 `deposit`」是被本轮实测推翻的**：`deposit` 只有 `nonReentrant`，没有 `whenNotPaused`。该错误同时存在于 `INCIDENT_RESPONSE.md` §2 Step 2，两处均已修正。这提示本文其余「某函数受某修饰符保护」类断言若未标注测试名，都应视为待核实——**修饰符清单是最容易在重构中悄悄失真的一类文档**。
 - **本条曾列出七个早已不存在的测试文件**（`ToshLaunchpadHook.t.sol`、`ToshFactory.t.sol`、`ToshFactoryCoverage.t.sol`、`ToshHookCoverage.t.sol`、`ToshPauseBlacklist.t.sol`、`ToshIntegration.t.sol`、`ToshFuzz.t.sol`）——测试套件早已合并为 `ToshV5*` 家族，而这份「未读清单」把读者指向了空气。当前实际存在的测试文件共 **10** 个：`ToshV5.t.sol`、`ToshV5Factory.t.sol`、`ToshV5Guards.t.sol`、`ToshV5Attack.t.sol`、`ToshV5Fuzz.t.sol`、`ToshV5Bytecode.t.sol`、`ToshV5Abi.t.sol`、`ToshV5Invariants.t.sol`、`ToshHookClone.t.sol`、`DeployMainnet.t.sol`。其中 `ToshV5Fuzz.t.sol` 与 `DeployMainnet.t.sol` 未通读全文，其余均已按测试名或关键段落核对。
   - 这份清单本身随后又漂了一次：`ToshV5Invariants.t.sol`（有状态不变量套件）与 `ToshHookClone.t.sol`（EIP-1167 克隆布局与参数往返）都是在它写下之后新增的，而它读起来像一份完备枚举。**同一段文字第二次因为同一个原因失真**，这比第一次更能说明问题——手写的文件清单没有任何机制在文件增删时提醒作者。
+  - **然后它第三次失真了**（2026-09-03）：上面那句"当前实际存在的测试文件共 10 个"写下之后，`ToshV5ArbSys.t.sol`、`ToshV5Fork.t.sol`、`ToshV5LpMathVectors.t.sol` 新增，`ToshV5Bytecode.t.sol` 删除，实际是 **12** 个。**同一段文字，同一个原因，第三次。** 到这里就不该再改数字了——枚举本身才是缺陷。要当前名单请跑：
+
+    ```bash
+    ls test/*.t.sol
+    ```
+
+    并以 `docs/SECURITY_AUDIT.md` §4 的表格为准（那张表至少列出每个文件的用例数，改动时更难无声漂移）。**本文档此后不再维护测试文件的手写枚举。**
 - 未阅读 `soat-frontend/src/app/admin/page.tsx`（51KB）、`UserDrawer.tsx`（33KB）、`useLaunchData.ts`、`pogQuota.ts`、`apiGuard.ts`、`api/` 下的服务端路由全文——PoG 签发链路与管理后台的细节可能有本文未覆盖的规则。
-- `scripts/` 目录多数脚本（`extractBytecode.js`、`extractAbis.js`、`pogSigner.ts`、`mineHookSalt.js`、`releaseCompare.js`、`checkEncoding.mjs`、`checkHookMinerTuple.mjs`）未阅读，只从其他文件的引用推断其作用。本条曾列出一个并不存在的 `checkLpActions.ts`，已删除——它确实不在根 `scripts/` 下，而在 `soat-frontend/scripts/`（见 §上文 posm payload 一节）。根 `scripts/` 下新增的 `checkLpActionsAbi.mjs` 已通读，不在本清单内。
+- `scripts/` 目录多数脚本（`extractAbis.js`、`pogSigner.ts`、`mineHookSalt.js`、`releaseCompare.js`、`checkEncoding.mjs`、`checkHookMinerTuple.mjs`）未阅读，只从其他文件的引用推断其作用。**"只从引用推断作用"这件事本身出过一次事故**：`extractBytecode.js` 曾在这份清单里，而从引用推断出的结论（"它维护的快照被前端依赖"）是错的，实际无人 import——见 §6.6 关键设计一节的旁注。本条曾列出一个并不存在的 `checkLpActions.ts`，已删除——它确实不在根 `scripts/` 下，而在 `soat-frontend/scripts/`（见 §上文 posm payload 一节）。根 `scripts/` 下新增的 `checkLpActionsAbi.mjs` 已通读，不在本清单内。
 - **⚠️ 行号锚点已系统性失效。** 本文大量使用 `src/ToshLaunchpadHook.sol:857-877` 这类锚点。红队那轮往 Hook / Factory / Treasury 里插入了数十行说明性 natspec，所有位于插入点之后的锚点都已偏移。§1.2、§2.2.8、§5.1、§8.26–8.31 中被触及的锚点已改为**函数名**。此外，**指向 `test/*.t.sol` 的行号锚点已全部去掉行号、只留测试名**（共 30 处，均经机器校验：原行号所落入的函数与同一行标注的测试名不符）。指向 `src/` 的行号锚点仍未逐一校准。
   行号锚点在活跃代码库里本质上不可维护——它们在写下的那一刻就开始腐烂，而且腐烂时不会报错。**后续新增引用请一律锚定函数名或测试名，不要写行号**；已有的行号请当作「大致位置」而非事实。
   `scripts/checkDocAnchors.js` 现在把「文件不存在」和「行号超出文件末尾」这两类**机器可判定**的失效钉成硬失败（`node scripts/checkDocAnchors.js --strict`），并为每个锚点打印其落入的符号，供人工复核「落点是否还对得上」。

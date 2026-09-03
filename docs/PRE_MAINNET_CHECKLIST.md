@@ -221,7 +221,8 @@ worth more than any document: documents go stale together.
 > (`POOL_MANAGER` `0x000000000004444c5dc75cB358380D2e3dE08A90`, PositionManager
 > `0xbd21…ee9e`, StateView `0x7ffe…7227`, UniversalRouter `0x66a9…a8Af`) and
 > explained at length why the values were recorded but **not** applied: changing
-> `POOL_MANAGER` invalidates every mined salt and the whole of `hookBytecode.ts`,
+> `POOL_MANAGER` changes the hook implementation's creation code, and so its
+> address, and so every salt mined against the resulting clone initcode —
 > so it would take the then-live Base Sepolia staging deployment down the moment
 > it landed. That coupling is unchanged and still the reason PM-B2 is a source
 > change rather than a config one — it is just no longer a reason to wait, since
@@ -255,7 +256,7 @@ Ordered. Each step's output feeds the next.
 | **PM-C3** | **Factory address not announced publicly until PM-C2 is done** | — | ⏸ gated |
 | **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ |
 | **PM-C5** | `forge build --sizes` — every contract under the 24 KB EIP-170 limit | Build output | ✅ see §3.1 |
-| **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractBytecode.js` / `extractAbis.js` produce no diff | ❌ |
+| **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ❌ |
 | **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` | Deployed frontend reads the right factory | ❌ |
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ |
 
@@ -264,13 +265,14 @@ Ordered. Each step's output feeds the next.
 > factory. A launchpad announced in that state has a single private key standing
 > between users and every kill switch.
 >
-> **PM-C6 is the one that fails silently.** v5.0 changed both the hook
-> constructor tuple and the salt mask (now `0x20CC`). A stale
-> `hookBytecode.ts` does not error — the frontend's salt miner simply mines
-> addresses that are never valid, and every launch attempt fails for reasons
-> that look like a wallet problem. CI enforces the no-diff check
-> (`.github/workflows/test.yml`), which catches drift but not "never regenerated
-> against mainnet".
+> **PM-C6 is the one that fails silently.** The committed initcode hash is a
+> published figure anyone can check a deployment against, and it is only true
+> for the build it came from — so it has to be regenerated against the mainnet
+> build specifically, after §6.2's remapping pin. Nothing errors if it is not:
+> the launch page reads `factory.hookInitcodeHash(...)` from chain and works
+> either way. The published number is just quietly wrong, and it is the number
+> an auditor uses. CI's no-diff check (`.github/workflows/test.yml`) catches ABI
+> drift but cannot catch "never regenerated against mainnet".
 
 ### 3.1 PM-C5 — measured sizes
 
@@ -464,12 +466,25 @@ by scanning `lib/`, and this tree carries `permit2`, `erc4626-tests` and
 `halmos-cheatcodes` as *empty* directories — uninitialised submodules — while
 CI checks out `recursive` and gets them populated.
 
-This is not a CI problem wearing a disguise. The frontend mines CREATE2 salts
-over this creation code, so a factory deployed from one machine rejects every
-salt mined against the other with `InvalidHookSalt`: **every launch reverting
-for every user**, with both sides compiling and all 336 tests green. Blockscout
-verification fails the same way against a clean clone, which is the tree an
-auditor builds.
+This is not a CI problem wearing a disguise, but the first version of this
+section overstated what it was. The claim written here was "every launch
+reverting for every user". That is wrong, and the correction is worth more than
+the original point.
+
+The launch page does not mine against any local copy of the creation code. It
+reads `factory.hookInitcodeHash(...)` off the chain and mines against the
+answer, so it adapts to whatever factory is live — a machine-dependent build
+does not break launching. What it does break is anything that predicts an
+address *before* a deploy, and anything that rebuilds the source afterward to
+check it:
+
+- **Source verification.** Blockscout compares the metadata hash. A clean clone
+  is the tree an auditor builds, and it would not match what was deployed.
+- **PM-C6.** The committed initcode hash is only true for the machine that
+  produced it, and the row exists to make it true for everyone.
+
+Both are auditability failures rather than availability failures, which is a
+smaller blast radius and a longer-lived problem.
 
 Fixed by removing the dependency rather than by matching the two machines:
 `auto_detect_remappings = false` with all eight prefixes listed explicitly in
@@ -481,10 +496,34 @@ metadata hashes source *bytes*, so a clone on Windows would have changed all
 LF by an editor rather than materialised by a checkout.
 
 **Consequence:** the metadata hash is now `3ae40d72…`, replacing two accidental
-values (`da4562f8…` local, `bd0f4787…` runner). Testnet 46630 has to be
-redeployed — its factory embeds the old creation code, so the frontend can no
-longer mine a salt it will accept. The `broadcast/` records below predate this
-change.
+values (`da4562f8…` local, `bd0f4787…` runner). Testnet 46630 was redeployed —
+not because it had stopped working, but because its contracts were verified
+against pre-pin source and would no longer reproduce from this tree. The new
+deployment is recorded in ROBINHOOD_MIGRATION.md §F.2b.
+
+#### The guard that raised this was pinning a constant nothing imported
+
+`test_hookBytecode_inSyncWithArtifact` compared the compiled hook artifact
+against `soat-frontend/src/app/lib/hookBytecode.ts`. Chasing its failure is
+what surfaced the remapping problem, so it earned its keep once. But it, the
+constant, the extractor that wrote it, its CI step, its `fs_permissions` entry
+and three comments asserting its importance have all been deleted, because
+nothing imported `HOOK_BYTECODE`.
+
+It was load-bearing before the EIP-1167 refactor, when a hook was deployed from
+its own creation code. Afterwards a hook is a 131-byte clone whose initcode
+carries the *implementation address*, and `hookMiner.ts` builds that from the
+address alone. The constant stopped being read; the machinery around it did
+not stop running, and its comments went on describing the old design — which is
+how a stale comment came to be the source cited for the overstatement corrected
+above. The comment was auto-generated, so it would have regenerated after any
+manual fix.
+
+Worth naming the general shape, since this tree has a lot of guards: a guard
+that pins a value nothing reads still fails, still costs a red CI and an
+investigation, and still teaches whoever reads its comment. What it cannot do
+is catch a bug. Prefer `factory.hookInitcodeHash(...)` — asking the contract —
+over any check that restates the contract's answer in a second file.
 
 ### 6.3 PM-F7 — the front door was locked and the side door was not
 

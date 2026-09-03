@@ -7,12 +7,11 @@
 #   1. node scripts/checkEncoding.mjs   (source files are valid UTF-8)
 #   2. forge fmt --check    (style drift)
 #   3. forge build          (compile-clean)
-#   4. node scripts/extractBytecode.js  (frontend bytecode stays in sync)
-#   5. cross-language tuple guards (PoG digest, pool geometry, salt miner)
-#   6. node scripts/checkPublicEnv.mjs  (NEXT_PUBLIC_* really reaches the browser)
-#   7. node scripts/checkServerRpc.mjs  (no RPC endpoint chosen without a chain id)
-#   8. node scripts/checkSupabase.mjs   (every Supabase query carries a deadline)
-#   9. (optional) forge test       — pass `-WithTests` to include
+#   4. cross-language tuple guards (PoG digest, pool geometry, salt miner)
+#   5. node scripts/checkPublicEnv.mjs  (NEXT_PUBLIC_* really reaches the browser)
+#   6. node scripts/checkServerRpc.mjs  (no RPC endpoint chosen without a chain id)
+#   7. node scripts/checkSupabase.mjs   (every Supabase query carries a deadline)
+#   8. (optional) forge test       — pass `-WithTests` to include
 #
 # Everything here also runs in CI (.github/workflows/test.yml). This script is
 # the fast local copy, not the authority — do not add a check here instead of
@@ -80,15 +79,7 @@ Step "forge build" {
     forge build
 }
 
-# 4. Keep the frontend HOOK_BYTECODE in sync with the just-built artifact.
-#    Running this is idempotent — exits 0 with "already in sync" if nothing
-#    changed.  If it writes a new file, the test guard would have caught it
-#    in step 5, but step 5 is optional, so do it here too.
-Step "node scripts/extractBytecode.js" {
-    node scripts/extractBytecode.js
-}
-
-# 5. Cross-language tuple guards. These are the checks that catch a change
+# 4. Cross-language tuple guards. These are the checks that catch a change
 #    which compiles on both sides and passes every test while being wrong on
 #    chain — the class that has actually shipped from this repository before.
 #    They cost milliseconds, so there is no reason to make them opt-in.

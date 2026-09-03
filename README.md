@@ -41,8 +41,7 @@ Tosh-Core/
 │   └── RecomputeInitcodeHash.s.sol
 ├── scripts/                    # Node tooling
 │   ├── mineHookSalt.js         # CLI CREATE2 salt miner
-│   ├── extractAbis.js          # out/ → frontend ABI sync
-│   └── extractBytecode.js      # out/ → frontend bytecode sync
+│   └── extractAbis.js          # out/ → frontend ABI sync
 ├── docs/                       # PRD, security notes, incident response
 ├── soat-frontend/              # Next.js dApp
 └── foundry.toml
@@ -74,15 +73,18 @@ funded with `transfer()`, whose 2300-gas stipend cannot cover the proxy's
 delegatecall, and the piggyback gas gate, whose whole job is to compare a live
 gas figure against a constant. CI runs both.
 
-After any contract change, re-sync the frontend artifacts:
+After any contract change, re-sync the frontend ABIs:
 
 ```bash
-node scripts/extractBytecode.js
 node scripts/extractAbis.js
 ```
 
-`forge test` pins this: `test_hookBytecode_inSyncWithArtifact` fails if you
-forget.
+`forge test` pins this: `ToshV5AbiTest` fails if you forget.
+
+There was a matching `extractBytecode.js` alongside it. It is gone: since hooks
+became EIP-1167 clones the frontend never reads the hook's creation code, and
+the constant it maintained had no importers. The rule below is what replaced
+it, and is the better rule.
 
 > **Comment-only edits change the hook's address.** `foundry.toml` leaves
 > `bytecode_hash` at its default, so the solc metadata hash is appended to the

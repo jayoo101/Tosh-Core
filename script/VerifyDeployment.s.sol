@@ -133,7 +133,7 @@ contract VerifyDeploymentScript is Script {
         console2.log("  2. Re-run this script AFTER acceptOwnership with");
         console2.log("     EXPECTED_OWNER=<safe-address> to lock in the check.");
         console2.log("  3. Update soat-frontend/.env.production with the values above");
-        console2.log("     and re-run `node scripts/extractBytecode.js`.");
+        console2.log("     and re-run `node scripts/extractAbis.js`.");
         console2.log("  4. Wire Defender / Tenderly alerts (see docs/INCIDENT_RESPONSE.md).");
         console2.log("============================================================");
     }

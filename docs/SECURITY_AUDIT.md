@@ -256,7 +256,6 @@ deliberately: a number that changes with a credential is not a number.
 | `test/ToshV5Fuzz.t.sol` | 6 | Property fuzzing, 256 runs per property. |
 | `test/ToshV5LpMathVectors.t.sol` | 4 | Fixed vectors for the V4 liquidity math, checked against independently computed expectations. |
 | `test/DeployMainnet.t.sol` | 2 | Deploy script, including the forced Safe ownership handoff. |
-| `test/ToshV5Bytecode.t.sol` | 1 | `test_hookBytecode_inSyncWithArtifact` — frontend initcode drift. |
 | `test/ToshV5Fork.t.sol` | 8 | **Live chain 4663**, skipped without `ROBINHOOD_RPC`. Lifecycle against the deployed V4 singleton; a buy through the deployed UniversalRouter; the router's calldata layout pinned against the chain. See §4.2. |
 
 ### 4.1 Stateful invariant suite
@@ -592,8 +591,8 @@ telling us things CI could have:
       contracts, every one dispositioned in §5.7. No code changed as a result;
       the findings that needed real verification are recorded with the
       reasoning rather than waved off, and the single High is noise.
-- [x] Frontend artifacts in sync (`scripts/extractAbis.js`,
-      `scripts/extractBytecode.js` produce no diff) — CI gate.
+- [x] Frontend artifacts in sync (`scripts/extractAbis.js` produces no
+        diff) — CI gate.
 - [x] Frontend behaviour tests — 50 across five suites, covering the server
       code where §5.2–§5.4 found defects. Every suite mutation-tested against
       the original bug. CI gate via `npm test` in
@@ -1135,8 +1134,8 @@ Folding it to `lpEth * 1e18 * SHELF_PREMIUM_BPS / (GENESIS_LP_SUPPLY *
 BPS_DENOMINATOR)` removes the double truncation, and is the change to make if
 this file is opened for another reason. It is not worth making on its own:
 `shelfP0` feeds the ladder base price, so the edit changes
-`ToshLaunchpadHook`'s deployed bytecode, which changes `hookInitcodeHash`,
-which invalidates every mined salt and the pinned `hookBytecode.ts` constant.
+`ToshLaunchpadHook`'s deployed bytecode, which moves the implementation address
+on redeploy and so changes `hookInitcodeHash` and every salt mined against it.
 A bytecode change and a re-mine against a `1e-12` price rounding, immediately
 before an audit freeze, is the wrong side of that trade.
 

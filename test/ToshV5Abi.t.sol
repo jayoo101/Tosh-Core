@@ -9,10 +9,9 @@ import {ToshLaunchpadHook, IToshFactoryHalt, IToshLadderTreasury} from "../src/T
 
 /// @notice Guards against a stale `soat-frontend/src/app/lib/abis.ts`.
 ///
-///         The sibling of `ToshV5BytecodeTest`.  A stale HOOK_BYTECODE mines
-///         dead salts; a stale ABI is quieter and worse — wagmi encodes a call
-///         against a signature the deployed contract no longer has, and the
-///         user sees an opaque revert at the wallet prompt.  `extractAbis.js`
+///         A stale ABI fails quietly — wagmi encodes a call against a
+///         signature the deployed contract no longer has, and the user sees an
+///         opaque revert at the wallet prompt.  `extractAbis.js`
 ///         overwrites unconditionally, so "the script ran" is not evidence the
 ///         checked-in file was ever in sync.  This is.
 ///
@@ -167,9 +166,11 @@ contract ToshV5AbiTest is Test {
 ///
 ///         Slither's `missing-inheritance` names three of these (see
 ///         `docs/SECURITY_AUDIT.md` §5.7).  Inheriting the interfaces would be
-///         the compiler-enforced fix, but it perturbs hook bytecode and so
-///         invalidates every mined CREATE2 salt and `hookBytecode.ts`.  Pinning
-///         the selectors buys the same guarantee for free.
+///         the compiler-enforced fix, but it perturbs the hook implementation's
+///         creation code, which moves the implementation address on redeploy —
+///         and the implementation address is inside the EIP-1167 clone initcode
+///         every salt is mined against.  So it cannot be done without a factory
+///         redeploy.  Pinning the selectors buys the same guarantee for free.
 ///
 ///         `IToshHookTwap` is why this is worth a test rather than a comment.
 ///         `_buybackSqrtFloor` wraps that call in `try/catch` and returns

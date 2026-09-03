@@ -103,8 +103,8 @@ contract DeployScript is Script {
         console2.log("NEXT STEPS:");
         console2.log("1. Update soat-frontend/.env.local:");
         console2.log("     NEXT_PUBLIC_FACTORY_ADDRESS, NEXT_PUBLIC_TREASURY_ADDRESS");
-        console2.log("2. Regenerate soat-frontend/src/app/lib/hookBytecode.ts");
-        console2.log("     (v5.0 changed the hook constructor tuple -- old salts are stale)");
+        console2.log("2. Regenerate soat-frontend/src/app/lib/abis.ts if any signature moved:");
+        console2.log("     forge build && node scripts/extractAbis.js");
         console2.log("3. Salt mining (v5.0 -- REQUIRED_FLAGS mask is now 0x20CC):");
         console2.log("     initcodeHash = factory.hookInitcodeHash(");
         console2.log("                      projTreasury, creator, projectAdmin, softCap, perWalletCap, duration)");

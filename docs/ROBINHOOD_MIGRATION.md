@@ -302,7 +302,7 @@ item is done when the evidence in its row exists.
 | **RH-B2** | `uint48` packing comment restated for 100 ms blocks | ✅ ~890,000 years, not 107 million |
 | **RH-B3** | `foundry.toml` pins `evm_version = "cancun"` explicitly | ✅ |
 | **RH-B4** | `PIGGYBACK_MIN_GAS` / `PIGGYBACK_TAIL_RESERVE` re-tuned per RH-A5 | ✅ `MIN_GAS` **230,000 → 260,000**; `TAIL_RESERVE` unchanged at 100,000. The old value sat 26k *below* `TAIL_RESERVE + one leg`, so the gate admitted pokes it could not fund — on both chains, and since before this migration. Missing `assertGe` added. §F.7 |
-| **RH-B5** | `hookBytecode.ts` regenerated, salt re-mined on the `0x20CC` mask, initcode hash recomputed | ✅ `checkHookMinerTuple.mjs` and `ToshV5Bytecode.t.sol` green |
+| **RH-B5** | Salt re-mined on the `0x20CC` mask, initcode hash recomputed | ✅ `checkHookMinerTuple.mjs` green. This row also called for regenerating `hookBytecode.ts`; that file has since been deleted as unread — `PRE_MAINNET_CHECKLIST.md` §6.2 |
 
 Arbitrum bills L1 data posting up front, so `gasleft()` inside `afterSwap` starts
 from a different place than it does on L1. RH-A5 and RH-B4 are the same finding
@@ -406,19 +406,24 @@ gate.
 | **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | Addresses recorded |
 | **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | `.env.production` populated |
 
-**RH-F0b and RH-F1 were reset on 2026-09-03.** Not because anything about the
-rehearsal was wrong — the sequence it proved still holds — but because the
-contracts it proved it against no longer exist in this source tree. Pinning the
-remappings (`PRE_MAINNET_CHECKLIST.md` §6.2) moved the metadata hash, so the
-46630 factory embeds a creation code the current tree does not produce. The
-frontend mines CREATE2 salts over that creation code, which means it can no
-longer mine one that deployment will accept: `createLaunch` reverts with
-`InvalidHookSalt` against it, and Blockscout verification fails against it.
+**RH-F0b and RH-F1 were reset on 2026-09-03**, and the first version of this
+note gave the wrong reason. It said the old factory could no longer be mined
+against — that `createLaunch` would revert with `InvalidHookSalt`. It would
+not have. The launch page reads `factory.hookInitcodeHash(...)` off the chain
+and mines against the answer, so it tracks whatever factory is deployed; the
+old one would have kept working indefinitely. See `PRE_MAINNET_CHECKLIST.md`
+§6.2 for how a stale auto-generated comment produced that claim.
 
-Both rows go green again on a fresh deploy and a fresh run-through, at which
-point RH-F2's evidence should be re-observed on the new contracts as well —
-its finding is about ArbOS rather than about our bytecode, so it is not
-invalidated, but the block heights cited belong to the old deployment.
+The real reason is narrower and is about verification, not availability.
+Pinning the remappings moved the metadata hash, so the 46630 contracts were
+Blockscout-verified against source this tree no longer produces. RH-F0b asks
+for verified contracts; a deployment whose published source does not rebuild
+does not satisfy it. Redeploying was the cheap way to make the row honest, and
+it also re-based RH-F1 on contracts an auditor can reproduce.
+
+RH-F2's finding is about ArbOS rather than about our bytecode, so it is not
+invalidated, but the block heights it cites belong to the old deployment and
+should be re-observed on the new one.
 
 #### F.1 Two wall-clock constraints, both of them the contracts working correctly
 
@@ -495,6 +500,46 @@ Post-deploy reads confirm the wiring closes in both directions —
 carry `poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951`. Ownership is
 the deployer EOA on all three, which is correct for testnet and is precisely what
 §F.1's parameter rewriting depends on.
+
+#### F.2b Redeployed on 46630 after the remapping pin (2026-09-03)
+
+Same command as §F.2. All **five** contracts verified on Blockscout, this time
+from source that reproduces from a clean clone — which is the point of the
+redeploy, and the only thing wrong with the §F.2 deployment.
+
+| Contract | Address |
+|---|---|
+| `ToshFactory` | `0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA` |
+| `ToshLadderTreasury` | `0x3Fd38489e4B3F021324354Fb5A014Cc904D66C20` |
+| `ToshLaunchpadHook` (implementation) | `0x31Db411E078Eed180fF5E516D16037fD7dd270Cc` |
+| `ToshToken` (implementation) | `0x07A92b8C8c160Ac7461Aa3b6Ae6A65A3878123A0` |
+
+Wiring re-confirmed in both directions, both carrying
+`poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951`, owner the deployer
+EOA on both.
+
+**The first `Phase1Genesis` attempt failed after printing a complete, correct
+phase 1 report.** Foundry's message named EIP-1559 fee estimation and suggested
+`--legacy`; the actual cause was three lines below it, `tls handshake eof`
+against the public RPC. Nothing was sent — `launchCount()` was 0, `launchFee()`
+was still the 0.1 ETH default rather than the rehearsal's 0.001, and the
+predicted hook address held no code.
+
+This is §F.5's lesson arriving through a different door. A `forge script`
+report describes the script body, which runs whether or not the broadcast that
+follows succeeds, so a full "PHASE 1 COMPLETE" block with addresses in it is not
+evidence that anything happened. **Read the chain, not the report.** The retry
+with `--retries 8 --delay 6` went through unchanged.
+
+Genesis state, read back from chain rather than from the script:
+
+| Result | Value |
+|---|---|
+| Hook | `0x90FDE02D9786C84198c21d2947C42D2C16c4fFDf` |
+| Token | `0x489851b576f0043c56872A5e13991ac6e239dBe5` (`RHRSL`) |
+| `softCap` / `totalEthDeposited` | 0.01 ETH / 0.01 ETH — filled |
+| Hook address `& 0x20CC` | `0x20CC` — mined salt valid |
+| `genesisDeadline` | 1788447616 (23:00 UTC+8, 2026-09-03) |
 
 #### F.3 Genesis on 46630 (RH-F1, first sitting)
 

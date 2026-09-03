@@ -185,17 +185,16 @@ jobs:
             exit 1
           fi
 
-      # The frontend reads checked-in copies of the ABIs and the hook initcode.
-      # A Solidity change that lands without re-running the extractors leaves
-      # the UI calling a signature that no longer exists — a runtime revert
-      # with nothing to warn about it at compile time. This job already has
-      # both Foundry and the fresh `out/` artifacts, so the check is free here.
+      # The frontend reads a checked-in copy of the ABIs. A Solidity change that
+      # lands without re-running the extractor leaves the UI calling a signature
+      # that no longer exists — a runtime revert with nothing to warn about it
+      # at compile time. This job already has both Foundry and the fresh `out/`
+      # artifacts, so the check is free here.
       - name: Check frontend artifacts are in sync
         run: |
-          node scripts/extractBytecode.js
           node scripts/extractAbis.js
           if ! git diff --exit-code --stat; then
-            echo "::error::Frontend artifacts are stale. Run scripts/extractBytecode.js and scripts/extractAbis.js, then commit the result."
+            echo "::error::Frontend artifacts are stale. Run scripts/extractAbis.js, then commit the result."
             exit 1
           fi
           # `git diff` only sees TRACKED files. An extractor taught to write a
