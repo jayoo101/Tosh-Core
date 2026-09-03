@@ -367,7 +367,7 @@ is not spent on an unlisted token.
 | **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (25 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **Remaining: import into a provider and test delivery** — §8 of that doc is the done-list. | 🟡 specified, not live |
 | **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | ✅ DSN + org + project + `org:ci` token in Vercel Production. Event `09496d0b8e…` confirmed in `tosh-production` under `environment=production`, and verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Source maps upload for real: release `5e9d92ba…` attached to `tosh-production`, 121 of 122 chunks paired with a map and a debug id, bundle `af8399aa…`. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 has real handles | ❌ |
-| **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | ❌ |
+| **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | 🟡 On-chain half dated 2026-09-03, §8.1. `pause()` 5 s / `unpause()` 4 s on factory `0x2E690A91…`, 29 s window. `deposit` stayed `ZeroAmount` through the pause — the claim this file was rewritten to make. Q1 is **not** passed: no status page, no second signer. |
 | **PM-E6** | D1–D4 accepted-risk review triggers have an owner watching them | Named owner per trigger (`PRD-v5.0.md` §11) | ❌ |
 
 > **PM-E2 is a documented dependency, not a nice-to-have.**

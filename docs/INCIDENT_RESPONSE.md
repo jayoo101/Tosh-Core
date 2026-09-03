@@ -103,18 +103,24 @@ most a few minutes; a missed pause costs the entire treasury.
 ### Step 1 — Halt the factory (`< 60 seconds`)
 
 The `pause()` setter is `onlyOwner`. On mainnet, the owner is the Gnosis Safe
-(`PROD_OWNER_SAFE`). On Sepolia, the owner is the deployer EOA.
+(`PROD_OWNER_SAFE`). On Robinhood testnet (chain 46630), the owner is the
+deployer EOA — that is the path the first drill used (§8.1).
 
 **Mainnet (Gnosis Safe path):**
 
 1. Open the Safe app at `app.safe.global` for the protocol owner Safe.
 2. New Transaction → Contract Interaction.
-3. Address: `<FACTORY_ADDRESS>` (pinned in
-   `soat-frontend/src/app/lib/factoryDeployments.ts`).
+3. Address: `<FACTORY_ADDRESS>` — the value of `NEXT_PUBLIC_FACTORY_ADDRESS`
+   on the live deployment, read by `soat-frontend/src/lib/contracts.ts`. There
+   is no `factoryDeployments.ts`; a previous version of this step named a file
+   that does not exist, which a responder at 3am would have lost minutes to.
 4. ABI: paste `ToshFactory` ABI; pick `pause()`; no args.
 5. Submit. **Two signers must sign within 60 seconds.** The Safe is configured
    2-of-N for a reason — that is the lower bound of what you can ship.
-6. Confirm on-chain via Etherscan: `factory.paused() == true`.
+6. Confirm on-chain: `cast call $FACTORY_ADDRESS "paused()(bool)" --rpc-url $RPC`
+   must return `true`. The explorer is
+   `https://explorer.testnet.chain.robinhood.com` on the rehearsal chain and
+   whatever the mainnet cutover names; it is not Etherscan.
 
 **Testnet (deployer EOA path):**
 
@@ -497,8 +503,11 @@ silently.
 
 If **all** legs are down:
 
-1. Add a new premium endpoint to `NEXT_PUBLIC_BASE_SEPOLIA_RPC` (or
-   `NEXT_PUBLIC_ETHEREUM_RPC` for mainnet) in the deployment env.
+1. Add a new premium endpoint to `NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC` (or
+   `NEXT_PUBLIC_ROBINHOOD_RPC` / `NEXT_PUBLIC_RPC_URL` for mainnet) in the
+   deployment env. The Base-era names (`NEXT_PUBLIC_BASE_SEPOLIA_RPC`,
+   `NEXT_PUBLIC_ETHEREUM_RPC`) are not read by `providers.tsx` or
+   `serverRpc.ts` and setting them would do nothing.
 2. Redeploy the frontend.
 3. Public status update: "Some users are experiencing RPC errors; engineering
    is rolling out a fix. No funds are affected."
@@ -511,7 +520,8 @@ can interact with the factory directly via `cast` (`createLaunch`, `deposit`,
 
 - `docs/MANUAL_INTERACTION.md` — every user-side action as a `cast` command,
   including the refund path, which needs nothing from us
-- The factory address on Etherscan
+- The factory address on the chain explorer (Robinhood testnet:
+  `https://explorer.testnet.chain.robinhood.com`)
 
 …so determined power-users can still operate.
 
@@ -612,6 +622,78 @@ Record drill outcomes in the incident-response log even if no real incident
 occurred. The presence of a quarterly cadence is itself evidence of
 operational maturity.
 
+### 8.1 First drill — 2026-09-03, Q1 mechanical half on chain 46630
+
+Factory `0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA`, owner the deployer EOA
+`0x73db078fa94607893270079AC8F5c7492aB480cd`. The Safe does not exist
+(PM-D4), so this used the testnet EOA path in Step 1, not the mainnet Safe
+path. That is the honest scope: the contract's pause boundary was rehearsed;
+the 2-of-3 signing bar was not.
+
+| | tx | block | gas | wall |
+|---|---|---|---|---|
+| `pause()` | [`0x2cf52249…`](https://explorer.testnet.chain.robinhood.com/tx/0x2cf522492d781143dbe1ff3340914bb5dab5efa67c9416df053ab133ee641e6c) | 112415196 | 52,274 | 5 s |
+| `unpause()` | [`0xd8a535bc…`](https://explorer.testnet.chain.robinhood.com/tx/0xd8a535bce516db1646d60aa5a1389fd944526b8065cf460af978540a9632645e) | 112415489 | 29,836 | 4 s |
+
+293 blocks between them, ~29 s on a 100 ms chain. The 60-second halt bar and
+the 30-minute Q1 window both hold for the on-chain half.
+
+Each user-facing surface was probed with `cast call` (so no state change, and
+the same command a responder would type) before, during, and after:
+
+| Surface | before | during pause | after unpause |
+|---|---|---|---|
+| `factory.createLaunch` | (parser / would be `FeeChanged` on `expectedFee=0`) | **`EnforcedPause`** | `FeeChanged` (`0x2f0a5ab4`) |
+| `factory.registerPoG` | `SignatureExpired` | **`EnforcedPause`** | `SignatureExpired` |
+| `factory.deposit` | `ZeroAmount` | `ZeroAmount` | `ZeroAmount` |
+| `hook.refund` | `Already launched` | `Already launched` | `Already launched` |
+| `hook.claimGenesis` | `AlreadyClaimed` | `AlreadyClaimed` | `AlreadyClaimed` |
+
+`deposit` is the row this drill existed to confirm. The modifier order is the
+whole argument: `whenNotPaused` runs before the function body, so if `deposit`
+carried it, a paused call would have to revert `EnforcedPause` and could not
+reach `ZeroAmount`. It reached `ZeroAmount` in all three states. A responder
+who paused to stop money coming in would have stopped nothing.
+
+`createLaunch` after unpause reverting `FeeChanged` rather than
+`EnforcedPause` is the restore: the call got past the modifier and into the
+body, where `launchFee > expectedFee` (we passed 0) fires first. Same shape as
+`test_unpause_restoresAllPaths`, measured on the chain a drill is supposed to
+use.
+
+The launched hook `0x90FDE02D9786C84198c21d2947C42D2C16c4fFDf` was the
+refund/claim subject. Both kept their own errors through the pause, which is
+the other half of the golden rule: `pause()` does not reach a project that has
+already launched.
+
+**Q1 pass criteria, scored honestly:**
+
+- `pause()` then `unpause()` within 30 min — **met**, 29 s.
+- Public status page — **not exercised**. There is no status page. Step 4 of
+  the P0 playbook names four channels (`#status`, a public status page,
+  Twitter/X, Discord #announcements) and none of them exist yet. The comms
+  half of this drill would have been posting into the void.
+- At least one new signer participating — **not exercised**. Single EOA, no
+  Safe. The 2-of-3 bar in Step 1 is still theatre until PM-D4.
+
+Do not read this sitting as a passed Q1. It is a dated rehearsal of the
+on-chain half, and it is the half that had been written wrong once already
+(`deposit` used to be listed as paused). The human half is PM-E4 and PM-D4.
+
+Three stale pointers this sitting found and corrected in the same file:
+
+- Step 1 still said "On Sepolia, the owner is the deployer EOA" after §8 had
+  been rewritten to Robinhood testnet.
+- Step 1 named `soat-frontend/src/app/lib/factoryDeployments.ts`, which does
+  not exist. The address lives in `NEXT_PUBLIC_FACTORY_ADDRESS`, read by
+  `soat-frontend/src/lib/contracts.ts`.
+- §6a told a responder to set `NEXT_PUBLIC_BASE_SEPOLIA_RPC` /
+  `NEXT_PUBLIC_ETHEREUM_RPC`, which `providers.tsx` and `serverRpc.ts` do not
+  read. The names that work are `NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC`,
+  `NEXT_PUBLIC_ROBINHOOD_RPC`, and the chain-agnostic `NEXT_PUBLIC_RPC_URL`.
+- §6b linked "the factory address on Etherscan". The rehearsal chain's
+  explorer is Blockscout at `explorer.testnet.chain.robinhood.com`.
+
 ---
 
 ## 9. Quick-reference cheat sheet
@@ -659,10 +741,8 @@ operational maturity.
 
 ---
 
-*Last updated: 2026-08-26 (v5.0 — §4 cap table corrected to the ETH-native
-`maxPogAllocationLimit` / `perWalletCap`; the `MAX_ALLOC_SATO_WEI` row referred
-to a constant that does not exist. §6b now links a real
-`docs/MANUAL_INTERACTION.md`.)*
+*Last updated: 2026-09-03 (first drill, §8.1: pause/unpause on 46630, deposit
+confirmed ungated, three stale pointers in Step 1 and §6a corrected.)*
 
 *Previously: 2026-08-25 — ladder halt playbook §2b; corrected the pause
 boundary (`deposit` is NOT paused); owner-compromise section covers rolling
