@@ -17,6 +17,7 @@
     "guard:env": "node scripts/checkPublicEnv.mjs",
     "guard:rpc": "node scripts/checkServerRpc.mjs",
     "guard:supabase": "node scripts/checkSupabase.mjs",
+    "check:upstash": "node scripts/checkUpstash.mjs",
     "guard:v4math": "node scripts/runTsGuard.mjs scripts/checkV4Math.ts",
     "guard:lpactions": "node scripts/runTsGuard.mjs scripts/checkLpActions.ts",
     "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:rpc && npm run guard:supabase && npm run guard:v4math && npm run guard:lpactions",
