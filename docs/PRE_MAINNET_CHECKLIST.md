@@ -404,7 +404,7 @@ is not spent on an unlisted token.
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
 | **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 database provisioned and verified (`npm run check:upstash`); closes when the two vars are set in the deploy environment |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
-| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | 🟡 project provisioned, 0001 run and verified; **0002 (`chain_id`) written and pending a run against the live project** — see §6.3; closes when that is run and the three vars are set in the deploy environment |
+| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run

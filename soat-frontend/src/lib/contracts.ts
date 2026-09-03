@@ -94,6 +94,32 @@ export const LADDER_TREASURY_ADDRESS = (process.env.NEXT_PUBLIC_TREASURY_ADDRESS
 
 export const hasLadderTreasury = /^0x[0-9a-fA-F]{40}$/.test(LADDER_TREASURY_ADDRESS)
 
+// Both set, disagreeing, is the case the `??` above resolves silently — and the
+// stale one is not obviously stale. A `.env.local` carried the previous
+// deployment's treasury under the alias while the canonical name held the
+// current one; both addresses were live contracts of identical size, because
+// they are the same contract from two deploys. Had the canonical name ever gone
+// missing, the console would have pointed at the old treasury with nothing on
+// screen looking wrong.
+//
+// A warning rather than a throw: the public UI boots without a treasury by
+// design, so failing closed here would take the whole site down over an
+// admin-only panel. Delete the alias instead of resolving it.
+if (
+  process.env.NEXT_PUBLIC_TREASURY_ADDRESS &&
+  process.env.NEXT_PUBLIC_LADDER_TREASURY &&
+  process.env.NEXT_PUBLIC_TREASURY_ADDRESS.toLowerCase() !==
+    process.env.NEXT_PUBLIC_LADDER_TREASURY.toLowerCase()
+) {
+  console.warn(
+    '[Tosh] NEXT_PUBLIC_TREASURY_ADDRESS and its older alias ' +
+    'NEXT_PUBLIC_LADDER_TREASURY are both set, to different addresses. ' +
+    `Using ${process.env.NEXT_PUBLIC_TREASURY_ADDRESS}; ` +
+    `ignoring ${process.env.NEXT_PUBLIC_LADDER_TREASURY}. ` +
+    'Unset the alias — verify against `factory.ladderTreasury()` on chain.',
+  )
+}
+
 /** Uniswap V4 PoolManager.  Hard-coded — not env-bound on purpose: a wrong
  *  PoolManager would silently mis-CREATE2 every hook.  Mainnet cutover is a
  *  source change here, reviewed, not an env flip.
