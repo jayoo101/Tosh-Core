@@ -2,6 +2,7 @@ import { zeroAddress } from 'viem'
 import type { Address } from 'viem'
 
 import { FACTORY_ADDRESS, FACTORY_ABI, HOOK_ABI, ERC20_ABI } from '@/lib/contracts'
+import { targetChain } from '@/lib/chain'
 import { serverPublicClient } from '@/app/lib/serverRpc'
 import {
   supabase,
@@ -33,7 +34,7 @@ function isAddress(raw: string): raw is Address {
 async function queryRegistry(raw: string): Promise<ProjectRow | null> {
   // `raw` is interpolated into a PostgREST filter EXPRESSION, where a comma or
   // a dot is syntax rather than data. Every caller today validates the address
-  // first, so this has never been reachable — but the guard belongs next to
+  // first, so this has never been reachable ? but the guard belongs next to
   // the interpolation, not one call frame away, or the next caller inherits a
   // filter injection without knowing there was a contract to honour.
   if (!isAddress(raw)) return null
@@ -48,6 +49,12 @@ async function queryRegistry(raw: string): Promise<ProjectRow | null> {
     const { data, error } = await supabase
       .from('projects')
       .select('*')
+      // Scoped to this deployment's chain. An address is not unique across
+      // chains ? CREATE2 in particular is designed to produce the same address
+      // from the same inputs anywhere ? so an unfiltered match here can return
+      // a different chain's project for a legitimate lookup, and hand a
+      // visitor someone else's name and links.
+      .eq('chain_id', targetChain.id)
       .or(`token_address.ilike.${raw},hook_address.ilike.${raw}`)
       // A token can carry more than one row. Without an order, Postgres is
       // free to return whichever it likes, so which metadata a visitor saw was
@@ -70,7 +77,7 @@ async function queryRegistry(raw: string): Promise<ProjectRow | null> {
 /**
  * One mapping read, not a 48-launch scan.
  *
- * `factory.tokenToHook` is the canonical token → hook index. The previous
+ * `factory.tokenToHook` is the canonical token ? hook index. The previous
  * fallback walked `launches(i)` backwards, which is why a cold project page
  * sat on a loading shell for several seconds after the registry had already
  * given up.
@@ -112,14 +119,14 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
 
     // Two plain reads rather than `multicall`. viem's `foundry` chain declares
     // no Multicall3 and anvil does not predeploy one, so the batched form did
-    // not degrade per call there — it threw, and took every chain-fallback
+    // not degrade per call there ? it threw, and took every chain-fallback
     // lookup on the devnet with it. That is precisely where this path gets
     // exercised, so the batching saved one round trip on two calls at the cost
     // of the fallback being untestable.
     //
     // A Tosh token's `name()` does not revert, so a rejection here is the RPC.
     // The honest answer is "ask again", not a plausible-looking fabrication in
-    // a row typed identically to a real one — hence no per-call salvage.
+    // a row typed identically to a real one ? hence no per-call salvage.
     const [name, symbol] = await Promise.all([
       client.readContract({ address: token, abi: ERC20_ABI, functionName: 'name' }),
       client.readContract({ address: token, abi: ERC20_ABI, functionName: 'symbol' }),
@@ -129,6 +136,9 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
       status: 'found',
       row: {
         id:            token,
+        // Known rather than invented, unlike `created_at` below: this row was
+        // assembled from reads against exactly one chain, and that is the one.
+        chain_id:      targetChain.id,
         tx_hash:       '',
         token_address: token,
         hook_address:  hook,

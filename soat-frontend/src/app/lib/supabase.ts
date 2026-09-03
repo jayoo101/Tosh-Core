@@ -69,6 +69,12 @@ export const REGISTRY_WRITE_DEADLINE_MS = 5_000
 // ── Row shape (mirrors DB schema) ─────────────────────────────────────────────
 export interface ProjectRow {
   id:            string
+  /**
+   * EIP-155 chain id the `tx_hash` belongs to. Both read paths filter on it;
+   * see `supabase/migrations/0002_projects_chain_id.sql` for why a row without
+   * it is a row that says "some launch, somewhere".
+   */
+  chain_id:      number
   tx_hash:       string
   token_address: string | null
   hook_address:  string | null

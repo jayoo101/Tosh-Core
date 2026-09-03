@@ -36,6 +36,9 @@ import { readFileSync, existsSync } from 'node:fs'
 const ENV_FILE = '.env.local'
 const TIMEOUT_MS = 8_000
 const PROBE_TX = `0xdiagnostic${'0'.repeat(52)}`.slice(0, 66)
+// 0 is not a valid EIP-155 chain id, so a diagnostic row cannot be mistaken for
+// a real one by the filtered reads even if cleanup fails and it survives.
+const PROBE_CHAIN = 0
 
 // ── Env ──────────────────────────────────────────────────────────────────────
 // Same precedence Next applies: the ambient shell outranks the file, so this
@@ -131,6 +134,28 @@ if (probe.status !== 200) {
 }
 console.log('SELECT    anon reads the directory                        ok')
 
+// ── 1b. Migration 0002 has been run ──────────────────────────────────────────
+//
+// Asked of the live schema rather than of the repository, because the two are
+// only connected by a human pasting a file into a dashboard. The application
+// filters both reads on `chain_id`; against a project still on 0001 that
+// filter names a column that does not exist, and PostgREST answers 400 — so
+// the directory is empty and every lookup misses, on a database that is
+// otherwise healthy and a build that is otherwise correct.
+const schema = await rest('GET', 'projects?select=chain_id&limit=1', { key: anonKey })
+if (schema.status === 400 && /chain_id/.test(schema.raw)) {
+  fail('The `projects` table has no `chain_id` column — 0002 has not been run.',
+    '      Run supabase/migrations/0002_projects_chain_id.sql in the SQL editor.\n\n' +
+    '      Until then both read paths ask for a column that is not there, so the\n' +
+    '      directory renders empty and every project lookup falls through to the\n' +
+    '      chain — while writes keep succeeding, which is what makes this quiet.')
+}
+if (schema.status !== 200) {
+  fail(`Unexpected answer when checking for chain_id (HTTP ${schema.status}).`,
+    `      ${schema.raw.slice(0, 300)}`)
+}
+console.log('SCHEMA    chain_id present — 0002 has been run             ok')
+
 // ── 2. The assertions this file exists for ───────────────────────────────────
 //
 // All three write verbs, not just INSERT. The first version of this check
@@ -139,7 +164,7 @@ console.log('SELECT    anon reads the directory                        ok')
 // creator, just rewrite the logo and outbound links of a project that already
 // exists and is already trusted.
 const WRITES = [
-  ['INSERT', 'POST',   'projects', { tx_hash: PROBE_TX, name: 'RLS diagnostic', symbol: 'DIAG' }],
+  ['INSERT', 'POST',   'projects', { chain_id: PROBE_CHAIN, tx_hash: PROBE_TX, name: 'RLS diagnostic', symbol: 'DIAG' }],
   ['UPDATE', 'PATCH',  `projects?tx_hash=eq.${PROBE_TX}`, { name: 'rewritten' }],
   ['DELETE', 'DELETE', `projects?tx_hash=eq.${PROBE_TX}`, undefined],
 ]
@@ -196,6 +221,7 @@ if (serviceKey) {
     key: serviceKey,
     prefer: 'return=representation',
     body: {
+      chain_id: PROBE_CHAIN,
       tx_hash: PROBE_TX,
       name: 'RLS diagnostic',
       symbol: 'DIAG',

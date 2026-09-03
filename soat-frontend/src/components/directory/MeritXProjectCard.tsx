@@ -5,14 +5,21 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtEth } from './useDirectoryProjects'
-import { LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
+import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
+import type { ProjectRow } from '@/app/lib/supabase'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
 
-function directoryToRow(p: DirectoryProject) {
+function directoryToRow(p: DirectoryProject): ProjectRow {
   return {
     id:            p.token,
+    // The directory this card came from only ever lists this deployment's
+    // chain, so the row it synthesises belongs to it too. Annotating the return
+    // type rather than leaving it inferred is the point: this is the third
+    // place that builds a ProjectRow by hand, and the two before it were found
+    // by the compiler only because `ProjectRow` was named somewhere downstream.
+    chain_id:      TARGET_CHAIN_ID,
     tx_hash:       '',
     token_address: p.token,
     hook_address:  p.hook,

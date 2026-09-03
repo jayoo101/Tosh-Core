@@ -373,6 +373,7 @@ export default function GenesisConsole() {
 
       rememberProject({
         id:            tokenAddress ?? destination,
+        chain_id:      TARGET_CHAIN_ID,
         tx_hash:       hash,
         token_address: tokenAddress ?? null,
         hook_address:  hookAddress ?? null,
@@ -455,6 +456,7 @@ export default function GenesisConsole() {
             }) as readonly [string, string, string, bigint]
             rememberProject({
               id:            l[0],
+              chain_id:      TARGET_CHAIN_ID,
               tx_hash:       hash,
               token_address: l[0],
               hook_address:  l[1],

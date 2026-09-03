@@ -404,7 +404,7 @@ is not spent on an unlisted token.
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
 | **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 database provisioned and verified (`npm run check:upstash`); closes when the two vars are set in the deploy environment |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
-| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | 🟡 project provisioned, migration run, `npm run check:supabase` green against it — see §6.3; closes when the three vars are set in the deploy environment |
+| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | 🟡 project provisioned, 0001 run and verified; **0002 (`chain_id`) written and pending a run against the live project** — see §6.3; closes when that is run and the three vars are set in the deploy environment |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
@@ -620,6 +620,63 @@ connection, which is 1.6 s of TLS handshake at cross-Pacific RTT and not a
 production figure. It is worth noticing only because
 `REGISTRY_READ_DEADLINE_MS` is 1,200 ms: co-located that budget is enormous,
 and from here it is not.
+
+##### 0002 — a row knew who wrote it and not what it was about
+
+Found while deciding how to scope Vercel's environments, which is the useful
+part: the question "may Preview and Production share one Supabase project?" is
+what surfaced it, and nothing in the test suite or the guards would have.
+
+0001 settled **who may write**. It left **what a row is about** unasked. A row
+identified a launch by `tx_hash`, and a transaction hash does not name a chain.
+
+The hazard was already understood — `POST /api/projects` carries a comment
+naming it exactly:
+
+> Read it from the wrong one and a launch minted on a free testnet
+> authenticates a listing in the mainnet directory: the caller genuinely is
+> that launch's creator, the signature genuinely verifies, and the row is still
+> a forgery.
+
+The `assertServerChain()` check under that comment defends the write path's own
+consistency. It cannot defend **which directory the row lands in**, because the
+row carried nothing to sort it by, and both reads — `GET /api/projects` and
+`getProject.ts`, which matches on token/hook address — selected every row in the
+table. So two deployments sharing one project mix their listings while every
+individual write is correctly authenticated. Nothing is forged in the sense the
+write path checks for; the rows are simply about somewhere else.
+
+It does not take two deployments. **One deployment repointed does it too** — the
+testnet rehearsals that precede a mainnet cutover write rows the mainnet
+directory then reads as its own. That is the case that made this urgent rather
+than tidy, since a rehearsal was in progress.
+
+`0002_projects_chain_id.sql` adds `chain_id BIGINT NOT NULL`, moves uniqueness
+from `(tx_hash)` to `(chain_id, tx_hash)`, and replaces the 0001 indexes with
+leading-`chain_id` composites so the now-filtered reads stay indexed. Both reads
+filter on it; the insert stamps `targetChain.id`.
+
+Three things worth recording about how it was found and checked:
+
+- **The type system found the call sites, not a search.** Adding `chain_id` to
+  `ProjectRow` produced five errors in three files — the chain-fallback row in
+  `getProject.ts`, two `rememberProject` calls in `launch/page.tsx`, and
+  `directoryToRow` in `MeritXProjectCard.tsx`, whose return type was inferred
+  rather than annotated and is now annotated for that reason.
+- **The session cache had the same shape of bug**, keyed by bare address. The
+  exposure is narrow — `TARGET_CHAIN_ID` is fixed at build time and
+  sessionStorage is per-origin — but not narrow enough for a tab held open
+  across the redeploy that repoints a domain from testnet to mainnet. The key
+  is chain-scoped now.
+- **`checkSupabaseRls.mjs` asks the live schema whether 0002 has been run**,
+  because the repository and the database are connected only by a human pasting
+  a file into a dashboard. Against a project still on 0001 the filter names a
+  column that does not exist, PostgREST answers 400, and the result is an empty
+  directory and a total lookup miss on a database that is otherwise healthy —
+  while writes keep succeeding, which is what would have made it quiet.
+
+Every new assertion was mutation-tested: dropping either `.eq()`, or the
+`chain_id` from either insert, fails exactly one test each.
 
 What is left is the deploy environment: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` set in

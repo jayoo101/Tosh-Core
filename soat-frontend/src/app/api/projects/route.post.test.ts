@@ -46,13 +46,21 @@ let adminSignal: AbortSignal | undefined
 let adminResult: { data: unknown; error: unknown }
 let adminUnavailable: boolean
 let recovered: string
+/** The row handed to `.insert()`, so what is written can be asserted. */
+let adminRow: Record<string, unknown> | undefined
 
-function builder(onInsert: () => void, onSignal: (s: AbortSignal) => void): Chain {
+function builder(
+  onInsert: (row: Record<string, unknown>) => void,
+  onSignal: (s: AbortSignal) => void,
+): Chain {
   const chain: Chain = {}
-  for (const method of ['from', 'select', 'order', 'or', 'limit', 'single']) {
+  // `eq` is here because the READ paths filter on chain_id. It is a no-op for
+  // POST, and its absence would surface as "chain.eq is not a function" from a
+  // GET test rather than as anything about chains.
+  for (const method of ['from', 'select', 'order', 'or', 'limit', 'single', 'eq']) {
     chain[method] = () => chain
   }
-  chain.insert = () => { onInsert(); return chain }
+  chain.insert = (row: Record<string, unknown>) => { onInsert(row); return chain }
   chain.abortSignal = (s: AbortSignal) => { onSignal(s); return chain }
   chain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
     Promise.resolve(adminResult).then(resolve)
@@ -62,7 +70,7 @@ function builder(onInsert: () => void, onSignal: (s: AbortSignal) => void): Chai
 vi.mock('../../lib/supabase', async () => {
   const actual =
     await vi.importActual<typeof import('./../../lib/supabase')>('../../lib/supabase')
-  return { ...actual, supabase: builder(() => { anonInserts++ }, () => {}) }
+  return { ...actual, supabase: builder(() => { anonInserts++ }, () => {}) as never }
 })
 
 vi.mock('../../lib/supabaseAdmin', async () => {
@@ -72,7 +80,10 @@ vi.mock('../../lib/supabaseAdmin', async () => {
     ...actual,
     getSupabaseAdmin: () => {
       if (adminUnavailable) throw new actual.SupabaseAdminUnavailable('SUPABASE_SERVICE_ROLE_KEY')
-      return builder(() => { adminInserts++ }, (s) => { adminSignal = s })
+      return builder(
+        (row) => { adminInserts++; adminRow = row },
+        (s) => { adminSignal = s },
+      ) as never
     },
   }
 })
@@ -105,6 +116,7 @@ beforeEach(() => {
   anonInserts = 0
   adminInserts = 0
   adminSignal = undefined
+  adminRow = undefined
   adminUnavailable = false
   recovered = CREATOR
   adminResult = { data: { id: 'row-1' }, error: null }
@@ -176,5 +188,34 @@ describe('POST /api/projects — the writer', () => {
     const res = await post()
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ ok: true, duplicate: true })
+  })
+
+  it('stamps the row with this deployment\'s chain', async () => {
+    // A tx_hash names no chain, so a row without this says "some launch,
+    // somewhere". `assertServerChain` does not cover it: that guards which
+    // chain the write READ FROM, while this decides which directory the row is
+    // shown in. One Supabase project backing a staging build and production is
+    // the case where the difference is visible, and every individual write is
+    // correctly authenticated in it.
+    await post()
+    expect(adminRow?.chain_id).toBe(31337)
+  })
+
+  it('takes identity from the receipt and never from the request body', async () => {
+    // The chain_id above comes from configuration, which is trustworthy. These
+    // come from the log, and the body is the one place they must not come from
+    // — so send contradicting values and require them to be ignored.
+    await post({
+      chain_id:      999,
+      name:          'Not The Real Name',
+      symbol:        'FAKE',
+      tokenAddress:  '0x000000000000000000000000000000000000dEaD',
+      token_address: '0x000000000000000000000000000000000000dEaD',
+    })
+    expect(adminRow?.chain_id).toBe(31337)
+    expect(adminRow?.name).toBe('E2E')
+    expect(adminRow?.symbol).toBe('E2E')
+    expect(adminRow?.token_address).toBe(TOKEN)
+    expect(adminRow?.hook_address).toBe(HOOK)
   })
 })

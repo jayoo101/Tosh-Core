@@ -295,6 +295,13 @@ export async function POST(req: NextRequest) {
     .from('projects')
     .insert({
       // Identity from the chain, presentation from the (now authenticated) body.
+      //
+      // `chain_id` is what makes the two facts above one fact. A tx_hash names
+      // no chain, so without it this row says "some launch, somewhere" — and
+      // `assertServerChain` above cannot help, because it guards which chain
+      // this write READ FROM, not which directory the row is then shown in.
+      // See supabase/migrations/0002_projects_chain_id.sql.
+      chain_id:      targetChain.id,
       tx_hash:       txHash,
       token_address: launch.token,
       hook_address:  launch.hook,
@@ -361,6 +368,12 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('projects')
     .select('*')
+    // This deployment's chain and no other. One Supabase project can back a
+    // staging build and production at once, and did: every row is correctly
+    // authenticated for the chain it was written on, which is exactly why an
+    // unfiltered read is not caught by anything the write path checks. The
+    // rows are not forged, they are about somewhere else.
+    .eq('chain_id', targetChain.id)
     .order('created_at', { ascending: false })
     .abortSignal(AbortSignal.timeout(REGISTRY_READ_DEADLINE_MS))
 

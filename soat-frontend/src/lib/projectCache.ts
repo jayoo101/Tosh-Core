@@ -1,8 +1,20 @@
 'use client'
 
 import type { ProjectRow } from '@/app/lib/supabase'
+import { TARGET_CHAIN_ID } from '@/lib/contracts'
 
-const PREFIX = 'tosh:project:'
+/**
+ * Chain-scoped, because the key is an address and an address is not unique
+ * across chains.
+ *
+ * The exposure is narrow — `TARGET_CHAIN_ID` is fixed at build time, so one
+ * session only ever sees one chain, and sessionStorage is per-origin, so a
+ * staging domain and production do not share it. What it is not narrow enough
+ * for is the cutover: the same tab, held open across the redeploy that repoints
+ * a domain from testnet to mainnet, would recall testnet rows onto mainnet
+ * pages. Putting the chain in the key costs nothing and ends the question.
+ */
+const PREFIX = `tosh:project:${TARGET_CHAIN_ID}:`
 const memory = new Map<string, ProjectRow>()
 const listeners = new Set<() => void>()
 

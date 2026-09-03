@@ -17,6 +17,8 @@ const ZERO  = '0x0000000000000000000000000000000000000000'
 let reads: Record<string, () => unknown>
 /** What the registry query resolves to, set per test. */
 let registry: () => Promise<{ data: unknown[] | null; error: unknown }>
+/** `.eq()` calls the query carried, so the chain scoping can be asserted. */
+const filters: [string, unknown][] = []
 
 vi.mock('@/app/lib/serverRpc', () => ({
   serverPublicClient: () => ({
@@ -36,21 +38,31 @@ vi.mock('@/app/lib/supabase', () => ({
   supabase: {
     from: () => ({
       select: () => ({
-        or: () => ({
-          order: () => ({
-            limit: () => ({
-              abortSignal: (signal: AbortSignal) => {
-                // The production path must pass a real deadline here; a mock
-                // that accepted anything would keep passing if the argument
-                // were dropped.
-                if (!(signal instanceof AbortSignal)) {
-                  throw new Error('registry query was issued without a deadline')
-                }
-                return registry()
-              },
+        // The nesting is the assertion. `eq` sits between `select` and `or`
+        // because that is where the chain filter goes, so a build that drops
+        // it does not silently read every chain's rows — it fails here with
+        // "or is not a function". An address is not unique across chains, so
+        // an unfiltered lookup can answer with a different chain's project.
+        eq: (column: string, value: unknown) => {
+          filters.push([column, value])
+          return {
+            or: () => ({
+              order: () => ({
+                limit: () => ({
+                  abortSignal: (signal: AbortSignal) => {
+                    // The production path must pass a real deadline here; a
+                    // mock that accepted anything would keep passing if the
+                    // argument were dropped.
+                    if (!(signal instanceof AbortSignal)) {
+                      throw new Error('registry query was issued without a deadline')
+                    }
+                    return registry()
+                  },
+                }),
+              }),
             }),
-          }),
-        }),
+          }
+        },
       }),
     }),
   },
@@ -64,6 +76,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   reads = {}
   registry = async () => ({ data: [], error: null })
+  filters.length = 0
 })
 
 afterEach(() => {
@@ -176,6 +189,27 @@ describe('getProject — the registry wins when it has a row', () => {
     if (result.status !== 'found') return
     expect(result.row.name).toBe('Registry Name')
     expect(result.row.logo_url).toBe('https://cdn.test/logo.png')
+    // Scoped to this deployment's chain. CREATE2 is designed to put the same
+    // address on every chain from the same inputs, so an unfiltered match here
+    // can hand a visitor a different chain's project under a legitimate
+    // address — its name, its logo, its outbound links.
+    expect(filters).toContainEqual(['chain_id', 31337])
+  })
+
+  it('stamps the chain fallback row with the chain it was read from', async () => {
+    // The fallback assembles a row from contract reads rather than the
+    // registry. `created_at` is deliberately left empty there because nobody
+    // knows when the launch happened — but the chain is not a guess of the
+    // same kind, it is the one every read above went to.
+    reads = {
+      tokenToHook: () => HOOK,
+      name: () => 'Chain Name',
+      symbol: () => 'CHAIN',
+    }
+    const result = await getProject(TOKEN)
+    expect(result.status).toBe('found')
+    if (result.status !== 'found') return
+    expect(result.row.chain_id).toBe(31337)
   })
 
   it('falls through to the chain when the registry errors, without reporting its failure as absence', async () => {

@@ -34,7 +34,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key'
 })
 
-interface Recorded { signal?: AbortSignal }
+interface Recorded { signal?: AbortSignal; filters: [string, unknown][] }
 let recorded: Recorded
 let result: { data: unknown; error: unknown }
 
@@ -45,6 +45,14 @@ vi.mock('../../lib/supabase', async () => {
   const chain: Record<string, unknown> = {}
   for (const method of ['from', 'select', 'order', 'or', 'limit', 'insert', 'single']) {
     chain[method] = () => chain
+  }
+  // Recorded rather than stubbed. This mock restates the builder's shape, so
+  // it says nothing about whether the route filters by chain — and an
+  // unfiltered read is how a staging deployment's launches end up in the
+  // mainnet directory. Capturing the argument lets a test assert on it.
+  chain.eq = (column: string, value: unknown) => {
+    recorded.filters.push([column, value])
+    return chain
   }
   chain.abortSignal = (signal: AbortSignal) => {
     recorded.signal = signal
@@ -65,7 +73,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
-  recorded = {}
+  recorded = { filters: [] }
   result = { data: [ROW], error: null }
 })
 
@@ -94,6 +102,16 @@ describe('GET /api/projects', () => {
     // The signal is the whole point: `Promise.race` would bound this function
     // while the four-attempt retry chain kept running behind it.
     expect(recorded.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('reads only this deployment\'s chain', async () => {
+    await get()
+    // Without this filter, one Supabase project backing a staging build and
+    // production shows each other's launches — and nothing on the write path
+    // notices, because every row in it was correctly authenticated for the
+    // chain it was written on. They are not forged, they are about somewhere
+    // else. See supabase/migrations/0002_projects_chain_id.sql.
+    expect(recorded.filters).toContainEqual(['chain_id', 31337])
   })
 
   it('uses a deadline short enough that a dead registry does not stall a page', async () => {
