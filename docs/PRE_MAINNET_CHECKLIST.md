@@ -365,7 +365,7 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-E1** *(legacy `#26`, frontend half)* | Frontend error monitoring wired | `@sentry/nextjs` installed; `instrumentation*.ts`, `observability.ts`, error boundaries and API routes report | ✅ |
 | **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (25 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **Remaining: import into a provider and test delivery** — §8 of that doc is the done-list. | 🟡 specified, not live |
-| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | ❌ |
+| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | 🟡 DSN, `SENTRY_ORG`, `SENTRY_PROJECT` set in Vercel Production and read back; ingest accepted a real probe event (`npm run check:sentry`). **Remaining: a valid `SENTRY_AUTH_TOKEN`**, without which source maps do not upload and the "right project" half cannot be checked mechanically. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 has real handles | ❌ |
 | **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | ❌ |
 | **PM-E6** | D1–D4 accepted-risk review triggers have an owner watching them | Named owner per trigger (`PRD-v5.0.md` §11) | ❌ |
@@ -399,6 +399,64 @@ is not spent on an unlisted token.
 >   answer, a scheduled balance poll (STATE-06). The remedy is permissionless:
 >   anyone can call `pokeBuyback()`, so this is a monitoring gap rather than a
 >   custody one.
+
+### 5.1 PM-E3 — "the DSN works" and "the events are somewhere anyone looks"
+
+The row asks for a test event in the **right** project, and the second word is
+the whole requirement. `scripts/checkSentry.mjs` (`npm run check:sentry`) posts
+an envelope to the same ingest endpoint `@sentry/nextjs` uses and reports what
+came back. A 200 from ingest means the DSN was accepted; it does not mean the
+event is visible where an on-call rotation is looking. A DSN addresses a project
+by **numeric id**, a human opens one by **slug**, so a DSN belonging to some
+older project satisfies every check that stops at "200" while the watched
+dashboard stays empty. Given a token the script resolves the DSN's numeric id
+back to a slug and compares it with `SENTRY_PROJECT`.
+
+That gap is not hypothetical, and setting this up walked into a version of it.
+The org slug supplied by hand was `tosh-sz`; the org auth token's own payload —
+base64 in its middle segment — said `tosh-x2`. The API settled it: `tosh-x2`
+answered `/releases/` with 200 and `tosh-sz` with 404. Had `SENTRY_ORG=tosh-sz`
+been written as given, `next.config.ts` would have gated source-map upload on
+three variables that were all set, and produced no upload and no error.
+
+Two smaller things worth keeping:
+
+- **`NEXT_PUBLIC_SENTRY_DSN` is deliberately absent from `.env.local`.**
+  `observability.ts` treats a missing DSN as monitoring-off and calls that the
+  correct state for local dev. Putting the production DSN there would send every
+  half-written component and deliberately-broken fixture into the production
+  project under the same `environment` tag as a real fault — which does not add
+  noise so much as teach the PM-E4 rotation to ignore this project. The file now
+  carries that reasoning and the one-shot invocation instead of a value.
+- **401 and 403 are different answers.** A token that returns 401 is not
+  under-scoped, it is unrecognised, and no amount of adding scopes fixes it.
+  Distinguishing the two is what stopped this from being debugged as a
+  permissions problem.
+
+### 5.2 A stale `.env.local` one directory above the real one
+
+Found while placing the Sentry variables, and it belongs to the family
+`scripts/checkEnvShadow.mjs` was written for — that guard's own comment says
+the failure "has now cost this project twice". This was a third instance, and
+the guard could not see it: it compares the ambient shell against the keys
+`soat-frontend/.env.local` declares, and knows nothing about a second file of
+the same name in the repo root.
+
+That file held `NEXT_PUBLIC_FACTORY_ADDRESS` pointing at the **pre-redeploy
+factory** (`0xCD824ee8…` against the live `0x2E690A91…`), a Supabase URL and
+anon key for a **deleted** project, and a duplicate of the PoG signer key.
+Next.js never read it — its project root is `soat-frontend/` — so production was
+never affected. The diagnostics were: they resolve `.env.local` against the
+current directory, and run from the repo root `checkSupabaseRls.mjs` connected
+to the old project. It failed only because that project no longer exists. Had it
+still been alive, the script would have reported RLS correctly enforced on a
+database nothing reads.
+
+Deleted. The same command from the repo root now fails with "not set", which is
+the outcome to want: a diagnostic that cannot find its configuration should say
+so, not quietly find the wrong one. `.env.bak-premigration` is still there and
+still holds a plaintext `PRIVATE_KEY`, but no loader looks for that name, so it
+is dormant rather than shadowing — it belongs to PM-D1.
 
 ---
 
