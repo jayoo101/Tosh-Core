@@ -90,10 +90,16 @@ jobs:
       #
       # RAISE THE FLOOR when you add tests. Lowering it is the same act as
       # deleting a test and should be as visible in review.
+      #
+      # 336 -> 335 on 2026-09-03: `test_hookBytecode_inSyncWithArtifact` was
+      # deleted with the constant it pinned, which nothing imported. See
+      # PRE_MAINNET_CHECKLIST.md §6.2. This guard is the counter-example to that
+      # one — it caught the deletion on the first push and said what to do about
+      # it, because it measures the suite rather than restating it.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=336
+          floor=335
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
