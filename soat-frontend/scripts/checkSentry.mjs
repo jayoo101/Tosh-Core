@@ -397,12 +397,45 @@ if (authToken && org) {
       console.log(
         'Resolved    not available to this token, and that is expected.\n' +
         '            Organization Tokens are fixed-scope org:ci; listing\n' +
-        '            projects needs org:read, which the UI cannot grant. The\n' +
-        '            DSN-to-slug check therefore stays a one-time human step:\n' +
-        '            open the project and confirm the probe event above. Once\n' +
-        '            confirmed it does not need repeating, because the DSN is\n' +
-        '            pinned in Vercel and a changed DSN is a deliberate act.',
+        '            projects needs org:read, which the UI cannot grant.',
       )
+      // Not the end of it, though. Releases ARE readable with org:ci, and a
+      // release carries the project slugs it was created against — so the
+      // build's own artifacts say which project this pipeline uploads to.
+      // That is half of what listing projects would have told us, and it is
+      // the half about the deploy rather than about the DSN.
+      const relUrl = `https://${dsn.host.replace(/^o\d+\.ingest\./, '')}/api/0/organizations/${encodeURIComponent(org)}/releases/`
+      try {
+        const rel = await fetch(relUrl, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          signal: AbortSignal.timeout(INGEST_DEADLINE_MS),
+        })
+        const releases = rel.ok ? await rel.json() : []
+        const latest = Array.isArray(releases) ? releases[0] : undefined
+        const slugs = latest?.projects?.map((p) => p.slug) ?? []
+        if (!latest) {
+          console.log(
+            '            No releases yet, so nothing has uploaded under this\n' +
+            '            token. The first production deploy creates one.',
+          )
+        } else if (project && !slugs.includes(project)) {
+          console.log(
+            `            Release "${String(latest.version).slice(0, 12)}…" is attached to\n` +
+            `            ${slugs.join(', ') || '(none)'}, not "${project}". Source maps are\n` +
+            '            going somewhere other than where SENTRY_PROJECT points.',
+          )
+          process.exitCode = 1
+        } else {
+          console.log(
+            `            Latest release "${String(latest.version).slice(0, 12)}…" is attached to\n` +
+            `            "${project}", so the deploy pipeline uploads to the\n` +
+            '            intended project. What that cannot confirm is the DSN:\n' +
+            '            events could still arrive elsewhere. Confirm the probe\n' +
+            '            event by eye once — after that the DSN is pinned in\n' +
+            '            Vercel and changing it is a deliberate act.',
+          )
+        }
+      } catch { /* the 403 above is the finding; this was a bonus */ }
     } else {
       console.log(`Resolved    could not list projects (${r.status} ${r.statusText})`)
     }

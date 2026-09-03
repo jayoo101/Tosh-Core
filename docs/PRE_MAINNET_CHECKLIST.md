@@ -365,7 +365,7 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-E1** *(legacy `#26`, frontend half)* | Frontend error monitoring wired | `@sentry/nextjs` installed; `instrumentation*.ts`, `observability.ts`, error boundaries and API routes report | ✅ |
 | **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (25 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **Remaining: import into a provider and test delivery** — §8 of that doc is the done-list. | 🟡 specified, not live |
-| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | 🟡 Both halves met: DSN + org + project + auth token in Vercel Production, and event `09496d0b8e…` confirmed by eye in `tosh-production` under `environment=production`. Verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Remaining: confirm a deploy carrying the token really uploads source maps. §5.1 |
+| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | ✅ DSN + org + project + `org:ci` token in Vercel Production. Event `09496d0b8e…` confirmed in `tosh-production` under `environment=production`, and verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Source maps upload for real: release `5e9d92ba…` attached to `tosh-production`, 121 of 122 chunks paired with a map and a debug id, bundle `af8399aa…`. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 has real handles | ❌ |
 | **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | ❌ |
 | **PM-E6** | D1–D4 accepted-risk review triggers have an owner watching them | Named owner per trigger (`PRD-v5.0.md` §11) | ❌ |
@@ -438,6 +438,22 @@ one — and a sourcemap step that fails is deliberately non-fatal, so that build
 succeeds, uploads nothing, and says nothing. The script asks
 `/api/0/organizations/<org>/chunk-upload/`, the endpoint the upload actually
 goes through, whether this token may use it.
+
+And the human step turned out to be only half necessary. **Releases are readable
+with `org:ci`, and a release names the project slugs it was created against** —
+so the build's own artifacts state which project this pipeline uploads to,
+mechanically, with the credential we have. `check:sentry` now reads the latest
+release and fails if it is not attached to `SENTRY_PROJECT`. What that still
+cannot cover is the DSN: source maps could land in `tosh-production` while
+events go elsewhere, because nothing ties the DSN's numeric id to a slug without
+`project:read`. So the eyeball step shrank from "is any of this wired up" to
+"does the DSN point here", which is one question asked once.
+
+Verified end to end on release `5e9d92ba…`: attached to `tosh-production`, 121
+of 122 chunks paired with a source map and a debug id, `Bundled 212 files`,
+bundle `af8399aa…`, `Successfully uploaded source maps to Sentry`. The one
+unpaired chunk has no map emitted for it, which is the Turbopack runtime rather
+than application code.
 
 ##### An error takes two routes to Sentry, and only one of them is the hot path
 
