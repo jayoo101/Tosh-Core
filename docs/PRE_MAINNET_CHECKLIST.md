@@ -258,7 +258,7 @@ Ordered. Each step's output feeds the next.
 | **PM-C5** | `forge build --sizes` — every contract under the 24 KB EIP-170 limit | Build output | ✅ see §3.1 |
 | **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ❌ |
 | **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` | Deployed frontend reads the right factory | ❌ |
-| **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ |
+| **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
 
 > **PM-C2 is the one people skip.** `script/DeployMainnet.s.sol:134` says it in
 > its own output: until the Safe accepts, the deployer EOA still owns the
@@ -308,6 +308,14 @@ headroom, and `ToshFactory` shed ~4.5 KB by handing deployment to `ToshCloneLib`
 Zero means the pool is still inside the first `TWAP_WINDOW` (1800 s) after
 `launch()`. Wait for it to go non-zero — it does so on the clock alone, with no
 swap needed — and list then.
+
+**Poll the getter; do not compute the deadline.** `launch_ts + 1800` is a lower
+bound, not the answer. Measured on testnet 46630 the TWAP was still 0 **147 s
+past** that point, because `_prevCheckpointTs` rolls onto a checkpoint already a
+full window old and checkpoints are written by pool interactions — so the wait
+runs from the last checkpoint before maturity, not from `launch()`. Arithmetic
+here says "safe to list" while the floor is still unbounded, which is the exact
+state the rule exists to prevent. `ROBINHOOD_MIGRATION.md` §F.8.
 
 **Why it is a rule and not a `require`:** `_buybackSqrtFloor` anchors the
 buyback's anti-sandwich bound to that TWAP, and treats 0 as "no reference yet,

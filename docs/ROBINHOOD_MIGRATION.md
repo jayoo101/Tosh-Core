@@ -401,8 +401,8 @@ gate.
 |---|---|---|
 | **RH-F0** | Deployer funded on 46630 | ✅ `0x73db078fa94607893270079AC8F5c7492aB480cd`, funded from `faucet.testnet.chain.robinhood.com` |
 | **RH-F0b** | Contracts deployed and Blockscout-verified on 46630 | 🔁 was ✅ §F.2 — **superseded**, see below |
-| **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | 🔁 was ✅ create → genesis → launch → buy → mint all on-chain, §F.6. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2. **Superseded**, see below |
-| **RH-F2** | Lockout behaviour observed live under real 100 ms blocks | ✅ `lastSwapBlock` = 108,111,395 against an L1 height of ~25.8 M, so `_blockNumber()` is demonstrably on ArbSys. Re-armed correctly after the phase 3 swap. §F.6 |
+| **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | ✅ re-run end to end on the redeployed contracts, §F.8. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2 |
+| **RH-F2** | Lockout behaviour observed live under real 100 ms blocks | ✅ re-confirmed on the redeploy: `lastSwapBlock` = 112,342,060, which is both an L2 height and exactly the block `launch()` mined in. Re-armed to 112,348,233 by the phase 3 swap. §F.8 |
 | **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | Addresses recorded |
 | **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | `.env.production` populated |
 
@@ -903,6 +903,78 @@ Probe deployment on 46630, kept for re-runs: registry
 `0x8Af251CEae847a4acD55EA22Ab7B0eeE899303e9`, meter
 `0xDb25d6959C3252b87D7f35424EF697F22EC2c3cc`. All three deployed for a combined
 0.00002 ETH.
+
+#### F.8 RH-F1 re-run on the redeployed contracts (2026-09-03, second sitting)
+
+§F.2b redeployed the contracts so their published source rebuilds, which reset
+RH-F0b and RH-F1. This is that re-run, on hook
+`0x90FDE02D9786C84198c21d2947C42D2C16c4fFDf` and token
+`0x489851b576f0043c56872A5e13991ac6e239dBe5`.
+
+| | tx | block | gas |
+|---|---|---|---|
+| `launch()` | [`0x5c281f3d…`](https://explorer.testnet.chain.robinhood.com/tx/0x5c281f3dfb88b520e35c070dd923dce994013643371c5f965c09ac27c39b153a) | 112342060 | 506,235 |
+| `claimGenesis()` | [`0x3c9239ac…`](https://explorer.testnet.chain.robinhood.com/tx/0x3c9239ac445b0253beccc90dd71a3c5f6658cc275b335d3f0ea62a443fc9fbec) | — | 136,902 |
+| buy 0.002 ETH via UniversalRouter | phase 3 | — | — |
+| ladder mint 315 tokens | phase 4 | — | — |
+
+Every figure below was re-read with `cast call` after the fact, per §F.5. The
+launch leg matched the three documented supply invariants exactly: 8.4 M minted,
+4.62 M retained by the hook for claims, the 3.78 M difference seated as
+liquidity. `claimGenesis` returned the whole 4.62 M, correct for a sole
+depositor, leaving 7,741 wei of rounding dust in the hook, and a second attempt
+was refused with `AlreadyClaimed()`. Phase 3 and phase 4 both matched their own
+predictions to the wei — 681,651.205352259518743036 tokens out for 0.002 ETH in
+with 1.4e13 of dark tax, then `quoteMint` and `mintBondingCurve` agreeing at
+787,499,999,685 wei.
+
+##### The price gate holds shelf 0 shut by 42 wei, and that is the design
+
+Before phase 3, `maxMintable()` was 0 and `quoteMint` reverted
+`TierPriceAboveCeiling()`. The numbers behind that are worth recording because
+the margin is so thin it reads like a bug: shelf 0 costs 2,499,999,999 and the
+105 % ceiling stood at 2,499,999,957. Forty-two wei, a relative gap of 1.7e-8.
+
+It is exactly what the design asks for. `launch()` sets the pool's opening price
+and shelf 0's price from the same `p0` so genesis buyers pay no premium, the gate
+is a strict `>`, and sqrt truncation leaves the shelf a hair above the ceiling
+rather than exactly on it. So nothing is mintable until the secondary market
+moves — which is what makes phase 3 a prerequisite for phase 4 rather than
+merely earlier in the list. The 0.002 ETH buy lifted the reference price to
+3,543,836,596, `unlocked` flipped true, and the same `quoteMint` that had
+reverted answered 2,499,999,999,000.
+
+##### The first sitting listed the token 52 seconds after launch
+
+`addLadderToken` carries an operational rule the contract does not enforce: do
+not list a pool younger than `TWAP_WINDOW`. The hook reports a TWAP of 0 for
+1800 s after `launch()`, `_buybackSqrtFloor` falls back to unbounded on 0, and
+a token listed inside that window therefore has no anti-sandwich price bound on
+its buyback legs, on the pool whose liquidity is thinnest.
+
+§F.6's own table shows the first sitting broke it. `launch()` mined in block
+108,111,395 and `addLadderToken()` in 108,111,914 — 519 blocks apart, which on a
+100 ms chain is 52 seconds, not the 1800 required. Nothing was lost, because the
+reservoir was far below `TRIGGER_STEP` and no buyback could run; but the
+rehearsal did not rehearse the rule, and the sequence as recorded would carry
+the same violation to mainnet.
+
+This sitting waited. `twapSqrtPriceX96()` was polled directly until it turned
+non-zero — the same getter `STATE-07` alerts on, rather than a deadline
+re-derived from timestamps — and the token was listed only then, in
+[`0xc740b50a…`](https://explorer.testnet.chain.robinhood.com/tx/0xc740b50a2c5f32bf43082887251989f33aec912749df6c51bcb37204616c6022)
+for 172,575 gas, with `isLadderToken` read back true.
+
+Polling rather than computing turned out to matter, which was not the
+expectation going in. The TWAP stayed 0 for **at least 147 s past
+`launch_ts + TWAP_WINDOW`**, and became readable only somewhere in the 28 s poll
+that followed. The window is not the whole wait: `_prevCheckpointTs` rolls onto
+a checkpoint already a full window old, and checkpoints are written by pool
+interactions, so the clock effectively starts at the last checkpoint before
+maturity rather than at `launch()`. A deadline derived from the launch timestamp
+would have said "safe to list" while the floor was still unbounded — the exact
+failure the rule exists to prevent, arrived at by doing the arithmetic the rule
+does not ask for.
 
 ---
 
