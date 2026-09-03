@@ -31,6 +31,17 @@ jobs:
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""
+      # `app/lib/supabase.ts` builds its client at module scope and throws when
+      # these are missing, so `next build` cannot collect route config for
+      # /api/projects/lookup without them — a build that only ever succeeded
+      # because every developer has a populated .env.local.
+      #
+      # Same reasoning as the factory address above: createClient() needs a
+      # syntactically valid URL and nothing more, CI never opens the socket,
+      # and the host is deliberately one that does not resolve so no run can
+      # touch a real registry.
+      NEXT_PUBLIC_SUPABASE_URL: "https://ci-placeholder.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
 
     steps:
       - uses: actions/checkout@v5

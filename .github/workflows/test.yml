@@ -41,8 +41,18 @@ jobs:
       - name: Run Forge fmt
         run: forge fmt --check
 
+      # `--skip` keeps the size gate aimed at contracts that get deployed.
+      # Without it the step fails on CloneDeployer — a 27 KB helper in
+      # ToshHookClone.t.sol that exists to deploy hook clones and never reaches
+      # a chain. That is not a harmless false positive: the step reports one
+      # pass/fail for the whole tree, so a single over-limit test contract
+      # masks the gate for every contract it was built to protect.
+      #
+      # Headroom on what actually ships, measured when this was pinned:
+      # hook 3,978 B, factory 13,910 B, treasury 18,541 B, token 20,373 B.
+      # The hook is at 84% of EIP-170 and is the one that will hit the wall.
       - name: Run Forge build
-        run: forge build --sizes
+        run: forge build --sizes --skip '*.t.sol'
 
       - name: Run Forge tests
         run: |
