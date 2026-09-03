@@ -14,11 +14,46 @@ optimizer_runs = 200
 # 116 round-trips TSTORE/TLOAD (docs/ROBINHOOD_MIGRATION.md §1.2).
 evm_version = "cancun"
 
+# ---------------------------------------------------------------------------
+# Remappings — pinned, and auto-detection off, because this list is CONSENSUS
+# DATA rather than a build convenience.
+#
+# solc records `settings.remappings` in the contract metadata and appends that
+# metadata's hash to the creation code. Auto-detection derives the list by
+# scanning `lib/`, so the list — and therefore the last 32 bytes of every
+# contract this repository deploys — depended on which nested submodules
+# happened to be initialised on the machine doing the build.
+#
+# That is not theoretical. It shipped: this repo's tree had permit2,
+# erc4626-tests and halmos-cheatcodes present as empty directories, so a local
+# build detected 12 remappings while CI's `submodules: recursive` checkout
+# detected 15. Identical sources (all 44 hashes matched), identical compiler,
+# identical settings, byte-identical executable code — and a different hook
+# address, because the frontend mines CREATE2 salts over this creation code.
+# A factory deployed from one machine rejects every salt mined against the
+# other with `InvalidHookSalt`. Source verification fails for the same reason.
+#
+# So: every prefix any compiled source imports, listed here and nowhere else.
+# Derived by scanning imports across src, test, script and the vendored trees,
+# not by copying what auto-detection happened to produce. `permit2/` resolves
+# to a submodule this repo does not initialise; it is listed because nothing
+# reachable imports it and the STRING still has to be identical everywhere.
+#
+# Adding a dependency means adding its prefix here, and that changes the
+# metadata hash — regenerate soat-frontend/src/app/lib/hookBytecode.ts and
+# redeploy in the same change. `test_hookBytecode_inSyncWithArtifact` fails if
+# you forget the first half; nothing but a reverted launch catches the second.
+# ---------------------------------------------------------------------------
+auto_detect_remappings = false
 remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/v4-core/lib/forge-std/lib/ds-test/src/",
     "forge-std/=lib/forge-std/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "permit2/=lib/v4-periphery/lib/permit2/",
+    "solmate/=lib/v4-core/lib/solmate/",
 ]
 
 # Cheatcode FS permissions — needed by test_hookBytecode_inSyncWithArtifact()

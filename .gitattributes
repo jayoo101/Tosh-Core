@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Line endings are consensus-relevant in this repository.
+#
+# solc hashes the bytes of every source file into the contract metadata and
+# appends that metadata's hash to the creation code. A checkout that turns LF
+# into CRLF therefore changes the hash of every .sol file, which changes the
+# metadata, which changes the creation code, which changes the CREATE2 address
+# the frontend mines for the hook — so a launch from that build reverts with
+# `InvalidHookSalt`, and Blockscout verification fails against the deployed
+# bytecode.
+#
+# `core.autocrlf=true` is the Git for Windows default, and this repository was
+# one `git clone` on a Windows machine away from exactly that. It has not
+# happened only because the working tree here was written LF by an editor
+# rather than materialised by a checkout. That is luck, not a property.
+#
+# See also foundry.toml, where the remappings are pinned for the same reason:
+# both are inputs to the metadata hash that look like formatting.
+# ─────────────────────────────────────────────────────────────────────────────
+
+*               text=auto eol=lf
+
+# Windows shells parse these by line and require CRLF.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Never touch these; conversion corrupts them.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.otf           binary
+*.pdf           binary
+*.zip           binary
+*.gz            binary

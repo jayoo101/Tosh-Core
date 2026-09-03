@@ -54,22 +54,6 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes --skip '*.t.sol'
 
-      # TEMPORARY diagnostic. Only the 32-byte metadata hash differs from a
-      # Windows build; the executable code is byte-identical. Ship the metadata
-      # out so it can be diffed field by field against a local one.
-      - name: Export hook metadata
-        run: |
-          node -e '
-            const fs = require("fs");
-            const a = JSON.parse(fs.readFileSync("out/ToshLaunchpadHook.sol/ToshLaunchpadHook.json","utf8"));
-            fs.writeFileSync(process.env.RUNNER_TEMP + "/ci-metadata.json", JSON.stringify(a.metadata, null, 2));
-          '
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ci-hook-metadata
-          path: ${{ runner.temp }}/ci-metadata.json
-
       - name: Run Forge tests
         run: |
           set -euo pipefail
