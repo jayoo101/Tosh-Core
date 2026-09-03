@@ -141,15 +141,22 @@ console.log(`Latency   median ${median.toFixed(0)} ms, worst ${worst.toFixed(0)}
 await pipeline([['DEL', KEY]])
 console.log(`Cleanup   diagnostic key removed                         ok`)
 
-const verdict =
-  median < 50 ? 'good' :
-  median < 150 ? 'acceptable' :
-  'slow — this is added to every rate-limited API request'
+console.log('\nShared rate limiting is live.')
 
-console.log(`\nShared rate limiting is live. Latency ${verdict}.`)
-if (median >= 150) {
-  console.log(
-    'Consider a database in the region the app is deployed to; Upstash\n' +
-    'regions are per-database and cannot be changed after creation.',
-  )
-}
+// The latency number is measured from wherever this runs, which on a developer
+// machine is not where the requests will come from. Reading it as a verdict on
+// the database gets the sign backwards: a high number from a laptop in Asia
+// against a us-east-1 database is what CORRECT provisioning looks like, and
+// "fixing" it by moving the database to the laptop's region would put a
+// cross-ocean hop in front of every production request instead.
+//
+// So this reports the measurement and says what would make it meaningful,
+// rather than grading it.
+console.log(
+  `\nThat ${median.toFixed(0)} ms is from this machine, not from the deployment\n` +
+  'region, and only the latter is on the hot path. Run this from the same\n' +
+  'region the app is deployed to before reading it as a number that matters —\n' +
+  'single-digit ms is what co-located looks like. A high reading here is\n' +
+  'expected, and is what you want, when the database sits next to production\n' +
+  'rather than next to you.',
+)

@@ -400,7 +400,7 @@ is not spent on an unlisted token.
 | **PM-F2** *(legacy `#24`)* | Multi-RPC fallback rather than one hard-coded endpoint | `providers.tsx` uses `fallback()` over a ranked list | ✅ |
 | **PM-F3** | Frontend CI: typecheck, lint, build, token check | `frontend.yml` `verify` job green on `jayoo101/Tosh-Core@3c82f73` — see §6.1 | ✅ |
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
-| **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 code done, needs credentials |
+| **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 database provisioned and verified (`npm run check:upstash`); closes when the two vars are set in the deploy environment |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | 🟡 policies and writer split written and tested — see §6.3; needs a project to run against |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
@@ -582,6 +582,23 @@ confirm from the SQL editor that an `anon`-role INSERT is rejected.
 > answered. All three states (unconfigured, shared, shared-but-down) can be
 > rehearsed locally against `soat-frontend/scripts/mockRateLimitStore.mjs`,
 > which documents the exact commands.
+>
+> **Database provisioned 2026-09-03**, Upstash on AWS `us-east-1` to sit beside
+> Vercel's `iad1`. `npm run check:upstash` exercises the same `/pipeline` REST
+> call `rateLimitStore.ts` makes — INCR counts on a shared key, PEXPIRE sets a
+> TTL inside the window — and passes. The credentials are in `.env.local` only,
+> so **this row is still open**: nothing is deployed yet, and production reads
+> its environment from Vercel, not from a file on a laptop. Copying both vars
+> into the Production scope there is the remaining step, and it is also part of
+> PM-D3.
+>
+> Read that script's latency figure with its origin in mind. It measures from
+> wherever it runs, and only the deployment region is on the hot path — a high
+> number from a developer machine on the other side of an ocean is what correct
+> provisioning looks like, and "fixing" it by moving the database closer to the
+> laptop would put that ocean in front of every production request instead. The
+> script said "slow" on its first run for exactly this reason and no longer
+> grades what it cannot situate.
 
 ---
 
