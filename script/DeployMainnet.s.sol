@@ -37,7 +37,9 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //    PRIVATE_KEY           — deployer EOA (low-privilege; rotates to Safe)
 //    TARGET_CHAIN_ID       — chain this run is authorised for (4663 = Robinhood)
 //    V4_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
-//    POG_SIGNER_ADDRESS    — backend signer (recommended: KMS-backed)
+//    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
+//                            (docs/PRE_MAINNET_CHECKLIST.md §4.1). The private
+//                            key lives in Vercel Production, not in this file.
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
 //
@@ -57,6 +59,14 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //////////////////////////////////////////////////////////////////////////*/
 
 contract DeployMainnetScript is Script {
+    /// @dev Public so the test can exercise the 46630 collapse without
+    ///      mutating process env — `vm.setEnv` is not snapshotted, and this
+    ///      tree's `.env` already has deployer and signer as the same address.
+    function requireDistinctRoles(address deployer, address pogSigner, address prodOwnerSafe) public pure {
+        require(pogSigner != deployer, "POG_SIGNER_ADDRESS must not equal deployer");
+        require(prodOwnerSafe != deployer, "PROD_OWNER_SAFE must NOT equal deployer EOA");
+    }
+
     function run() external {
         // ── 1. Load required env vars (no defaults — mainnet must be explicit). ─
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
@@ -81,7 +91,8 @@ contract DeployMainnetScript is Script {
 
         address prodOwnerSafe = vm.envAddress("PROD_OWNER_SAFE");
         require(prodOwnerSafe != address(0), "PROD_OWNER_SAFE unset");
-        require(prodOwnerSafe != deployer, "PROD_OWNER_SAFE must NOT equal deployer EOA");
+
+        requireDistinctRoles(deployer, pogSigner, prodOwnerSafe);
 
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad -- MAINNET Deployment");
@@ -90,7 +101,7 @@ contract DeployMainnetScript is Script {
         console2.log("Deployer (will hand off)  :", deployer);
         console2.log("PROD owner (Gnosis Safe)  :", prodOwnerSafe);
         console2.log("V4 PoolManager            :", poolManager);
-        console2.log("PoG Signer (KMS-backed)   :", pogSigner);
+        console2.log("PoG Signer (not deployer) :", pogSigner);
         console2.log("Platform Treasury (Safe)  :", platformTreasury);
         console2.log("------------------------------------------------------------");
 
@@ -162,7 +173,8 @@ contract DeployMainnetScript is Script {
         console2.log("     against Blockscout if --verify above didn't catch it:");
         console2.log("       --verifier blockscout --verifier-url \\");
         console2.log("         https://robinhoodchain.blockscout.com/api");
-        console2.log("  5. Pre-fund the PoG signer KMS wallet with ~0.05 ETH for sig gas.");
+        console2.log("  5. Pre-fund the PoG signer (a new EOA, not this deployer)");
+        console2.log("     with ~0.05 ETH. Its key is in Vercel Production only.");
         console2.log("  6. Wire monitoring:  Defender / Tenderly alerts on FACTORY_ADDRESS");
         console2.log("     for events Paused / Unpaused / OwnershipTransferred /");
         console2.log("     PogSignerUpdated / TreasuryUpdated / LaunchCreated.");

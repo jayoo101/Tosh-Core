@@ -169,8 +169,9 @@ If the incident is even *suspected* to involve the PoG signer key:
    systemctl stop tosh-sign-allocation
    # or, on Vercel / Cloud Run: scale to 0 via the dashboard
    ```
-2. Pull the signer key from the KMS / secrets manager (rotate, don't delete —
-   you may need it for forensic signature verification).
+2. Pull the signer key from Vercel Production (rotate, don't delete —
+   you may need it for forensic signature verification). The production store
+   is an encrypted env var, not KMS (`PRE_MAINNET_CHECKLIST.md` §4.1).
 3. **Do not** call `factory.setPogSigner(...)` until you've decided on a
    replacement key. A half-rotated signer with the old key still hot is worse
    than a paused factory.
@@ -418,8 +419,9 @@ of PoG attestation and lets one actor capture a launch.
 
 1. **Pause the factory** (Section 2).
 2. **Stop the sign-allocation API** (Section 2 Step 3).
-3. Generate a fresh signer key in the KMS (`rotate-pog-signer.yml` Ansible
-   playbook, if you have one).
+3. Generate a fresh signer key. Write it to Vercel Production as
+   `POG_SIGNER_PRIVATE_KEY` and nowhere else — not a laptop `.env`, not
+   GitHub Actions. There is no Ansible playbook for this.
 4. From the Gnosis Safe:
    ```text
    factory.setPogSigner(<new-signer-address>)
@@ -592,7 +594,7 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 |--------:|-------|---------------|
 | Q1 | Full-factory pause on Robinhood testnet, communicate, unpause. | `pause()` → public status page → `unpause()` within 30 min, with at least one new signer participating. |
 | Q2 | Targeted blacklist of a fake exploit address on Robinhood testnet. | Two-engineer sign-off recorded, `setBlacklist` executed, `liftBlacklist` after 1 h. |
-| Q3 | PoG signer rotation on Robinhood testnet. | New signer key in KMS, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
+| Q3 | PoG signer rotation on Robinhood testnet. | New signer key in Vercel Production only, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
 | Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment for 2 h. | All attempts fail at `_verifyPoGSignature`; on-call detects within 15 min via Defender alert. |
 
 > **The rehearsal chain is Robinhood testnet, chain id 46630.** Every row above

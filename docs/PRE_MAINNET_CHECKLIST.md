@@ -345,7 +345,7 @@ is not spent on an unlisted token.
 
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
-| **PM-D1** | PoG signer key moved off a plaintext env var into KMS/HSM | `sign-allocation/route.ts` reads from the KMS client, not `POG_SIGNER_PRIVATE_KEY` | ❌ |
+| **PM-D1** | PoG signer is a **new** key, distinct from the deployer, held only in the production secret store | Cutover: `factory.pogSigner()` ≠ deployer; `POG_SIGNER_PRIVATE_KEY` set in Vercel Production only; absent from every laptop `.env*`. See §4.1 | 🟡 storage decided (Vercel encrypted env, not KMS). The key itself is not rotated until C1 — and it must be, along with every other wallet, see §4.1 |
 | **PM-D2** | PoG signer wallet pre-funded (~0.05 ETH) for signature gas | Balance check | ❌ |
 | **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | No secret in any committed `.env*` | 🟡 Both secrets are encrypted in Vercel Production and absent from git. They are still also in `soat-frontend/.env.local` (gitignored). They are **not** in GitHub Actions, and the Sentry token should stay out of CI: a workflow run that is not a production deploy would create a Sentry release for a commit that never shipped. Remaining: whether any CI job needs the Supabase service key, and PM-D1 for the PoG key that still sits in the same local file |
 | **PM-D4** | Gnosis Safe threshold and signer set confirmed, signers reachable | `INCIDENT_RESPONSE.md` §1 filled | ❌ |
@@ -356,6 +356,45 @@ is not spent on an unlisted token.
 > damage is `maxPogAllocationLimit` and the per-hook `perWalletCap`, not the
 > signature itself — see `INCIDENT_RESPONSE.md` §4 for the cap table and the
 > rotation playbook.
+
+### 4.1 Every wallet is new on mainnet — and KMS is not required
+
+**Decided 2026-09-04.** Two decisions, because they look like one and are not.
+
+**Storage.** The production PoG key lives in Vercel Production as an encrypted
+environment variable. It does not live in KMS, and `sign-allocation/route.ts`
+keeps reading `POG_SIGNER_PRIVATE_KEY`. KMS would keep the material out of the
+process and log every signature; for a single-operator launch those are not
+the failure we have. The failure we have is a key that has sat in plaintext
+on a laptop, in a second `.env`, and in this working tree, and that currently
+is also the deployer. Vercel encrypted env plus the rotation below is the
+control; a KMS client is not. Revisit when more than one person can pull
+Production secrets, or when an auditor requires the key never enter the
+process.
+
+**Rotation.** Every private key and every wallet that has been used on
+testnet, in this repository, or in a chat, is treated as burned. Mainnet
+launch does not reuse any of them. The list, today:
+
+| Role | What it is on 46630 | What it must be on 4663 |
+|---|---|---|
+| Deployer EOA (`PRIVATE_KEY`) | `0x73db078f…` — deployed the factory, ran the drill, still the owner | A **new** EOA, used once for `DeployMainnet.s.sol`, then idle after the Safe accepts |
+| PoG signer (`POG_SIGNER_PRIVATE_KEY`) | **The same key** as the deployer | A **new** EOA, **not** the deployer. Address goes to `POG_SIGNER_ADDRESS` / `factory.pogSigner()`. The private key is written to Vercel Production only and is never saved in a laptop `.env*` |
+| Factory / treasury owner | The deployer EOA | Gnosis Safe, 2-of-3 (PM-D4). The Safe is itself new; its three signers are not `0x73db078f…` |
+| Laptop copies | `.env`, `soat-frontend/.env.local`, `.env.bak-premigration` | May keep the *testnet* keys for 46630 work. A mainnet private key that exists in any of these files is a failed cutover |
+| Vercel `POG_SIGNER_PRIVATE_KEY` | Currently the testnet key | Replaced at C1, same sitting as the factory deploy. Leaving the testnet value in Production against a 4663 factory is `InvalidSignature` for every depositor |
+
+`DeployMainnet.s.sol` now refuses `POG_SIGNER_ADDRESS == deployer`, so the
+collapse that 46630 ran with cannot be broadcast on 4663. It cannot see a
+laptop file, so the "never write the mainnet key locally" half stays a
+human step, checked by `cast wallet address --private-key` against an empty
+grep of the working tree.
+
+Generate the two new keys at C1, not before. Generating them now and parking
+them in `.env.production` on this machine recreates the thing the rotation
+is for. The deployer's public address can be funded in advance (D2's cousin);
+the PoG private key is generated, pasted into Vercel, and discarded, in that
+order, on the sitting that broadcasts.
 
 ---
 
@@ -904,10 +943,10 @@ Recounted 2026-09-04 against the rows above, not against memory.
 | A — Audit | 3 | 1 | 0 | 1 |
 | B — Chain decisions | 0 | 0 | 0 | 4 |
 | C — Deploy & handoff | 6 | 0 | 1 | 1 |
-| D — Keys & secrets | 3 | 1 | 0 | 0 |
+| D — Keys & secrets | 2 | 2 | 0 | 0 |
 | E — Observability & ops | 2 | 2 | 0 | 2 |
 | F — Frontend & platform | 0 | 0 | 0 | 8 |
-| **Total** | **14** | **4** | **1** | **16** |
+| **Total** | **13** | **5** | **1** | **16** |
 
 Gate B and Gate F are closed. The accounts-and-credentials group that was
 blocking F and half of E is done: Upstash, Supabase (with `chain_id`), Sentry
@@ -928,7 +967,7 @@ below, in the order it actually blocks.
 | **PM-C6** | ❌ | Initcode hash regenerated against the mainnet build, after C1. |
 | **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging currently reads 46630, which is correct until C1. |
 | **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. |
-| **PM-D1** | ❌ | PoG signer out of plaintext env into KMS/HSM. Highest-severity open item that is not the audit. |
+| **PM-D1** | 🟡 | Storage is Vercel encrypted env, not KMS (§4.1). The key — and every other wallet that has been used — is replaced at C1. |
 | **PM-D2** | ❌ | Pre-fund the production PoG signer. After D1 names the wallet. |
 | **PM-D3** | 🟡 | Secrets are in Vercel Production, not in git, and still also on the laptop. Sentry token must not go into GitHub Actions. |
 | **PM-D4** | ❌ | Gnosis Safe, 2-of-3, three reachable signers. Blocks C2 and the human half of E5. |

@@ -31,7 +31,7 @@ contract DeployMainnetTest is Test {
     uint256 internal deployerPk = 0xBEEFCAFE;
     address internal deployer;
 
-    address internal pogSigner = makeAddr("kms-pog-signer");
+    address internal pogSigner = makeAddr("pog-signer");
     address internal platformTreasury = makeAddr("gnosis-safe-treasury");
     address internal prodOwnerSafe = makeAddr("gnosis-safe-owner");
 
@@ -110,5 +110,19 @@ contract DeployMainnetTest is Test {
         vm.prank(deployer);
         vm.expectRevert();
         factory.pause();
+    }
+
+    function test_requireDistinctRoles_refusesPogSignerEqualToDeployer() public {
+        vm.expectRevert(bytes("POG_SIGNER_ADDRESS must not equal deployer"));
+        script.requireDistinctRoles(deployer, deployer, prodOwnerSafe);
+    }
+
+    function test_requireDistinctRoles_refusesSafeEqualToDeployer() public {
+        vm.expectRevert(bytes("PROD_OWNER_SAFE must NOT equal deployer EOA"));
+        script.requireDistinctRoles(deployer, pogSigner, deployer);
+    }
+
+    function test_requireDistinctRoles_acceptsDistinct() public view {
+        script.requireDistinctRoles(deployer, pogSigner, prodOwnerSafe);
     }
 }

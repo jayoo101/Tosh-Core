@@ -88,7 +88,7 @@ note in `foundry.toml`.
 | Role | Held by (mainnet) | Can do | Explicitly cannot do |
 |------|-------------------|--------|----------------------|
 | **Factory owner** | Gnosis Safe, 2-of-N | `pause`/`unpause` (new launches only), `haltLadderMinting` (≤ 7 days, auto-expiring), `setBlacklist`/`liftBlacklist`, `setPogSigner`, fee and cap setters | Touch a deployed hook's funds. Stop refunds. Stop deposits into a live round. Stop swaps, claims, or LP on a launched project. |
-| **PoG signer** | KMS-held key, off-chain service | Sign quota attestations up to `maxPogAllocationLimit` | Move any funds. Worst case is self-issued deposit quota. |
+| **PoG signer** | Off-chain service; production key in Vercel encrypted env, a new EOA distinct from the deployer (`PRE_MAINNET_CHECKLIST.md` §4.1). Not KMS. | Sign quota attestations up to `maxPogAllocationLimit` | Move any funds. Worst case is self-issued deposit quota. |
 | **Treasury owner** | Gnosis Safe | `addLadderToken` / `removeLadderToken`, `setFactory` (one-shot) | Withdraw ETH. There is no exit but buyback-and-burn. |
 | **Project creator** | Project's EOA | `launch()` within the 7-day `LAUNCH_WINDOW` | Access depositor funds. Refunds are unconditional on their inaction. |
 | **Project admin** | Project's EOA | `changeProjectAdmin` | Anything on the money path. `projectTreasury` never receives funds in v5. |
