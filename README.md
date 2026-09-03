@@ -2,10 +2,16 @@
 
 A 100 % ETH-native fair-launch platform on Uniswap V4: PoG-gated genesis
 funding, a discrete fixed-price shelf ladder gated against price manipulation,
-a global lifetime referral graph, and a self-driving buy-and-burn treasury that
-rides along on ordinary swaps.
+a global lifetime referral graph, and a buy-and-burn treasury that rides along on
+ordinary swaps when they can afford it, and can be poked by anyone when they
+cannot.
 
-> Network: **Base Sepolia (chain 84532)** for testnet, Base mainnet (8453) ready.
+> Network: **Robinhood Chain (chain 4663)**, with rehearsals on its testnet
+> (46630). See `docs/PRE_MAINNET_CHECKLIST.md` §2 for the decision, the V4
+> addresses, and the measured per-launch gas cost, and
+> `docs/ROBINHOOD_MIGRATION.md` for what moving to an Arbitrum Orbit L2 took —
+> chiefly that `block.number` there is the *L1* height, so the hook reads
+> `ArbSys` instead.
 > Toolchain: **Foundry** (contracts), **Next.js + wagmi + viem** (frontend),
 > **Node** (PoG oracle + tooling).
 
@@ -26,7 +32,7 @@ Tosh-Core/
 │   ├── ToshLadderTreasury.sol  # Platform-wide buyback reservoir (one-way valve)
 │   ├── ToshToken.sol           # ERC-20, minted on demand by its hook only
 │   └── libraries/              # HookDeployLib · HookMiner
-├── test/                       # forge tests (218 passing)
+├── test/                       # forge tests (303 passing, incl. stateful invariants)
 ├── script/
 │   ├── Deploy.s.sol            # Base Sepolia (DeployScript)
 │   ├── DeployMainnet.s.sol     # Production, with Safe ownership handoff
@@ -55,9 +61,18 @@ Tosh-Core/
 forge install
 forge build
 forge test
+forge test --isolate
 ```
 
-Expected: **218 passing**.
+Expected: **303 passing**, in both runs.
+
+The second run is not redundant. `forge test` bills a whole test as one
+transaction, so storage a test warmed in setup stays warm and later calls look
+cheaper than they would on chain; `--isolate` charges each call the way a real
+transaction does. Two bugs in this repo were only visible under it — a clone
+funded with `transfer()`, whose 2300-gas stipend cannot cover the proxy's
+delegatecall, and the piggyback gas gate, whose whole job is to compare a live
+gas figure against a constant. CI runs both.
 
 After any contract change, re-sync the frontend artifacts:
 
@@ -210,10 +225,33 @@ overpayment is refunded.
 **Claims.** Genesis depositors call `claimGenesis()` after launch; referrers
 call `claimReferralReward()`.
 
-**Buyback.** Every swap pokes `autoPiggybackBuyback()`. Once the treasury holds
-1 ETH (`TRIGGER_STEP`), that swap carries a buyback: `max(1 ETH, 10% of
-balance)` is split across the next 3 ladder tokens (`BATCH_SIZE`) in
-round-robin order, market-bought, and sent straight to `0xdead`.
+**Buyback.** Once the treasury holds 1 ETH (`TRIGGER_STEP`) the reservoir is
+*armed*, and `max(1 ETH, 10% of balance)` is due to be spent. A poke buys
+`spend / BATCH_SIZE` (a third) of that on **one** ladder token, taken in
+round-robin order, and sends it straight to `0xdead`. So three pokes cover the
+same three pools and deploy the same ETH the old three-legs-in-one-poke version
+did — the difference is which trader pays. A leg costs ~125k gas, and billing one
+buyer for three of them put a 579k swap in front of somebody who had estimated
+217k.
+
+Two things can poke it:
+
+- **`afterSwap`, if the trade can afford it.** Gated on
+  `gasleft() >= PIGGYBACK_MIN_GAS`, and the call is capped at
+  `gasleft() - PIGGYBACK_TAIL_RESERVE` so the swap always keeps enough to
+  finish. Without the gate the trade whose own buy tax tipped the reservoir over
+  the trigger was billed for the cycle — deterministically, every cycle, and
+  always a trade whose wallet had quoted an unarmed pool. `try/catch` does not
+  save it; the 63/64 rule leaves too little behind.
+- **`pokeBuyback()`, from anyone.** The liveness backstop, because the gate means
+  trading alone no longer guarantees the reservoir empties. It moves no ETH to
+  the caller and picks nothing: venue comes from the hook, size from the balance,
+  order from the cursor, price from the same TWAP floor as any other leg. The
+  only choice it offers is *when*, and the cursor makes that dull.
+
+A skipped poke emits nothing — skipping is the common case and logging it would
+bill every trader for the privilege. `STATE-06` in `monitoring/alerts.json` polls
+for the resulting silence instead.
 
 ---
 
@@ -300,15 +338,19 @@ address as an immutable, then the treasury is pointed back at the factory.
 so it must never become re-pointable.
 
 ```bash
-# Base Sepolia
+# Robinhood Chain testnet (46630)
 forge script script/Deploy.s.sol:DeployScript \
-  --rpc-url $BASE_SEPOLIA_RPC --broadcast --verify \
-  --etherscan-api-key $BASESCAN_API_KEY -vvvv
+  --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast --verify \
+  --verifier blockscout \
+  --verifier-url https://explorer.testnet.chain.robinhood.com/api -vvvv
 
 # Local
 anvil
 forge script script/DeployLocal.s.sol:DeployLocal --fork-url http://127.0.0.1:8545 --broadcast
 ```
+
+Verification is Blockscout and takes no API key — chain 4663 appears on neither
+Etherscan v2's multichain host nor Basescan.
 
 Each script asserts `block.chainid` before broadcasting, so pointing one at the
 wrong RPC aborts instead of deploying.
@@ -324,17 +366,27 @@ forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $RPC
 
 Do not announce the factory while `pendingOwner() != address(0)`.
 
-### Base Sepolia (84532) periphery
+### Robinhood Chain periphery
+
+Uniswap deployed V4 here themselves, and **mainnet (4663) and testnet (46630)
+share every address** — so a testnet rehearsal exercises the production address
+book unchanged, and there is no cutover edit to get wrong.
 
 | Contract        | Address                                      |
 |-----------------|----------------------------------------------|
-| V4 PoolManager  | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` |
-| PositionManager | `0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80` |
-| StateView       | `0x571291b572ed32ce6751a2cb2486ebee8defb9b4` |
+| V4 PoolManager  | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+| PositionManager | `0x58daec3116aae6D93017bAAea7749052E8a04fA7` |
+| StateView       | `0xF3334192D15450CdD385c8B70e03f9A6bD9E673b` |
+| V4Quoter        | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
+| UniversalRouter | `0x8876789976dEcBfCbBbe364623C63652db8C0904` |
 | Permit2         | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 
-Permit2 is the same canonical address on every chain. For Base mainnet, take
-the rest from <https://docs.uniswap.org/contracts/v4/deployments>.
+Each was confirmed by reading its code size on both chains, not by citation.
+The UniversalRouter is stock Uniswap — verified source on Blockscout, from the
+`Uniswap/contracts` monorepo — but a *newer* build than Ethereum mainnet's, and
+its `IV4Router.ExactInputSingleParams` carries the six-field shape with
+`minHopPriceX36`. That matters to anything hand-encoding router calldata; see
+`docs/ROBINHOOD_MIGRATION.md`.
 
 ---
 
@@ -344,26 +396,33 @@ Copy `.env.example` to `.env`. Never commit it.
 
 ```dotenv
 PRIVATE_KEY=0x...
-BASE_SEPOLIA_RPC=https://sepolia.base.org
-BASE_MAINNET_RPC=https://mainnet.base.org
-BASESCAN_API_KEY=...
-V4_POOL_MANAGER=0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408
+ROBINHOOD_RPC=https://rpc.mainnet.chain.robinhood.com   # also read by the fork suite
+ROBINHOOD_TESTNET_RPC=https://rpc.testnet.chain.robinhood.com
+TARGET_CHAIN_ID=4663
+V4_POOL_MANAGER=0x8366a39CC670B4001A1121B8F6A443A643e40951
 POG_SIGNER_ADDRESS=0x...
 PLATFORM_TREASURY=0x...
 FACTORY_ADDRESS=0x            # filled in after the first deploy
 POG_SIGNER_PRIVATE_KEY=0x...  # backend only
 ```
 
+There is no explorer API key: Blockscout does not use one.
+
 Frontend (`soat-frontend/.env.local`):
 
 ```dotenv
 NEXT_PUBLIC_FACTORY_ADDRESS=0x...
-NEXT_PUBLIC_CHAIN_ID=84532
-NEXT_PUBLIC_POSITION_MANAGER=0x...   # optional; Sepolia fallback is baked in
-NEXT_PUBLIC_STATE_VIEW=0x...         # optional; Sepolia fallback is baked in
-NEXT_PUBLIC_BASE_SEPOLIA_RPC=https://sepolia.base.org
+NEXT_PUBLIC_CHAIN_ID=46630           # 4663 for production
+NEXT_PUBLIC_POSITION_MANAGER=0x...   # optional; the Robinhood address is baked in
+NEXT_PUBLIC_STATE_VIEW=0x...         # optional; the Robinhood address is baked in
+NEXT_PUBLIC_RPC_URL=https://...      # chain-agnostic; must match NEXT_PUBLIC_CHAIN_ID
 POG_SIGNER_PRIVATE_KEY=0x...  # server-side only, never NEXT_PUBLIC_
 ```
+
+`NEXT_PUBLIC_CHAIN_ID` must name a chain `src/lib/chain.ts` registers. It no
+longer falls back to a default for an unknown id — it throws at boot, because a
+UI silently pointed at a chain nobody asked for is worse than one that will not
+start.
 
 ---
 
@@ -444,9 +503,15 @@ npx eslint src --ext .ts,.tsx
   not launch — without that, the owner could list a token they minted, pair it
   in a pool they alone provide liquidity to, and drain the reservoir one
   trigger at a time.
-- **The buyback poke is fault-isolated.** `afterSwap` wraps it in `try/catch`,
-  so a treasury that does not recognise a hook degrades to "no buybacks"
-  instead of reverting every swap and stranding the genesis liquidity.
+- **The buyback poke is fault-isolated, and gas-isolated.** `afterSwap` wraps it
+  in `try/catch`, so a treasury that does not recognise a hook degrades to "no
+  buybacks" instead of reverting every swap and stranding the genesis liquidity.
+  `try/catch` alone was not enough, though: it cannot contain an out-of-gas
+  child, because the 63/64 rule leaves the caller too little to recover with. So
+  the poke is also capped at `gasleft() - PIGGYBACK_TAIL_RESERVE` and skipped
+  below `PIGGYBACK_MIN_GAS`, which withholds the swap's remaining work
+  physically rather than by estimate. The residual risk moves from "trades
+  revert" to "the reservoir idles", and `pokeBuyback()` answers that.
 - **Pause is narrow by design.** It stops `createLaunch` and `registerPoG`; it
   does **not** gate `deposit`, because a genesis round fails by missing its soft
   cap and gating deposits would hand the owner a unilateral veto over projects
@@ -465,8 +530,16 @@ npx eslint src --ext .ts,.tsx
   `AFTER_SWAP_RETURNS_DELTA` bit is what lets exact-output buys still fund
   the treasury.
 
-See `docs/` for the PRD, the long-form security notes, and the incident
-response playbook, plus the natspec in each source file.
+See the natspec in each source file, plus `docs/`:
+
+| Document | What it covers |
+|----------|----------------|
+| `docs/PRE_MAINNET_CHECKLIST.md` | **What must be true before mainnet.** The canonical gate list, and the definition of the `#N` item numbers cited in code comments. |
+| `docs/SECURITY_AUDIT.md` | Audit scope, trust model, test coverage, findings log. |
+| `docs/INCIDENT_RESPONSE.md` | Playbooks for when something is already wrong. |
+| `docs/ONCHAIN_MONITORING.md` | What to alert on, and why. Config-as-code in `monitoring/alerts.json`, CI-guarded against drift. |
+| `docs/MANUAL_INTERACTION.md` | Driving the protocol with `cast` when the frontend is down. |
+| `docs/PRD-v5.0.md` | Product spec, state machine, and the D1–D4 accepted risks. |
 
 ---
 
@@ -486,6 +559,10 @@ response playbook, plus the natspec in each source file.
 | `addLadderToken` reverts `TokenNotLaunchedHere`    | Only tokens launched by the bound factory can be listed.                      |
 | `addLadderToken` reverts `InvalidPoolKey`          | The project exists but has not run `launch()`, so it has no pool yet.         |
 | Every swap on a pool reverts                       | Check `treasury.factory()` is wired. Historically this bricked pools outright; it now degrades to skipped buybacks. |
+| `addLadderToken` reverts `PoolNotLaunched`         | Distinct from `InvalidPoolKey`: the hook exists and its key is well-formed, but `launched()` is still false. |
+| Treasury holds ≥ 1 ETH and nothing is being burned | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless, no role needed. This is what `STATE-06` watches for. |
+| `pokeBuyback` reverts `NotArmed`                   | Reservoir below `TRIGGER_STEP`, or the ladder roster is empty. Nothing to do.  |
+| `pokeBuyback` reverts `PiggybackInProgress`        | A buyback is already mid-flight in this call stack. Retry after it settles.    |
 
 ---
 

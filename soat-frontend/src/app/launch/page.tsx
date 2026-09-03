@@ -15,9 +15,11 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   useAccount, useBalance, useChainId, useSwitchChain,
-  useReadContracts, usePublicClient,
+  useReadContracts, usePublicClient, useEstimateFeesPerGas,
+  useSignMessage,
 } from 'wagmi'
 import { formatUnits, parseEventLogs, isAddress, type Address } from 'viem'
 
@@ -29,9 +31,13 @@ import {
   GENESIS_DURATION_SLOW,
 } from '../lib/hookMiner'
 import {
+  CREATE_LAUNCH_GAS_TOTAL, LAUNCH_GAS_TOTAL, PROJECT_GAS_TOTAL,
+  gasCostWei, formatEstimateEth,
+} from '../lib/launchGas'
+import {
   FACTORY_ADDRESS,
   FACTORY_ABI, TARGET_CHAIN_ID,
-  MAINNET_CHAIN_LABEL, TESTNET_CHAIN_LABEL,
+  ACTIVE_CHAIN_LABEL, CHAIN_BYLINE,
   CHAIN_STATUS_BADGE, CHAIN_POSITIONING,
   testnetExplorerTx,
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY,
@@ -39,10 +45,12 @@ import {
   LAUNCH_WINDOW_SECONDS,
 } from '@/lib/contracts'
 import type { ProjectPayload } from '../api/projects/route'
+import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
+import { rememberProject } from '@/lib/projectCache'
 import {
   Badge, Card, CardWell, Field, PageHeader,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
-  shortErrorMessage, EM_DASH,
+  shortErrorMessage, EM_DASH, toshToast,
 } from '@/components/ui'
 
 const trimEth = (s: string) =>
@@ -89,6 +97,8 @@ export default function GenesisConsole() {
   const chainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
   const publicClient = usePublicClient()
+  const { signMessageAsync } = useSignMessage()
+  const router = useRouter()
 
   const {
     createLaunch,
@@ -147,7 +157,30 @@ export default function GenesisConsole() {
   }, [address])
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const pendingRef = useRef<Omit<ProjectPayload, 'txHash'> | null>(null)
+  /**
+   * What the form held when the launch was submitted.
+   *
+   * No longer derived from `ProjectPayload`. That type is now strictly the
+   * wire format — presentation fields plus a signature, with name, symbol and
+   * the addresses removed because the server reads those from the receipt
+   * rather than believing the caller. This snapshot still needs the name and
+   * symbol, but for a different job: seeding the optimistic local cache so the
+   * post-launch redirect lands on a populated page. Tying the two together
+   * again would mean either sending fields the server ignores or dropping ones
+   * the UI needs.
+   */
+  interface PendingLaunch {
+    name:         string
+    symbol:       string
+    logoUrl:      string
+    website:      string
+    twitter:      string
+    telegram:     string
+    description?: string
+    predictedHook?: string
+  }
+
+  const pendingRef = useRef<PendingLaunch | null>(null)
   const syncedHashRef = useRef<string | null>(null)
 
   const isWrongNetwork = isConnected && chainId !== TARGET_CHAIN_ID
@@ -180,9 +213,27 @@ export default function GenesisConsole() {
     () => (dialsReady ? trimEth(formatUnits(softCapWei, 18)) : EM_DASH),
     [dialsReady, softCapWei],
   )
+  // PM-F8. `maxFeePerGas` rather than the base fee: it is what the wallet will
+  // authorise, so quoting the base fee would under-promise and leave a creator
+  // short exactly when the network is busy.
+  const { data: fees } = useEstimateFeesPerGas()
+  const feePerGas = fees?.maxFeePerGas ?? fees?.gasPrice
+  const createGasWei = gasCostWei(CREATE_LAUNCH_GAS_TOTAL, feePerGas)
+  const projectGasWei = gasCostWei(PROJECT_GAS_TOTAL, feePerGas)
+  const gasKnown = createGasWei !== null && projectGasWei !== null
+
+  // Two numbers, and they are not the same one. `createLaunch` is due now;
+  // `launch()` is due after genesis succeeds but is still the creator's to pay,
+  // and only they can call it — a wallet funded for the first alone strands a
+  // successful raise that nobody else is able to open.
+  const dueNowWei = dialsReady && createGasWei !== null ? launchFeeWei + createGasWei : null
+  const dueTotalWei = dialsReady && projectGasWei !== null ? launchFeeWei + projectGasWei : null
+
+  const ethDisplay = (wei: bigint | null) => (wei === null ? EM_DASH : `${formatEstimateEth(wei)} ETH`)
+
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
-  const mineSalt = useCallback(async (): Promise<`0x${string}` | null> => {
+  const mineSalt = useCallback(async (): Promise<{ rawSalt: `0x${string}`; hookAddress: `0x${string}` } | null> => {
     if (!address || !publicClient || !adminAddr) return null
     setMineError('')
     setIsMining(true)
@@ -193,9 +244,14 @@ export default function GenesisConsole() {
       const liveWalletCap = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'maxPogAllocationLimit',
       }) as bigint
+      // (projectTreasury, creator, softCap, perWalletCap, genesisDuration).
+      // projectAdmin is deliberately absent: the hook is an EIP-1167 clone whose
+      // immutable args are creator, projectTreasury, softCap, perWalletCap and
+      // genesisDuration. The admin is mutable by design and is applied at
+      // initialisation, so it no longer moves the mined address.
       const initcodeHash = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookInitcodeHash',
-        args: [address, address, adminAddr, liveSoftCap, liveWalletCap, genesisDuration],
+        args: [address, address, liveSoftCap, liveWalletCap, genesisDuration],
       }) as `0x${string}`
       const { rawSalt, hookAddress } = mineHookSalt(
         FACTORY_ADDRESS as `0x${string}`, address as `0x${string}`, initcodeHash,
@@ -203,7 +259,7 @@ export default function GenesisConsole() {
       setSalt(rawSalt)
       setPredictedHook(hookAddress)
       setSaltCaps({ soft: liveSoftCap, wallet: liveWalletCap })
-      return rawSalt
+      return { rawSalt, hookAddress }
     } catch (e: unknown) {
       setMineError(shortErrorMessage(e))
       return null
@@ -225,7 +281,13 @@ export default function GenesisConsole() {
   const symbolTrimmed = symbol.trim().toUpperCase()
   const identityComplete = Boolean(nameTrimmed) && Boolean(symbolTrimmed) && Boolean(address) && Boolean(adminAddr)
   const ethBalance = ethBal?.value ?? 0n
-  const insufficientFee = walletEnabled && dialsReady && ethBalance < launchFeeWei
+  // Gas belongs in this gate. Checking the fee alone admits a wallet holding
+  // exactly the fee, which then cannot pay for the transaction that spends it —
+  // a wallet-level failure after the page showed every check as passing. Falls
+  // back to the fee alone when the fee oracle is quiet, since a lapsed gate
+  // would be worse than a slightly lenient one.
+  const requiredNowWei = dueNowWei ?? launchFeeWei
+  const insufficientFee = walletEnabled && dialsReady && ethBalance < requiredNowWei
 
   const handleLaunch = useCallback(async () => {
     if (!address || !adminAddr) return
@@ -240,13 +302,15 @@ export default function GenesisConsole() {
     pendingRef.current = {
       name: nameTrimmed, symbol: symbolTrimmed,
       logoUrl, website, twitter, telegram, description,
+      predictedHook: predictedHook || undefined,
     }
 
     let saltToUse = salt as `0x${string}` | ''
     if (!saltToUse) {
       const mined = await mineSalt()
       if (!mined) return
-      saltToUse = mined
+      saltToUse = mined.rawSalt
+      if (pendingRef.current) pendingRef.current.predictedHook = mined.hookAddress
     } else if (publicClient && saltCaps) {
       try {
         const [nowSoft, nowWallet] = await Promise.all([
@@ -261,7 +325,8 @@ export default function GenesisConsole() {
           setSalt(''); setPredictedHook(''); setSaltCaps(null)
           const mined = await mineSalt()
           if (!mined) return
-          saltToUse = mined
+          saltToUse = mined.rawSalt
+          if (pendingRef.current) pendingRef.current.predictedHook = mined.hookAddress
         }
       } catch { /* contract still rejects a stale salt */ }
     }
@@ -277,7 +342,7 @@ export default function GenesisConsole() {
     address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
     logoUrl, website, twitter, telegram, description, salt, mineSalt,
     createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
-    dialsReady,
+    dialsReady, predictedHook,
   ])
 
   useEffect(() => {
@@ -296,7 +361,90 @@ export default function GenesisConsole() {
           hookAddress = logs[0].args.hook as string
         }
       } catch { /* fallback */ }
-      if ((!tokenAddress || !hookAddress) && publicClient) {
+
+      // Do not wait on another RPC before leaving this page. Logs plus the
+      // CREATE2 prediction are enough; `launches(count-1)` only backfills.
+      hookAddress = hookAddress ?? snap.predictedHook
+      const destination = tokenAddress ?? hookAddress
+      if (!destination) {
+        toshToast.error('Launch confirmed, but the token address was not in the receipt.')
+        return
+      }
+
+      rememberProject({
+        id:            tokenAddress ?? destination,
+        tx_hash:       hash,
+        token_address: tokenAddress ?? null,
+        hook_address:  hookAddress ?? null,
+        name:          snap.name,
+        symbol:        snap.symbol,
+        logo_url:      snap.logoUrl || null,
+        website:       snap.website || null,
+        twitter:       snap.twitter || null,
+        telegram:      snap.telegram || null,
+        description:   snap.description?.trim() || null,
+        created_at:    new Date().toISOString(),
+      })
+      toshToast.success('Launch confirmed — opening your project')
+      router.push(`/projects/${destination}`)
+
+      // A second wallet prompt, right after the launch, and it is worth being
+      // clear about why the cheaper option was rejected. The registry row is
+      // what the directory and the project page render, so whoever writes it
+      // chooses the name, the logo and the outbound links the audience sees.
+      // Without a signature the only key is the txHash, which is public the
+      // moment the launch confirms — so an attacker watching for
+      // `LaunchCreated` could POST first with their own site and the real
+      // creator's request would come back `{ duplicate: true }`. The server
+      // now recovers this signature and compares it against the `creator` in
+      // the event. Nothing is sent and nothing is approved; it only proves who
+      // is speaking.
+      //
+      // Identity fields are gone from the body because the server reads them
+      // from the receipt. Only the presentation fields are signed, and only
+      // those are the caller's to choose.
+      const publish = async () => {
+        // `syncing` had no setter, so the copy below the tx hash could only
+        // ever read `done` or `error`. It matters more now than it did: this
+        // step opens a wallet signature prompt, so there is a real window in
+        // which the launch is confirmed and the listing is still waiting on
+        // the user.
+        setSyncState('syncing')
+        const signature = await signMessageAsync({
+          message: buildProjectAttestationMessage({
+            chainId:     TARGET_CHAIN_ID,
+            txHash:      hash,
+            logoUrl:     snap.logoUrl,
+            website:     snap.website,
+            twitter:     snap.twitter,
+            telegram:    snap.telegram,
+            description: snap.description ?? '',
+          }),
+        })
+
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            txHash: hash,
+            logoUrl: snap.logoUrl,
+            website: snap.website,
+            twitter: snap.twitter,
+            telegram: snap.telegram,
+            description: snap.description,
+            signature,
+          } satisfies ProjectPayload),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        setSyncState('done')
+      }
+
+      // Declining costs the listing, not the launch: the token exists on chain
+      // either way, and `rememberProject` above has already put it in this
+      // browser's cache, so the redirect lands on a populated page regardless.
+      void publish().catch(() => { setSyncState('error') })
+
+      if (!tokenAddress && publicClient) {
         try {
           const count = await publicClient.readContract({
             address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchCount',
@@ -305,25 +453,26 @@ export default function GenesisConsole() {
             const l = await publicClient.readContract({
               address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches', args: [count - 1n],
             }) as readonly [string, string, string, bigint]
-            tokenAddress = tokenAddress ?? l[0]
-            hookAddress = hookAddress ?? l[1]
+            rememberProject({
+              id:            l[0],
+              tx_hash:       hash,
+              token_address: l[0],
+              hook_address:  l[1],
+              name:          snap.name,
+              symbol:        snap.symbol,
+              logo_url:      snap.logoUrl || null,
+              website:       snap.website || null,
+              twitter:       snap.twitter || null,
+              telegram:      snap.telegram || null,
+              description:   snap.description?.trim() || null,
+              created_at:    new Date().toISOString(),
+            })
           }
-        } catch { /* non-fatal */ }
+        } catch { /* page already opened on the predicted hook */ }
       }
-      const payload: ProjectPayload = { ...snap, txHash: hash, tokenAddress, hookAddress }
-      setSyncState('syncing')
-      try {
-        const res = await fetch('/api/projects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        setSyncState('done')
-      } catch { setSyncState('error') }
     }
     void sync()
-  }, [isConfirmed, hash, receipt, publicClient])
+  }, [isConfirmed, hash, receipt, publicClient, router, signMessageAsync])
 
   const pickWindow = (next: bigint) => {
     if (next === genesisDuration) return
@@ -340,21 +489,21 @@ export default function GenesisConsole() {
         id: 'identity',
         active: !identityComplete,
         label: 'Name the token first',
-        reason: 'Agent name, ticker and a valid project-admin address are baked into the hook initcode.',
+        reason: 'The name, ticker and a valid admin address are fixed into the token the moment it deploys, so they have to be settled before you sign.',
         tone: 'neutral',
       },
       {
         id: 'dials-unread',
         active: !dialsReady && !dialsFailed,
-        label: 'Reading factory terms…',
-        reason: 'Waiting on launchFee, defaultSoftCap and maxPogAllocationLimit before quoting the payable.',
+        label: 'Reading the terms…',
+        reason: 'Fetching the launch fee, the minimum raise and the per-wallet cap before quoting what you owe.',
         tone: 'neutral',
       },
       {
         id: 'dials-unreachable',
         active: dialsFailed,
         label: 'Factory unreachable',
-        reason: `No dials came back from ${FACTORY_ADDRESS} on chain ${TARGET_CHAIN_ID}. Signing a launch against an unknown fee would either revert or overpay, so the deploy stays locked until the factory answers.`,
+        reason: `The factory at ${FACTORY_ADDRESS} did not answer on chain ${TARGET_CHAIN_ID}. Signing against an unknown fee would either fail or overpay, so this stays locked until it responds.`,
         tone: 'danger',
       },
       {
@@ -367,22 +516,24 @@ export default function GenesisConsole() {
       {
         id: 'insufficient-fee',
         active: insufficientFee,
-        label: `Need ${feeDisplay} ETH`,
-        reason: `The factory takes ${feeDisplay} ETH as the launch fee. This wallet does not hold that much.`,
+        label: `Need ${ethDisplay(requiredNowWei)}`,
+        reason: gasKnown
+          ? `${feeDisplay} ETH launch fee plus about ${ethDisplay(createGasWei)} of gas at the current rate. This wallet does not hold that much.`
+          : `The factory takes ${feeDisplay} ETH as the launch fee. This wallet does not hold that much.`,
         tone: 'warn',
       },
       {
         id: 'mining',
         active: isMining,
-        label: 'Mining CREATE2 salt…',
-        reason: `Grinding until the predicted hook address carries the 0x20CC flag for a ${genesisDuration / 3600n}h window.`,
+        label: 'Finding your pool address…',
+        reason: `Searching for an address Uniswap will accept for a ${genesisDuration / 3600n}h window. This runs in your browser and takes a moment.`,
         tone: 'info',
       },
       {
         id: 'confirmed',
         active: isConfirmed,
         label: 'Launch confirmed',
-        reason: 'The hook is on-chain. Directory sync runs in the background.',
+        reason: 'Your token is on chain. Listing it in the directory runs in the background.',
         tone: 'info',
       },
     ),
@@ -391,14 +542,14 @@ export default function GenesisConsole() {
   const activeWindow = GENESIS_WINDOWS.find(w => w.seconds === genesisDuration) ?? GENESIS_WINDOWS[1]
 
   return (
-    <main className="min-h-screen">
+    <main>
       <div className="mx-auto max-w-6xl px-4 py-page md:px-6">
         <PageHeader
-          eyebrow={`Mainnet · ${MAINNET_CHAIN_LABEL}`}
+          eyebrow={CHAIN_BYLINE}
           status={<Badge tone="ok" pip>{CHAIN_STATUS_BADGE}</Badge>}
           title="Create a"
           accent="Tosh Launch"
-          subtitle={`${CHAIN_POSITIONING} One signature mines a Uniswap V4 hook salt and opens a Proof-of-Gas gated genesis.`}
+          subtitle={`${CHAIN_POSITIONING} One signature deploys your token together with its own Uniswap V4 pool and opens a gas-gated funding round.`}
         />
 
         <div className="mt-section grid grid-cols-1 items-start gap-section lg:grid-cols-3">
@@ -422,7 +573,7 @@ export default function GenesisConsole() {
               </div>
               <Field
                 label="Project admin"
-                hint="Receives 99% of Phase-2 shelf revenue. Defaults to the connected wallet. The CREATE2 salt input is the same address — it receives no funds."
+                hint="Receives 99% of everything the shelf ladder earns. Defaults to the connected wallet."
                 value={projectAdmin}
                 onValueChange={v => {
                   setProjectAdmin(v)
@@ -495,13 +646,13 @@ export default function GenesisConsole() {
 
             <Card
               id="03"
-              title="Mine and deploy"
-              subtitle="The button grinds a 0x20CC CREATE2 salt, then pays the launch fee in the same flow."
+              title="Deploy"
+              subtitle="One click works out the address your pool needs, then pays the launch fee in the same flow."
               status={salt ? <Badge tone="ok" pip live>salt locked</Badge> : undefined}
             >
               {predictedHook && (
                 <CardWell padding="card">
-                  <p className="font-mono text-label text-text-quiet">Predicted hook</p>
+                  <p className="font-mono text-label text-text-quiet">Your pool address</p>
                   <p className="mt-1 break-all font-mono text-note text-brand">{predictedHook}</p>
                 </CardWell>
               )}
@@ -515,9 +666,9 @@ export default function GenesisConsole() {
                 />
                 <span className="text-note text-text-secondary leading-relaxed">
                   I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
-                  soft cap, a genesis window that cannot close early, and a full{' '}
-                  <span className="text-warning">refund()</span> if the raise misses or the{' '}
-                  {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day launch window expires unopened.
+                  minimum raise, a genesis window that cannot close early, and a{' '}
+                  <span className="text-warning">full refund</span> if the raise misses or the{' '}
+                  {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
                 </span>
               </label>
 
@@ -538,7 +689,7 @@ export default function GenesisConsole() {
                   >
                     {hash.slice(0, 10)}…{hash.slice(-6)}
                   </a>
-                  {syncState === 'syncing' && ' · syncing directory'}
+                  {syncState === 'syncing' && ' · sign to list in the directory'}
                   {syncState === 'done' && ' · directory synced'}
                   {syncState === 'error' && ' · directory sync deferred'}
                 </p>
@@ -558,7 +709,7 @@ export default function GenesisConsole() {
               <Card
                 id="PACT"
                 title="Immutable rules"
-                subtitle="Unalterable the moment createLaunch confirms."
+                subtitle="Unalterable the moment your launch confirms."
                 interactive={false}
               >
                 <ul className="flex flex-col gap-gap">
@@ -575,12 +726,12 @@ export default function GenesisConsole() {
                   <PactRule
                     kicker="10%"
                     title="Genesis premium"
-                    body="The 55/45 claim/LP split opens P₀ at 1.10× what depositors paid."
+                    body="Splitting genesis 55/45 between claims and pool liquidity opens the market at 1.10× what depositors paid."
                   />
                   <PactRule
                     kicker={`${Number(LAUNCH_WINDOW_SECONDS / 86400n)} days`}
                     title="Unopened raise refunds in full"
-                    body="If launch() is not called after a successful genesis, every depositor reclaims 100% of their ETH. No penalty, no haircut."
+                    body="If trading is never opened after a successful raise, every depositor reclaims 100% of their ETH. No penalty, no haircut."
                   />
                 </ul>
 
@@ -607,14 +758,48 @@ export default function GenesisConsole() {
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-text-tertiary">Network</dt>
-                      <dd className="text-text-primary">{TESTNET_CHAIN_LABEL}</dd>
+                      <dd className="text-text-primary">{ACTIVE_CHAIN_LABEL}</dd>
                     </div>
                   </dl>
                 </CardWell>
 
+                <CardWell padding="card">
+                  <p className="font-mono text-label text-text-quiet">What this costs you</p>
+                  <dl className="mt-gap-tight flex flex-col gap-1 font-mono text-note">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Due now</dt>
+                      <dd className="text-text-primary">{ethDisplay(dueNowWei)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">
+                        <span className="text-text-quiet">└</span> gas, create
+                      </dt>
+                      <dd className="text-text-secondary">{ethDisplay(createGasWei)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">
+                        <span className="text-text-quiet">└</span> gas, open pool later
+                      </dt>
+                      <dd className="text-text-secondary">
+                        {ethDisplay(gasCostWei(LAUNCH_GAS_TOTAL, feePerGas))}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-text-tertiary">Total to open</dt>
+                      <dd className="text-text-primary">{ethDisplay(dueTotalWei)}</dd>
+                    </div>
+                  </dl>
+                  <p className="mt-gap-tight text-micro text-text-quiet leading-relaxed">
+                    Gas is estimated from measured budgets at the current rate, not a
+                    simulation of your transaction — the rate moves before you sign.
+                    {' '}<span className="text-text-tertiary">Opening the pool</span> is a second
+                    transaction you pay after the raise succeeds, and only you can send it.
+                  </p>
+                </CardWell>
+
                 <p className="text-note text-text-quiet leading-relaxed">
-                  No proxy, no admin key, no upgrade. MINTER_ROLE is granted once to this
-                  project&apos;s Hook. DEFAULT_ADMIN_ROLE is left vacant.
+                  No proxy, no admin key, no upgrade. Only this project&apos;s own contract can
+                  ever mint the token, and nobody holds an admin role over it.
                 </p>
                 <p className="break-all font-mono text-micro text-text-quiet">
                   Factory {FACTORY_ADDRESS}

@@ -1,20 +1,44 @@
 /**
  * Validates the posm payloads built by `src/lib/lpActions.ts` against the
- * rules `PositionManager` actually enforces when it decodes them.
- *
- * This re-implements the checks in v4-periphery's
- * `CalldataDecoder.decodeActionsRouterParams`, which demands STRICT abi
- * encoding and reverts on any offset that is not the tight canonical one, plus
- * the hard-coded field offsets `decodeMintParams` / `decodeBurnParams` read.
+ * rules `PositionManager` enforces when it decodes them: STRICT abi encoding
+ * (`CalldataDecoder.decodeActionsRouterParams` recomputes every offset and
+ * reverts on any deviation) and the hard-coded field offsets
+ * `decodeMintParams` / `decodeBurnParams` read.
  *
  * Getting this wrong produces a transaction that reverts with an opaque
  * `SliceOutOfBounds`, which is a miserable thing to debug from a wallet popup.
  *
- *   npx tsx scripts/checkLpActions.ts
+ *   npm run guard:lpactions
+ *
+ * ── What this half does and does not pin ────────────────────────────────────
+ *
+ * It runs the REAL encoder — viem, the same call the panel makes — and checks
+ * the actual bytes. What it cannot do is know whether the offsets it expects
+ * are the ones the vendored decoder reads, because the expectations below are
+ * numbers written here. A submodule bump that moved `decodeMintParams`'s
+ * offsets, added a `PoolKey` field, or renumbered an `Actions` opcode would
+ * leave every line below green.
+ *
+ * `scripts/checkLpActionsAbi.mjs` closes exactly that gap: it parses
+ * `lib/v4-periphery` and `lib/v4-core` and requires the literals here and the
+ * frontend's param specs to agree with the Solidity. It runs in test.yml,
+ * which is the job that checks out submodules. Both must stay wired up;
+ * neither is sufficient alone.
+ *
+ * Note the opcodes below are LITERALS, deliberately. Asserting them against
+ * `V4_ACTIONS` — the same constant `lpActions.ts` builds the payload from —
+ * is a tautology that passes for any value, which is what this used to do.
  */
 
 import { encodeMintPayload, encodeBurnPayload } from '../src/lib/lpActions'
-import { TICK_LOWER, TICK_UPPER, POOL_FEE, TICK_SPACING, V4_ACTIONS } from '../src/lib/contracts'
+import { TICK_LOWER, TICK_UPPER, POOL_FEE, TICK_SPACING } from '../src/lib/contracts'
+
+/** v4-periphery `Actions`, as of the pinned submodule. Verified by checkLpActionsAbi.mjs. */
+const MINT_POSITION = 0x02
+const BURN_POSITION = 0x03
+const SETTLE_PAIR = 0x0d
+const TAKE_PAIR = 0x11
+const SWEEP = 0x14
 
 const TOKEN = '0x1111111111111111111111111111111111111111' as const
 const HOOK  = '0x22222222222222222222222222222222222222C8' as const
@@ -92,7 +116,7 @@ const mintPayload = encodeMintPayload({
 const mint = decodeStrict(mintPayload)
 check('strict encoding accepted by decodeActionsRouterParams', true, true)
 check('action opcodes', mint.actions.join(','),
-  [V4_ACTIONS.MINT_POSITION, V4_ACTIONS.SETTLE_PAIR, V4_ACTIONS.SWEEP].join(','))
+  [MINT_POSITION, SETTLE_PAIR, SWEEP].join(','))
 check('three param blobs', mint.params.length, 3)
 
 // decodeMintParams reads by fixed slot: PoolKey occupies 0..4 because it is a
@@ -131,7 +155,7 @@ const burnPayload = encodeBurnPayload({
 
 const burn = decodeStrict(burnPayload)
 check('action opcodes', burn.actions.join(','),
-  [V4_ACTIONS.BURN_POSITION, V4_ACTIONS.TAKE_PAIR].join(','))
+  [BURN_POSITION, TAKE_PAIR].join(','))
 check('two param blobs', burn.params.length, 2)
 
 const bp = words(burn.params[0])

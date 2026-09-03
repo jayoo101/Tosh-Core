@@ -6,6 +6,10 @@
 // and there is no need to port TickMath's 20-constant binary ladder.  The
 // values below came from `TickMath.getSqrtPriceAtTick(±887200)` run against
 // v4-core, not from a floating-point approximation.
+//
+// Kept honest from both ends: `scripts/checkV4Math.ts` pins this port against
+// recorded vectors, and `test/ToshV5LpMathVectors.t.sol` regenerates those same
+// vectors from v4-core and v4-periphery. Neither half can drift alone.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { encodeAbiParameters, keccak256, type Address } from 'viem'
@@ -113,10 +117,22 @@ export function liquidityForAmounts(
   if (sqrtPriceX96 === 0n) return 0n
   const sqrtP = clampSqrt(sqrtPriceX96)
 
-  const liq0 =
-    (amount0 * sqrtP * SQRT_PRICE_UPPER) / (Q96 * (SQRT_PRICE_UPPER - sqrtP))
-  const liq1 = (amount1 * Q96) / (sqrtP - SQRT_PRICE_LOWER)
+  // At either boundary one leg's denominator collapses to zero, and BigInt
+  // division by zero throws rather than yielding Infinity. The position is
+  // single-sided there, so the degenerate leg contributes no ceiling at all.
+  const span0 = SQRT_PRICE_UPPER - sqrtP
+  const span1 = sqrtP - SQRT_PRICE_LOWER
+  if (span0 === 0n && span1 === 0n) return 0n
 
+  const liq0 = span0 === 0n
+    ? null
+    : (amount0 * sqrtP * SQRT_PRICE_UPPER) / (Q96 * span0)
+  const liq1 = span1 === 0n
+    ? null
+    : (amount1 * Q96) / span1
+
+  if (liq0 === null) return liq1 ?? 0n
+  if (liq1 === null) return liq0
   return liq0 < liq1 ? liq0 : liq1
 }
 
@@ -132,8 +148,12 @@ export function pairedAmount1(sqrtPriceX96: bigint, amount0: bigint): bigint {
   if (sqrtPriceX96 === 0n || amount0 === 0n) return 0n
   const sqrtP = clampSqrt(sqrtPriceX96)
 
-  const liquidity =
-    (amount0 * sqrtP * SQRT_PRICE_UPPER) / (Q96 * (SQRT_PRICE_UPPER - sqrtP))
+  // Price pinned at the upper boundary: the range holds no token0, so no
+  // token1 pairs with it. Guarding the divisor also keeps BigInt from throwing.
+  const span0 = SQRT_PRICE_UPPER - sqrtP
+  if (span0 === 0n) return 0n
+
+  const liquidity = (amount0 * sqrtP * SQRT_PRICE_UPPER) / (Q96 * span0)
   const exact = liquidity * (sqrtP - SQRT_PRICE_LOWER)
 
   return exact / Q96 + (exact % Q96 === 0n ? 0n : 1n)

@@ -12,6 +12,7 @@ import {ToshToken} from "./ToshToken.sol";
 import {ToshLaunchpadHook} from "./ToshLaunchpadHook.sol";
 import {HookMiner} from "./libraries/HookMiner.sol";
 import {HookDeployLib} from "./libraries/HookDeployLib.sol";
+import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 
 /// @title  ToshFactory v5.0 — ETH-native launchpad with a global referral graph
 /// @notice Platform singleton: deploys launches, guards genesis eligibility, and
@@ -67,6 +68,26 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     address payable public immutable ladderTreasury;
 
     bytes32 public immutable HOOK_CREATION_CODEHASH;
+
+    /// @notice The single shared `ToshLaunchpadHook` implementation that every
+    ///         project's hook clone delegates to.
+    ///
+    /// @dev    Deployed once, from this factory's constructor, so the pair is
+    ///         wired up structurally rather than by deploy-script convention.
+    ///         Immutable: there is no setter, which means the platform owner
+    ///         cannot repoint future launches at different logic, and no
+    ///         existing clone could be repointed even if they could — a clone
+    ///         hard-codes this address in its own runtime bytecode.
+    address public immutable hookImplementation;
+
+    /// @notice The single shared `ToshToken` implementation that every project's
+    ///         token clone delegates to.
+    ///
+    /// @dev    Same reasoning as `hookImplementation`, and the same absence of a
+    ///         setter.  Deployed here rather than through a library because the
+    ///         token's creation code is ~3.5 KB and the factory has the margin
+    ///         for it — the hook's 19.5 KB is what needed isolating.
+    address public immutable tokenImplementation;
 
     // ─── Owner-controlled state ───────────────────────────────────────────────
 
@@ -258,6 +279,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         ladderTreasury = payable(_ladderTreasury);
 
         HOOK_CREATION_CODEHASH = HookDeployLib.creationCodeHash();
+
+        // Deploying the implementation here is what lets it hold `factory` as an
+        // ordinary immutable: the library call is a DELEGATECALL, so
+        // `address(this)` inside it is this factory, mid-construction.
+        hookImplementation = HookDeployLib.deployImplementation(_poolManager, _ladderTreasury);
+        tokenImplementation = address(new ToshToken(address(this)));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -537,10 +564,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @param  expectedFee Slippage cap on `launchFee`; pass the value read in
     ///                     the same block to prevent an owner fee-bump front-run.
     /// @param  genesisDuration Genesis window length.  Must be one of the hook's
-    ///                     three allowed rungs (3 h / 24 h / 72 h) — the hook's
-    ///                     constructor rejects anything else, and because the
-    ///                     value is part of the initcode hash it also has to
-    ///                     match whatever the salt was mined against.
+    ///                     three allowed rungs (3 h / 24 h / 72 h) —
+    ///                     `initializeToken` rejects anything else, and because
+    ///                     the value is baked into the clone's bytecode and hence
+    ///                     the initcode hash, it also has to match whatever the
+    ///                     salt was mined against.
     function createLaunch(
         string calldata name,
         string calldata symbol,
@@ -569,37 +597,20 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 launchSoftCap = defaultSoftCap;
         uint256 launchWalletCap = maxPogAllocationLimit;
 
-        bytes32 initHash = HookDeployLib.computeInitcodeHash(
-            poolManager,
-            address(this),
-            projectTreasury,
-            msg.sender,
-            projectAdmin,
-            ladderTreasury,
-            launchSoftCap,
-            launchWalletCap,
-            genesisDuration
+        bytes32 initHash = ToshCloneLib.initcodeHash(
+            hookImplementation, msg.sender, projectTreasury, launchSoftCap, launchWalletCap, genesisDuration
         );
         address predictedHook = HookMiner.computeAddress(address(this), finalSalt, initHash);
         if (!HookMiner.isValidHookAddress(predictedHook)) revert InvalidHookSalt();
 
-        hook = HookDeployLib.deployHook(
-            finalSalt,
-            poolManager,
-            address(this),
-            projectTreasury,
-            msg.sender,
-            projectAdmin,
-            ladderTreasury,
-            launchSoftCap,
-            launchWalletCap,
-            genesisDuration
+        hook = ToshCloneLib.deployHook(
+            finalSalt, hookImplementation, msg.sender, projectTreasury, launchSoftCap, launchWalletCap, genesisDuration
         );
         if (hook == address(0)) revert DeployFailed();
 
-        token = address(new ToshToken(name, symbol, address(this)));
-        ToshToken(token).initialize(hook);
-        ToshLaunchpadHook(payable(hook)).initializeToken(token);
+        token = ToshCloneLib.deployBareClone(tokenImplementation);
+        ToshToken(token).initialize(hook, name, symbol);
+        ToshLaunchpadHook(payable(hook)).initializeToken(token, projectAdmin);
 
         registeredHooks[hook] = true;
         tokenToHook[token] = hook;
@@ -728,24 +739,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         return launches.length;
     }
 
+    /// @notice The value an off-chain miner must hash salts against.
+    ///
+    /// @dev    ⚠ `projectAdmin` USED TO BE AN ARGUMENT HERE AND NO LONGER IS.
+    ///         It was a hook constructor argument and therefore part of the
+    ///         initcode; it is now set by `initializeToken` and is not committed
+    ///         to by the hook's address.  Nothing was lost — `changeProjectAdmin`
+    ///         always let it rotate, so the address only ever pinned its initial
+    ///         value — but a miner still passing six arguments will silently hash
+    ///         the wrong tuple and every salt it finds will fail
+    ///         `InvalidHookSalt`.
     function hookInitcodeHash(
         address projectTreasury,
         address creator_,
-        address projectAdmin,
         uint256 softCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) external view returns (bytes32) {
-        return HookDeployLib.computeInitcodeHash(
-            poolManager,
-            address(this),
-            projectTreasury,
-            creator_,
-            projectAdmin,
-            ladderTreasury,
-            softCap,
-            perWalletCap,
-            genesisDuration
+        return ToshCloneLib.initcodeHash(
+            hookImplementation, creator_, projectTreasury, softCap, perWalletCap, genesisDuration
         );
     }
 
@@ -753,13 +765,14 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///      choice, so there is no single "live" initcode hash any more; this
     ///      keeps the 24 h default answerable for existing tooling.
     ///
-    ///      ⚠ NOT A MINING INPUT.  `platformTreasury` stands in for all three of
-    ///      `projectTreasury`, `creator`, and `projectAdmin`, none of which a
-    ///      real launch shares.  `createLaunch` recomputes the hash from the
-    ///      caller's actual addresses, so a salt mined against this value fails
+    ///      ⚠ NOT A MINING INPUT.  `platformTreasury` stands in for both
+    ///      `projectTreasury` and `creator`, neither of which a real launch
+    ///      shares.  `createLaunch` recomputes the hash from the caller's actual
+    ///      addresses, so a salt mined against this value fails
     ///      `InvalidHookSalt` every time.  Mine against `hookInitcodeHash`.
-    ///      Its value is as a build fingerprint: it changes iff the hook
-    ///      creation code or the factory's own wiring changed.
+    ///      Its value is as a build fingerprint: it changes iff the
+    ///      implementation address or the platform's soft-cap / wallet-cap dials
+    ///      changed.
     ///
     ///      The 24 h literal has to track `ToshLaunchpadHook.DURATION_STANDARD`;
     ///      Solidity will not let us read that constant off the contract type,
@@ -767,16 +780,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///      two together instead.
     function getLiveHookInitcodeHash() external view returns (bytes32 hashSnapshot) {
         address sentinel = platformTreasury;
-        return HookDeployLib.computeInitcodeHash(
-            poolManager,
-            address(this),
-            sentinel,
-            sentinel,
-            sentinel,
-            ladderTreasury,
-            defaultSoftCap,
-            maxPogAllocationLimit,
-            24 hours
+        return ToshCloneLib.initcodeHash(
+            hookImplementation, sentinel, sentinel, defaultSoftCap, maxPogAllocationLimit, 24 hours
         );
     }
 
@@ -788,27 +793,20 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         return HookMiner.computeAddress(address(this), keccak256(abi.encode(creator_, rawSalt)), initcodeHash_);
     }
 
+    /// @dev `projectAdmin` is no longer part of the commitment — see
+    ///      `hookInitcodeHash`.
     function verifyHookDeployment(
         address hook,
         address creator_,
         address projectTreasury,
-        address projectAdmin,
         uint256 softCap,
         uint256 perWalletCap,
         uint256 genesisDuration,
         bytes32 rawSalt
     ) external view returns (bool) {
         if (!registeredHooks[hook]) return false;
-        bytes32 initcodeHash_ = HookDeployLib.computeInitcodeHash(
-            poolManager,
-            address(this),
-            projectTreasury,
-            creator_,
-            projectAdmin,
-            ladderTreasury,
-            softCap,
-            perWalletCap,
-            genesisDuration
+        bytes32 initcodeHash_ = ToshCloneLib.initcodeHash(
+            hookImplementation, creator_, projectTreasury, softCap, perWalletCap, genesisDuration
         );
         bytes32 finalSalt = keccak256(abi.encode(creator_, rawSalt));
         return HookMiner.computeAddress(address(this), finalSalt, initcodeHash_) == hook;

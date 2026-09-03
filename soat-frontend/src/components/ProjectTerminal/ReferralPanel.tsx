@@ -92,7 +92,7 @@ export function ReferralPanel({
     blockersInRevertOrder: revertOrder({
       id: 'nothing-to-claim',
       active: claimable === 0n,
-      label: '[nothing_to_claim]',
+      label: 'Nothing to claim',
       reason: 'No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.',
       tone: 'neutral',
     }),

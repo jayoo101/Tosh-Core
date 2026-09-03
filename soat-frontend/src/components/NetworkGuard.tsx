@@ -5,7 +5,8 @@ import { useAccount, useChainId, useSwitchChain } from 'wagmi'
 import {
   TARGET_CHAIN_ID,
   MAINNET_CHAIN_LABEL,
-  TESTNET_CHAIN_LABEL,
+  ACTIVE_CHAIN_LABEL,
+  IS_TESTNET,
 } from '@/lib/contracts'
 
 /** Wrong-network strip — wallet connected but not on the settlement chain. */
@@ -26,7 +27,11 @@ export function NetworkGuard() {
     <div className="border-b border-warning/20 bg-warning/5 px-4 py-2">
       <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
         <p className="text-note font-mono text-warning tracking-wide">
-          Wrong network — Tosh settles on {MAINNET_CHAIN_LABEL}; staging runs on {TESTNET_CHAIN_LABEL}. Switch to continue.
+          {/* The "staging runs on" clause is only true off mainnet; on a
+              production build it would read "settles on Ethereum; staging runs
+              on Ethereum". */}
+          Wrong network — Tosh settles on {MAINNET_CHAIN_LABEL}
+          {IS_TESTNET && <>; staging runs on {ACTIVE_CHAIN_LABEL}</>}. Switch to continue.
         </p>
         <button
           type="button"

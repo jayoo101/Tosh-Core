@@ -1,108 +1,110 @@
 'use client'
 
+/**
+ * The five-step explainer under the directory.
+ *
+ * WHY THIS SECTION IS MONOCHROME. It used to give each step its own accent —
+ * success, brand, warning, admin, success — which read as decoration but spent
+ * the palette's meaning. `admin` purple is owner-only chrome everywhere else in
+ * the app, and `warning` amber means a deadline or a price gate; borrowing them
+ * to tint "CURVE" and "GENESIS" taught the eye that those hues mean nothing in
+ * particular. The five LEDs had the same problem in the other direction: they
+ * breathed like live status pips on cards that report no status at all, and
+ * five of them at once blew the glow budget that exists so a genuinely live
+ * pip can be noticed.
+ *
+ * So colour is spent in exactly one place here: the connector rail, which is
+ * the only thing on screen actually saying "these five are a sequence". The
+ * cards themselves are the standard panel surface.
+ *
+ * The rail's offset and the header band's height are the same number, hence
+ * `--rail-band`. They were two hand-tuned literals before (`top-[130px]`
+ * against a `min-h-[320px]` card) and drifted apart whenever a title wrapped
+ * to a second line.
+ */
+
+const RAIL_BAND = '3rem'
+
 const STEPS = [
   {
-    step: '01', tag: 'DEFENSE', tagColor: 'text-success',
-    title: 'PoG Gas-Gated Quota',
-    description: 'Proof-of-Gas attestation binds wallet gas history to an ETH genesis headroom. Oracle-signed registerPoG() — no bots, no Sybil mints.',
-    chassis: 'bg-gradient-to-br from-surface-card via-bg-base to-surface-card border-border-strong/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_4px_24px_rgba(0,0,0,0.5)] hover:border-success/50',
-    ledStrip: 'bg-gradient-to-r from-transparent via-success/60 to-transparent',
-    led: 'bg-success shadow-[0_0_6px_rgba(52,211,153,0.8)]',
-    glow: '#10b981',
+    step: '01',
+    tag: 'Quota',
+    title: 'Gas history sets your limit',
+    description:
+      'Tosh reads how much gas your wallet has genuinely burned and signs that into a deposit ceiling. A wallet minted this morning has no history to spend, so bot swarms have nothing to bring.',
   },
   {
-    step: '02', tag: 'FACTORY', tagColor: 'text-brand',
-    title: 'Hook-Anchored Launch',
-    description: 'Permissionless ERC-20 + ToshLaunchpadHook via CREATE2 salt mining. Pay native ETH launch fee — zero pre-mine, 55/45 genesis split at P₀: 4.62M claimable by depositors, 3.78M locked as LP.',
-    chassis: 'bg-surface-card border-brand/20 shadow-[inset_0_1px_0_rgba(0,255,163,0.06),0_4px_24px_rgba(0,0,0,0.5)] hover:border-brand/40',
-    ledStrip: 'bg-gradient-to-r from-transparent via-brand/60 to-transparent',
-    led: 'bg-brand shadow-[0_0_6px_rgba(0,255,163,0.8)]',
-    glow: '#00FFA3',
+    step: '02',
+    tag: 'Launch',
+    title: 'Anyone can open one',
+    description:
+      'Pay the launch fee in ETH and the token deploys together with its own Uniswap V4 pool. No pre-mine, no team allocation, no supply held back for insiders.',
   },
   {
-    step: '03', tag: 'GENESIS', tagColor: 'text-warning',
-    title: 'Genesis Deposit Window',
-    description: 'Phase-1 ETH deposits with PoG quota (H-01), over a 3h / 24h / 72h window the creator picks at launch. Deposits stay open for the whole window. Window closes with the cap met → creator calls launch(). Missed cap or 7d zombie window → refund() unlocks.',
-    chassis: 'bg-gradient-to-br from-bg-base via-bg-subtle to-bg-base border-warning/25 hover:border-warning/40',
-    ledStrip: 'bg-gradient-to-r from-transparent via-warning/60 to-transparent',
-    led: 'bg-warning shadow-[0_0_6px_rgba(251,191,36,0.8)]',
-    glow: '#f59e0b',
+    step: '03',
+    tag: 'Genesis',
+    title: 'A window that cannot close early',
+    description:
+      'Deposits run in ETH for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. If the raise misses its floor, every depositor takes back the full amount.',
   },
   {
-    step: '04', tag: 'CURVE', tagColor: 'text-admin',
-    title: '4000-Rung Shelf Ladder',
-    description: 'Phase-2 discrete 4000-shelf ladder spanning 2000× from the open (getTiers / tierPriceAt), with a 105% anti-spike gate: min(spot, TWAP) once the window matures, min(spot, p0) until then. claimGenesis() for depositors; 99% of shelf proceeds to the project admin.',
-    chassis: 'bg-bg-base border-admin/25 hover:border-admin/40',
-    ledStrip: 'bg-gradient-to-r from-transparent via-admin/60 to-transparent',
-    led: 'bg-admin shadow-[0_0_6px_rgba(192,132,252,0.8)]',
-    glow: '#a855f7',
+    step: '04',
+    tag: 'Ladder',
+    title: 'Price climbs one shelf at a time',
+    description:
+      'After genesis the remaining supply is released across 4,000 fixed shelves spanning 2,000x from the opening price. A ceiling blocks spikes, and 99% of what the shelves earn goes to the project itself.',
   },
   {
-    step: '05', tag: 'AUDIT', tagColor: 'text-success',
-    title: 'Audit-Cliff Hardened',
-    description: 'H-01 PoG ledger, M-01 soft-cap floor (≥0.01 ETH), L-01 dust gate — enforced on-chain and mirrored in the client terminal.',
-    chassis: 'bg-gradient-to-br from-bg-subtle via-bg-base to-bg-subtle border-success/25 hover:border-success/40',
-    ledStrip: 'bg-gradient-to-r from-transparent via-success/60 to-transparent',
-    led: 'bg-success shadow-[0_0_6px_rgba(163,230,53,0.8)]',
-    glow: '#84cc16',
+    step: '05',
+    tag: 'Hardened',
+    title: 'The contract enforces it, not this page',
+    description:
+      'Deposit accounting, the 0.01 ETH minimum raise and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
   },
 ] as const
 
 export function TrustPipeline() {
   return (
-    <section className="relative z-10 pt-28 md:pt-36 pb-12 md:pb-16 overflow-hidden">
+    <section
+      className="relative z-10 overflow-hidden pt-28 pb-12 md:pt-36 md:pb-16"
+      style={{ ['--rail-band' as string]: RAIL_BAND }}
+    >
       <div className="mb-16 md:mb-20">
-        <h3 className="text-label font-mono text-text-quiet uppercase mb-4">
-          {`// PROTOCOL_WORKFLOW`}
+        <h3 className="mb-4 font-mono text-label text-text-quiet uppercase">
+          {`// HOW IT WORKS`}
         </h3>
-        <h2 className="text-3xl md:text-5xl font-medium text-text-primary tracking-tight leading-tight">
-          The Trust Pipeline.
-        </h2>
+        <h2 className="text-section text-text-primary md:text-hero">How a Tosh launch works.</h2>
+        <p className="mt-gap max-w-2xl text-body text-text-secondary">
+          Five steps, all of them settled on chain. Nothing below is enforced by this interface.
+        </p>
       </div>
 
-      <div className="hidden md:block">
-        <div className="grid grid-cols-5 gap-0">
-          {STEPS.map((s, i) => (
-            <div key={s.step} className="relative group flex flex-col items-center">
-              {i < 4 && (
-                <div className="absolute top-[130px] left-1/2 w-full h-[6px] z-0 flex flex-col justify-center gap-[2px] pointer-events-none">
-                  <div className="h-px cable-flow bg-gradient-to-r from-surface-hover via-surface-hover/40 to-surface-hover" />
-                  <div className="h-0.5 bg-surface-elevated/80" />
-                </div>
-              )}
-              <div className={`relative w-full mx-2 rounded-panel border overflow-hidden transition-all duration-500 md:min-h-[320px] flex flex-col ${s.chassis} group-hover:scale-[1.01]`}>
-                <div className={`h-1 w-full ${s.ledStrip}`} />
-                <div className="absolute top-4 right-4 flex items-center gap-1.5">
-                  <div className={`w-2 h-2 rounded-pill ${s.led} led-breathe`} />
-                  <span className="text-micro font-mono text-text-quiet uppercase">Active</span>
-                </div>
-                <div className="flex-1 flex flex-col p-6 pt-8">
-                  <div className="flex items-center gap-2 mb-5">
-                    <span className="text-micro font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
-                    <span className="text-micro font-mono text-text-quiet">|</span>
-                    <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
-                  </div>
-                  <h4 className="text-title text-text-primary mb-3 group-hover:text-text-primary transition-colors">{s.title}</h4>
-                  <p className="text-body text-text-secondary leading-relaxed mt-auto">{s.description}</p>
-                </div>
-                <div className="h-px mx-4 mb-3 bg-gradient-to-r from-transparent via-surface-elevated to-transparent" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <div className="grid grid-cols-1 gap-gap md:grid-cols-5">
+        {STEPS.map((s, i) => (
+          <div key={s.step} className="group relative flex">
+            {/* The rail lives in the gutter between two cards, centred on the
+                header band so it meets each card at its step number. */}
+            {i < STEPS.length - 1 && (
+              <div
+                aria-hidden
+                className="cable-flow pointer-events-none absolute right-[calc(-1*var(--spacing-gap))] z-0 hidden h-px w-gap bg-gradient-to-r from-border-strong via-brand/25 to-border-strong md:block"
+                style={{ top: `calc(var(--rail-band) / 2)` }}
+              />
+            )}
 
-      <div className="md:hidden space-y-8 pl-4 pr-2">
-        {STEPS.map(s => (
-          <div key={s.step} className={`rounded-card border overflow-hidden ${s.chassis}`}>
-            <div className={`h-0.5 w-full ${s.ledStrip}`} />
-            <div className="p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-micro font-mono text-text-tertiary bg-bg-base/60 border border-border-subtle px-2 py-0.5 rounded">STEP {s.step}</span>
-                <span className={`text-micro font-mono font-bold ${s.tagColor}`}>{s.tag}</span>
+            <div className="relative z-10 flex w-full flex-col rounded-panel border border-border-subtle bg-surface-card shadow-panel transition-colors group-hover:border-border-strong">
+              <div
+                className="flex shrink-0 items-center gap-gap-tight border-b border-border-subtle px-card"
+                style={{ height: 'var(--rail-band)' }}
+              >
+                <span className="font-mono text-micro text-text-quiet">{s.step}</span>
+                <span className="font-mono text-micro text-text-tertiary uppercase">{s.tag}</span>
               </div>
-              <h4 className="text-title text-text-primary mb-2">{s.title}</h4>
-              <p className="text-body text-text-secondary leading-relaxed">{s.description}</p>
+
+              <div className="flex flex-1 flex-col gap-gap-tight px-card py-card">
+                <h4 className="text-title text-text-primary">{s.title}</h4>
+                <p className="text-note leading-relaxed text-text-secondary">{s.description}</p>
+              </div>
             </div>
           </div>
         ))}

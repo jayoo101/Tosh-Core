@@ -9,108 +9,64 @@ import {ToshLaunchpadHook} from "../ToshLaunchpadHook.sol";
 ///
 /// @dev    All public functions are invoked via DELEGATECALL by ToshFactory.
 ///         In that context:
-///           • address(this) == ToshFactory  → CREATE2 deployer == factory ✓
+///           • address(this) == ToshFactory  → CREATE deployer == factory ✓
 ///           • storage reads/writes hit the factory's storage slot space ✓
 ///
-///         Because of the DELEGATECALL semantics, callers should always pass
-///         `factoryAddr = address(this)` from the factory side even though
-///         `address(this)` inside the library already resolves to the factory.
-///         The explicit parameter is kept for clarity and off-chain tooling.
+/// ── v5.1: this library now runs exactly once per platform ────────────────────
 ///
-/// @dev    v5.0 CONSTRUCTOR CHANGE — `satoToken` was removed (the protocol is
-///         ETH-native), and `ladderTreasury` plus `perWalletCap` were added.
-///         `genesisDuration` then made it 9 fields, so every off-chain salt
-///         miner MUST be regenerated: an initcode hash computed against an
-///         older tuple yields a stale CREATE2 prediction and `createLaunch`
-///         reverts with `InvalidHookSalt`.
+///   Until v5.0 this built a full per-project initcode — `creationCode` plus
+///   nine encoded constructor arguments — and CREATE2'd a fresh 19,586-byte copy
+///   of the hook for every launch. That was 3,917,200 gas of code deposit per
+///   project, 78 % of `createLaunch`.
+///
+///   Projects are now 121-byte EIP-1167 clones (see `ToshCloneLib`), so the
+///   only thing left to deploy from here is the single shared implementation
+///   they all delegate to. `deployImplementation` is called once, from the
+///   factory's constructor.
+///
+///   The library still exists for the same reason it always did: `new
+///   ToshLaunchpadHook(...)` embeds the hook's 19.5 KB creation code into
+///   whichever contract contains the expression. Putting it here keeps it out of
+///   ToshFactory's own bytecode.
+///
+/// ⚠ EVERY PREVIOUSLY MINED SALT IS STALE. The initcode being hashed changed
+///   shape completely — from `creationCode ++ abi.encode(9 args)` to a 131-byte
+///   clone stub — so any off-chain miner must be regenerated against
+///   `ToshFactory.hookInitcodeHash`, which now takes five arguments rather than
+///   six. A hash computed the old way yields a CREATE2 prediction that fails
+///   `InvalidHookSalt`.
 library HookDeployLib {
-    // ─────────────────────────────────────────────────────────────────────────
-    // Deployment
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Deploy a ToshLaunchpadHook via CREATE2 using the supplied salt
-    ///         and constructor arguments.
+    /// @notice Deploy the one shared hook implementation that every project's
+    ///         clone delegates to.
     ///
-    /// @param  finalSalt       Creator-bound salt: keccak256(abi.encode(creator, rawSalt)).
-    /// @param  poolManager     Uniswap V4 PoolManager address.
-    /// @param  factoryAddr     ToshFactory address (= address(this) in DELEGATECALL context).
-    /// @param  projectTreasury Project multisig held as immutable launch-time metadata.
-    /// @param  creator         Creator address (msg.sender in createLaunch).
-    /// @param  projectAdmin    Mutable admin authorised to receive the 99 % Phase-2 cut.
-    /// @param  ladderTreasury  Platform buyback reservoir (ToshLadderTreasury).
-    /// @param  softCap         Per-launch ETH soft-cap baked immutably into the hook.
-    /// @param  perWalletCap    Per-wallet ETH deposit cap baked immutably into the hook.
-    /// @param  genesisDuration Genesis window length; the hook rejects anything
-    ///                         outside {3 h, 24 h, 72 h}.
-    /// @return deployed        Address of the newly deployed hook, or address(0) on failure.
-    function deployHook(
-        bytes32 finalSalt,
-        address poolManager,
-        address factoryAddr,
-        address projectTreasury,
-        address creator,
-        address projectAdmin,
-        address ladderTreasury,
-        uint256 softCap,
-        uint256 perWalletCap,
-        uint256 genesisDuration
-    ) external returns (address deployed) {
-        bytes memory initcode = abi.encodePacked(
-            type(ToshLaunchpadHook).creationCode,
-            abi.encode(
-                poolManager,
-                factoryAddr,
-                projectTreasury,
-                creator,
-                projectAdmin,
-                ladderTreasury,
-                softCap,
-                perWalletCap,
-                genesisDuration
-            )
-        );
-        assembly {
-            deployed := create2(0, add(initcode, 0x20), mload(initcode), finalSalt)
-        }
+    /// @dev    Called from ToshFactory's constructor, and therefore by
+    ///         DELEGATECALL: `address(this)` is the factory, which is what makes
+    ///         the implementation's `factory` immutable correct without the
+    ///         factory having to exist first. That closes the circular
+    ///         dependency — the implementation needs the factory's address, the
+    ///         factory needs the implementation's — and it does so structurally:
+    ///         there is no deploy-script ordering that can wire the pair up
+    ///         wrong, and no per-project byte spent carrying the factory address
+    ///         in every clone.
+    ///
+    ///         Plain CREATE, not CREATE2. The implementation is never a hook
+    ///         itself — it refuses to execute as itself, see `onlyClone` — so its
+    ///         address carries no V4 permission bits and nothing needs to predict
+    ///         it. Clones commit to it by baking it into their own runtime.
+    ///
+    /// @param poolManager    Uniswap V4 PoolManager.
+    /// @param ladderTreasury Platform buyback reservoir.
+    /// @return impl          The shared implementation.
+    function deployImplementation(address poolManager, address ladderTreasury) external returns (address impl) {
+        impl = address(new ToshLaunchpadHook(poolManager, address(this), ladderTreasury));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Hash helpers (pure — no state access)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice keccak256 of the full initcode (creation code + encoded constructor args).
-    ///         Used for CREATE2 address prediction and hook-deployment verification.
-    function computeInitcodeHash(
-        address poolManager,
-        address factoryAddr,
-        address projectTreasury,
-        address creator,
-        address projectAdmin,
-        address ladderTreasury,
-        uint256 softCap,
-        uint256 perWalletCap,
-        uint256 genesisDuration
-    ) external pure returns (bytes32) {
-        return keccak256(
-            abi.encodePacked(
-                type(ToshLaunchpadHook).creationCode,
-                abi.encode(
-                    poolManager,
-                    factoryAddr,
-                    projectTreasury,
-                    creator,
-                    projectAdmin,
-                    ladderTreasury,
-                    softCap,
-                    perWalletCap,
-                    genesisDuration
-                )
-            )
-        );
-    }
-
-    /// @notice keccak256 of ToshLaunchpadHook.creationCode alone (no constructor args).
-    ///         Stored as ToshFactory.HOOK_CREATION_CODEHASH for off-chain trust checks.
+    /// @notice keccak256 of ToshLaunchpadHook.creationCode.
+    ///
+    /// @dev    Stored as `ToshFactory.HOOK_CREATION_CODEHASH` so off-chain
+    ///         tooling can verify the deployed implementation was built from the
+    ///         audited source. It is a build fingerprint only — no longer a
+    ///         mining input, because clones do not embed this code.
     function creationCodeHash() external pure returns (bytes32) {
         return keccak256(type(ToshLaunchpadHook).creationCode);
     }

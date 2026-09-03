@@ -58,6 +58,27 @@ P2/P3 are handled in-band by ordinary engineering rotation.
 The pager rotation **must** be reachable around the clock for at least 90 days
 post-launch.
 
+### 1.1 Safe threshold — the decision, and what depends on it
+
+**Decided 2026-09-03: 2-of-3.** Three signers, two signatures to execute. The
+three signer rows above are sized for exactly that.
+
+This is not only an operational preference. `docs/PRD-v5.0.md` §11 D2 declines
+to put a timelock on `addLadderToken` / `removeLadderToken`, and states its
+premise openly: the final owner is a Safe at **2/N or stricter**, whose
+propose-and-approve flow is what D2 uses *instead of* a timelock. D2's own
+review trigger ① says that if the owner ever degrades to a single EOA or a 1/N
+Safe, the decision lapses and a timelock must be added immediately. 2-of-3
+satisfies the premise with no margin above it — dropping one signer would put
+the owner at 2/2, where a single unreachable signer freezes every emergency
+control, and lowering the threshold would void D2.
+
+**Status: decided, not yet executed.** The Safe does not exist yet (PM-D4), so
+nothing above is on chain. This section records the intent so the premise is
+auditable rather than remembered; D2 trigger ③ asks for the *actual* N and
+threshold to be recorded here once ownership transfer completes (PM-C2), and
+that is a separate edit against a deployed address.
+
 ---
 
 ## 2. P0 — Immediate-halt playbook
@@ -366,18 +387,26 @@ end one early.
 ## 4. P0 sub-playbook — PoG signer key compromise
 
 The signer key holds **only** the right to mint user quota allocations — it
-cannot move funds. The compromise scenario is therefore "attacker can issue
-themselves a 200-SATO `maxAlloc` and deposit using it". Cap surface:
+cannot move funds. The compromise scenario is therefore "attacker signs
+themselves the maximum `maxAlloc` on as many wallets as they like, and deposits
+with it". Cap surface:
 
-| Quantity | Value | Worst-case attacker gain (per signed attestation) |
-|----------|-------|----------------------------------------------------|
-| `MAX_ALLOC_SATO_WEI` | 200 SATO | 200 SATO deposited per wallet, once. |
-| `maxPogAllocationLimit` (factory) | configured limit | Hard ceiling regardless of signer behaviour. |
+| Quantity | Value | What bounds the attacker |
+|----------|-------|--------------------------|
+| `maxPogAllocationLimit` (factory) | `0.1 ether` by default; `setMaxPogAllocationLimit` changes it | `registerPoG` reverts with `ExceedsGlobalPogLimit` above this, whatever the signer signed. |
+| `perWalletCap` (per hook, immutable) | snapshotted from `maxPogAllocationLimit` when the hook was deployed | `PerWalletCapExceeded` on deposit. Lowering the factory limit does **not** retroactively tighten live hooks. |
+| `MAX_SIG_VALIDITY` | `24 hours` | Attestations signed before rotation stop working within a day. |
 
-Even with a fully-compromised signer, total damage is bounded by
-`maxPogAllocationLimit × N_unique_attackers`. This is **not** a treasury-loss
-event — but it is still a P0 because it breaks the integrity claim of PoG
-attestation.
+> **This table said `MAX_ALLOC_SATO_WEI = 200 SATO` until 2026-08-26. That
+> constant does not exist.** v5.0 is 100% ETH-native and the cap is
+> `maxPogAllocationLimit`, denominated in ETH wei. A responder who went looking
+> for the old constant during an incident would have found nothing.
+
+Damage is bounded by `perWalletCap × N_attacker_wallets`, and the ETH is a real
+deposit into a real genesis round — it is refundable, and it buys the attacker
+an outsized share of that round rather than a withdrawal. This is **not** a
+treasury-loss event, but it is still a P0 because it breaks the integrity claim
+of PoG attestation and lets one actor capture a launch.
 
 ### Procedure
 
@@ -462,8 +491,9 @@ These are operational, not security, but they still trigger the on-call rota.
 
 Symptom: users report "transaction won't broadcast" or wagmi hooks return
 infinite pending. The `providers.tsx` config now uses `fallback()` over a
-ranked list (item #24 on the pre-mainnet checklist), so a single endpoint
-flapping is handled silently.
+ranked list (item #24 on the pre-mainnet checklist = **PM-F2** in
+`docs/PRE_MAINNET_CHECKLIST.md`), so a single endpoint flapping is handled
+silently.
 
 If **all** legs are down:
 
@@ -479,10 +509,52 @@ The factory does not depend on the frontend. Users with their own RPC + ABI
 can interact with the factory directly via `cast` (`createLaunch`, `deposit`,
 `refund`, …). Status page should link to:
 
-- `docs/MANUAL_INTERACTION.md` (operator-supplied)
+- `docs/MANUAL_INTERACTION.md` — every user-side action as a `cast` command,
+  including the refund path, which needs nothing from us
 - The factory address on Etherscan
 
 …so determined power-users can still operate.
+
+---
+
+## 6c. P2 — Buyback reservoir armed but idle (STATE-06)
+
+**This is a chore, not an incident.** No funds are at risk, nothing is
+compromised, and the fix needs no key you have to protect. It is in this document
+only because STATE-06 pages a ticket at somebody, and that somebody should find
+the answer here rather than reverse-engineer it.
+
+**Symptom.** `monitoring/alerts.json` STATE-06 fires: the treasury has held at
+least `TRIGGER_STEP` (1 ETH) for 24 hours with no `PiggybackExecuted` in the
+window.
+
+**What it means.** The gas gate in `ToshLaunchpadHook.afterSwap` is doing its
+job. A poke only rides a swap that can afford it, and swaps are arriving with
+limits too tight to carry one. Nothing is broken; the reservoir is simply not
+being deployed by trading alone. There is no event for a skipped poke, which is
+why this had to be a balance poll.
+
+**Fix.**
+
+```bash
+cast send $TREASURY "pokeBuyback()" --rpc-url $RPC --private-key $PK
+```
+
+Permissionless. No Safe transaction, no role, and it can safely be handed to a
+keeper or a cron job — it moves no ETH to the caller, picks its venue from the
+listed token's own hook, its size from the balance, its order from the cursor,
+and is bounded by the same TWAP floor as any other leg.
+
+Each call runs one buy leg (`LEGS_PER_POKE`), so a fully armed reservoir with
+three listed tokens wants three calls to complete a cycle. Repeat until it
+reverts `NotArmed`, which is the signal that the reservoir has dropped below the
+trigger.
+
+**When to escalate instead.** If `pokeBuyback()` itself reverts with something
+other than `NotArmed` or `PiggybackInProgress`, or if `BuybackSkipped` is firing
+for most of the curated set (SILENT-02), the problem is a broken ladder pool
+rather than a gas gate. That is a curation question — see §5's notes on
+`removeLadderToken`.
 
 ---
 
@@ -508,10 +580,33 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 
 | Quarter | Drill | Pass criteria |
 |--------:|-------|---------------|
-| Q1 | Full-factory pause on Sepolia, communicate, unpause. | `pause()` → public status page → `unpause()` within 30 min, with at least one new signer participating. |
-| Q2 | Targeted blacklist of a fake exploit address on Sepolia. | Two-engineer sign-off recorded, `setBlacklist` executed, `liftBlacklist` after 1 h. |
-| Q3 | PoG signer rotation on Sepolia. | New signer key in KMS, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
-| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Sepolia deployment for 2 h. | All attempts fail at `_verifyPoGSignature`; on-call detects within 15 min via Defender alert. |
+| Q1 | Full-factory pause on Robinhood testnet, communicate, unpause. | `pause()` → public status page → `unpause()` within 30 min, with at least one new signer participating. |
+| Q2 | Targeted blacklist of a fake exploit address on Robinhood testnet. | Two-engineer sign-off recorded, `setBlacklist` executed, `liftBlacklist` after 1 h. |
+| Q3 | PoG signer rotation on Robinhood testnet. | New signer key in KMS, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
+| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment for 2 h. | All attempts fail at `_verifyPoGSignature`; on-call detects within 15 min via Defender alert. |
+
+> **The rehearsal chain is Robinhood testnet, chain id 46630.** Every row above
+> said "Sepolia" until 2026-09-03, which was correct while the project targeted
+> Base and then Ethereum, and became wrong when it moved to Robinhood Chain
+> (`docs/ROBINHOOD_MIGRATION.md`). A drill rehearses the deployment you are
+> going to have to defend; rehearsing on a chain this protocol is no longer
+> deployed to would exercise the human steps and none of the chain-specific
+> ones — and `_blockNumber()` reading `ArbSys` instead of `block.number` is
+> exactly the kind of difference a drill is supposed to surface.
+
+> **Q4 cannot be run as written yet.** Its success criterion depends on a
+> Defender alert that does not exist: on-chain event alerting is **PM-E2** in
+> `docs/PRE_MAINNET_CHECKLIST.md`. The alert definitions are now specified and
+> version-controlled (`docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json`),
+> but nothing has been imported into a provider, so no alert can fire. The
+> frontend error
+> monitoring that *was* wired (Sentry, PM-E1) reports browser and API-route
+> errors — it sees nothing on chain, and a forged-attestation attempt that
+> reverts inside the contract produces no frontend error at all. Either complete
+> PM-E2 before scheduling Q4, or run Q4 with manual log inspection and record
+> that the detection half was not exercised. Do not mark the drill passed on the
+> strength of the attempts failing; the attempts failing is the *contract*
+> working, not the *response* working.
 
 Record drill outcomes in the incident-response log even if no real incident
 occurred. The presence of a quarterly cadence is itself evidence of
@@ -536,6 +631,9 @@ operational maturity.
 │  ROTATE PoG SIGNER      pause → stop API → setPogSigner → restart API  │
 │                         → unpause                                      │
 │  DELIST BUYBACK TOKEN   Gnosis Safe → treasury.removeLadderToken(…)    │
+│  POKE BUYBACK           cast send $TREASURY "pokeBuyback()"            │
+│                         NO ROLE NEEDED — anyone, no Safe tx.  Use when │
+│                         STATE-06 fires (reservoir ≥1 ETH, idle 24h).   │
 │                                                                        │
 │  PAUSE IS NARROW.  It stops createLaunch and registerPoG.  THAT IS     │
 │  ALL.  It does NOT stop deposits into a live genesis round — deposit   │
@@ -561,6 +659,11 @@ operational maturity.
 
 ---
 
-*Last updated: 2026-08-25 (v5.0 — ladder halt playbook §2b; corrected the pause
-boundary: `deposit` is NOT paused; owner-compromise section covers rolling
-halts).*
+*Last updated: 2026-08-26 (v5.0 — §4 cap table corrected to the ETH-native
+`maxPogAllocationLimit` / `perWalletCap`; the `MAX_ALLOC_SATO_WEI` row referred
+to a constant that does not exist. §6b now links a real
+`docs/MANUAL_INTERACTION.md`.)*
+
+*Previously: 2026-08-25 — ladder halt playbook §2b; corrected the pause
+boundary (`deposit` is NOT paused); owner-compromise section covers rolling
+halts.*

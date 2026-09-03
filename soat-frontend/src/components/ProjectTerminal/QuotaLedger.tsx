@@ -12,12 +12,12 @@ import { fmt } from './format'
 // the live `factory.eligibility()` verdict rather than against a cumulative
 // deposit total.  While the projected deposit still fits, the final line reads:
 //
-//     → H-01_GUARD: ACTIVE
+//     → WITHIN YOUR LIMIT
 //
 // On actual breach (a parsed input that exceeds the remaining window budget)
 // the guard line flips to:
 //
-//     → H-01_BREACH: INTERCEPTED
+//     → OVER YOUR LIMIT FOR THIS WINDOW
 //
 // and the DEPOSIT button locks (handled in the GenesisPanel).
 //
@@ -85,15 +85,19 @@ export function QuotaLedger({
         )
       )}
       <div className="pt-2">
+        {/* A breach locks the deposit button, so it is a blocked action the
+            reader can still fix by typing less — `warning`, not `danger`, and
+            certainly not `brand`, which is the colour of the button they are
+            being stopped from pressing. */}
         {breached
           ? (
-            <p className="font-mono text-label tracking-[0.4em] uppercase text-brand">
-              → H-01_BREACH: INTERCEPTED
+            <p className="font-mono text-label tracking-[0.4em] uppercase text-warning">
+              → OVER YOUR LIMIT FOR THIS WINDOW
             </p>
           )
           : (
             <p className="font-mono text-label tracking-[0.4em] uppercase text-text-tertiary">
-              → H-01_GUARD: ACTIVE
+              → WITHIN YOUR LIMIT
             </p>
           )}
       </div>

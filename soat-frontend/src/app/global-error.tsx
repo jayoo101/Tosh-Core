@@ -11,7 +11,11 @@
  *   • Own `<html>` / `<body>` because there is no surrounding layout.
  *   • Inline styles instead of Tailwind utility classes — global CSS has
  *     not necessarily loaded.
- *   • No imports beyond `react` + the props Next gives us.
+ *   • No imports that reach for provider context (wagmi, toast, theme).
+ *     `reportError` is the one exception: the Sentry client is initialised in
+ *     `instrumentation-client.ts` before any application code, needs no
+ *     context, and no-ops without a DSN.  A root-layout crash is precisely
+ *     the failure nobody would otherwise hear about (#26).
  *
  *  If a user sees this page, the deployment shipped a critical bug.  The
  *  page is intentionally austere — black background, white text, one
@@ -19,6 +23,8 @@
  */
 
 import { useEffect } from 'react'
+
+import { reportError } from '@/lib/observability'
 
 interface GlobalErrorProps {
   error: Error & { digest?: string }
@@ -30,6 +36,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('[Tosh global error boundary]', error)
     }
+    reportError(error, { surface: 'global-error-boundary', digest: error.digest })
   }, [error])
 
   return (

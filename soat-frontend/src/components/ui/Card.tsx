@@ -47,7 +47,8 @@ export interface CardProps {
 
 const TONE_BORDER: Record<CardTone, string> = {
   default: '',
-  ok: 'border-brand/30',
+  // State border, not an armed control. See the note in Badge.tsx.
+  ok: 'border-success/30',
   warn: 'border-warning/30',
   danger: 'border-danger/30',
   admin: 'border-admin/30',

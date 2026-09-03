@@ -55,8 +55,7 @@ import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
   HOOK_ABI,
-  MAINNET_CHAIN_LABEL,
-  TESTNET_CHAIN_LABEL,
+  CHAIN_BYLINE,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
 import {
@@ -146,6 +145,8 @@ interface ParticipatedRow extends LaunchRow {
 
 interface HookSnapshot {
   row:             ParticipatedRow
+  /** At least one of the seven reads failed, so every field below is a placeholder. */
+  degraded:        boolean
   cooldownEnd:     bigint
   launched:        boolean
   totalEth:        bigint
@@ -292,18 +293,31 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       const off = i * 7
       const d   = fullDataQuery.data
       const row = participated[i]
-      const cooldownEnd     = d[off    ]?.status === 'success' ? d[off    ].result as bigint  : 0n
-      const launched        = d[off + 1]?.status === 'success' ? d[off + 1].result as boolean : false
-      const totalEth        = d[off + 2]?.status === 'success' ? d[off + 2].result as bigint  : 0n
-      const softCap         = d[off + 3]?.status === 'success' ? d[off + 3].result as bigint  : 0n
-      const hasClaimed      = d[off + 4]?.status === 'success' ? d[off + 4].result as boolean : false
-      const genesisClaimSup = d[off + 5]?.status === 'success' ? d[off + 5].result as bigint  : 0n
-      const symbol          = d[off + 6]?.status === 'success' ? d[off + 6].result as string  : '???'
+      // `useReadContracts` degrades PER CALL, so these seven legs can land in
+      // any mix of success and failure. Coalescing a failure to `false`/`0n`
+      // turned an RPC hiccup into a confident statement: a failed `launched`
+      // leg hid the claim CTA on a launched project, and a failed
+      // `GENESIS_CLAIM_SUPPLY` showed a real allocation as `0`. Both read as
+      // "you have nothing to claim", which is the worst thing this drawer can
+      // say incorrectly.
+      //
+      // So: all seven or none. A row that could not be read fully is marked
+      // degraded and renders as unread rather than as empty.
+      const legs = [d[off], d[off + 1], d[off + 2], d[off + 3], d[off + 4], d[off + 5], d[off + 6]]
+      const degraded = legs.some(l => l?.status !== 'success')
+
+      const cooldownEnd     = degraded ? 0n    : d[off    ].result as bigint
+      const launched        = degraded ? false : d[off + 1].result as boolean
+      const totalEth        = degraded ? 0n    : d[off + 2].result as bigint
+      const softCap         = degraded ? 0n    : d[off + 3].result as bigint
+      const hasClaimed      = degraded ? false : d[off + 4].result as boolean
+      const genesisClaimSup = degraded ? 0n    : d[off + 5].result as bigint
+      const symbol          = degraded ? '???' : d[off + 6].result as string
       const claimable       =
-        launched && !hasClaimed && totalEth > 0n
+        !degraded && launched && !hasClaimed && totalEth > 0n
           ? (genesisClaimSup * row.ethDeposited) / totalEth
           : 0n
-      out.push({ row, cooldownEnd, launched, totalEth, softCap, hasClaimed, genesisClaimSup, symbol, claimable })
+      out.push({ row, degraded, cooldownEnd, launched, totalEth, softCap, hasClaimed, genesisClaimSup, symbol, claimable })
     }
     return out
   }, [fullDataQuery.data, participated])
@@ -469,7 +483,7 @@ function DrawerHeader({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-black text-text-primary uppercase tracking-widest">My Profile</h2>
-          <p className="text-label text-text-quiet font-mono mt-0.5">{MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</p>
+          <p className="text-label text-text-quiet font-mono mt-0.5">{CHAIN_BYLINE}</p>
         </div>
         <button
           type="button"
@@ -538,7 +552,7 @@ function DrawerFooter() {
     <footer className="px-5 py-3 border-t border-border-subtle
                        text-micro tracking-[0.32em] uppercase text-text-quiet
                        flex items-center justify-between gap-3">
-      <span>v4.3 · {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}</span>
+      <span>v4.3 · {CHAIN_BYLINE}</span>
       <span>esc · click_outside</span>
     </footer>
   )
@@ -700,7 +714,7 @@ function AssetRow({
   snapshot:  HookSnapshot
   onClaimed: () => void
 }) {
-  const { row, launched, totalEth, softCap, hasClaimed, claimable, symbol } = snapshot
+  const { row, degraded, launched, totalEth, softCap, hasClaimed, claimable, symbol } = snapshot
 
   // Routed through useTxAction rather than a bare useWriteContract: this row
   // previously read neither the write error nor the receipt, so a rejected
@@ -739,14 +753,22 @@ function AssetRow({
           </span>
         </div>
         <span className={`text-micro tracking-[0.32em] uppercase
-                          ${launched ? 'text-brand' : 'text-text-tertiary'}`}>
-          {launched ? 'CURVE' : 'GENESIS'}
+                          ${degraded ? 'text-text-quiet' : launched ? 'text-brand' : 'text-text-tertiary'}`}>
+          {degraded ? 'UNREAD' : launched ? 'CURVE' : 'GENESIS'}
         </span>
       </header>
 
+      {/* `ethDeposited` came from an earlier read that succeeded, so it stays
+          on the degraded row — it is the one number here that is still known. */}
       <Row label="DEPOSITED" value={`${formatEth(row.ethDeposited)} ETH`} />
 
-      {!launched && (
+      {degraded && (
+        <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">
+          COULD NOT READ THIS LAUNCH — RETRYING. NOTHING BELOW IS A STATEMENT ABOUT YOUR BALANCE.
+        </p>
+      )}
+
+      {!launched && !degraded && (
         <div className="mt-3">
           <div className="relative h-1 bg-surface-card border border-border-subtle">
             <div

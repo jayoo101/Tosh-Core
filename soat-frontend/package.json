@@ -3,19 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/checkEnvShadow.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "tokens": "node scripts/checkTokens.mjs",
     "tokens:strict": "node scripts/checkTokens.mjs --strict",
-    "verify": "node scripts/checkTokens.mjs --strict && tsc --noEmit && eslint && next build"
+    "guard:envshadow": "node scripts/checkEnvShadow.mjs",
+    "guard:chain": "node scripts/checkChainCopy.mjs",
+    "guard:env": "node scripts/checkPublicEnv.mjs",
+    "guard:rpc": "node scripts/checkServerRpc.mjs",
+    "guard:supabase": "node scripts/checkSupabase.mjs",
+    "guard:v4math": "node scripts/runTsGuard.mjs scripts/checkV4Math.ts",
+    "guard:lpactions": "node scripts/runTsGuard.mjs scripts/checkLpActions.ts",
+    "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:rpc && npm run guard:supabase && npm run guard:v4math && npm run guard:lpactions",
+    "verify": "node scripts/checkTokens.mjs --strict && tsc --noEmit && eslint && npm run guards && npm test && next build"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.71.0",
     "@supabase/supabase-js": "^2.105.4",
     "@tanstack/react-query": "^5.100.10",
     "lucide-react": "^1.14.0",
-    "next": "16.2.6",
+    "next": "^16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hot-toast": "^2.6.0",
@@ -28,8 +40,19 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "^16.2.12",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "ws": "^8.21.3",
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.3",
+    "js-yaml": "^4.3.1",
+    "nanoid": "^3.3.18",
+    "@babel/core": "^7.29.7",
+    "brace-expansion@<2": "^1.1.18",
+    "brace-expansion@>=4": "^5.0.9"
   }
 }

@@ -9,7 +9,8 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 /*//////////////////////////////////////////////////////////////////////////
 //  RecomputeInitcodeHash.s.sol
 //
-//  Pre-mainnet item #23 — Live-reads the freshly-deployed factory's
+//  Pre-mainnet item #23 (PM-C6 in docs/PRE_MAINNET_CHECKLIST.md, where the
+//  numbering is defined) — Live-reads the freshly-deployed factory's
 //  `getLiveHookInitcodeHash()` and `HOOK_CREATION_CODEHASH` so the
 //  frontend salt miner can be reseeded against the production build.
 //

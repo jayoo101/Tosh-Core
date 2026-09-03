@@ -69,7 +69,7 @@ contract ToshV5FactoryTest is Test {
 
     function _mineSalt(uint256 duration) internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), duration
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), duration
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
@@ -82,7 +82,7 @@ contract ToshV5FactoryTest is Test {
 
     function _mineInvalidSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
@@ -109,6 +109,41 @@ contract ToshV5FactoryTest is Test {
 
     function _h(address hook) internal pure returns (ToshLaunchpadHook) {
         return ToshLaunchpadHook(payable(hook));
+    }
+
+    /// @notice End-to-end gas guard on the single most expensive user action on
+    ///         the platform.
+    ///
+    /// @dev    `createLaunch` measured 5,016,031 gas when the hook and the token
+    ///         were each deployed as a full copy per project — 91.6 % of it code
+    ///         deposit at 200 gas/byte.  Both are now EIP-1167 clones, which
+    ///         brought it to roughly 543 k.
+    ///
+    ///         The budget is set above the current figure rather than snug
+    ///         against it: the point is to catch a regression that puts code
+    ///         deposit back on this path, not to fail on a compiler upgrade
+    ///         shifting a few thousand gas.  Anything that trips this has almost
+    ///         certainly stopped cloning something, or added an immutable arg.
+    ///
+    ///         Run under `--isolate` this measures 557 k and under plain `forge
+    ///         test` 525 k, the difference being storage the harness keeps warm.
+    ///         The budget clears the higher one.
+    ///
+    ///         Mining is excluded on purpose — the salt is ground off-chain and
+    ///         the creator pays nothing for it.
+    function test_createLaunch_gasStaysUnderBudget() public {
+        bytes32 salt = _mineSalt();
+        uint256 fee = factory.launchFee();
+
+        vm.prank(creator);
+        uint256 before = gasleft();
+        factory.createLaunch{value: fee}("Budget", "BGT", projTreasury, projTreasury, salt, fee, 24 hours);
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("createLaunch gas", used);
+        emit log_named_uint("was, before cloning", 5_016_031);
+
+        assertLt(used, 640_000, "createLaunch regressed: code deposit is probably back");
     }
 
     // ── Constructor ───────────────────────────────────────────────────────────
@@ -693,9 +728,8 @@ contract ToshV5FactoryTest is Test {
     function _softCapThatInvalidates(bytes32 salt) internal view returns (uint256) {
         bytes32 finalSalt = keccak256(abi.encode(creator, salt));
         for (uint256 cap = 2 ether; cap < 2 ether + 1000; ++cap) {
-            bytes32 initHash = factory.hookInitcodeHash(
-                projTreasury, creator, projTreasury, cap, factory.maxPogAllocationLimit(), 24 hours
-            );
+            bytes32 initHash =
+                factory.hookInitcodeHash(projTreasury, creator, cap, factory.maxPogAllocationLimit(), 24 hours);
             if (!HookMiner.isValidHookAddress(HookMiner.computeAddress(address(factory), finalSalt, initHash))) {
                 return cap;
             }
@@ -915,7 +949,7 @@ contract ToshV5FactoryTest is Test {
     function test_predictHookAddress_matchesActual() public {
         bytes32 salt = _mineSalt();
         bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         address predicted = factory.predictHookAddress(creator, salt, initHash);
         uint256 fee = factory.launchFee();
@@ -931,14 +965,7 @@ contract ToshV5FactoryTest is Test {
         (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
         assertTrue(
             factory.verifyHookDeployment(
-                hook,
-                creator,
-                projTreasury,
-                projTreasury,
-                factory.defaultSoftCap(),
-                factory.maxPogAllocationLimit(),
-                24 hours,
-                salt
+                hook, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours, salt
             )
         );
     }
@@ -948,7 +975,6 @@ contract ToshV5FactoryTest is Test {
             factory.verifyHookDeployment(
                 makeAddr("randomHook"),
                 creator,
-                projTreasury,
                 projTreasury,
                 factory.defaultSoftCap(),
                 factory.maxPogAllocationLimit(),
@@ -968,7 +994,6 @@ contract ToshV5FactoryTest is Test {
                 hook,
                 creator,
                 projTreasury,
-                projTreasury,
                 factory.defaultSoftCap(),
                 factory.maxPogAllocationLimit(),
                 24 hours,
@@ -981,27 +1006,44 @@ contract ToshV5FactoryTest is Test {
         assertEq(factory.getLiveHookInitcodeHash(), factory.getLiveHookInitcodeHash());
     }
 
-    function test_hookInitcodeHash_matchesHookMiner() public view {
-        bytes32 fromFactory = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+    /// @dev Rebuilds the initcode byte by byte instead of calling
+    ///      `ToshCloneLib`, which would make the assertion a tautology. This
+    ///      is the executable spec for the off-chain miner in
+    ///      `soat-frontend/src/app/lib/hookMiner.ts`: any implementation that
+    ///      produces these 131 bytes will predict the right address, and any that
+    ///      does not will mine salts that fail `InvalidHookSalt`.
+    ///
+    ///      Layout, and why each field is where it is:
+    ///        10 B  creation stub, returning the 121 (0x79) bytes that follow
+    ///        45 B  EIP-1167 runtime, with the implementation address at [10..29]
+    ///        76 B  immutable args: creator, projectTreasury, softCap:uint128,
+    ///              perWalletCap:uint128, genesisDuration:uint32
+    ///
+    ///      Note what is NOT here: `poolManager`, `factory` and `ladderTreasury`
+    ///      are identical for every launch, so they are ordinary immutables on the
+    ///      shared implementation and cost no per-project byte. `projectAdmin` is
+    ///      not here either — it is mutable by design and is set by
+    ///      `initializeToken`.
+    function test_hookInitcodeHash_matchesHandBuiltCloneInitcode() public view {
+        uint256 softCap = factory.defaultSoftCap();
+        uint256 walletCap = factory.maxPogAllocationLimit();
+
+        bytes32 fromFactory = factory.hookInitcodeHash(projTreasury, creator, softCap, walletCap, 24 hours);
+
+        bytes memory initcode = abi.encodePacked(
+            hex"3d607980600a3d3981f3",
+            hex"363d3d373d3d3d363d73",
+            factory.hookImplementation(),
+            hex"5af43d82803e903d91602b57fd5bf3",
+            creator,
+            projTreasury,
+            uint128(softCap),
+            uint128(walletCap),
+            uint32(24 hours)
         );
-        bytes32 local = keccak256(
-            abi.encodePacked(
-                type(ToshLaunchpadHook).creationCode,
-                abi.encode(
-                    mockPoolManager,
-                    address(factory),
-                    projTreasury,
-                    creator,
-                    projTreasury,
-                    ladder,
-                    factory.defaultSoftCap(),
-                    factory.maxPogAllocationLimit(),
-                    24 hours
-                )
-            )
-        );
-        assertEq(fromFactory, local);
+
+        assertEq(initcode.length, 131, "initcode is 131 bytes");
+        assertEq(keccak256(initcode), fromFactory, "factory agrees with the hand-built layout");
     }
 
     // ── Genesis window selection ──────────────────────────────────────────────
@@ -1023,13 +1065,13 @@ contract ToshV5FactoryTest is Test {
     ///      miner to take the creator's choice as an input.
     function test_hookInitcodeHash_isWindowSpecific() public view {
         bytes32 fast = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 3 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 3 hours
         );
         bytes32 standard = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         bytes32 slow = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 72 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 72 hours
         );
 
         assertTrue(fast != standard, "3h and 24h hash differently");
@@ -1047,8 +1089,8 @@ contract ToshV5FactoryTest is Test {
         // asserting a coincidence rather than the CREATE2 binding.
         uint256 soft = factory.defaultSoftCap();
         uint256 cap = factory.maxPogAllocationLimit();
-        bytes32 hashSlow = factory.hookInitcodeHash(projTreasury, creator, projTreasury, soft, cap, 72 hours);
-        bytes32 hashFast = factory.hookInitcodeHash(projTreasury, creator, projTreasury, soft, cap, 3 hours);
+        bytes32 hashSlow = factory.hookInitcodeHash(projTreasury, creator, soft, cap, 72 hours);
+        bytes32 hashFast = factory.hookInitcodeHash(projTreasury, creator, soft, cap, 3 hours);
 
         bytes32 saltForSlow;
         bool found;
@@ -1071,14 +1113,22 @@ contract ToshV5FactoryTest is Test {
         factory.createLaunch{value: fee}("Swap", "SWP", projTreasury, projTreasury, saltForSlow, fee, 3 hours);
     }
 
-    /// @dev An unlisted window is rejected by the hook's constructor, which makes
-    ///      the CREATE2 return address(0) and surfaces as `DeployFailed` here.
+    /// @dev An unlisted window is rejected by `initializeToken`, which reverts the
+    ///      whole `createLaunch`.
+    ///
+    ///      This used to surface as `DeployFailed`: the duration was a constructor
+    ///      argument, so a bad one reverted the constructor, CREATE2 returned
+    ///      address(0), and the factory reported the deployment as having failed.
+    ///      A clone has no constructor to reject anything — it deploys fine and
+    ///      carries the bad duration in its bytecode — so the rejection now
+    ///      happens one step later, on the hook's own terms, and says what is
+    ///      actually wrong.
     function test_createLaunch_rejectsUnlistedWindow() public {
         bytes32 salt = _mineSalt(12 hours);
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.DeployFailed.selector);
+        vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
         factory.createLaunch{value: fee}("Odd", "ODD", projTreasury, projTreasury, salt, fee, 12 hours);
     }
 
@@ -1091,7 +1141,7 @@ contract ToshV5FactoryTest is Test {
 
         address sentinel = factory.platformTreasury();
         bytes32 expected = factory.hookInitcodeHash(
-            sentinel, sentinel, sentinel, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), standard
+            sentinel, sentinel, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), standard
         );
 
         assertEq(factory.getLiveHookInitcodeHash(), expected, "live hash must use DURATION_STANDARD");

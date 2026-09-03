@@ -13,10 +13,17 @@
 //   • deposit(hook, referrer) is payable
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is part
 //     of the hook initcode, so the salt must be mined against the SAME window
-//   • hookInitcodeHash is 6-arg: (projectTreasury, creator, projectAdmin, softCap,
-//     perWalletCap, genesisDuration)
-//   • Hook constructor is 9-arg (no SATO): poolManager, factory, projectTreasury,
-//     creator, projectAdmin, ladderTreasury, softCap, perWalletCap, genesisDuration
+//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, softCap,
+//     perWalletCap, genesisDuration).  projectAdmin was REMOVED by the EIP-1167
+//     clone refactor — it is mutable by design and set at initialisation, so it
+//     no longer moves the mined address.  This changed the selector
+//     (0x53ced9da -> 0x42b973ff), so a factory deployed before that refactor
+//     answers the OLD signature and reverts on this one.  If the launch page
+//     reports 'hookInitcodeHash reverted', check hookImplementation() first:
+//     it exists only on clone-era factories, and the real fix is a redeploy.
+//   • Hook constructor is 3-arg: (poolManager, factory, ladderTreasury).  It
+//     builds the shared IMPLEMENTATION; per-project config lives in the clone's
+//     immutable args, not in a constructor call.
 //   • mintBondingCurve(tokenAmount) is payable; quoteMint returns ETH cost
 //   • Hook address mask is 0x20CC
 //   • Treasury owner surface is curation ONLY: addLadderToken / removeLadderToken.
@@ -337,6 +344,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "hookImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hookInitcodeHash",
     "inputs": [
       {
@@ -346,11 +366,6 @@ export const FACTORY_ABI = [
       },
       {
         "name": "creator_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "projectAdmin",
         "type": "address",
         "internalType": "address"
       },
@@ -986,6 +1001,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "tokenImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "tokenToHook",
     "inputs": [
       {
@@ -1082,11 +1110,6 @@ export const FACTORY_ABI = [
       },
       {
         "name": "projectTreasury",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "projectAdmin",
         "type": "address",
         "internalType": "address"
       },
@@ -1491,12 +1514,27 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
+    "name": "CapTooLargeToPack",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CloneDeployFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CooldownActive",
     "inputs": []
   },
   {
     "type": "error",
     "name": "DeployFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DurationTooLargeToPack",
     "inputs": []
   },
   {
@@ -1685,39 +1723,9 @@ export const HOOK_ABI = [
         "internalType": "address"
       },
       {
-        "name": "_projectTreasury",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "_creator",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "_projectAdmin",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "_ladderTreasury",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "_softCap",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "_perWalletCap",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "_genesisDuration",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -1846,6 +1854,45 @@ export const HOOK_ABI = [
   {
     "type": "function",
     "name": "MAX_TIERS_PER_TX",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PIGGYBACK_MIN_GAS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PIGGYBACK_TAIL_RESERVE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PIGGYBACK_TRIGGER_STEP",
     "inputs": [],
     "outputs": [
       {
@@ -3136,6 +3183,11 @@ export const HOOK_ABI = [
         "name": "token_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "projectAdmin_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -4050,6 +4102,11 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "NotAClone",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitialized",
     "inputs": []
   },
@@ -4179,6 +4236,19 @@ export const TREASURY_ABI = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "LEGS_PER_POKE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -4444,6 +4514,13 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "pokeBuyback",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "poolManager",
     "inputs": [],
     "outputs": [
@@ -4499,6 +4576,25 @@ export const TREASURY_ABI = [
       }
     ],
     "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unlockCallback",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -4708,7 +4804,17 @@ export const TREASURY_ABI = [
   },
   {
     "type": "error",
+    "name": "NotArmed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OnlyHook",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyPoolManager",
     "inputs": []
   },
   {
@@ -4737,6 +4843,16 @@ export const TREASURY_ABI = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "PiggybackInProgress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PoolNotLaunched",
+    "inputs": []
   },
   {
     "type": "error",

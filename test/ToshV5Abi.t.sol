@@ -3,6 +3,10 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
+import {ToshFactory} from "../src/ToshFactory.sol";
+import {ToshLadderTreasury, IToshFactoryRegistry, IToshHookPoolKey, IToshHookTwap} from "../src/ToshLadderTreasury.sol";
+import {ToshLaunchpadHook, IToshFactoryHalt, IToshLadderTreasury} from "../src/ToshLaunchpadHook.sol";
+
 /// @notice Guards against a stale `soat-frontend/src/app/lib/abis.ts`.
 ///
 ///         The sibling of `ToshV5BytecodeTest`.  A stale HOOK_BYTECODE mines
@@ -146,5 +150,102 @@ contract ToshV5AbiTest is Test {
         for (uint256 k; k < end - start; ++k) {
             out[k] = src[start + k];
         }
+    }
+}
+
+/// @notice Pins the five duck-typed interfaces the three contracts call each
+///         other through to the implementations that answer them.
+///
+///         `ToshLaunchpadHook`, `ToshLadderTreasury` and `ToshFactory` cannot
+///         import each other — the factory already imports the hook in order to
+///         deploy it, so any reverse import closes a cycle.  Each side therefore
+///         redeclares the slice of its counterpart it needs as a local
+///         interface and casts a bare address to it.  A cast compiles against
+///         ANY address, so nothing in the build checks that the declaration and
+///         the implementation still agree; drift surfaces only as a revert on a
+///         live pool.
+///
+///         Slither's `missing-inheritance` names three of these (see
+///         `docs/SECURITY_AUDIT.md` §5.7).  Inheriting the interfaces would be
+///         the compiler-enforced fix, but it perturbs hook bytecode and so
+///         invalidates every mined CREATE2 salt and `hookBytecode.ts`.  Pinning
+///         the selectors buys the same guarantee for free.
+///
+///         `IToshHookTwap` is why this is worth a test rather than a comment.
+///         `_buybackSqrtFloor` wraps that call in `try/catch` and returns
+///         `MIN_SQRT_PRICE + 1` — an unbounded floor — from the catch.  A drift
+///         there does not revert the buyback, it silently strips the slippage
+///         bound off every Tosh pool at once.
+contract ToshV5InterfaceSelectorTest is Test {
+    function test_hookReadsTheTreasuryItActuallyImplements() public pure {
+        assertEq(
+            IToshLadderTreasury.autoPiggybackBuyback.selector,
+            ToshLadderTreasury.autoPiggybackBuyback.selector,
+            "IToshLadderTreasury.autoPiggybackBuyback has drifted from ToshLadderTreasury"
+        );
+        assertEq(
+            IToshLadderTreasury.piggybackActive.selector,
+            ToshLadderTreasury.piggybackActive.selector,
+            "IToshLadderTreasury.piggybackActive has drifted from ToshLadderTreasury"
+        );
+    }
+
+    function test_hookReadsTheFactoryHaltItActuallyImplements() public pure {
+        assertEq(
+            IToshFactoryHalt.ladderMintingHalted.selector,
+            ToshFactory.ladderMintingHalted.selector,
+            "IToshFactoryHalt.ladderMintingHalted has drifted from ToshFactory"
+        );
+    }
+
+    /// @dev The one whose drift is silent rather than loud.
+    function test_treasuryReadsTheHookTwapItActuallyImplements() public pure {
+        assertEq(
+            IToshHookTwap.twapSqrtPriceX96.selector,
+            ToshLaunchpadHook.twapSqrtPriceX96.selector,
+            "IToshHookTwap.twapSqrtPriceX96 has drifted from ToshLaunchpadHook -- buybacks would "
+            "fall into the catch branch and run with an UNBOUNDED price floor"
+        );
+    }
+
+    function test_treasuryReadsTheHookPoolKeyItActuallyImplements() public view {
+        assertEq(
+            IToshHookPoolKey.getPoolKey.selector,
+            ToshLaunchpadHook.getPoolKey.selector,
+            "IToshHookPoolKey.getPoolKey has drifted from ToshLaunchpadHook"
+        );
+        assertEq(
+            IToshHookPoolKey.launched.selector,
+            _hook().launched.selector,
+            "IToshHookPoolKey.launched has drifted from ToshLaunchpadHook's public getter"
+        );
+    }
+
+    function test_treasuryReadsTheFactoryRegistryItActuallyImplements() public view {
+        assertEq(
+            IToshFactoryRegistry.registeredHooks.selector,
+            _factory().registeredHooks.selector,
+            "IToshFactoryRegistry.registeredHooks has drifted from ToshFactory's public getter"
+        );
+        assertEq(
+            IToshFactoryRegistry.tokenToHook.selector,
+            _factory().tokenToHook.selector,
+            "IToshFactoryRegistry.tokenToHook has drifted from ToshFactory's public getter"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev `Contract.member.selector` does not reach a public state variable's
+    ///      generated getter, only a declared function, so the three getters
+    ///      above have to be named through a typed reference instead.  Nothing
+    ///      is deployed or called: `.selector` is a compile-time constant, and
+    ///      the zero address never leaves these expressions.
+    function _hook() private view returns (ToshLaunchpadHook) {
+        return ToshLaunchpadHook(payable(address(0)));
+    }
+
+    function _factory() private view returns (ToshFactory) {
+        return ToshFactory(payable(address(0)));
     }
 }

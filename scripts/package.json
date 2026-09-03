@@ -6,9 +6,7 @@
     "pog": "npx ts-node --esm pogSigner.ts",
     "sync-bytecode": "node extractBytecode.js",
     "rebuild-and-sync": "cd .. && forge build && node scripts/extractBytecode.js",
-    "harvest": "npx ts-node harvestBot/harvest.ts",
-    "harvest:dry": "cross-env DRY_RUN=1 npx ts-node harvestBot/harvest.ts",
-    "typecheck:bot": "npx tsc --noEmit -p harvestBot/tsconfig.json"
+    "typecheck": "npx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

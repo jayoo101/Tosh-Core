@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useReadContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useState, useCallback, useMemo } from 'react'
+import { useReadContract } from 'wagmi'
 import { parseUnits, parseEventLogs, erc20Abi, type Address } from 'viem'
 
 import { PERMIT2, POSITION_MANAGER } from '@/lib/contracts'
@@ -12,6 +12,7 @@ import {
   Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction, toshToast,
   CLOCK_UNSYNCED,
 } from '@/components/ui'
+import type { TxReceipt } from '@/components/ui/useTxAction'
 import { fmt } from './format'
 
 const LP_SLIPPAGE_PRESETS = [
@@ -93,39 +94,83 @@ export function LiquidityPanel({
   })
 
   const nowSeconds = BigInt(nowSec)
-  const needsErc20Approval = tokenMax > 0n && (permit2Allowance ?? 0n) < tokenMax
+
+  // `undefined` means the read has not landed; `0n` means the chain answered
+  // zero. Coalescing them with `?? 0n` made every gate below state the pending
+  // case as fact — a fully funded LP was told "the wallet holds 0" for the
+  // first few hundred milliseconds after typing, and someone already holding a
+  // MAX_UINT160 approval was offered "Step 1 of 3 — approve" with a live
+  // handler, so clicking paid gas for a no-op. The panel already blocks on
+  // other unresolved reads (`token-unresolved`, `pool-price`, `clock-unsynced`);
+  // these two were the ones that slipped through.
+  const balanceUnresolved   = !!userAddress && tokenBalance === undefined
+  const allowanceUnresolved = !!userAddress && (permit2Allowance === undefined || posmAllowance === undefined)
+  const readsUnresolved     = tokenMax > 0n && (balanceUnresolved || allowanceUnresolved)
+
+  // Compared against the deadline the transaction will actually carry, not
+  // against now. Permit2 checks `expiration` when the block executes, so an
+  // allowance with ten seconds left passes a check against `now` and then
+  // reverts `AllowanceExpired` on arrival.
+  const mintDeadline = nowSeconds + TX_DEADLINE_SECONDS
+
+  const needsErc20Approval =
+    tokenMax > 0n && permit2Allowance !== undefined && permit2Allowance < tokenMax
   const needsPermit2Approval =
     tokenMax > 0n &&
-    (!posmAllowance || posmAllowance[0] < tokenMax || BigInt(posmAllowance[1]) <= nowSeconds)
+    posmAllowance !== undefined &&
+    (posmAllowance[0] < tokenMax || BigInt(posmAllowance[1]) <= mintDeadline)
 
   const insufficientEth   = ethMax > 0n && ethMax > ethBalance
-  const insufficientToken = tokenMax > 0n && tokenMax > (tokenBalance ?? 0n)
+  const insufficientToken =
+    tokenMax > 0n && tokenBalance !== undefined && tokenMax > tokenBalance
 
-  const {
-    send, hash: txHash, isBusy: busy,
-  } = useTxAction({
-    action: 'liquidity',
-  })
-  const { data: receipt, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  // This panel sends three different transactions through one `send`, so the
+  // confirmation handler has to work out which one came back. It used to not
+  // bother, and ran its full mint-completed routine after an APPROVAL too: a
+  // user typed 0.5, clicked "Step 1 of 3 — approve", and the amount was cleared
+  // out from under them before they reached step 3.
+  //
+  // The discriminator is the receipt itself rather than a "what did I last
+  // send" flag. A mint hands the user a posm ERC-721, so a `Transfer` to their
+  // address in these logs IS the mint, observed rather than remembered — no
+  // cross-render mutable state, and no way for the marker to be stale if a
+  // second transaction is sent before the first confirms.
+  const onConfirmed = useCallback((receipt: TxReceipt) => {
+    // Allowances can move on any of the three, so always re-read them.
+    void refetchErc20(); void refetchPermit2()
+    if (!userAddress) return
 
-  // Cache the minted tokenId so the position shows up even when the RPC's log
-  // index lags or `eth_getLogs` is unavailable on this endpoint.
-  useEffect(() => {
-    if (!isSuccess || !receipt || !userAddress) return
+    let minted = false
     try {
       const events = parseEventLogs({
         abi: POSM_ABI, eventName: 'Transfer', logs: receipt.logs,
       })
       for (const ev of events) {
         if (ev.args.to.toLowerCase() === userAddress.toLowerCase()) {
+          // Cache the tokenId so the position shows up even when the RPC's log
+          // index lags or `eth_getLogs` is unavailable on this endpoint.
           rememberLpPosition(userAddress, hookAddress, ev.args.id)
+          minted = true
         }
       }
     } catch { /* nothing to cache — the scan will still find it */ }
-    void refetchErc20(); void refetchPermit2(); void refresh()
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setEthAmount('')
-  }, [isSuccess, receipt, userAddress, hookAddress, refetchErc20, refetchPermit2, refresh])
+
+    void refresh()
+    if (minted) setEthAmount('')
+  }, [userAddress, hookAddress, refetchErc20, refetchPermit2, refresh])
+
+  // One receipt watcher, inside `useTxAction`. This panel used to open a second
+  // one on the same hash and gate on its `isSuccess`, which resolves for a
+  // transaction that mined AND REVERTED — so a failed `modifyLiquidities`
+  // (expired Permit2, slippage miss, `amountNMax` breach) wiped the user's
+  // input and refetched state that had not changed, while the toast correctly
+  // reported the failure. `useTxAction` already separates `receipt.status`
+  // from "the receipt arrived"; taking the receipt from it rather than
+  // re-fetching one keeps that distinction in a single place.
+  const { send, isBusy: busy } = useTxAction({
+    action: 'liquidity',
+    onConfirmed,
+  })
 
   const approveErc20 = useCallback(() => {
     if (!tokenAddress) return
@@ -223,57 +268,67 @@ export function LiquidityPanel({
       {
         id: 'clock-unsynced',
         active: nowSec === CLOCK_UNSYNCED,
-        label: '[clock_not_synced]',
+        label: 'Syncing the clock…',
         reason: 'Every signature below carries a deadline derived from the wall clock. Until it syncs, that deadline would land in 1970 and Permit2 would reject the position.',
         tone: 'neutral',
       },
       {
         id: 'token-unresolved',
         active: !tokenAddress,
-        label: '[token_not_resolved]',
-        reason: 'Still reading this project’s token address from the factory.',
+        label: 'Loading the token…',
+        reason: 'Still reading this project’s token address.',
         tone: 'neutral',
       },
       {
         id: 'amount-invalid',
         active: ethInvalid,
-        label: '[invalid_amount]',
+        label: 'Check the amount',
         reason: 'That is not a number this field can send as ETH.',
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !ethInvalid && ethWei === 0n,
-        label: '[enter_amount]',
+        label: 'Enter an amount',
         reason: 'Enter the amount of ETH to put into the pool.',
         tone: 'neutral',
       },
       {
         id: 'pool-price',
         active: sqrtPriceX96 === 0n,
-        label: '[pool_price_unavailable]',
-        reason: 'The pool price has not been read yet — a full-range mint cannot be sized without it.',
+        label: 'Pool price unavailable',
+        reason: 'The pool price has not come back yet, and a full-range position cannot be sized without it.',
+        tone: 'neutral',
+      },
+      {
+        id: 'reads-unresolved',
+        active: readsUnresolved,
+        label: 'Reading your wallet…',
+        reason: `Still reading this wallet’s ${symbol} balance and Permit2 allowances. The next step depends on both, so it is named once they land rather than guessed now.`,
         tone: 'neutral',
       },
       {
         id: 'balance-eth',
         active: insufficientEth,
-        label: '[insufficient_eth]',
+        label: 'Not enough ETH',
         reason: `This wallet does not hold the deposit plus its ${Number(slippageBps) / 100}% headroom.`,
         tone: 'warn',
       },
       {
         id: 'balance-token',
         active: insufficientToken,
-        label: `[insufficient_${symbol.toLowerCase()}]`,
+        label: `Not enough ${symbol}`,
         reason: `A full-range position funds both legs — this one needs ${fmt(tokenNeeded)} ${symbol} and the wallet holds ${fmt(tokenBalance ?? 0n)}.`,
+        // `?? 0n` is safe to print here only because `reads-unresolved` above
+        // holds the gate until `tokenBalance` is defined, so this blocker
+        // cannot be the active one while the number is still a placeholder.
         tone: 'warn',
       },
       {
         id: 'dust',
         active: liquidity === 0n && ethWei > 0n && sqrtPriceX96 > 0n,
-        label: '[too_small_to_mint]',
-        reason: 'That deposit is too small to mint any liquidity at the current price — raise it.',
+        label: 'Amount too small',
+        reason: 'That deposit is too small to add any liquidity at the current price. Raise it.',
         tone: 'warn',
       },
       {
@@ -301,17 +356,21 @@ export function LiquidityPanel({
       title={`MARKET MAKING · ${symbol}/ETH`}
       subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
     >
-      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-6">
-        <Readout label="POOL DEPTH · ETH"
+      <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">
+        <Readout layout="stack"
+                 label="POOL DEPTH · ETH"
                  value={fmt(poolAmounts.amount0)}
                  hint="all LPs incl. genesis" />
-        <Readout label={`POOL DEPTH · ${symbol}`}
+        <Readout layout="stack"
+                 label={`POOL DEPTH · ${symbol}`}
                  value={fmt(poolAmounts.amount1)}
                  hint="all LPs incl. genesis" />
-        <Readout label="MY POSITION · ETH"
+        <Readout layout="stack"
+                 label="MY POSITION · ETH"
                  value={fmt(totals.amount0)}
                  hint={`${positions.length} position${positions.length === 1 ? '' : 's'}`} />
-        <Readout label={`MY POSITION · ${symbol}`}
+        <Readout layout="stack"
+                 label={`MY POSITION · ${symbol}`}
                  value={fmt(totals.amount1)}
                  hint="withdrawable any time" />
       </div>

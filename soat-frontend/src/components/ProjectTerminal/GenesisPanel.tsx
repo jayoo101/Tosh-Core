@@ -5,9 +5,10 @@ import { parseUnits, formatUnits, type Address } from 'viem'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS,
 } from '@/lib/contracts'
+import { resolveReferrerNow } from '@/lib/useReferral'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
-  Card, Readout, Progress, Field, FieldAffix,
+  Card, Readout, Field, FieldAffix,
   ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
@@ -66,7 +67,7 @@ export function GenesisPanel(p: GenesisProps) {
   // first two into the same zero the last one produces.  Mirror that order here
   // so a ban never reads as an allowance the user can simply wait out.
   const banned          = p.blacklistedUntil > 0n && BigInt(p.nowSec) < p.blacklistedUntil
-  const unattested      = !banned && p.pogQuota === 0n
+  const unattested      = p.isConnected && !banned && p.pogQuota === 0n
   const onCooldown      = !banned && !unattested
                        && p.cooldownEnd > 0n && BigInt(p.nowSec) < p.cooldownEnd
   const quotaBlock: QuotaBlock = banned
@@ -89,9 +90,6 @@ export function GenesisPanel(p: GenesisProps) {
   const quotaRemaining  = p.quotaRemaining
   const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
   const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
-  const pctGenesis      = p.softCap > 0n
-    ? Number((p.totalEthDeposited * 10_000n) / p.softCap) / 100
-    : 0
 
   // The soft cap is a floor, not a ceiling: the hook keeps accepting deposits
   // right up to the deadline.  Say so, so clearing the cap reads as momentum
@@ -128,10 +126,13 @@ export function GenesisPanel(p: GenesisProps) {
     sendDeposit({
       address: FACTORY_ADDRESS, abi: FACTORY_ABI,
       functionName: 'deposit',
-      args: [p.hookAddress, p.referrer],
+      // Resolved at send time, not at render time: the factory binds a wallet
+      // to its referrer once and forever, and `p.referrer` is still the zero
+      // sentinel on the first frame after mount.
+      args: [p.hookAddress, resolveReferrerNow(p.userAddress)],
       value: amountWei,
     })
-  }, [p.hookAddress, p.referrer, amountWei, sendDeposit])
+  }, [p.hookAddress, p.userAddress, amountWei, sendDeposit])
 
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
@@ -158,60 +159,60 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'amount-invalid',
         active: amountInvalid,
-        label: '[invalid_amount]',
+        label: 'Check the amount',
         reason: 'That is not a number this field can send as ETH.',
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !amountInvalid && amountWei === 0n,
-        label: '[enter_amount]',
+        label: 'Enter an amount',
         reason: 'Enter the amount of ETH to deposit.',
         tone: 'neutral',
       },
       {
         id: 'blacklisted',
         active: banned,
-        label: '[wallet_blacklisted]',
-        reason: `The factory rejects every deposit from this address while the ban stands · ${banTxt}.`,
+        label: 'Wallet blocked',
+        reason: `Deposits from this address are rejected while the ban stands · ${banTxt}.`,
       },
       {
         id: 'unattested',
         active: unattested,
-        label: '[pog_attestation_required]',
-        reason: 'This wallet holds no Proof-of-Gas quota — run the gas-proof scan beside this button to have one written on-chain.',
+        label: 'Gas check required',
+        reason: 'This wallet has no gas history on record yet, so it has no deposit limit to spend. Run the scan beside this button to have one written on-chain.',
         tone: 'warn',
       },
       {
         id: 'cooldown',
         active: onCooldown,
-        label: `[cooldown ${cooldownTxt}]`,
+        label: `Cooldown · ${cooldownTxt}`,
         reason: `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
         tone: 'warn',
       },
       {
         id: 'quota-exceeded',
         active: quotaBreached,
-        label: '[revert: quota_exceeded]',
-        reason: `That is more than this wallet's remaining PoG window · ${fmt(quotaRemaining)} ETH left.`,
+        label: 'Over your limit',
+        reason: `That is more than this wallet may deposit in the current window · ${fmt(quotaRemaining)} ETH left.`,
       },
       {
         id: 'window-closed',
         active: windowClosed,
-        label: '[genesis_window_closed]',
-        reason: 'The genesis window has closed — the hook accepts no further deposits.',
+        label: 'Funding closed',
+        reason: 'The genesis window has closed, and no further deposits are accepted.',
         tone: 'warn',
       },
       {
         id: 'wallet-cap',
         active: walletCapBreached,
-        label: `[per_wallet_cap · ${fmt(walletHeadroom)} eth left]`,
+        label: `Over the wallet cap · ${fmt(walletHeadroom)} ETH left`,
         reason: `That is more than this project allows one wallet to hold · ${fmt(walletHeadroom)} ETH left for you.`,
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: '[insufficient_balance]',
+        label: 'Not enough ETH',
         reason: 'This wallet does not hold that much ETH.',
         tone: 'warn',
       },
@@ -235,18 +236,10 @@ export function GenesisPanel(p: GenesisProps) {
   return (
     <div className="flex flex-col">
       <Card
-        id="P-1"
-        title={`GENESIS PULSE · ${p.symbol}`}
-        subtitle="factory.deposit{value}(hook, referrer) — collecting genesis ETH until the window closes"
+        title="Deposit ETH"
+        subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
+        interactive={false}
       >
-        <Progress
-          pct={pctGenesis}
-          label={`GENESIS PROGRESS · ${p.symbol}`}
-          caption={`${fmt(p.totalEthDeposited)} / ${fmt(p.softCap)} ETH`}
-          tone="ink"
-          ascii
-        />
-
         {oversubscribed && !windowClosed && (
           <p className="font-mono text-label tracking-[0.32em] uppercase text-brand leading-relaxed">
             → OVERSUBSCRIBED · SOFT CAP CLEARED, DEPOSITS STAY OPEN UNTIL THE WINDOW ENDS
@@ -291,21 +284,25 @@ export function GenesisPanel(p: GenesisProps) {
           </div>
         )}
 
-        <QuotaLedger
-          quota={p.pogQuota}
-          remaining={quotaRemaining}
-          projected={amountWei > 0n ? amountWei : 0n}
-          blocked={quotaBlock}
-        />
+        {p.isConnected && (
+          <QuotaLedger
+            quota={p.pogQuota}
+            remaining={quotaRemaining}
+            projected={amountWei > 0n ? amountWei : 0n}
+            blocked={quotaBlock}
+          />
+        )}
 
-        <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
-          <Readout label="ETH BALANCE"
-                   value={`${fmt(p.ethBalance)} ETH`}
-                   hint={fmtFull(p.ethBalance, 18)} />
-          <Readout label="COOLDOWN"
-                   value={cooldownTxt}
-                   tone={onCooldown ? 'mute' : 'ink'} />
-        </div>
+        {p.isConnected && (
+          <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
+            <Readout label="ETH BALANCE"
+                     value={`${fmt(p.ethBalance)} ETH`}
+                     hint={fmtFull(p.ethBalance, 18)} />
+            <Readout label="COOLDOWN"
+                     value={cooldownTxt}
+                     tone={onCooldown ? 'mute' : 'ink'} />
+          </div>
+        )}
 
         {p.referrer !== ZERO_ADDRESS && (
           <Readout
@@ -353,12 +350,14 @@ export function GenesisPanel(p: GenesisProps) {
         )}
 
         <div className="flex gap-3 flex-wrap items-start">
-          <ActionButton gate={gate} />
-          <PogScanButton
-            userAddress={p.userAddress}
-            hookAddress={p.hookAddress}
-            refetch={p.refetch}
-          />
+          <ActionButton gate={gate} size="lg" />
+          {p.isConnected && (
+            <PogScanButton
+              userAddress={p.userAddress}
+              hookAddress={p.hookAddress}
+              refetch={p.refetch}
+            />
+          )}
         </div>
       </Card>
     </div>

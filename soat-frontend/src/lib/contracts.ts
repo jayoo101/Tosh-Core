@@ -19,10 +19,10 @@
 // ENV WIRING
 // ──────────
 //   NEXT_PUBLIC_FACTORY_ADDRESS     — deployed ToshFactory (required)
-//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 84532)
-//   NEXT_PUBLIC_POSITION_MANAGER    — V4 posm; Sepolia fallback if unset
+//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 46630, testnet)
+//   NEXT_PUBLIC_POSITION_MANAGER    — V4 posm; Robinhood address if unset
 //   NEXT_PUBLIC_PERMIT2             — Permit2; canonical address if unset
-//   NEXT_PUBLIC_STATE_VIEW          — V4 StateView; Sepolia fallback if unset
+//   NEXT_PUBLIC_STATE_VIEW          — V4 StateView; Robinhood address if unset
 //   POG_SIGNER_PRIVATE_KEY          — server-only PoG oracle key (NEVER expose)
 //   POG_PRIVATE_KEY                 — spec-compliant fallback alias of the above
 //
@@ -37,12 +37,15 @@ import { envAddress } from '@/lib/chain'
 export { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI }
 export {
   TARGET_CHAIN_ID,
-  BASE_SEPOLIA_ID,
+  ROBINHOOD_ID,
+  ROBINHOOD_TESTNET_ID,
   FOUNDRY_CHAIN_ID,
   SUPPORTED_POG_CHAIN_IDS,
   isSupportedPogChain,
   MAINNET_CHAIN_LABEL,
-  TESTNET_CHAIN_LABEL,
+  ACTIVE_CHAIN_LABEL,
+  IS_TESTNET,
+  CHAIN_BYLINE,
   CHAIN_STATUS_BADGE,
   CHAIN_POSITIONING,
   testnetExplorerTx,
@@ -93,33 +96,37 @@ export const hasLadderTreasury = /^0x[0-9a-fA-F]{40}$/.test(LADDER_TREASURY_ADDR
 
 /** Uniswap V4 PoolManager.  Hard-coded — not env-bound on purpose: a wrong
  *  PoolManager would silently mis-CREATE2 every hook.  Mainnet cutover is a
- *  source change here, reviewed, not an env flip. */
-export const POOL_MANAGER: Address = '0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408'
+ *  source change here, reviewed, not an env flip.
+ *
+ *  Uniswap deployed V4 on Robinhood Chain themselves, and 4663 and 46630 share
+ *  the address — so unlike the Base era there is no testnet/mainnet split to
+ *  get wrong here, and a rehearsal exercises the production value. */
+export const POOL_MANAGER: Address = '0x8366a39CC670B4001A1121B8F6A443A643e40951'
 
 /**
  * Uniswap V4 PositionManager — the retail LP entry point.
  *
- * NOTE: an earlier Base Sepolia posm (`0xda4910cd…`) was deployed against the
- * WRONG PoolManager and every liquidity call against it reverts.  The fallback
- * below is the corrected Sepolia deployment; override with
- * `NEXT_PUBLIC_POSITION_MANAGER` on any other chain.
+ * Verified deployed at the same address on both 4663 and 46630 (23,877 bytes of
+ * runtime on each), so the fallback is correct on either without an override.
  */
 export const POSITION_MANAGER: Address = envAddress(
-  'NEXT_PUBLIC_POSITION_MANAGER',
-  '0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80',
+  process.env.NEXT_PUBLIC_POSITION_MANAGER,
+  '0x58daec3116aae6D93017bAAea7749052E8a04fA7',
 )
 
-/** Permit2 — canonical address on every chain, overridable just in case. */
+/** Permit2 — canonical address on every chain, overridable just in case.
+ *  Confirmed present on both Robinhood chains. */
 export const PERMIT2: Address = envAddress(
-  'NEXT_PUBLIC_PERMIT2',
+  process.env.NEXT_PUBLIC_PERMIT2,
   '0x000000000022D473030F116dDEE9F6B43aC78BA3',
 )
 
 /** V4 StateView — read-only `getSlot0`, so the LP panel can size a deposit
- *  off the real sqrtPriceX96 rather than a derived spot. */
+ *  off the real sqrtPriceX96 rather than a derived spot.  Same address on both
+ *  Robinhood chains. */
 export const STATE_VIEW: Address = envAddress(
-  'NEXT_PUBLIC_STATE_VIEW',
-  '0x571291b572ed32ce6751a2cb2486ebee8defb9b4',
+  process.env.NEXT_PUBLIC_STATE_VIEW,
+  '0xF3334192D15450CdD385c8B70e03f9A6bD9E673b',
 )
 
 /** Full-range bounds, mirroring the hook's genesis position (TICK_SPACING 200). */

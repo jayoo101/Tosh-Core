@@ -12,8 +12,11 @@ import { fmt } from './format'
 
 export type TierRow = { price: bigint; totalAmount: bigint; soldAmount: bigint }
 
+export type TierStatus =
+  readonly [bigint, bigint, bigint, bigint, bigint, bigint, boolean]
+
 export function ShelfLadder({
-  hookAddress, p0, halted,
+  hookAddress, p0, halted, status,
 }: {
   hookAddress: Address
   p0:          bigint
@@ -22,17 +25,11 @@ export function ShelfLadder({
   /// gate — the gate can be wide open while the hook refuses every mint — so it
   /// gets its own badge state instead of being folded into `unlocked`.
   halted:      boolean
+  /// Also lifted rather than re-read. This component and BondingPanel were
+  /// polling the same `tierStatus` on the same 8s cadence, so every bonding
+  /// page ran the call twice and could render the two copies a beat apart.
+  status:      TierStatus | undefined
 }) {
-  const { data: statusRaw } = useReadContract({
-    address:      hookAddress,
-    abi:          HOOK_ABI,
-    functionName: 'tierStatus',
-    query:        { refetchInterval: 8_000 },
-  })
-  const status = statusRaw as
-    | readonly [bigint, bigint, bigint, bigint, bigint, bigint, boolean]
-    | undefined
-
   const tierIndex = status?.[0] ?? 0n
   const tierPrice = status?.[1] ?? 0n
   const remaining = status?.[2] ?? 0n
@@ -57,11 +54,14 @@ export function ShelfLadder({
 
   return (
     <div className="border border-border-subtle">
-      <div className="flex items-baseline justify-between px-4 py-2 border-b border-border-subtle">
-        <span className="text-label tracking-[0.4em] uppercase text-text-tertiary font-bold">
-          {'// DISCRETE SHELF LADDER · 4000 RUNGS · 2000× SPAN'}
+      {/* Wraps rather than squeezing: at 390px the title and the gate status
+          were sharing one line and interleaving into
+          "DISCRETE SHELF LADDER GATE / 4000 RUNGS OPEN". */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-subtle px-4 py-2">
+        <span className="text-label uppercase text-text-tertiary">
+          {'// SHELF LADDER · 4,000 SHELVES · 2,000× SPAN'}
         </span>
-        <span className={`font-mono text-label tabular-nums
+        <span className={`font-mono text-label whitespace-nowrap tabular-nums
                           ${halted ? 'text-danger' : 'text-text-tertiary'}`}>
           {halted
             ? 'LADDER HALTED · BREAKER'
@@ -69,14 +69,20 @@ export function ShelfLadder({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-4 px-4 py-3">
-        <Readout label="ACTIVE SHELF" value={`#${tierIndex.toString()} / ${TIER_COUNT}`} />
-        <Readout label="SHELF PRICE"  value={`${fmt(tierPrice)} ETH`} hint="per whole token" />
-        <Readout label="REMAINING"    value={fmt(remaining)} hint="tokens on this rung" />
+      {/* `stack`, not the default `row`. Four cells across an already-narrow
+          card leaves roughly 90px each, and a label pinned left with a price
+          pinned right cannot share that — the price ends up breaking at the
+          hyphen in its own exponent. Stacked, the label gets its own line and
+          the figure gets the full cell width. */}
+      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-4 px-4 py-3">
+        <Readout layout="stack" label="ACTIVE SHELF" value={`#${tierIndex.toString()} / ${TIER_COUNT}`} />
+        <Readout layout="stack" label="SHELF PRICE"  value={`${fmt(tierPrice)} ETH`} hint="per whole token" />
+        <Readout layout="stack" label="REMAINING"    value={fmt(remaining)} hint="tokens on this rung" />
         <Readout
+          layout="stack"
           label="105% CEILING"
           value={`${fmt(ceiling)} ETH`}
-          hint={unlocked ? 'min(spot, twap) · unlocked' : 'wait for spot/TWAP'}
+          hint={unlocked ? 'tracks the pool and its average' : 'held at the opening price'}
           tone={unlocked ? 'ok' : 'mute'}
         />
       </div>
@@ -115,15 +121,16 @@ export function ShelfLadder({
 
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle
                       font-mono text-label text-text-tertiary tabular-nums">
-        <span>P₀ = <span className="text-text-primary">{fmt(p0)} ETH</span></span>
-        <span>spot = <span className="text-text-primary">{fmt(spotPrice)}</span></span>
-        {/* A zero TWAP is the hook's "no full window yet" signal, not a price of
-            zero — the ceiling caps against P₀ until the window matures. */}
+        <span>opening = <span className="text-text-primary">{fmt(p0)} ETH</span></span>
+        <span>now = <span className="text-text-primary">{fmt(spotPrice)}</span></span>
+        {/* A zero average is the contract's "no full window yet" signal, not a
+            price of zero — the ceiling caps against the opening price until the
+            window matures, which is what the fallback text has to say. */}
         <span>
-          twap ={' '}
+          average ={' '}
           {twapPrice > 0n
             ? <span className="text-text-primary">{fmt(twapPrice)}</span>
-            : <span className="text-text-tertiary">MATURING · {TWAP_WINDOW_LABEL} WINDOW · CEILING ON P₀</span>}
+            : <span className="text-text-tertiary">SETTLING · {TWAP_WINDOW_LABEL} WINDOW · CEILING HELD AT OPENING</span>}
         </span>
       </div>
     </div>

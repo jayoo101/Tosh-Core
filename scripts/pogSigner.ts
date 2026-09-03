@@ -33,8 +33,17 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') })
 const POG_SIGNER_PRIVATE_KEY: string =
   process.env.POG_SIGNER_PRIVATE_KEY ?? (() => { throw new Error('POG_SIGNER_PRIVATE_KEY not set in .env') })()
 
-const FACTORY_ADDRESS: string = process.env.FACTORY_ADDRESS ?? '0x59c3749548e0cb0b3b6b0209001a0bb5819aae49'
-const CHAIN_ID: bigint = BigInt(process.env.CHAIN_ID ?? '84532')
+// Both are required rather than defaulted, and the reason is the digest below:
+// `chainid` and the factory address are signed INTO it. A stale default does not
+// fail here, it produces a well-formed signature the factory rejects — and the
+// revert an operator sees is a generic bad-signature error that says nothing
+// about which of the six signed fields was wrong. The previous defaults pointed
+// at the retired Base Sepolia staging deployment, so they were exactly that trap
+// waiting to be stepped in.
+const FACTORY_ADDRESS: string =
+  process.env.FACTORY_ADDRESS ?? (() => { throw new Error('FACTORY_ADDRESS not set in .env — it is signed into the PoG digest, so there is no safe default') })()
+const CHAIN_ID: bigint =
+  BigInt(process.env.CHAIN_ID ?? (() => { throw new Error('CHAIN_ID not set in .env — 4663 for Robinhood Chain, 46630 for its testnet') })())
 
 /** Admin API base URL for fetching the current gas-to-SATO rate. */
 const ADMIN_API_URL: string = process.env.ADMIN_API_URL ?? 'http://localhost:3000'
@@ -135,7 +144,7 @@ export async function issuePoGSignature(
  *   4. Default `0`
  *
  * Fetch the live value from chain when testing repeat scans:
- *   cast call $FACTORY_ADDRESS "pogNonces(address)(uint256)" $TEST_ADDRESS --rpc-url $BASE_SEPOLIA_RPC
+ *   cast call $FACTORY_ADDRESS "pogNonces(address)(uint256)" $TEST_ADDRESS --rpc-url $ROBINHOOD_TESTNET_RPC
  */
 function parseTestNonce(): bigint {
   const envRaw = process.env.TEST_NONCE

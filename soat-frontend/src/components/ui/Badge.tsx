@@ -35,8 +35,13 @@ export interface BadgeProps {
   className?: string
 }
 
+// `ok` is `success`, not `brand`. globals.css splits the two greens precisely
+// so an invitation and a confirmation stop being the same pixel value, but the
+// primitives kept pointing `ok` at `brand` after the split — which put every
+// state pill in the app back into the colour reserved for the one action the
+// user can take. A badge never invites anything; it reports.
 const TONES: Record<Tone, string> = {
-  ok: 'border-brand/40 bg-brand/10 text-brand',
+  ok: 'border-success/40 bg-success/10 text-success',
   warn: 'border-warning/40 bg-warning/10 text-warning',
   danger: 'border-danger/40 bg-danger/10 text-danger',
   info: 'border-info/40 bg-info/10 text-info',

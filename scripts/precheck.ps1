@@ -8,7 +8,17 @@
 #   2. forge fmt --check    (style drift)
 #   3. forge build          (compile-clean)
 #   4. node scripts/extractBytecode.js  (frontend bytecode stays in sync)
-#   5. (optional) forge test       — pass `-WithTests` to include
+#   5. cross-language tuple guards (PoG digest, pool geometry, salt miner)
+#   6. node scripts/checkPublicEnv.mjs  (NEXT_PUBLIC_* really reaches the browser)
+#   7. node scripts/checkServerRpc.mjs  (no RPC endpoint chosen without a chain id)
+#   8. node scripts/checkSupabase.mjs   (every Supabase query carries a deadline)
+#   9. (optional) forge test       — pass `-WithTests` to include
+#
+# Everything here also runs in CI (.github/workflows/test.yml). This script is
+# the fast local copy, not the authority — do not add a check here instead of
+# there. A guard only this script runs is a guard that only runs on Windows,
+# only for whoever remembers, which is how the salt-miner guard managed to be
+# red and unnoticed long enough to ship.
 #
 # Usage:
 #   ./scripts/precheck.ps1               # fast checks (~5s after warm cache)
@@ -76,6 +86,45 @@ Step "forge build" {
 #    in step 5, but step 5 is optional, so do it here too.
 Step "node scripts/extractBytecode.js" {
     node scripts/extractBytecode.js
+}
+
+# 5. Cross-language tuple guards. These are the checks that catch a change
+#    which compiles on both sides and passes every test while being wrong on
+#    chain — the class that has actually shipped from this repository before.
+#    They cost milliseconds, so there is no reason to make them opt-in.
+Step "node scripts/checkPogDigestTuple.mjs" {
+    node scripts/checkPogDigestTuple.mjs
+}
+
+Step "node scripts/checkPoolGeometry.mjs" {
+    node scripts/checkPoolGeometry.mjs
+}
+
+Step "node scripts/checkHookMinerTuple.mjs" {
+    node scripts/checkHookMinerTuple.mjs
+}
+
+# Catches `process.env[name]`, which Next.js cannot inline, and env vars the
+# production template documents but no source file statically reads.
+Step "node scripts/checkPublicEnv.mjs (soat-frontend)" {
+    Push-Location soat-frontend
+    try { node scripts/checkPublicEnv.mjs } finally { Pop-Location }
+}
+
+# Catches an RPC endpoint picked without an explicit chain id — a chain-named
+# env var honoured on a chain it does not name, or a hardcoded URL that some
+# other target chain inherits as its default.
+Step "node scripts/checkServerRpc.mjs (soat-frontend)" {
+    Push-Location soat-frontend
+    try { node scripts/checkServerRpc.mjs } finally { Pop-Location }
+}
+
+# Catches a Supabase query with no deadline. supabase-js has no default timeout
+# and retries 4x with backoff, so an unreachable registry grinds for ~14s rather
+# than failing.
+Step "node scripts/checkSupabase.mjs (soat-frontend)" {
+    Push-Location soat-frontend
+    try { node scripts/checkSupabase.mjs } finally { Pop-Location }
 }
 
 if ($WithTests) {

@@ -12,7 +12,7 @@ import {
   Badge, Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt } from './format'
-import { ShelfLadder } from './ShelfLadder'
+import { ShelfLadder, type TierStatus } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
  *  on-chain quote and sent as `msg.value`; excess ETH is refunded by the hook. */
@@ -54,9 +54,7 @@ export function BondingPanel(p: BondingProps) {
     functionName: 'tierStatus',
     query:        { refetchInterval: 8_000 },
   })
-  const status = statusRaw as
-    | readonly [bigint, bigint, bigint, bigint, bigint, bigint, boolean]
-    | undefined
+  const status = statusRaw as TierStatus | undefined
   const unlocked = status?.[6] ?? false
 
   // An order may sweep several shelves, so the ceiling on a single mint is not
@@ -108,6 +106,19 @@ export function BondingPanel(p: BondingProps) {
   // in that same block so a flash-pumped price can never be observed by the
   // 105% gate before it unwinds.  Polled together with the block height at the
   // same cadence, otherwise the two reads disagree about what "now" is.
+  //
+  // The two are comparable only because the hook stamps the chain's OWN height.
+  // On an Arbitrum Orbit chain `block.number` is the L1 height, and a contract
+  // that used it would report ~25.8M here while `useBlockNumber` returns the
+  // ~47.1M L2 head — the panel would conclude the lockout was open at every
+  // moment of its duration and invite a transaction that must revert. See
+  // `_blockNumber()` in ToshLaunchpadHook.
+  //
+  // Worth knowing what this is worth: blocks are 100 ms and the lockout is one
+  // of them, so at a 4 s poll this condition is almost never observed true. It
+  // stays because it costs nothing and the alternative to a stale `false` is a
+  // wallet popup for a doomed transaction — but it is not load-bearing, and the
+  // contract remains the thing that actually enforces the rule.
   const { data: lastSwapBlockRaw } = useReadContract({
     address:      p.hookAddress,
     abi:          HOOK_ABI,
@@ -133,8 +144,29 @@ export function BondingPanel(p: BondingProps) {
       refetchInterval: 8_000,
     },
   })
+  // `quoteData === undefined` and `0n` are different answers and the `??` below
+  // erases the difference, so the three states are separated here before
+  // anything downstream can conflate them:
+  //
+  //   • no quote yet      — in flight, or refetching after an input change
+  //   • the call reverted — an RPC fault, or a hook state the read rejects
+  //   • a quote of 0n     — a real answer, and the only one that means dust
+  //
+  // Both of the first two used to collapse into "the cost is zero". That armed
+  // the button with `value: 0n` against a payable mint, which the hook can only
+  // reject — a transaction that cannot succeed, submitted by a user who was
+  // shown no reason not to, and paid for in gas. It also mislabelled the
+  // ordinary in-flight moment as dust, telling anyone who typed and looked
+  // quickly to "raise it until the order is worth a wei".
+  const hasQuote = quoteData !== undefined
   const ethCost = (quoteData as bigint | undefined) ?? 0n
-  const isDust = quotable && !quoteFailed && ethCost === 0n
+  const quotePending = quotable && !quoteFailed && !hasQuote
+  const quoteUnavailable = quotable && quoteFailed
+  const isDust = quotable && !quoteFailed && hasQuote && ethCost === 0n
+  // `isQuoting` also covers a refetch over a stale figure, which is exactly when
+  // showing the old number would be worst: the amount on screen no longer
+  // matches the amount typed.
+  const quoteUnknown = quotePending || isQuoting
   const maxEthCost = ethCost === 0n ? 0n : ethCost + (ethCost * SLIPPAGE_BPS) / 10_000n
   const insufficientBal = maxEthCost > 0n && maxEthCost > p.ethBalance
   const gateLocked = tokenAmountWei > 0n && !unlocked
@@ -155,6 +187,12 @@ export function BondingPanel(p: BondingProps) {
   })
 
   const submitMint = useCallback(() => {
+    // Belt and braces behind the `quote-pending` / `quote-unavailable` blockers
+    // below. `mintBondingCurve` is payable and a zero-value call cannot do
+    // anything but revert, so the one thing worth hard-coding here is that we
+    // never ask a wallet to sign one — a future reordering of the blocker list
+    // should cost a dead button, not the user's gas.
+    if (maxEthCost === 0n) return
     sendMint({
       address: p.hookAddress, abi: HOOK_ABI,
       functionName: 'mintBondingCurve',
@@ -186,66 +224,80 @@ export function BondingPanel(p: BondingProps) {
       {
         id: 'amount-invalid',
         active: tokenAmountInvalid,
-        label: '[invalid_amount]',
+        label: 'Check the amount',
         reason: 'That is not a number this field can send as a token amount.',
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !tokenAmountInvalid && tokenAmountWei === 0n,
-        label: '[enter_amount]',
-        reason: `Enter how many ${p.symbol} to mint.`,
+        label: 'Enter an amount',
+        reason: `Enter how many ${p.symbol} to buy.`,
         tone: 'neutral',
       },
       {
         id: 'ladder-halted',
         active: halted,
-        label: `[ladder_halted · resumes ${haltTxt}]`,
+        label: `Paused · resumes ${haltTxt}`,
         reason: `Shelf minting is suspended by the protocol circuit breaker${haltIsGlobal ? ' platform-wide' : ' for this project'} — it lifts on its own in ${haltTxt}, and the pool keeps trading meanwhile.`,
       },
       {
         id: 'same-block',
         active: sameBlockLock,
-        label: '[minting_shut_this_block]',
-        reason: 'A swap landed in this block and the hook refuses to mint alongside it — the ladder reopens on the next block.',
+        label: 'Paused for this block',
+        reason: 'A swap landed in this block, and the contract will not sell from the shelves alongside one. It reopens on the next block.',
         tone: 'warn',
       },
       {
         id: 'exceeds-max',
         active: exceedsMax,
-        label: '[exceeds_max_per_call]',
-        reason: `One call can serve at most ${fmt(maxMintable)} right now — send the rest in a second transaction.`,
+        label: 'Amount too large',
+        reason: `A single purchase can take at most ${fmt(maxMintable)} right now — send the rest as a second transaction.`,
       },
       {
         id: 'awaiting-first-unlock',
         active: awaitingFirstUnlock,
-        label: '[awaiting_market_above_p0]',
-        reason: 'Shelf 0 sits 5% over the pool by design, so the ladder opens only once the market holds at or above P₀.',
+        label: 'Waiting for the market',
+        reason: 'The first shelf sits 5% above the pool by design, so it opens only once the market price reaches it.',
         tone: 'neutral',
       },
       {
         id: 'gate-locked',
         active: gateLocked,
-        label: '[gate_locked]',
-        reason: 'The 105% price gate is shut — the next shelf is above the ceiling until spot or TWAP catches up.',
+        label: 'Above the price ceiling',
+        reason: 'The next shelf is more than 5% above the current pool price, so it stays shut until the market catches up.',
       },
       {
         id: 'no-capacity',
         active: noCapacity,
-        label: '[no_size_available]',
-        reason: 'The hook will serve no size at all in one call right now — the ladder is either fully sold or priced out at the margin.',
+        label: 'No supply available',
+        reason: 'No shelf can serve any amount right now — the ladder is either sold out or priced out at the margin.',
+      },
+      {
+        id: 'quote-pending',
+        active: quotePending,
+        label: 'Checking the price…',
+        reason: `Working out what ${p.symbol} costs at the current shelf. The button arms as soon as the price comes back.`,
+        tone: 'neutral',
+      },
+      {
+        id: 'quote-unavailable',
+        active: quoteUnavailable,
+        label: 'Price unavailable',
+        reason: 'No price came back for that amount, so there is nothing to attach to the transaction. This is usually a network hiccup — it retries every few seconds.',
+        tone: 'warn',
       },
       {
         id: 'dust',
         active: isDust,
-        label: '[invalid_amount]',
-        reason: 'That amount quotes to zero ETH — raise it until the order is worth a wei.',
+        label: 'Amount too small',
+        reason: 'That amount costs less than the smallest unit of ETH. Raise it until it is worth at least a wei.',
         tone: 'warn',
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: '[insufficient_eth]',
+        label: 'Not enough ETH',
         reason: 'This wallet does not hold the quoted cost plus its slippage headroom.',
         tone: 'warn',
       },
@@ -262,8 +314,8 @@ export function BondingPanel(p: BondingProps) {
   // the explanation and the remedy.
   const amountError =
       tokenAmountInvalid ? 'NOT A NUMBER'
-    : exceedsMax         ? 'ABOVE THE PER-CALL MAX'
-    : isDust             ? 'QUOTES TO ZERO'
+    : exceedsMax         ? 'TOO BIG FOR ONE ORDER'
+    : isDust             ? 'COSTS LESS THAN A WEI'
     : insufficientBal    ? 'ABOVE YOUR BALANCE'
     : null
 
@@ -271,18 +323,18 @@ export function BondingPanel(p: BondingProps) {
   // state, and a same-block lock clears by itself on the next block — colouring
   // either of them as an error was the thing the old cascade got wrong.
   const amountHint =
-      sameBlockLock       ? 'MINTING IS SHUT FOR THIS BLOCK — THE LADDER REOPENS NEXT BLOCK'
-    : awaitingFirstUnlock ? 'LADDER OPENS ONCE THE MARKET HOLDS AT OR ABOVE P₀'
-    : maxMintable > 0n    ? `UP TO ${fmt(maxMintable)} IN ONE CALL · SWEEPS SHELVES`
+      sameBlockLock       ? 'THE LADDER IS SHUT FOR THIS BLOCK — IT REOPENS ON THE NEXT ONE'
+    : awaitingFirstUnlock ? 'THE LADDER OPENS ONCE THE MARKET REACHES THE FIRST SHELF'
+    : maxMintable > 0n    ? `UP TO ${fmt(maxMintable)} IN ONE ORDER · SWEEPS SHELVES`
     : undefined
 
   return (
     <Card
       id="P-2"
       title={`SHELF LADDER · ${p.symbol}`}
-      subtitle="hook.mintBondingCurve{value}(tokenAmount) · 4000 rungs to 2000× · sweeps shelves · 105% min(spot, TWAP) gate"
+      subtitle="Buy straight from the ladder. One order sweeps as many shelves as it needs, and a 105% ceiling stops it clearing far above the market price."
     >
-      <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} halted={halted} />
+      <ShelfLadder hookAddress={p.hookAddress} p0={p.p0} halted={halted} status={status} />
 
       {halted && (
         <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
@@ -290,23 +342,28 @@ export function BondingPanel(p: BondingProps) {
             → LADDER SUSPENDED · {haltIsGlobal ? 'PLATFORM-WIDE' : 'THIS PROJECT'} · LIFTS IN {haltTxt}
           </p>
           <p className="font-mono text-note text-text-tertiary leading-relaxed">
-            The protocol owner has tripped the circuit breaker, so the hook
-            rejects every <span className="text-text-primary">mintBondingCurve</span> call
-            until it expires. The pool itself is untouched — the token still
+            The protocol owner has tripped the circuit breaker, so the contract
+            turns away every shelf purchase until it expires. The pool itself is
+            untouched — the token still
             trades on Uniswap, existing balances are unaffected, and the halt
             lapses on its own without any further action.
           </p>
         </div>
       )}
 
-      <div className="grid grid-cols-2 @lg:grid-cols-4 gap-x-6">
-        <Readout label="P₀ · POOL OPEN"
+      {/* Stacked so the three prices match the hand-rolled gate cell beside
+          them, and so a price never has to share ~90px with its own label. */}
+      <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">
+        <Readout layout="stack"
+                 label="OPENING PRICE"
                  value={`${fmt(p.p0)} ETH`}
-                 hint="genesis LP price" />
-        <Readout label="SHELF 0 · +5%"
+                 hint="what the pool started at" />
+        <Readout layout="stack"
+                 label="FIRST SHELF · +5%"
                  value={`${fmt(p.shelfP0)} ETH`}
-                 hint="mint premium over market" />
-        <Readout label="ACTIVE SHELF"
+                 hint="premium over the market" />
+        <Readout layout="stack"
+                 label="ACTIVE SHELF"
                  value={`${fmt(p.currentPrice)} ETH`}
                  hint={`${premiumRaw.toFixed(2)}× ladder base`} />
         <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
@@ -316,20 +373,20 @@ export function BondingPanel(p: BondingProps) {
           ) : sameBlockLock ? (
             <Badge tone="warn">same-block lock</Badge>
           ) : awaitingFirstUnlock ? (
-            <Badge tone="neutral">awaits P₀</Badge>
+            <Badge tone="neutral">awaiting market</Badge>
           ) : unlocked ? (
             <Badge tone="ok" pip live>open</Badge>
           ) : (
             <Badge tone="warn">locked</Badge>
           )}
           <span className="text-note text-text-tertiary">
-            {fmt(p.phase2Minted)} / {fmt(p.bondingMax)} minted
+            {fmt(p.phase2Minted)} / {fmt(p.bondingMax)} sold
           </span>
         </div>
       </div>
 
       <Field
-        label="TOKEN AMOUNT TO MINT"
+        label="AMOUNT TO BUY"
         value={tokenAmount}
         onValueChange={setTokenAmount}
         placeholder="e.g. 1000"
@@ -342,30 +399,35 @@ export function BondingPanel(p: BondingProps) {
 
       {quotable && (
         <div className="border border-border-subtle">
-          <div className="grid grid-cols-1 @md:grid-cols-3 divide-x divide-border-subtle">
-            <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-text-tertiary">QUOTED COST</span>
-              <span className="font-mono text-base text-text-primary tabular-nums">
-                {isQuoting ? '…' : `${fmt(ethCost)} ETH`}
-              </span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-text-tertiary">MAX W/ 0.5% SLIPPAGE</span>
-              <span className="font-mono text-base text-text-primary tabular-nums">
-                {fmt(maxEthCost)} ETH
-              </span>
-              <span className="font-mono text-micro text-text-quiet">excess refunded on-chain</span>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-1">
-              <span className="font-mono text-label text-text-tertiary">L-01 GUARD</span>
-              {isDust
-                ? <span className="font-mono text-base text-brand">→ L-01_LOCKED</span>
-                : <span className="font-mono text-base text-brand">L-01_invariant: verified.</span>}
-            </div>
+          <div className="grid grid-cols-1 @md:grid-cols-3 divide-y divide-border-subtle @md:divide-x @md:divide-y-0">
+            <Readout
+              layout="stack"
+              className="px-4 py-3"
+              label="QUOTED COST"
+              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(ethCost)} ETH`}
+              tone={quoteUnavailable ? 'warn' : 'ink'}
+            />
+            <Readout
+              layout="stack"
+              className="px-4 py-3"
+              label="MOST YOU CAN PAY"
+              // Only one of these three cells used to admit it was waiting. The
+              // other two read straight off `maxEthCost`, which is 0n until the
+              // quote lands — so the panel spent every in-flight moment stating
+              // that the order costs nothing and sends nothing. A ceiling of
+              // "0 ETH" is not a pending state, it is a wrong answer.
+              value={quoteUnknown || quoteUnavailable ? '…' : `${fmt(maxEthCost)} ETH`}
+              hint="0.5% over the quote; the difference comes back"
+            />
+            <Readout
+              layout="stack"
+              className="px-4 py-3"
+              label="ORDER SIZE"
+              value={quoteUnknown ? '…' : isDust ? 'Below minimum' : 'Accepted'}
+              tone={isDust ? 'warn' : 'ok'}
+              hint={isDust ? 'Raise the amount until it costs at least a wei' : undefined}
+            />
           </div>
-          <p className="px-4 py-2 border-t border-border-subtle text-label font-mono text-text-quiet tracking-wider break-all">
-            msg.value = {maxEthCost.toString()} wei · excess refunded
-          </p>
         </div>
       )}
 

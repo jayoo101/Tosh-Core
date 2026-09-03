@@ -43,10 +43,14 @@ export interface UseProtocolOwnerResult {
 export function useProtocolOwner(): UseProtocolOwnerResult {
   const { address } = useAccount()
 
+  // Read on every page, because the navbar decides whether to offer the admin
+  // link. Ownership only moves through a two-step handover, so refetching it
+  // on every mount and every window focus bought nothing.
   const { data, isLoading } = useReadContract({
     address:      FACTORY_ADDRESS,
     abi:          FACTORY_ABI,
     functionName: 'owner',
+    query:        { staleTime: 300_000 },
   })
 
   const owner   = data as Address | undefined

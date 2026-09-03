@@ -41,7 +41,8 @@ export interface ProgressProps {
 }
 
 const FILL: Record<ProgressTone, string> = {
-  ok: 'bg-brand',
+  // A filled meter is a report. See the note in Badge.tsx.
+  ok: 'bg-success',
   ink: 'bg-text-primary',
   warn: 'bg-warning',
   danger: 'bg-danger',

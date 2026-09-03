@@ -48,10 +48,17 @@ const header = `// AUTO-GENERATED from Foundry artifacts — do not edit by hand
 //   • deposit(hook, referrer) is payable
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is part
 //     of the hook initcode, so the salt must be mined against the SAME window
-//   • hookInitcodeHash is 6-arg: (projectTreasury, creator, projectAdmin, softCap,
-//     perWalletCap, genesisDuration)
-//   • Hook constructor is 9-arg (no SATO): poolManager, factory, projectTreasury,
-//     creator, projectAdmin, ladderTreasury, softCap, perWalletCap, genesisDuration
+//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, softCap,
+//     perWalletCap, genesisDuration).  projectAdmin was REMOVED by the EIP-1167
+//     clone refactor — it is mutable by design and set at initialisation, so it
+//     no longer moves the mined address.  This changed the selector
+//     (0x53ced9da -> 0x42b973ff), so a factory deployed before that refactor
+//     answers the OLD signature and reverts on this one.  If the launch page
+//     reports 'hookInitcodeHash reverted', check hookImplementation() first:
+//     it exists only on clone-era factories, and the real fix is a redeploy.
+//   • Hook constructor is 3-arg: (poolManager, factory, ladderTreasury).  It
+//     builds the shared IMPLEMENTATION; per-project config lives in the clone's
+//     immutable args, not in a constructor call.
 //   • mintBondingCurve(tokenAmount) is payable; quoteMint returns ETH cost
 //   • Hook address mask is 0x20CC
 //   • Treasury owner surface is curation ONLY: addLadderToken / removeLadderToken.

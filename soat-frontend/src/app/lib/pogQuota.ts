@@ -3,8 +3,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Single source of truth used by BOTH:
-//   • soat-frontend/src/app/api/pog/route.ts   (Next.js API — viem)
-//   • scripts/pogSigner.ts                     (Node.js script — ethers)
+//   • soat-frontend/src/app/api/sign-allocation/route.ts  (Next.js API — viem)
+//   • scripts/pogSigner.ts                                (Node.js script — ethers)
+//
+// The live exchange rate is NOT here — it is rotatable, so it lives in
+// `app/lib/gasToSatoRate.ts`. This file holds the constants and the arithmetic.
 //
 // Keep this file dependency-free (no `viem`, `ethers`, or runtime-specific
 // imports) so it can be consumed from either environment.
@@ -28,10 +31,14 @@ export const MAX_ALLOC_SATO_WEI = MAX_ALLOC_ETH_WEI
  *  Must be ≤ `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). */
 export const SIG_VALIDITY_SECONDS = 24 * 60 * 60
 
-/** Canonical exchange rate for the Proof-of-Gas oracle.
+/** STARTING exchange rate for the Proof-of-Gas oracle.
  *  1 ETH of historical multi-chain gas spend = 0.1 ETH of genesis allocation
- *  (fills the on-chain default ceiling).  The admin endpoint can rotate the
- *  live rate independently via owner-signed updates. */
+ *  (fills the on-chain default ceiling).
+ *
+ *  Not the value to sign with: the admin endpoint rotates the live rate via
+ *  owner-signed updates, so a signer must call `getGasToSatoRate()` from
+ *  `app/lib/gasToSatoRate.ts`.  This constant is that store's seed and its
+ *  fallback when the shared store is unreachable. */
 export const DEFAULT_GAS_TO_ETH_RATE = 0.1
 
 /** @deprecated v4.x alias of DEFAULT_GAS_TO_ETH_RATE. */
@@ -48,8 +55,12 @@ export interface ChainGasData {
 
 /** Canonical mock gas-history dataset.
  *  Replace with a real indexer / RPC call in production.
- *  The same numbers feed BOTH the Next API and the standalone script,
- *  so the two stay in lockstep no matter which is called first. */
+ *  The same numbers feed BOTH the Next API and the standalone script.
+ *
+ *  Equal gas data is necessary but not sufficient for the two signers to agree
+ *  on `maxAlloc` — they must also read the same exchange rate.  See
+ *  `app/lib/gasToSatoRate.ts`; this comment used to promise lockstep on the
+ *  strength of the table alone, while the rate silently diverged. */
 export const MOCK_CHAIN_GAS: ChainGasData[] = [
   { chain: 'Ethereum', ethGasUsed: 0.015 },
   { chain: 'Arbitrum', ethGasUsed: 0.008 },
@@ -103,32 +114,28 @@ export function computeDeadline(nowSec: number = Math.floor(Date.now() / 1000)):
   return nowSec + SIG_VALIDITY_SECONDS
 }
 
-/**
- * Break a `maxAlloc` (ETH-wei) into per-chain display amounts (ETH).
- * Purely for UI; the on-chain signature only carries the aggregate maxAlloc.
- */
-export function breakdownByChain(maxAllocWei: bigint): Record<string, string> {
-  const totalEth = Number(maxAllocWei) / 1e18 / 5   // mirrors legacy display math
-  const out: Record<string, string> = {}
-  let runningTotal = 0
-  for (const [chain, weight] of Object.entries(CHAIN_DISPLAY_WEIGHTS)) {
-    const v = totalEth * weight
-    out[chain] = v.toFixed(4)
-    runningTotal += v
-  }
-  out.total = runningTotal.toFixed(4)
-  return out
-}
+// `breakdownByChain` used to live here: it split a `maxAlloc` across
+// `CHAIN_DISPLAY_WEIGHTS` for the UI, after first dividing by 5 under a
+// "mirrors legacy display math" comment that explained nothing and matched no
+// other number in the codebase. Nothing called it, so the wrong figure was
+// never rendered — deleted rather than kept as a latent one-fifth error
+// waiting for its first caller. `CHAIN_DISPLAY_WEIGHTS` above is what a
+// replacement would need; a correct version is `maxAllocWei / 1e18 * weight`.
 
 // ─── Admin-config fetch (optional) ───────────────────────────────────────────
 
 /**
  * Fetch the current gas-to-ETH quota rate from the admin config endpoint.
  *
+ * For the offline CLI signer. Code running INSIDE the Next server must call
+ * `getGasToSatoRate()` from `app/lib/gasToSatoRate.ts` instead — it reads the
+ * same value without an HTTP hop through its own process.
+ *
  * @param baseUrl   Base URL of the Next.js server (e.g. `http://localhost:3000`).
  *                  Pass `''` (default) to skip the network call and use the
- *                  hard-coded default — useful for Next API routes that already
- *                  know the rate in-process.
+ *                  hard-coded default. Note what that means: with no base URL
+ *                  this returns the SEED rate, not the live one, so a caller
+ *                  that omits it will diverge from every signer that does not.
  */
 export async function fetchGasToSatoRate(baseUrl: string = ''): Promise<number> {
   if (!baseUrl) return DEFAULT_GAS_TO_ETH_RATE

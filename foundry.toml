@@ -7,6 +7,13 @@ via_ir  = true
 optimizer = true
 optimizer_runs = 200
 
+# Pinned, not inherited. `ToshLadderTreasury`'s reentrancy mutex is a hand-rolled
+# `tstore`/`tload` pair, so Cancun is a correctness requirement rather than a
+# default worth drifting on — and it was previously only true because 0.8.26
+# happens to default to it. Verified supported on the deployment target: ArbOS
+# 116 round-trips TSTORE/TLOAD (docs/ROBINHOOD_MIGRATION.md §1.2).
+evm_version = "cancun"
+
 remappings = [
     "@uniswap/v4-core/=lib/v4-core/",
     "@uniswap/v4-periphery/=lib/v4-periphery/",
@@ -17,13 +24,48 @@ remappings = [
 # Cheatcode FS permissions — needed by test_hookBytecode_inSyncWithArtifact()
 # Reads the compiled hook artifact and the frontend's HOOK_BYTECODE constant
 # to detect a stale `soat-frontend/src/app/lib/hookBytecode.ts`.
+#
+# `./src` is read by ToshV5LpMathVectorsTest, which needs the hook's genesis
+# tick bounds. They are `internal constant`, so there is neither a getter to
+# call nor an ABI entry to read — parsing the source is the only way to take
+# them from the contract instead of restating them in a second file.
 fs_permissions = [
     { access = "read", path = "./out" },
+    { access = "read", path = "./src" },
     { access = "read", path = "./soat-frontend" },
 ]
 
 [profile.default.fuzz]
 runs = 256
+
+# ---------------------------------------------------------------------------
+# Stateful invariants (test/ToshV5Invariants.t.sol)
+#
+# `fail_on_revert = false` is required, not a concession: the handler drives a
+# real state machine, so a random sequence legitimately hits phase guards
+# (`GenesisExpired`, `SoftCapNotMet`, `NotLaunched`) on most calls. Failing on
+# those would reduce every run to its first revert.
+#
+# The cost of that setting is that a suite where *everything* reverted would
+# report a pass. That is guarded by the deterministic `test_handler*` tests in
+# the same file, NOT by `afterInvariant()` — an assertion there sends Foundry
+# into shrinking, and the minimal sequence it converges on has no activity
+# either, so the report names the wrong problem. `afterInvariant()` only logs.
+#
+# `depth` is the knob that matters here. A genesis window is 3–72 h and the
+# launch window is another 7 days, and the handler warps at most 4 days per
+# call — so a shallow run can never reach the refund or zombie phases at all,
+# and the refund invariants would be vacuously true. Depth also has to be
+# enough to reach a *funded* treasury: the buyback invariants need a launched
+# pool, a listed ladder token and 1 ETH of accumulated tax before any ETH can
+# leave, which is several actions deep past launch.
+# ---------------------------------------------------------------------------
+[profile.default.invariant]
+runs = 128
+depth = 100
+fail_on_revert = false
+call_override = false
+shrink_run_limit = 2000
 
 # ---------------------------------------------------------------------------
 # Linting
@@ -63,14 +105,37 @@ lint_on_build = false
 # ---------------------------------------------------------------------------
 # Network RPC endpoints (values read from .env via ${VAR} interpolation)
 # ---------------------------------------------------------------------------
+#
+# `robinhood` is the production target (chain 4663) and `robinhood_testnet`
+# (46630) is where every rehearsal runs — see docs/ROBINHOOD_MIGRATION.md, which
+# supersedes the PM-B1 "Ethereum L1" decision in docs/PRE_MAINNET_CHECKLIST.md §2.
+#
+# `robinhood` also serves `ToshV5Fork.t.sol`, which reads `ROBINHOOD_RPC`
+# directly rather than by alias — the fork suite now targets the chain we ship
+# to, so it no longer needs an endpoint of its own.
+#
+# The Base and Ethereum entries are gone: Base described a staging deployment
+# that has been retired, and `mainnet` existed only for the fork suite's old
+# Ethereum target. A verification or fork target nobody reaches is worse than
+# none, because it looks configured.
+# ---------------------------------------------------------------------------
 [rpc_endpoints]
-base_sepolia = "${BASE_SEPOLIA_RPC}"
-base         = "${BASE_MAINNET_RPC}"
-anvil        = "http://127.0.0.1:8545"
+robinhood         = "${ROBINHOOD_RPC}"
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC}"
+anvil             = "http://127.0.0.1:8545"
 
 # ---------------------------------------------------------------------------
-# Etherscan / Basescan verification
+# Contract verification
+#
+# Robinhood Chain is served by Blockscout, not Etherscan: chain 4663 is absent
+# from Etherscan v2's multichain host and Basescan never covered it. Blockscout
+# takes no API key, so the placeholder below is a formality Foundry requires and
+# not a secret — there is nothing to put in `.env` for it.
+#
+# Foundry needs `--verifier blockscout` on the command line as well; the section
+# here only supplies the URL. See the deploy scripts' headers for the full
+# invocation.
 # ---------------------------------------------------------------------------
 [etherscan]
-base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api", chain = 84532 }
-base         = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api",         chain = 8453  }
+robinhood         = { key = "blockscout", url = "https://robinhoodchain.blockscout.com/api",           chain = 4663  }
+robinhood_testnet = { key = "blockscout", url = "https://explorer.testnet.chain.robinhood.com/api",    chain = 46630 }

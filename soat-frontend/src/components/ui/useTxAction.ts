@@ -23,7 +23,18 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
-import type { Abi, Address, Hash } from 'viem'
+import type { Abi, Address, Hash, TransactionReceipt } from 'viem'
+
+/**
+ * The receipt shape `onConfirmed` hands back.
+ *
+ * viem's plain `TransactionReceipt` rather than wagmi's
+ * `WaitForTransactionReceiptData`, which is generic over config and chain id:
+ * naming that one means restating both parameters at every call site and
+ * keeping them in step with `providers.tsx`. Callers only ever want `logs` and
+ * `status`, which are common to both.
+ */
+export type TxReceipt = TransactionReceipt
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { useTxLifecycleToast, type TxToastLabels } from './toast'
 
@@ -44,8 +55,16 @@ export interface TxActionOptions {
   action: string
   /** Overrides for individual lifecycle lines. */
   labels?: Omit<TxToastLabels, 'action'>
-  /** Fires once per confirmed receipt. Refetch here. */
-  onConfirmed?: () => void
+  /**
+   * Fires once per confirmed receipt, and never for one that reverted.
+   *
+   * The receipt is handed over so a caller that needs the logs does not open a
+   * second `useWaitForTransactionReceipt` on the same hash to get them. One
+   * panel did exactly that, checked only `isSuccess`, and thereby reintroduced
+   * the revert-is-success bug this hook was written to fix — while also
+   * doubling receipt polling for every transaction it sent.
+   */
+  onConfirmed?: (receipt: TxReceipt) => void
   /** Off for a surface that renders its own status line. Default true. */
   toast?: boolean
 }
@@ -126,11 +145,11 @@ export function useTxAction(options: TxActionOptions): TxAction {
   // Once per receipt, not once per render pass that happens to see isConfirmed.
   const settled = useRef<Hash | null>(null)
   useEffect(() => {
-    if (!isConfirmed || hash === undefined) return
+    if (!isConfirmed || hash === undefined || !receipt) return
     if (settled.current === hash) return
     settled.current = hash
-    onConfirmed?.()
-  }, [isConfirmed, hash, onConfirmed])
+    onConfirmed?.(receipt)
+  }, [isConfirmed, hash, receipt, onConfirmed])
 
   return {
     send,

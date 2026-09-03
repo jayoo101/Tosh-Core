@@ -16,8 +16,13 @@
 //     (the PoolKey tuple is static and occupies slots 0..4, which is why
 //     `hookData` lands at slot 11).
 //
-// Both properties are asserted against the real decoder's rules in
-// `scripts/checkLpActions.ts`.
+// Both properties are pinned by a pair of guards, and it takes both:
+// `scripts/checkLpActions.ts` runs the real encoder and checks the bytes it
+// emits, but only against offsets written in that file, so
+// `scripts/checkLpActionsAbi.mjs` (repo root, runs in test.yml) is what holds
+// those offsets and the `Actions` opcodes against the vendored Solidity in
+// `lib/v4-periphery`. Move a `decodeMintParams` offset and the first guard
+// alone still passes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { encodeAbiParameters, encodePacked, type Address, type Hex } from 'viem'

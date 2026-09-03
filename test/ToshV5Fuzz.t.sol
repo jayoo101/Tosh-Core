@@ -83,7 +83,7 @@ contract ToshV5FuzzTest is Test {
 
     function _mineSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
@@ -158,17 +158,10 @@ contract ToshV5FuzzTest is Test {
         idx = bound(idx, 0, 3998);
         uint256 base = bound(baseRaw, 1e6, 1e22);
 
-        ToshLaunchpadHook h = new ToshLaunchpadHook(
-            address(poolManager),
-            address(factory),
-            projTreasury,
-            creator,
-            projTreasury,
-            payable(address(ladder)),
-            SOFT_CAP,
-            POG_CAP,
-            24 hours
-        );
+        // The shelf-price curve is a closed form over `shelfP0` and constants —
+        // it reads no per-project immutable arg — so a bare implementation is a
+        // sufficient host for poking the base value into storage.
+        ToshLaunchpadHook h = new ToshLaunchpadHook(address(poolManager), address(factory), payable(address(ladder)));
         vm.store(address(h), bytes32(_shelfP0Slot(h)), bytes32(base));
 
         uint256 a = h.tierPriceAt(idx);
@@ -299,7 +292,19 @@ contract ToshV5FuzzTest is Test {
         _openLadder(chopped, 0.01 ether);
 
         assertEq(swept.shelfP0(), chopped.shelfP0(), "twins must open at the same price");
-        tokens = bound(tokens, 1e18, swept.maxMintable());
+
+        // Whole tokens only, and the rounding is load-bearing rather than
+        // tidiness.  Chopping walks shelf boundaries and mints whatever is left
+        // over last, so a span of `n * 1e18 + 1` ends on a one-wei-of-token
+        // order whose cost floors to zero — which the L-01 dust guard rejects,
+        // as it should.  The whole span still costs something, so the sweep goes
+        // through and the two sides cannot be compared at all.
+        //
+        // That is the decomposition being undefined on those inputs, not the
+        // prices disagreeing, so the domain is narrowed instead of the guard
+        // being worked around.  `TIER_SIZE` is a whole-token multiple, so every
+        // chunk this loop produces is one too. Dust orders have their own test.
+        tokens = (bound(tokens, 1e18, swept.maxMintable()) / 1e18) * 1e18;
 
         address buyer = makeAddr("spanBuyer");
         vm.deal(buyer, 200 ether);
@@ -321,5 +326,12 @@ contract ToshV5FuzzTest is Test {
         assertEq(sweptCost, choppedCost);
         assertEq(swept.currentTierIndex(), chopped.currentTierIndex());
         assertEq(swept.currentTierSold(), chopped.currentTierSold());
+
+        // All three share one storage word, and this is the call that moves all
+        // three at once — the shelf advances, the per-shelf counter resets, and
+        // the running total grows. So it is also the natural place to catch one
+        // packed field bleeding into another.
+        assertEq(swept.phase2Minted(), tokens, "the swept side must count every token it issued");
+        assertEq(chopped.phase2Minted(), tokens, "and the chopped side the same total");
     }
 }

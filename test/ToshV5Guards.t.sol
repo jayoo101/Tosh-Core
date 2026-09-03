@@ -11,9 +11,11 @@ import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
+import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {ToshCloneLib} from "../src/libraries/ToshCloneLib.sol";
 
 /// @notice v5.0 hook/token guards and views that do not need a live V4 pool.
 contract ToshV5GuardsTest is Test {
@@ -34,6 +36,16 @@ contract ToshV5GuardsTest is Test {
     ToshLaunchpadHook internal hook;
     ToshToken internal token;
 
+    /// @dev A hook implementation whose `factory` immutable is this test contract,
+    ///      so the tests below can drive `initializeToken` directly.  Projects are
+    ///      clones, which run no constructor, so every check that used to happen
+    ///      at construction now happens in the initialiser — and that is where
+    ///      these tests exercise it.
+    ToshLaunchpadHook internal implAsSelf;
+
+    /// @dev Bumped per clone so CREATE2 never collides.
+    uint256 internal cloneNonce;
+
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
@@ -49,6 +61,8 @@ contract ToshV5GuardsTest is Test {
         (address t, address h) = _createLaunch("Guard", "GRD");
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
+
+        implAsSelf = new ToshLaunchpadHook(mockPoolManager, address(this), ladder);
     }
 
     function _buildPoGSig(address user, uint256 maxAlloc, uint256 nonce, uint256 deadline)
@@ -71,7 +85,7 @@ contract ToshV5GuardsTest is Test {
 
     function _mineSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
@@ -101,146 +115,89 @@ contract ToshV5GuardsTest is Test {
         return SwapParams({zeroForOne: true, amountSpecified: 0, sqrtPriceLimitX96: 0});
     }
 
-    function _freshHook() internal returns (ToshLaunchpadHook) {
-        return new ToshLaunchpadHook(
-            mockPoolManager, address(this), projTreasury, creator, projTreasury, ladder, 1 ether, 1 ether, 24 hours
+    /// @dev A project hook, uninitialised: a clone of `implAsSelf` carrying the
+    ///      given immutable args.  `implAsSelf.factory()` is this test contract,
+    ///      so the caller can then drive `initializeToken` itself.
+    function _freshClone(uint256 softCap_, uint256 walletCap_, uint256 duration_) internal returns (ToshLaunchpadHook) {
+        return ToshLaunchpadHook(
+            payable(ToshCloneLib.deployHook(
+                    bytes32(++cloneNonce), address(implAsSelf), creator, projTreasury, softCap_, walletCap_, duration_
+                ))
         );
     }
 
+    function _freshHook() internal returns (ToshLaunchpadHook) {
+        return _freshClone(1 ether, 1 ether, 24 hours);
+    }
+
     // ── Hook constructor ──────────────────────────────────────────────────────
+    //
+    // The constructor now runs ONCE PER PLATFORM rather than once per project,
+    // so the only arguments left are the platform-global ones.  Everything
+    // per-project became a clone immutable arg, and every check that guarded
+    // those arguments moved with them into `initializeToken` — see that block
+    // below.
 
     function test_hook_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshLaunchpadHook(
-            address(0), address(factory), projTreasury, creator, projTreasury, ladder, 1 ether, 1 ether, 24 hours
-        );
+        new ToshLaunchpadHook(address(0), address(factory), ladder);
     }
 
     function test_hook_ctor_revertsOnZeroFactory() public {
         vm.expectRevert(bytes("zero factory"));
-        new ToshLaunchpadHook(
-            mockPoolManager, address(0), projTreasury, creator, projTreasury, ladder, 1 ether, 1 ether, 24 hours
-        );
-    }
-
-    function test_hook_ctor_revertsOnZeroTreasury() public {
-        vm.expectRevert(bytes("zero treasury"));
-        new ToshLaunchpadHook(
-            mockPoolManager, address(factory), address(0), creator, projTreasury, ladder, 1 ether, 1 ether, 24 hours
-        );
-    }
-
-    function test_hook_ctor_revertsOnZeroCreator() public {
-        vm.expectRevert(bytes("zero creator"));
-        new ToshLaunchpadHook(
-            mockPoolManager,
-            address(factory),
-            projTreasury,
-            address(0),
-            projTreasury,
-            ladder,
-            1 ether,
-            1 ether,
-            24 hours
-        );
-    }
-
-    function test_hook_ctor_revertsOnZeroAdmin() public {
-        vm.expectRevert(ToshLaunchpadHook.InvalidAdmin.selector);
-        new ToshLaunchpadHook(
-            mockPoolManager, address(factory), projTreasury, creator, address(0), ladder, 1 ether, 1 ether, 24 hours
-        );
+        new ToshLaunchpadHook(mockPoolManager, address(0), ladder);
     }
 
     function test_hook_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshLaunchpadHook(
-            mockPoolManager,
-            address(factory),
-            projTreasury,
-            creator,
-            projTreasury,
-            payable(address(0)),
-            1 ether,
-            1 ether,
-            24 hours
-        );
+        new ToshLaunchpadHook(mockPoolManager, address(factory), payable(address(0)));
     }
 
-    function test_hook_ctor_revertsOnZeroSoftCap() public {
-        vm.expectRevert(bytes("zero softCap"));
-        new ToshLaunchpadHook(
-            mockPoolManager, address(factory), projTreasury, creator, projTreasury, ladder, 0, 1 ether, 24 hours
-        );
-    }
-
-    function test_hook_ctor_revertsOnZeroPerWalletCap() public {
-        vm.expectRevert(bytes("zero perWalletCap"));
-        new ToshLaunchpadHook(
-            mockPoolManager, address(factory), projTreasury, creator, projTreasury, ladder, 1 ether, 0, 24 hours
-        );
-    }
-
-    function test_hook_ctor_acceptsTheThreeAllowedWindows() public {
-        uint256[3] memory allowed = [hook.DURATION_FAST(), hook.DURATION_STANDARD(), hook.DURATION_SLOW()];
-
-        for (uint256 i; i < allowed.length; ++i) {
-            ToshLaunchpadHook h = new ToshLaunchpadHook(
-                mockPoolManager,
-                address(factory),
-                projTreasury,
-                creator,
-                projTreasury,
-                ladder,
-                1 ether,
-                1 ether,
-                allowed[i]
-            );
-            assertEq(h.genesisDuration(), allowed[i], "window is frozen as passed");
-            assertEq(h.genesisDeadline(), block.timestamp + allowed[i], "deadline is now + window");
-        }
-    }
-
-    function test_hook_ctor_windowConstantsAreThreeTwentyFourSeventyTwo() public view {
+    function test_hook_windowConstantsAreThreeTwentyFourSeventyTwo() public view {
         assertEq(hook.DURATION_FAST(), 3 hours);
         assertEq(hook.DURATION_STANDARD(), 24 hours);
         assertEq(hook.DURATION_SLOW(), 72 hours);
     }
 
-    /// @dev The interesting rejections are the two degenerate ends the closed
-    ///      set exists to keep out — a window nobody can deposit into, and one
-    ///      that locks deposits up with no refund path — plus a plausible
-    ///      near-miss that a caller might reasonably assume is allowed.
-    function test_hook_ctor_revertsOnUnlistedWindow() public {
-        uint256[5] memory rejected = [uint256(0), 1 seconds, 12 hours, 25 hours, 3650 days];
-
-        for (uint256 i; i < rejected.length; ++i) {
-            vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
-            new ToshLaunchpadHook(
-                mockPoolManager,
-                address(factory),
-                projTreasury,
-                creator,
-                projTreasury,
-                ladder,
-                1 ether,
-                1 ether,
-                rejected[i]
-            );
-        }
-    }
-
-    function test_hook_ctor_wiresImmutables() public view {
+    /// @dev The platform-global values are ordinary immutables on the shared
+    ///      implementation; the per-project ones are read out of the clone's own
+    ///      bytecode.  Asserting both halves on one live hook is the premise of
+    ///      the whole design: under DELEGATECALL the implementation's immutables
+    ///      and the clone's args resolve together.
+    function test_hook_configIsWired() public view {
+        // Baked into the implementation's code, shared by every project.
         assertEq(address(hook.poolManager()), mockPoolManager);
         assertEq(hook.factory(), address(factory));
+        assertEq(hook.ladderTreasury(), ladder);
+
+        // Baked into this clone's code.
         assertEq(hook.projectTreasury(), projTreasury);
         assertEq(hook.creator(), creator);
-        assertEq(hook.projectAdmin(), projTreasury);
-        assertEq(hook.ladderTreasury(), ladder);
         assertEq(hook.softCap(), factory.defaultSoftCap());
         assertEq(hook.perWalletCap(), factory.maxPogAllocationLimit());
+        assertEq(hook.genesisDuration(), 24 hours);
+
+        // Storage, written by `initializeToken`.
+        assertEq(hook.projectAdmin(), projTreasury);
+        assertEq(hook.genesisDeadline(), block.timestamp + 24 hours);
+
         assertEq(hook.POOL_FEE(), 3000);
         assertEq(hook.TAX_BPS(), 70);
+    }
+
+    /// @dev Every clone hard-codes the implementation it delegates to, inside its
+    ///      own runtime bytecode.  No admin slot, no setter on the clone, and
+    ///      `hookImplementation` is immutable on the factory — which is what
+    ///      "these proxies are not upgradeable" means concretely.
+    function test_hook_cloneIsPinnedToTheImplementation() public view {
+        bytes memory code = address(hook).code;
+        assertEq(code.length, ToshCloneLib.RUNTIME_LEN, "a clone, not a full copy");
+
+        address embedded;
+        for (uint256 i; i < 20; ++i) {
+            embedded = address(uint160((uint256(uint160(embedded)) << 8) | uint8(code[10 + i])));
+        }
+        assertEq(embedded, factory.hookImplementation(), "delegates to the factory's implementation");
     }
 
     function test_hookMiner_requiredFlagsAre0x20CC() public view {
@@ -250,23 +207,104 @@ contract ToshV5GuardsTest is Test {
     }
 
     // ── initializeToken ───────────────────────────────────────────────────────
+    //
+    // A clone runs no constructor, so this is where a project's configuration is
+    // vetted.  Every rejection the constructor used to own now lives here, and
+    // it is checked against the bytes actually baked into the clone rather than
+    // against the factory's intent — an offset bug in the arg layout would show
+    // up as exactly the degenerate config these tests reject.
 
     function test_initializeToken_rejectsNonFactory() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
-        hook.initializeToken(makeAddr("fakeToken"));
+        hook.initializeToken(makeAddr("fakeToken"), projTreasury);
     }
 
     function test_initializeToken_rejectsAlreadyInitialized() public {
         vm.prank(address(factory));
         vm.expectRevert(ToshLaunchpadHook.AlreadyInitialized.selector);
-        hook.initializeToken(makeAddr("anotherToken"));
+        hook.initializeToken(makeAddr("anotherToken"), projTreasury);
     }
 
     function test_initializeToken_rejectsZeroToken() public {
         ToshLaunchpadHook fresh = _freshHook();
         vm.expectRevert(bytes("zero token"));
-        fresh.initializeToken(address(0));
+        fresh.initializeToken(address(0), projTreasury);
+    }
+
+    function test_initializeToken_rejectsZeroAdmin() public {
+        ToshLaunchpadHook fresh = _freshHook();
+        vm.expectRevert(ToshLaunchpadHook.InvalidAdmin.selector);
+        fresh.initializeToken(makeAddr("tok"), address(0));
+    }
+
+    function test_initializeToken_rejectsZeroSoftCap() public {
+        ToshLaunchpadHook fresh = _freshClone(0, 1 ether, 24 hours);
+        vm.expectRevert(bytes("zero softCap"));
+        fresh.initializeToken(makeAddr("tok"), projTreasury);
+    }
+
+    function test_initializeToken_rejectsZeroPerWalletCap() public {
+        ToshLaunchpadHook fresh = _freshClone(1 ether, 0, 24 hours);
+        vm.expectRevert(bytes("zero perWalletCap"));
+        fresh.initializeToken(makeAddr("tok"), projTreasury);
+    }
+
+    function test_initializeToken_acceptsTheThreeAllowedWindows() public {
+        uint256[3] memory allowed = [hook.DURATION_FAST(), hook.DURATION_STANDARD(), hook.DURATION_SLOW()];
+
+        for (uint256 i; i < allowed.length; ++i) {
+            ToshLaunchpadHook h = _freshClone(1 ether, 1 ether, allowed[i]);
+            h.initializeToken(makeAddr("tok"), projTreasury);
+
+            assertEq(h.genesisDuration(), allowed[i], "window is frozen in the clone's code");
+            assertEq(h.genesisDeadline(), block.timestamp + allowed[i], "deadline is now + window");
+        }
+    }
+
+    /// @dev The interesting rejections are the two degenerate ends the closed
+    ///      set exists to keep out — a window nobody can deposit into, and one
+    ///      that locks deposits up with no refund path — plus a plausible
+    ///      near-miss that a caller might reasonably assume is allowed.
+    ///
+    ///      Rejecting here rather than in the factory is deliberate: the value
+    ///      is committed to by the hook's mined address, so the check has to run
+    ///      against what the address actually pledges.
+    function test_initializeToken_rejectsUnlistedWindow() public {
+        uint256[5] memory rejected = [uint256(0), 1 seconds, 12 hours, 25 hours, 3650 days];
+
+        for (uint256 i; i < rejected.length; ++i) {
+            ToshLaunchpadHook h = _freshClone(1 ether, 1 ether, rejected[i]);
+            vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
+            h.initializeToken(makeAddr("tok"), projTreasury);
+        }
+    }
+
+    /// @dev The shared implementation is a complete, callable hook, and its arg
+    ///      offsets land inside its own ~19 KB of runtime code — so they return
+    ///      live bytecode reinterpreted as a config, not zeros.  A `> 0` check
+    ///      would wave that straight through, which is why the guard compares
+    ///      `address(this)` against the address captured at construction
+    ///      instead.
+    ///
+    ///      `initializeToken` is the only writer of `tokenInitialized`, and every
+    ///      value-bearing path is gated on it, so refusing to run here is what
+    ///      makes the implementation inert as itself.
+    function test_implementationIsInertAsItself() public {
+        address impl = factory.hookImplementation();
+
+        assertTrue(ToshLaunchpadHook(payable(impl)).softCap() != 0, "reads its own code, not zeros");
+
+        vm.prank(address(factory));
+        vm.expectRevert(ToshLaunchpadHook.NotAClone.selector);
+        ToshLaunchpadHook(payable(impl)).initializeToken(makeAddr("tok"), projTreasury);
+
+        assertFalse(ToshLaunchpadHook(payable(impl)).tokenInitialized(), "still uninitialised");
+
+        // And therefore unable to take value.
+        vm.deal(address(this), 1 ether);
+        (bool ok,) = impl.call{value: 1 ether}("");
+        assertFalse(ok, "implementation refuses ETH");
     }
 
     function test_hook_deposit_revertsBeforeTokenInitialised() public {
@@ -453,9 +491,7 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_bondingRemaining_atCeilingReturnsZero() public {
-        uint256 cap = hook.BONDING_MAX();
-        uint256 slot = _phase2MintedSlot();
-        vm.store(address(hook), bytes32(slot), bytes32(cap));
+        _setPhase2Minted(hook.BONDING_MAX());
         assertEq(hook.bondingRemaining(), 0);
     }
 
@@ -567,26 +603,75 @@ contract ToshV5GuardsTest is Test {
 
     function test_token_ctor_rejectsZeroFactory() public {
         vm.expectRevert(bytes("zero factory"));
-        new ToshToken("X", "X", address(0));
+        new ToshToken(address(0));
     }
 
     function test_token_initialize_rejectsNonFactory() public {
-        ToshToken t = new ToshToken("X", "X", address(this));
+        ToshToken t = new ToshToken(address(this));
         vm.prank(user1);
         vm.expectRevert(ToshToken.OnlyFactory.selector);
-        t.initialize(makeAddr("hookHere"));
+        t.initialize(makeAddr("hookHere"), "X", "X");
     }
 
     function test_token_initialize_rejectsZeroHook() public {
-        ToshToken t = new ToshToken("X", "X", address(this));
+        ToshToken t = new ToshToken(address(this));
         vm.expectRevert(bytes("zero hook"));
-        t.initialize(address(0));
+        t.initialize(address(0), "X", "X");
+    }
+
+    function test_token_initialize_rejectsEmptyMetadata() public {
+        ToshToken a = new ToshToken(address(this));
+        vm.expectRevert(bytes("empty metadata"));
+        a.initialize(makeAddr("hookHere"), "", "X");
+
+        ToshToken b = new ToshToken(address(this));
+        vm.expectRevert(bytes("empty metadata"));
+        b.initialize(makeAddr("hookHere"), "X", "");
     }
 
     function test_token_initialize_rejectsRepeatedInit() public {
         vm.prank(address(factory));
         vm.expectRevert(ToshToken.AlreadyInitialized.selector);
-        token.initialize(makeAddr("again"));
+        token.initialize(makeAddr("again"), "X", "X");
+    }
+
+    /// @dev Metadata moved from the constructor into storage because a clone runs
+    ///      no constructor.  `initialize` is its only writer, so it is as frozen
+    ///      as it was before — this pins that the round trip actually works and
+    ///      that the clone is a clone.
+    function test_token_metadataSurvivesTheClone() public view {
+        assertEq(token.name(), "Guard");
+        assertEq(token.symbol(), "GRD");
+        assertEq(token.decimals(), 18);
+
+        assertEq(address(token).code.length, ToshCloneLib.BARE_RUNTIME_LEN, "token is a bare clone");
+
+        address embedded;
+        bytes memory code = address(token).code;
+        for (uint256 i; i < 20; ++i) {
+            embedded = address(uint160((uint256(uint160(embedded)) << 8) | uint8(code[10 + i])));
+        }
+        assertEq(embedded, factory.tokenImplementation(), "delegates to the factory's implementation");
+    }
+
+    /// @dev Two clones of one implementation must not share supply, balances or
+    ///      the minter grant — this is the property that makes MAX_SUPPLY a
+    ///      per-project cap rather than a platform-wide one.
+    function test_token_clonesAreIsolated() public {
+        (address t2,) = _createLaunch("Second", "SND");
+        ToshToken other = ToshToken(t2);
+
+        assertTrue(address(other) != address(token), "distinct addresses");
+        assertEq(other.name(), "Second", "own metadata");
+        assertEq(token.name(), "Guard", "unaffected by the other");
+
+        assertTrue(other.hook() != token.hook(), "own minter");
+        assertFalse(other.hasRole(other.MINTER_ROLE(), address(hook)), "our hook cannot mint theirs");
+
+        // And the shared implementation holds nothing.
+        ToshToken impl = ToshToken(factory.tokenImplementation());
+        assertEq(impl.totalSupply(), 0);
+        assertEq(impl.hook(), address(0));
     }
 
     function test_token_onlyHookHasMinterRole() public view {
@@ -643,17 +728,66 @@ contract ToshV5GuardsTest is Test {
         assertTrue(token.hasRole(minterRole, address(hook)), "hook still the sole minter");
     }
 
-    function _phase2MintedSlot() internal returns (uint256 slot) {
-        bytes32 probe = bytes32(uint256(123_456_789e18));
+    /// @notice The production treasury still arms on `TRIGGER_STEP` and spends
+    ///         `SPEND_BPS`, i.e. `_nextSpendAmount` is not overridden.
+    ///
+    ///   `_nextSpendAmount` is `virtual` so that `test/probe/PiggybackGasProbe.sol`
+    ///   can subclass it with a threshold a testnet can reach — the only way to
+    ///   execute the piggyback branch on a chain where nobody has a spare ETH,
+    ///   and how RH-B4 was finally measured (`docs/ROBINHOOD_MIGRATION.md` §F.7).
+    ///
+    ///   The keyword costs production nothing today: the runtime bytecode is
+    ///   byte-identical with and without it. But "nothing overrides this" is a
+    ///   property of the current source rather than of the language, and it is
+    ///   the sort that decays quietly — an override added later would change how
+    ///   much of the reservoir is deployed per cycle, with no compiler
+    ///   complaint and no other test noticing.
+    ///
+    ///   Asserted behaviourally rather than structurally. Solidity offers no way
+    ///   to ask whether a function was overridden, and an override that
+    ///   reproduces this behaviour exactly is not the thing worth catching.
+    function test_nextSpendAmountIsNotOverridden() public {
+        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(this));
+
+        uint256 step = t.TRIGGER_STEP();
+
+        vm.deal(address(t), step - 1);
+        assertEq(t.nextSpendAmount(), 0, "unarmed one wei below the step");
+
+        vm.deal(address(t), step);
+        assertEq(t.nextSpendAmount(), step, "at the step, the floor applies");
+
+        // Above 10x the step the proportional term overtakes the floor.
+        vm.deal(address(t), 20 * step);
+        assertEq(t.nextSpendAmount(), (20 * step * t.SPEND_BPS()) / 10_000, "proportional term applies");
+    }
+
+    /// @dev Forces `phase2Minted` to `value`.  Reaching `BONDING_MAX` honestly
+    ///      would mean clearing 4000 shelves, and `MAX_TIERS_PER_TX` caps a mint
+    ///      at a handful, so the ceiling is only observable by writing it.
+    ///
+    ///      Field-aware rather than word-aware: `phase2Minted` is the top
+    ///      `uint96` of the packed `LadderState`, so this writes that window and
+    ///      leaves the shelf cursor sharing the slot untouched.  The previous
+    ///      version stored a full word and compared the getter against it, which
+    ///      stopped finding anything the moment the three fields were packed.
+    ///
+    ///      Still searches for the slot instead of hardcoding one, so ordinary
+    ///      storage edits do not break it — only a change to the field's OFFSET
+    ///      does, which is the thing worth being told about.
+    function _setPhase2Minted(uint256 value) internal {
+        require(value != 0, "a zero probe would match the first slot it tried");
+        require(value <= type(uint96).max, "value does not fit the packed field");
+
+        uint256 offset = 16 + 88; // uint16 tierIndex, uint88 tierSold, then minted
+        uint256 mask = ((uint256(1) << 96) - 1) << offset;
+
         for (uint256 i; i < 64; ++i) {
             bytes32 prev = vm.load(address(hook), bytes32(i));
-            vm.store(address(hook), bytes32(i), probe);
-            if (hook.phase2Minted() == uint256(probe)) {
-                vm.store(address(hook), bytes32(i), prev);
-                return i;
-            }
+            vm.store(address(hook), bytes32(i), bytes32((uint256(prev) & ~mask) | (value << offset)));
+            if (hook.phase2Minted() == value) return;
             vm.store(address(hook), bytes32(i), prev);
         }
-        revert("phase2Minted slot not found");
+        revert("phase2Minted field not found");
     }
 }

@@ -41,7 +41,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useAccount, useChainId, useConnect, useSwitchChain } from 'wagmi'
-import { TARGET_CHAIN_ID, TESTNET_CHAIN_LABEL } from '@/lib/contracts'
+import { TARGET_CHAIN_ID, ACTIVE_CHAIN_LABEL } from '@/lib/contracts'
 import { useIsHydrated } from './useClock'
 import { toshToast } from './toast'
 import type { Tone } from './Badge'
@@ -66,7 +66,14 @@ export interface ActionBlocker {
   readonly id: string
   /** True when this condition currently stops the transaction. */
   readonly active: boolean
-  /** Button label while this blocker binds, e.g. `[wallet_blacklisted]`. */
+  /**
+   * Button label while this blocker binds, e.g. `Wallet blocked`.
+   *
+   * On the public panels this is a short phrase a depositor can act on. The
+   * `[snake_case_code]` form these all started as belongs to `/admin`, where
+   * the reader is an operator who wants the identifier — out here it made the
+   * button face read like a stack trace.
+   */
   readonly label: string
   /** One sentence saying why, and what would change it. Never swallowed. */
   readonly reason: string
@@ -289,7 +296,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     if (requiresNetwork && isWrongNetwork) {
       return {
         kind: 'switch',
-        label: isSwitching ? 'Switching…' : `Switch to ${TESTNET_CHAIN_LABEL}`,
+        label: isSwitching ? 'Switching…' : `Switch to ${ACTIVE_CHAIN_LABEL}`,
         reason: `This wallet is on chain ${chainId}. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from here.`,
         tone: 'warn',
         disabled: isSwitching,

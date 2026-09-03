@@ -120,7 +120,7 @@ export function LadderTreasuryPanel() {
   const treasury = LADDER_TREASURY_ADDRESS as Address
 
   // ── Treasury state ────────────────────────────────────────────────────────
-  const { data: coreData, refetch: refetchCore } = useReadContracts({
+  const { data: coreData, isLoading: coreLoading, refetch: refetchCore } = useReadContracts({
     contracts: [
       { address: treasury, abi: TREASURY_ABI, functionName: 'ladderTokenCount' },
       { address: treasury, abi: TREASURY_ABI, functionName: 'currentCursor' },
@@ -145,7 +145,7 @@ export function LadderTreasuryPanel() {
     () => Array.from({ length: Number(tokenCount) }, (_, i) => BigInt(i)),
     [tokenCount],
   )
-  const { data: tokenData, refetch: refetchTokens } = useReadContracts({
+  const { data: tokenData, isLoading: tokensLoading, refetch: refetchTokens } = useReadContracts({
     contracts: indices.map(i => ({
       address: treasury, abi: TREASURY_ABI, functionName: 'ladderTokens', args: [i],
     })),
@@ -157,6 +157,20 @@ export function LadderTreasuryPanel() {
       .filter((a): a is Address => !!a),
     [tokenData],
   )
+
+  /**
+   * "Nothing is listed" and "we have not read the roster yet" both arrive here
+   * as an empty array, and only the first is safe to say out loud. The empty
+   * state below does not hedge — it states that buybacks are inert — so
+   * rendering it during the read tells an owner, in the same typeface as every
+   * verified number on this page, that the burn engine is switched off.
+   *
+   * The second read is chained off `tokenCount`, so there is a window where the
+   * count has landed, `indices` is non-empty and `tokenData` is still in
+   * flight. `tokensLoading` does not cover that window on its own.
+   */
+  const rosterPending =
+    coreLoading || tokensLoading || (tokenCount > 0n && tokenData === undefined)
 
   // ── Add-token precheck ────────────────────────────────────────────────────
   const {
@@ -305,7 +319,11 @@ export function LadderTreasuryPanel() {
       {/* ── Roster ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
         <span className={labelCls}>LISTED TOKENS</span>
-        {listed.length === 0 ? (
+        {rosterPending ? (
+          <p className="text-note font-mono text-text-tertiary py-3">
+            reading roster…
+          </p>
+        ) : listed.length === 0 ? (
           <p className="text-note font-mono text-text-tertiary py-3">
             roster empty — buybacks are inert until at least one token is listed
           </p>

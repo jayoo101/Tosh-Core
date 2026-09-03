@@ -1,21 +1,49 @@
 'use client'
 
+import { memo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtEth } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
+import { ProjectLogo } from '@/components/ProjectLogo'
+import { rememberProject, prefetchProject } from '@/lib/projectCache'
 
+function directoryToRow(p: DirectoryProject) {
+  return {
+    id:            p.token,
+    tx_hash:       '',
+    token_address: p.token,
+    hook_address:  p.hook,
+    name:          p.name,
+    symbol:        p.symbol,
+    logo_url:      p.logoUrl,
+    website:       p.website,
+    twitter:       p.twitter,
+    telegram:      null,
+    description:   p.description,
+    created_at:    new Date(Number(p.createdAt) * 1000).toISOString(),
+  }
+}
+
+// These four pills report where a project stands; none of them is a control.
+// Two were painted in colours that mean something else entirely — `brand`, which
+// belongs to the one action on the card, and `admin`, which is reserved for the
+// operator console and has no business on a public listing.
 function statusBadge(tab: DirectoryProject['tab']) {
   switch (tab) {
     case 'live':
-      return { text: '[GENESIS] FUNDING', color: 'text-brand bg-brand/10 border-brand/20' }
+      return { text: 'GENESIS · FUNDING', color: 'text-info bg-info/10 border-info/20' }
     case 'launching':
-      return { text: '[PREP] AWAITING LAUNCH', color: 'text-admin bg-admin/10 border-admin/20' }
+      return {
+        text: 'AWAITING LAUNCH',
+        color: 'text-text-tertiary bg-surface-elevated border-border-subtle',
+      }
     case 'completed':
-      return { text: '[LIVE] CURVE_ACTIVE', color: 'text-success bg-success/10 border-success/20' }
+      return { text: 'TRADING', color: 'text-success bg-success/10 border-success/20' }
     case 'archived':
-      return { text: '[REFUND] ELIGIBLE', color: 'text-danger bg-danger/10 border-danger/20' }
+      return { text: 'REFUND OPEN', color: 'text-danger bg-danger/10 border-danger/20' }
   }
 }
 
@@ -63,16 +91,21 @@ function ctaLabel(tab: DirectoryProject['tab']) {
   }
 }
 
+// Only `live` is an invitation to spend, so only `live` gets the filled brand
+// treatment and the armed glow. `completed` still leads somewhere worth going,
+// so it keeps a brand outline without claiming the filled slot; the other two
+// are navigation, and a filled `success` or `admin` block was reading as a
+// verdict on the project rather than as a link.
 function ctaCls(tab: DirectoryProject['tab']) {
   switch (tab) {
-    case 'live': return 'text-bg-base bg-brand hover:shadow-[0_0_16px_rgba(0,255,163,0.35)]'
-    case 'launching': return 'text-text-primary bg-admin hover:bg-admin'
-    case 'completed': return 'text-text-primary bg-success hover:bg-success'
-    default: return 'text-text-secondary bg-surface-elevated'
+    case 'live': return 'text-bg-base bg-brand hover:shadow-armed'
+    case 'completed': return 'border border-brand/45 bg-brand/10 text-brand hover:border-brand'
+    default: return 'border border-border-subtle bg-surface-elevated text-text-secondary'
   }
 }
 
-export function MeritXProjectCard({ project: p }: { project: DirectoryProject }) {
+function MeritXProjectCardImpl({ project: p }: { project: DirectoryProject }) {
+  const router = useRouter()
   const badge = statusBadge(p.tab)
   const sigil = (p.symbol || p.name || '?').charAt(0).toUpperCase()
   const desc = p.description?.trim()
@@ -86,6 +119,13 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
   return (
     <Link
       href={`/projects/${p.token}`}
+      prefetch
+      onMouseEnter={() => {
+        rememberProject(directoryToRow(p))
+        prefetchProject(p.token)
+        router.prefetch(`/projects/${p.token}`)
+      }}
+      onClick={() => rememberProject(directoryToRow(p))}
       className={`block relative group p-card-lg rounded-panel border bg-surface-card shadow-panel
         transition-colors hover:bg-surface-hover
         ${p.tab === 'completed'
@@ -93,12 +133,7 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
           : 'border-border-subtle hover:border-border-accent'}`}
     >
       <div className="flex justify-between items-start mb-6">
-        <div className="w-12 h-12 rounded-card bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
-          {p.logoUrl
-            // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={p.logoUrl} alt={p.name} className="w-full h-full object-cover" />
-            : <span className="text-2xl font-black text-brand">{sigil}</span>}
-        </div>
+        <ProjectLogo src={p.logoUrl} name={p.name || p.symbol || sigil} className="w-12 h-12" />
         <span className={`flex items-center gap-1.5 text-micro font-bold px-2 py-1 rounded border uppercase tracking-widest ${badge.color}`}>
           {(p.tab === 'live' || p.tab === 'completed') && (
             <span className="w-1.5 h-1.5 rounded-full bg-current dot-breathe" />
@@ -141,6 +176,13 @@ export function MeritXProjectCard({ project: p }: { project: DirectoryProject })
     </Link>
   )
 }
+
+/**
+ * Memoised on the project object. The directory hook hands back a fresh array
+ * whenever it re-buckets, but the rows inside it are referentially stable
+ * between chain polls, so untouched cards skip the render entirely.
+ */
+export const MeritXProjectCard = memo(MeritXProjectCardImpl)
 
 export function SkeletonCard() {
   return (

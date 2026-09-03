@@ -7,7 +7,7 @@ import { WagmiProvider, createConfig, http, fallback } from 'wagmi'
 import { foundry } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
 import type { ToasterProps } from 'react-hot-toast'
-import { targetChain, FOUNDRY_CHAIN_ID } from '@/lib/chain'
+import { targetChain, ROBINHOOD_ID, ROBINHOOD_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
 
 // ssr: false — react-hot-toast maintains an internal toast store; the SSR
 // snapshot of that store never matches the hydration snapshot, producing a
@@ -19,9 +19,11 @@ const Toaster = dynamic<ToasterProps>(
 )
 
 // ─── Multi-RPC fallback ─────────────────────────────────────────────────────
-// Pre-mainnet item #24: a single hard-coded HTTP endpoint is a single point of
-// failure.  In production, the public Base / Ethereum / Optimism endpoints
-// commonly throttle or transiently 5xx.  `fallback()` cycles through a ranked
+// Pre-mainnet item #24 (PM-F2 in `docs/PRE_MAINNET_CHECKLIST.md`): a single
+// hard-coded HTTP endpoint is a single point of
+// failure.  Robinhood Chain's public endpoint is rate-limited and carries no
+// SLA, so it throttles and transiently 5xxs like any other.  `fallback()`
+// cycles through a ranked
 // list and demotes flapping endpoints with an exponential back-off; combined
 // with a small `retryCount` per leg, this is the smallest-possible defence
 // against transient RPC failures killing user write transactions mid-flow.
@@ -37,22 +39,40 @@ const Toaster = dynamic<ToasterProps>(
 // leg automatically.  `retryCount: 1` on each `http()` means transient 5xx
 // triggers ONE quick retry before promoting to the next fallback leg.
 
-function trimmedEnv(name: string): string | null {
-  const v = process.env[name]
-  if (typeof v !== 'string') return null
-  const t = v.trim()
+// Takes the VALUE, not the variable name.  `process.env[name]` looks
+// equivalent and is not: Next.js inlines `NEXT_PUBLIC_*` by substituting the
+// literal source text `process.env.NEXT_PUBLIC_FOO` at build time, so a
+// computed member access is never a substitution target and `process.env` is
+// an empty object in the browser.  This function used to take a name, which
+// meant the premium-endpoint leg below was dead in every deployed build —
+// silently, because the public endpoint that follows it does work.  The only
+// symptom was throttling under load.  Spell the access out at the call site.
+function trimmedEnv(value: string | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const t = value.trim()
   return t.length > 0 ? t : null
 }
 
 function buildTargetTransport() {
   const candidates: string[] = []
-  const premium = trimmedEnv('NEXT_PUBLIC_RPC_URL') ?? trimmedEnv('NEXT_PUBLIC_BASE_SEPOLIA_RPC')
+  // A chain-named variable only means anything when that chain is the target.
+  // Taking one unconditionally put a testnet endpoint in the candidate list of
+  // a production build — and `rank: true` sorts by latency, not by correctness,
+  // so a healthy wrong-chain leg could win the ranking and answer every
+  // balance, allowance and quote read from the testnet.
+  // `NEXT_PUBLIC_RPC_URL` names no chain and stays the universal override.
+  const premium =
+    trimmedEnv(process.env.NEXT_PUBLIC_RPC_URL) ??
+    (targetChain.id === ROBINHOOD_ID
+      ? trimmedEnv(process.env.NEXT_PUBLIC_ROBINHOOD_RPC)
+      : targetChain.id === ROBINHOOD_TESTNET_ID
+        ? trimmedEnv(process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC)
+        : null)
   if (premium) candidates.push(premium)
-  const publicUrl =
-    targetChain.id === 84532 ? 'https://sepolia.base.org'
-    : targetChain.id === 8453 ? 'https://mainnet.base.org'
-    : targetChain.id === 1 ? 'https://eth.llamarpc.com'
-    : null
+  // Read off the chain definition instead of a parallel list of literals. The
+  // literals were a second place for the endpoint to be wrong, and they had no
+  // entry for the chain this build now targets.
+  const publicUrl = targetChain.rpcUrls.default.http[0] ?? null
   if (publicUrl && !candidates.includes(publicUrl)) candidates.push(publicUrl)
 
   if (candidates.length === 0) {
@@ -70,7 +90,7 @@ function buildTargetTransport() {
 }
 
 function buildFoundryTransport() {
-  const url = trimmedEnv('NEXT_PUBLIC_FOUNDRY_RPC') ?? 'http://127.0.0.1:8545'
+  const url = trimmedEnv(process.env.NEXT_PUBLIC_FOUNDRY_RPC) ?? 'http://127.0.0.1:8545'
   // Local-only — keep it simple, no fallback leg.
   return http(url, { retryCount: 0, timeout: 6_000 })
 }

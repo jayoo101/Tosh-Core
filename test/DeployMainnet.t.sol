@@ -17,8 +17,14 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 
 contract DeployMainnetTest is Test {
-    /// @dev Base mainnet, the chain this script is actually meant for.
-    uint256 internal constant TARGET_CHAIN = 8453;
+    /// @dev Robinhood Chain — the chain this script is meant for
+    ///      (docs/ROBINHOOD_MIGRATION.md). This constant has tracked three
+    ///      answers now: 8453, then 1, now 4663. That churn is the argument for
+    ///      the guard being chain-agnostic and env-driven rather than hard-coded
+    ///      in the script — the value here only has to agree with what
+    ///      production will authorise, and changing targets stays a one-line
+    ///      edit in two places instead of a rewrite.
+    uint256 internal constant TARGET_CHAIN = 4663;
 
     DeployMainnetScript internal script;
 

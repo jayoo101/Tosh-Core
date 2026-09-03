@@ -1,5 +1,4 @@
-import { keccak256, encodeAbiParameters, parseAbiParameters, concat } from "viem"
-import { HOOK_BYTECODE } from "./hookBytecode"
+import { keccak256, encodeAbiParameters, concat, numberToHex } from "viem"
 
 // ── Flags (mirror of Solidity HookMiner.sol) ─────────────────────────────────
 // BEFORE_INITIALIZE | BEFORE_SWAP | AFTER_SWAP | BEFORE_SWAP_RETURNS_DELTA | AFTER_SWAP_RETURNS_DELTA
@@ -35,65 +34,86 @@ export function isValidHookAddress(addr: `0x${string}`): boolean {
 }
 
 // ── Genesis window (mirror of ToshLaunchpadHook's DURATION_* constants) ──────
-// The hook's constructor rejects anything outside this set, and because the
-// value is part of the initcode hash a salt is only valid for the window it was
-// mined against.
+// `initializeToken` rejects anything outside this set, and because the value is
+// baked into the clone's bytecode it is part of the initcode hash — so a salt is
+// only valid for the window it was mined against.
 export const GENESIS_DURATION_FAST = BigInt(3 * 60 * 60)
 export const GENESIS_DURATION_STANDARD = BigInt(24 * 60 * 60)
 export const GENESIS_DURATION_SLOW = BigInt(72 * 60 * 60)
 
+/** Total length of a hook clone's CREATE2 initcode, in bytes. */
+export const CLONE_INITCODE_BYTES = 131
+
 /**
- * keccak256 of the hook deployment initcode (v5.0).
+ * Build the CREATE2 initcode for a project's hook.
  *
- * initcode = hookBytecode
- *         ++ abi.encode(poolManager, factory, projectTreasury, creator,
- *                       projectAdmin, ladderTreasury, softCap, perWalletCap,
- *                       genesisDuration)
+ * A hook is a 121-byte EIP-1167 minimal proxy with its per-project
+ * configuration appended to its own runtime bytecode — NOT a fresh ~19.6 KB copy
+ * of the hook, which is what this used to be. That change took `createLaunch`
+ * from 5,016,031 gas to roughly 1.2 M, and it changed the initcode completely:
  *
- * Must match `HookDeployLib.computeInitcodeHash` bit-for-bit.  An extra or
- * missing field (the v4.x `satoToken` argument, a missing `perWalletCap`, the
- * wrong `genesisDuration`) yields a stale CREATE2 prediction and `createLaunch`
- * reverts with `InvalidHookSalt`.
+ *     10 B  creation stub, returning the 121 (0x79) bytes that follow
+ *     45 B  EIP-1167 runtime, implementation address at offset 10
+ *     76 B  immutable args: creator, projectTreasury, softCap:uint128,
+ *           perWalletCap:uint128, genesisDuration:uint32
+ *
+ * Note what is NOT in here. `poolManager`, `factory` and `ladderTreasury` are
+ * identical for every launch and so are ordinary immutables on the shared
+ * implementation. `projectAdmin` is mutable by design and is applied by
+ * `initializeToken`, so it no longer moves the mined address.
+ *
+ * Must match `ToshCloneLib.cloneInitcode` byte for byte;
+ * `test_hookInitcodeHash_matchesHandBuiltCloneInitcode` pins the two together.
+ * Anything else yields a stale CREATE2 prediction and `createLaunch` reverts
+ * with `InvalidHookSalt`.
+ *
+ * @param implementation `factory.hookImplementation()`.
  */
-export function computeHookInitcodeHash(
-  hookBytecode:    `0x${string}`,
-  poolManager:     `0x${string}`,
-  factory:         `0x${string}`,
-  projectTreasury: `0x${string}`,
+export function computeCloneInitcode(
+  implementation:  `0x${string}`,
   creator:         `0x${string}`,
-  projectAdmin:    `0x${string}`,
-  ladderTreasury:  `0x${string}`,
+  projectTreasury: `0x${string}`,
   softCap:         bigint,
   perWalletCap:    bigint,
   genesisDuration: bigint,
 ): `0x${string}` {
-  const encodedArgs = encodeAbiParameters(
-    parseAbiParameters("address, address, address, address, address, address, uint256, uint256, uint256"),
-    [
-      poolManager, factory, projectTreasury, creator, projectAdmin, ladderTreasury,
-      softCap, perWalletCap, genesisDuration,
-    ]
-  )
-  const initcode = concat([hookBytecode, encodedArgs])
-  return keccak256(initcode)
+  if (softCap >= 1n << 128n || perWalletCap >= 1n << 128n) {
+    throw new Error("hookMiner: softCap / perWalletCap must fit in uint128")
+  }
+  if (genesisDuration >= 1n << 32n) {
+    throw new Error("hookMiner: genesisDuration must fit in uint32")
+  }
+
+  return concat([
+    "0x3d607980600a3d3981f3",
+    "0x363d3d373d3d3d363d73",
+    implementation,
+    "0x5af43d82803e903d91602b57fd5bf3",
+    creator,
+    projectTreasury,
+    numberToHex(softCap, { size: 16 }),
+    numberToHex(perWalletCap, { size: 16 }),
+    numberToHex(genesisDuration, { size: 4 }),
+  ])
 }
 
-/** Convenience wrapper that hashes the bundled `HOOK_BYTECODE` artefact. */
-export function computeBundledHookInitcodeHash(
-  poolManager:     `0x${string}`,
-  factory:         `0x${string}`,
-  projectTreasury: `0x${string}`,
+/**
+ * keccak256 of the clone initcode — the value salts are mined against.
+ *
+ * Prefer reading `factory.hookInitcodeHash(...)` on-chain; that is authoritative
+ * and cannot drift. This exists to verify the chain's answer, and to mine
+ * offline.
+ */
+export function computeHookInitcodeHash(
+  implementation:  `0x${string}`,
   creator:         `0x${string}`,
-  projectAdmin:    `0x${string}`,
-  ladderTreasury:  `0x${string}`,
+  projectTreasury: `0x${string}`,
   softCap:         bigint,
   perWalletCap:    bigint,
   genesisDuration: bigint,
 ): `0x${string}` {
-  return computeHookInitcodeHash(
-    HOOK_BYTECODE,
-    poolManager, factory, projectTreasury, creator, projectAdmin, ladderTreasury,
-    softCap, perWalletCap, genesisDuration,
+  return keccak256(
+    computeCloneInitcode(implementation, creator, projectTreasury, softCap, perWalletCap, genesisDuration)
   )
 }
 
@@ -120,10 +140,14 @@ export function deriveFinalSalt(
  *
  * The factory derives `finalSalt = keccak256(abi.encode(creator, rawSalt))`.
  * This mines `rawSalt` (pass it to createLaunch as `hookSalt`) against
- * `initcodeHash` from `factory.hookInitcodeHash(treasury, creator, admin,
+ * `initcodeHash` from `factory.hookInitcodeHash(projectTreasury, creator,
  * softCap, perWalletCap, genesisDuration)`.  The same `genesisDuration` must be
  * passed to `createLaunch`, or the prediction misses and it reverts with
  * `InvalidHookSalt`.
+ *
+ * Difficulty is a property of the 0x20CC mask — five required bits, so about one
+ * salt in 32 — and not of the initcode. Shrinking the hook to a clone made the
+ * deployment ~70x cheaper but did not make mining any easier or harder.
  */
 export function mineHookSalt(
   factory:      `0x${string}`,

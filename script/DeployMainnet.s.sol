@@ -16,17 +16,29 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //      factory has no SATO wiring at all.
 //    • Logs the live `hookInitcodeHash` so the frontend salt miner can be
 //      regenerated against the mainnet build (item #23 on the pre-mainnet
-//      checklist).
+//      checklist = PM-C6 in docs/PRE_MAINNET_CHECKLIST.md).
 //    • Two-step transferOwnership reminder — production MUST hand off to a
 //      Gnosis Safe multisig before any users transact.
 //
+//  TARGET CHAIN: Robinhood Chain, chain id 4663 (docs/ROBINHOOD_MIGRATION.md,
+//  which supersedes the PM-B1 "Ethereum L1" decision in
+//  docs/PRE_MAINNET_CHECKLIST.md §2).  This header has now been wrong twice —
+//  it read "8453 = Base" before it read "1 = Ethereum" — and the reason it
+//  never mattered is worth keeping: the script refuses to run unless
+//  `block.chainid` equals whatever `TARGET_CHAIN_ID` says, so a stale comment
+//  can only send an operator to authorise the wrong chain and waste a broadcast
+//  finding out.  It cannot misdeploy anything.
+//
+//  Verification is Blockscout, not Etherscan.  Chain 4663 is served by neither
+//  Etherscan v2's multichain host nor Basescan, and Blockscout needs no API key,
+//  so ETHERSCAN_API_KEY has dropped out of this path entirely.
+//
 //  Required env vars (extend `.env.production` from `.env.example`):
 //    PRIVATE_KEY           — deployer EOA (low-privilege; rotates to Safe)
-//    TARGET_CHAIN_ID       — chain this run is authorised for (8453 = Base)
+//    TARGET_CHAIN_ID       — chain this run is authorised for (4663 = Robinhood)
 //    V4_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
 //    POG_SIGNER_ADDRESS    — backend signer (recommended: KMS-backed)
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
-//    BASESCAN_API_KEY      — for --verify (Etherscan or Basescan)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
 //
 //  Deploy command (after `source .env.production`):
@@ -34,7 +46,8 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //      --rpc-url $TARGET_RPC \
 //      --broadcast \
 //      --verify \
-//      --etherscan-api-key $BASESCAN_API_KEY \
+//      --verifier blockscout \
+//      --verifier-url https://robinhoodchain.blockscout.com/api \
 //      -vvvv
 //
 //  After broadcast, the Safe signers MUST call `acceptOwnership()` on BOTH the
@@ -129,6 +142,8 @@ contract DeployMainnetScript is Script {
         console2.log("============================================================");
         console2.log("");
         console2.log("CRITICAL NEXT STEPS:");
+        console2.log("  (Full checklist, with the evidence each step needs before it");
+        console2.log("   counts as done: docs/PRE_MAINNET_CHECKLIST.md gate C.)");
         console2.log("  1. Have the Gnosis Safe call acceptOwnership() on BOTH the");
         console2.log("     factory and the ladder treasury -- until that happens the");
         console2.log("     deployer EOA still owns them.");
@@ -136,13 +151,17 @@ contract DeployMainnetScript is Script {
         console2.log("  2. Regenerate `soat-frontend/src/app/lib/hookBytecode.ts`:");
         console2.log("       forge build");
         console2.log("       node scripts/extractBytecode.js");
-        console2.log("     v5.0 changed the hook constructor tuple AND the salt mask");
-        console2.log("     (now 0x20CC) -- any cached v4.x artefact will mine dead salts.");
+        console2.log("     Hooks are EIP-1167 clones, so the salt is mined against the");
+        console2.log("     clone initcode and the immutable-arg tuple, not a constructor");
+        console2.log("     tuple. The mask is 0x20CC -- a cached v4.x artefact, or one");
+        console2.log("     from before the clone refactor, will mine dead salts.");
         console2.log("  3. Update `soat-frontend/.env.production`:");
         console2.log("       NEXT_PUBLIC_FACTORY_ADDRESS=", address(factory));
-        console2.log("       NEXT_PUBLIC_CHAIN_ID=<the target chain id>");
+        console2.log("       NEXT_PUBLIC_CHAIN_ID=", block.chainid);
         console2.log("  4. Run `forge verify-contract` on the deployed Factory address");
-        console2.log("     against Etherscan/Basescan if --verify above didn't catch it.");
+        console2.log("     against Blockscout if --verify above didn't catch it:");
+        console2.log("       --verifier blockscout --verifier-url \\");
+        console2.log("         https://robinhoodchain.blockscout.com/api");
         console2.log("  5. Pre-fund the PoG signer KMS wallet with ~0.05 ETH for sig gas.");
         console2.log("  6. Wire monitoring:  Defender / Tenderly alerts on FACTORY_ADDRESS");
         console2.log("     for events Paused / Unpaused / OwnershipTransferred /");

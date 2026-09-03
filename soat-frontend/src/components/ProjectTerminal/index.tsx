@@ -15,6 +15,7 @@
  *   PHASE 3 · REFUND
  *     ▸ hook.refund() returns 100 % of the ETH deposit
  */
+import dynamic from 'next/dynamic'
 import { useAccount, useBalance, useReadContract, useReadContracts } from 'wagmi'
 import type { Address, ContractFunctionParameters } from 'viem'
 
@@ -26,14 +27,28 @@ import {
 } from '@/components/ui'
 import { resolvePhase, type Phase } from './phase'
 import { HeroStats } from './HeroStats'
-import { ConnectGate } from './ConnectGate'
 import { GenesisPanel } from './GenesisPanel'
 import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
-import { GenesisClaimPanel } from './GenesisClaimPanel'
-import { BondingPanel } from './BondingPanel'
-import { LiquidityPanel } from './LiquidityPanel'
 import { RefundPanel } from './RefundPanel'
 import { ReferralPanel } from './ReferralPanel'
+
+// Phase-2 only, and by far the heaviest code on this route: the 4000-rung
+// ladder table, the quoting maths, and the Permit2 / V4 position manager
+// stack. A project in genesis — which is every project for its first hours —
+// used to download all of it to render a deposit box.
+const panelFallback = () => <Skeleton className="h-64" radius="card" />
+const GenesisClaimPanel = dynamic(
+  () => import('./GenesisClaimPanel').then(m => m.GenesisClaimPanel),
+  { loading: panelFallback },
+)
+const BondingPanel = dynamic(
+  () => import('./BondingPanel').then(m => m.BondingPanel),
+  { loading: panelFallback },
+)
+const LiquidityPanel = dynamic(
+  () => import('./LiquidityPanel').then(m => m.LiquidityPanel),
+  { loading: panelFallback },
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN EXPORT  ·  ProjectTerminal
@@ -161,6 +176,17 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
     totalEthDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
   })
 
+  const windowLabel = (() => {
+    if (phase === 'bonding' || phase === 'refund') return undefined
+    if (genesisDeadline === 0n) return undefined
+    const rem = Number(genesisDeadline) - nowSec
+    if (rem <= 0) return 'window closed'
+    const h = Math.floor(rem / 3600)
+    const m = Math.floor((rem % 3600) / 60)
+    const s = rem % 60
+    return `closes ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  })()
+
 
 
   if (!hookAddress) {
@@ -181,38 +207,32 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   // have a sibling above it.
   if (!clockReady) {
     return (
-      <div className="flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
-        <Card id="SYNC" title="Synchronising" subtitle="Waiting on the wall clock before reading this project's phase">
-          <div className="flex flex-col gap-gap">
-            <Skeleton className="h-8 w-2/3" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-          </div>
-        </Card>
+      <div className="@container flex flex-col gap-6">
+        <Skeleton className="h-24" radius="card" />
+        <Skeleton className="h-64" radius="card" />
       </div>
     )
   }
 
-  // `@container` is load-bearing, not decoration. Every grid in the panels below
-  // sized itself off viewport breakpoints (`sm:grid-cols-4`), and this terminal
-  // renders inside a ~290px sidebar on the project page — so on any desktop the
-  // viewport cleared `sm:` and those grids laid four columns into ~60px each,
-  // hard-wrapping "0 ETH" into "0 ET / H". The panels have to measure their own
-  // column, not the window.
+  // `@container` is load-bearing. Grids below query this column's width, not
+  // the viewport — a leftover from when the terminal sat in a 290px sidebar.
   return (
-    <div className="@container flex flex-col gap-section rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel font-sans">
-      <HeroStats
-        phase={phase}
-        symbol={symbol}
-        p0={p0}
-        currentPrice={currentPrice}
-        shelfP0={shelfP0}
-        totalEthDeposited={totalEthDeposited}
-        softCap={softCap}
-        phase2Minted={phase2Minted}
-        bondingMax={bondingMax}
-        userEthDeposited={userEthDeposited}
-      />
+    <div className="@container flex flex-col gap-6">
+      <div className="rounded-panel border border-border-subtle bg-surface-card p-card">
+        <HeroStats
+          phase={phase}
+          symbol={symbol}
+          p0={p0}
+          currentPrice={currentPrice}
+          shelfP0={shelfP0}
+          totalEthDeposited={totalEthDeposited}
+          softCap={softCap}
+          phase2Minted={phase2Minted}
+          bondingMax={bondingMax}
+          userEthDeposited={userEthDeposited}
+          windowLabel={windowLabel}
+        />
+      </div>
 
       {phase === 'refund' && (
         <div className="rounded-card border border-warning/40 bg-warning/10 px-card py-gap">
@@ -224,9 +244,7 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
         </div>
       )}
 
-      {!wConnected ? (
-        <ConnectGate />
-      ) : phase === 'genesis' ? (
+      {phase === 'genesis' ? (
         <GenesisPanel
           hookAddress={hookAddress}
           symbol={symbol}

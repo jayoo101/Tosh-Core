@@ -35,4 +35,270 @@ jobs:
         run: forge build --sizes
 
       - name: Run Forge tests
-        run: forge test -vvv
+        run: |
+          set -euo pipefail
+          forge test -vvv | tee /tmp/forge-plain.log
+
+      # Again with per-call gas accounting. `forge test` bills a whole test as
+      # one transaction, so storage a test touched in setup stays warm and every
+      # later call looks cheaper than it would on chain; `--isolate` charges each
+      # call the way a real transaction would.
+      #
+      # Not redundant. Two bugs reached this repo that only this run catches: a
+      # clone funded with `transfer()`, whose 2300-gas stipend cannot cover the
+      # proxy's delegatecall, and the piggyback gas gate, whose whole purpose is
+      # to compare a real gas figure against a constant. Both passed plain.
+      - name: Run Forge tests (isolated gas accounting)
+        run: |
+          set -euo pipefail
+          forge test --isolate -vvv | tee /tmp/forge-isolate.log
+
+      # A green `forge test` is not by itself evidence that the tests ran.
+      #
+      # Found the hard way: a build interrupted partway leaves an artifact whose
+      # ABI is complete but whose `bytecode.object` is empty. Forge cannot deploy
+      # that contract, so it reports "no tests found" FOR THAT SUITE and moves
+      # on — and because the suites that did run all passed, the step exits 0.
+      # `forge build` then says "no files changed" and rebuilds nothing, so the
+      # state is sticky. The observed symptom was 336 tests becoming 256, still
+      # green, with the entire main suite gone and nothing in the log to say so.
+      # `forge build --force` is the recovery.
+      #
+      # Two independent assertions, because they fail on different things. The
+      # floor catches a suite vanishing; the agreement check catches it vanishing
+      # from only one of the two runs, which is the shape a caching fault takes.
+      #
+      # RAISE THE FLOOR when you add tests. Lowering it is the same act as
+      # deleting a test and should be as visible in review.
+      - name: Assert the suite did not silently shrink
+        run: |
+          set -euo pipefail
+          floor=336
+
+          read_count() {
+            grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
+          }
+
+          plain=$(read_count /tmp/forge-plain.log || true)
+          isolate=$(read_count /tmp/forge-isolate.log || true)
+
+          if [ -z "$plain" ] || [ -z "$isolate" ]; then
+            echo "::error::Could not read a test count from forge's summary line. The output format changed, or a run did not finish."
+            exit 1
+          fi
+
+          echo "plain=$plain isolate=$isolate floor=$floor"
+
+          if [ "$plain" != "$isolate" ]; then
+            echo "::error::The two runs disagree on how many tests exist ($plain vs $isolate). Same tree, same tests — a difference means one run did not see a suite. Try 'forge build --force'."
+            exit 1
+          fi
+
+          if [ "$plain" -lt "$floor" ]; then
+            echo "::error::$plain tests ran, below the floor of $floor. A suite is missing rather than failing. If tests were deliberately removed, lower the floor in this workflow in the same commit and say why."
+            exit 1
+          fi
+
+      # Fork tests against the Uniswap V4 singleton that is actually deployed on
+      # Robinhood Chain (4663). Every run above this uses a `PoolManager`
+      # compiled from `lib/v4-core` — the same source, but never the same
+      # bytecode and never the same surrounding state. See test/ToshV5Fork.t.sol.
+      #
+      # Forks of this repository have no reason to carry a permanently red
+      # check, and a check everyone has learned to ignore is worth less than no
+      # check — so a missing `ROBINHOOD_RPC` is tolerated THERE and only there.
+      #
+      # On the canonical repository it is a failure. The earlier version of this
+      # step tolerated it everywhere, which meant the whole live-V4 suite could
+      # stop running here — secret expired, secret never set, endpoint dead —
+      # and CI stayed green, because "every test skipped" and "everything
+      # passed" are the same exit code.
+      #
+      # Two assertions below, for two ways this goes quiet without going red:
+      #
+      #   • `--match-contract` against a name that matches nothing prints
+      #     "No tests found in project!" and exits 0. Rename `ToshV5ForkTest`,
+      #     or delete the file, and this step keeps reporting success forever.
+      #   • A reachable-but-wrong RPC (rate-limited, 521) leaves `forked` false,
+      #     so `_requireFork` skips every test and the suite still exits 0.
+      #
+      # The secret must point at chain 4663. It does NOT need to be archive-
+      # capable: the suite is unpinned, because Robinhood's public endpoint
+      # retains state for under seventeen minutes at 100 ms blocks. The suite
+      # asserts the chain id itself, so a correct-looking endpoint for the wrong
+      # chain fails loudly rather than passing against someone else's V4.
+      - name: Run fork tests against live Uniswap V4
+        env:
+          ROBINHOOD_RPC: ${{ secrets.ROBINHOOD_RPC }}
+          REPO_IS_FORK: ${{ github.event.repository.fork }}
+          PR_FROM_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ROBINHOOD_RPC:-}" ]; then
+            # Secrets are not exposed to pull requests raised from a fork, so a
+            # community PR reaching here without one is expected, not broken.
+            if [ "$REPO_IS_FORK" = "true" ] || [ "$PR_FROM_FORK" = "true" ]; then
+              echo "::notice::ROBINHOOD_RPC unavailable on a fork — skipping the live Uniswap V4 suite. This is expected; see .env.example."
+              exit 0
+            fi
+            echo "::error::ROBINHOOD_RPC is not set on the canonical repository, so the live Uniswap V4 fork suite did not run. Set the repository secret to a chain-4663 endpoint. Do not silence this by deleting the step: it is the only check that runs against the V4 singleton actually deployed on the production chain."
+            exit 1
+          fi
+
+          # Deliberately outside the working tree: the artifact-sync step below
+          # fails on any unexpected file, and a log dropped in the repo root
+          # would trip it.
+          log="$RUNNER_TEMP/fork-test.log"
+          forge test --match-contract ToshV5ForkTest -vvv | tee "$log"
+
+          if grep -q 'No tests found' "$log"; then
+            echo "::error::--match-contract ToshV5ForkTest matched nothing. The contract was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
+            exit 1
+          fi
+          if ! grep -qE '[1-9][0-9]* (tests? )?passed' "$log"; then
+            echo "::error::The fork suite ran but nothing passed. With ROBINHOOD_RPC set this usually means setUp() could not reach the endpoint, so it never forked and every test skipped."
+            exit 1
+          fi
+          if grep -qE '[1-9][0-9]* skipped' "$log"; then
+            echo "::error::Some fork tests reported SKIPPED with ROBINHOOD_RPC set. A partial skip is not a pass — see _requireFork in test/ToshV5Fork.t.sol."
+            exit 1
+          fi
+
+      # The frontend reads checked-in copies of the ABIs and the hook initcode.
+      # A Solidity change that lands without re-running the extractors leaves
+      # the UI calling a signature that no longer exists — a runtime revert
+      # with nothing to warn about it at compile time. This job already has
+      # both Foundry and the fresh `out/` artifacts, so the check is free here.
+      - name: Check frontend artifacts are in sync
+        run: |
+          node scripts/extractBytecode.js
+          node scripts/extractAbis.js
+          if ! git diff --exit-code --stat; then
+            echo "::error::Frontend artifacts are stale. Run scripts/extractBytecode.js and scripts/extractAbis.js, then commit the result."
+            exit 1
+          fi
+          # `git diff` only sees TRACKED files. An extractor taught to write a
+          # new path would emit it as untracked and this step would pass having
+          # noticed nothing — the generated file simply never gets committed,
+          # and the frontend reads a stale one forever.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::The extractors produced a file git is not tracking:"
+            git status --porcelain
+            echo "::error::If that path is a new artifact, commit it. If it is incidental output, write it outside the working tree."
+            exit 1
+          fi
+
+      # The launch UI mines CREATE2 salts in TypeScript against a byte layout it
+      # has to reproduce exactly. Get one field's width wrong and the miner still
+      # returns a well-formed salt — for a different initcode — so every
+      # createLaunch from the UI reverts with `InvalidHookSalt` while both sides
+      # compile and every Solidity test stays green.
+      #
+      # This guard existed before this step did and was RED: `softCap` was being
+      # packed as 32 bytes against Solidity's `uint128`. Nothing ran it, which is
+      # the only reason that shipped. See scripts/checkHookMinerTuple.mjs.
+      - name: Check frontend salt miner matches ToshCloneLib
+        run: node scripts/checkHookMinerTuple.mjs
+
+      # The UniversalRouter on mainnet predates `lib/v4-periphery`, and
+      # `IV4Router.ExactInputSingleParams` has since gained a field INSERTED
+      # ahead of `hookData`. On a native-ETH pool with the new field left at
+      # zero the deployed decoder does not revert — it silently reads `hookData`
+      # as empty, because the offset it expects lands on `currency0`. Every Tosh
+      # pool is native-ETH, so that is the shape this repository would hit.
+      #
+      # Nothing outside `test/` builds router calldata today, and this guard
+      # pins that: it holds the fork test's hand-rolled tuple against the
+      # deployed layout, requires the vendored one to still differ, and fails if
+      # any non-test source starts encoding a swap. Needs `lib/`, so it belongs
+      # in this job rather than frontend.yml, which checks out without
+      # submodules. See scripts/checkV4RouterTuple.mjs.
+      - name: Check V4 router calldata matches the deployed router
+        run: node scripts/checkV4RouterTuple.mjs
+
+      # The LP panel hand-encodes posm `modifyLiquidities` payloads, and posm
+      # does not abi-decode them: `decodeMintParams` reads fields by hard-coded
+      # calldata offsets. Bump this submodule so that a `PoolKey` field is
+      # inserted, an offset moves, or an `Actions` opcode is renumbered, and
+      # both sides still compile and every Solidity test still passes while
+      # every deposit from the UI reverts with `SliceOutOfBounds` — or succeeds
+      # having performed a different action than the button named.
+      #
+      # frontend.yml runs the other half of this pair, which drives the real
+      # viem encoder and checks the bytes. That half can only compare them
+      # against literals written in the guard; this half is what pins those
+      # literals to `lib/v4-periphery`, so it has to be here — frontend.yml
+      # checks out without submodules. See scripts/checkLpActionsAbi.mjs.
+      - name: Check posm payload layout matches vendored v4-periphery
+        run: node scripts/checkLpActionsAbi.mjs
+
+      # The on-chain alert definitions key on event topic0 hashes. Rename an
+      # event and every monitor built from them goes quiet — not erroring, just
+      # never firing again, which is invisible because "no alerts" looks exactly
+      # like "nothing wrong". This also fails when a NEW event is added without
+      # anyone deciding whether it should page, since an unclassified event is
+      # an unmonitored one. See docs/ONCHAIN_MONITORING.md §5.
+      - name: Check on-chain alert config matches the contracts
+        run: node scripts/verifyAlertTopics.js
+
+      # The PoG attestation digest is built three times — Solidity verifies it,
+      # viem signs it in production, ethers signs it for operators — with
+      # nothing connecting them. Reorder two fields and both signers keep
+      # producing well-formed signatures that recover to the wrong address, so
+      # every registerPoG reverts for every user at once while all three sides
+      # compile and every Solidity test passes (the tests sign with Solidity).
+      #
+      # The ordering invites the mistake: registerPoG's parameters are
+      # (maxAlloc, deadline, nonce, …) but the digest is (…, nonce, deadline, …).
+      # Swapping them is type-invisible — verified: `tsc` exits 0 on that exact
+      # mutant while this guard names both slots.
+      - name: Check PoG digest agrees across Solidity, viem and ethers
+        run: node scripts/checkPogDigestTuple.mjs
+
+      # The LP panel's PoolKey and mint range are four integers hard-coded in
+      # `contracts.ts` with a comment claiming they mirror the hook. Nothing
+      # enforced the mirror, and the check that looked like it did —
+      # `checkLpActions.ts` — compares them against themselves: it imports the
+      # constants from `contracts.ts` and asserts the payload built from those
+      # same constants. Slot position is real; the values agreed for any value.
+      #
+      # Measured before writing this: TICK_SPACING 200→60, POOL_FEE 3000→500
+      # and TICK_LOWER −887200→−887220 applied together left `forge test
+      # --isolate`, both TS guards, `checkLpActionsAbi.mjs`, `tsc` and
+      # `next build` ALL GREEN — on a PoolKey that hashes to a pool id which
+      # was never initialised, so every deposit from the UI would revert.
+      - name: Check frontend pool geometry mirrors the hook
+        run: node scripts/checkPoolGeometry.mjs
+
+      # Both of these existed and were run only by scripts/precheck.ps1 — a
+      # local, Windows-only, opt-in script. That is the same shape as the salt
+      # miner guard above, which was RED for as long as nothing ran it.
+      #
+      # Encoding is not cosmetic here. Editing these files with PowerShell's
+      # default ANSI code page silently rewrites em dashes, arrows and
+      # box-drawing characters as replacement bytes, and it has happened in
+      # this repository. The damage is invisible in a diff viewer that renders
+      # both sides the same way, so it needs a byte-level check.
+      - name: Check every source file is valid UTF-8
+        run: node scripts/checkEncoding.mjs
+
+      # `--strict` fails only on HARD anchors: the target file is gone, or the
+      # line does not exist. Soft drift (the line still exists but has moved
+      # inside a different function) is reported and tolerated, because
+      # renumbering an anchor only resets the clock on the same decay — the fix
+      # is to reference a NAME. Without the flag this exits 0 unconditionally,
+      # which is why running it unflagged would have been theatre.
+      - name: Check documentation anchors still resolve
+        run: node scripts/checkDocAnchors.js --strict
+
+      # `scripts/` was checked by nothing. frontend.yml runs `tsc --noEmit`
+      # inside soat-frontend/ only, so `pogSigner.ts` — which produces the
+      # signatures the factory's `registerPoG` recovers against, i.e. the
+      # oracle the whole allocation gate rests on — was never compiled by CI.
+      # A type error there is not caught until someone runs it by hand.
+      - name: Typecheck scripts (pogSigner and friends)
+        working-directory: scripts
+        run: |
+          npm ci
+          npx tsc --noEmit -p tsconfig.json

@@ -5,7 +5,10 @@ import './globals.css'
 import { Providers } from './providers'
 import { ToshNavbar } from '@/components/ToshNavbar'
 import { NetworkGuardClient } from '@/components/NetworkGuardClient'
+import { FactoryGuardClient } from '@/components/FactoryGuardClient'
 import { ReferralCapture } from '@/components/ReferralCapture'
+import { SiteFooter } from '@/components/SiteFooter'
+import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({
@@ -44,8 +47,11 @@ export default function RootLayout({
       {/* Colour, selection and numeral defaults all come from globals.css, so
           the body carries layout only. `bg-bg-base` used to sit here and
           quietly overrode the canvas token on every page. */}
+      {/* A column so the footer can sit at the bottom of short pages via
+          `mt-auto` instead of every page padding itself out to `min-h-screen`
+          and leaving a blank viewport above it. */}
       <body
-        className="terminal-grid-bg min-h-screen font-sans antialiased"
+        className="terminal-grid-bg flex min-h-screen flex-col font-sans antialiased"
         suppressHydrationWarning
       >
         <Providers>
@@ -56,7 +62,11 @@ export default function RootLayout({
           </Suspense>
           <ToshNavbar />
           <NetworkGuardClient />
-          {children}
+          <FactoryGuardClient />
+          <div className="flex-1">
+            <InstantProjectSlot>{children}</InstantProjectSlot>
+          </div>
+          <SiteFooter />
         </Providers>
       </body>
     </html>

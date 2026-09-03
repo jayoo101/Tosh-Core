@@ -34,6 +34,7 @@ import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20
 // Local
 // ──────────────────────────────────────────────────────────────────────────────
 import {ToshToken} from "./ToshToken.sol";
+import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 
 /// @title  ToshLaunchpadHook (v5.0 — ETH-native, tiered shelves, piggyback burn)
 /// @notice Uniswap V4 Hook powering a single Tosh project launch.
@@ -253,8 +254,14 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     uint256 public constant LAUNCH_WINDOW = 7 days;
 
-    /// @notice The window this launch actually chose, frozen at construction.
-    uint256 public immutable genesisDuration;
+    /// @notice The window this launch actually chose, frozen at deployment.
+    /// @dev    A clone immutable arg — see the per-project block below.  Only
+    ///         the *duration* can live there: `genesisDeadline` is
+    ///         `block.timestamp + duration`, which the creator cannot predict
+    ///         while mining a salt off-chain, so it has to be storage.
+    function genesisDuration() public view returns (uint256) {
+        return ToshCloneLib.argGenesisDuration();
+    }
 
     // ─── Economics ────────────────────────────────────────────────────────────
 
@@ -275,6 +282,24 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         0.30 % `POOL_FEE` that now goes to third-party LPs: 0.30 + 0.70
     ///         = 1.00, so traders see exactly the same cost as v4.x while LPs
     ///         finally get paid for the risk they carry.
+    ///
+    /// @dev    THE TWO PATHS APPLY THIS RATE TO DIFFERENT BASES, ON PURPOSE.
+    ///
+    ///         Exact-input charges 70 bps of `amountSpecified` — the gross the
+    ///         trader has already committed — so the tax is INCLUSIVE and works
+    ///         out to exactly 70 bps of their outlay.
+    ///
+    ///         Exact-output charges 70 bps of the input the pool consumed,
+    ///         which the trader then pays ON TOP.  That is EXCLUSIVE, so the
+    ///         realised rate is 70 / 1.007 = 69.5 bps of total outlay.
+    ///
+    ///         Half a basis point apart, and left alone deliberately.  Closing
+    ///         it means grossing up by `70 / (10_000 - 70)`, which buys
+    ///         0.5 bps at the cost of a division nobody reading
+    ///         `_skimUnspecifiedInput` would expect and a rate constant that no
+    ///         longer means what it says.  Recorded here so the asymmetry reads
+    ///         as a decision rather than an oversight — it has been raised once
+    ///         already by a reviewer who could not tell which it was.
     uint256 public constant TAX_BPS = 70;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
@@ -330,8 +355,20 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     uint256 public constant SHELF_PREMIUM_BPS = 10_500;
 
     /// @notice Target TWAP window.  The hook keeps two rolling checkpoints
-    ///         rather than a full ring buffer, so the realised window floats in
+    ///         rather than a full ring buffer, so on a pool that trades at
+    ///         least once per window the realised window floats in
     ///         [TWAP_WINDOW, 2 × TWAP_WINDOW).
+    ///
+    ///         That bracket used to be stated unconditionally, and it was not
+    ///         true.  The checkpoint rolls when a SWAP arrives, never on the
+    ///         clock, so `span` is bounded by the inter-trade interval —
+    ///         measured at 608_400 s (7.04 days) on a weekly-traded pool, and
+    ///         a pool that merely pauses for two windows already exceeds the
+    ///         stated ceiling.  `_twapSqrtPriceX96` now short-circuits the
+    ///         quiet case to `lastTick` (the exact average of a flat window),
+    ///         which is what makes the bracket above hold wherever it is
+    ///         meaningful.  `test_probeB2_quietPoolTwapDoesNotFossilise` pins
+    ///         the quiet end; `test_probeB_twapReanchorSpeed` pins the busy one.
     ///
     /// @dev    THIS CONSTANT IS THE ORACLE'S ENTIRE MANIPULATION DEPTH — read
     ///         it as a price, not as a guarantee.
@@ -387,13 +424,156 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     uint8 internal constant ACTION_ADD_LIQUIDITY = 1;
 
+    /// @notice Mirror of `ToshLadderTreasury.TRIGGER_STEP`, the reservoir balance
+    ///         that arms a piggyback buyback.
+    ///
+    /// @dev    Held here so `afterSwap` can decide whether the poke is worth
+    ///         making without paying for a call to find out — see the comment at
+    ///         the call site.  Mirroring a constant across two contracts is a
+    ///         coupling, and the failure mode if it drifts is quiet (a buyback
+    ///         that never fires, or a poke on every swap), so
+    ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
+    ///         equal.  Reading it from the treasury instead would cost the very
+    ///         call this exists to avoid.
+    uint256 public constant PIGGYBACK_TRIGGER_STEP = 1 ether;
+
+    /// @notice Gas held back from the piggyback poke so the swap can always
+    ///         finish.
+    ///
+    /// @dev    Everything after the poke — returning through `afterSwap`, V4
+    ///         closing the unlock frame, the router settling and refunding —
+    ///         measures ~70k.  This is that with room to spare, and it is
+    ///         enforced by passing `{gas: avail - PIGGYBACK_TAIL_RESERVE}`
+    ///         rather than by hoping: the poke physically cannot touch this
+    ///         share, so a leg that costs far more than expected is skipped
+    ///         instead of stranding the trade.
+    uint256 public constant PIGGYBACK_TAIL_RESERVE = 100_000;
+
+    /// @notice Gas that must remain at the poke for a buyback to be attempted.
+    ///
+    /// @dev    `PIGGYBACK_TAIL_RESERVE` plus one leg plus slack.  Below that sum
+    ///         the poke can only burn gas to discover it cannot finish, so the
+    ///         sum is a FLOOR and not a target — see the correction below.
+    ///
+    ///         Calibrating this is a one-sided bet in one direction only.  Gas-
+    ///         dependent control flow does not survive `eth_estimateGas`
+    ///         cleanly: a wallet simulates with a generous limit, so the
+    ///         simulation takes the buyback branch and quotes ~333k, then signs
+    ///         that plus a buffer — and by the time execution reaches the poke,
+    ///         `gasleft()` is the limit MINUS the ~147k already spent getting
+    ///         here.  So the limit needed to actually engage is `147k + this`,
+    ///         not `this`.  Raising this therefore raises the buffer a wallet
+    ///         must attach, and at 260k an earlier revision measured 22 % —
+    ///         above what wallets attach, which quietly degraded the mechanism
+    ///         to `pokeBuyback()` only.
+    ///
+    ///         **That reasoning was then carried past the floor, and the value
+    ///         spent time at 230,000, which is below it.**  The argument for
+    ///         erring low assumed the two failures were asymmetric: that too LOW
+    ///         merely wastes a poke while too HIGH retires the mechanism.  Below
+    ///         the floor they are the same failure.  A gate at 230,000 admits a
+    ///         poke, forwards `230_000 - 100_000` and hands one leg 130k to do
+    ///         149k of work; the leg runs out, `try/catch` swallows it, and no
+    ///         buyback happens either way.  The only thing erring low bought was
+    ///         the wasted 130k, and it bought it silently — the trade succeeds,
+    ///         and a buyback that does not happen is indistinguishable from the
+    ///         unarmed case that is the normal state of this branch.
+    ///
+    ///         So the floor is the target, not a bound to sit safely above.
+    ///         Both directions away from it cost something real and the costs
+    ///         are opposite, which is why "err low" was never the right shape of
+    ///         advice.  Set BELOW the floor and the band between gate and floor
+    ///         is pure waste — admitted pokes that cannot finish.  Set ABOVE it
+    ///         and the band between floor and gate is lost buybacks — pokes
+    ///         declined that would have completed.  Exactly at the floor, both
+    ///         bands are empty.  Nothing but the floor is defensible, and the
+    ///         floor is a measurement, so it has to be re-taken per chain.
+    ///
+    ///         **Now measured on the chain this ships to** rather than inferred
+    ///         from Ethereum.  One leg on Robinhood 46630, against the live V4
+    ///         singleton and a real launched pool, costs **156,153** gas — 4.8 %
+    ///         above the 148,986 the same leg measures locally under `--isolate`.
+    ///         The migration's stated worry was that ArbOS accounting would
+    ///         diverge widely from Ethereum's; at 4.8 % it does not.  The floor
+    ///         on 4663 is `100_000 + 156_153 = 256_153`, and this is the next
+    ///         round number above it.
+    ///
+    ///         156,153 is the dearest of four samples and the right one to size
+    ///         against: it is the first buyback of a newly listed token, which
+    ///         pays ~17k to take that token's `0xdEaD` balance slot from zero.
+    ///         Steady-state legs measured ~139k.  Sizing to the steady state
+    ///         would put the first poke of every new listing back in the waste
+    ///         band.  §F.7 of `docs/ROBINHOOD_MIGRATION.md` has all four samples
+    ///         and the probe contract.
+    ///
+    ///         This costs a wallet ~5 points of buffer against the value it
+    ///         replaces, and that is worth stating rather than burying: the
+    ///         engage test reads 20 % where it read 15 % at 230,000.  Some of
+    ///         those apparent engagements were real, so this is a genuine trade
+    ///         and not a free correction.  It is still the right one — the 15 %
+    ///         was measured in Ethereum's accounting, which this contract will
+    ///         never execute in, and under the accounting it WILL execute in the
+    ///         old value sat 26k below the floor.
+    ///
+    ///         Three tests hold the three edges.
+    ///         `test_piggybackStillRidesAProperlyEstimatedSwap` pins the engage
+    ///         side and now asserts BOTH bounds — it is the missing lower bound
+    ///         that let this sit under the floor unnoticed.
+    ///         `test_piggybackSkipsRatherThanKillingTheTrade` pins the skip side.
+    uint256 public constant PIGGYBACK_MIN_GAS = 260_000;
+
     // ══════════════════════════════════════════════════════════════════════════
     //  Immutables
     // ══════════════════════════════════════════════════════════════════════════
 
+    // ─── Platform-global (one copy, shared by every project) ──────────────────
+    //
+    // These are identical for every launch, so they stay ordinary immutables on
+    // the implementation. Under DELEGATECALL they resolve to constants PUSHed
+    // from the implementation's code, which is why they cost zero bytes per
+    // project and are just as cheap to read as before.
+
     IPoolManager public immutable poolManager;
     address public immutable factory;
-    address public immutable creator;
+
+    /// @notice Platform buyback reservoir; receives the 0.7 % buy-side dark tax
+    ///         and any orphaned referral commission.
+    address payable public immutable ladderTreasury;
+
+    /// @dev This implementation's own address, captured at construction. Under
+    ///      DELEGATECALL `address(this)` is the clone, so `address(this) ==
+    ///      _self` means nobody proxied us and the per-project config below is
+    ///      meaningless. See `onlyClone`.
+    address private immutable _self;
+
+    /// @dev Whether this deployment sits on an Arbitrum-family chain, decided
+    ///      once at construction. See `_blockNumber` for what turns on it.
+    bool private immutable _hasArbSys;
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Per-project configuration — read from the clone's own bytecode
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // Each project's hook is a 121-byte EIP-1167 clone of this implementation
+    // with these five fields appended to its runtime code (see
+    // `ToshCloneLib`). They were `immutable` before, which meant CREATE2-ing
+    // a fresh 19,586-byte copy of this entire contract per launch — 3,917,200
+    // gas of code deposit, 78 % of what `createLaunch` cost.
+    //
+    // The guarantees are unchanged. These values still cannot be altered after
+    // deployment, still live in code rather than storage, and are still part of
+    // the CREATE2 initcode and therefore committed to by the hook's mined
+    // address. The reads are warm EXTCODECOPYs at ~109 gas, on par with the
+    // warm SLOAD they replace and cheaper than a cold one.
+    //
+    // They are functions rather than public variables purely as an
+    // implementation detail: the ABI is byte-for-byte what `public immutable`
+    // generated, so callers and indexers see no change.
+
+    /// @notice Wallet that may call `launch()`.
+    function creator() public view returns (address) {
+        return ToshCloneLib.argCreator();
+    }
 
     /// @notice The project's declared multisig, recorded at launch.
     ///
@@ -402,35 +582,35 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         99 % of every shelf sale — is paid to `projectAdmin`, which is a
     ///         separate, rotatable address.
     ///
-    ///         It survives for two reasons only: it is a field of the CREATE2
-    ///         constructor tuple and therefore part of the hook's mined
-    ///         address, and it is on-chain, immutable, human-readable evidence
-    ///         of which multisig a project claimed at launch.  Removing it
-    ///         would invalidate every previously mined salt.
+    ///         It survives because it is part of the clone's immutable args and
+    ///         therefore of the hook's mined address: on-chain, unalterable,
+    ///         human-readable evidence of which multisig a project claimed at
+    ///         launch.
     ///
     ///         If you are looking for where the money goes, see `projectAdmin`
     ///         and `ladderTreasury`.
-    address public immutable projectTreasury;
-
-    /// @notice Platform buyback reservoir; receives the 0.7 % buy-side dark tax
-    ///         and any orphaned referral commission.
-    address payable public immutable ladderTreasury;
+    function projectTreasury() public view returns (address) {
+        return ToshCloneLib.argProjectTreasury();
+    }
 
     /// @notice Minimum ETH that must be raised by `genesisDeadline`.
     ///         Snapshotted from `ToshFactory.defaultSoftCap` at deploy time.
-    uint256 public immutable softCap;
+    function softCap() public view returns (uint256) {
+        return ToshCloneLib.argSoftCap();
+    }
 
     /// @notice Maximum ETH any single wallet may put into THIS project.
     ///
     /// @dev    Snapshotted from `ToshFactory.maxPogAllocationLimit` at deploy
-    ///         time, deliberately as an immutable rather than a live read.
-    ///         The platform owner can retune the dial at any moment, and a
-    ///         raise or cut landing mid-genesis would silently rewrite the
-    ///         terms a project was funded under.  Freezing it at creation
-    ///         means a change only ever governs projects launched after it —
-    ///         rounds already in flight keep the cap their depositors signed
-    ///         up to.
-    uint256 public immutable perWalletCap;
+    ///         time, deliberately frozen rather than read live.  The platform
+    ///         owner can retune the dial at any moment, and a raise or cut
+    ///         landing mid-genesis would silently rewrite the terms a project
+    ///         was funded under.  Freezing it at creation means a change only
+    ///         ever governs projects launched after it — rounds already in
+    ///         flight keep the cap their depositors signed up to.
+    function perWalletCap() public view returns (uint256) {
+        return ToshCloneLib.argPerWalletCap();
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Mutable state
@@ -489,35 +669,82 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         every view the UI polls.
     uint256 public shelfP0;
 
-    /// @notice Index of the shelf currently on sale. `== TIER_COUNT` once the
-    ///         entire ladder is cleared.
+    /// @notice The whole Phase-2 ladder position, in one slot.
     ///
-    /// @dev    Shelf PRICES are not stored.  With 4000 rungs a materialised
+    /// @dev    These three were `uint256 public` fields in three slots until the
+    ///         gas work.  `mintBondingCurve` writes all three together and reads
+    ///         two of them together, so splitting them across slots bought
+    ///         nothing and cost two extra SSTOREs on every shelf mint — the
+    ///         single most expensive thing the contract does per buyer.
+    ///
+    ///         Widths are not estimates; each is bounded by a constant in this
+    ///         file, and `test_ladderStateWidthsFitTheirConstants` fails the
+    ///         build if a future retune of `TIER_COUNT` or `TIER_SIZE` outgrows
+    ///         one of them.  That test is load-bearing: Solidity does not check
+    ///         explicit downcasts, so an overgrown constant would truncate
+    ///         silently rather than revert.
+    ///
+    ///           tierIndex  ≤ TIER_COUNT  = 4 000    (uint16  holds 65 535)
+    ///           tierSold   < TIER_SIZE   = 3.15e21  (uint88  holds 3.09e26)
+    ///           minted     ≤ BONDING_MAX = 1.26e25  (uint96  holds 7.92e28)
+    ///
+    ///         Shelf PRICES are still not stored.  With 4000 rungs a materialised
     ///         ladder would cost millions of gas at launch, and a cached
     ///         "current price" advanced by repeated multiplication would drift
     ///         away from the closed form after 4000 truncating steps.  Prices
     ///         are instead derived on demand by `tierPriceAt()`, which is the
     ///         single source of truth for both the mint path and every view.
-    uint256 public currentTierIndex;
+    struct LadderState {
+        /// @dev Shelf currently on sale. `== TIER_COUNT` once the ladder is cleared.
+        uint16 tierIndex;
+        /// @dev Tokens already sold from the active shelf.
+        uint88 tierSold;
+        /// @dev Cumulative Phase-2 issuance across all shelves.
+        uint96 minted;
+    }
+
+    LadderState internal _ladderState;
+
+    /// @notice Index of the shelf currently on sale. `== TIER_COUNT` once the
+    ///         entire ladder is cleared.
+    ///
+    /// @dev    Hand-written rather than a `public` field so that packing the
+    ///         three into `_ladderState` stayed invisible to the ABI, the
+    ///         subgraph and the front end.
+    function currentTierIndex() public view returns (uint256) {
+        return _ladderState.tierIndex;
+    }
 
     /// @notice Tokens already sold from the active shelf.
-    uint256 public currentTierSold;
+    function currentTierSold() public view returns (uint256) {
+        return _ladderState.tierSold;
+    }
 
     /// @notice Cumulative Phase-2 issuance across all shelves.
-    uint256 public phase2Minted;
+    function phase2Minted() public view returns (uint256) {
+        return _ladderState.minted;
+    }
 
     // ─── Swap-derived state ───────────────────────────────────────────────────
-
-    /// @notice Block of the most recent pool swap.  Shelf mints are forbidden in
-    ///         the same block, which isolates them from flash-loan price spikes.
-    uint256 public lastSwapBlock;
 
     /// @dev Hook-local geometric-mean oracle.  Uniswap V4 core ships no
     ///      observation buffer (unlike V3), so the hook accumulates
     ///      `tick × elapsed` itself on every `afterSwap`.
+    ///
+    ///      `_lastSwapBlock` shares this slot deliberately.  Both it and
+    ///      `lastTick` are written by every single swap, and as two separate
+    ///      slots that was two cold SSTOREs (~5k each) where one suffices.
+    ///      uint48 holds 2.8e14 blocks.  The figure this comment used to quote —
+    ///      107 million years — assumed 12 s blocks, and `_blockNumber()` now
+    ///      returns the settlement chain's own height, which on Robinhood Chain
+    ///      ticks every 100 ms.  That is 120x faster and still ~890,000 years,
+    ///      so the narrowing remains far from a real ceiling; the old premise
+    ///      simply no longer describes where this deploys.  Slot use is
+    ///      7 + 4 + 3 + 6 = 20 of 32 bytes.
     int56 public tickCumulative;
     uint32 public lastObservationTs;
     int24 public lastTick;
+    uint48 private _lastSwapBlock;
 
     /// @dev Rolling TWAP checkpoints. `_prev` is the reference point the TWAP
     ///      is measured from; it rolls forward once `_cur` ages past TWAP_WINDOW.
@@ -527,8 +754,14 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     uint32 internal _curCheckpointTs;
 
     // ─── Pool internals ───────────────────────────────────────────────────────
-
-    PoolKey internal _poolKey;
+    //
+    // There is no `_poolKey` storage variable.  Every one of its five fields is
+    // either a compile-time constant or already known: ETH is `address(0)` and
+    // therefore always currency0, the fee and tick spacing are constants, the
+    // hook is `address(this)`, and currency1 is `projectToken`.  Storing the
+    // key cost three fresh SSTOREs at launch and four cold SLOADs on every
+    // price read, all to hold values the contract can restate for one SLOAD.
+    // `_key()` restates it; see also the one-pool argument on `beforeInitialize`.
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Events
@@ -587,6 +820,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     error LaunchWindowExpired();
     error InvalidAdmin();
 
+    /// @notice Something tried to execute this contract as itself rather than
+    ///         through a project clone.
+    ///
+    /// @dev    Not defence-in-depth: the per-project config is read by offset out
+    ///         of `address(this)`'s code, and on the implementation those offsets
+    ///         land inside its own ~19 KB runtime, so they return garbage rather
+    ///         than zero.  See `onlyClone`.
+    error NotAClone();
+
     /// @notice The genesis window is not one of `DURATION_FAST` /
     ///         `DURATION_STANDARD` / `DURATION_SLOW`.
     error InvalidDuration();
@@ -634,47 +876,84 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     //  Constructor
     // ══════════════════════════════════════════════════════════════════════════
 
-    constructor(
-        address _poolManager,
-        address _factory,
-        address _projectTreasury,
-        address _creator,
-        address _projectAdmin,
-        address _ladderTreasury,
-        uint256 _softCap,
-        uint256 _perWalletCap,
-        uint256 _genesisDuration
-    ) {
+    /// @dev Deployed ONCE per platform, not once per project. Every launch is a
+    ///      clone of this instance, so the only arguments here are the ones
+    ///      shared by all of them; per-project values arrive as clone immutable
+    ///      args and are validated in `initializeToken`.
+    ///
+    ///      This instance is never usable as a hook itself — see `onlyClone`.
+    constructor(address _poolManager, address _factory, address _ladderTreasury) {
         require(_poolManager != address(0), "zero poolManager");
         require(_factory != address(0), "zero factory");
-        require(_projectTreasury != address(0), "zero treasury");
-        require(_creator != address(0), "zero creator");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
-        if (_projectAdmin == address(0)) revert InvalidAdmin();
-        require(_softCap > 0, "zero softCap");
-        require(_perWalletCap > 0, "zero perWalletCap");
-        if (
-            _genesisDuration != DURATION_FAST && _genesisDuration != DURATION_STANDARD
-                && _genesisDuration != DURATION_SLOW
-        ) revert InvalidDuration();
 
         poolManager = IPoolManager(_poolManager);
         factory = _factory;
-        projectTreasury = _projectTreasury;
-        creator = _creator;
-        projectAdmin = _projectAdmin;
         ladderTreasury = payable(_ladderTreasury);
-        softCap = _softCap;
-        perWalletCap = _perWalletCap;
-        genesisDuration = _genesisDuration;
-        genesisDeadline = block.timestamp + _genesisDuration;
+        _self = address(this);
+        _hasArbSys = ARB_SYS.code.length != 0;
+    }
 
-        emit ProjectAdminChanged(address(0), _projectAdmin);
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Block height
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @dev The ArbSys precompile, present on every Arbitrum and Orbit chain.
+    address private constant ARB_SYS = 0x0000000000000000000000000000000000000064;
+
+    /// @notice This chain's own block height.
+    ///
+    /// @dev    NOT `block.number`, and the difference is the whole point.
+    ///
+    ///         On Arbitrum and its Orbit chains — Robinhood Chain among them —
+    ///         `block.number` returns the height of the first non-Arbitrum
+    ///         ancestor, i.e. Ethereum L1. Measured on chain 4663: a contract
+    ///         reads ~25.8 M while the chain itself is at ~47.1 M, and the value
+    ///         advances once per ~10.7 s against a 100 ms block time. One
+    ///         `block.number` therefore spans roughly 107 real blocks.
+    ///
+    ///         `_lastSwapBlock` is the only consumer, and on that arithmetic the
+    ///         same-block lockout stops being "one block" and becomes a ~10.7 s
+    ///         pool-wide freeze on minting. Two things follow, and the second is
+    ///         worse than the first: any pool busy enough to see a swap every ten
+    ///         seconds has its ladder permanently shut with nobody attacking it,
+    ///         and — because gas here is negligible and sequencing is FCFS with
+    ///         no mempool — one dust swap per window closes it deliberately for
+    ///         almost nothing. Atomicity is what the guard actually defends, and
+    ///         atomicity exists per block, so the chain's own height is both
+    ///         necessary and sufficient.
+    ///
+    ///         It also repairs the reading half. `lastSwapBlock()` is compared
+    ///         against `useBlockNumber()` in the buy panel, and that RPC returns
+    ///         the L2 head — so on an unfixed deployment the panel compares 25.8 M
+    ///         against 47.1 M, concludes the lockout is open for every block of
+    ///         its duration, and invites a transaction that must revert.
+    ///
+    ///         The probe is `extcodesize`, not a chain id: Arbitrum registers its
+    ///         precompiles with a single `0xfe` byte, so the check is positive
+    ///         there and negative on any plain EVM, which keeps one binary correct
+    ///         on both Robinhood and the devnet the tests run against. It is read
+    ///         once in the constructor rather than per call, which keeps a cold
+    ///         2600-gas `EXTCODESIZE` off the swap path; the precompile call that
+    ///         remains measured ~1k gas.
+    ///
+    ///         Consequence worth stating plainly: on anvil this resolves to
+    ///         `block.number`, so the Arbitrum branch is dead code to every test
+    ///         that does not `vm.etch` a mock at `ARB_SYS` before the
+    ///         implementation is deployed. `ToshV5ArbSys.t.sol` is what covers it.
+    function _blockNumber() internal view returns (uint256) {
+        if (_hasArbSys) return IArbSys(ARB_SYS).arbBlockNumber();
+        return block.number;
     }
 
     /// @dev Accepts ETH from the factory's genesis gateway and from any V4
     ///      `take` that settles native currency to this hook.
-    receive() external payable {}
+    ///
+    ///      `onlyClone` here is not a security boundary — the implementation has
+    ///      no path that pays ETH out to anyone — it just stops value being
+    ///      burned by a mistaken send to the shared implementation, which no
+    ///      code path could ever return.
+    receive() external payable onlyClone {}
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Modifiers
@@ -682,6 +961,25 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
+        _;
+    }
+
+    /// @dev Refuses execution on the shared implementation.
+    ///
+    ///      This is mandatory, not belt-and-braces. The clone args sit at fixed
+    ///      offsets into the *caller's* code, and on the implementation those
+    ///      offsets land inside its own ~19 KB of real bytecode — not out of
+    ///      bounds, so EXTCODECOPY does not zero-fill. `softCap()` called on the
+    ///      bare implementation returns a garbage value in the 1e38 range: not a
+    ///      real config, but emphatically not zero either, so a `> 0` check
+    ///      would wave it straight through.
+    ///
+    ///      Guarding `initialize` is what makes the rest unreachable, since it
+    ///      is the only writer of `tokenInitialized` and every value-bearing
+    ///      path is gated on that. `test_implementationIsInertAsItself` pins the
+    ///      whole chain so this reasoning cannot rot silently.
+    modifier onlyClone() {
+        if (address(this) == _self) revert NotAClone();
         _;
     }
 
@@ -694,12 +992,69 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     //  Factory initialisation & admin rotation
     // ══════════════════════════════════════════════════════════════════════════
 
-    function initializeToken(address token_) external {
+    /// @notice One-shot initialiser, called by the factory inside `createLaunch`.
+    ///
+    /// @dev    This carries what a constructor used to. A clone runs no
+    ///         constructor, so the three things that cannot be immutable args
+    ///         have to be set here:
+    ///
+    ///           • `projectToken`   — deployed after the hook (its address is not
+    ///                                knowable while the salt is being mined).
+    ///           • `genesisDeadline` — `block.timestamp + genesisDuration()`, and
+    ///                                the creator cannot predict the mining block.
+    ///           • `projectAdmin`   — rotatable by design, see below.
+    ///
+    ///         `projectAdmin` was a constructor argument before and so was
+    ///         committed to by the hook's mined address. It no longer is, and
+    ///         nothing is lost: `changeProjectAdmin` always let the holder rotate
+    ///         it, so the address only ever pinned the *initial* value. The
+    ///         creator still chooses it — it is the argument they passed to
+    ///         `createLaunch`, applied in the same transaction. The value that
+    ///         genuinely must be tamper-evident, `projectTreasury`, stays an
+    ///         immutable arg and stays in the address.
+    ///
+    ///         `onlyClone` is load-bearing, not belt-and-braces. This is the only
+    ///         writer of `tokenInitialized`, and every value-bearing path is
+    ///         gated on it, so refusing to run here is what makes the bare
+    ///         implementation inert. See `onlyClone` and
+    ///         `test_implementationIsInertAsItself`.
+    ///
+    /// @param token_        The project's ERC-20, already pointed at this hook.
+    /// @param projectAdmin_ Initial recipient of the 99 % Phase-2 cut.
+    function initializeToken(address token_, address projectAdmin_) external onlyClone {
         if (msg.sender != factory) revert OnlyFactory();
         if (tokenInitialized) revert AlreadyInitialized();
         require(token_ != address(0), "zero token");
+        if (projectAdmin_ == address(0)) revert InvalidAdmin();
+
+        // Validated here rather than in the factory because the value is read
+        // out of this clone's own bytecode: checking the factory's argument
+        // would attest to what it *meant* to bake in, not to what the mined
+        // address actually commits to.  A duration outside the three rungs
+        // means the salt was mined against a config this contract will not
+        // honour, so the launch is rejected before it can take a deposit.
+        uint256 duration = genesisDuration();
+        if (duration != DURATION_FAST && duration != DURATION_STANDARD && duration != DURATION_SLOW) {
+            revert InvalidDuration();
+        }
+
+        // Every zero-check the constructor used to run, re-run here against the
+        // values actually baked into this clone.  The point is not that the
+        // factory might pass junk — it validates its own inputs — but that these
+        // now arrive as bytes at fixed offsets in our own code.  An offset bug is
+        // the one new failure mode this design introduces, and a degenerate
+        // config is exactly what one would look like, so the values are checked
+        // where they are read rather than where they were written.
+        require(ToshCloneLib.argCreator() != address(0), "zero creator");
+        require(ToshCloneLib.argProjectTreasury() != address(0), "zero treasury");
+        require(ToshCloneLib.argSoftCap() != 0, "zero softCap");
+        require(ToshCloneLib.argPerWalletCap() != 0, "zero perWalletCap");
+
         projectToken = ToshToken(token_);
+        projectAdmin = projectAdmin_;
+        genesisDeadline = block.timestamp + duration;
         tokenInitialized = true;
+
         emit TokenInitialized(token_);
     }
 
@@ -736,7 +1091,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // Per-project cap, enforced against the snapshot taken at creation so
         // a later platform-wide retune cannot move the goalposts on a round
         // that is already open.
-        if (ethDeposited[user] + amount > perWalletCap) revert PerWalletCapExceeded();
+        if (ethDeposited[user] + amount > perWalletCap()) revert PerWalletCapExceeded();
 
         ethDeposited[user] += amount;
         totalEthDeposited += amount;
@@ -760,7 +1115,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @notice True when depositors may reclaim their ETH.
     function canRefund() public view returns (bool) {
         if (launched) return false;
-        bool softCapFailed = block.timestamp > genesisDeadline && totalEthDeposited < softCap;
+        bool softCapFailed = block.timestamp > genesisDeadline && totalEthDeposited < softCap();
         bool zombieExpired = block.timestamp > genesisDeadline + LAUNCH_WINDOW;
         return softCapFailed || zombieExpired;
     }
@@ -773,7 +1128,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         require(!launched, "Already launched");
         require(block.timestamp > genesisDeadline, "Genesis not ended yet");
 
-        bool softCapFailed = totalEthDeposited < softCap;
+        bool softCapFailed = totalEthDeposited < softCap();
         bool zombieExpired = block.timestamp > genesisDeadline + LAUNCH_WINDOW;
         require(softCapFailed || zombieExpired, "Refund not available");
 
@@ -806,10 +1161,10 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///   5. P0 = lpEth / GENESIS_LP_SUPPLY, which is the pool's opening
     ///      price and tier 0's shelf price — genesis buyers pay no premium.
     function launch() external initialized nonReentrant {
-        if (msg.sender != creator) revert OnlyCreator();
+        if (msg.sender != creator()) revert OnlyCreator();
         if (block.timestamp < genesisDeadline) revert GenesisActive();
         if (launched) revert AlreadyLaunched();
-        if (totalEthDeposited < softCap) revert SoftCapNotMet();
+        if (totalEthDeposited < softCap()) revert SoftCapNotMet();
         if (totalEthDeposited == 0) revert ZeroAmount();
         if (block.timestamp > genesisDeadline + LAUNCH_WINDOW) revert LaunchWindowExpired();
 
@@ -835,18 +1190,9 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         projectToken.mint(address(this), GENESIS_SUPPLY);
 
         // ── 4. Build the ETH/token pool ───────────────────────────────────────
-        // ETH is address(0) and therefore always currency0.
-        Currency c0 = CurrencyLibrary.ADDRESS_ZERO;
-        Currency c1 = Currency.wrap(address(projectToken));
-
         uint160 sqrtPriceX96 = _toSqrtPriceX96(lpEth, GENESIS_LP_SUPPLY);
 
-        PoolKey memory key = PoolKey({
-            currency0: c0, currency1: c1, fee: POOL_FEE, tickSpacing: TICK_SPACING, hooks: IHooks(address(this))
-        });
-        _poolKey = key;
-
-        poolManager.initialize(key, sqrtPriceX96);
+        poolManager.initialize(_key(), sqrtPriceX96);
 
         bytes memory result = poolManager.unlock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpEth));
         uint128 liquidity = abi.decode(result, (uint128));
@@ -878,7 +1224,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // makes it deterministic for every raise, costs a buyer nothing they
         // cannot recover in the next block, and needs no change to the pricing
         // algebra (which correctly says shelf i unlocks at REF >= p0 * STEP^i).
-        lastSwapBlock = block.number;
+        _lastSwapBlock = uint48(_blockNumber());
 
         // ── 6. Flush orphaned commission to the buyback reservoir ─────────────
         if (orphanReferral > 0) {
@@ -992,16 +1338,20 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
 
         // ── Guard 1: same-block lockout ───────────────────────────────────────
-        if (block.number <= lastSwapBlock) revert SameBlockMintForbidden();
+        if (_blockNumber() <= _lastSwapBlock) revert SameBlockMintForbidden();
 
-        uint256 tierIndex = currentTierIndex;
+        // One SLOAD for the whole position. Read as a struct rather than through
+        // the three getters, which would be three reads of the same slot.
+        LadderState memory st = _ladderState;
+
+        uint256 tierIndex = st.tierIndex;
         if (tierIndex >= TIER_COUNT) revert LadderExhausted();
 
         // ── Guards 2 + 3: anti-spike reference and 105 % ceiling ──────────────
         // Hoisted out of the loop: no leg can move it (see the note above).
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
-        uint256 sold = currentTierSold;
+        uint256 sold = st.tierSold;
         uint256 filled;
         uint256 cost;
         uint256 legs;
@@ -1041,9 +1391,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (msg.value < cost) revert InsufficientPayment();
 
         // EFFECTS
-        currentTierIndex = tierIndex;
-        currentTierSold = sold;
-        phase2Minted += tokenAmount;
+        //
+        // One SSTORE for all three. The casts are safe by the bounds proved on
+        // `LadderState`: `tierIndex` is fenced by the `TIER_COUNT` checks above,
+        // `sold` by the rollover that resets it at `TIER_SIZE`, and the running
+        // total by the same `TIER_COUNT` fence, which caps lifetime issuance at
+        // `BONDING_MAX`.
+        _ladderState = LadderState({
+            tierIndex: uint16(tierIndex), tierSold: uint88(sold), minted: uint96(uint256(st.minted) + tokenAmount)
+        });
 
         // INTERACTIONS
         // Pipe 4 of the treasury's funding matrix: the platform's 1 % cut of
@@ -1075,12 +1431,14 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     function quoteMint(uint256 tokenAmount) external view returns (uint256 ethCost) {
         if (tokenAmount == 0) return 0;
 
-        uint256 tierIndex = currentTierIndex;
+        LadderState memory st = _ladderState;
+
+        uint256 tierIndex = st.tierIndex;
         if (tierIndex >= TIER_COUNT) revert LadderExhausted();
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
-        uint256 sold = currentTierSold;
+        uint256 sold = st.tierSold;
         uint256 filled;
         uint256 legs;
 
@@ -1128,14 +1486,16 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         launch block too.
     function maxMintable() public view returns (uint256 tokens) {
         if (!launched) return 0;
-        if (block.number <= lastSwapBlock) return 0;
+        if (_blockNumber() <= _lastSwapBlock) return 0;
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) return 0;
 
-        uint256 tierIndex = currentTierIndex;
+        LadderState memory st = _ladderState;
+
+        uint256 tierIndex = st.tierIndex;
         if (tierIndex >= TIER_COUNT) return 0;
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
-        uint256 sold = currentTierSold;
+        uint256 sold = st.tierSold;
 
         for (uint256 legs; legs < MAX_TIERS_PER_TX && tierIndex < TIER_COUNT; ++legs) {
             if (tierPriceAt(tierIndex) > ceiling) break;
@@ -1240,14 +1600,19 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        // Stay passive while the treasury is executing its own buyback —
-        // taxing it would recurse and skim the burn itself.
-        if (sender == ladderTreasury || _piggybackActive()) {
+        // Exact-output: specified is the output.  Input tax lands in afterSwap.
+        //
+        // Checked before the piggyback guard, which is an external call: this
+        // branch returns ZERO_DELTA either way, so asking the treasury whether
+        // a buyback is in flight cannot change the answer.  `afterSwap` still
+        // asks, which is where an exact-output swap's tax is actually decided.
+        if (params.amountSpecified >= 0) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
-        // Exact-output: specified is the output.  Input tax lands in afterSwap.
-        if (params.amountSpecified >= 0) {
+        // Stay passive while the treasury is executing its own buyback —
+        // taxing it would recurse and skim the burn itself.
+        if (sender == ladderTreasury || _piggybackActive()) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
@@ -1274,6 +1639,32 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         BalanceDelta delta,
         bytes calldata
     ) external onlyPoolManager returns (bytes4, int128) {
+        // Same-block mint lockout + oracle observation.
+        //
+        // ABOVE the treasury exemption below, and that placement is the whole
+        // point. These two lines are what make a swap VISIBLE; the exemption
+        // exists only to stop us taxing our own buyback and recursing into it.
+        // Skipping the tax is right, skipping the stamp was not: `pokeBuyback()`
+        // is permissionless, has no cooldown, and every call performs a real
+        // swap on this pool. With the stamp inside the exemption, any address
+        // could move spot repeatedly within one block while the hook recorded
+        // nothing — then mint against the raised `_safeReferencePrice()`
+        // ceiling in that same block, which is exactly what
+        // `SameBlockMintForbidden` exists to forbid. Measured before the fix:
+        // spot x5.15 in a single block and `maxMintable` 0 -> 100_800e18.
+        //
+        // Neither line can recurse. The stamp is a plain SSTORE, and
+        // `_writeObservation` only reads `slot0`. The piggyback poke further
+        // down is the reentrant part, and it stays below the exemption.
+        //
+        // Sampling here rather than after `_skimUnspecifiedInput` is
+        // price-neutral: the skim settles deltas through `poolManager.take`,
+        // which moves no price, so `lastTick` reads the same either way.
+        _lastSwapBlock = uint48(_blockNumber());
+        _writeObservation();
+
+        // Stay passive while the treasury is executing its own buyback —
+        // taxing it would recurse and skim the burn itself.
         if (sender == ladderTreasury || _piggybackActive()) {
             return (IHooks.afterSwap.selector, int128(0));
         }
@@ -1283,12 +1674,20 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             hookUnspecified = _skimUnspecifiedInput(key, params, delta);
         }
 
-        // Same-block mint lockout + oracle observation.
-        lastSwapBlock = block.number;
-        _writeObservation();
-
         // Piggyback: if the reservoir has crossed 1 ETH, this swap carries the
         // platform's round-robin buyback. Self-policing — a no-op otherwise.
+        //
+        // The balance check is the treasury's own arming condition, asked here
+        // where it is cheap. `_nextSpendAmount()` returns 0 for a balance below
+        // `TRIGGER_STEP` and the poke returns without doing anything, so this
+        // skips no cycle that would have run — it only stops paying for the
+        // call that discovers there is nothing to do, which is the common case
+        // on a quiet pool. BALANCE on a warm account is 100 gas against a few
+        // thousand for the call chain (a CALL into the treasury, another into
+        // the manager for `isUnlocked`, and a cold `ladderTokens.length`).
+        //
+        // The mirrored threshold is the price of doing this, and
+        // `test_piggybackTriggerMirrorsTheTreasury` is what keeps it honest.
         //
         // Fault-isolated. The buyback is a courtesy this swap performs for the
         // platform; it is never a precondition of the swap itself, so nothing
@@ -1299,9 +1698,30 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // liquidity in this contract permanently with no recovery path.
         // A caught revert also rolls back that frame's V4 deltas and its
         // transient piggyback flag, so the swap resumes on clean accounting.
-        try IToshLadderTreasury(ladderTreasury).autoPiggybackBuyback() {}
-        catch {
-            emit PiggybackPokeFailed(ladderTreasury);
+        // The gas gate is the other half, and it is a correctness condition
+        // rather than an optimisation.
+        //
+        // The buy tax reaches the treasury during `beforeSwap`, so a swap can
+        // begin with the reservoir unarmed and reach this line with it armed —
+        // which means the trade that TIPS the reservoir over the trigger is the
+        // trade billed for the buyback, and it is precisely the one whose gas
+        // was estimated against an unarmed pool. Measured, a leg needs ~125k and
+        // the tail after this point ~70k, against an estimate that budgeted for
+        // neither. Without a gate that trade runs out of gas and reverts, and
+        // `try/catch` does not save it: the 63/64 rule leaves this frame a
+        // sixty-fourth, which does not cover the tail.
+        //
+        // So: skip unless there is room for a leg AND the tail, and cap what the
+        // poke may consume so the tail's share cannot be eaten however expensive
+        // a leg turns out to be. A skipped cycle costs nothing — the ETH stays
+        // in the reservoir, and `pokeBuyback()` can deploy it with no swap at
+        // all.
+        uint256 avail = gasleft();
+        if (ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP && avail >= PIGGYBACK_MIN_GAS) {
+            try IToshLadderTreasury(ladderTreasury).autoPiggybackBuyback{gas: avail - PIGGYBACK_TAIL_RESERVE}() {}
+            catch {
+                emit PiggybackPokeFailed(ladderTreasury);
+            }
         }
 
         return (IHooks.afterSwap.selector, hookUnspecified);
@@ -1399,6 +1819,28 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         revert UnknownAction();
     }
 
+    /// @dev The one pool this hook serves, restated rather than stored.
+    ///
+    ///      Four of the five fields are fixed for every project: ETH is
+    ///      `address(0)` and so always sorts into currency0, `POOL_FEE` and
+    ///      `TICK_SPACING` are constants, and the hook is this contract.  Only
+    ///      currency1 varies, and it is `projectToken` — already in storage
+    ///      because the mint path needs it.
+    ///
+    ///      So the key costs one SLOAD to rebuild instead of the four cold ones
+    ///      it took to read, and the three SSTOREs at launch go away entirely.
+    ///      `beforeInitialize` is what makes this sound: it permits exactly one
+    ///      pool per hook, so there is never a second key this could confuse.
+    function _key() internal view returns (PoolKey memory) {
+        return PoolKey({
+            currency0: CurrencyLibrary.ADDRESS_ZERO,
+            currency1: Currency.wrap(address(projectToken)),
+            fee: POOL_FEE,
+            tickSpacing: TICK_SPACING,
+            hooks: IHooks(address(this))
+        });
+    }
+
     /// @dev Settle the full-range genesis position: `lpEth` native ETH plus
     ///      GENESIS_LP_SUPPLY tokens.
     function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpEth) internal returns (bytes memory) {
@@ -1411,7 +1853,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         );
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
-            _poolKey,
+            _key(),
             ModifyLiquidityParams({
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
@@ -1433,7 +1875,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // currency1 == project token
         if (d1 < 0) {
             uint256 owed = uint256(uint128(-d1));
-            poolManager.sync(_poolKey.currency1);
+            poolManager.sync(Currency.wrap(address(projectToken)));
             IERC20(address(projectToken)).safeTransfer(address(poolManager), owed);
             poolManager.settle();
         }
@@ -1466,7 +1908,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             }
         }
 
-        (, int24 tickNow,,) = poolManager.getSlot0(_poolKey.toId());
+        (, int24 tickNow,,) = poolManager.getSlot0(_key().toId());
         lastTick = tickNow;
     }
 
@@ -1485,7 +1927,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     /// @dev Live pool price in ETH-wei per whole token.
     function _getSpotPrice() internal view returns (uint256) {
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(_poolKey.toId());
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(_key().toId());
         return _sqrtPriceToEthPerToken(sqrtPriceX96);
     }
 
@@ -1517,6 +1959,35 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         uint32 nowTs = uint32(block.timestamp);
         uint32 span = nowTs - _prevCheckpointTs;
         if (span < TWAP_WINDOW) return 0;
+
+        // A pool that has not traded for a full window has a known average.
+        //
+        // `_writeObservation` rolls the checkpoint when a SWAP arrives, not on
+        // the clock, so `span` is bounded by the inter-trade interval and not
+        // by `2 x TWAP_WINDOW` as the contract header once claimed. On a quiet
+        // pool it grows without limit — measured at 608_400 s (7.04 days) on a
+        // weekly-traded pool — and the average it reports is dominated by an
+        // era the market has left behind. That fossilised value is what
+        // `_buybackSqrtFloor` anchors each leg to, so the reservoir either
+        // refuses to buy the token for months (measured: first fill on day 105)
+        // or, after a drawdown, carries a band far wider than the one
+        // `MAX_BUYBACK_SQRT_DEVIATION_BPS` names.
+        //
+        // Clamping `span` would not fix it and would make it dishonest:
+        // `delta` accumulates over the WHOLE period, so dividing it by a
+        // truncated span reports an average that never occurred. The real
+        // observation is simpler. If no swap has landed for `TWAP_WINDOW`, the
+        // price was flat at `lastTick` across the entire trailing window, so
+        // `lastTick` is not an approximation of the average — it is the
+        // average, exactly.
+        //
+        // This costs nothing in manipulation resistance. Reaching this branch
+        // requires holding a price against arbitrage for a full window with no
+        // other trade, which is the assumption every TWAP of this depth already
+        // rests on, and it is the assumption PROBE B measures the price of.
+        if (nowTs - lastObservationTs >= TWAP_WINDOW) {
+            return TickMath.getSqrtPriceAtTick(lastTick);
+        }
 
         int56 cumNow = tickCumulative + int56(lastTick) * int56(uint56(nowTs - lastObservationTs));
         int56 delta = cumNow - _prevCheckpointCumulative;
@@ -1630,11 +2101,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     function getTier(uint256 index) public view returns (Tier memory tier) {
         require(index < TIER_COUNT, "tier out of range");
 
+        LadderState memory st = _ladderState;
+
         uint256 sold;
-        if (index < currentTierIndex) {
+        if (index < st.tierIndex) {
             sold = TIER_SIZE; // fully cleared
-        } else if (index == currentTierIndex) {
-            sold = currentTierSold;
+        } else if (index == st.tierIndex) {
+            sold = st.tierSold;
         }
 
         tier = Tier({price: tierPriceAt(index), totalAmount: TIER_SIZE, soldAmount: sold});
@@ -1656,11 +2129,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
         ladder = new Tier[](n);
 
+        // Hoisted: this used to read two storage fields per rung, and the UI
+        // asks for a window at a time.
+        LadderState memory st = _ladderState;
+
         for (uint256 i; i < n; ++i) {
             uint256 idx = start + i;
             uint256 sold;
-            if (idx < currentTierIndex) sold = TIER_SIZE;
-            else if (idx == currentTierIndex) sold = currentTierSold;
+            if (idx < st.tierIndex) sold = TIER_SIZE;
+            else if (idx == st.tierIndex) sold = st.tierSold;
 
             // Deliberately re-derives via `tierPriceAt` per rung instead of
             // walking the series forward: sequential multiplication would
@@ -1677,19 +2154,21 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     /// @notice Tokens left on the active shelf.
     function tierRemaining() external view returns (uint256) {
-        if (currentTierIndex >= TIER_COUNT) return 0;
-        return TIER_SIZE - currentTierSold;
+        LadderState memory st = _ladderState;
+        if (st.tierIndex >= TIER_COUNT) return 0;
+        return TIER_SIZE - st.tierSold;
     }
 
     /// @notice Phase-2 tokens still unissued across the whole ladder.
     function bondingRemaining() external view returns (uint256) {
-        if (phase2Minted >= BONDING_MAX) return 0;
-        return BONDING_MAX - phase2Minted;
+        uint256 minted = _ladderState.minted;
+        if (minted >= BONDING_MAX) return 0;
+        return BONDING_MAX - minted;
     }
 
     /// @notice Price of the shelf currently on sale (ETH-wei per whole token).
     function currentBondingPrice() external view returns (uint256) {
-        return tierPriceAt(currentTierIndex);
+        return tierPriceAt(_ladderState.tierIndex);
     }
 
     /// @notice Everything the front-end needs to render the shelf gate.
@@ -1714,9 +2193,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             bool unlocked
         )
     {
-        tierIndex = currentTierIndex;
+        LadderState memory st = _ladderState;
+
+        tierIndex = st.tierIndex;
         tierPrice = tierPriceAt(tierIndex);
-        remaining = tierIndex >= TIER_COUNT ? 0 : TIER_SIZE - currentTierSold;
+        remaining = tierIndex >= TIER_COUNT ? 0 : TIER_SIZE - st.tierSold;
 
         if (!launched) return (tierIndex, tierPrice, remaining, 0, 0, 0, false);
 
@@ -1727,7 +2208,31 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     }
 
     function getPoolKey() external view returns (PoolKey memory) {
-        return _poolKey;
+        return _key();
+    }
+
+    /// @notice Block number of the most recent swap on this pool, which is also
+    ///         the block Phase 2 is shut for.
+    ///
+    /// @dev    "Most recent swap" means EVERY swap, including the treasury's own
+    ///         buybacks. That was untrue for a while — `afterSwap` exempts the
+    ///         treasury to avoid taxing itself, and the stamp sat inside the
+    ///         exemption — which left this getter, the mint gate and the buy
+    ///         panel all reporting an open lockout during a permissionless
+    ///         price move. `test_pokeBuyback_shutsTheSameBlockMintLockout` is
+    ///         what keeps the claim honest.
+    ///
+    /// @dev    Kept as a `uint256`-returning getter even though the backing slot
+    ///         narrowed to `uint48`: the treasury, the tests and the buy panel
+    ///         all read this, and there is nothing to gain from making them
+    ///         handle a narrower type.
+    ///
+    ///         The unit is whatever `_blockNumber()` returns — the settlement
+    ///         chain's own height, which is what `eth_blockNumber` reports. That
+    ///         is the contract this getter owes the buy panel, which compares it
+    ///         against exactly that RPC.
+    function lastSwapBlock() public view returns (uint256) {
+        return _lastSwapBlock;
     }
 
     /// @notice This pool's TWAP as a Q64.96 sqrt price, or 0 before the first
@@ -1776,4 +2281,12 @@ interface IToshLadderTreasury {
 ///      deploy hooks, and a direct import would close that cycle.
 interface IToshFactoryHalt {
     function ladderMintingHalted(address hook) external view returns (bool);
+}
+
+/// @dev The one ArbSys method this contract needs.  Declared locally rather than
+///      pulled from a Nitro package: a two-line interface is not worth a
+///      dependency, and `lib/**` is version-pinned by policy (SECURITY_AUDIT
+///      §5.6), so adding one costs more than it saves.  See `_blockNumber`.
+interface IArbSys {
+    function arbBlockNumber() external view returns (uint256);
 }

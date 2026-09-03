@@ -1,0 +1,162 @@
+name: Frontend
+
+permissions: {}
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: soat-frontend
+
+jobs:
+  verify:
+    name: Next.js app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      # `src/lib/contracts.ts` throws at import time without this, which would
+      # fail the build during prerender. CI never talks to a chain, so any
+      # syntactically valid non-precompile address works; it is deliberately
+      # NOT a real deployment so a leaked CI log cannot be mistaken for one.
+      NEXT_PUBLIC_FACTORY_ADDRESS: "0x1111111111111111111111111111111111111111"
+      # Must be a chain `src/lib/chain.ts` registers. It no longer falls back to
+      # a default for an id it does not know — it throws — so a stale value here
+      # fails the build rather than quietly building against the wrong network.
+      NEXT_PUBLIC_CHAIN_ID: "46630"
+      # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
+      # nothing, and no build ever ships a source map to a real project.
+      NEXT_PUBLIC_SENTRY_DSN: ""
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: soat-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Split out of `npm run verify` so a red check names the failing stage in
+      # the job list instead of making someone open the log to find out.
+      - name: Design tokens
+        run: npm run tokens:strict
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint
+
+      # Runs on every chain the UI supports, not just the one CI is configured
+      # for. The strings that break on the mainnet cutover are precisely the
+      # ones no CI run would otherwise evaluate. See PM-F6.
+      - name: Chain copy reads correctly on every chain
+        run: node scripts/checkChainCopy.mjs
+
+      # Next.js inlines `NEXT_PUBLIC_*` by substituting the literal source text
+      # `process.env.NEXT_PUBLIC_FOO`, so a computed `process.env[name]` is
+      # never substituted and silently resolves to undefined in the browser.
+      # Types, lint and `next build` all pass; `next dev` and every route
+      # handler work, because those run in Node. The failure surfaces only on a
+      # chain cutover, as a build that ignores every address the operator set.
+      # Also checks the inverse: an env var documented in the production
+      # template that no source file statically reads.
+      - name: Public env vars are actually inlined
+        run: node scripts/checkPublicEnv.mjs
+
+      # Endpoint selection used to be copy-pasted into four modules, each
+      # falling back to a hardcoded `https://sepolia.base.org` and each pairing
+      # it with `chain: targetChain` — so the chain a client was bound to and
+      # the chain its transport talked to were chosen by different expressions.
+      # A mainnet build that set no RPC read Sepolia. `POST /api/projects`
+      # authenticates a listing from the creator in a launch receipt, so
+      # reading that receipt on the wrong chain lets a free testnet launch
+      # authenticate a row in the mainnet directory. Env is read at module
+      # load, so only a source check can see this.
+      - name: RPC endpoints are chosen against an explicit chain id
+        run: npm run guard:rpc
+
+      # supabase-js has no default timeout and retries four times with backoff,
+      # so an unreachable registry does not fail — it grinds for ~14 s. Two of
+      # the three call sites had never considered it: the directory list
+      # answered 500 after fourteen seconds, and the publish write could hang
+      # for the same span with the user's launch already mined. The failure was
+      # a question a call site did not ask, so it is the next one added that
+      # this catches.
+      - name: Supabase queries carry a deadline
+        run: npm run guard:supabase
+
+      # The LP panel quotes deposits from fixed-point maths hand-ported out of
+      # v4-core's SqrtPriceMath and v4-periphery's LiquidityAmounts. A drift
+      # here does not throw: the panel just quotes an amount the pool will
+      # refuse, so the mint reverts on `amount1Max` after the user has already
+      # signed two Permit2 approvals. Pins the TS against vectors recorded from
+      # Foundry. See scripts/checkV4Math.ts.
+      - name: v4 fixed-point maths matches Solidity vectors
+        run: npm run guard:v4math
+
+      # posm decodes `modifyLiquidities` payloads with hard-coded calldata
+      # offsets and a decoder that reverts on any non-canonical abi offset, so a
+      # reordered or rewidened param produces `SliceOutOfBounds` — an opaque
+      # revert from a wallet popup with nothing failing at compile time.
+      #
+      # This half runs the real viem encoder and checks the bytes it emits. The
+      # offsets it expects are pinned to the vendored periphery Solidity by
+      # scripts/checkLpActionsAbi.mjs over in test.yml, which is the job that
+      # has `lib/`. Neither half is sufficient alone.
+      - name: posm action payloads have the layout the decoder reads
+        run: npm run guard:lpactions
+
+      # The guards above are static checks on source text; these exercise the
+      # code. Both are needed: a guard cannot tell whether a rate-limit bucket
+      # is actually keyed on the entry it reads, and a test cannot see a
+      # hardcoded endpoint that only the mainnet build would reach.
+      #
+      # Every suite here is mutation-tested — the original defect was
+      # reintroduced and the tests were confirmed to fail — so they pin
+      # behaviour rather than merely covering lines.
+      - name: Server behaviour tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # Separate job on purpose. A new advisory published against some transitive
+    # build dependency is not a reason to hide whether the app still typechecks
+    # and builds, and the reverse is also true.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: soat-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The tree was at zero high/critical advisories when this gate was added,
+      # held there by the `overrides` block in package.json. The gate exists so
+      # that going back to nine is a red check rather than something someone
+      # notices by chance months later. See docs/SECURITY_AUDIT.md §5.1.
+      - name: npm audit (fail on high or critical)
+        run: npm audit --audit-level=high

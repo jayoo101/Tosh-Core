@@ -34,7 +34,10 @@
  *      POG_SIGNER_PRIVATE_KEY  — historical / preferred
  *      POG_PRIVATE_KEY         — spec-compliant alias (must equal SIGNER)
  *  OPTIONAL:
- *      BASE_SEPOLIA_RPC        — fallback https://sepolia.base.org
+ *      NEXT_PUBLIC_RPC_URL     — endpoint for the target chain; see
+ *                                `app/lib/serverRpc.ts` for the full order and
+ *                                for why chain-named vars are not consulted on
+ *                                a chain they do not name.
  */
 
 import { NextResponse } from 'next/server'
@@ -45,6 +48,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts'
 
 import { fetchPogNonce } from '@/app/lib/onchainNonce'
+import { reportError } from '@/lib/observability'
 import {
   POG_SCAN_AUTH_DOMAIN,
   POG_SESSION_AUTH_TTL_MS,
@@ -55,9 +59,9 @@ import {
   MOCK_CHAIN_GAS,
   totalGasEth,
   computeMaxAllocWei,
-  DEFAULT_GAS_TO_SATO_RATE,
   type ChainGasData,
 } from '@/app/lib/pogQuota'
+import { getGasToSatoRate } from '@/app/lib/gasToSatoRate'
 import {
   applyCors,
   applyRateLimit,
@@ -108,9 +112,14 @@ const ATTESTATION_TTL_SEC: number = 24 * 60 * 60
 // PROOF-OF-GAS MULTI-CHAIN SCANNER
 // ─────────────────────────────────────────────────────────────────────────────
 // Single swap-point for the future real indexer (Etherscan / Alchemy /
-// Covalent / Dune).  Today this resolves to the shared `MOCK_CHAIN_GAS` table
-// so this Next.js route and the offline CLI signer (`scripts/pogSigner.ts`)
-// produce byte-identical `maxAlloc` values for any given wallet.
+// Covalent / Dune).  Today this resolves to the shared `MOCK_CHAIN_GAS` table.
+//
+// That table is only half of what `maxAlloc` depends on; the other half is the
+// exchange rate.  The two signers agree on `maxAlloc` only because BOTH now
+// read the live rate — this route via `getGasToSatoRate()`, the CLI via
+// `fetchGasToSatoRate(ADMIN_API_URL)`.  This comment used to claim
+// "byte-identical" while the route read the compile-time default, which made
+// the claim false from the first owner rotation onward.
 //
 // Wire a live indexer behind this seam — everything else in the pipeline
 // (rate fetch, computeMaxAllocWei, nonce sync, digest framing) is already
@@ -173,7 +182,7 @@ export async function OPTIONS(req: Request) {
 
 export async function POST(req: Request) {
   // ── Hardening Gate 0a · Rate limit ─────────────────────────────────────
-  const limited = applyRateLimit(req, RATE_LIMIT_OPTS)
+  const limited = await applyRateLimit(req, RATE_LIMIT_OPTS)
   if (limited) return applyCors(limited, req, CORS_OPTS)
 
   // ── Hardening Gate 0b · Body size + JSON parse ────────────────────────
@@ -244,6 +253,13 @@ export async function POST(req: Request) {
     )
   } catch (e) {
     console.error('[sign-allocation] Failed to fetch on-chain nonce', e)
+    // Every PoG registration dies here when the RPC is unreachable, and the
+    // user-facing text ("try again") is indistinguishable from a blip. Without
+    // this report a total outage of the signing path looks like silence (#26).
+    reportError(e, {
+      surface: 'api-route',
+      extra: { route: 'POST /api/sign-allocation', stage: 'fetchPogNonce', chainId },
+    })
     return corsify(req, clientError('Unable to sync nonce from chain — try again', 503))
   }
 
@@ -254,7 +270,11 @@ export async function POST(req: Request) {
   // `registerPoG` will revert with `ExceedsGlobalPogLimit`.
   const gasData     = await scanGasHistoryForWallet(userAddress as Address)
   const gasEth      = totalGasEth(gasData)
-  const gasToSatoRate = DEFAULT_GAS_TO_SATO_RATE
+  // The LIVE rate, not the compile-time default. This route used to read
+  // `DEFAULT_GAS_TO_SATO_RATE` while `scripts/pogSigner.ts` read the rotated
+  // value, so every owner rotation silently split the two signers apart — see
+  // `app/lib/gasToSatoRate.ts`.
+  const gasToSatoRate = await getGasToSatoRate()
   const maxAlloc    = computeMaxAllocWei(gasEth, gasToSatoRate)
 
   // ── GATE 2 · POG ATTESTATION DIGEST ──────────────────────────────────

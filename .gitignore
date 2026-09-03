@@ -38,6 +38,14 @@ build/
 next-env.d.ts
 *.tsbuildinfo
 
+# ─── Static analysis output ──────────────────────────────────────────────────
+# `slither --json` is ~8 MB of AST-derived detail that regenerates in ~15 s and
+# goes stale the moment a contract changes. The triage that matters lives in
+# docs/SECURITY_AUDIT.md §5.7; reproduce the raw report with the command
+# recorded there.
+slither.json
+slither-run.txt
+
 # ─── Local scratch ───────────────────────────────────────────────────────────
 # Anvil fork snapshots and one-off scratch files from debugging sessions.
 .fork-*.json

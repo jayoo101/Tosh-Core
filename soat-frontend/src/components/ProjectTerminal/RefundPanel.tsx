@@ -36,7 +36,7 @@ export function RefundPanel({
     blockersInRevertOrder: revertOrder({
       id: 'no-deposit',
       active: ethDeposited === 0n,
-      label: '[no_deposit]',
+      label: 'Nothing to refund',
       reason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
       tone: 'neutral',
     }),
@@ -46,7 +46,7 @@ export function RefundPanel({
     <Card
       id="P-3"
       title="Claim refund"
-      subtitle="hook.refund() — soft cap missed, or the 7-day launch window lapsed. Full ETH back, no penalty."
+      subtitle="The raise missed its floor, or the 7-day window to open trading lapsed. Take back the full amount, no penalty."
       tone="warn"
     >
       <Readout label="Your deposit" value={`${fmt(ethDeposited)} ETH`} tone="warn" />

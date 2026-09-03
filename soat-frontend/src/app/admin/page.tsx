@@ -56,8 +56,7 @@ import { injected } from 'wagmi/connectors'
 import {
   FACTORY_ADDRESS,
   TARGET_CHAIN_ID,
-  MAINNET_CHAIN_LABEL,
-  TESTNET_CHAIN_LABEL,
+  CHAIN_BYLINE,
 } from '@/lib/contracts'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
 import { ActionGateProvider, type AmbientGate } from '@/components/ui'
@@ -176,7 +175,7 @@ export default function AdminPage() {
 
   return (
     <ActionGateProvider value={access}>
-      <div className="min-h-screen bg-bg-base text-text-primary font-sans">
+      <div className="text-text-primary font-sans">
         <header className="border-b border-border-subtle/60 px-6 py-6">
           <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
             <div>
@@ -195,7 +194,7 @@ export default function AdminPage() {
                 Protocol <span className="text-brand">Control</span>
               </h1>
               <p className="text-xs text-text-tertiary mt-1 font-mono">
-                {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL} ·{' '}
+                {CHAIN_BYLINE} ·{' '}
                 {FACTORY_ADDRESS.slice(0, 10)}…{FACTORY_ADDRESS.slice(-6)}
               </p>
             </div>

@@ -27,29 +27,38 @@
  *
  * Body for shared-secret path: { newRate }  (nonce/expiresAt not required)
  *
- * In production the in-memory `globalGasToSatoRate` should be persisted to a
- * real store (database / Redis); the auth layer here is the production-ready
- * piece that needs to land before that swap.
+ * The rate itself lives in `app/lib/gasToSatoRate.ts`, not here. It used to be
+ * a module-scoped `let` in this file with no exported accessor, which meant
+ * `api/sign-allocation` — the only route that turns a rate into a signed
+ * allocation — could not read it and used the compile-time default instead. A
+ * rotation therefore reported success, echoed back from the GET below, and
+ * changed nothing about any issued attestation. See that file's header.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import {
-  createPublicClient,
-  http,
   isAddress,
   recoverMessageAddress,
   type Address,
   type Hex,
 } from 'viem'
 import { FACTORY_ABI } from '@/app/lib/abis'
+import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { targetChain } from '@/lib/chain'
+import { reportError } from '@/lib/observability'
 import {
   applyCors,
   applyRateLimit,
   corsPreflight,
   readJsonBody,
 } from '@/app/lib/apiGuard'
+import { rateLimitBackendKind } from '@/app/lib/rateLimitStore'
+import {
+  gasToSatoRateBackendKind,
+  getGasToSatoRate,
+  setGasToSatoRate,
+} from '@/app/lib/gasToSatoRate'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HARDENING POLICIES
@@ -78,15 +87,11 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 // ─── In-memory state (resets on server restart) ──────────────────────────────
-let globalGasToSatoRate: number = 0.1   // default: 1 ETH gas = 0.1 ETH quota
 let lastSeenNonce: bigint = 0n           // monotonic replay guard
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const ADMIN_SECRET     = process.env.ADMIN_SECRET            ?? ''
 const FACTORY_ADDRESS  = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
-const RPC_URL          = process.env.BASE_SEPOLIA_RPC ??
-                         process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC ??
-                         'https://sepolia.base.org'
 
 /** Max future drift allowed on `expiresAt` (seconds). 5 minutes is enough for
  *  honest clock skew while keeping the signed window tight. */
@@ -156,10 +161,15 @@ function bearerMatches(headerValue: string | null, expected: string): boolean {
 async function readChainOwner(): Promise<Address | null> {
   if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) return null
   try {
-    const client = createPublicClient({
-      chain: targetChain,
-      transport: http(RPC_URL),
-    })
+    // This read decides who may rotate the PoG rate, so an answer from some
+    // other chain is worse than no answer at all.
+    if (!(await assertServerChain())) {
+      console.error(
+        `[admin/config] RPC does not report chain ${targetChain.id} — refusing the owner check`,
+      )
+      return null
+    }
+    const client = serverPublicClient()
     const owner = await client.readContract({
       address: FACTORY_ADDRESS as Address,
       abi: FACTORY_ABI,
@@ -168,6 +178,13 @@ async function readChainOwner(): Promise<Address | null> {
     return owner as Address
   } catch (err) {
     console.error('[admin/config] readChainOwner failed:', err)
+    // Returning null here makes the owner check fail closed, so an RPC outage
+    // presents as "you are not the owner" to a legitimate admin — exactly the
+    // wrong story to be debugging during an incident. Report it (#26).
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'admin/config', stage: 'readChainOwner' },
+    })
     return null
   }
 }
@@ -179,18 +196,29 @@ function corsify(req: NextRequest, res: NextResponse) {
 
 // ─── GET — read current config ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const limited = applyRateLimit(req, GET_RATE_LIMIT)
+  const limited = await applyRateLimit(req, GET_RATE_LIMIT)
   if (limited) return corsify(req, limited)
 
+  // The two `*Store` fields are here so an operator can tell at a glance
+  // whether these values are shared or instance-local. On `memory` this GET
+  // may answer differently per instance, and so may the signer — and the rate
+  // limiter is enforcing per-instance quotas. `rateLimitBackendKind` had no
+  // caller before this, so "we are silently running on per-instance limits"
+  // was observable only from a 429 header nobody sees until it is too late.
   return corsify(
     req,
-    NextResponse.json({ globalGasToSatoRate, lastSeenNonce: lastSeenNonce.toString() })
+    NextResponse.json({
+      globalGasToSatoRate: await getGasToSatoRate(),
+      lastSeenNonce: lastSeenNonce.toString(),
+      rateStore: gasToSatoRateBackendKind(),
+      rateLimitStore: rateLimitBackendKind(),
+    })
   )
 }
 
 // ─── POST — update config ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const limited = applyRateLimit(req, POST_RATE_LIMIT)
+  const limited = await applyRateLimit(req, POST_RATE_LIMIT)
   if (limited) return corsify(req, limited)
 
   const parsed = await readJsonBody<{
@@ -219,7 +247,7 @@ export async function POST(req: NextRequest) {
   // signature below.
   const authHeader = req.headers.get('authorization')
   if (ADMIN_SECRET.length > 0 && bearerMatches(authHeader, ADMIN_SECRET)) {
-    return corsify(req, applyUpdate({ newRate, authMethod: 'admin-secret' }))
+    return corsify(req, await applyUpdate({ newRate, authMethod: 'admin-secret' }))
   }
 
   // ── Path 1: on-chain owner signature ───────────────────────────────────
@@ -303,7 +331,7 @@ export async function POST(req: NextRequest) {
     return corsify(
       req,
       NextResponse.json(
-        { error: 'Factory owner lookup failed (check NEXT_PUBLIC_FACTORY_ADDRESS / BASE_SEPOLIA_RPC)' },
+        { error: 'Factory owner lookup failed (check NEXT_PUBLIC_FACTORY_ADDRESS / NEXT_PUBLIC_RPC_URL)' },
         { status: 503 }
       )
     )
@@ -323,19 +351,18 @@ export async function POST(req: NextRequest) {
   lastSeenNonce = nonce
   return corsify(
     req,
-    applyUpdate({ newRate, authMethod: 'owner-signature', signer: recovered, nonce })
+    await applyUpdate({ newRate, authMethod: 'owner-signature', signer: recovered, nonce })
   )
 }
 
 // ─── Internal apply ──────────────────────────────────────────────────────────
-function applyUpdate(opts: {
+async function applyUpdate(opts: {
   newRate: number
   authMethod: 'admin-secret' | 'owner-signature'
   signer?: Address
   nonce?: bigint
 }) {
-  const previous = globalGasToSatoRate
-  globalGasToSatoRate = opts.newRate
+  const previous = await setGasToSatoRate(opts.newRate)
 
   console.log('[admin/config] rate updated', {
     previous,
@@ -343,6 +370,7 @@ function applyUpdate(opts: {
     authMethod: opts.authMethod,
     signer: opts.signer,
     nonce: opts.nonce?.toString(),
+    store: gasToSatoRateBackendKind(),
     updatedAt: new Date().toISOString(),
   })
 
@@ -350,8 +378,9 @@ function applyUpdate(opts: {
     {
       success: true,
       previous,
-      globalGasToSatoRate,
+      globalGasToSatoRate: opts.newRate,
       authMethod: opts.authMethod,
+      rateStore: gasToSatoRateBackendKind(),
       updatedAt: new Date().toISOString(),
     },
     { status: 200 }

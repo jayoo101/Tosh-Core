@@ -83,7 +83,26 @@ export function captureReferrerFromUrl(): void {
 }
 
 /**
- * The referrer to send with `factory.deposit(hook, referrer)`.
+ * The referrer to spend RIGHT NOW, read straight from storage.
+ *
+ * `useBoundReferrer` below only publishes its value from an effect, so the
+ * first client frame after mount still reads `ZERO_ADDRESS`. A deposit signed
+ * in that frame burns the wallet's one and only binding on nobody. Callers that
+ * are about to send `factory.deposit` resolve the address here instead of
+ * trusting the rendered prop.
+ */
+export function resolveReferrerNow(userAddress: Address | undefined): Address {
+  const stored = readStoredReferrer()
+  if (!stored) return ZERO_ADDRESS
+  if (userAddress && stored.toLowerCase() === userAddress.toLowerCase()) {
+    clearStoredReferrer()
+    return ZERO_ADDRESS
+  }
+  return stored
+}
+
+/**
+ * The referrer to display, and the capture side-effect.
  *
  * Returns `ZERO_ADDRESS` when nobody referred this visitor — the factory reads
  * that as "no referral" and sweeps the commission to the buyback reservoir

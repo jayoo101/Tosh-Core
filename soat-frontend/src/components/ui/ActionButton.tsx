@@ -40,8 +40,11 @@ export interface ActionButtonProps {
   className?: string
 }
 
+// This styles the explanation *under* the button. Leaving `ok` on `brand` put
+// brand text directly beneath an armed brand CTA, so the two competed and the
+// button stopped being the loudest thing in its own card.
 const HINT_TONE: Record<VerdictTone, string> = {
-  ok: 'text-brand',
+  ok: 'text-success',
   danger: 'text-danger',
   warn: 'text-warning',
   info: 'text-info',

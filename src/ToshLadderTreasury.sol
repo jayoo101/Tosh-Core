@@ -99,10 +99,32 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         basis points.  1000 = 10 %.  Floored at `TRIGGER_STEP`.
     uint256 public constant SPEND_BPS = 1000;
 
-    /// @notice Maximum ladder tokens serviced by a single piggyback cycle.
-    ///         Caps the gas surcharge borne by the unlucky trader whose swap
-    ///         happens to cross the threshold.
+    /// @notice How many ways a cycle's spend is split — the SIZING divisor, not
+    ///         the number of legs run per poke.
+    ///
+    /// @dev    These were the same number until the peak-cost work.  One poke
+    ///         used to run three legs, which billed a single trader for three V4
+    ///         swaps (~125k each, measured) on top of their own — 579k against
+    ///         the 217k an untriggered swap costs.  Legs now run one per poke,
+    ///         while `perToken` stays `spend / BATCH_SIZE` so each pool receives
+    ///         exactly what it did before.
+    ///
+    ///         Keeping the divisor at 3 is what makes that free: shrinking it
+    ///         instead would push three times the ETH through one genesis pool
+    ///         per cycle, and on pools that thin the extra slippage buys fewer
+    ///         tokens to burn — paying in execution quality for a gas saving.
     uint256 public constant BATCH_SIZE = 3;
+
+    /// @notice Buy legs executed per poke.
+    ///
+    /// @dev    One, so the trader who triggers a cycle carries one V4 swap
+    ///         rather than three.  The reservoir stays armed while it holds
+    ///         `TRIGGER_STEP`, so the following swaps pick up the next legs and
+    ///         the same three pools are served across three trades instead of
+    ///         one — same ETH deployed, same per-pool size, a third of the peak.
+    ///         The cursor advancing one leg at a time also spreads coverage more
+    ///         evenly than advancing three at once.
+    uint256 public constant LEGS_PER_POKE = 1;
 
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
@@ -118,8 +140,21 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         rallied hard inside a single TWAP window.  An attacker who wants
     ///         to evade it has to shift the price ~19 % and hold that through
     ///         the poke, paying the 0.3 % LP fee and the 0.7 % hook tax on both
-    ///         legs of a position far larger than the 0.33 ETH they are trying
-    ///         to skim.
+    ///         legs of a position sized to move the pool that far.
+    ///
+    ///         Do not read the prize as fixed.  A leg is
+    ///         `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000) / BATCH_SIZE`,
+    ///         so 0.33 ETH — the figure this comment used to quote as the sum
+    ///         being skimmed — is only its FLOOR, reached while the reservoir
+    ///         sits between 1 and 10 ETH and the minimum is doing the sizing.
+    ///         Above that the leg is `balance / 30` and rises with the pot; a
+    ///         100 ETH reservoir offers 3.34 ETH.  The two sides of the trade
+    ///         also scale on different axes — evading the band costs in
+    ///         proportion to POOL DEPTH, while the prize tracks the RESERVOIR —
+    ///         so the margin is thinnest on a thin pool behind a full treasury.
+    ///         This band is a rate limit on that exposure, not a proof it is
+    ///         unprofitable: `test_probeG2_bandEdgeSitsWhereTheConstantSaysItDoes`
+    ///         pins the width, and PROBE G measures what leaks through it.
     uint256 public constant MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000;
 
     /// @dev Transient-storage slot holding the recursion guard.  A piggyback
@@ -178,7 +213,15 @@ contract ToshLadderTreasury is Ownable2Step {
     error TokenAlreadyListed();
     error TokenNotListed();
     error TokenNotLaunchedHere();
+    /// @dev Launched by this platform, but its pool is not open yet.  Distinct
+    ///      from `TokenNotLaunchedHere` so the owner can tell "wrong platform"
+    ///      apart from "too early", which is a wait rather than a mistake.
+    error PoolNotLaunched();
     error InvalidPoolKey();
+    error OnlyPoolManager();
+    /// @dev `pokeBuyback` called with nothing to deploy.
+    error NotArmed();
+    error PiggybackInProgress();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -241,8 +284,37 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         is why its binding is one-shot: a re-pointable factory would
     ///         hand the answer to both questions back to the owner.
     ///
+    ///         ── DO NOT LIST A POOL YOUNGER THAN `TWAP_WINDOW` ───────────────
+    ///
+    ///         This is an OPERATIONAL rule, not one the contract enforces, so
+    ///         it can be broken by anyone holding this key and nothing on chain
+    ///         will stop them.
+    ///
+    ///         `_buybackSqrtFloor` anchors the anti-sandwich bound to the
+    ///         hook's TWAP, and the hook reports 0 — meaning "no TWAP yet" —
+    ///         for the first `TWAP_WINDOW` (1800 s) after `launch()`.  On 0 the
+    ///         floor falls back to unbounded, so a token listed inside that
+    ///         window has NO price bound on its buyback legs, on the pool whose
+    ///         liquidity is thinnest.  Measured at
+    ///         `test_probeG3_immatureTwapLeavesTheBuybackUnbounded`: a pool
+    ///         parked 1500 bps out gives up 0.93 ETH of a 3.33 ETH leg, where a
+    ///         matured TWAP refuses the same deviation outright.  `pokeBuyback`
+    ///         has no cooldown, so that is per block, not once.
+    ///
+    ///         Waiting costs nothing but the wait: the reservoir is not spent
+    ///         while a token is unlisted, and the window closes on the clock
+    ///         alone — `_prevCheckpointTs` only ever rolls onto a checkpoint
+    ///         already a full window old, so it is one-shot and cannot be
+    ///         re-entered.  `STATE-07` in `monitoring/alerts.json` is what
+    ///         catches the rule being broken, by polling the same
+    ///         `twapSqrtPriceX96()` this depends on rather than re-deriving the
+    ///         deadline from timestamps.
+    ///
     /// @param  token A token launched by this platform, already through
-    ///               `launch()` (an unlaunched hook has no pool key yet).
+    ///               `launch()` — checked against the hook's `launched` flag,
+    ///               since there is no pool to buy into before that.  Listing
+    ///               is additionally gated OFF CHAIN until its TWAP matures;
+    ///               see above.
     function addLadderToken(address token) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
         if (_indexPlusOne[token] != 0) revert TokenAlreadyListed();
@@ -253,12 +325,23 @@ contract ToshLadderTreasury is Ownable2Step {
         address hook = IToshFactoryRegistry(f).tokenToHook(token);
         if (hook == address(0)) revert TokenNotLaunchedHere();
 
+        // The pool must actually exist before it can be listed, or the first
+        // buyback to reach this token would swap against nothing.
+        //
+        // This used to ride on the shape of the key: the hook stored it at
+        // launch, so an unlaunched hook returned a zero key and failed the
+        // `currency1` arm below.  The hook now restates its key from constants
+        // and `projectToken` instead of storing it — cheaper, but well-formed
+        // from the moment the token is set, which is before launch.  The
+        // liveness check is asked for directly rather than inferred from a
+        // side effect that no longer happens.
+        if (!IToshHookPoolKey(hook).launched()) revert PoolNotLaunched();
+
         PoolKey memory key = IToshHookPoolKey(hook).getPoolKey();
 
         // ETH must be currency0 and `token` must be currency1, otherwise the
         // hard-wired `zeroForOne = true` buy direction in `_buyAndBurn` would
-        // swap the wrong way round.  A zero key — a hook that has not launched
-        // — fails the `currency1` arm.
+        // swap the wrong way round.
         if (!key.currency0.isAddressZero()) revert InvalidPoolKey();
         if (Currency.unwrap(key.currency1) != token) revert InvalidPoolKey();
         if (address(key.hooks) != hook) revert InvalidPoolKey();
@@ -311,11 +394,63 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         returns early instead of reverting, and each buy leg is
     ///         individually fault-isolated behind `try/catch`.
     function autoPiggybackBuyback() external onlyHook {
+        // Must be inside someone's unlock frame to touch swap/settle/take.  A
+        // hook only ever calls this from `afterSwap`, so it always is — the
+        // check is here because this is the one entry point whose caller we do
+        // not control the surroundings of.
+        if (!poolManager.isUnlocked()) return;
+
+        _runPiggyback();
+    }
+
+    /// @notice Deploy the reservoir without riding a swap.  Permissionless.
+    ///
+    /// @dev    The backstop for the gas gate in `ToshLaunchpadHook.afterSwap`.
+    ///         A hook now skips the poke when the triggering trade cannot afford
+    ///         it, which is what stops that trade from reverting — but it also
+    ///         means the reservoir can no longer count on being deployed by
+    ///         trading alone.  Before this existed there was no other path:
+    ///         `autoPiggybackBuyback` is `onlyHook` and `executeBuyAndBurn` is
+    ///         `onlySelf`, so a market where every trade ran a tight gas limit
+    ///         would have stalled the buyback indefinitely with no recourse.
+    ///
+    ///         Open to anyone on purpose.  It moves no ETH to the caller and
+    ///         chooses nothing: the venue comes from the hook, the size from the
+    ///         reservoir balance, the order from the round-robin cursor, and the
+    ///         price is bounded by the same TWAP floor as every other leg.  The
+    ///         most a caller can do is decide WHEN, and the cursor makes that
+    ///         uninteresting.  Gating it on the owner would reintroduce the
+    ///         liveness dependency this removes.
+    ///
+    ///         Reverts rather than returning quietly when unarmed, because
+    ///         unlike the hook path this is nobody's hot path and a caller
+    ///         deserves to know the call did nothing.
+    function pokeBuyback() external {
+        if (piggybackActive()) revert PiggybackInProgress();
+        if (_nextSpendAmount() == 0) revert NotArmed();
+        if (ladderTokens.length == 0) revert NotArmed();
+
+        // Opens our own frame, since there is no swap to borrow one from.
+        poolManager.unlock("");
+    }
+
+    /// @dev V4 calls this back only on the address that called `unlock`, so
+    ///      reaching here means `pokeBuyback` above put us here.
+    function unlockCallback(bytes calldata) external returns (bytes memory) {
+        if (msg.sender != address(poolManager)) revert OnlyPoolManager();
+        _runPiggyback();
+        return "";
+    }
+
+    /// @dev One cycle of the round-robin buyback.  Shared by the swap-borne poke
+    ///      and the standalone one.
+    ///
+    ///      Never reverts on a "not ready" condition: the hook path sits in the
+    ///      hot path of ordinary user swaps, so every precondition returns early
+    ///      instead, and each leg is individually fault-isolated.
+    function _runPiggyback() internal {
         // Already inside a piggyback (a nested Tosh pool poked us) — stay passive.
         if (piggybackActive()) return;
-
-        // Must be inside someone's unlock frame to touch swap/settle/take.
-        if (!poolManager.isUnlocked()) return;
 
         uint256 spend = _nextSpendAmount();
         if (spend == 0) return;
@@ -323,13 +458,17 @@ contract ToshLadderTreasury is Ownable2Step {
         uint256 total = ladderTokens.length;
         if (total == 0) return;
 
-        uint256 count = total < BATCH_SIZE ? total : BATCH_SIZE;
+        // Legs per poke and the spend divisor are separate numbers; see both
+        // constants.  `count` is only clamped by the ladder length so a
+        // one-token ladder does not index past the end.
+        uint256 count = total < LEGS_PER_POKE ? total : LEGS_PER_POKE;
 
         // Divided by BATCH_SIZE rather than by `count`, so a short ladder
         // spends proportionally less instead of concentrating the same cheque
         // into fewer pools.  With `total >= BATCH_SIZE` — the steady state —
-        // the two are identical; the difference only shows up on a list the
-        // owner has narrowed, which is exactly the case worth throttling.
+        // each pool gets a third of the cycle; the difference only shows up on
+        // a list the owner has narrowed, which is exactly the case worth
+        // throttling.
         uint256 perToken = spend / BATCH_SIZE;
         if (perToken == 0) return;
 
@@ -436,10 +575,38 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      fill partially or revert into `BuybackSkipped`, leaving the
     ///      attacker holding an inventory they bought with no exit.
     ///
-    ///      Falls back to unbounded when the hook has no TWAP yet (the first
-    ///      window after launch) or does not answer, because refusing to buy
-    ///      would be the worse failure: the reservoir would stall permanently
-    ///      on any pool whose hook predates this interface.
+    ///      Two fallbacks return unbounded, and they are NOT justified by the
+    ///      same argument.  Conflating them is how the weaker one survived
+    ///      review, so they are stated apart:
+    ///
+    ///        • `catch` — the hook does not answer at all.  Refusing here would
+    ///          stall the reservoir PERMANENTLY on any pool whose hook predates
+    ///          this interface, with no clock to rescue it.  Unbounded is the
+    ///          lesser failure.
+    ///
+    ///        • `twapSqrt == 0` — the hook answers "no TWAP yet", which is true
+    ///          only for the first `TWAP_WINDOW` after `launch()`.  The
+    ///          permanent-stall argument does NOT carry over: this state is
+    ///          one-shot, closes on the clock without needing a swap, and
+    ///          refusing would cost a deferral of at most 30 minutes through
+    ///          the `BuybackSkipped` path that already exists.  What it buys
+    ///          instead is the absence of any anti-sandwich bound during the
+    ///          window, measured at 0.93 ETH per leg and repeatable per block
+    ///          via `pokeBuyback` — see
+    ///          `test_probeG3_immatureTwapLeavesTheBuybackUnbounded`.
+    ///
+    ///      The second branch is therefore a known cost, held closed OFF CHAIN
+    ///      by not listing a token until its TWAP matures (see
+    ///      `addLadderToken`, and `STATE-07` in `monitoring/alerts.json` for
+    ///      the detection).  Anyone proposing to make it bounded in code is
+    ///      re-opening a decision that was taken deliberately, not fixing an
+    ///      oversight — and the reverse is also true: the operational rule is
+    ///      the only thing holding it, so it cannot be dropped silently.
+    ///
+    ///      Note the `twapSqrt == 0` early return is arithmetically redundant —
+    ///      delete it and `floor` computes to 0 and the ternary picks
+    ///      `unbounded` anyway.  It is kept because it is the only place the
+    ///      branch can be NAMED, and an unnamed branch cannot carry this note.
     function _buybackSqrtFloor(PoolKey memory key) internal view returns (uint160) {
         uint160 unbounded = TickMath.MIN_SQRT_PRICE + 1;
 
@@ -491,7 +658,27 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000)`, or 0 below the
     ///      arming threshold.  Capped at the live balance so a rounding edge
     ///      can never try to spend more than the pot holds.
-    function _nextSpendAmount() internal view returns (uint256 spend) {
+    ///
+    ///      `virtual` exists for exactly one reason and it is worth naming, so
+    ///      that nobody deletes it as decoration or takes it as an invitation.
+    ///      `TRIGGER_STEP` is a 1 ETH `constant` with no setter, which means the
+    ///      piggyback branch cannot be reached on any chain where a tester
+    ///      cannot assemble 1 ETH — testnets, in other words. That branch is
+    ///      also the only consumer of `PIGGYBACK_MIN_GAS` and
+    ///      `PIGGYBACK_TAIL_RESERVE` in `ToshLaunchpadHook`, two gas budgets
+    ///      measured against Ethereum's accounting and deployed to an ArbOS
+    ///      chain that does not share it. Unreachable code carrying unverified
+    ///      constants is how a feature ships dead: the gate is `>=`, so a budget
+    ///      set too high retires the buyback silently, and a skipped poke
+    ///      deliberately emits nothing.
+    ///
+    ///      This seam lets `test/probe/PiggybackGasProbe.sol` deploy the real
+    ///      contract with a reachable threshold and measure the real path on the
+    ///      real chain. `ToshV5Guards.t.sol::test_nextSpendAmountIsNotOverridden`
+    ///      asserts production still uses this implementation, and the runtime
+    ///      bytecode is byte-identical with and without the keyword — verified,
+    ///      not assumed. See `docs/ROBINHOOD_MIGRATION.md` §F.7.
+    function _nextSpendAmount() internal view virtual returns (uint256 spend) {
         uint256 bal = address(this).balance;
         if (bal < TRIGGER_STEP) return 0;
         spend = (bal * SPEND_BPS) / BPS_DENOMINATOR;
@@ -518,6 +705,7 @@ interface IToshFactoryRegistry {
 ///      trades in, so the buyback venue is never caller-supplied.
 interface IToshHookPoolKey {
     function getPoolKey() external view returns (PoolKey memory);
+    function launched() external view returns (bool);
 }
 
 /// @dev Minimal hook view exposing the manipulation-resistant price reference a

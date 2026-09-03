@@ -1,32 +1,52 @@
 /**
  * apiGuard.ts  —  Production hardening primitives for Next.js Route Handlers
  * ───────────────────────────────────────────────────────────────────────────
- *  Pre-mainnet item #6.  Provides three composable primitives that every
- *  public API route under `src/app/api/**` should adopt:
+ *  Pre-mainnet item #6 — now PM-F1 in `docs/PRE_MAINNET_CHECKLIST.md`, which is
+ *  where the numbering is actually defined.  Provides three composable
+ *  primitives that every public API route under `src/app/api/**` should adopt:
  *
  *    • `applyCors(res, req, opts)`   — closed-by-default CORS allow-list,
  *                                       echoes Vary, handles `OPTIONS` preflight.
- *    • `applyRateLimit(req, opts)`   — per-IP token-bucket, in-memory.
- *    • `applyJsonBodyLimit(req, max)`— bounded body reader, defends against
- *                                       JSON-bomb / oversized payloads.
+ *    • `applyRateLimit(req, opts)`   — per-IP, async, backed by `rateLimitStore`.
+ *    • `readJsonBody(req, max)`      — streaming bounded body reader, defends
+ *                                       against JSON-bomb / oversized payloads.
  *
  *  Design notes
  *  ────────────
- *  • In-memory token bucket is fine for a single-region single-instance
- *    Next.js deployment.  For multi-region / multi-instance, swap the
- *    `RateLimiter` private state for a Redis-backed `SETEX + INCR`
- *    counter — keep the public API the same so callers don't change.
+ *  • Rate-limit counters are no longer in this file.  They moved to
+ *    `lib/rateLimitStore.ts`, which uses shared Redis when it is configured and
+ *    per-process memory otherwise (PM-F5).  The one visible consequence here:
+ *    `applyRateLimit` is `async`, because a shared store is a network call.
  *  • The allow-list comes from `ALLOWED_ORIGINS` env var (comma-separated).
  *    Falls back to the production sentinel `https://tosh.example` so a
  *    missing env var fails CLOSED (no `*` cowboy origin).
- *  • Every route should funnel through `withApiHardening()` — it wraps a
- *    handler with rate-limit + CORS + body cap in the right order and
- *    short-circuits with the right status (429 / 403 / 413).
+ *  • Routes compose the primitives directly; there is no wrapper to funnel
+ *    through.  This file used to say "every route should funnel through
+ *    `withApiHardening()`" and ship one, and not a single route used it — the
+ *    per-method behaviour each route needs (different limits for GET and POST,
+ *    a preflight naming only the methods that exist) does not fit one wrapper,
+ *    so it was deleted rather than left as documentation of a lane nobody
+ *    drives in.  The shape every route follows instead:
+ *
+ *      export async function OPTIONS(req) { return corsPreflight(req, CORS) }
+ *      export async function POST(req) {
+ *        const limited = await applyRateLimit(req, POST_LIMIT)
+ *        if (limited) return applyCors(limited, req, CORS)
+ *        ...
+ *      }
+ *
+ *    One consequence to know: nothing catches a throw out of a handler, so an
+ *    unhandled exception returns Next's bare 500 with no CORS headers on it.
+ *    Routes therefore catch around anything that can throw — an RPC read, a
+ *    Supabase call — and report it through `lib/observability`.
  *  • No third-party deps — ships in pure TypeScript so the bundle size
- *    and audit surface stay minimal.
+ *    and audit surface stay minimal.  The Redis backend talks REST over
+ *    `fetch` for the same reason, and so it works in the edge runtime.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
+
+import { consumeRateLimit } from './rateLimitStore'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORS
@@ -102,104 +122,98 @@ export function corsPreflight(req: NextRequest | Request, opts: CorsOptions = {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RATE LIMITING (token bucket, per-IP, in-memory)
+// RATE LIMITING (per-IP, pluggable backend — see lib/rateLimitStore.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Bucket {
-  tokens: number
-  lastRefillMs: number
-}
-
 export interface RateLimitOptions {
-  /** Logical name — distinct routes can have isolated buckets. */
+  /** Logical name — distinct routes get isolated counters. */
   name: string
-  /** Bucket capacity (max burst tokens). */
+  /** Bucket capacity (max burst). */
   capacity: number
   /** Refill rate in tokens per second. */
   refillPerSec: number
 }
 
-class RateLimiter {
-  private readonly buckets = new Map<string, Bucket>()
-
-  /** Garbage-collect cold buckets so memory stays bounded. */
-  private gcEveryNCalls = 0
-  private readonly gcInterval = 1024
-
-  constructor(private readonly opts: RateLimitOptions) {}
-
-  /** Returns true if a token was consumed, false if the client is rate-limited. */
-  consume(clientKey: string): { ok: boolean; remaining: number; resetMs: number } {
-    const now = Date.now()
-    const id = `${this.opts.name}::${clientKey}`
-    const cap = this.opts.capacity
-    const refillPerMs = this.opts.refillPerSec / 1000
-
-    let b = this.buckets.get(id)
-    if (!b) {
-      b = { tokens: cap, lastRefillMs: now }
-      this.buckets.set(id, b)
-    }
-
-    // Refill since lastRefill.
-    const elapsed = now - b.lastRefillMs
-    if (elapsed > 0) {
-      b.tokens = Math.min(cap, b.tokens + elapsed * refillPerMs)
-      b.lastRefillMs = now
-    }
-
-    // Opportunistic GC.
-    if (++this.gcEveryNCalls % this.gcInterval === 0) {
-      this.gcStaleBuckets(now)
-    }
-
-    if (b.tokens >= 1) {
-      b.tokens -= 1
-      return {
-        ok: true,
-        remaining: Math.floor(b.tokens),
-        resetMs: Math.ceil((1 - (b.tokens - Math.floor(b.tokens))) / refillPerMs),
-      }
-    }
-
-    // No token available — compute when ONE will be available again.
-    const msToOneToken = Math.ceil((1 - b.tokens) / refillPerMs)
-    return { ok: false, remaining: 0, resetMs: msToOneToken }
-  }
-
-  private gcStaleBuckets(now: number): void {
-    // 5 minutes of inactivity → drop the bucket.  Saves memory on long-tail IPs.
-    const cutoff = now - 5 * 60 * 1000
-    for (const [k, b] of this.buckets) {
-      if (b.lastRefillMs < cutoff && b.tokens >= this.opts.capacity) {
-        this.buckets.delete(k)
-      }
-    }
-  }
+/**
+ * The counters themselves live in `lib/rateLimitStore.ts`, which picks a shared
+ * Redis backend when one is configured and an in-process one otherwise (PM-F5).
+ *
+ * `capacity` / `refillPerSec` are kept as the caller-facing knobs so no route
+ * had to change when the backend became pluggable. The window the shared
+ * backend counts over is the time to refill a full bucket, which preserves both
+ * the burst size and the average rate; `rateLimitStore.ts` documents where fixed
+ * -window and token-bucket semantics differ.
+ */
+function windowMsFor(opts: RateLimitOptions): number {
+  return Math.max(1, Math.ceil((opts.capacity / opts.refillPerSec) * 1000))
 }
 
-/** Module-level registry — ensures the in-memory map persists across hot reloads. */
-const LIMITERS: Record<string, RateLimiter> = (globalThis as Record<string, unknown>)
-  .__toshLimiters as Record<string, RateLimiter> ?? {}
-;(globalThis as Record<string, unknown>).__toshLimiters = LIMITERS
+/**
+ * How many proxies sit between this app and the internet.
+ *
+ * `X-Forwarded-For` is a list that each hop APPENDS to, so the rightmost entry
+ * is the address the nearest proxy actually observed and the leftmost is
+ * whatever the original client claimed. With `n` trusted hops in front, the
+ * real client is the `n`-th entry from the right.
+ *
+ * Default 1: exactly one trusted proxy (Vercel, Cloudflare, a single nginx),
+ * which is the shape of every supported deployment. Set to 0 to ignore XFF
+ * entirely when nothing trustworthy sits in front.
+ */
+const TRUSTED_PROXY_HOPS = (() => {
+  const raw = Number.parseInt(process.env.RATE_LIMIT_TRUSTED_PROXY_HOPS ?? '', 10)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1
+})()
 
-export function getOrCreateLimiter(opts: RateLimitOptions): RateLimiter {
-  let l = LIMITERS[opts.name]
-  if (!l) {
-    l = new RateLimiter(opts)
-    LIMITERS[opts.name] = l
-  }
-  return l
-}
-
-/** Best-effort client IP extractor. */
+/**
+ * Best-effort client IP, chosen so a client cannot pick its own rate-limit
+ * bucket.
+ *
+ * THE BUG THIS REPLACES
+ *
+ * This used to return the LEFTMOST `X-Forwarded-For` entry. That entry is
+ * supplied by the caller: proxies that append rather than overwrite — nginx
+ * with `proxy_add_x_forwarded_for`, or any direct-to-Node deployment — leave
+ * it fully attacker-controlled. Since the bucket id is
+ * `${name}::${clientIp(req)}`, a fresh random value in that header meant a
+ * fresh full bucket on every request, and the limit protecting
+ * `/api/sign-allocation` — a key-signing endpoint, and the whole point of
+ * PM-F5 — came off with one header.
+ *
+ * ORDER OF PREFERENCE
+ *
+ * 1. Platform headers the edge sets itself and strips from client input.
+ *    These are the only unspoofable options, so they win when present.
+ * 2. `X-Forwarded-For`, counted from the right by `TRUSTED_PROXY_HOPS`.
+ * 3. `X-Real-IP` / `.ip`, only when no XFF exists at all.
+ *
+ * Falling back to a shared `'unknown'` bucket is deliberate: an unidentifiable
+ * caller should share a bucket with every other unidentifiable caller rather
+ * than get a private one.
+ */
 function clientIp(req: NextRequest | Request): string {
-  // Honor proxied headers first (Vercel / Cloudflare / nginx).
+  const platform =
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-vercel-forwarded-for') ??
+    req.headers.get('true-client-ip')
+  if (platform) return platform.trim()
+
   const xff = req.headers.get('x-forwarded-for')
-  if (xff) return xff.split(',')[0].trim()
+  if (xff && TRUSTED_PROXY_HOPS > 0) {
+    const hops = xff.split(',').map(s => s.trim()).filter(Boolean)
+    if (hops.length > 0) {
+      // Clamp rather than wrap: fewer entries than configured hops means the
+      // request did not traverse the expected chain, and the leftmost is then
+      // the closest thing to an observed address we have.
+      const idx = Math.max(0, hops.length - TRUSTED_PROXY_HOPS)
+      return hops[idx]
+    }
+  }
+
   const real = req.headers.get('x-real-ip')
-  if (real) return real.trim()
-  // Fallback: NextRequest exposes `.ip`; standard Request does not.
+  if (real && TRUSTED_PROXY_HOPS > 0) return real.trim()
+
+  // NextRequest exposes `.ip`; standard Request does not.
   const ip = (req as { ip?: string }).ip
   return ip ?? 'unknown'
 }
@@ -207,14 +221,20 @@ function clientIp(req: NextRequest | Request): string {
 /**
  * Returns null when the request is allowed, or a populated 429 response
  * when it's rate-limited.  Caller short-circuits with `if (rl) return rl`.
+ *
+ * Async since PM-F5: the shared backend is a network hop. Every call site must
+ * `await`, and forgetting to is a type error rather than a limiter that quietly
+ * never rejects.
  */
-export function applyRateLimit(
+export async function applyRateLimit(
   req: NextRequest | Request,
   opts: RateLimitOptions
-): NextResponse | null {
-  const limiter = getOrCreateLimiter(opts)
-  const ip = clientIp(req)
-  const result = limiter.consume(ip)
+): Promise<NextResponse | null> {
+  const result = await consumeRateLimit(
+    `${opts.name}::${clientIp(req)}`,
+    opts.capacity,
+    windowMsFor(opts)
+  )
   if (result.ok) return null
 
   const res = NextResponse.json(
@@ -226,6 +246,10 @@ export function applyRateLimit(
   )
   res.headers.set('Retry-After', String(Math.ceil(result.resetMs / 1000)))
   res.headers.set('X-RateLimit-Remaining', '0')
+  // Surfaces "this instance is counting alone" on the response itself, so a
+  // degraded limiter is visible from a curl during an incident rather than only
+  // in the error tracker.
+  if (result.degraded) res.headers.set('X-RateLimit-Backend', 'degraded-memory')
   return res
 }
 
@@ -236,6 +260,66 @@ export function applyRateLimit(
 const DEFAULT_MAX_BODY_BYTES = 32 * 1024 // 32 KiB — plenty for our JSON shapes
 
 /**
+ * Read the body, giving up as soon as it exceeds `maxBytes`.
+ *
+ * TWO BUGS THIS REPLACES
+ *
+ * 1. The cap did not bound memory. The old slow path was `await req.text()`,
+ *    which buffers the ENTIRE body before anything is measured, so the 413 was
+ *    issued after the damage. A request with `Transfer-Encoding: chunked` and
+ *    no `Content-Length` skips the header check above and was fully
+ *    materialized; Next's App Router imposes no body limit of its own on route
+ *    handlers, so on a self-hosted deployment 32 KiB was a response-shaping
+ *    rule and not a defence.
+ *
+ * 2. It counted the wrong unit. `String.length` is UTF-16 code units, so
+ *    32,768 astral-plane characters is 128 KiB on the wire — the effective
+ *    limit was up to 4x the documented one. Bytes off the stream cannot drift
+ *    from what the socket actually carried.
+ *
+ * The stream is cancelled on breach rather than drained, so the sender is
+ * disconnected instead of being allowed to finish uploading.
+ */
+async function readBodyCapped(
+  req: NextRequest | Request,
+  maxBytes: number,
+): Promise<{ text: string } | { tooLarge: true } | { unreadable: true }> {
+  const stream = req.body
+  if (!stream) {
+    // No stream to meter (some runtimes and test doubles). Measure the decoded
+    // text in bytes — still correct, just without the memory bound.
+    try {
+      const text = await req.text()
+      if (new TextEncoder().encode(text).length > maxBytes) return { tooLarge: true }
+      return { text }
+    } catch {
+      return { unreadable: true }
+    }
+  }
+
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let total = 0
+  let text = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {})
+        return { tooLarge: true }
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+    text += decoder.decode()
+    return { text }
+  } catch {
+    return { unreadable: true }
+  }
+}
+
+/**
  * Reads and validates the request body as JSON, rejecting oversized bodies.
  * Returns the parsed value OR a populated error response.  Caller must check.
  */
@@ -243,41 +327,32 @@ export async function readJsonBody<T>(
   req: NextRequest | Request,
   maxBytes: number = DEFAULT_MAX_BODY_BYTES
 ): Promise<{ data: T; error: null } | { data: null; error: NextResponse }> {
-  // Fast path: trust the Content-Length header if present and small enough.
+  const tooLarge = () => ({
+    data: null as null,
+    error: NextResponse.json(
+      { error: `Body too large (max ${maxBytes} bytes)` },
+      { status: 413 }
+    ),
+  })
+
+  // Fast path: reject on the declared length before reading a single byte.
+  // Advisory only — a client that omits or understates the header still gets
+  // metered by `readBodyCapped`.
   const cl = req.headers.get('content-length')
   if (cl !== null) {
     const n = Number.parseInt(cl, 10)
-    if (Number.isFinite(n) && n > maxBytes) {
-      return {
-        data: null,
-        error: NextResponse.json(
-          { error: `Body too large (max ${maxBytes} bytes)` },
-          { status: 413 }
-        ),
-      }
-    }
+    if (Number.isFinite(n) && n > maxBytes) return tooLarge()
   }
 
-  // Slow path: read the body, enforcing the cap server-side regardless of header.
-  let raw: string
-  try {
-    raw = await req.text()
-  } catch {
+  const body = await readBodyCapped(req, maxBytes)
+  if ('tooLarge' in body) return tooLarge()
+  if ('unreadable' in body) {
     return {
       data: null,
       error: NextResponse.json({ error: 'Could not read body' }, { status: 400 }),
     }
   }
-
-  if (raw.length > maxBytes) {
-    return {
-      data: null,
-      error: NextResponse.json(
-        { error: `Body too large (max ${maxBytes} bytes)` },
-        { status: 413 }
-      ),
-    }
-  }
+  const raw = body.text
 
   if (raw.length === 0) {
     return {
@@ -297,58 +372,3 @@ export async function readJsonBody<T>(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONVENIENCE WRAPPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface ApiHardeningOptions {
-  cors: CorsOptions
-  rateLimit: RateLimitOptions
-}
-
-/**
- * Wrap a Route Handler so every request goes through the same hardening lane:
- *
- *   1. CORS allow-list (with OPTIONS short-circuit).
- *   2. Per-IP rate limit.
- *   3. Inner handler.
- *   4. CORS headers stamped on the final response.
- *
- * Usage:
- *   export const POST = withApiHardening(handler, {
- *     cors: { methods: ['POST', 'OPTIONS'] },
- *     rateLimit: { name: 'pog-attest', capacity: 5, refillPerSec: 1 / 6 },
- *   })
- */
-export function withApiHardening<Ctx>(
-  handler: (req: NextRequest | Request, ctx: Ctx) => Promise<NextResponse> | NextResponse,
-  opts: ApiHardeningOptions
-) {
-  return async (req: NextRequest | Request, ctx: Ctx): Promise<NextResponse> => {
-    if (req.method === 'OPTIONS') return corsPreflight(req, opts.cors)
-
-    const limited = applyRateLimit(req, opts.rateLimit)
-    if (limited) return applyCors(limited, req, opts.cors)
-
-    let res: NextResponse
-    try {
-      res = await handler(req, ctx)
-    } catch (err) {
-      console.error(`[apiGuard:${opts.rateLimit.name}] handler threw`, err)
-      res = NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
-    return applyCors(res, req, opts.cors)
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXPLICIT OPTIONS HANDLER FACTORY
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// Some routes don't use `withApiHardening` directly because they need fine-grain
-// per-method behavior.  Export a tiny helper so they can still ship a proper
-// preflight without copy-pasting the corsPreflight() call.
-
-export function makeOptionsHandler(opts: CorsOptions = {}) {
-  return (req: NextRequest | Request) => corsPreflight(req, opts)
-}

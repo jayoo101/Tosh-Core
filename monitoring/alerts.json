@@ -1,0 +1,416 @@
+{
+  "$comment": [
+    "On-chain alert definitions for Tosh v5.0 — PM-E2 in docs/PRE_MAINNET_CHECKLIST.md.",
+    "",
+    "There is no `$schema` key. This file used to declare one pointing at",
+    "./alerts.schema.md, which has never existed — a dangling reference that looked",
+    "like validation and was not. The real check is scripts/verifyAlertTopics.js.",
+    "",
+    "Each alert carries either `event` + `topic0` (log subscription) or `check`",
+    "(scheduled state read), plus `severity`, `page`, and a `why` stating what the",
+    "alert is actually evidence of. `playbook` points at a section of",
+    "docs/INCIDENT_RESPONSE.md or docs/MANUAL_INTERACTION.md, or is null where the",
+    "alert is an audit trail with no response to run.",
+    "",
+    "NOTE: verifyAlertTopics.js validates events and topic0 against the compiled",
+    "ABIs. It does NOT validate `playbook` targets, and eleven of them were found",
+    "pointing at the wrong section — ownership alerts at the blacklist playbook,",
+    "ladder halts at the key-compromise playbook, refund alerts at the post-launch",
+    "guide. Those are fixed, but nothing mechanical stops them drifting again.",
+    "",
+    "Deliberately provider-neutral. Every commercial monitor (OpenZeppelin Defender,",
+    "Tenderly, Hypernative, a self-hosted log subscriber) can express 'topic0 == X on",
+    "address Y', and none of them agree on a config format. Encoding the intent here",
+    "and translating at import time means the reviewable artifact is this file rather",
+    "than someone's dashboard screenshot.",
+    "",
+    "`topic0` values are verified against the compiled ABIs by",
+    "scripts/verifyAlertTopics.js, which runs in CI. They cannot silently drift from",
+    "the contracts.",
+    "",
+    "BLOCK TIME. The target is Robinhood Chain, where blocks are ~100 ms rather than",
+    "~12 s. Every `why` below that reasons in blocks was written against the slower",
+    "number and is now off by two orders of magnitude in the direction that matters.",
+    "The one to re-read is the immature-TWAP check: `pokeBuyback` has no cooldown, so",
+    "'per block rather than once' used to mean roughly five attempts a minute and now",
+    "means about six hundred. The check itself is unaffected — it polls the quantity",
+    "the contract branches on — but the window it is guarding is far cheaper to work",
+    "than the text implies. Cadences are wall-clock and need no adjustment."
+  ],
+  "version": "1",
+  "chainId": 4663,
+
+  "addresses": {
+    "factory": "<NEXT_PUBLIC_FACTORY_ADDRESS after PM-C1>",
+    "ladderTreasury": "<treasury address after PM-C1>",
+    "gnosisSafe": "<owner Safe after PM-C2>",
+    "$comment": [
+      "Hook addresses are deliberately absent. There is one hook per project, each at",
+      "a CREATE2 address mined to carry the 0x20CC flag mask, so the set is unbounded",
+      "and unknowable ahead of time. Hook alerts MUST be scoped by topic0 across all",
+      "addresses, or the monitor must subscribe to LaunchCreated and add the emitted",
+      "`hook` address to its watch list. A monitor configured with a fixed hook list",
+      "silently stops covering every project created after it was set up."
+    ]
+  },
+
+  "severities": {
+    "P0": "Funds at risk or governance compromised. Page immediately, 24/7. Pause per docs/INCIDENT_RESPONSE.md §2; if governance is the thing compromised, §5.",
+    "P1": "Protocol-level switch thrown, or user-visible degradation. Page during waking hours; ticket otherwise.",
+    "P2": "Silent degradation. Ticket, review next business day.",
+    "P3": "Informational. Dashboard and digest only — must never page."
+  },
+
+  "alerts": [
+    {
+      "id": "GOV-01",
+      "contract": "ToshFactory",
+      "event": "OwnershipTransferStarted(address,address)",
+      "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "Ownable2Step means a takeover needs two transactions. This is the first one, and it is the only window in which the transfer can still be abandoned by simply not accepting. Alerting on the completion instead of the start throws that window away."
+    },
+    {
+      "id": "GOV-02",
+      "contract": "ToshFactory",
+      "event": "OwnershipTransferred(address,address)",
+      "topic0": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "Ownership of every platform kill switch changed hands. Expected exactly twice in the system's life: once at deploy, once at the Safe handoff (PM-C2). A third occurrence is an incident until proven otherwise."
+    },
+    {
+      "id": "GOV-03",
+      "contract": "ToshLadderTreasury",
+      "event": "OwnershipTransferred(address,address)",
+      "topic0": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "Same as GOV-02 for the treasury. Both contracts hand off separately, and it is entirely possible to complete one and forget the other."
+    },
+    {
+      "id": "GOV-07",
+      "contract": "ToshLadderTreasury",
+      "event": "OwnershipTransferStarted(address,address)",
+      "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds ETH."
+    },
+    {
+      "id": "GOV-04",
+      "contract": "ToshFactory",
+      "event": "PogSignerUpdated(address)",
+      "topic0": "0xa676d845a0292f447b914da6658ab6bc2a690e571c38e95028d469f54e15b205",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §4",
+      "why": "Whoever holds the PoG signer key can mint deposit quota. An unplanned rotation means either an incident response someone forgot to announce, or an attacker who already owns the factory."
+    },
+    {
+      "id": "GOV-05",
+      "contract": "ToshFactory",
+      "event": "TreasuryUpdated(address)",
+      "topic0": "0x7dae230f18360d76a040c81f050aa14eb9d6dc7901b20fc5d855e2a20fe814d1",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "Retargets where platform revenue lands. Note this moves `platformTreasury`, which v5.0 keeps off every money path — so the blast radius is smaller than the name suggests, but an unexplained call still means someone has the owner key."
+    },
+    {
+      "id": "GOV-06",
+      "contract": "ToshLadderTreasury",
+      "event": "FactorySet(address)",
+      "topic0": "0x1edf3afd4ac789736e00d216cd88be164ddcef26a6eedcc30cdb0cb62f3741b1",
+      "severity": "P0",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "why": "One-shot by design: it should fire exactly once, at deploy. A second occurrence is impossible if the contract is what we think it is, which makes it a high-value canary for 'we are not talking to the contract we believe we are'."
+    },
+
+    {
+      "id": "SWITCH-01",
+      "contract": "ToshFactory",
+      "event": "Paused(address)",
+      "topic0": "0x62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a258",
+      "severity": "P1",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §2",
+      "why": "Either we did it, or someone with the owner key did. Correlate against a Safe transaction within minutes; an unmatched pause is a P0 and escalates to §5."
+    },
+    {
+      "id": "SWITCH-02",
+      "contract": "ToshFactory",
+      "event": "Unpaused(address)",
+      "topic0": "0x5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa",
+      "severity": "P1",
+      "page": true,
+      "playbook": "docs/INCIDENT_RESPONSE.md §2 Step 6",
+      "why": "An unpause nobody ordered is worse than a pause nobody ordered: it re-opens deposits during whatever the pause was protecting against. Step 6 is the four-condition gate an authorised resume must have satisfied; an unpause that cannot be matched to it escalates to §5."
+    },
+    {
+      "id": "SWITCH-03",
+      "contract": "ToshFactory",
+      "event": "LadderMintingHalted(address,uint256)",
+      "topic0": "0x0ade0a15eb7bda187c9c786c0c69e2e1e24b3ac78b6d487c827981328b46dc74",
+      "severity": "P1",
+      "page": false,
+      "playbook": "docs/INCIDENT_RESPONSE.md §2b",
+      "why": "Users see the mint button lock within one block, so the announcement clock (15 minutes) starts whether or not anyone is watching. A halt with a zero `hook` argument is platform-wide and should be treated as P0."
+    },
+    {
+      "id": "SWITCH-04",
+      "contract": "ToshFactory",
+      "event": "LadderMintingResumed(address)",
+      "topic0": "0x8ec3a03527c21e7a12baa1d1b5c93aaaba77b931c4061142630ad88aeacae560",
+      "severity": "P2",
+      "page": false,
+      "playbook": "docs/INCIDENT_RESPONSE.md §2b Step 4",
+      "why": "Closes the loop on SWITCH-03. Absence is also meaningful: a halt lapses on its own after at most 7 days, so a resume that never arrives is expected, not a fault."
+    },
+    {
+      "id": "SWITCH-05",
+      "contract": "ToshFactory",
+      "event": "Blacklisted(address,uint256)",
+      "topic0": "0x35cb901f95954817866fe7c7a12829f8b3e7c63d67e6fc9f329711ea871588e1",
+      "severity": "P1",
+      "page": false,
+      "playbook": "docs/INCIDENT_RESPONSE.md §3",
+      "why": "Requires two-engineer sign-off by policy. The alert is the audit trail that proves the policy was followed; a blacklist with no matching sign-off record is the finding."
+    },
+
+    {
+      "id": "PARAM-01",
+      "contract": "ToshFactory",
+      "event": "MaxPogAllocationLimitUpdated(uint256)",
+      "topic0": "0xc7a74fcc6d9403be1a1749d0a1b68bdd0c9b9c1996ee83a58d325ac976c33f37",
+      "severity": "P1",
+      "page": false,
+      "playbook": "docs/INCIDENT_RESPONSE.md §4",
+      "why": "This is the cap that bounds a compromised PoG signer. Raising it widens the blast radius of GOV-04; lowering it does NOT retroactively tighten hooks already deployed, because each snapshots its own perWalletCap at creation."
+    },
+    {
+      "id": "PARAM-02",
+      "contract": "ToshFactory",
+      "event": "DefaultSoftCapUpdated(uint256)",
+      "topic0": "0xc9510d3077e1c15f73dc22ce912275a8d16cc5660bf537efaebaeec46cfbd9d6",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Affects rounds created after it, never rounds already open. Worth a ticket so the number in the docs and the number on chain do not drift."
+    },
+    {
+      "id": "PARAM-03",
+      "contract": "ToshFactory",
+      "event": "LaunchFeeUpdated(uint256)",
+      "topic0": "0xc799be5eb19a1a6d6ba7368d21e2bc367c8a335e4a07cd3d954482e6f714d3c5",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Pricing change. Alerting is for the audit trail, not for response."
+    },
+    {
+      "id": "PARAM-04",
+      "contract": "ToshLadderTreasury",
+      "event": "LadderTokenAdded(address,uint256)",
+      "topic0": "0x65374b3fb95d7ff440dfd711f5b9b0e5072643769408c2f1e7852ac72d9b07bd",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Curation of buyback targets. The contract already refuses tokens this factory did not launch, so the abuse case is bounded — but it decides where treasury ETH goes. One thing the contract does NOT refuse is a pool younger than TWAP_WINDOW, whose buyback legs are unbounded; STATE-07 is the check for that, and this alert is where a human first sees the listing that trips it."
+    },
+    {
+      "id": "PARAM-05",
+      "contract": "ToshLadderTreasury",
+      "event": "LadderTokenRemoved(address,uint256)",
+      "topic0": "0x800404466cdfd5d2bb8a3e52c531965c074744a29bb1c5f0830e0fcd7dc2d70f",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Counterpart to PARAM-04."
+    },
+
+    {
+      "id": "PARAM-06",
+      "contract": "ToshFactory",
+      "event": "CooldownDurationUpdated(uint256)",
+      "topic0": "0x3b919acbae27b7c60197957a5423655702d842fcc85c19c7631dc1c777f478f5",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Per-(wallet, hook) deposit throttle. Setting it to zero removes a griefing defence; setting it very high is a soft denial of service on deposits. Neither is an emergency, both should be deliberate."
+    },
+    {
+      "id": "PARAM-07",
+      "contract": "ToshFactory",
+      "event": "QuotaWindowDurationUpdated(uint256)",
+      "topic0": "0x45b65c3aaa299f5d90c50d12e9e3be4ca0c5ec03a58fd4b93c0b0dfd6ab10206",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "Switches PoG quota between a rolling window and a lifetime budget. A wider window means each attested wallet can deposit more over time, so it interacts with the PoG signer blast radius in PARAM-01."
+    },
+    {
+      "id": "SILENT-01",
+      "contract": "ToshLaunchpadHook",
+      "event": "PiggybackPokeFailed(address)",
+      "topic0": "0x41c5e4ec2ccfa619baa17ba387c4593769d3b41886cc3d75216ebcf7ff144173",
+      "severity": "P2",
+      "page": false,
+      "scope": "any-address",
+      "playbook": null,
+      "why": "A deliberately swallowed failure: the hook must not brick trading because the buyback engine reverted. Correct behaviour, and therefore invisible. This event is the ONLY signal that the piggyback path is broken; without an alert it degrades indefinitely with a healthy-looking dashboard."
+    },
+    {
+      "id": "SILENT-02",
+      "contract": "ToshLadderTreasury",
+      "event": "BuybackSkipped(address,uint256)",
+      "topic0": "0x9d3427cc6aa034b237541f42ff8fc99ea0d7dabbdfb449353fdb2ce82a085f4a",
+      "severity": "P2",
+      "page": false,
+      "alertOn": "rate",
+      "threshold": "more than 3 in 24h for the same token, or any occurrence for more than half the curated set",
+      "playbook": null,
+      "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating ETH it can no longer spend, which is the one-way valve failing closed rather than open."
+    },
+    {
+      "id": "LIFE-01",
+      "contract": "ToshLaunchpadHook",
+      "event": "GenesisFailed(uint256)",
+      "topic0": "0x27e87ae1639d912017e23d0f562036b9a6f7febb9c4f2c69edbd9a58b903fb7f",
+      "severity": "P3",
+      "page": false,
+      "scope": "any-address",
+      "playbook": "docs/MANUAL_INTERACTION.md §4",
+      "why": "MISLEADING BY CONSTRUCTION — read STATE-01 before relying on this. The flag is set lazily, inside refund(), so this fires when the FIRST depositor claims, not when the round actually failed. A failed round nobody has claimed from emits nothing at all."
+    },
+    {
+      "id": "LIFE-02",
+      "contract": "ToshLaunchpadHook",
+      "event": "ZombieRefund(uint256)",
+      "topic0": "0x785e1cae2a0b008ea00540172196fd6d7f39d418650f4b7b622c493c0437a506",
+      "severity": "P3",
+      "page": false,
+      "scope": "any-address",
+      "playbook": "docs/MANUAL_INTERACTION.md §4",
+      "why": "Same lazy-emit caveat as LIFE-01. Means a round met its soft cap but the creator never launched inside the 7-day window."
+    },
+    {
+      "id": "LIFE-03",
+      "contract": "ToshFactory",
+      "event": "LaunchCreated(uint256,address,address,address,string,string)",
+      "topic0": "0x857f6038583a34516f405db6cc1a1112e32e20ddd3d9a5297662fbc7f730d3fc",
+      "severity": "P3",
+      "page": false,
+      "playbook": null,
+      "why": "Informational for humans, LOAD-BEARING for the monitor: the `hook` field is how the watch list stays current. Any monitor that scopes hook events by address must consume this and self-register. See addresses.$comment."
+    },
+    {
+      "id": "LIFE-04",
+      "contract": "ToshLaunchpadHook",
+      "event": "Launched(uint256,uint256,uint128,uint160,uint256)",
+      "topic0": "0xde8cef5a0dc23808db7f29de0b65f0c743ff52a5edf1627987c23372e9945acb",
+      "severity": "P3",
+      "page": false,
+      "scope": "any-address",
+      "playbook": null,
+      "why": "Normal lifecycle. Useful as the denominator for 'how many rounds launched vs failed'."
+    }
+  ],
+
+  "stateChecks": [
+    {
+      "id": "STATE-01",
+      "severity": "P1",
+      "cadence": "hourly",
+      "check": "For every hook from LaunchCreated: canRefund() == true AND no Refunded event yet",
+      "why": "The gap LIFE-01 leaves. Nothing is emitted when a genesis round crosses its deadline under the soft cap, or when the 7-day launch window lapses — refund() flips the flags lazily and launch() just starts reverting with LaunchWindowExpired. So a round can sit refundable and unannounced indefinitely and the event stream looks idle. Depositors are owed a notification that their exit is open; only a scheduled state poll can produce it.",
+      "action": "Announce refund availability; docs/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it."
+    },
+    {
+      "id": "STATE-02",
+      "severity": "P0",
+      "cadence": "every 15 minutes",
+      "check": "ladderTreasury ETH balance is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
+      "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract.",
+      "action": "Treat as funds-at-risk: pause first per docs/INCIDENT_RESPONSE.md §2, then §5 if the drain cannot be matched to an authorised Safe transaction."
+    },
+    {
+      "id": "STATE-03",
+      "severity": "P0",
+      "cadence": "every 15 minutes",
+      "check": "factory.owner() == the expected Gnosis Safe AND factory.pendingOwner() == address(0)",
+      "why": "Belt to GOV-01/02's braces. Event delivery can fail — a provider outage, a reorg, a misconfigured filter — and ownership is the one fact where finding out late is unacceptable. A non-zero pendingOwner is a takeover mid-flight."
+    },
+    {
+      "id": "STATE-04",
+      "severity": "P1",
+      "cadence": "every 15 minutes",
+      "check": "factory.pogSigner() == the expected KMS address",
+      "why": "Same reasoning as STATE-03 applied to GOV-04. Cheap, and it fails closed."
+    },
+    {
+      "id": "STATE-05",
+      "severity": "P1",
+      "cadence": "daily",
+      "check": "PoG signer wallet balance above the gas floor (PM-D2, ~0.05 ETH)",
+      "why": "When the signer runs out of gas, /api/sign-allocation starts failing and every new depositor is blocked. Sentry (PM-E1) reports the resulting 5xx, so this is detected either way — but as a symptom hours later, not as a threshold crossed in advance."
+    },
+    {
+      "id": "STATE-06",
+      "severity": "P2",
+      "cadence": "hourly",
+      "check": "ladderTreasury ETH balance has been >= TRIGGER_STEP continuously for 24h with no PiggybackExecuted in that window",
+      "why": "The gas gate in ToshLaunchpadHook.afterSwap skips the buyback when the triggering trade cannot afford it, which is what stops that trade from reverting. The cost is that the reservoir no longer deploys itself from trading alone: a market where wallets attach tight gas limits leaves it armed and idle, emitting NOTHING. There is deliberately no event for a skipped poke — skipping is the common case, and logging it would bill every trader for the privilege. So this has to be a balance-and-silence poll; it is the only signal that the reservoir has stopped deploying.",
+      "action": "Call pokeBuyback() on the treasury. Permissionless — no role, no Safe transaction, any address can clear it."
+    },
+    {
+      "id": "STATE-07",
+      "severity": "P1",
+      "cadence": "every 5 minutes",
+      "check": "For every token in ladderTokens: its hook's twapSqrtPriceX96() != 0",
+      "why": "The buyback's anti-sandwich bound is anchored to the hook's TWAP, and the hook reports 0 for the first TWAP_WINDOW (1800s) after launch(). _buybackSqrtFloor treats 0 as 'no reference' and falls back to UNBOUNDED, so a token listed inside that window has no price bound at all, on the pool whose liquidity is thinnest. test_probeG3_immatureTwapLeavesTheBuybackUnbounded measures a pool parked 1500 bps out giving up 0.93 ETH of a 3.33 ETH leg, where a matured TWAP refuses the same deviation outright; pokeBuyback has no cooldown, so it is per block rather than once. The decision to keep the unbounded fallback was taken deliberately (see _buybackSqrtFloor's natspec), which means the ONLY thing holding it shut is the operational rule not to list a young pool — and an operational rule nobody checks is not a control. This is the check. It polls the exact quantity the contract branches on rather than re-deriving the deadline from launch timestamps, so it cannot drift from the code it guards: if TWAP_WINDOW changes or maturity is redefined, this follows automatically.",
+      "action": "Call removeLadderToken(token) on the treasury via the Safe, wait until that hook's twapSqrtPriceX96() is non-zero, then re-add. Removing does not forfeit anything — the reservoir is not spent on an unlisted token, and the window closes on the clock alone. Firing at all means the listing rule in addLadderToken's natspec was broken, so also ask why."
+    }
+  ],
+
+  "mustNotPage": {
+    "$comment": [
+      "High-volume, entirely normal events. Listed explicitly because the failure mode",
+      "of a new monitoring setup is a firehose that gets muted wholesale in week two,",
+      "taking the P0 alerts down with it. Route these to a dashboard or a digest; never",
+      "to a pager.",
+      "",
+      "GenesisDeposit and Deposited are the same deposit seen from the factory and from",
+      "the hook. Alerting on both double-counts every deposit."
+    ],
+    "events": [
+      "ToshFactory.GenesisDeposit",
+      "ToshFactory.PoGRegistered",
+      "ToshFactory.ReferralBound",
+      "ToshFactory.QuotaWindowReset",
+      "ToshFactory.LaunchFeeForwarded",
+      "ToshFactory.NameReleased",
+      "ToshLaunchpadHook.Deposited",
+      "ToshLaunchpadHook.TokenInitialized",
+      "ToshLaunchpadHook.Refunded",
+      "ToshLaunchpadHook.GenesisShareClaimed",
+      "ToshLaunchpadHook.ReferralAccrued",
+      "ToshLaunchpadHook.ReferralClaimed",
+      "ToshLaunchpadHook.OrphanReferralForwarded",
+      "ToshLaunchpadHook.ProjectAdminChanged",
+      "ToshLaunchpadHook.TierMinted",
+      "ToshLaunchpadHook.TierAdvanced",
+      "ToshLaunchpadHook.BuyTaxToTreasury",
+      "ToshLaunchpadHook.SellTaxBurned",
+      "ToshLadderTreasury.TaxReceived",
+      "ToshLadderTreasury.PiggybackExecuted",
+      "ToshLadderTreasury.BuybackBurned"
+    ]
+  }
+}

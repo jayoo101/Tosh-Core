@@ -30,6 +30,7 @@ export function HeroStats({
   totalEthDeposited, softCap,
   phase2Minted, bondingMax,
   userEthDeposited,
+  windowLabel,
 }: {
   phase: Phase
   symbol: string
@@ -41,6 +42,8 @@ export function HeroStats({
   phase2Minted: bigint
   bondingMax: bigint
   userEthDeposited: bigint
+  /** Genesis / launch-window countdown, already formatted. */
+  windowLabel?: string
 }) {
   const meta = PHASE_BADGE[phase]
   const price =
@@ -71,18 +74,26 @@ export function HeroStats({
 
   return (
     <div className="grid grid-cols-2 gap-card @lg:grid-cols-4">
+      {/* The unit rides on the hint line rather than beside the figure. Token
+          prices here are routinely exponential ("2.50e-9"), and at figure size
+          that plus " ETH" overruns the cell and wraps — splitting the number
+          off its own unit. The hint already sits directly underneath. */}
       <Readout
         layout="stack"
         size="figure"
         label="Price"
-        value={price > 0n ? `${fmt(price)} ETH` : '—'}
-        hint={priceHint}
+        value={price > 0n ? fmt(price) : '—'}
+        hint={price > 0n ? `ETH · ${priceHint}` : priceHint}
         tone="ok"
       />
       <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
         <span className="font-mono text-label text-text-quiet">Phase</span>
         <Badge tone={meta.tone} pip live={meta.live}>{meta.label}</Badge>
-        <span className="text-note text-text-tertiary">{symbol}</span>
+        {windowLabel ? (
+          <span className="font-mono text-note text-text-tertiary tabular-nums">{windowLabel}</span>
+        ) : (
+          <span className="text-note text-text-tertiary">{symbol}</span>
+        )}
       </div>
       <div className="col-span-2 flex flex-col gap-gap-tight @lg:col-span-1">
         <Progress

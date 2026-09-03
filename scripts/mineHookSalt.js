@@ -7,40 +7,50 @@
  *
  * PREFERRED — read the initcode hash off the chain, exactly as the frontend
  * does.  This cannot drift: the factory answers with the same hash it will
- * check inside `createLaunch`, so the bytecode artifact, the constructor tuple,
- * and the live factory globals are all guaranteed to agree.
+ * check inside `createLaunch`, so the clone layout and the live factory globals
+ * are all guaranteed to agree.
  *
  *   node scripts/mineHookSalt.js \
- *     --rpc https://sepolia.base.org \
- *     --factory 0x... --treasury 0x... --creator 0x... [--admin 0x...] \
+ *     --rpc https://rpc.testnet.chain.robinhood.com \
+ *     --factory 0x... --treasury 0x... --creator 0x... \
  *     [--duration 86400]
  *
- * FALLBACK — compute the hash locally.  Every constructor field must then be
- * supplied correctly, including the ladder treasury and the two factory caps;
- * a single stale value yields a salt that reverts with `InvalidHookSalt`.
+ * FALLBACK — build the clone initcode locally.  Every field must then be
+ * supplied correctly; a single stale value yields a salt that reverts with
+ * `InvalidHookSalt`.
  *
  *   node scripts/mineHookSalt.js \
- *     --factory 0x... --treasury 0x... --creator 0x... --ladder 0x... \
- *     --softcap 10000000000000000000 --wallet-cap 100000000000000000
+ *     --factory 0x... --treasury 0x... --creator 0x... --impl 0x... \
+ *     --softcap 10000000000000000 --wallet-cap 6000000000000000
  *
  * Flags:
  *   --treasury    projectTreasury (project multisig), NOT the ladder treasury
- *   --ladder      ladderTreasury (platform buyback reservoir); local mode only
- *   --admin       projectAdmin; defaults to --creator
+ *   --impl        factory.hookImplementation(); local mode only
  *   --duration    genesis window in seconds: 10800 | 86400 | 259200
+ *
+ * ── This file drifted once; here is what it drifted past ────────────────────
+ *
+ * Until the Robinhood cutover it mined against `keccak256(hookBytecode ‖
+ * abi.encode(nine constructor args))`, which is what a hook *used* to be. Since
+ * the EIP-1167 change a hook is a 131-byte clone initcode and the hash is over
+ * that, with only five fields in it — see `computeCloneInitcode`. The on-chain
+ * ABI here was also a field ahead of the factory's, so `--rpc` mode simply
+ * reverted.
+ *
+ * Worth naming why only this copy rotted. `soat-frontend/src/app/lib/
+ * hookMiner.ts` does the same arithmetic and stayed correct throughout, because
+ * `test_hookInitcodeHash_matchesHandBuiltCloneInitcode` compares it against
+ * `ToshCloneLib` on every run. This file has no such test, so nothing objected.
+ * Prefer `--rpc` for exactly that reason: it asks the contract instead of
+ * restating it.
  */
 
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
 const {
-    keccak256, encodeAbiParameters, parseAbiParameters, concat, pad,
+    keccak256, encodeAbiParameters, concat, pad, numberToHex,
     createPublicClient, http, parseAbi,
 } = require('viem');
-
-const REPO_ROOT = path.resolve(__dirname, '..');
-const BYTECODE_PATH = path.join(REPO_ROOT, 'soat-frontend', 'src', 'app', 'lib', 'hookBytecode.ts');
 
 const REQUIRED_FLAGS = BigInt(0x20CC);
 const BEFORE_SWAP_FLAG = BigInt(1 << 7);
@@ -52,15 +62,14 @@ const AFTER_SWAP_DELTA_FLAG  = BigInt(1 << 2);
 const AFTER_ADD_DELTA_FLAG   = BigInt(1 << 1);
 const AFTER_REM_DELTA_FLAG   = BigInt(1 << 0);
 
-const POOL_MANAGER = '0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408';
-
-/// Must mirror ToshLaunchpadHook.DURATION_{FAST,STANDARD,SLOW}; the constructor
+/// Must mirror ToshLaunchpadHook.DURATION_{FAST,STANDARD,SLOW}; `initializeToken`
 /// rejects anything else, so an unlisted value mines a salt that cannot deploy.
 const ALLOWED_DURATIONS = [10800n, 86400n, 259200n];
 const DEFAULT_DURATION = 86400n;
 
 const FACTORY_ABI = parseAbi([
-    'function hookInitcodeHash(address projectTreasury, address creator, address projectAdmin, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
+    'function hookInitcodeHash(address projectTreasury, address creator, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
+    'function hookImplementation() view returns (address)',
     'function defaultSoftCap() view returns (uint256)',
     'function maxPogAllocationLimit() view returns (uint256)',
 ]);
@@ -69,13 +78,6 @@ function arg(name, fallback) {
     const i = process.argv.indexOf('--' + name);
     if (i >= 0 && process.argv[i + 1]) return process.argv[i + 1];
     return fallback;
-}
-
-function loadBytecode() {
-    const src = fs.readFileSync(BYTECODE_PATH, 'utf8');
-    const m = src.match(/export const HOOK_BYTECODE =\s+"((?:0x)?[0-9a-fA-F]+)"/);
-    if (!m) throw new Error('HOOK_BYTECODE not found in ' + BYTECODE_PATH);
-    return (m[1].startsWith('0x') ? m[1] : '0x' + m[1]);
 }
 
 function computeCreate2Address(deployer, salt, initcodeHash) {
@@ -100,17 +102,44 @@ function deriveFinalSalt(creator, rawSalt) {
     ));
 }
 
-/// Mirrors HookDeployLib.computeInitcodeHash — nine fields, this exact order.
-function computeHookInitcodeHash(
-    bytecode, poolManager, factory, projectTreasury, creator, projectAdmin,
-    ladderTreasury, softCap, perWalletCap, genesisDuration,
+/// Mirrors ToshCloneLib.cloneInitcode byte for byte — 131 bytes, three parts:
+///
+///   [0  .. 9  ]  10 B  creation stub returning the 121 (0x79) bytes below
+///   [10 .. 54 ]  45 B  EIP-1167 runtime, implementation address at offset 10
+///   [55 .. 130]  76 B  immutable args, copied verbatim into the runtime
+///
+/// The args are packed, NOT abi-encoded: two addresses, two uint128s and a
+/// uint32, 76 bytes with no padding and no offsets. Encoding them as a tuple
+/// would produce 160 bytes and a hash nothing on chain agrees with.
+///
+/// Note what is NOT in here. `poolManager`, `factory` and `ladderTreasury` are
+/// the same for every launch and live as ordinary immutables on the shared
+/// implementation. `projectAdmin` is mutable by design and applied later by
+/// `initializeToken`, so it does not move the mined address.
+function computeCloneInitcode(
+    implementation, creator, projectTreasury, softCap, perWalletCap, genesisDuration,
 ) {
-    const encodedArgs = encodeAbiParameters(
-        parseAbiParameters('address, address, address, address, address, address, uint256, uint256, uint256'),
-        [poolManager, factory, projectTreasury, creator, projectAdmin, ladderTreasury,
-         softCap, perWalletCap, genesisDuration]
-    );
-    return keccak256(concat([bytecode, encodedArgs]));
+    if (softCap >= 1n << 128n || perWalletCap >= 1n << 128n) {
+        throw new Error('softCap / perWalletCap must fit in uint128');
+    }
+    if (genesisDuration >= 1n << 32n) {
+        throw new Error('genesisDuration must fit in uint32');
+    }
+    return concat([
+        '0x3d607980600a3d3981f3',
+        '0x363d3d373d3d3d363d73',
+        implementation,
+        '0x5af43d82803e903d91602b57fd5bf3',
+        creator,
+        projectTreasury,
+        numberToHex(softCap, { size: 16 }),
+        numberToHex(perWalletCap, { size: 16 }),
+        numberToHex(genesisDuration, { size: 4 }),
+    ]);
+}
+
+function computeHookInitcodeHash(...args) {
+    return keccak256(computeCloneInitcode(...args));
 }
 
 function mine(factory, creator, initcodeHash, maxAttempts) {
@@ -129,17 +158,15 @@ async function main() {
     const factory   = arg('factory');
     const treasury  = arg('treasury');
     const creator   = arg('creator');
-    const admin     = arg('admin', creator);
-    const ladder    = arg('ladder');
-    const pool      = arg('pool', POOL_MANAGER);
+    const impl      = arg('impl');
     const rpc       = arg('rpc');
     const maxAttempts = Number(arg('max', '500000'));
     const duration  = BigInt(arg('duration', DEFAULT_DURATION.toString()));
 
     if (!factory || !treasury || !creator) {
-        console.error('usage: node scripts/mineHookSalt.js --factory 0x --treasury 0x --creator 0x [--admin 0x]');
+        console.error('usage: node scripts/mineHookSalt.js --factory 0x --treasury 0x --creator 0x');
         console.error('       add --rpc <url> to read the initcode hash on-chain (recommended),');
-        console.error('       or --ladder 0x --softcap <wei> --wallet-cap <wei> to compute it locally.');
+        console.error('       or --impl 0x --softcap <wei> --wallet-cap <wei> to compute it locally.');
         process.exit(1);
     }
 
@@ -164,11 +191,26 @@ async function main() {
             read('defaultSoftCap', []),
             read('maxPogAllocationLimit', []),
         ]);
-        initcodeHash = await read('hookInitcodeHash', [treasury, creator, admin, softCap, perWalletCap, duration]);
-        source = 'on-chain (factory.hookInitcodeHash)';
+        initcodeHash = await read('hookInitcodeHash', [treasury, creator, softCap, perWalletCap, duration]);
+
+        // Cross-check the chain's answer against the local reconstruction. Free,
+        // and it is the only thing standing between this file and the drift
+        // described in the header — `--rpc` mode would otherwise keep working
+        // while the local path rotted unnoticed.
+        const impl = await read('hookImplementation', []);
+        const local = computeHookInitcodeHash(impl, creator, treasury, softCap, perWalletCap, duration);
+        if (local !== initcodeHash) {
+            console.error('initcode hash mismatch — this script no longer models ToshCloneLib.');
+            console.error('  factory.hookInitcodeHash : ' + initcodeHash);
+            console.error('  computeCloneInitcode     : ' + local);
+            console.error('  Mining would produce salts that revert with InvalidHookSalt.');
+            console.error('  Fix computeCloneInitcode against src/libraries/ToshCloneLib.sol.');
+            process.exit(1);
+        }
+        source = 'on-chain (factory.hookInitcodeHash), local reconstruction agrees';
     } else {
-        if (!ladder) {
-            console.error('local mode needs --ladder <ladderTreasury>; pass --rpc <url> to avoid this entirely.');
+        if (!impl) {
+            console.error('local mode needs --impl <factory.hookImplementation()>; pass --rpc <url> to avoid this entirely.');
             process.exit(1);
         }
         softCap = BigInt(arg('softcap', '0'));
@@ -177,11 +219,8 @@ async function main() {
             console.error('local mode needs --softcap <wei> and --wallet-cap <wei> matching the LIVE factory values.');
             process.exit(1);
         }
-        initcodeHash = computeHookInitcodeHash(
-            loadBytecode(), pool, factory, treasury, creator, admin, ladder,
-            softCap, perWalletCap, duration,
-        );
-        source = 'local (bytecode artifact + supplied args)';
+        initcodeHash = computeHookInitcodeHash(impl, creator, treasury, softCap, perWalletCap, duration);
+        source = 'local (clone initcode, unverified against any chain)';
     }
 
     const hit = mine(factory, creator, initcodeHash, maxAttempts);

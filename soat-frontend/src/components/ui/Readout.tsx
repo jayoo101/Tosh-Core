@@ -50,7 +50,8 @@ export interface ReadoutProps {
 const VALUE_TONE: Record<ReadoutTone, string> = {
   ink: 'text-text-primary',
   mute: 'text-text-tertiary',
-  ok: 'text-brand',
+  // A readout value reports; it does not invite. See the note in Badge.tsx.
+  ok: 'text-success',
   warn: 'text-warning',
   danger: 'text-danger',
   info: 'text-info',
@@ -83,7 +84,17 @@ export function Readout({
         prose ? 'font-sans' : 'font-mono',
         VALUE_SIZE[size],
         VALUE_TONE[tone],
-        'break-all',
+        // `break-words` (overflow-wrap), NOT `break-all` (word-break). The two
+        // wrap identically once a line is genuinely too long, but only
+        // `break-all` also drops the element's min-content width to a single
+        // character — and a flex item is free to shrink to its min-content
+        // width. In a narrow grid cell with a `shrink-0` label beside it, that
+        // let "2.38e-9 ETH" render in a 19px column, one character per line,
+        // five lines tall. `break-words` leaves min-content at the longest
+        // unbreakable run, so the value keeps a floor it cannot collapse
+        // through. Genuinely unbreakable values (raw addresses) come in via
+        // `AddressLink`, which still opts into `break-all` for itself.
+        'break-words',
         layout === 'row' && 'text-right',
       )}
     >

@@ -4,7 +4,9 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import { HOOK_ABI } from '@/lib/contracts'
-import { Card, Readout, ActionButton, useActionGate, useTxAction } from '@/components/ui'
+import {
+  Card, Readout, ActionButton, useActionGate, useTxAction, revertOrder,
+} from '@/components/ui'
 import { fmt } from './format'
 
 
@@ -24,6 +26,11 @@ export function GenesisClaimPanel({
     args:         userAddress ? [userAddress] : undefined,
     query:        { enabled: !!userAddress, refetchInterval: 15_000 },
   })
+  // `?? false` is the right default for *hiding* the panel — an unread flag
+  // should not make the allocation disappear. It is the wrong default for
+  // arming the button, because "not known to have claimed" and "has not
+  // claimed" are the same value here, and only one of them can be spent twice.
+  const claimedUnknown = userAddress !== undefined && hasClaimedRaw === undefined
   const hasClaimed = (hasClaimedRaw as boolean | undefined) ?? false
 
   const { send, isPending, isConfirming } = useTxAction({
@@ -42,6 +49,13 @@ export function GenesisClaimPanel({
     action: `Claim ${symbol}`,
     onAct: handleClaim,
     tx: { isPending, isConfirming },
+    blockersInRevertOrder: revertOrder({
+      id: 'claimed-unknown',
+      active: claimedUnknown,
+      label: 'Checking your claim…',
+      reason: 'Reading whether this wallet has already claimed. There is one claim per wallet, so the button waits for the answer rather than offering a transaction that would fail.',
+      tone: 'neutral',
+    }),
   })
 
   if (ethDeposited === 0n || hasClaimed) return null
@@ -50,7 +64,7 @@ export function GenesisClaimPanel({
     <Card
       id="P-1.9"
       title={`Genesis allocation · ${symbol}`}
-      subtitle="hook.claimGenesis() — your pro-rata share of the genesis block, one claim per wallet"
+      subtitle="Your share of the genesis supply, in proportion to what you deposited. One claim per wallet."
     >
       <Readout label="Your genesis deposit" value={`${fmt(ethDeposited)} ETH`} />
       <ActionButton gate={gate} />

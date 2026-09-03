@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-import { MAINNET_CHAIN_LABEL, TESTNET_CHAIN_LABEL } from '@/lib/contracts'
+import { CHAIN_BYLINE } from '@/lib/contracts'
 
 // ssr: false — WalletPip depends on wagmi account state which is only available
 // on the client. Bypassing SSR prevents React from hydrating wallet-connected
@@ -14,7 +14,7 @@ const WalletPip = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-[130px] h-8" aria-hidden />
+      <div className="h-8 w-[118px] sm:w-[130px]" aria-hidden />
     ),
   },
 )
@@ -31,19 +31,21 @@ export function ToshNavbar() {
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border-subtle bg-bg-base">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="text-lg font-black text-text-primary tracking-tighter hover:opacity-90 transition-opacity">
+      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3 md:px-6">
+        <div className="flex items-center gap-4 min-w-0 sm:gap-8">
+          <Link href="/" className="text-title text-text-primary tracking-tighter hover:opacity-90 transition-opacity shrink-0">
             Tosh<span className="text-brand">X</span>
           </Link>
-          <div className="hidden sm:flex items-center gap-1">
+          {/* Not `hidden sm:flex`: these are the only two routes in the app, and
+              hiding them left phones with no way to reach /launch at all. */}
+          <div className="flex items-center gap-1 min-w-0">
             {NAV.map(({ href, label }) => {
               const active = href === '/' ? pathname === '/' : pathname?.startsWith(href)
               return (
                 <Link
                   key={href}
                   href={href}
-                  className={`px-3 py-1.5 rounded-input text-note font-medium transition-colors
+                  className={`px-2 py-1.5 rounded-input text-note font-medium whitespace-nowrap transition-colors sm:px-3
                     ${active
                       ? 'text-brand bg-brand/10'
                       : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}`}
@@ -56,7 +58,7 @@ export function ToshNavbar() {
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden md:inline font-mono text-label text-text-quiet uppercase">
-            {MAINNET_CHAIN_LABEL} · testnet {TESTNET_CHAIN_LABEL}
+            {CHAIN_BYLINE}
           </span>
           <WalletPip variant="navbar" />
         </div>

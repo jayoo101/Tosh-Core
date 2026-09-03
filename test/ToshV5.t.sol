@@ -117,23 +117,19 @@ contract ToshV5Test is Test {
 
     /// @dev Mine a raw salt whose factory-derived CREATE2 address carries the
     ///      v5.0 flag mask (0x20CC).  The initcode hash is read back from the
-    ///      factory rather than reconstructed here, so the constructor tuple can
-    ///      never drift out of sync with the test.
-    function _mineSalt(address _projTreasury, address _creator, address _projAdmin)
-        internal
-        view
-        returns (bytes32 rawSalt)
-    {
+    ///      factory rather than reconstructed here, so the clone's immutable-arg
+    ///      tuple can never drift out of sync with the test.
+    function _mineSalt(address _projTreasury, address _creator) internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
-            _projTreasury, _creator, _projAdmin, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            _projTreasury, _creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(_creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
             // Skip addresses already occupied: every project in a given test
-            // shares the same constructor tuple, so without this the miner would
-            // hand back the same salt twice and CREATE2 would collide.
+            // shares the same immutable-arg tuple, so without this the miner
+            // would hand back the same salt twice and CREATE2 would collide.
             if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
         }
         revert("_mineSalt: no valid salt found");
@@ -143,7 +139,7 @@ contract ToshV5Test is Test {
         internal
         returns (ToshToken token, ToshLaunchpadHook hook)
     {
-        bytes32 salt = _mineSalt(projTreasury, creator, projTreasury);
+        bytes32 salt = _mineSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
@@ -281,7 +277,7 @@ contract ToshV5Test is Test {
     }
 
     function test_createLaunch_refundsOverpayment() public {
-        bytes32 salt = _mineSalt(projTreasury, creator, projTreasury);
+        bytes32 salt = _mineSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
         uint256 before = creator.balance;
 
@@ -292,7 +288,7 @@ contract ToshV5Test is Test {
     }
 
     function test_createLaunch_revertsOnUnderpayment() public {
-        bytes32 salt = _mineSalt(projTreasury, creator, projTreasury);
+        bytes32 salt = _mineSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
@@ -303,7 +299,7 @@ contract ToshV5Test is Test {
     /// @dev `expectedFee` is a slippage cap: an owner who raises the fee in the
     ///      mempool cannot front-run a creator into paying more than they agreed.
     function test_createLaunch_revertsWhenOwnerFrontRunsFeeIncrease() public {
-        bytes32 salt = _mineSalt(projTreasury, creator, projTreasury);
+        bytes32 salt = _mineSalt(projTreasury, creator);
         uint256 quotedFee = factory.launchFee();
 
         vm.prank(admin);
@@ -1582,23 +1578,41 @@ contract ToshV5Test is Test {
         ladder.addLadderToken(address(rogue));
     }
 
-    /// @dev A hook that has not run `launch()` has no pool key yet, so there is
-    ///      no venue to spend into.
+    /// @dev A hook that has not run `launch()` has no pool, so there is no venue
+    ///      to spend into.
+    ///
+    ///      This was once caught incidentally: the hook stored its pool key at
+    ///      launch, so an unlaunched hook returned a zero key and tripped the
+    ///      `currency1` check.  The hook now restates the key from constants
+    ///      instead of storing it, which is well-formed before launch too, so
+    ///      the treasury asks the hook whether it is live and reverts with
+    ///      `PoolNotLaunched`.
     function test_ladderCuration_rejectsUnlaunchedProjects() public {
         (ToshToken token,) = _createProject("Unlaunched", "UNL");
 
         vm.prank(admin);
-        vm.expectRevert(ToshLadderTreasury.InvalidPoolKey.selector);
+        vm.expectRevert(ToshLadderTreasury.PoolNotLaunched.selector);
         ladder.addLadderToken(address(token));
     }
 
     /// @notice Once the reservoir crosses 1 ETH, the next swap on ANY Tosh pool
     ///         gives the buyback engine a ride: `max(1 ETH, 10% of balance)` is
-    ///         split evenly across the next three ladder tokens, market-bought,
-    ///         and burned to 0xdead.
+    ///         divided by `BATCH_SIZE` and one such slice is market-bought and
+    ///         burned to 0xdead.
+    ///
+    /// @dev    A pot sitting exactly at `TRIGGER_STEP` funds one leg and then
+    ///         falls back below the trigger, so the round is NOT completed here
+    ///         — the remaining slices wait for tax to re-arm it.  That is the
+    ///         intended cadence: throughput is unchanged (every `spend /
+    ///         BATCH_SIZE` of fresh tax buys one leg, where it used to take a
+    ///         full `spend` to buy three), the deployment is just finer-grained
+    ///         and easier on the pools it lands in.
+    ///
+    ///         Coverage of the whole ladder is asserted by
+    ///         `test_piggybackRunsOneLegPerPokeAndStillCoversTheLadder`, which
+    ///         keeps the pot armed across a full round.
     function test_treasuryPiggybackRoundRobin() public {
-        // One pool to trigger from, plus a three-token ladder so a full batch
-        // fits in a single cycle.
+        // One pool to trigger from, plus a three-token ladder.
         (, ToshLaunchpadHook trigger) = _launchProject("Trigger", "TRG", alice, address(0));
         (ToshToken tokenB,) = _launchProject("LadderB", "LDB", alice, address(0));
         (ToshToken tokenC,) = _launchProject("LadderC", "LDC", alice, address(0));
@@ -1621,22 +1635,31 @@ contract ToshV5Test is Test {
         uint256 deadC = tokenC.balanceOf(DEAD);
         uint256 deadD = tokenD.balanceOf(DEAD);
 
-        // Any swap now carries the buyback along with it.
+        // Any swap now carries ONE leg along with it, not the whole batch, so no
+        // single trader is billed for three V4 swaps on top of their own.
         _swapBuy(trigger, trader, 0.5 ether);
 
-        assertGt(tokenB.balanceOf(DEAD), deadB, "ladder token B must be bought and burned");
-        assertGt(tokenC.balanceOf(DEAD), deadC, "ladder token C must be bought and burned");
-        assertGt(tokenD.balanceOf(DEAD), deadD, "ladder token D must be bought and burned");
+        assertGt(tokenB.balanceOf(DEAD), deadB, "the triggering trade serves the cursor token");
+        assertEq(tokenC.balanceOf(DEAD), deadC, "and is billed for that one only");
+        assertEq(tokenD.balanceOf(DEAD), deadD, "and is billed for that one only");
+        assertEq(ladder.currentCursor(), 1, "the cursor advances one leg");
 
-        // Cursor wraps a full batch of three.
-        assertEq(ladder.currentCursor(), 0, "cursor advances by BATCH_SIZE and wraps");
-
-        // 1 ETH was spent (the floor, since the pot was exactly TRIGGER_STEP);
-        // the trigger swap's own 0.7% buy tax flowed back in.
-        assertLt(address(ladder).balance, 1 ether, "reservoir must be drained by the floor spend");
+        // A slice came out of a pot that was only at the floor, which puts it
+        // back under the trigger — so the round pauses here rather than
+        // draining the reservoir in one transaction.
+        assertLt(address(ladder).balance, 1 ether, "a floor-sized pot funds one leg, then disarms");
+        vm.prank(dave);
+        vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
+        ladder.pokeBuyback();
     }
 
     /// @notice A full reservoir spends 10 % per cycle, not a 1 ETH drip.
+    ///
+    /// @dev    A cycle is now three pokes rather than one, since legs run one at
+    ///         a time — so the cycle is completed here with `pokeBuyback()`
+    ///         rather than by hoping three legs ride a single trade.  The
+    ///         property is unchanged and still measured on ETH that actually
+    ///         left the reservoir.
     function test_piggyback_spendsTenPercentOnceThePotIsFull() public {
         (, ToshLaunchpadHook trigger) = _launchProject("FullPot", "FPT", alice, address(0));
         (ToshToken tokenB,) = _launchProject("FullB", "FPB", alice, address(0));
@@ -1653,7 +1676,13 @@ contract ToshV5Test is Test {
         assertEq(ladder.nextSpendAmount(), 5 ether, "10% of 50 ETH");
 
         uint256 before = address(ladder).balance;
+
+        // Leg one rides the trade; the remaining two are poked directly.
         _swapBuy(trigger, trader, 0.5 ether);
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        vm.prank(dave);
+        ladder.pokeBuyback();
 
         // The 10% slice is the OFFER.  Fresh genesis pools are only ~0.9 ETH
         // deep, so the fill binds on pool depth well before 5 ETH lands.
@@ -1831,6 +1860,857 @@ contract ToshV5Test is Test {
 
         assertGt(healthy.balanceOf(DEAD), deadBefore, "an honest pool must still be bought and burned");
         assertLt(address(ladder).balance, 1 ether, "the reservoir must actually spend");
+    }
+
+    /// @notice The three fields packed into `LadderState` still fit the constants
+    ///         that bound them.
+    ///
+    /// @dev    The one check standing between a retune of `TIER_COUNT` or
+    ///         `TIER_SIZE` and silent fund loss.  Packing writes those values
+    ///         through `uint16`/`uint88`/`uint96` casts, and Solidity does not
+    ///         check explicit downcasts — so a constant grown past its field
+    ///         truncates rather than reverting, and the ladder would quietly
+    ///         resell shelves it had already sold.
+    ///
+    ///         Asserted against the constants rather than against observed
+    ///         values on purpose: the point is to fail at the moment somebody
+    ///         edits a constant, not once a live ladder happens to climb high
+    ///         enough to wrap.
+    function test_ladderStateWidthsFitTheirConstants() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Widths", "WID", alice, address(0));
+
+        assertLe(hook.TIER_COUNT(), type(uint16).max, "TIER_COUNT outgrew LadderState.tierIndex");
+        assertLe(hook.TIER_SIZE(), type(uint88).max, "TIER_SIZE outgrew LadderState.tierSold");
+        assertLe(hook.BONDING_MAX(), type(uint96).max, "BONDING_MAX outgrew LadderState.minted");
+
+        // And that the three really do share one slot, which is the entire
+        // reason for the casts above. Slot numbers are not asserted — those move
+        // with any storage edit — only that the three do not disagree.
+        assertEq(hook.currentTierIndex(), 0, "a fresh ladder starts on shelf zero");
+        assertEq(hook.currentTierSold(), 0, "with nothing sold from it");
+        assertEq(hook.phase2Minted(), 0, "and nothing minted");
+    }
+
+    /// @notice `afterSwap` skips the piggyback poke below the arming threshold,
+    ///         using its own copy of the treasury's `TRIGGER_STEP`.  If the two
+    ///         ever drift, the buyback either stops firing or starts paying for
+    ///         a pointless call on every trade — both quiet failures.
+    function test_piggybackTriggerMirrorsTheTreasury() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Mirror", "MIR", alice, address(0));
+        assertEq(
+            hook.PIGGYBACK_TRIGGER_STEP(),
+            ladder.TRIGGER_STEP(),
+            "the hook's poke gate must be the treasury's arming threshold"
+        );
+    }
+
+    /// @notice The skip is an optimisation, not a behaviour change: a reservoir
+    ///         at exactly the threshold must still fire.
+    ///
+    /// @dev    Guards the boundary specifically, because the hook uses `>=` and
+    ///         the treasury's `_nextSpendAmount` uses `<` to return zero.  An
+    ///         off-by-one either way would strand the reservoir one wei short
+    ///         of every trigger, which no balance-agnostic test would catch.
+    function test_piggybackFiresExactlyAtTheThreshold() public {
+        (, ToshLaunchpadHook trigger) = _launchProject("TrigEx", "TGX", alice, address(0));
+        (ToshToken healthy,) = _launchProject("HealthyEx", "HLX", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+
+        _swapBuy(trigger, trader, 0.01 ether);
+
+        assertGt(healthy.balanceOf(DEAD), deadBefore, "a reservoir at the threshold must still buy and burn");
+    }
+
+    /// @notice One wei short of the threshold, nothing is spent.
+    ///
+    /// @dev    The reservoir has to be funded to `threshold - tax - 1`, not to
+    ///         `threshold - 1`: this swap's own 0.7 % buy tax is `take`n to the
+    ///         treasury during `beforeSwap`, so the balance the gate reads in
+    ///         `afterSwap` already includes it.  Dealing `threshold - 1` arms
+    ///         the buyback instead of leaving it idle, which is how the first
+    ///         draft of this test failed.
+    function test_piggybackStaysIdleOneWeiBelowTheThreshold() public {
+        (, ToshLaunchpadHook trigger) = _launchProject("IdleEx", "IDX", alice, address(0));
+        (ToshToken healthy,) = _launchProject("HealthyId", "HLI", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        uint256 ethIn = 0.01 ether;
+        uint256 buyTax = (ethIn * trigger.TAX_BPS()) / 10_000;
+        vm.deal(address(ladder), ladder.TRIGGER_STEP() - buyTax - 1);
+
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+
+        _swapBuy(trigger, trader, ethIn);
+
+        assertEq(
+            address(ladder).balance, ladder.TRIGGER_STEP() - 1, "fixture must land the reservoir exactly one wei short"
+        );
+        assertEq(healthy.balanceOf(DEAD), deadBefore, "nothing may be burned one wei below the threshold");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Gas budgets
+    //
+    //  The `--gas-report` table cannot answer "what does a trade cost", because
+    //  most of its rows are averaged over fuzz and invariant runs whose call
+    //  distribution is randomised — two runs of the same code report different
+    //  medians.  Each test here measures ONE call in a fixed scenario, so the
+    //  number moves only when the code does.
+    //
+    //  What is measured is the gas the call itself burns: `gasleft()` deltas
+    //  exclude the 21,000 transaction base and the calldata cost, so add those
+    //  for a wallet-facing estimate.
+    //
+    //  The budgets sit about 15 % above the figures observed under `--isolate`,
+    //  which is the higher of the two modes: without it Foundry keeps storage
+    //  warm across the whole test and understates every one of these. Run with
+    //  `--isolate` for the number that matches mainnet.
+    //
+    //  15 % is meant to absorb a compiler upgrade without absorbing a cold
+    //  SSTORE (20,000) or an added external call. A budget at 2x the real
+    //  figure, which is where these started, catches nothing.
+    //
+    //  Only exact-input swaps are covered here. Exact-output takes a different
+    //  path through the tax — `beforeSwap` defers to `afterSwap` — and its
+    //  correctness is pinned by `test_buyTax_exactOutputSkimsEthNotTokens` and
+    //  its sell-side twin rather than by a budget.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice What a creator pays to open a project.
+    ///
+    /// @dev    The launch UI quotes this figure before the creator signs
+    ///         (PM-F8), so it is not merely a regression budget: it is the
+    ///         number a wallet is told to expect. `CREATE_LAUNCH_GAS` in
+    ///         `soat-frontend/src/app/lib/launchGas.ts` mirrors the measured
+    ///         value, and drifting past this budget means the quote is wrong,
+    ///         not just that the code got heavier.
+    ///
+    ///         Both clone deployments are inside this call — the hook proxy and
+    ///         the bare token proxy — which is why it dominates `launch()`
+    ///         despite doing no pool work.
+    function test_gas_createLaunch() public {
+        bytes32 salt = _mineSalt(projTreasury, creator);
+        uint256 fee = factory.launchFee();
+
+        vm.prank(creator);
+        uint256 before = gasleft();
+        factory.createLaunch{value: fee}("GasCreate", "GCR", projTreasury, projTreasury, salt, fee, 24 hours);
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("createLaunch", used);
+        emit log_named_uint("was, before the EIP-1167 clone refactor", 5_016_031);
+        assertLt(used, 614_000, "createLaunch path regressed");
+    }
+
+    /// @notice The creator's second and final bill: seeding the V4 pool once
+    ///         genesis has succeeded.
+    ///
+    /// @dev    Quoted alongside `createLaunch` in the launch UI, because the
+    ///         two together are what opening a project actually costs and a
+    ///         creator who budgets only for the first one is stranded holding a
+    ///         funded genesis they cannot open.
+    function test_gas_launch() public {
+        (, ToshLaunchpadHook hook) = _createProject("GasLaunch", "GLN");
+        _deposit(alice, hook, SOFT_CAP, address(0));
+        vm.warp(hook.genesisDeadline() + 1);
+
+        vm.prank(creator);
+        uint256 before = gasleft();
+        hook.launch();
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("launch", used);
+        assertLt(used, 578_000, "launch path regressed");
+    }
+
+    /// @notice A buy through the pool: the full router-to-hook path a trader
+    ///         actually pays for.
+    ///
+    /// @dev    This is the number that matters for "is trading expensive". It
+    ///         covers v4's own swap accounting plus both of our hook callbacks,
+    ///         and the hook's share of it is the only part we control.
+    function test_gas_swapBuy() public {
+        (, ToshLaunchpadHook hook) = _launchProject("GasSwap", "GSW", alice, address(0));
+        _nextBlock();
+
+        vm.prank(trader);
+        uint256 before = gasleft();
+        swapRouter.swap{value: 0.1 ether}(
+            hook.getPoolKey(),
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(0.1 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("swap buy, end to end", used);
+        assertLt(used, 228_000, "swap path regressed");
+    }
+
+    /// @notice The same buy again, one block later.
+    ///
+    /// @dev    Separated from the first swap on purpose.  The opening trade on a
+    ///         fresh pool pays for slots nobody has touched yet — the oracle
+    ///         accumulator, the TWAP checkpoints, the treasury's tax balance —
+    ///         and that one-off cost is not what the tenth trader sees.  A
+    ///         widening gap between this and `test_gas_swapBuy` means first-swap
+    ///         initialisation is growing.
+    function test_gas_swapBuy_warmPool() public {
+        (, ToshLaunchpadHook hook) = _launchProject("GasSwap2", "GS2", alice, address(0));
+        _nextBlock();
+        _swapBuy(hook, trader, 0.1 ether);
+        _nextBlock();
+
+        vm.prank(trader);
+        uint256 before = gasleft();
+        swapRouter.swap{value: 0.1 ether}(
+            hook.getPoolKey(),
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(0.1 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("swap buy, warm pool", used);
+        assertLt(used, 192_000, "warm swap path regressed");
+    }
+
+    /// @notice A single-shelf Phase-2 mint — the ladder's own buy path, which
+    ///         does not touch the pool at all.
+    function test_gas_mintBondingCurve() public {
+        (, ToshLaunchpadHook hook) = _launchProject("GasMint", "GMT", alice, address(0));
+        _openLadder(hook, 0.01 ether);
+
+        uint256 want = 1_000e18;
+        uint256 cost = hook.quoteMint(want);
+
+        vm.prank(bob);
+        uint256 before = gasleft();
+        hook.mintBondingCurve{value: cost}(want);
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("mintBondingCurve, one shelf", used);
+        emit log_named_uint("was, before LadderState was packed", 197_195);
+
+        // 173.5k measured. The budget tracks the measurement rather than sitting
+        // 30k above it, or packing the three shelf counters into one slot would
+        // have been free to undo.
+        assertLt(used, 182_000, "mint path regressed");
+    }
+
+    /// @notice What the piggyback costs the trader who triggers it, and that the
+    ///         cost does not grow with the ladder.
+    ///
+    /// @dev    Legs used to run `min(ladderTokens.length, BATCH_SIZE)` per poke,
+    ///         so this table read 342k / 460k / 579k and the worst case scaled
+    ///         with how many tokens the owner had listed — a trader on a
+    ///         three-token ladder was billed for three V4 swaps besides their
+    ///         own. At one leg per poke the rows are flat, which is the property
+    ///         asserted below: listing more tokens must never make a trade more
+    ///         expensive.
+    ///
+    ///         Ladder gas does not scale with the ETH being spent — a leg is a
+    ///         V4 swap whichever size it is — so raising the trigger threshold
+    ///         would have made this rarer without making it smaller. That is why
+    ///         the leg count, not the threshold, was the thing to change.
+    function test_gas_piggybackCostPerLeg() public {
+        uint256 unarmed = _measureArmedSwap(0);
+        uint256 one = _measureArmedSwap(1);
+        uint256 two = _measureArmedSwap(2);
+        uint256 three = _measureArmedSwap(3);
+
+        emit log_named_uint("unarmed swap", unarmed);
+        emit log_named_uint("1 ladder token", one);
+        emit log_named_uint("2 ladder tokens", two);
+        emit log_named_uint("3 ladder tokens (BATCH_SIZE)", three);
+        emit log_named_uint("was, at 3 legs per poke", 578_809);
+
+        // A second and third listing add bookkeeping, not legs.
+        assertLt(three - one, 40_000, "peak cost must not scale with the ladder length");
+        assertLt(three, 420_000, "armed swap regressed");
+    }
+
+    /// @notice A swap sized for an unarmed pool SURVIVES the reservoir arming:
+    ///         the buyback stands down rather than taking the trade with it.
+    ///
+    /// @dev    A wallet estimates against the pool as it is, adds a buffer, and
+    ///         signs.  If the reservoir crosses the trigger in the gap, the swap
+    ///         suddenly needs ~137k more than was estimated.
+    ///
+    ///         Before the gas gate every row of this sweep read `trade DEAD`
+    ///         below 350k, and `try/catch` did not help: the 63/64 rule leaves
+    ///         the hook a sixty-fourth after the poke runs out, which does not
+    ///         cover the rest of `afterSwap` plus V4 closing the unlock frame.
+    ///         The trader paid for a revert on a trade that was never at fault.
+    ///
+    ///         Now the tight rows read `trade OK, buyback skipped`.  That the
+    ///         two outcomes can differ at all is the property under test.
+    function test_piggybackSkipsRatherThanKillingTheTrade() public {
+        (, ToshLaunchpadHook trigger) = _launchProject("OOGTrig", "OOG", alice, address(0));
+        (ToshToken healthy,) = _launchProject("OOGHealthy", "OGH", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), 10 ether);
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+        uint256 traderTokensBefore = IERC20(address(trigger.projectToken())).balanceOf(trader);
+
+        bytes memory callData = abi.encodeCall(
+            PoolSwapTest.swap,
+            (
+                trigger.getPoolKey(),
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: -int256(0.01 ether),
+                    sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                }),
+                PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+                ""
+            )
+        );
+
+        // What the same trade costs with the reservoir empty — the number a
+        // wallet would be quoted before the arming.  Measured, because it is
+        // ~25 % lower under plain `forge test` than under `--isolate`, and a
+        // sweep of absolute limits therefore means different things in the two
+        // modes.  An earlier version hardcoded 250k..500k and asserted which
+        // rows ran, which passed under `--isolate` and failed plain.
+        uint256 snap = vm.snapshotState();
+        vm.deal(address(ladder), 0);
+        vm.prank(trader);
+        uint256 probe = gasleft();
+        (bool okBase,) = address(swapRouter).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        uint256 unarmed = probe - gasleft();
+        assertTrue(okBase, "baseline swap must succeed");
+        vm.revertToState(snap);
+
+        emit log_named_uint("unarmed estimate", unarmed);
+
+        // Buffers a wallet plausibly attaches to that quote, then one that is
+        // unmistakably generous.
+        uint256[5] memory pct = [uint256(115), 130, 150, 200, 400];
+
+        for (uint256 i; i < pct.length; ++i) {
+            uint256 inner = vm.snapshotState();
+            uint256 limit = (unarmed * pct[i]) / 100;
+
+            vm.prank(trader);
+            (bool ok,) = address(swapRouter).call{value: 0.01 ether, gas: limit}(callData);
+
+            bool traded = IERC20(address(trigger.projectToken())).balanceOf(trader) > traderTokensBefore;
+            bool burned = healthy.balanceOf(DEAD) > deadBefore;
+
+            emit log_named_string(
+                string.concat(
+                    "+",
+                    vm.toString(pct[i] - 100),
+                    "% (",
+                    vm.toString(limit),
+                    ") -> trade ",
+                    traded ? "OK" : "DEAD",
+                    ", buyback"
+                ),
+                burned ? "ran" : "skipped"
+            );
+
+            assertEq(ok, traded, "a reverted call must not have moved tokens");
+            // The property: the trade settles on every budget, whether or not
+            // the buyback comes along. Which budgets engage the gate is a
+            // calibration question, and it belongs to the two tests below —
+            // asserting it here would only re-pin absolute gas figures.
+            assertTrue(traded, "the trade must settle at every one of these budgets");
+
+            if (i == 0) {
+                assertFalse(burned, "the tightest plausible budget must stand the buyback down");
+            }
+            if (i == pct.length - 1) {
+                assertTrue(burned, "a generous budget must still carry the buyback");
+            }
+
+            vm.revertToState(inner);
+        }
+    }
+
+    /// @notice The trade that TIPS the reservoir over the trigger — the one that
+    ///         could not have known — settles on its own estimate.
+    ///
+    /// @dev    This is the case that made the gate necessary rather than nice.
+    ///         The buy tax is `take`n to the treasury in `beforeSwap`, so a swap
+    ///         can begin with the reservoir below the threshold and reach
+    ///         `afterSwap` with it above.  The trade billed for a cycle was
+    ///         therefore not "one signed in an unlucky window" but specifically
+    ///         the marginal trade at every trigger, deterministically, every
+    ///         cycle — and its wallet had estimated against an unarmed pool.
+    ///
+    ///         With the gate it skips instead, and the ETH waits for a swap that
+    ///         budgeted for a buyback or for `pokeBuyback()`.
+    function test_piggybackSparesTheTradeThatTipsIt() public {
+        (, ToshLaunchpadHook trigger) = _launchProject("TipTrig", "TIP", alice, address(0));
+        (ToshToken healthy,) = _launchProject("TipHealthy", "TPH", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        // One wei short of arming: this swap's own tax is what tips it.
+        uint256 ethIn = 0.01 ether;
+        uint256 buyTax = (ethIn * trigger.TAX_BPS()) / 10_000;
+        vm.deal(address(ladder), ladder.TRIGGER_STEP() - buyTax);
+
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+
+        bytes memory callData = abi.encodeCall(
+            PoolSwapTest.swap,
+            (
+                trigger.getPoolKey(),
+                SwapParams({
+                    zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                }),
+                PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+                ""
+            )
+        );
+
+        // What a wallet would have estimated: the same trade against a reservoir
+        // that is not about to arm.  Measured rather than hardcoded, because the
+        // figure differs by ~20 % between plain and `--isolate` runs and a magic
+        // number would pass in one mode and fail in the other.
+        uint256 snap = vm.snapshotState();
+        vm.deal(address(ladder), 0);
+        vm.prank(trader);
+        uint256 before = gasleft();
+        (bool okUnarmed,) = address(swapRouter).call{value: ethIn, gas: 2_000_000}(callData);
+        uint256 estimate = before - gasleft();
+        assertTrue(okUnarmed, "baseline swap must succeed");
+        vm.revertToState(snap);
+
+        // Sign it with a 15 % buffer on that estimate, which is the tight end of
+        // what a wallet attaches.
+        vm.prank(trader);
+        (bool okTight,) = address(swapRouter).call{value: ethIn, gas: (estimate * 115) / 100}(callData);
+        assertTrue(okTight, "the tipping trade must settle on its own estimate");
+        assertEq(healthy.balanceOf(DEAD), deadBefore, "and must not have been billed for a buyback");
+        // The ETH is not lost, only deferred.
+        assertGe(address(ladder).balance, ladder.TRIGGER_STEP(), "the reservoir stays armed for the next poke");
+        vm.revertToState(snap);
+
+        // The same trade with room carries the cycle instead.
+        vm.prank(trader);
+        (bool okFunded,) = address(swapRouter).call{value: ethIn, gas: estimate * 4}(callData);
+        assertTrue(okFunded, "with headroom it goes through");
+        assertGt(healthy.balanceOf(DEAD), deadBefore, "and picks up the buyback");
+    }
+
+    /// @notice The gate does not starve the buyback: a swap estimated against an
+    ///         ARMED reservoir clears `PIGGYBACK_MIN_GAS` on an ordinary wallet
+    ///         buffer and carries the cycle.
+    ///
+    /// @dev    The necessary complement to the two tests above.  They show the
+    ///         gate declining when the budget is short, which a
+    ///         `PIGGYBACK_MIN_GAS` of `type(uint256).max` would also do — and
+    ///         that would quietly reduce the whole mechanism to `pokeBuyback()`,
+    ///         with the reservoir never riding a trade again.
+    ///
+    ///         The estimate is taken the way a wallet takes it: simulate the
+    ///         exact call against current state, which here already includes the
+    ///         armed reservoir, then add 15 %.  So this pins that the ordinary
+    ///         path still works, not merely that the failure path is safe.
+    function test_piggybackStillRidesAProperlyEstimatedSwap() public {
+        (, ToshLaunchpadHook trigger) = _launchProject("RideTrig", "RID", alice, address(0));
+        (ToshToken healthy, ToshLaunchpadHook healthyHook) = _launchProject("RideHealthy", "RDH", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), 10 ether);
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+
+        bytes memory callData = abi.encodeCall(
+            PoolSwapTest.swap,
+            (
+                trigger.getPoolKey(),
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: -int256(0.01 ether),
+                    sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                }),
+                PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+                ""
+            )
+        );
+
+        // Both measurements below are taken against COLD storage, on purpose.
+        //
+        // Without this the two run modes disagree by ~50k on what a leg costs —
+        // plain `forge test` carries warm slots between calls inside a test and
+        // reports ~100k, `--isolate` charges them and reports ~149k — and the
+        // bounds at the bottom compare that figure against a constant that does
+        // not move with the mode. An earlier revision called those bounds
+        // "mode-independent"; they were not, and the first constant that sat
+        // near the cold floor broke the warm run.
+        //
+        // A real transaction starts cold, and the on-chain measurement this is
+        // reconciled against (156,153 on 46630, §F.7) was a real transaction.
+        // So cold is the accounting that corresponds to something, and
+        // `vm.cool` is how both modes are made to report it.
+        address[4] memory legPath = [address(healthy), address(healthyHook), address(ladder), address(poolManager)];
+
+        // eth_estimateGas against the armed pool: the buyback is in the quote.
+        uint256 snap = vm.snapshotState();
+        for (uint256 i; i < legPath.length; ++i) {
+            vm.cool(legPath[i]);
+        }
+        vm.prank(trader);
+        uint256 before = gasleft();
+        (bool okSim,) = address(swapRouter).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        uint256 estimate = before - gasleft();
+        assertTrue(okSim, "the simulation itself must succeed");
+        assertGt(healthy.balanceOf(DEAD), deadBefore, "the simulated call must include a buyback");
+        vm.revertToState(snap);
+
+        emit log_named_uint("armed estimate", estimate);
+
+        // The same trade with the reservoir empty.  The difference between the
+        // two quotes is what one buy leg costs, measured in whichever gas
+        // accounting this run is using.
+        uint256 unarmedSnap = vm.snapshotState();
+        vm.deal(address(ladder), 0);
+        for (uint256 i; i < legPath.length; ++i) {
+            vm.cool(legPath[i]);
+        }
+        vm.prank(trader);
+        uint256 probe = gasleft();
+        (bool okBase,) = address(swapRouter).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        uint256 unarmed = probe - gasleft();
+        assertTrue(okBase, "baseline swap must succeed");
+        vm.revertToState(unarmedSnap);
+
+        uint256 legCost = estimate - unarmed;
+        emit log_named_uint("one leg", legCost);
+
+        // Find the buffer the gate demands on top of an honest quote.  Some
+        // buffer is structurally unavoidable: `PIGGYBACK_TAIL_RESERVE` is by
+        // definition larger than the tail it protects, so the gate always wants
+        // slightly more headroom than the quote contains.
+        uint256 required = type(uint256).max;
+        for (uint256 pct = 105; pct <= 200; pct += 5) {
+            uint256 inner = vm.snapshotState();
+
+            vm.prank(trader);
+            (bool ok,) = address(swapRouter).call{value: 0.01 ether, gas: (estimate * pct) / 100}(callData);
+            bool burned = healthy.balanceOf(DEAD) > deadBefore;
+
+            assertTrue(ok, "an honestly estimated swap must go through at any buffer");
+            vm.revertToState(inner);
+
+            if (burned) {
+                required = pct - 100;
+                break;
+            }
+        }
+
+        emit log_named_uint("buffer the gate demands, %", required);
+
+        // Logged, deliberately not bounded. The paragraph below explains why a
+        // percentage is not comparable across gas accountings, and then an
+        // `assertLt(required, 50)` sat here anyway — surviving only because the
+        // constant it happened to be measuring cleared both modes. Raising
+        // `PIGGYBACK_MIN_GAS` to its measured floor moved plain-mode from 45 %
+        // to 55 % and it failed, in the mode that keeps storage warm and so
+        // resembles no transaction anyone will ever send.
+        //
+        // What remains is the part that does not depend on the accounting: the
+        // sweep has to find SOME buffer that produces a real burn. That is the
+        // liveness property the percentage was standing in for — a gate set to
+        // `type(uint256).max` fails here, which was the original worry — while
+        // the two structural bounds below say how tightly the gate is placed.
+        assertTrue(
+            required != type(uint256).max,
+            "no buffer up to 200% engaged the buyback: the gate has retired the mechanism"
+        );
+
+        // The hard check is structural rather than a percentage, because the
+        // percentage is not comparable across gas accountings: `--isolate`
+        // charges cold storage and measures 15 % here, while plain `forge test`
+        // keeps everything warm, which shrinks the quote without shrinking this
+        // absolute constant and measures 45 %.  Asserting a percentage would
+        // pin one mode and break the other, as an earlier version did.
+        //
+        // What IS comparable is the rule the constant is built from — a tail
+        // reserve plus one leg — since both sides are then measured in the same
+        // accounting.  Any excess over that sum is exactly the extra headroom a
+        // wallet has to attach beyond an honest quote, so this bounds the thing
+        // the percentage was trying to say, in a mode-independent way.
+        //
+        // `PIGGYBACK_MIN_GAS = 260_000` overshot this by 61k under plain
+        // accounting, which is the regression that prompted the check.
+        assertLe(
+            trigger.PIGGYBACK_MIN_GAS(),
+            trigger.PIGGYBACK_TAIL_RESERVE() + legCost + 40_000,
+            "PIGGYBACK_MIN_GAS demands more than a tail reserve plus one leg"
+        );
+
+        // And the same rule from below, which is the half that was missing.
+        //
+        // The bound above stops the constant drifting so high that the gate
+        // retires the mechanism. Nothing stopped it sitting too LOW, and it did:
+        // at 230,000 the gate admitted a poke, forwarded `230_000 - 100_000` and
+        // handed one leg 130k to do 149k of work. The leg ran out, `try/catch`
+        // swallowed it, and the trade survived — so no test failed and no user
+        // saw anything except a slightly larger bill. The only trace is a
+        // `PiggybackPokeFailed` nobody was watching for.
+        //
+        // The waste is bounded and the buyback is recoverable through
+        // `pokeBuyback()`, so this is an efficiency bug rather than a custody
+        // one. It is worth a hard assertion anyway, because the band it creates
+        // is invisible from every direction: the swap succeeds, the buyback is
+        // merely absent, and absence is what this mechanism looks like when it
+        // is working normally on an unarmed reservoir.
+        //
+        // Measured on Robinhood 46630 at 156,153 for the same leg — 4.8 % above
+        // the figure this run computes — so the chain the constant ships to is
+        // the tighter of the two. `docs/ROBINHOOD_MIGRATION.md` §F.7.
+        assertGe(
+            trigger.PIGGYBACK_MIN_GAS(),
+            trigger.PIGGYBACK_TAIL_RESERVE() + legCost,
+            "PIGGYBACK_MIN_GAS admits a poke it cannot fund: the leg will run out of gas"
+        );
+    }
+
+    /// @notice `pokeBuyback()` deploys the reservoir with no swap to ride.
+    ///
+    /// @dev    The liveness backstop for the gas gate.  Without this, a market
+    ///         where every trade runs a tight limit would leave the reservoir
+    ///         armed forever: `autoPiggybackBuyback` is `onlyHook` and
+    ///         `executeBuyAndBurn` is `onlySelf`, so there was no other door in.
+    function test_pokeBuyback_deploysWithoutASwap() public {
+        (ToshToken healthy,) = _launchProject("PokeHealthy", "PKH", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), 10 ether);
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+        uint256 reservoirBefore = address(ladder).balance;
+
+        // Permissionless: an address with no role and no stake in the platform.
+        vm.prank(dave);
+        ladder.pokeBuyback();
+
+        assertGt(healthy.balanceOf(DEAD), deadBefore, "tokens bought and burned");
+        assertLt(address(ladder).balance, reservoirBefore, "the reservoir actually spent");
+    }
+
+    /// @notice A treasury buyback is a swap, so it must shut the same-block
+    ///         mint lockout exactly like any other swap.
+    ///
+    /// @dev    This is the branch the rest of the lockout suite cannot reach.
+    ///         `test_mintBondingCurve_revertsInASwapBlock`, `:1018`, `:1247` and
+    ///         `ToshV5Attack.t.sol:169` all drive the pool with `_swapSell`,
+    ///         which enters `afterSwap` as the router — the one sender that has
+    ///         always been stamped. `afterSwap` returns early for
+    ///         `sender == ladderTreasury`, and that early return skipped the
+    ///         stamp along with the tax it was written to skip. So the suite
+    ///         read as though the lockout was thoroughly pinned while the
+    ///         uncovered branch was open.
+    ///
+    ///         It matters because `pokeBuyback()` is permissionless and has no
+    ///         cooldown, and every call performs a real swap on the target
+    ///         pool. Unstamped, any address could move spot repeatedly inside
+    ///         one block and then mint against the raised
+    ///         `_safeReferencePrice()` ceiling in that same block — measured at
+    ///         5.15x spot and `maxMintable` going 0 -> 100_800e18 — which is
+    ///         precisely what `SameBlockMintForbidden` exists to prevent.
+    function test_pokeBuyback_shutsTheSameBlockMintLockout() public {
+        (ToshToken healthy, ToshLaunchpadHook healthyHook) = _launchProject("PokeLockout", "PKL", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), 10 ether);
+
+        // A block with no swap in it: the lockout is open, by construction.
+        _nextBlock();
+        assertLt(healthyHook.lastSwapBlock(), vm.getBlockNumber(), "fixture: lockout already shut");
+
+        uint256 deadBefore = healthy.balanceOf(DEAD);
+
+        vm.prank(dave);
+        ladder.pokeBuyback();
+
+        // Guard against a vacuous pass: if the leg had skipped, no swap would
+        // have happened and there would be nothing to stamp.
+        assertGt(healthy.balanceOf(DEAD), deadBefore, "fixture: the buyback leg did not fill");
+
+        assertEq(healthyHook.lastSwapBlock(), vm.getBlockNumber(), "a buyback swap left the mint lockout open");
+        assertEq(healthyHook.maxMintable(), 0, "shelf is still mintable in a swap block");
+    }
+
+    /// @notice An unarmed reservoir tells the caller so instead of silently
+    ///         doing nothing.
+    function test_pokeBuyback_revertsWhenUnarmed() public {
+        (ToshToken healthy,) = _launchProject("PokeIdle", "PKI", alice, address(0));
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(healthy));
+
+        vm.deal(address(ladder), ladder.TRIGGER_STEP() - 1);
+
+        vm.prank(dave);
+        vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
+        ladder.pokeBuyback();
+    }
+
+    /// @notice An armed reservoir with nothing listed is also unarmed, in the
+    ///         only sense that matters.
+    function test_pokeBuyback_revertsWithAnEmptyLadder() public {
+        vm.deal(address(ladder), 10 ether);
+
+        vm.prank(dave);
+        vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
+        ladder.pokeBuyback();
+    }
+
+    /// @notice `unlockCallback` is reachable only through the pool manager.
+    ///
+    /// @dev    V4 calls back only the address that called `unlock`, so the guard
+    ///         is belt-and-braces — but it is the one function on the treasury
+    ///         that would otherwise run a buyback for an arbitrary caller.
+    function test_unlockCallback_rejectsEveryoneButThePoolManager() public {
+        vm.prank(dave);
+        vm.expectRevert(ToshLadderTreasury.OnlyPoolManager.selector);
+        ladder.unlockCallback("");
+
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.OnlyPoolManager.selector);
+        ladder.unlockCallback("");
+    }
+
+    /// @notice Legs run one per poke, so the same three pools are served across
+    ///         three trades rather than billing one trader for all of them.
+    ///
+    /// @dev    Each pool must still receive `spend / BATCH_SIZE`, unchanged from
+    ///         when a single poke ran the whole batch — that is what keeps the
+    ///         peak-cost fix free of a slippage cost.
+    function test_piggybackRunsOneLegPerPokeAndStillCoversTheLadder() public {
+        (ToshToken a,) = _launchProject("LegA", "LGA", alice, address(0));
+        (ToshToken b,) = _launchProject("LegB", "LGB", alice, address(0));
+        (ToshToken c,) = _launchProject("LegC", "LGC", alice, address(0));
+
+        vm.startPrank(admin);
+        ladder.addLadderToken(address(a));
+        ladder.addLadderToken(address(b));
+        ladder.addLadderToken(address(c));
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        assertEq(ladder.LEGS_PER_POKE(), 1, "one leg per poke");
+
+        vm.deal(address(ladder), 10 ether);
+
+        // One poke, one burn.
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        assertGt(a.balanceOf(DEAD), 0, "first poke serves the cursor token");
+        assertEq(b.balanceOf(DEAD), 0, "and only that one");
+        assertEq(c.balanceOf(DEAD), 0, "and only that one");
+        assertEq(ladder.currentCursor(), 1, "cursor advances by one leg");
+
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        assertGt(b.balanceOf(DEAD), 0, "second poke serves the next");
+
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        assertGt(c.balanceOf(DEAD), 0, "third poke completes the round");
+        assertEq(ladder.currentCursor(), 0, "and wraps");
+    }
+
+    /// @dev Launch a trigger pool plus `ladderCount` listed ladder pools, arm the
+    ///      reservoir, and return the gas the triggering swap burns.
+    function _measureArmedSwap(uint256 ladderCount) internal returns (uint256) {
+        uint256 snap = vm.snapshotState();
+
+        (, ToshLaunchpadHook trigger) = _launchProject("PeakTrig", "PKT", alice, address(0));
+
+        for (uint256 i; i < ladderCount; ++i) {
+            (ToshToken t,) = _launchProject(
+                string.concat("Peak", vm.toString(i)), string.concat("PK", vm.toString(i)), alice, address(0)
+            );
+            vm.prank(admin);
+            ladder.addLadderToken(address(t));
+        }
+
+        // Every ladder pool needs an established TWAP, or `_buybackSqrtFloor`
+        // falls back to unbounded and skips work a live pool would do.
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        vm.deal(address(ladder), 10 ether);
+
+        vm.prank(trader);
+        uint256 before = gasleft();
+        swapRouter.swap{value: 0.01 ether}(
+            trigger.getPoolKey(),
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(0.01 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        uint256 used = before - gasleft();
+
+        vm.revertToState(snap);
+        return used;
+    }
+
+    /// @notice A genesis deposit through the factory, including the PoG quota
+    ///         bookkeeping and the referral accrual.
+    function test_gas_deposit() public {
+        (, ToshLaunchpadHook hook) = _createProject("GasDep", "GDP");
+        _ensurePoG(bob);
+
+        vm.prank(bob);
+        uint256 before = gasleft();
+        factory.deposit{value: 0.1 ether}(address(hook), address(0));
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("deposit", used);
+        assertLt(used, 211_000, "deposit path regressed");
     }
 
     /// @dev PoolSwapTest refunds unspent `msg.value` to the caller after an

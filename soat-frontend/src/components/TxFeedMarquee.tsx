@@ -24,11 +24,12 @@
  * No timestamp is rendered server-side, so SSR/CSR mismatches are impossible.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWatchContractEvent } from 'wagmi'
 import { formatUnits, type Address, type Log } from 'viem'
 
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
+import { usePageVisible } from '@/lib/usePageVisible'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -74,19 +75,38 @@ export function TxFeedMarquee({ compact = false }: { compact?: boolean }) {
   // Ring buffer — newest first.  Stored in state so React can re-render the
   // marquee when a new log arrives without us forcing the issue.
   const [buffer, setBuffer] = useState<FeedItem[]>([])
-  // Seen-keys set — survives across event handlers so we don't double-insert
-  // when a node re-broadcasts the same log on a re-org / reconnect.
-  const seen = useRef<Set<string>>(new Set())
 
-  /** Generic insert — kind-agnostic; the caller has already formatted the
-   *  payload.  Dedupes via `seen`, then prepends to the ring and trims. */
+  // Three log filters polling the RPC forever in a tab nobody is looking at.
+  // The marquee is decorative; it can catch up when the tab comes back.
+  const visible = usePageVisible()
+
+  /**
+   * Generic insert — kind-agnostic; the caller has already formatted the
+   * payload. Dedupes, then prepends to the ring and trims.
+   *
+   * The dedupe set is rebuilt from `prev` on each call rather than kept in a
+   * ref that the updater mutates. React may invoke an updater more than once
+   * for a single dispatch — StrictMode double-invokes them in development, and
+   * a discarded concurrent render replays them — and the old version added
+   * every key to the ref on the first pass, so the second pass found them all
+   * "seen", produced an empty batch, and returned `prev`. The item was silently
+   * dropped, which is why the marquee could sit empty in development while
+   * working in production.
+   *
+   * Deriving the set from `prev` makes the updater pure, so a replay produces
+   * the same result. It also bounds the set at `RING_LIMIT`; the ref grew
+   * without limit for the life of the mount. The trade is that an item evicted
+   * from the ring could reappear if the node re-broadcasts it much later —
+   * invisible on a decorative feed, and cheaper than the leak.
+   */
   const ingest = useCallback((items: FeedItem[]) => {
     if (items.length === 0) return
     setBuffer(prev => {
+      const seen = new Set(prev.map(it => it.key))
       const fresh: FeedItem[] = []
       for (const it of items) {
-        if (seen.current.has(it.key)) continue
-        seen.current.add(it.key)
+        if (seen.has(it.key)) continue
+        seen.add(it.key)
         fresh.push(it)
       }
       if (fresh.length === 0) return prev
@@ -99,6 +119,7 @@ export function TxFeedMarquee({ compact = false }: { compact?: boolean }) {
     address:   FACTORY_ADDRESS,
     abi:       FACTORY_ABI,
     eventName: 'LaunchCreated',
+    enabled:   visible,
     onLogs(logs) {
       ingest(logs.map((l) => {
         const log = l as unknown as Log & {
@@ -120,6 +141,7 @@ export function TxFeedMarquee({ compact = false }: { compact?: boolean }) {
     address:   FACTORY_ADDRESS,
     abi:       FACTORY_ABI,
     eventName: 'PoGRegistered',
+    enabled:   visible,
     onLogs(logs) {
       ingest(logs.map((l) => {
         const log = l as unknown as Log & {
@@ -140,6 +162,7 @@ export function TxFeedMarquee({ compact = false }: { compact?: boolean }) {
     address:   FACTORY_ADDRESS,
     abi:       FACTORY_ABI,
     eventName: 'GenesisDeposit',
+    enabled:   visible,
     onLogs(logs) {
       ingest(logs.map((l) => {
         const log = l as unknown as Log & {

@@ -24,6 +24,8 @@
 import Link from 'next/link'
 import { useEffect } from 'react'
 
+import { reportError } from '@/lib/observability'
+
 interface ErrorBoundaryProps {
   /** The thrown value, normalized by Next.js to `Error` with a `.digest`. */
   error: Error & { digest?: string }
@@ -33,11 +35,16 @@ interface ErrorBoundaryProps {
 
 export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
   useEffect(() => {
-    // Console-log in dev for fast triage; in production this gets surfaced
-    // through Sentry / Defender once those are wired in (#26).
+    // Console in dev for fast triage, Sentry in production. `reportError` is
+    // a no-op wherever no DSN is configured, so staging stays quiet (#26).
     if (process.env.NODE_ENV !== 'production') {
       console.error('[Tosh error boundary]', error)
     }
+    reportError(error, {
+      surface: 'root-error-boundary',
+      digest: error.digest,
+      extra: { pathname: window.location.pathname },
+    })
   }, [error])
 
   return (
@@ -51,19 +58,25 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
         <span className="text-note uppercase tracking-[0.4em] text-brand">
           {'// RUNTIME // ANOMALY_DETECTED'}
         </span>
-        <h1 className="text-2xl font-light tracking-wide text-text-primary">
+        <h1 className="text-section font-light tracking-wide text-text-primary">
           Something cracked.
         </h1>
-        <p className="text-sm text-text-secondary">
+        <p className="text-body text-text-secondary">
           A client-side surface threw mid-render.  The protocol on-chain state
           is unaffected — your wallet, balance, and any open positions are
           fine.  We just need to reseat the UI.
         </p>
       </header>
 
-      <dl className="grid grid-cols-[140px,1fr] gap-x-4 gap-y-2 border border-border-subtle p-4 text-xs">
+      {/* `140px` fixed here overflowed the panel on a phone. The label column
+          only needs its own row when there is width for one. */}
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 border border-border-subtle p-card text-note sm:grid-cols-[minmax(0,140px)_minmax(0,1fr)] sm:gap-y-2">
+        {/* Read `typeof window` during render and this row disagrees with
+            itself between the server pass and hydration — an error boundary
+            that trips its own hydration warning. The digest below already
+            distinguishes a server throw; this row just names the scope. */}
         <dt className="text-text-tertiary">{'// SCOPE'}</dt>
-        <dd>Route segment ({typeof window === 'undefined' ? 'server' : 'client'})</dd>
+        <dd>Route segment</dd>
 
         <dt className="text-text-tertiary">{'// MESSAGE'}</dt>
         <dd className="break-all text-text-secondary">{error.message || 'unknown'}</dd>

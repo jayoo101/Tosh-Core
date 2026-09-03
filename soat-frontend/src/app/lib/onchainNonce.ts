@@ -20,52 +20,28 @@
 //    the now-stale nonce, which the contract rejects).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { createPublicClient, http } from 'viem'
-import type { Address, Chain, PublicClient } from 'viem'
-import { foundry } from 'viem/chains'
+import type { Address, PublicClient } from 'viem'
 
 import { FACTORY_ABI } from './abis'
-import { targetChain, TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
-
-const RPC_ENDPOINTS: Record<number, string> = {
-  [TARGET_CHAIN_ID]:
-    process.env.NEXT_PUBLIC_RPC_URL ??
-    process.env.BASE_SEPOLIA_RPC ??
-    process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC ??
-    (TARGET_CHAIN_ID === 84532 ? 'https://sepolia.base.org'
-      : TARGET_CHAIN_ID === 8453 ? 'https://mainnet.base.org'
-      : 'https://eth.llamarpc.com'),
-  [FOUNDRY_CHAIN_ID]:
-    process.env.LOCAL_RPC ?? 'http://127.0.0.1:8545',
-}
-
-const SUPPORTED_CHAINS: Record<number, Chain> = {
-  [TARGET_CHAIN_ID]: targetChain,
-  [FOUNDRY_CHAIN_ID]: foundry,
-}
+import { serverPublicClient } from './serverRpc'
+import { TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
 
 /**
- * Lazily-cached public clients keyed by chainId.  Reusing the same client
- * keeps viem's internal request batcher warm across hot signing bursts.
+ * Endpoint selection lives in `serverRpc` so that the chain bound to the
+ * client and the chain named by the URL cannot drift apart. This module used
+ * to pick its own, with `BASE_SEPOLIA_RPC` sitting in the chain-agnostic slot:
+ * on a mainnet build that read the nonce off Sepolia, and a nonce from the
+ * wrong chain signs an attestation the factory then rejects — the user pays
+ * gas to revert.
  */
-const clientCache = new Map<number, PublicClient>()
-
 export function getPublicClientForChain(chainId: number): PublicClient {
-  const cached = clientCache.get(chainId)
-  if (cached) return cached
-
-  const chain = SUPPORTED_CHAINS[chainId]
-  const rpc   = RPC_ENDPOINTS[chainId]
-  if (!chain || !rpc) {
+  if (chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID) {
     throw new Error(
       `[onchainNonce] Unsupported chainId ${chainId}. ` +
-      `Configure RPC_ENDPOINTS / SUPPORTED_CHAINS to add support.`
+      'PoG signing is limited to the target chain and the local devnet.',
     )
   }
-
-  const client = createPublicClient({ chain, transport: http(rpc) })
-  clientCache.set(chainId, client)
-  return client
+  return serverPublicClient(chainId)
 }
 
 /**

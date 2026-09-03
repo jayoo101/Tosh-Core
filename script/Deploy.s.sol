@@ -8,26 +8,33 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 
 // ---------------------------------------------------------------------------
-// DeployScript -- Base Sepolia
+// DeployScript -- Robinhood Chain testnet
 // ---------------------------------------------------------------------------
 // TESTNET ONLY.  This script leaves the factory and the treasury owned by the
-// deployer EOA with no multisig handoff, which is fine for Base Sepolia and is
-// NOT acceptable anywhere real.  Use script/DeployMainnet.s.sol for production;
-// it performs the Ownable2Step transfer to a Safe.
+// deployer EOA with no multisig handoff, which is fine for a staging chain and
+// is NOT acceptable anywhere real.  Use script/DeployMainnet.s.sol for
+// production; it performs the Ownable2Step transfer to a Safe.
+//
+// Retargeted from Base Sepolia (84532) to Robinhood Chain testnet (46630) — see
+// docs/ROBINHOOD_MIGRATION.md, RH-C3.  The V4 addresses are identical on 46630
+// and 4663, so a rehearsal here exercises the mainnet address book unchanged.
+//
+// Verification is Blockscout, not Etherscan: chain 46630 is served by neither
+// Etherscan v2 nor Basescan, and Blockscout needs no API key.
 //
 // Required env vars (copy .env.example -> .env and fill in):
-//   PRIVATE_KEY          -- deployer wallet private key (must hold Base Sepolia ETH)
-//   V4_POOL_MANAGER      -- Uniswap V4 PoolManager on Base Sepolia
+//   PRIVATE_KEY          -- deployer wallet private key (must hold testnet ETH)
+//   V4_POOL_MANAGER      -- Uniswap V4 PoolManager (0x8366a3...e40951)
 //   POG_SIGNER_ADDRESS   -- address whose private key signs PoG attestations
 //   PLATFORM_TREASURY    -- platform address (multisig recommended)
-//   BASESCAN_API_KEY     -- for --verify automatic source verification
 //
 // Deploy command (run after `source .env`):
 //   forge script script/Deploy.s.sol:DeployScript \
-//     --rpc-url $BASE_SEPOLIA_RPC \
+//     --rpc-url $ROBINHOOD_TESTNET_RPC \
 //     --broadcast \
 //     --verify \
-//     --etherscan-api-key $BASESCAN_API_KEY \
+//     --verifier blockscout \
+//     --verifier-url https://explorer.testnet.chain.robinhood.com/api \
 //     -vvvv
 // ---------------------------------------------------------------------------
 contract DeployScript is Script {
@@ -35,16 +42,16 @@ contract DeployScript is Script {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPk);
 
-        // The manifest below claims Base Sepolia; make that true rather than
-        // decorative, so a stale --rpc-url cannot quietly deploy elsewhere.
-        require(block.chainid == 84532, "Deploy.s.sol is Base Sepolia (84532) only");
+        // The manifest below claims Robinhood testnet; make that true rather
+        // than decorative, so a stale --rpc-url cannot quietly deploy elsewhere.
+        require(block.chainid == 46630, "Deploy.s.sol is Robinhood Chain testnet (46630) only");
 
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address pogSigner = vm.envOr("POG_SIGNER_ADDRESS", deployer);
         address platformTreasury = vm.envOr("PLATFORM_TREASURY", deployer);
 
         console2.log("============================================================");
-        console2.log("Tosh Fair Launchpad v5.0 -- Base Sepolia Deployment");
+        console2.log("Tosh Fair Launchpad v5.0 -- Robinhood Chain testnet Deployment");
         console2.log("============================================================");
         console2.log("Deployer         :", deployer);
         console2.log("V4 PoolManager   :", poolManager);
@@ -88,7 +95,7 @@ contract DeployScript is Script {
         console2.log("============================================================");
         console2.log("FACTORY_ADDRESS  =", address(factory));
         console2.log("TREASURY_ADDRESS =", address(treasury));
-        console2.log("CHAIN_ID         = 84532 (Base Sepolia)");
+        console2.log("CHAIN_ID         = 46630 (Robinhood Chain testnet)");
         console2.log("Sentinel 24h initcode hash (reference only, NOT for mining):");
         console2.logBytes32(sentinelInitcodeHash);
         console2.log("============================================================");

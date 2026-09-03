@@ -5,6 +5,7 @@ import type { Address } from 'viem'
 import { HOOK_ABI, LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, useTxAction, formatCountdown,
+  revertOrder,
 } from '@/components/ui'
 import { fmt } from './format'
 
@@ -41,17 +42,29 @@ export function AwaitingLaunchPanel({
   const secsLeft = Math.max(0, Number(expiresAt) - nowSec)
   const countdown = formatCountdown(secsLeft)
 
+  // The hook refuses `launch()` once the window lapses, and the countdown
+  // hitting 00:00:00 was previously cosmetic: the button stayed armed and paid
+  // gas for a guaranteed revert.
   const gate = useActionGate({
     action: 'Trigger Launch',
     onAct: handleLaunch,
     tx: { isPending, isConfirming },
+    blockersInRevertOrder: revertOrder(
+      {
+        id: 'launch-window-expired',
+        active: nowSec > 0 && secsLeft <= 0,
+        label: 'Launch window closed',
+        reason: 'The window to open trading has closed, so the only thing this project can still do is issue refunds.',
+        tone: 'warn',
+      },
+    ),
   })
 
   return (
     <Card
       id="P-1.5"
       title="Launch the pool"
-      subtitle="hook.launch() seeds the V4 pool, mints genesis LP, and opens the shelf ladder. Irreversible."
+      subtitle="Opening seeds the Uniswap pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone."
       tone={isCreator ? 'ok' : 'default'}
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">

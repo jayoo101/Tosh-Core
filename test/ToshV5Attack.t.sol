@@ -81,7 +81,7 @@ contract ToshV5AttackTest is Test {
 
     function _mineSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
-            projTreasury, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
+            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
@@ -229,6 +229,81 @@ contract ToshV5AttackTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE B′ — the OTHER end of the window: what happens when nobody trades?
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // PROBE B above measures how far the averaging window can be COLLAPSED. It
+    // cannot see this case, and the reason is worth stating: its fixture hand-
+    // feeds a dust swap at `t0 + w` and another at `t0 + 2w + 1`, which is
+    // exactly the trading pattern that keeps the window inside its documented
+    // `[TWAP_WINDOW, 2 x TWAP_WINDOW)` bracket. Remove those two swaps and the
+    // same fixture produces a multi-day window. So the suite pinned the lower
+    // bound and left the upper one unasserted.
+    //
+    // The upper bound is not enforced by the clock. `_writeObservation` rolls
+    // the checkpoint only when a SWAP arrives, so on a pool that goes quiet
+    // `span = now - _prevCheckpointTs` grows without limit — measured at
+    // 608_400 s (7.04 days) on a weekly-traded pool.
+    //
+    // The harm is in the treasury. `_buybackSqrtFloor` anchors every leg at
+    // `0.9 x twapSqrt`, so a fossilised high average puts the floor ABOVE spot,
+    // V4 rejects the leg with `PriceLimitAlreadyExceeded`, and the treasury
+    // skips. Measured before the fix: a floor 4.81x above spot, decaying only
+    // through the `lastTick` extrapolation term, with the first fill on DAY
+    // 105. The token that gets starved this way is by definition the thinly
+    // traded one — precisely the one the buyback exists to support.
+    //
+    // The fix is not to clamp `span`: `delta` spans the full period, so
+    // dividing it by a truncated span would report an average that never
+    // happened. It is that a pool with NO trade in a full window has a
+    // trivially known average — the price was flat at `lastTick` for the whole
+    // window, so that IS the TWAP.
+    function test_probeB2_quietPoolTwapDoesNotFossilise() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        PoolKey memory key = hook.getPoolKey();
+        uint256 t0 = block.timestamp;
+
+        // A long, HIGH-priced history, laid down by sparse trading so the
+        // stale checkpoint ends up a week behind rather than 30 minutes.
+        _nextBlock();
+        _buy(hook, attacker, 200 ether);
+
+        vm.warp(t0 + 7 days);
+        _nextBlock();
+        _buy(hook, attacker, 1 wei);
+
+        // The drawdown, then silence.
+        vm.warp(t0 + 14 days);
+        _nextBlock();
+        _dumpAll(hook, token);
+
+        vm.warp(t0 + 14 days + 2000);
+        _nextBlock();
+
+        (uint160 spotSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        uint160 twapSqrt = hook.twapSqrtPriceX96();
+
+        console2.log("quiet for (s)   ", uint256(2000));
+        console2.log("spot sqrt       ", uint256(spotSqrt));
+        console2.log("twap sqrt       ", uint256(twapSqrt));
+        console2.log("twap as % of spot", (uint256(twapSqrt) * 100) / uint256(spotSqrt));
+
+        // Nothing has traded for longer than a full window, so the trailing
+        // window is flat by construction and the average is the spot price.
+        assertApproxEqRel(
+            uint256(twapSqrt),
+            uint256(spotSqrt),
+            0.001e18,
+            "a pool that has not traded for a full window reports a fossilised average"
+        );
+
+        // The consequence, asserted directly: the floor must not lock the
+        // reservoir out of a token just because that token is quiet.
+        uint256 burned = _armAndPoke(token);
+        assertGt(burned, 0, "the buyback skipped a quiet pool because its TWAP had fossilised");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  PROBE C — what does the ladder release at 2x, against WHICH float?
     // ══════════════════════════════════════════════════════════════════════════
     //
@@ -289,11 +364,20 @@ contract ToshV5AttackTest is Test {
     // only protection is `_buybackSqrtFloor` = 0.9 x twapSqrt, which permits the
     // pool to sit ~23 % above TWAP in price terms before a leg stops filling.
     //
-    // The spend is `max(1 ETH, 10 % of the reservoir)` split across at most
-    // BATCH_SIZE=3 tokens.  With a single listed token the whole 10 % lands in
-    // one pool, so the sandwich target grows linearly with the reservoir — the
-    // "0.33 ETH they are trying to skim" figure in the natspec only holds while
-    // the treasury is nearly empty.
+    // The spend is `max(1 ETH, 10 % of the reservoir)`, and a leg is always
+    // that divided by BATCH_SIZE=3 — by the CONSTANT, not by how many tokens
+    // happen to be listed, so a one-token ladder is handed a third of the
+    // cheque rather than all of it.  (This probe measures it: a 100 ETH
+    // reservoir sizes a 10 ETH cycle and spends 3.34 ETH on its single listed
+    // pool.)
+    //
+    // What that leaves is a prize that still grows without limit.  0.33 ETH is
+    // the per-leg FLOOR — what a reservoir between 1 and 10 ETH offers, where
+    // the 1 ETH minimum is doing the sizing — and past 10 ETH the leg is
+    // `balance / 30` and climbs with the pot.  The natspec's "0.33 ETH they
+    // are trying to skim" is therefore the bottom of the range, not a bound on
+    // it, and it understates a full treasury by whatever multiple that
+    // treasury has grown by: 10x at the 100 ETH modelled here.
     function test_probeG_sandwichThePiggyback() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
 
@@ -376,6 +460,253 @@ contract ToshV5AttackTest is Test {
         console2.log("  attacker eth after ", attacker.balance);
 
         return int256(attacker.balance) - int256(ethBefore);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE G′ — where exactly does the band PROBE G measures stop?
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // PROBE G reports an edge and asserts nothing, which is the right shape for
+    // a probe whose answer is a number.  What it leaves unheld is the WIDTH of
+    // the band, and the coverage elsewhere does not close that:
+    // `test_buyback_refusesToFillIntoAManipulatedPrice` @ `test/ToshV5.t.sol`
+    // does catch a deleted `sqrtPriceLimitX96` argument, but it clears the
+    // bound by shoving 120 ETH through the pool — far enough past the floor to
+    // still clear one five times wider.  Retuning
+    // `MAX_BUYBACK_SQRT_DEVIATION_BPS` from 1000 to 5000 leaves that test
+    // green.  Established by mutation, not by reading it.
+    //
+    // So bracket the band from both sides rather than overshooting it: park the
+    // pool at a deviation the constant must ALLOW, then at one it must REFUSE.
+    // Both targets are written as absolute fractions of the TWAP on purpose —
+    // deriving them from `MAX_BUYBACK_SQRT_DEVIATION_BPS` would move the goal
+    // posts along with the constant and reopen exactly the hole this closes.
+    function test_probeG2_bandEdgeSitsWhereTheConstantSaysItDoes() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+
+        // Same TWAP-maturing dance as PROBE G: one real trade, a full window,
+        // then a dust trade to roll the observation forward.
+        _nextBlock();
+        _buy(hook, alice, 1 ether);
+        vm.warp(block.timestamp + 3601);
+        _nextBlock();
+        _buy(hook, alice, 1 wei);
+        _nextBlock();
+
+        uint160 twapSqrt = hook.twapSqrtPriceX96();
+        assertGt(twapSqrt, 0, "fixture needs a matured TWAP, or the floor disables itself by design");
+
+        uint256 snap = vm.snapshotState();
+
+        // ── 500 bps of sqrt deviation: half the permitted travel ─────────────
+        _parkAt(hook, (uint256(twapSqrt) * 9500) / 10_000);
+        uint256 filled = _armAndPoke(token);
+        console2.log("burned at  500 bps (inside) ", filled);
+        assertGt(filled, 0, "a pool inside the band must still be bought and burned");
+        assertLt(address(ladder).balance, 100 ether, "and the reservoir must actually spend");
+
+        vm.revertToState(snap);
+
+        // ── 1200 bps: past the floor, yet nowhere near a 5000 bps one ────────
+        _parkAt(hook, (uint256(twapSqrt) * 8800) / 10_000);
+        uint256 refused = _armAndPoke(token);
+        console2.log("burned at 1200 bps (outside)", refused);
+        assertEq(refused, 0, "a pool past the band must not be bought into at all");
+        assertEq(address(ladder).balance, 100 ether, "and the unspent ETH must stay in the reservoir");
+    }
+
+    /// @dev Park the pool at EXACTLY `targetSqrt` by handing V4 a swap it cannot
+    ///      finish: an oversized exact input bounded by the target, which fills
+    ///      until the price touches the limit and then stops there.  Sizing a
+    ///      plain buy to land on a chosen deviation would mean solving the
+    ///      curve for it; letting the limit do the work is exact, and being
+    ///      exact is the whole point of a bracket.
+    ///
+    ///      A pump this size pays well over 1 ETH of buy tax into the reservoir
+    ///      during its own `beforeSwap`, so its `afterSwap` arrives with the
+    ///      engine armed.  That is why the token is not listed until after this
+    ///      returns: an unlisted ladder makes `_runPiggyback` return on
+    ///      `total == 0`, and the pool stays exactly where the limit left it.
+    ///      Listing first cost ~120 bps of unrequested extra travel — a leg
+    ///      firing from the pump itself, before the poke under test ever ran.
+    function _parkAt(ToshLaunchpadHook hook, uint256 targetSqrt) internal {
+        PoolKey memory key = hook.getPoolKey();
+        uint256 offered = 5000 ether;
+        vm.deal(attacker, offered + 1 ether);
+
+        vm.prank(attacker);
+        swapRouter.swap{value: offered}(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -int256(offered), sqrtPriceLimitX96: uint160(targetSqrt)}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+
+        (uint160 spot,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        assertEq(uint256(spot), targetSqrt, "the limit must park the pool exactly on the requested deviation");
+    }
+
+    /// @dev List the parked pool, hand the reservoir a known 100 ETH — rather
+    ///      than whatever the pump's tax happened to leave — and fire one poke.
+    ///
+    ///      The poke comes from `pokeBuyback` rather than from a trigger swap
+    ///      because it opens its own unlock frame, so nothing moves the very
+    ///      price under test on the way in.  A leg the floor rejects reverts
+    ///      into `BuybackSkipped` instead of bubbling up, so the poke succeeds
+    ///      either way and the burn is the only signal worth reading.
+    function _armAndPoke(ToshToken token) internal returns (uint256) {
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        vm.deal(address(ladder), 100 ether);
+
+        uint256 before = token.balanceOf(DEAD);
+        _nextBlock();
+        vm.prank(attacker);
+        ladder.pokeBuyback();
+        return token.balanceOf(DEAD) - before;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE G″ — for the first 1800 s of a pool's life the band is not there
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // This probe RECORDS AN EXPOSURE.  It is not here to bless the fallback it
+    // measures, and the numbers below are the argument for closing it.
+    //
+    // `_buybackSqrtFloor` has two ways to end up returning `MIN_SQRT_PRICE + 1`
+    // — no bound at all — and its natspec defends them with one sentence:
+    // refusing to buy "would be the worse failure: the reservoir would stall
+    // permanently on any pool whose hook predates this interface."
+    //
+    // That sentence is true of the `catch` branch, where a hook does not answer
+    // `twapSqrtPriceX96()` at all and never will.  It is NOT true of the
+    // `twapSqrt == 0` branch this probe drives.  Reading
+    // `_twapSqrtPriceX96`: the answer is 0 exactly while
+    // `block.timestamp - _prevCheckpointTs < TWAP_WINDOW`, both checkpoints are
+    // stamped at `launch()`, and `_prevCheckpointTs` only ever rolls onto a
+    // `_curCheckpointTs` that was already a full window old.  So the immature
+    // state is one-shot and clock-bound: the 1800 s after launch, never
+    // re-enterable, and — because the accumulator extrapolates from `lastTick`
+    // — it closes on the clock alone, with no swap required to close it.
+    // "Stall permanently" is therefore the wrong cost for this branch.  The
+    // real cost of refusing is that one freshly launched token's first buybacks
+    // are deferred by up to half an hour, using the `BuybackSkipped` path that
+    // already exists and already leaves the ETH in the reservoir for the next
+    // cycle.
+    //
+    // What is bought with that half hour is the removal of the only
+    // anti-sandwich control the buyback has, on the pool least able to absorb
+    // it: a pool whose liquidity is whatever the genesis raise seeded and whose
+    // price a small pump moves a long way.  The two arms below are the same
+    // pool, parked at the same deviation, with the same reservoir and the same
+    // attacker actions.  The only difference is whether 1801 seconds have
+    // passed — and that flips the leg from "refused outright" to "fills the
+    // whole cheque".
+    //
+    // Scope, stated rather than implied: arm A pins that the leg is not bounded
+    // by anything anchored to the TWAP, and not bounded by spot either at the
+    // one deviation a spot anchor forbids outright (zero travel).  A bound
+    // anchored to spot but looser than the leg's OWN travel — logged below, and
+    // small on a pool this deep — would still slip past.  Left there
+    // deliberately: such a bound moves with the very quantity a sandwicher
+    // displaces, so it is not the control being defended, and pretending to
+    // catch it would mean sizing the fixture around the mutation instead of
+    // around the attack.
+    function test_probeG3_immatureTwapLeavesTheBuybackUnbounded() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        PoolKey memory key = hook.getPoolKey();
+        (uint160 openingSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        uint256 launchTs = block.timestamp;
+
+        // 1500 bps below the opening sqrt price: half again as far out as
+        // `MAX_BUYBACK_SQRT_DEVIATION_BPS` permits, so a live band has to refuse
+        // it.  An absolute fraction rather than one derived from the constant,
+        // for the reason PROBE G′ gives — a derived target moves with the
+        // constant and stops testing it.
+        uint256 target = (uint256(openingSqrt) * 8500) / 10_000;
+        uint256 leg = (100 ether * ladder.SPEND_BPS()) / 10_000 / ladder.BATCH_SIZE();
+
+        uint256 snap = vm.snapshotState();
+
+        // ── Arm A: still inside the launch window, so there is no TWAP ───────
+        assertEq(hook.twapSqrtPriceX96(), 0, "premise: a pool in its first window has no TWAP to anchor to");
+        _parkAt(hook, target);
+        uint256 burnedA = _armAndPoke(token);
+        uint256 spentA = 100 ether - address(ladder).balance;
+        (uint160 postSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        uint256 proceedsA = _dumpAll(hook, token);
+
+        vm.revertToState(snap);
+
+        // ── Arm B: the identical park, 1801 seconds later ────────────────────
+        vm.warp(launchTs + hook.TWAP_WINDOW() + 1);
+        _nextBlock();
+        uint160 twapSqrt = hook.twapSqrtPriceX96();
+        assertGt(twapSqrt, 0, "the window closes on the clock alone, with no swap needed to mature it");
+        assertLt(target, (uint256(twapSqrt) * 9000) / 10_000, "and the park must sit outside the live band");
+        _parkAt(hook, target);
+        uint256 burnedB = _armAndPoke(token);
+        uint256 spentB = 100 ether - address(ladder).balance;
+        uint256 proceedsB = _dumpAll(hook, token);
+
+        console2.log("leg offered                 ", leg);
+        console2.log("arm A (no TWAP)   eth spent ", spentA);
+        console2.log("arm A (no TWAP)   burned    ", burnedA);
+        console2.log("arm B (TWAP live) eth spent ", spentB);
+        console2.log("arm B (TWAP live) burned    ", burnedB);
+        console2.log("arm A leg's own travel, bps ", 10_000 - (uint256(postSqrt) * 10_000) / target);
+        console2.log("attacker dump, arm A        ", proceedsA);
+        console2.log("attacker dump, arm B        ", proceedsB);
+        console2.log("handed to the attacker      ", proceedsA - proceedsB);
+
+        // The behaviour on record: no TWAP means no bound, and no bound means
+        // the pool's price is not consulted at all — the whole cheque clears at
+        // a deviation the band exists to refuse.
+        assertEq(spentA, leg, "with no TWAP the leg fills the entire cheque, whatever the price");
+        assertGt(burnedA, 0, "and the reservoir does buy into the parked deviation");
+        // A limit of `MIN_SQRT_PRICE + 1` does not merely permit the fill, it
+        // lets the leg walk the price further on its own account.  Asserted
+        // because the tightest way to make this branch "bounded" is to hand it
+        // the pool's own spot, which permits zero travel and would leave the
+        // two assertions above intact.
+        assertLt(postSqrt, target, "an unbounded leg also moves the price it filled at");
+
+        // The same deviation with a reference to measure it against.
+        assertEq(spentB, 0, "with a TWAP the identical deviation is refused outright");
+        assertEq(burnedB, 0, "so nothing is bought and nothing is burned");
+
+        // And the cost, which is the part the natspec does not price: the ETH
+        // the reservoir pushed into the pool at the parked price comes back out
+        // through the attacker's exit.  Same tokens sold, same starting price,
+        // so this difference is the leg and nothing else.
+        assertGt(proceedsA, proceedsB, "the unbounded leg is recovered by whoever parked the price");
+    }
+
+    /// @dev Sell the attacker's whole position back and return the ETH it
+    ///      fetched.  The reservoir is emptied first: the dump's own `afterSwap`
+    ///      would otherwise fire a SECOND leg, bounded in one arm and unbounded
+    ///      in the other, and that difference would be mixed into the figure
+    ///      under measurement.  What is being measured is what the first leg
+    ///      handed back.
+    function _dumpAll(ToshLaunchpadHook hook, ToshToken token) internal returns (uint256) {
+        vm.deal(address(ladder), 0);
+
+        uint256 bal = token.balanceOf(attacker);
+        uint256 ethBefore = attacker.balance;
+
+        vm.startPrank(attacker);
+        token.approve(address(swapRouter), type(uint256).max);
+        swapRouter.swap(
+            hook.getPoolKey(),
+            SwapParams({
+                zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        vm.stopPrank();
+
+        return attacker.balance - ethBefore;
     }
 
     // ══════════════════════════════════════════════════════════════════════════

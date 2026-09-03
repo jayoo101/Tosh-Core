@@ -3,12 +3,24 @@
  * against reference vectors produced by v4-core's own `SqrtPriceMath` and
  * v4-periphery's `LiquidityAmounts`.
  *
- * The vectors below came from `test/ScratchLpMath.t.sol` run under Foundry at
- * a realistic launched-pool price (0.9 ETH against 2.1M tokens, full range).
- * If the TS drifts from the Solidity the panel starts quoting deposits the
- * pool will refuse, so this is worth pinning.
+ * The vectors below are regenerated and asserted by
+ * `test/ToshV5LpMathVectors.t.sol`, which READS THEM OUT OF THIS FILE — so
+ * `EXPECT` is the single copy, and editing it here to silence a failure will
+ * simply move the failure into `forge test`. They are taken at a realistic
+ * launched-pool price (0.9 ETH against 2.1M tokens, full range) with a
+ * 0.05 ETH / 200k token deposit against it, the case where the ETH leg binds.
  *
- *   npx tsx scripts/checkV4Math.ts
+ * That pairing is the whole value of this guard. On its own it would only pin
+ * the TS against numbers nobody can re-derive — which is what it was for a
+ * while, when its generator was an uncommitted scratch test that no longer
+ * existed. A `lib/v4-core` bump could then have re-rounded the maths under the
+ * frontend and this would have stayed green against the pre-bump values.
+ *
+ * If the TS drifts from the Solidity the panel starts quoting deposits the
+ * pool will refuse: `amount1Max` is the binding side, so an under-quoted token
+ * leg reverts at the wallet prompt.
+ *
+ *   npm run guard:v4math
  */
 
 import {
