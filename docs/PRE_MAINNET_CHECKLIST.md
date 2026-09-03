@@ -3,7 +3,7 @@
 **Version:** v5.0
 **Status:** the canonical list. If this file disagrees with anyone's memory, or
 with a `console2.log` in a deploy script, this file wins.
-**Last updated:** 2026-08-26
+**Last updated:** 2026-09-04
 
 ---
 
@@ -251,13 +251,13 @@ Ordered. Each step's output feeds the next.
 
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
-| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/4663/` exists | ❌ — rehearsal on `46630` is RH-F1 and comes first |
+| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/4663/` exists | ❌ mainnet. The 46630 rehearsal (RH-F1) is complete — launch, claim, buy, shelf mint, and a TWAP-matured `addLadderToken`, `ROBINHOOD_MIGRATION.md` §F.8 |
 | **PM-C2** | Gnosis Safe has called `acceptOwnership()` on **both** factory and ladder treasury | `VerifyDeployment.s.sol` passes with `EXPECTED_OWNER=<safe>` | ❌ |
 | **PM-C3** | **Factory address not announced publicly until PM-C2 is done** | — | ⏸ gated |
 | **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ |
 | **PM-C5** | `forge build --sizes` — every contract under the 24 KB EIP-170 limit | Build output | ✅ see §3.1 |
 | **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ❌ |
-| **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` | Deployed frontend reads the right factory | ❌ |
+| **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` | Deployed frontend reads the right factory | ❌ mainnet. Staging (`tosh-two.vercel.app`) already reads factory `0x2E690A91…` on 46630, which is the right factory *for now* |
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
 
 > **PM-C2 is the one people skip.** `script/DeployMainnet.s.sol:134` says it in
@@ -347,7 +347,7 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-D1** | PoG signer key moved off a plaintext env var into KMS/HSM | `sign-allocation/route.ts` reads from the KMS client, not `POG_SIGNER_PRIVATE_KEY` | ❌ |
 | **PM-D2** | PoG signer wallet pre-funded (~0.05 ETH) for signature gas | Balance check | ❌ |
-| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | No secret in any committed `.env*` | 🟡 |
+| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | No secret in any committed `.env*` | 🟡 Both secrets are encrypted in Vercel Production and absent from git. They are still also in `soat-frontend/.env.local` (gitignored). They are **not** in GitHub Actions, and the Sentry token should stay out of CI: a workflow run that is not a production deploy would create a Sentry release for a commit that never shipped. Remaining: whether any CI job needs the Supabase service key, and PM-D1 for the PoG key that still sits in the same local file |
 | **PM-D4** | Gnosis Safe threshold and signer set confirmed, signers reachable | `INCIDENT_RESPONSE.md` §1 filled | ❌ |
 
 > **PM-D1 is the highest-severity open item that is not the audit.** The key
@@ -539,7 +539,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F2** *(legacy `#24`)* | Multi-RPC fallback rather than one hard-coded endpoint | `providers.tsx` uses `fallback()` over a ranked list | ✅ |
 | **PM-F3** | Frontend CI: typecheck, lint, build, token check | `frontend.yml` `verify` job green on `jayoo101/Tosh-Core@3c82f73` — see §6.1 | ✅ |
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
-| **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 database provisioned and verified (`npm run check:upstash`); closes when the two vars are set in the deploy environment |
+| **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | ✅ Upstash on AWS `us-east-1` beside Vercel `iad1`; both vars in Vercel Production. Live `GET /api/projects` returns 200 with no `X-RateLimit-Backend` header, which is the shared-store path |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
@@ -815,9 +815,9 @@ Three things worth recording about how it was found and checked:
 Every new assertion was mutation-tested: dropping either `.eq()`, or the
 `chain_id` from either insert, fails exactly one test each.
 
-What is left is the deploy environment: `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` set in
-production scope. That is PM-D3's landing point, not this row's.
+The three vars are now in Vercel Production and were read back. This row is
+closed. Holding the service key *only* there, and not also in a laptop file,
+is PM-D3.
 
 > **PM-F6 was worse than a wording pass.** Five components — navbar, footer,
 > user drawer, admin header, and the directory hero — each built the same byline
@@ -859,14 +859,13 @@ production scope. That is PM-D3's landing point, not this row's.
 > rehearsed locally against `soat-frontend/scripts/mockRateLimitStore.mjs`,
 > which documents the exact commands.
 >
-> **Database provisioned 2026-09-03**, Upstash on AWS `us-east-1` to sit beside
-> Vercel's `iad1`. `npm run check:upstash` exercises the same `/pipeline` REST
-> call `rateLimitStore.ts` makes — INCR counts on a shared key, PEXPIRE sets a
-> TTL inside the window — and passes. The credentials are in `.env.local` only,
-> so **this row is still open**: nothing is deployed yet, and production reads
-> its environment from Vercel, not from a file on a laptop. Copying both vars
-> into the Production scope there is the remaining step, and it is also part of
-> PM-D3.
+> **Closed 2026-09-03.** Upstash on AWS `us-east-1` sits beside Vercel `iad1`.
+> Both vars are in Vercel Production. A live `GET /api/projects` on
+> `tosh-two.vercel.app` returns 200 with no `X-RateLimit-Backend` header —
+> the shared counter answered. `npm run check:upstash` still exercises the
+> same `/pipeline` REST call `rateLimitStore.ts` makes (INCR + PEXPIRE) and
+> is the reachability check, not the production proof. The laptop copy of
+> the token is PM-D3, not this row.
 >
 > Read that script's latency figure with its origin in mind. It measures from
 > wherever it runs, and only the deployment region is on the hot path — a high
@@ -898,20 +897,50 @@ get marked done while the on-chain alerting still does not exist.
 
 ## 8. Current state at a glance
 
-| Gate | Open | Done |
-|---|---:|---:|
-| A — Audit | 4 (+1 partial) | 0 |
-| B — Chain decisions | 2 | 2 |
-| C — Deploy & handoff | 6 (+1 gated) | 1 |
-| D — Keys & secrets | 3 (+1 partial) | 0 |
-| E — Observability & ops | 4 (+1 partial) | 1 |
-| F — Frontend & platform | 1 (+1 partial) | 6 |
+Recounted 2026-09-04 against the rows above, not against memory.
+
+| Gate | Open | Partial | Gated | Done |
+|---|---:|---:|---:|---:|
+| A — Audit | 3 | 1 | 0 | 1 |
+| B — Chain decisions | 0 | 0 | 0 | 4 |
+| C — Deploy & handoff | 6 | 0 | 1 | 1 |
+| D — Keys & secrets | 3 | 1 | 0 | 0 |
+| E — Observability & ops | 2 | 2 | 0 | 2 |
+| F — Frontend & platform | 0 | 0 | 0 | 8 |
+| **Total** | **14** | **4** | **1** | **16** |
+
+Gate B and Gate F are closed. The accounts-and-credentials group that was
+blocking F and half of E is done: Upstash, Supabase (with `chain_id`), Sentry
+(both ingest routes and a real source-map upload), and the Vercel project
+serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
+half of the first incident drill are dated. What is still open is listed
+below, in the order it actually blocks.
+
+**Still open**
+
+| ID | Status | Why it is still open |
+|---|---|---|
+| **PM-A1, A2, A3** | ❌ | Third-party audit. Calendar and procurement, not a commit. A4's remaining two boxes wait on A1. |
+| **PM-C1** | ❌ | Mainnet deploy. The 46630 rehearsal is finished; this row is the 4663 run. |
+| **PM-C2** | ❌ | Safe `acceptOwnership` on factory and treasury. Blocked on D4. |
+| **PM-C3** | ⏸ | Do not announce the factory until C2. |
+| **PM-C4** | ❌ | Explorer verification of the *mainnet* deploy. Testnet 46630 is already verified. |
+| **PM-C6** | ❌ | Initcode hash regenerated against the mainnet build, after C1. |
+| **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging currently reads 46630, which is correct until C1. |
+| **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. |
+| **PM-D1** | ❌ | PoG signer out of plaintext env into KMS/HSM. Highest-severity open item that is not the audit. |
+| **PM-D2** | ❌ | Pre-fund the production PoG signer. After D1 names the wallet. |
+| **PM-D3** | 🟡 | Secrets are in Vercel Production, not in git, and still also on the laptop. Sentry token must not go into GitHub Actions. |
+| **PM-D4** | ❌ | Gnosis Safe, 2-of-3, three reachable signers. Blocks C2 and the human half of E5. |
+| **PM-E2** | 🟡 | Alert definitions exist; nothing is imported into a provider. Detection half of every on-chain playbook. |
+| **PM-E4** | ❌ | On-call roster is still placeholders. Single-person project. |
+| **PM-E5** | 🟡 | On-chain pause/unpause dated 2026-09-03. Q1 is not passed: no status page, no second signer. |
+| **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
 
 **The shape of the remaining work:** almost none of it is writing application
-code. Gate A is a procurement and calendar problem, and Gates C and D need
-production credentials and a Safe quorum. Gate B is now decided (§2): what is
-left there is the cutover edit itself, which is deliberately bundled with the
-deploy because it takes staging down.
+code. Gate A is a procurement and calendar problem. Gate C is the mainnet
+deploy and is blocked on a Safe (D4) for everything after the broadcast.
+Gate D is credentials and people. Gate E's two red rows are a roster.
 
 What is left that is purely engineering:
 
