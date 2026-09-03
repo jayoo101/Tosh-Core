@@ -7,9 +7,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FOUNDRY_PROFILE: ci
-
 jobs:
   check:
     name: Foundry project
@@ -22,8 +19,21 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      # Pinned. The default is `stable`, resolved at run time, so both the
+      # formatter and the gas accounting can change on a day nobody touched
+      # this repository — a red check with no commit behind it.
+      #
+      # Not hypothetical: the first run of this workflow failed `forge fmt
+      # --check` under 1.8.1 on a tree 1.7.1 formats clean. The isolated-gas
+      # step below is the sharper edge, since it holds real gas figures against
+      # constants and a version bump can move them.
+      #
+      # 1.7.1 is what the contracts were written and tested against. Raising it
+      # is a deliberate change: run the suite locally on the new version first.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 1.7.1
 
       - name: Show Forge version
         run: forge --version

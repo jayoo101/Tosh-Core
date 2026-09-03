@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Carries no values, and CI reads it: checkPublicEnv.mjs derives the list of
+# NEXT_PUBLIC_* keys to verify from this template. Under a blanket ignore the
+# guard passes locally and dies with ENOENT on every runner.
+!.env.production.example
 
 # vercel
 .vercel
