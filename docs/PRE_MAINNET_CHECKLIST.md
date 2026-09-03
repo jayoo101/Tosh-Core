@@ -404,7 +404,7 @@ is not spent on an unlisted token.
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
 | **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 database provisioned and verified (`npm run check:upstash`); closes when the two vars are set in the deploy environment |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
-| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | 🟡 policies and writer split written and tested — see §6.3; needs a project to run against |
+| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | 🟡 project provisioned, migration run, `npm run check:supabase` green against it — see §6.3; closes when the three vars are set in the deploy environment |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
@@ -579,8 +579,51 @@ it either") without predicting that the fourth would not be seen. And
 that the anon client was not called** — verified by mutation, since a test that
 only checks the status code passes either way.
 
-What is left is the account itself: create the project, run the migration,
-confirm from the SQL editor that an `anon`-role INSERT is rejected.
+##### Verified against a live project on 2026-09-03
+
+The project exists, the migration has been run against it, and
+`npm run check:supabase` (`scripts/checkSupabaseRls.mjs`) is green. That script
+is deliberately a different kind of check from its sibling: `checkSupabase.mjs`
+reads source and refuses a `.from(...)` chain with no `.abortSignal()`, while
+this one talks to the real database, because the property in question is not in
+the source at all. It lives in the policy catalogue, it is wrong by default, and
+the step that makes it right is performed by a human in a dashboard exactly once.
+
+`route.post.test.ts` proves the route writes as the service role. It cannot
+prove the database would refuse anyone else, because there the database is a
+mock that agrees with whatever it is asked.
+
+Two things the live run established that the tests could not:
+
+**The denial is at the grant layer, not RLS.** All three write verbs come back
+`401` with PostgreSQL's `42501` and the hint `GRANT INSERT ON public.projects TO
+anon` — meaning `anon` holds no write privilege at all. That is the migration's
+`REVOKE`, the outer of its two locks; RLS's missing-policy denial is the inner
+one and is never consulted. Both are installed. Worth naming which answered,
+because a project whose grants were fixed and whose policies were not looks
+identical from outside until someone re-grants.
+
+**The check tested INSERT alone at first, and that was a real gap.** UPDATE is
+the easier attack — no squatting, no race against the creator, just rewrite the
+logo and outbound links of a project that already exists and is already trusted.
+It now tests all three verbs.
+
+The keys are the new `sb_publishable_` / `sb_secret_` format rather than the
+legacy anon/service_role JWTs. Same roles behind them, so the policies naming
+`anon` still apply; unlike the JWTs they do not expire and can be revoked
+individually.
+
+Warm read latency measured 470 ms from a developer machine in Asia — the same
+figure Upstash returns from that machine, which is how the region was confirmed
+rather than assumed. The first two calls cost ~2.1 s to establish the
+connection, which is 1.6 s of TLS handshake at cross-Pacific RTT and not a
+production figure. It is worth noticing only because
+`REGISTRY_READ_DEADLINE_MS` is 1,200 ms: co-located that budget is enormous,
+and from here it is not.
+
+What is left is the deploy environment: `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` set in
+production scope. That is PM-D3's landing point, not this row's.
 
 > **PM-F6 was worse than a wording pass.** Five components — navbar, footer,
 > user drawer, admin header, and the directory hero — each built the same byline
