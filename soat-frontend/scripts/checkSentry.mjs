@@ -27,7 +27,15 @@
  * to a slug and prints it. That is the step that turns "an event was accepted"
  * into "an event landed in tosh-production".
  *
- * Usage:  node scripts/checkSentry.mjs
+ * ── And "reach Sentry" has two routes, not one ─────────────────────────────
+ * In production the browser does not post to ingest. `tunnelRoute` sends it
+ * through the app's own origin so an ad-blocker cannot drop every report, and
+ * that route can be broken while direct ingest is fine. Given a deployment
+ * URL this posts a second envelope through `/monitoring` and reports on it
+ * separately — because the tunnel is the hot path and the direct check is not.
+ *
+ * Usage:  node scripts/checkSentry.mjs [https://deployment-url]
+ *         npm run check:sentry -- https://deployment-url
  */
 
 import { readFileSync, existsSync } from 'node:fs'
@@ -100,6 +108,10 @@ function parseDsn(raw, label) {
       '      A DSN looks like https://<publicKey>@<host>/<projectId>.')
   }
   const projectId = u.pathname.replace(/^\/+/, '')
+  // `o<orgId>.ingest.<region>.sentry.io` — the tunnel rewrite is keyed on both,
+  // and the region matters: this org is on `de`, and an API call to plain
+  // sentry.io for a regional org is a different endpoint, not a redirect.
+  const hostParts = /^o(\d+)\.ingest\.(?:([a-z0-9-]+)\.)?sentry\.io$/i.exec(u.host)
   if (!u.username) {
     fail(`${label} has no public key.`,
       '      Expected https://<publicKey>@<host>/<projectId>. A DSN copied\n' +
@@ -115,7 +127,16 @@ function parseDsn(raw, label) {
       '      Ingest is https. An http DSN would send error payloads, which\n' +
       '      can include user context, in the clear.')
   }
-  return { host: u.host, publicKey: u.username, projectId }
+  // orgId/region stay undefined for self-hosted Sentry, which has neither in
+  // its host. Only the tunnel check needs them, and it says so when they are
+  // missing rather than guessing.
+  return {
+    host: u.host,
+    publicKey: u.username,
+    projectId,
+    orgId: hostParts?.[1],
+    region: hostParts?.[2],
+  }
 }
 
 // Before parsing, not after. A DSN is a write-only ingest key, which is why it
@@ -237,7 +258,97 @@ if (!res.ok) {
 const accepted = await res.json().catch(() => ({}))
 console.log(`Ingest      accepted in ${elapsed.toFixed(0)} ms, id ${accepted.id ?? eventId}`)
 
-// ── 3. Accepted where? ───────────────────────────────────────────────────────
+// ── 3. The path a browser actually takes ─────────────────────────────────────
+// Everything above talked straight to ingest. A browser in production does
+// not: `tunnelRoute: '/monitoring'` in next.config.ts makes the SDK post to
+// the app's own origin, which rewrites to ingest server-side. That exists so a
+// wallet extension or a corporate blocklist cannot silently drop every report
+// — and it means the check above and production disagree about the route, the
+// same mismatch this file's header warns against.
+//
+// The rewrite is not a route handler. It matches on `has` query conditions, so
+// `POST /monitoring` with no `?o=&p=` is a 404 by design, and a 404 here says
+// nothing about whether the tunnel works. The org id and region come out of
+// the DSN host rather than being configured, because that is where the SDK
+// gets them too.
+const siteUrl = (process.env.TOSH_SITE_URL ?? process.argv[2] ?? '').trim().replace(/\/+$/, '')
+if (!siteUrl) {
+  console.log(
+    'Tunnel      skipped — pass a deployment to test the browser\'s own path:\n' +
+    '            npm run check:sentry -- https://<deployment>\n' +
+    '            Direct ingest working does not imply the tunnel does; they\n' +
+    '            are different routes and only the tunnel is on the hot path.',
+  )
+} else if (!dsn.orgId) {
+  console.log(`Tunnel      skipped — no org id in DSN host "${dsn.host}" (self-hosted?)`)
+} else {
+  const tunnelEventId = randomUUID().replace(/-/g, '')
+  const tunnelSentAt = new Date().toISOString()
+  const tunnelEnvelope =
+    JSON.stringify({ event_id: tunnelEventId, sent_at: tunnelSentAt, dsn: publicDsn }) + '\n' +
+    JSON.stringify({ type: 'event' }) + '\n' +
+    JSON.stringify({
+      ...event,
+      event_id: tunnelEventId,
+      timestamp: tunnelSentAt,
+      platform: 'javascript',
+      exception: { values: [{ type: 'ToshTunnelProbe', value: event.exception.values[0].value }] },
+      tags: { ...event.tags, tosh_probe: 'pm-e3-tunnel' },
+    }) + '\n'
+
+  const q = new URLSearchParams({ o: dsn.orgId, p: dsn.projectId })
+  if (dsn.region) q.set('r', dsn.region)
+  // Kept in a variable rather than inlined into the messages below: `tunnelRoute`
+  // also accepts `true`, in which case the SDK generates a random path per
+  // build, and a message naming "/monitoring" would then name the wrong one.
+  const tunnelPath = '/monitoring'
+  const tunnelUrl = `${siteUrl}${tunnelPath}?${q}`
+  try {
+    const t = await fetch(tunnelUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      body: tunnelEnvelope,
+      signal: AbortSignal.timeout(INGEST_DEADLINE_MS),
+    })
+    if (t.ok) {
+      const body = await t.json().catch(() => ({}))
+      console.log(`Tunnel      ${siteUrl}${tunnelPath} forwarded to ingest, id ${body.id ?? tunnelEventId}`)
+    } else if (t.status === 404) {
+      // A 404 here has two very different causes and they need different
+      // answers. Vercel answers 404 for a deployment that does not exist at
+      // all, so blaming the rewrite would send someone to audit
+      // next.config.ts over a mistyped hostname. Ask the site root which case
+      // this is before naming a cause.
+      let rootOk = false
+      try {
+        const root = await fetch(`${siteUrl}/`, { signal: AbortSignal.timeout(INGEST_DEADLINE_MS) })
+        rootOk = root.ok
+      } catch { /* treated as unreachable below */ }
+      console.log(
+        rootOk
+          ? `Tunnel      404 from ${siteUrl}${tunnelPath} — the rewrite is not there.\n` +
+            '            Browser reports are being posted to a URL that does not\n' +
+            '            exist, and the SDK does not fall back to ingest, so every\n' +
+            '            client-side error is lost while the server side looks fine.\n' +
+            '            Check that this deployment was built after tunnelRoute was\n' +
+            '            set, and that no rewrite or middleware shadows the path.'
+          : `Tunnel      ${siteUrl}/ does not serve the app, so the 404 from\n` +
+            `            ${tunnelPath} says nothing about the tunnel. Check the URL\n` +
+            '            before reading anything into this line.',
+      )
+      process.exitCode = 1
+    } else {
+      console.log(`Tunnel      ${t.status} ${t.statusText} from ${siteUrl}${tunnelPath}`)
+      process.exitCode = 1
+    }
+  } catch (err) {
+    console.log(`Tunnel      could not reach ${siteUrl}: ${err?.message ?? err}`)
+    process.exitCode = 1
+  }
+}
+console.log('')
+
+// ── 4. Accepted where? ───────────────────────────────────────────────────────
 // The step that distinguishes "the DSN works" from "the events are somewhere
 // anyone will see them". Needs a token, so it degrades to a warning.
 if (authToken && org) {
@@ -273,8 +384,27 @@ if (authToken && org) {
           process.exitCode = 1
         }
       }
+    } else if (r.status === 403) {
+      // Not a misconfiguration. Sentry's current Organization Tokens are
+      // fixed-scope `org:ci` — release creation, source-map upload, code
+      // mappings — and the UI offers no way to add org:read or project:read.
+      // The alternatives that could do it are worse: a personal token is a
+      // person, not a deployment, and would break when they leave.
+      //
+      // So this particular cross-check cannot be automated with the credential
+      // production should be using, and saying "token may lack project:read"
+      // would send someone to a settings page that has no such checkbox.
+      console.log(
+        'Resolved    not available to this token, and that is expected.\n' +
+        '            Organization Tokens are fixed-scope org:ci; listing\n' +
+        '            projects needs org:read, which the UI cannot grant. The\n' +
+        '            DSN-to-slug check therefore stays a one-time human step:\n' +
+        '            open the project and confirm the probe event above. Once\n' +
+        '            confirmed it does not need repeating, because the DSN is\n' +
+        '            pinned in Vercel and a changed DSN is a deliberate act.',
+      )
     } else {
-      console.log(`Resolved    could not list projects (${r.status}); token may lack project:read`)
+      console.log(`Resolved    could not list projects (${r.status} ${r.statusText})`)
     }
   } catch (err) {
     console.log(`Resolved    lookup failed (${err?.message ?? err})`)
@@ -289,11 +419,39 @@ if (authToken && org) {
   )
 }
 
-// ── 4. Will a production stack trace be readable? ────────────────────────────
+// ── 5. Will a production stack trace be readable? ────────────────────────────
 const canUploadSourcemaps = Boolean(authToken && org && project)
 console.log('')
 if (canUploadSourcemaps) {
-  console.log(`Source maps upload enabled (org "${org}", project "${project}")`)
+  // Three non-empty variables satisfy next.config.ts's gate, which is not the
+  // same as being able to upload. The gate cannot tell a live token from a
+  // revoked one, and a build with a dead token uploads nothing and still
+  // succeeds — `sourcemaps` failures are non-fatal by design. So ask the
+  // endpoint sentry-cli actually uploads through whether this token may use
+  // it. This is the one capability the token exists for; the checks above
+  // only established that it authenticates at all.
+  const apiHost = dsn.host.replace(/^o\d+\.ingest\./, '')
+  const chunkUrl = `https://${apiHost}/api/0/organizations/${encodeURIComponent(org)}/chunk-upload/`
+  try {
+    const c = await fetch(chunkUrl, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      signal: AbortSignal.timeout(INGEST_DEADLINE_MS),
+    })
+    if (c.ok) {
+      console.log(`Source maps token may upload (org "${org}", project "${project}")`)
+    } else {
+      console.log(
+        `Source maps token CANNOT upload — ${c.status} ${c.statusText} from chunk-upload.\n` +
+        '            All three variables are set, so next.config.ts will enable\n' +
+        '            the upload and the build will still pass: a sourcemap step\n' +
+        '            that fails is deliberately non-fatal. The cost lands on the\n' +
+        '            first real incident, as a minified frame.',
+      )
+      process.exitCode = 1
+    }
+  } catch (err) {
+    console.log(`Source maps could not reach chunk-upload (${err?.message ?? err})`)
+  }
 } else {
   const missing = [
     !authToken && 'SENTRY_AUTH_TOKEN',

@@ -365,7 +365,7 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-E1** *(legacy `#26`, frontend half)* | Frontend error monitoring wired | `@sentry/nextjs` installed; `instrumentation*.ts`, `observability.ts`, error boundaries and API routes report | ✅ |
 | **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (25 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **Remaining: import into a provider and test delivery** — §8 of that doc is the done-list. | 🟡 specified, not live |
-| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | 🟡 DSN, `SENTRY_ORG`, `SENTRY_PROJECT` set in Vercel Production and read back; ingest accepted a real probe event (`npm run check:sentry`). **Remaining: a valid `SENTRY_AUTH_TOKEN`**, without which source maps do not upload and the "right project" half cannot be checked mechanically. §5.1 |
+| **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | 🟡 Both halves met: DSN + org + project + auth token in Vercel Production, and event `09496d0b8e…` confirmed by eye in `tosh-production` under `environment=production`. Verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Remaining: confirm a deploy carrying the token really uploads source maps. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 has real handles | ❌ |
 | **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | ❌ |
 | **PM-E6** | D1–D4 accepted-risk review triggers have an owner watching them | Named owner per trigger (`PRD-v5.0.md` §11) | ❌ |
@@ -418,6 +418,55 @@ base64 in its middle segment — said `tosh-x2`. The API settled it: `tosh-x2`
 answered `/releases/` with 200 and `tosh-sz` with 404. Had `SENTRY_ORG=tosh-sz`
 been written as given, `next.config.ts` would have gated source-map upload on
 three variables that were all set, and produced no upload and no error.
+
+The comparison could not be automated in the end, and the reason is worth
+recording so nobody re-litigates it. Sentry's Organization Tokens are
+fixed-scope `org:ci` — release creation, source-map upload, code mappings — and
+the UI offers no way to add `org:read` or `project:read`. Listing projects
+therefore returns 403 to the only credential a deployment should be holding; the
+alternatives that could do it are a personal token, which is a person rather
+than a deployment and dies when they leave. So `check:sentry` now says that
+plainly instead of "token may lack project:read", which would send someone to
+look for a checkbox that does not exist, and the DSN-to-slug comparison stays a
+one-time human step — done, event `09496d0b8e…`. It does not need repeating: the
+DSN is pinned in Vercel and changing it is a deliberate act.
+
+What the script checks in its place is the capability that token exists for. All
+three of `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT` being non-empty
+satisfies `next.config.ts`'s gate, which cannot tell a live token from a revoked
+one — and a sourcemap step that fails is deliberately non-fatal, so that build
+succeeds, uploads nothing, and says nothing. The script asks
+`/api/0/organizations/<org>/chunk-upload/`, the endpoint the upload actually
+goes through, whether this token may use it.
+
+##### An error takes two routes to Sentry, and only one of them is the hot path
+
+Everything above talks straight to ingest. A browser in production does not:
+`tunnelRoute: '/monitoring'` makes the SDK post to the app's own origin, which
+rewrites to ingest server-side, so a wallet extension or a corporate blocklist
+cannot drop every report. That means the original check and production disagreed
+about the route — the exact mismatch `checkSentry.mjs`'s own header warns
+against — and the tunnel is the one that matters.
+
+Checking it took two corrections worth keeping, because both are easy to repeat:
+
+- **`POST /monitoring` with no query string is a 404 by design.** The tunnel is
+  a Next.js rewrite, not a route handler, and it matches on `has` conditions
+  requiring `?o=<orgId>&p=<projectId>`. A bare POST returning 404 says nothing
+  about whether the tunnel works. The correct shape, with org id and region read
+  out of the DSN host rather than configured separately, returns 200 and
+  Sentry's event id.
+- **A 404 from the tunnel has two causes that need opposite answers.** Vercel
+  answers 404 for a deployment that does not exist at all, so the first version
+  of this check reported "the rewrite is not there" for a mistyped hostname —
+  naming a cause in `next.config.ts` for a typo in an argument. It now asks the
+  site root first and says which case it is. That flaw was found by mutation
+  test, not by reading.
+
+`check:sentry` takes an optional deployment URL and probes both routes. Verified
+green on `tosh-two.vercel.app`; the "rewrite missing" branch was exercised by
+temporarily pointing it at an absent path, because a branch that has never run
+is a branch that has not been checked.
 
 Two smaller things worth keeping:
 
