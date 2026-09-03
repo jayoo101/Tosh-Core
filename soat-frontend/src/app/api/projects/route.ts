@@ -11,6 +11,7 @@ import {
   REGISTRY_READ_DEADLINE_MS,
   REGISTRY_WRITE_DEADLINE_MS,
 } from '../../lib/supabase'
+import { getSupabaseAdmin, SupabaseAdminUnavailable } from '../../lib/supabaseAdmin'
 import {
   applyCors,
   applyRateLimit,
@@ -259,7 +260,38 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { data, error } = await supabase
+  // Everything above this line is the authorisation, and none of it can be
+  // expressed as a row predicate — so RLS gives `anon` SELECT and nothing
+  // else, and the write goes out under the service role. That is what keeps
+  // these checks load-bearing rather than advisory: without it the anon key,
+  // which ships to every browser, could insert the same row directly and skip
+  // the whole function. See supabase/migrations/0001_projects_rls.sql.
+  let supabaseAdmin
+  try {
+    supabaseAdmin = getSupabaseAdmin()
+  } catch (err) {
+    if (err instanceof SupabaseAdminUnavailable) {
+      // A misconfigured deployment, not a bad request. The launch is already
+      // on chain and the directory falls back to chain state, so this costs
+      // presentation metadata and is worth retrying.
+      console.error('[Tosh API] registry writer unavailable:', err.message)
+      reportError(err, {
+        surface: 'api-route',
+        extra: { route: 'POST /api/projects', stage: 'getSupabaseAdmin' },
+      })
+      return applyCors(
+        NextResponse.json(
+          { error: 'The project registry is not accepting writes right now' },
+          { status: 503, headers: { 'cache-control': 'no-store', 'retry-after': '5' } },
+        ),
+        req,
+        CORS_OPTS,
+      )
+    }
+    throw err
+  }
+
+  const { data, error } = await supabaseAdmin
     .from('projects')
     .insert({
       // Identity from the chain, presentation from the (now authenticated) body.
@@ -282,6 +314,13 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     if (error.code === '23505') {
+      // Idempotent retry, and only that. This branch used to be the payload of
+      // the squat described in `lib/projectAttestation.ts` — an attacker who
+      // posted first got the row, and the creator got a 200 telling them it
+      // worked. Two things now stand between those: the signature check above,
+      // which is why a stranger cannot reach this insert, and the migration in
+      // supabase/migrations/0001, which is why they cannot reach the table
+      // around it. So a conflict here means this creator published twice.
       return applyCors(
         NextResponse.json({ ok: true, duplicate: true }, { status: 200 }),
         req,

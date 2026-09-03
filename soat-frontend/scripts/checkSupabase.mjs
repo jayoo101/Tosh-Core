@@ -47,16 +47,30 @@ function walk(dir, out = []) {
 }
 
 /**
- * Spans one `supabase.from(...)` chain, from `.from(` to the statement's end.
+ * Spans one Supabase `.from(...)` chain, from `.from(` to the statement's end.
  *
  * The chains here are multi-line and the deadline can sit on any line of one,
  * so a line-by-line scan cannot see it. Depth counting ends the chain at the
  * point the expression does, which keeps a later unbounded query in the same
  * file from being covered by an earlier bounded one.
+ *
+ * The receiver pattern is any identifier CONTAINING "supabase", not the exact
+ * word. It was the exact word until a second client arrived: splitting reads
+ * (anon) from writes (service role) introduced `supabaseAdmin.from(...)`, and
+ * an anchored match would have skipped the one call site on the write path —
+ * the path with no fallback, where a hang holds the publish step open with the
+ * user's launch already mined. This guard's own docstring predicted that
+ * ("the fourth one added will not ask it either"); it did not predict that the
+ * fourth one would be invisible to the guard.
+ *
+ * The limitation that remains: a client bound to a name with no "supabase" in
+ * it is not seen. That is a naming convention doing load-bearing work, which
+ * is worth knowing about, but the alternative — matching every `.from(` in the
+ * tree — collects `Array.from` and `Buffer.from` and stops being read.
  */
 function chains(text) {
   const found = []
-  const re = /supabase\s*(?:\r?\n\s*)?\.from\s*\(/g
+  const re = /\b[\w$]*supabase[\w$]*\s*(?:\r?\n\s*)?\.from\s*\(/gi
   let m
   while ((m = re.exec(text)) !== null) {
     let i = m.index + m[0].length

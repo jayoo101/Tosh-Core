@@ -402,7 +402,7 @@ is not spent on an unlisted token.
 | **PM-F4** | Dependency advisory gate | `frontend.yml` `audit` job green on the same run — `npm audit --audit-level=high` | ✅ |
 | **PM-F5** | Rate limiter survives multi-instance deployment | Shared backend behind the `apiGuard` limiter, or a documented single-instance constraint | 🟡 code done, needs credentials |
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
-| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | ❌ |
+| **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects` | 🟡 policies and writer split written and tested — see §6.3; needs a project to run against |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
@@ -485,6 +485,63 @@ values (`da4562f8…` local, `bd0f4787…` runner). Testnet 46630 has to be
 redeployed — its factory embeds the old creation code, so the frontend can no
 longer mine a salt it will accept. The `broadcast/` records below predate this
 change.
+
+### 6.3 PM-F7 — the front door was locked and the side door was not
+
+This row's evidence line has always read "anon key cannot write `projects`",
+which is the correct requirement. The SQL that was supposed to implement it did
+the opposite. It lived in a comment block in `src/app/lib/supabase.ts`:
+
+```sql
+CREATE POLICY "service write" ON projects FOR INSERT WITH CHECK (true);
+```
+
+The name says service. The SQL does not — a policy with no `TO` clause applies
+to PUBLIC, which includes `anon`, and `anon` is the role behind
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`. That key is handed to every browser by design;
+RLS is the only thing that makes doing so safe. Applied as written, anyone
+could POST rows straight to PostgREST.
+
+**What makes this sharper than a loose policy** is that the attack it re-opens
+was already known and already fixed. `src/lib/projectAttestation.ts` documents
+it: watch the chain for `LaunchCreated`, POST that `txHash` first with your own
+links, and — because `tx_hash` is UNIQUE — the real creator's publish comes
+back `{ ok: true, duplicate: true }`, a 200, while the project page serves the
+attacker's site to their audience. The fix was a `personal_sign` attestation
+the route recovers and compares against `launch.creator`, and it is a good fix.
+It just does not bind anyone who never calls the route. PostgREST does not run
+that file.
+
+So the route's checks were load-bearing in intent and advisory in fact. Closing
+it needed both halves:
+
+- **`soat-frontend/supabase/migrations/0001_projects_rls.sql`** — the schema and
+  policies as a migration rather than a comment. `anon` and `authenticated` get
+  SELECT; there is deliberately no INSERT, UPDATE or DELETE policy, because
+  under RLS a missing policy denies and `service_role` is BYPASSRLS. It also
+  `FORCE`s RLS so the table owner is not exempt, drops the two old policies by
+  name if they were ever applied, and revokes the write grants as a second
+  layer.
+- **`src/app/lib/supabaseAdmin.ts`** — a service-role client, built lazily so a
+  deployment without the key still builds and still serves every read, with the
+  write path returning 503 naming the missing variable. `POST /api/projects`
+  now writes through it; reads stay on the anon client, which is both least
+  privilege and a live check that the public read policy works.
+
+`SUPABASE_SERVICE_ROLE_KEY` is new, server-only, and bypasses RLS — it belongs
+in the hosting secret store, and it is part of what PM-D3 has to collect.
+
+Two things were adjusted so the change cannot rot. `scripts/checkSupabase.mjs`
+matched `supabase.from(` literally, so the new `supabaseAdmin.from(` would have
+been invisible to the deadline guard — on the one path with no fallback. Its
+docstring had predicted the shape of this ("the fourth one added will not ask
+it either") without predicting that the fourth would not be seen. And
+`route.post.test.ts` asserts the insert lands on the service-role client **and
+that the anon client was not called** — verified by mutation, since a test that
+only checks the status code passes either way.
+
+What is left is the account itself: create the project, run the migration,
+confirm from the SQL editor that an `anon`-role INSERT is rejected.
 
 > **PM-F6 was worse than a wording pass.** Five components — navbar, footer,
 > user drawer, admin header, and the directory hero — each built the same byline

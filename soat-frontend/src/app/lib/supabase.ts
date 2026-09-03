@@ -7,25 +7,15 @@ import { createClient } from '@supabase/supabase-js'
 //   NEXT_PUBLIC_SUPABASE_URL      — Project URL from Supabase dashboard
 //   NEXT_PUBLIC_SUPABASE_ANON_KEY — Public anon key (safe to expose)
 //
-// Supabase table DDL (run once in the SQL editor):
-// ─────────────────────────────────────────────────────────────────────────────
-// CREATE TABLE projects (
-//   id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-//   tx_hash       TEXT        NOT NULL UNIQUE,
-//   token_address TEXT,
-//   hook_address  TEXT,
-//   name          TEXT        NOT NULL,
-//   symbol        TEXT        NOT NULL,
-//   logo_url      TEXT,
-//   website       TEXT,
-//   twitter       TEXT,
-//   telegram      TEXT,
-//   description   TEXT,
-//   created_at    TIMESTAMPTZ DEFAULT NOW()
-// );
-// ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-// CREATE POLICY "public read"  ON projects FOR SELECT USING (true);
-// CREATE POLICY "service write" ON projects FOR INSERT WITH CHECK (true);
+// Schema and policies: `supabase/migrations/0001_projects_rls.sql`. They used
+// to be a DDL comment here, which is how they came to be wrong — the policy
+// this block prescribed was `FOR INSERT WITH CHECK (true)` with no `TO`
+// clause, so it applied to `anon` as well, and `anon` is the role behind the
+// key three lines up. That is a key we hand to every browser.
+//
+// The client below therefore READS. Writes go through `supabaseAdmin.ts` and
+// the service role, because the checks that authorise one live in
+// `POST /api/projects` and cannot be expressed as a row predicate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!
