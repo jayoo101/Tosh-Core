@@ -54,6 +54,24 @@ jobs:
       - name: Run Forge build
         run: forge build --sizes --skip '*.t.sol'
 
+      # TEMPORARY diagnostic. test_hookBytecode_inSyncWithArtifact fails here
+      # and passes on Windows against byte-identical sources, so this prints
+      # enough to tell a metadata-hash difference (equal lengths, differing
+      # tail) from a real codegen difference (differing lengths).
+      - name: Diagnose hook bytecode drift
+        run: |
+          node -e '
+            const fs = require("fs");
+            const art = JSON.parse(fs.readFileSync("out/ToshLaunchpadHook.sol/ToshLaunchpadHook.json","utf8")).bytecode.object;
+            const ts  = fs.readFileSync("soat-frontend/src/app/lib/hookBytecode.ts","utf8").match(/"(0x[0-9a-fA-F]+)"/)[1];
+            console.log("artifact len :", art.length);
+            console.log("ts       len :", ts.length);
+            console.log("artifact tail:", art.slice(-120));
+            console.log("ts       tail:", ts.slice(-120));
+            let i = 0; while (i < Math.min(art.length, ts.length) && art[i] === ts[i]) i++;
+            console.log("first differing offset:", i, "of", art.length);
+          '
+
       - name: Run Forge tests
         run: |
           set -euo pipefail
