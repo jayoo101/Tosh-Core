@@ -451,9 +451,15 @@ events go elsewhere, because nothing ties the DSN's numeric id to a slug without
 
 Verified end to end on release `5e9d92ba…`: attached to `tosh-production`, 121
 of 122 chunks paired with a source map and a debug id, `Bundled 212 files`,
-bundle `af8399aa…`, `Successfully uploaded source maps to Sentry`. The one
-unpaired chunk has no map emitted for it, which is the Turbopack runtime rather
-than application code.
+bundle `af8399aa…`, `Successfully uploaded source maps to Sentry`.
+
+The one unpaired chunk is worth naming rather than rounding to 100 %. It is 112
+kB of pre-minified UMD — a `globalThis` detection preamble, no license banner,
+no library name, and no debug id where every application chunk has one — so a
+vendored dependency shipped without a map, which Turbopack passes through and
+which therefore has nothing to upload. Frames originating inside it will stay
+minified in Sentry. That is a real if small gap, and it is not fixable from this
+side: the dependency would have to ship its own maps.
 
 ##### An error takes two routes to Sentry, and only one of them is the hot path
 
