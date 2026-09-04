@@ -57,7 +57,7 @@ and verification artifact downstream.
 | **PM-A1** | Third-party audit engaged, scope frozen, commit hash recorded | `docs/SECURITY_AUDIT.md` §0 board filled; branch frozen | ❌ |
 | **PM-A2** | All Critical / High findings resolved | Remediation log in `SECURITY_AUDIT.md` §6 | ❌ |
 | **PM-A3** | Remediation re-review passed | Auditor sign-off in §7 of that doc | ❌ |
-| **PM-A4** | Pre-audit hygiene list complete | `SECURITY_AUDIT.md` §5 all boxes ticked | 🟡 9/11, all re-verified 2026-08-27. The two open ones are not engineering: `forge lint` triage is auditor work by design (§2.5 hands it over), and the branch freeze is PM-A1 |
+| **PM-A4** | Pre-audit hygiene list complete | `SECURITY_AUDIT.md` §5 all boxes ticked | 🟡 10/11 as of 2026-09-04. The `forge lint` box closed: §2.5 stopped being an inventory handed to the auditor and now disposes of all 19 narrowing casts by what bounds each one, gated in CI by `scripts/checkLintFindings.mjs`. Doing it here rather than buying it found that §2.5 had drifted — a row for a cast the tool no longer reports, and a missing site — while its total still reconciled. The one box left is the branch freeze, which is PM-A1 and not engineering |
 | **PM-A5** | Slither run and output triaged into the dossier | **`SECURITY_AUDIT.md` §5.7**, not §6 — see note | ✅ 70 findings (1H/24M/26L/19I), each dispositioned. Re-run 2026-08-27 after the `PIGGYBACK_MIN_GAS` change: counts unchanged |
 
 > `SECURITY_AUDIT.md` §0 is the authority for A1–A3. Do not duplicate its state

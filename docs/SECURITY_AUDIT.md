@@ -172,31 +172,165 @@ Do not report these as findings; report them only if the reasoning is wrong:
   `forge lint` flags 18 of these in `src/` — 11 in `ToshFactory`, 7 in
   `ToshLaunchpadHook`; `foundry.toml` records why they are accepted.
 
-### 2.5 Narrowing casts — an inventory, NOT an omission
+### 2.5 Narrowing casts — triaged
 
-`forge lint` reports 19 `unsafe-typecast` warnings in `src/`, at the 12
-locations below. They are listed here because they are the opposite of §2.4:
-every one is a place where Solidity will truncate silently rather than revert, so
-they are exactly what an auditor should independently check. Nothing below is a
-claim that they are fine — it is a map so the hours go to checking rather than to
-finding.
+`forge lint` reports 19 `unsafe-typecast` warnings in `src/`, at 12 locations.
+They are the opposite of §2.4: every one is a place where Solidity truncates in
+silence rather than reverting. This section says, for each, what stops the
+truncation — so the auditor's hours go to disagreeing with the reasoning rather
+than to reconstructing it.
 
-Line numbers are **as of 2026-08-27** and drift with any edit above them; the six
-rows are stable, the anchors are not. Regenerate with `forge lint src`.
+**The anchors here are source text, not line numbers.** The rows are generated
+from `forge lint src --json` and pinned by `scripts/checkLintFindings.mjs`
+against `lint-baseline.json`, which is a CI gate. A cast that appears,
+disappears or changes shape fails the build with a pointer back to this
+section; code motion does not. The counts stated below are cross-checked
+against the tool by that same gate, so prose and code cannot disagree.
 
-| Where | Cast | Bound relied on |
-|-------|------|-----------------|
-| `ToshLaunchpadHook.sol:1401` (3) | `uint16` / `uint88` / `uint96`, writing packed `LadderState` | `TIER_COUNT`, `TIER_SIZE`, `BONDING_MAX`. Guarded by `test_ladderStateWidthsFitTheirConstants`, which fails if a constant outgrows its field. |
-| `ToshLaunchpadHook.sol:1755` (2) | `uint48`, the swap-block stamp | Block numbers; `uint48` exhausts around year 8 million — and on this chain it stamps an ArbSys L2 height, which is the larger of the two clocks. `ROBINHOOD_MIGRATION.md` §2 redid that arithmetic for 100 ms blocks. |
-| `ToshLaunchpadHook.sol:1871`, `1877` (4) | `int128` → `uint256`, V4 `BalanceDelta` legs | Sign is checked immediately above each cast; the magnitude is V4's own `int128`. |
-| `ToshLaunchpadHook.sol:1995` (1) | `int24` average tick | Ratio of two accumulated ticks over a span, so it cannot exceed the tick range its inputs came from. |
-| `ToshLadderTreasury.sol:529`, `542`, `563`, `616` (6) | `int128` / `uint128`, buyback deltas and amounts | Same V4 delta reasoning as above; amounts are bounded by the reservoir balance. |
-| `libraries/ToshCloneLib.sol:216`–`218` (3) | `uint128` / `uint32` packing `softCap`, `perWalletCap`, `genesisDuration` into EIP-1167 immutable args | Byte-layout arithmetic on fixed-width constants; `ToshHookClone.t.sol` pins the resulting 131-byte layout and round-trips every argument. |
+> **Why the gate exists.** Until 2026-09-04 this was a hand-maintained
+> inventory, and it had rotted the way hand-maintained inventories do. It
+> carried a row for a `uint48` swap-block stamp that `forge lint` does not
+> report, and it was missing a third `BalanceDelta` site, so it described four
+> delta casts where the code has six. The two errors cancelled. The total still
+> read 19, so the total still reconciled, and a reader checking the arithmetic
+> would have found nothing wrong — which is why nobody opened the table for a
+> week. An auditor handed that map pays to redraw it.
 
-The two singleton findings `forge lint` reports elsewhere —
-`erc20-unchecked-transfer` and `divide-before-multiply` — are both in `test/`,
-not `src/`, and neither is on a production path.
+#### A — lossless by construction; no bound is relied on (10 of 19)
 
+The Uniswap V4 `BalanceDelta` idiom `uint256(uint128(-x))`, under a branch that
+has already established the sign. In checked 0.8.26 arithmetic `-x` on an
+`int128` reverts at `type(int128).min`, so the negation yields a strictly
+positive `int128`; narrowing a positive `int128` to `uint128` is exact, and the
+widening to `uint256` cannot lose. There is nothing here to bound — only the
+sign guard, and every one sits within three lines of its cast.
+
+| Site | Cast | Sign guard |
+|------|------|------------|
+| `ToshLaunchpadHook._skimUnspecifiedInput` | `uint256(uint128(-inputDelta))` (2) | `if (inputDelta >= 0) return 0;` |
+| `ToshLaunchpadHook` add-liquidity settle | `uint256(uint128(-d0))` (2) | `if (d0 < 0)` |
+| `ToshLaunchpadHook` add-liquidity settle | `uint256(uint128(-d1))` (2) | `if (d1 < 0)` |
+| `ToshLadderTreasury._buyAndBurn` | `uint256(uint128(-owed))` (2) | `owed < 0 ? … : 0` |
+| `ToshLadderTreasury._buyAndBurn` | `uint256(uint128(out))` (2) | `if (out > 0)` |
+
+#### B — a revert in the same function (3 of 19)
+
+`ToshCloneLib.cloneInitcode` packs three of its five immutable args into narrow
+fields and checks all three before it does:
+
+- `uint128(softCap)`, `uint128(perWalletCap)` — `revert CapTooLargeToPack()`.
+- `uint32(genesisDuration)` — `revert DurationTooLargeToPack()`.
+
+The duration guard is the interesting one and the comment at the site explains
+why it was added: `initcodeHash` is a public view the frontend mines salts
+against, so two durations that pack to the same `uint32` hash the same, and a
+salt mined for the value you passed would predict the address of a launch
+committed to a different one, with nothing anywhere saying so. The deployment
+path itself was never at risk — `initializeToken` rejects any duration outside
+its three rungs.
+
+#### C — the compiler makes it unreachable (1 of 19)
+
+`ToshLadderTreasury._buybackSqrtFloor`, `uint160(floor)`:
+
+```solidity
+uint256 floor = (uint256(twapSqrt) * (BPS_DENOMINATOR - MAX_BUYBACK_SQRT_DEVIATION_BPS)) / BPS_DENOMINATOR;
+return floor > unbounded ? uint160(floor) : unbounded;
+```
+
+Both operands of the subtraction are `constant`, so it is a compile-time
+constant expression. A deviation above `BPS_DENOMINATOR` does not produce a
+wide multiplier — it fails to compile. The multiplier is therefore at most 1,
+`floor <= twapSqrt`, and `twapSqrt` is already a `uint160`. Present value is
+1 000 bps against a 10 000 denominator. No test is offered for this one because
+the failure mode is a build error, and a test cannot be reached past it.
+
+#### D — bounded by constants the suite pins (3 of 19)
+
+`ToshLaunchpadHook`, the single `LadderState` SSTORE:
+
+```solidity
+tierIndex: uint16(tierIndex), tierSold: uint88(sold), minted: uint96(uint256(st.minted) + tokenAmount)
+```
+
+| Field | Ceiling | Field holds |
+|-------|---------|-------------|
+| `tierIndex` | `TIER_COUNT` = 4 000 | `uint16` — 65 535 |
+| `tierSold` | `TIER_SIZE` = 3.15e21 | `uint88` — 3.09e26 |
+| `minted` | `BONDING_MAX` = 1.26e25 | `uint96` — 7.92e28 |
+
+Held at runtime by `revert LadderExhausted()` and `revert
+ExceedsTierRemaining()` on the `TIER_COUNT` fence, and by the rollover that
+resets `sold` at `TIER_SIZE`. The third is worth one extra step because it is a
+running sum rather than a fenced index: the mint loop is `while (filled <
+tokenAmount)` with a fence inside it, so it either fills exactly `tokenAmount`
+or reverts — `st.minted + tokenAmount` is realised issuance, not a request, and
+`TIER_COUNT × TIER_SIZE` caps it at `BONDING_MAX`.
+
+The constant relationships are pinned by
+`test_ladderStateWidthsFitTheirConstants`, which fails if any of the three
+outgrows its field.
+
+#### E — bounded by an invariant, not by a check (1 of 19)
+
+`ToshLaunchpadHook._twapSqrtPriceX96`, `int24(delta / int56(uint56(span)))`.
+
+The quotient is a time-weighted mean of ticks over the window, and every
+instantaneous tick is in `[MIN_TICK, MAX_TICK]` = ±887 272, comfortably inside
+`int24`'s ±8 388 608. So the mean fits — **provided `delta` and `span` measure
+the same window.** That is an invariant rather than a guard, and it is the one
+row in this section where an auditor is being asked to check a property rather
+than to re-read a nearby `if`.
+
+The invariant holds today because `_prevCheckpointTs` and
+`_prevCheckpointCumulative` are written together in the only two places either
+is written: the roll inside `_writeObservation` writes the pair on consecutive
+statements, and the launch seed writes the timestamp into a fresh EIP-1167
+clone whose cumulative is still zero, which agrees. Nothing in the type system
+enforces the pairing. A future edit that rolls one without the other makes
+`delta` cover a longer span than `span` names, and the quotient can then exceed
+the tick range and truncate silently.
+
+Two adjacent facts, so they are not re-derived: division by zero is excluded by
+the `span < TWAP_WINDOW` early return above it, and the
+`int56(lastTick) * int56(uint56(nowTs - lastObservationTs))` product on the
+preceding line has roughly 9× headroom (3.8e15 against `int56`'s 3.6e16) and
+reverts rather than truncates if it ever runs out.
+
+#### F — bounded by the ETH supply (1 of 19)
+
+`ToshLadderTreasury._buyAndBurn`, `-int256(ethIn)`. For `int256(ethIn)` to wrap
+negative — handing V4 an exact-**output** swap where an exact-input was meant —
+`ethIn` would have to exceed 2^255 wei. That is 5.8e76 against a total ETH
+supply near 1.2e26. Bounded by physics rather than by code, which is a fine
+place to leave it; one line of an auditor's time confirming that `ethIn`
+descends from `address(this).balance` rather than from a caller closes it.
+
+#### What `forge lint` does not report
+
+The 19 above are the tool's output, not the complete set of narrowing casts in
+`src/`. At forge 1.7.1 it is silent on all eight clock and block-height
+narrowings, which is why the old inventory could carry a `uint48` row the tool
+had stopped producing without anything noticing:
+
+| Site | Cast | Ceiling |
+|------|------|---------|
+| `ToshLaunchpadHook.sol` — launch seed (3), `_writeObservation`, `_twapSqrtPriceX96` (2), TWAP span | `uint32(block.timestamp)` (6) | 2106-02-07 |
+| `ToshLaunchpadHook.sol` — Phase-2 lockout, `afterSwap` | `uint48(_blockNumber())` (2) | 2.8e14 blocks ≈ 890 000 years at Robinhood Chain's 100 ms |
+
+The `uint48` height ceiling is not a real one and the storage comment at
+`ToshLaunchpadHook.sol:818` does that arithmetic. The `uint32` second ceiling
+in 2106 **is** dated, and the disposition is that it fails loudly rather than
+quietly: the two places that consume these stamps take checked `uint32`
+differences (`nowTs - lastObservationTs`, `nowTs - _prevCheckpointTs`), so the
+first observation after the wrap underflows and reverts the TWAP path instead
+of reporting a wrong average. Worth an auditor confirming, since it is the
+difference between a dead oracle and a lying one.
+
+Two singleton findings `forge lint` reports outside `src/` —
+`erc20-unchecked-transfer` and `divide-before-multiply` — are both in `test/`
+and neither is on a production path. The CI gate scopes itself to `src/` for
+that reason.
 ---
 
 ## 3. Asset flow — where the money actually is
@@ -573,14 +707,20 @@ telling us things CI could have:
       in `test/ToshHookClone.t.sol` that embeds a full hook creation code, it is
       never deployed, and Foundry does not distinguish test contracts in that
       table. Read the table with that in mind rather than as a pass/fail.
-- [x] `forge test` — 336/336 green, and 336/336 again under
+- [x] `forge test` — 349/349 green, and 349/349 again under
       `forge test --isolate`. Both are CI gates in `.github/workflows/test.yml`,
-      and that workflow now also asserts the COUNT: a floor of 336 and an
+      and that workflow now also asserts the COUNT: a floor of 349 and an
       equality check between the two runs. Added because an interrupted build
       leaves an artifact with a complete ABI and empty bytecode, which forge
       reports as "no tests found" for that suite and skips — the whole main suite
       went missing once and the run stayed green at 256. A passing `forge test`
       was not, until this, evidence that the tests ran.
+      The floor is only useful while it tracks the suite. It sat at 335 against
+      349 actual until 2026-09-04, i.e. 14 tests of slack, which is enough to
+      lose a whole suite without tripping — the exact failure it was built for.
+      Raising it is part of adding tests, not a separate chore. 349 holds even
+      without `ROBINHOOD_RPC`, because forge counts a `vm.skip`'d test in its
+      total; that was measured, not assumed.
       The count rose from 305 with the regression tests for the two contract
       defects in §5.2, the `genesisDuration` guard in §5.3, and
       `ToshV5Abi.t.sol` — three tests pinning `abis.ts` to the Foundry
@@ -599,11 +739,22 @@ telling us things CI could have:
 
       ROBINHOOD_RPC=https://rpc.mainnet.chain.robinhood.com forge test --match-contract ToshV5ForkTest -vv
 - [x] `forge fmt --check` clean — CI gate.
-- [ ] `forge lint` triaged. **Partially done and deliberately still open:** the
-      18 `block.timestamp` findings in `src/` are accounted for in §2.4 and the
-      19 narrowing casts are inventoried in §2.5, but inventorying is not
-      triage. Confirming each cast's bound is auditor work, and §2.5 exists to
-      hand it over rather than to close it. `forge lint` is NOT yet a CI gate.
+- [x] `forge lint` triaged, and now a CI gate. The 18 `block.timestamp`
+      findings in `src/` stay accepted under §2.4. The 19 narrowing casts are
+      no longer merely inventoried: §2.5 disposes of each one by what actually
+      stops the truncation — 10 lossless by construction under a sign guard,
+      3 by a revert in the same function, 1 unreachable past a compile-time
+      constant, 3 by constants the suite pins, 1 by an invariant that is stated
+      rather than enforced, and 1 by the size of the ETH supply. Only the
+      invariant row asks the auditor to check a property rather than to
+      re-read a nearby guard, and it says so.
+      `scripts/checkLintFindings.mjs` pins the finding SET against
+      `lint-baseline.json` by source text rather than by line number, and fails
+      if §2.5's prose disagrees with the tool. Written because §2.5 had already
+      drifted while its total still reconciled — the note in that section says
+      how. Five mutations verified: a new cast, a cast removed, two-on-one-line
+      becoming one, and a contradicting count each fail the build; pure line
+      drift does not.
 - [x] Slither run, output triaged into this document — 70 findings across 65
       contracts, every one dispositioned in §5.7. No code changed as a result;
       the findings that needed real verification are recorded with the

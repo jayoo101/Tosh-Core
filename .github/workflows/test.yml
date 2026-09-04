@@ -101,10 +101,22 @@ jobs:
       # PRE_MAINNET_CHECKLIST.md §6.2. This guard is the counter-example to that
       # one — it caught the deletion on the first push and said what to do about
       # it, because it measures the suite rather than restating it.
+      #
+      # 335 -> 349 on 2026-09-04. Not a rule change: the floor had simply been
+      # left 14 below the suite while the dark-tax and PLATFORM_TREASURY tests
+      # landed, so it would no longer have caught the deletion it was written
+      # for. A floor that trails the suite is a floor that has stopped working.
+      #
+      # 349 is safe WITHOUT the fork secret, which is the state this repository
+      # is in. Measured rather than assumed: forge counts a `vm.skip`'d test in
+      # its "(N total tests)" summary (probed with a two-test contract, one
+      # skipping — forge reported "1 passed; 0 failed; 1 skipped (2 total
+      # tests)"). So the 8 fork tests that skip here still count, and the
+      # number this step reads is 349 either way.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=335
+          floor=349
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
@@ -347,6 +359,25 @@ jobs:
       # other people's summaries.
       - name: Check the checklist summary matches its own rows
         run: node scripts/checkChecklistCounts.mjs
+
+      # SECURITY_AUDIT §2.5 is the auditor's map of every narrowing cast in
+      # `src/` and the bound each one rests on. It was hand-maintained, and by
+      # 2026-09-04 it had rotted in the way that is hardest to notice: it
+      # carried a `uint48` row `forge lint` no longer reports AND was missing a
+      # third BalanceDelta site, so it described four delta casts where the
+      # code has six. The two errors cancelled — the total still read 19, so
+      # the arithmetic still reconciled and nobody opened the table.
+      #
+      # A count would not have caught that. This pins the SET, keyed by source
+      # text rather than by line number, so inserting a comment above a cast is
+      # invisible to it and a cast appearing or vanishing is not. It also fails
+      # if §2.5's prose contradicts the tool, which is the half that rotted.
+      #
+      # Needs Foundry, not npm — it shells out to `forge lint src --json` and
+      # imports nothing. That is why it sits above the npm install rather than
+      # with the other node guards below it.
+      - name: Check the narrowing-cast triage matches forge lint
+        run: node scripts/checkLintFindings.mjs
 
       # `scripts/` carries its own package.json. Two steps below need what it
       # installs — the typecheck, and the drill-page guard, which talks to
