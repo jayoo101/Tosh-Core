@@ -348,6 +348,22 @@ jobs:
       - name: Check the checklist summary matches its own rows
         run: node scripts/checkChecklistCounts.mjs
 
+      # The Q1 drill co-signing page asks three non-engineers to approve four
+      # EIP-712 Safe payloads. Everything that makes those payloads safe is a
+      # literal hand-typed into the status-page repository — a Safe address, a
+      # chain id, four selectors, four 66-character hashes — and any one of them
+      # wrong yields the same symptom: a signature that recovers to the right
+      # person and is rejected as GS026, found only after the human has already
+      # been interrupted, and looking exactly like their mistake.
+      #
+      # So the hashes are recomputed and held against the Safe's own
+      # getTransactionHash() on 46630. The guard is self-retiring: between
+      # drills the page 404s and it exits 0, so taking the page down does not
+      # hold CI red, and putting one back up next quarter re-arms it without
+      # anyone having to remember this step exists.
+      - name: Check the Q1 drill page agrees with the chain it signs for
+        run: node scripts/checkDrillPage.mjs
+
       # `scripts/` was checked by nothing. frontend.yml runs `tsc --noEmit`
       # inside soat-frontend/ only, so `pogSigner.ts` — which produces the
       # signatures the factory's `registerPoG` recovers against, i.e. the

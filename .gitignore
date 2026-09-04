@@ -66,6 +66,13 @@ Thumbs.db
 
 scripts/.drill-state.json
 
+# Q1 drill working files: the Safe address and timings are published in
+# INCIDENT_RESPONSE.md §8.3 once the run is scored, but the collected
+# signatures are other people's and have no business in git.
+scripts/.q1-state.json
+scripts/.q1-request.json
+scripts/.q1-signatures.json
+
 # Real Safe signer addresses + their proof-of-control signatures (PM-D4).
 # Template is safe-owners.example.json.
 safe-owners.json

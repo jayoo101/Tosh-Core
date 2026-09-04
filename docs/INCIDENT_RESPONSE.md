@@ -1025,6 +1025,95 @@ fields to name one chain, and requires the page to be on mainnet once
 turns itself on at exactly the moment the page becomes wrong. Six mutations,
 including two that must *not* fire, all behaved correctly.
 
+### 8.3 Third drill — 2026-09-04, the criterion both earlier sittings failed
+
+§8.1 and §8.2 each scored Q1's third line — *at least one new signer
+participating* — as **not met**, and each said why in the same terms: every key
+that could produce a signature was already on the operator's laptop. §8.2's
+"2-of-3" had two owners from Foundry's public test mnemonic, which is a
+threshold of two to the contract and a threshold of one to anyone counting
+people. Neither sitting had ever demonstrated the thing Step 1 actually claims,
+which is not that a Safe can pause the factory — that is now measured twice —
+but that **the protocol can be stopped by people other than its operator**.
+
+PM-D4 closed in the meantime: Tom, Jack and Joe each proved control of an
+address by signature, and the mainnet Safe
+[`0x2953957774482efA660921df85A1E7634ccfe27A`](https://robinhoodchain.blockscout.com/address/0x2953957774482efA660921df85A1E7634ccfe27A)
+was built from those three. So the missing half exists now, and this sitting
+exercises it.
+
+**The drill Safe:**
+[`0x853D416A48Ceaf595d70Fd293A0Da744bE5B2fa5`](https://explorer.testnet.chain.robinhood.com/address/0x853D416A48Ceaf595d70Fd293A0Da744bE5B2fa5)
+on 46630 — SafeL2 1.4.1, 2-of-3, 318,506 gas, indexed by the transaction
+service as `1.4.1+L2`. Its owners are **the real mainnet signer set**, the same
+three addresses that own the mainnet Safe. It differs from §8.2's drill Safe in
+the only way that matters: **the deployer is not an owner.** It pays gas and
+submits every transaction — `execTransaction` accepts a submitter who is
+nobody — but it cannot originate one. Without two signatures from people who
+are not the operator, nothing in this drill moves. That asymmetry is the
+criterion, expressed as a contract rather than as a promise.
+
+The harness is `scripts/drillQ1.mjs`. Like `drillSafe.mjs` it refuses to run
+off 46630, for a sharper reason: `drillSafe.mjs` would have built a toy on
+mainnet, whereas this one would build a **second Safe with the real owner set**
+and stage the live factory's ownership to it, leaving two indistinguishable
+Safes where the playbook names one address.
+
+**What the signers are asked for, and why it is safe to ask.** Four Safe
+transactions — `acceptOwnership`, `pause`, `unpause`, `transferOwnership` back
+— collected at
+[jayoo101.github.io/tosh-status/drill/](https://jayoo101.github.io/tosh-status/drill/),
+hosted beside the PM-D4 signing page and under the same rule that nothing is
+read from the URL. Signing is EIP-712 and off chain, so the three need no
+testnet gas and hold none. The domain binds chain 46630 and the drill Safe's
+own address, so nothing collected there can be replayed against the mainnet
+Safe; each payload carries a fixed nonce, so each signature is good exactly
+once; and the four together are a closed loop that leaves the drill Safe
+holding nothing.
+
+**Two things were proved before anyone was interrupted**, because the failure
+mode here is a signature that recovers to the right person and is refused by
+the Safe as `GS026` — discovered only after a human has already spent their
+attention, and looking exactly like their mistake:
+
+- `scripts/checkDrillPage.mjs` recomputes all four hashes from the page's own
+  structs and holds them against the Safe's `getTransactionHash()`, and checks
+  the Safe is a real 2-of-3 owned by exactly those three people with the
+  operator absent. Ten mutations — a single wrong hex digit, the mainnet Safe
+  substituted, chain 4663, a dropped `SafeTx` field, a domain no longer bound
+  to the Safe, a payload read from the URL, ownership handed to a signer both
+  with and without a matching hash, a nonce gap, and a swapped selector — all
+  caught. It is wired into CI and is self-retiring: between drills the page
+  404s and the check exits 0, so taking the page down does not hold CI red.
+- `drillQ1.mjs selftest` drives the *same* `typedData()` and `pack()` functions
+  end to end against a throwaway 2-of-3 from the public test mnemonic. The
+  EIP-712 hash came out identical to the Safe's own, two `signTypedData`
+  signatures were accepted (handed to `pack()` deliberately out of order, since
+  Safe requires ascending owner-address order and that is the part most likely
+  to work by accident), and one signature under a threshold of two was refused
+  `GS020`. So the shape of signature the page produces is known to be accepted,
+  and the threshold is known to be enforced.
+
+Ownership is staged: `transferOwnership(drill Safe)`
+([`0x45e1f3a6…`](https://explorer.testnet.chain.robinhood.com/tx/0x45e1f3a68409122c2b999bc79262a832c5f3caf78a2421d90e913526d6985cc9),
+53,647 gas) has set `pendingOwner` only. `Ownable2Step` means the deployer
+remains owner until the Safe accepts, so this step is reversible on its own and
+the testnet factory is in its normal state while the drill waits.
+
+**Status: awaiting two signatures. Q1's third criterion is not yet met, and
+saying otherwise here would be the thing this section exists to prevent.**
+The mechanical half is finished and verified; what remains is two people, which
+is the half §8.2 identified as the entire budget.
+
+**One limitation, recorded rather than discovered later.** All four hashes are
+computed up front — Safe nonces are deterministic — so each signer signs once
+in one sitting instead of being interrupted four times. That is a concession to
+human availability and it costs a measurement: this run can time the mechanical
+path and the round-trip to a person who is expecting the request, but it cannot
+time *rousing someone who is not*. §8.2 established that the latter is nearly
+the whole of the 60-second budget. Nothing scheduled can measure it; only an
+unannounced drill can, and none has been run.
+
 ---
 
 ## 9. Quick-reference cheat sheet
