@@ -73,6 +73,18 @@ satisfies the premise with no margin above it — dropping one signer would put
 the owner at 2/2, where a single unreachable signer freezes every emergency
 control, and lowering the threshold would void D2.
 
+**The chain can carry a Safe — verified, not assumed.** Robinhood Chain is a
+custom Orbit chain, and everything above plus PM-C2 and Q1 rests on a Safe
+being possible there, which nothing had ever checked. Confirmed 2026-09-04:
+the 1.3.0 and 1.4.1 singletons, proxy factories and MultiSend are deployed at
+their canonical addresses on **both** 4663 and 46630, both chains are in
+Safe's official supported list, and both transaction services answer
+(`api.safe.global/tx-service/robinhood` and `…/robinhood-testnet`, version
+6.10.1). So `app.safe.global` is usable and §2 Step 1's paste-the-ABI flow is
+not hypothetical. Had any of that been missing, PM-D4 would have been a
+contract problem rather than a recruiting one, and the timelock question in
+`PRD-v5.0.md` §11 D2 would have reopened immediately.
+
 **Status: decided, not yet executed.** The Safe does not exist yet (PM-D4), so
 nothing above is on chain. This section records the intent so the premise is
 auditable rather than remembered; D2 trigger ③ asks for the *actual* N and
@@ -178,11 +190,18 @@ If the incident is even *suspected* to involve the PoG signer key:
 
 ### Step 4 — Communicate
 
-The commander writes a single short post in this exact order:
+**One place is authoritative. Everything else points at it.**
 
-1. **#status channel** (internal): "Factory paused at block N. Cause:
-   `<one-line>`. Updates here every 15 min."
-2. **Public status page** — <https://jayoo101.github.io/tosh-status/>, source
+This step used to open with an internal `#status` post and reach the public
+page second, in "this exact order". That ordering was written for a team with
+a comms lead, and followed literally by a single operator it spends the first
+minutes of a P0 writing to an audience of one — while that operator is also
+holding a hardware wallet. Ordering is load-bearing here, so it is now ordered
+by who is actually waiting: the public page first, because it is the only
+channel that exists, the only one under mechanical guard, and the one every
+other step already references.
+
+1. **Public status page** — <https://jayoo101.github.io/tosh-status/>, source
    at `jayoo101/tosh-status`. Set `STATUS = 'paused'` in `index.html`, add the
    one specific fact to `DETAIL`, stamp `UPDATED`, commit to `main`. Pages
    rebuilds in about a minute. **Do not compose prose here under stress:** the
@@ -208,11 +227,32 @@ The commander writes a single short post in this exact order:
    It is hosted on GitHub Pages, deliberately sharing nothing with the
    application: a page served from the same Vercel project would be down or
    compromised in the §0 P0 case that names a malicious frontend bundle.
-3. **Twitter / X**: Link to the status page; **do not speculate on cause**.
-4. **Discord**: Pin the status-page link in #announcements.
+**Then amplification, in whatever order you can manage.** None of these carry
+facts the page does not; they shorten the time until someone finds the page.
+Their absence delays discovery, it does not change what is true, and no minute
+spent here should come before step 1.
+
+2. **Twitter / X** — link the status page; **do not speculate on cause**.
+   *Account does not exist yet.*
+3. **Discord** — pin the status-page link in `#announcements`.
+   *Server does not exist yet.*
+4. **`#status`, internal** — "Factory paused at block N. Cause: `<one-line>`.
+   Updates every 15 min." *Deliberately last, and pointless before there is a
+   second responder.* Its real function is a timestamped record of what was
+   known when, and until PM-D4 and PM-E4 put someone else on the other end,
+   the page's `UPDATED` stamp and the post-mortem already serve that. Create
+   it when the second person arrives, not before.
 
 The first message must be out within 30 minutes of `pause()`. Silence is more
-damaging than imperfect information.
+damaging than imperfect information — but note that the page does not wait for
+you at all: it reads `paused()` off the chain, so a visitor sees the pause
+before you have typed anything. That is the floor this step is building on,
+not a substitute for it.
+
+> **Three of these four do not exist**, so this step is executable today only
+> down to item 1 — which is also the only item that matters for correctness.
+> The three below it are account signups, not engineering, and they are what
+> keeps PM-E5's Q1 from passing on the comms side.
 
 ### Step 5 — Investigate
 
