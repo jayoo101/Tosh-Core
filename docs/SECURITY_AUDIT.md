@@ -3,7 +3,7 @@
 **Version:** v5.0 (pre-mainnet)
 **Status:** 🟡 **SCOPE FROZEN — NO AUDIT ENGAGED YET**
 **Owner:** Protocol Engineering
-**Companion documents:** `docs/INCIDENT_RESPONSE.md`, `docs/MANUAL_INTERACTION.md`,
+**Companion documents:** `docs/INCIDENT_RESPONSE.md`, `jayoo101/tosh-status` → `MANUAL_INTERACTION.md` (public),
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The package handed to an external auditor at

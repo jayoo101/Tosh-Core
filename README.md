@@ -562,7 +562,7 @@ See the natspec in each source file, plus `docs/`:
 | `docs/SECURITY_AUDIT.md` | Audit scope, trust model, test coverage, findings log. |
 | `docs/INCIDENT_RESPONSE.md` | Playbooks for when something is already wrong. |
 | `docs/ONCHAIN_MONITORING.md` | What to alert on, and why. Config-as-code in `monitoring/alerts.json`, CI-guarded against drift. |
-| `docs/MANUAL_INTERACTION.md` | Driving the protocol with `cast` when the frontend is down. |
+| [`tosh-status/MANUAL_INTERACTION.md`](https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md) | Driving the protocol with `cast` when the frontend is down. Lives in the public status-page repo, because it is linked to users during an outage and this repository is private. |
 | `docs/PRD-v5.0.md` | Product spec, state machine, and the D1–D4 accepted risks. |
 
 ---

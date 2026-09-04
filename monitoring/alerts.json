@@ -9,7 +9,7 @@
     "Each alert carries either `event` + `topic0` (log subscription) or `check`",
     "(scheduled state read), plus `severity`, `page`, and a `why` stating what the",
     "alert is actually evidence of. `playbook` points at a section of",
-    "docs/INCIDENT_RESPONSE.md or docs/MANUAL_INTERACTION.md, or is null where the",
+    "docs/INCIDENT_RESPONSE.md or tosh-status/MANUAL_INTERACTION.md (public), or is null where the",
     "alert is an audit trail with no response to run.",
     "",
     "NOTE: verifyAlertTopics.js validates events and topic0 against the compiled",
@@ -289,7 +289,7 @@
       "severity": "P3",
       "page": false,
       "scope": "any-address",
-      "playbook": "docs/MANUAL_INTERACTION.md §4",
+      "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
       "why": "MISLEADING BY CONSTRUCTION — read STATE-01 before relying on this. The flag is set lazily, inside refund(), so this fires when the FIRST depositor claims, not when the round actually failed. A failed round nobody has claimed from emits nothing at all."
     },
     {
@@ -300,7 +300,7 @@
       "severity": "P3",
       "page": false,
       "scope": "any-address",
-      "playbook": "docs/MANUAL_INTERACTION.md §4",
+      "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
       "why": "Same lazy-emit caveat as LIFE-01. Means a round met its soft cap but the creator never launched inside the 7-day window."
     },
     {
@@ -333,7 +333,7 @@
       "cadence": "hourly",
       "check": "For every hook from LaunchCreated: canRefund() == true AND no Refunded event yet",
       "why": "The gap LIFE-01 leaves. Nothing is emitted when a genesis round crosses its deadline under the soft cap, or when the 7-day launch window lapses — refund() flips the flags lazily and launch() just starts reverting with LaunchWindowExpired. So a round can sit refundable and unannounced indefinitely and the event stream looks idle. Depositors are owed a notification that their exit is open; only a scheduled state poll can produce it.",
-      "action": "Announce refund availability; docs/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it."
+      "action": "Announce refund availability; tosh-status/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it, and the status page already links it."
     },
     {
       "id": "STATE-02",

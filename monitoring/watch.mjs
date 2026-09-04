@@ -397,7 +397,7 @@ for (const hook of state.hooks) {
       record('STATE-01', sev('STATE-01'), pages('STATE-01'),
         `Hook ${hook} reports canRefund() == true. Depositors are owed the news that their ` +
         `exit is open; nothing on chain announces this.`,
-        { playbook: 'docs/MANUAL_INTERACTION.md §4' })
+        { playbook: 'tosh-status/MANUAL_INTERACTION.md §4' })
     }
   } catch (err) {
     record('STATE-01', 'P2', false, `canRefund() failed on ${hook}: ${err.message}`)

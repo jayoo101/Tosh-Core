@@ -1042,11 +1042,23 @@ What is left that is purely engineering:
   a malicious frontend bundle. It reads `paused()` off the chain in the
   browser, so the fact that matters is not hostage to a human remembering to
   edit it, and it names the chain as the authority when the two disagree.
-- **Publishing `MANUAL_INTERACTION.md`** — newly identified while wiring the
-  page up. `INCIDENT_RESPONSE.md` §6b tells the status page to link it during a
-  frontend outage, but `jayoo101/Tosh-Core` is private, so that link 404s for
-  exactly the users the step is for. All 463 lines are user-facing, so this is
-  a question of where the file lives, not whether it can be shown.
+- ~~Publishing `MANUAL_INTERACTION.md`~~ — **done**, and it was a real bug
+  rather than a tidying job. `INCIDENT_RESPONSE.md` §6b tells the status page
+  to link that guide during a frontend outage, but it lived in this private
+  repository, so the link returned 404 to exactly the users the step exists to
+  help. It now lives in the public status-page repository as the only copy —
+  <https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md> —
+  with no second copy to drift.
+
+  Moving it surfaced two errors inside it. It sent readers to
+  `soat-frontend/src/app/lib/factoryDeployments.ts` for the factory address,
+  which **does not exist** — the same dead pointer §8.1 had already found and
+  corrected in `INCIDENT_RESPONSE.md`, still live in the user-facing file
+  because that fix was applied by hand to one document. And it called the
+  factory the `to` of every `LaunchCreated`, when the factory is the log's
+  emitter; those coincide only for a direct `createLaunch` and diverge the
+  moment the call is routed. Both are rewritten to two sources a user can
+  actually reach, with instructions to distrust the address if they disagree.
 - ~~Fork tests against a live V4 deployment~~ — **done**.
   `test/ToshV5Fork.t.sol` runs the launch lifecycle and a UniversalRouter buy
   against the V4 singleton deployed on Robinhood Chain (`SECURITY_AUDIT.md`
@@ -1107,6 +1119,6 @@ Everything else needs a decision or a credential, not a commit.
 | `docs/SECURITY_AUDIT.md` | Audit scope, trust model, test coverage, findings. **Authoritative for Gate A.** |
 | `docs/ONCHAIN_MONITORING.md` | The PM-E2 spec: what to alert on, why, and the two ways a naive setup silently covers nothing. Config in `monitoring/alerts.json`. |
 | `docs/INCIDENT_RESPONSE.md` | What to do when something is already wrong. Authoritative for the on-call roster and drills. |
-| `docs/MANUAL_INTERACTION.md` | Driving the protocol with `cast` when the frontend is unavailable. |
+| `jayoo101/tosh-status` → `MANUAL_INTERACTION.md` | Driving the protocol with `cast` when the frontend is unavailable. **Public, and not in this repository** — §6b links it to users mid-outage, so it has to be readable by someone who cannot read this. |
 | `docs/PRD-v5.0.md` | Product spec; §11 holds the D1–D4 accepted risks and their review triggers. |
 | `script/DeployMainnet.s.sol` | The executable form of Gate C. Its `CRITICAL NEXT STEPS` output and §3 here must not diverge. |

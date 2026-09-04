@@ -542,23 +542,23 @@ The factory does not depend on the frontend. Users with their own RPC + ABI
 can interact with the factory directly via `cast` (`createLaunch`, `deposit`,
 `refund`, …). Status page should link to:
 
-- `docs/MANUAL_INTERACTION.md` — every user-side action as a `cast` command,
-  including the refund path, which needs nothing from us
+- The manual interaction guide — every user-side action as a `cast` command,
+  including the refund path, which needs nothing from us:
+  <https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md>
 - The factory address on the chain explorer (Robinhood testnet:
   `https://explorer.testnet.chain.robinhood.com`)
 
-…so determined power-users can still operate.
+…so determined power-users can still operate. **Both links are already on the
+status page**, so this step is a matter of pointing at it rather than
+assembling anything mid-incident.
 
-> **⚠ This step cannot be executed as written.** The status page links the
-> factory, but not `MANUAL_INTERACTION.md`, because `jayoo101/Tosh-Core` is a
-> **private** repository — the raw URL returns 404 to the users this step
-> exists to help. All 463 lines of that file are user-facing (reads, deposits,
-> the refund path, revert decoding, a safety checklist) and none of it is
-> operator-only, so nothing about the content justifies it being unreachable;
-> it simply lives in the wrong place for the job this playbook gives it.
-> Publishing it somewhere public is an open decision, and until it is made,
-> a frontend outage leaves users with the explorer and nothing that tells
-> them what to send it.
+> **Why that guide is not in this repository.** It used to be
+> `docs/MANUAL_INTERACTION.md` here, which made this step unexecutable: this
+> repository is private, so the URL returned 404 to exactly the users the step
+> exists to help. All 463 lines of it are user-facing and none of it is
+> operator-only, so it moved to the public status-page repository, which is
+> also the host least likely to be down at the same time as the app. There is
+> no second copy to drift.
 
 ---
 
