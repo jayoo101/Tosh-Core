@@ -3,8 +3,9 @@
 **Version:** v5.0
 **Checklist item:** **PM-E2** in `docs/PRE_MAINNET_CHECKLIST.md`
 **Machine-readable config:** `monitoring/alerts.json`
+**Watcher:** `monitoring/watch.mjs` · **capability probe:** `monitoring/probeRpc.mjs`
 **Drift guard:** `scripts/verifyAlertTopics.js` (runs in CI)
-**Last updated:** 2026-08-26
+**Last updated:** 2026-09-04
 
 ---
 
@@ -15,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | ❌ **not wired** |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **built and rehearsed on testnet, not scheduled** (§7.1, §7.2) |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -278,15 +279,84 @@ STATE-06 needs one thing the others do not: memory. "Armed for 24h with no
 stateless poll that only compares the current balance will fire on every healthy
 cycle. Track the last `PiggybackExecuted` block alongside the balance.
 
+### 7.1 There is no provider, because the chain's own RPC has both capabilities
+
+`monitoring/probeRpc.mjs` measures the two requirements above against an
+endpoint. Run against the 46630 testnet node it reports:
+
+| Capability | Result |
+|---|---|
+| Address-less `topic0` filter (§2.1) | accepted over a 1,000,000-block span |
+| `eth_call` for view polling (§7) | `owner()`, `pendingOwner()`, `pogSigner()` all answer |
+| Block time | ~0.2 s, so one max-span call reaches back ~59 h |
+
+Both capabilities present on the raw node makes a vendor a convenience rather
+than a dependency, and the convenience is worth less here than it looks:
+OpenZeppelin Defender can watch a custom Orbit chain only as a *Private
+Network*, which is a paid tier, and the scheduled-view-polling half — the one
+§7 warns is most often missing — is exactly what all seven `stateChecks` need.
+Paying to acquire a capability the free endpoint already has, in exchange for
+the one it is least likely to provide, is a bad trade.
+
+So the implementation is `monitoring/watch.mjs`: one pass, resumable from a
+state file, then exit. The scheduler is deliberately somebody else's problem,
+which also makes the thing testable — the command a cron runs is the command a
+human runs to see what it would say. Findings go to stdout as JSON lines and
+the exit code is non-zero when any of them pages, so a scheduler can react
+without parsing. Delivery is not wired: a pager attached to a monitor that
+mis-detects is worse than no pager, and detection had to be right first.
+
+### 7.2 What the testnet rehearsal established
+
+Run over 900,000 blocks of 46630 — real history, not a fixture:
+
+- **11 of 24 alerts matched.** Both deploys (`OwnershipTransferred` ×2,
+  `FactorySet`), the four dial changes from setup, the launch
+  (`LaunchCreated`, `Launched`), and the `Paused`/`Unpaused` pair left by the
+  2026-09-03 incident drill in `INCIDENT_RESPONSE.md` §8.1. The drill is now
+  also the monitoring fixture.
+- **A real finding on the first run.** STATE-05: the PoG signer held 0.0445
+  ETH against a 0.05 floor. That is PM-D2, detected by the check written for
+  it rather than by a depositor hitting a failing `/api/sign-allocation`.
+- **Four checks driven to fire** by feeding a wrong expectation or a doctored
+  state file: STATE-03 (ownership mismatch, P0), STATE-04 (signer mismatch),
+  STATE-02 (balance drop with no buyback to explain it, P0), and STATE-06 on
+  both sides of its window — silent when the reservoir has just armed, firing
+  at 55.6 h. STATE-06's threshold can be overridden for that test, and the
+  override reports itself on every run, because a testing affordance that can
+  quietly disable a production check is the same class of bug as the rest of
+  this document.
+- **Silence confirmed as passing, not broken.** STATE-01 and STATE-07 reported
+  nothing; `canRefund()` is `false` and the listed token's TWAP is 1.33e33, so
+  nothing was owed. Both were verified independently with `cast` rather than
+  inferred from the absence of output.
+
+Two bugs were found by rehearsing that reading the code would not have caught.
+The hook harvest read `LaunchCreated`'s `hook` field out of the log data, but
+all three of `launchId`, `token` and `hook` are indexed and therefore in
+`topics[1..3]`; the data holds `creator` and two string offsets. And the hook
+filter tested `(addr & 0x3FFF) == 0x20CC`, whereas `HookMiner` requires the
+flag bits to be *set* — the live hook ends `0xffdf`, low bits `0x3fdf`, and
+carries all of `0x20CC`. Each produced an empty watch list and no error.
+
 ---
 
 ## 8. Definition of done for PM-E2
 
-- [ ] Provider chosen and the 24 alerts imported from `monitoring/alerts.json`
-- [ ] Hook coverage verified by §2.1 method 1 or 2 — **tested by creating a
-      launch and confirming its hook events arrive**
-- [ ] All 7 `stateChecks` scheduled and firing, STATE-06 included — it is the
-      only one needing a window rather than a reading (§7)
+- [x] Provider chosen and the 24 alerts imported from `monitoring/alerts.json`
+      — **no vendor**; `monitoring/watch.mjs` consumes the catalogue directly.
+      §7.1 records why, and `monitoring/probeRpc.mjs` is the measurement that
+      made it a decision rather than a preference.
+- [x] Hook coverage verified by §2.1 method 1 or 2 — **both**. On 46630 the
+      watcher caught `Launched` from hook `0x90FDE02D…`, an address it was
+      never given, through the address-less topic filter (method 1); the same
+      address was harvested from `LaunchCreated`'s `topics[3]` into the watch
+      list (method 2) so the state checks have something to call.
+- [~] All 7 `stateChecks` scheduled and firing, STATE-06 included — it is the
+      only one needing a window rather than a reading (§7). **Implemented and
+      exercised, not yet scheduled**: STATE-01/03/04/05/07 were run against the
+      live testnet, and 02/03/04/06 were each driven to fire (§7.2). Scheduling
+      waits on a host, which is deferred to C1.
 - [ ] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce

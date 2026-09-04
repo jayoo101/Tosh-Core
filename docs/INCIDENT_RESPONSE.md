@@ -611,11 +611,14 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 > ones — and `_blockNumber()` reading `ArbSys` instead of `block.number` is
 > exactly the kind of difference a drill is supposed to surface.
 
-> **Q4 cannot be run as written yet.** Its success criterion depends on a
-> Defender alert that does not exist: on-chain event alerting is **PM-E2** in
-> `docs/PRE_MAINNET_CHECKLIST.md`. The alert definitions are now specified and
-> version-controlled (`docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json`),
-> but nothing has been imported into a provider, so no alert can fire. The
+> **Q4 cannot be run as written yet.** Its success criterion names a Defender
+> alert, and there will not be one: on-chain alerting is **PM-E2** in
+> `docs/PRE_MAINNET_CHECKLIST.md`, and it is served by `monitoring/watch.mjs`
+> against the chain's own RPC rather than by a vendor
+> (`ONCHAIN_MONITORING.md` §7.1). Detection is therefore built and rehearsed —
+> but nothing schedules it and no P0 has anywhere to land, so an alert still
+> cannot reach a human unattended. Rewrite Q4's criterion to name the watcher,
+> and run it only once that watcher has a host and a sink. The
 > frontend error
 > monitoring that *was* wired (Sentry, PM-E1) reports browser and API-route
 > errors — it sees nothing on chain, and a forged-attestation attempt that

@@ -52,6 +52,11 @@ slither-run.txt
 .tmp_*
 *.log
 
+# The watcher's resume point, harvested hook set and STATE-06 window. Per
+# deployment, not per repository: committing one machine's cursor would make
+# every other machine rescan or, worse, skip the blocks in between.
+monitoring/.watch-state*.json
+
 # ─── OS / editor ─────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
