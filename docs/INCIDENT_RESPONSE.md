@@ -53,28 +53,37 @@ and each proved control of it by signature before the Safe was created.
 | Role | Primary | Address | Reachable on |
 |------|---------|---------|--------------|
 | Incident commander | `@<oncall-1>` | — | `<not yet filled>` |
-| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | **`<not yet filled>`** |
-| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | **`<not yet filled>`** |
-| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | **`<not yet filled>`** |
+| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | direct, out of band — see below |
+| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | direct, out of band — see below |
+| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | direct, out of band — see below |
 | Comms lead | `@<comms>` | — | `<not yet filled>` |
 | Legal | `@<legal>` | — | `<not yet filled>` |
 
-**The "Reachable on" column is the part that is not done, and naming the
-signers did not do it.** This section exists to answer one question under time
-pressure — *how do I get two of these three to sign, right now, at 03:00* — and
-a name does not answer it. §8.2 measured the mechanical path at 5 s against a
-60-second budget, which means essentially the entire budget is spent waking
-people up. A signer who cannot be woken is not a signer; with one unreachable,
-a 2-of-3 Safe is a 2-of-2, and D2's premise in `docs/PRD-v5.0.md` §11 — which
-declines a timelock specifically because a 2/N Safe exists — starts to wobble.
+**Contact routing, decided 2026-09-04.** The three signers are in continuous
+direct contact with the operator, so no pager rotation, escalation tree or
+shared contact vault is being set up, and no phone numbers are recorded here.
+That is a deliberate choice, not an unfinished row — recorded so that a later
+reader, or an auditor, does not read the absence as an oversight and re-open it.
 
-Each row needs a channel that pushes through a silent phone: a phone number, or
-a pager/PagerDuty handle. A chat handle nobody has notifications on is worse
-than blank, because it reads as filled. Until all three carry one, PM-D4 and
-PM-E4 stay partial no matter how complete this table looks.
+The choice is reasonable at this size and it is worth being precise about what
+it rests on, because the number it protects is small. §8.2 timed the mechanical
+Safe path at 5 s against the 60-second bar, so ~55 s of that budget is the human
+hop and nothing else. The assumption is therefore that any two of Tom, Jack and
+Joe can be reached and can sign inside roughly a minute, at any hour. If that
+stops being true — someone travels, changes number, or goes quiet for a stretch
+— the gap does not announce itself, and the first evidence of it arrives during
+an incident. Revisit this row then, not after.
 
-The pager rotation **must** be reachable around the clock for at least 90 days
-post-launch.
+Also worth stating plainly: with one signer unreachable a 2-of-3 Safe behaves as
+a 2-of-2, where the remaining two must *both* respond. `docs/PRD-v5.0.md` §11 D2
+declines a timelock specifically because a 2/N Safe exists to play that role, so
+signer reachability is what that decision is resting on.
+
+All three signers hold gas on 4663 (0.005 / 0.005 / 0.089 ETH as of
+2026-09-04), so any one of them can be the account that actually submits
+`execTransaction` — the signatures are collected off chain, but the executor
+pays. Before this, only Joe was funded, which would have made him a single point
+of failure for pressing the button regardless of who had signed.
 
 ### 1.1 Safe threshold — the decision, and what depends on it
 

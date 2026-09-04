@@ -4,6 +4,9 @@ permissions: {}
 
 on:
   push:
+    # See test.yml: `watcher-state` is the watcher's checkpoint branch and holds
+    # no frontend source. Building it twice an hour is pure cost.
+    branches-ignore: [watcher-state]
   pull_request:
   workflow_dispatch:
 

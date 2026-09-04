@@ -1,0 +1,205 @@
+# The scheduler and sink for PM-E2. `monitoring/watch.mjs` was built run-once
+# precisely so the host could be decided later; this is that decision.
+#
+# Read `docs/ONCHAIN_MONITORING.md` §7.3 for what this host is and is not before
+# relying on it. In short: it is a monitor, not a pager.
+
+name: Watch
+
+permissions: {}
+
+on:
+  # Offset from the hour on purpose. Scheduled workflows queue on a shared
+  # pool, `0 * * * *` is the busiest slot on it, and GitHub's own guidance is
+  # that schedules are best-effort — delays of tens of minutes are routine and
+  # runs can be dropped outright under load. Odd minutes are measurably less
+  # contended. This does NOT make the cadence a guarantee; see §7.3.
+  schedule:
+    - cron: '7,37 * * * *'
+
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Rescan the last N blocks instead of resuming from the checkpoint'
+        type: string
+      dry:
+        description: 'Scan and print only — file no issues, persist no checkpoint'
+        type: boolean
+        default: false
+
+# Two passes must not interleave: both would resume from the same checkpoint,
+# scan the same window, and race to push it back — duplicate findings, and
+# whichever push lands second decides where the next pass starts.
+#
+# Queued rather than cancelled. `cancel-in-progress: true` would be actively
+# harmful here: the cancelled pass has already read a window and would die
+# before persisting it, so its blocks are scanned by nobody.
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+env:
+  STATE_BRANCH: watcher-state
+
+jobs:
+  watch:
+    name: On-chain watcher
+    runs-on: ubuntu-latest
+
+    permissions:
+      # The checkpoint lives on its own branch, so this job can write to the
+      # repository. It is the price of durable state without a database. The
+      # branch holds one generated file and nothing reads it but this workflow.
+      contents: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # `watch.mjs` derives every function selector with `cast sig` rather than
+      # typing constants, because a wrong selector reverts and a revert is
+      # indistinguishable from the function having been removed — a state check
+      # crying wolf about the thing it exists to watch. That design choice is
+      # why this job needs Foundry at all. Pinned to match test.yml.
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 1.7.1
+
+      # Every runner is fresh and `monitoring/.watch-state*.json` is gitignored,
+      # so the checkpoint has to come from somewhere outside the checkout: a
+      # one-file orphan branch. Without it the watcher falls back to scanning
+      # MONITOR_MAX_SPAN — 900k blocks, about 25 h at this chain's 100 ms blocks
+      # — and reports the lot as new.
+      #
+      # Which is why a cold start is bounded here rather than left to that
+      # fallback. Replaying a day of history into the issue tracker is not
+      # monitoring; those events are already over, and nobody learns about
+      # yesterday's incident from an alert stream switched on today. The first
+      # pass therefore looks back COLD_START_BLOCKS and says so in the log. The
+      # window before that is genuinely unscanned, and saying which window that
+      # was is the difference between a bounded start and a silent gap.
+      - name: Restore the block checkpoint
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COLD_START_BLOCKS: '5000'
+        run: |
+          set -euo pipefail
+          STATE_DIR="$RUNNER_TEMP/state"
+          if git clone --quiet --depth 1 --branch "$STATE_BRANCH" \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+               "$STATE_DIR" 2>/dev/null; then
+            cp "$STATE_DIR/.watch-state.json" monitoring/.watch-state.json
+            echo "resumed from block $(node -p "require('$STATE_DIR/.watch-state.json').lastBlock")"
+          else
+            echo "cold=$COLD_START_BLOCKS" >> "$GITHUB_OUTPUT"
+            echo "::notice::No '$STATE_BRANCH' branch yet, so there is no checkpoint. Starting cold, bounded to the last $COLD_START_BLOCKS blocks. Anything older than that is NOT scanned by this pass and never will be — run the workflow manually with a larger 'since' if you need to sweep it."
+          fi
+
+      - name: Scan
+        id: scan
+        env:
+          # Addresses are repository VARIABLES, not secrets: they are public on
+          # chain, and a monitor whose target is secret cannot be reviewed. The
+          # endpoint is a secret because it may carry a key.
+          MONITOR_RPC: ${{ secrets.MONITOR_RPC }}
+          MONITOR_FACTORY: ${{ vars.MONITOR_FACTORY }}
+          MONITOR_TREASURY: ${{ vars.MONITOR_TREASURY }}
+          MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
+          MONITOR_EXPECTED_POG_SIGNER: ${{ vars.MONITOR_EXPECTED_POG_SIGNER }}
+          MONITOR_KEEPER_ADDRESS: ${{ vars.MONITOR_KEEPER_ADDRESS }}
+          # Through the environment, never interpolated into the script body.
+          # `${{ inputs.since }}` expanded inline is a shell injection from a
+          # field anyone with write access can type into.
+          SINCE: ${{ inputs.since }}
+          DRY: ${{ inputs.dry }}
+          COLD: ${{ steps.state.outputs.cold }}
+        run: |
+          set -uo pipefail
+          # An explicit `since` from a human wins over the cold-start bound;
+          # sweeping a known gap is the reason that input exists.
+          window="${SINCE:-${COLD:-}}"
+          args=()
+          [ -n "$window" ] && args+=(--since "$window")
+          [ "${DRY:-false}" = "true" ] && args+=(--dry)
+
+          node monitoring/watch.mjs "${args[@]}" > "$RUNNER_TEMP/findings.jsonl"
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+          # 2 is "you configured me wrong" — no factory address, or a checkpoint
+          # that will not parse. Nothing was scanned, so this must be red.
+          if [ "$code" -eq 2 ]; then
+            echo "::error::The watcher could not run. It scanned nothing this pass — this is not a quiet chain, it is a blind monitor. Check MONITOR_FACTORY / MONITOR_TREASURY and the state branch."
+            exit 1
+          fi
+
+          # 1 is "something paged", which means the watcher worked. Deliberately
+          # NOT a job failure: the alert is the issue it files, and a red X on
+          # every real incident teaches people that red means nothing.
+          echo "watcher exited $code ($(wc -l < "$RUNNER_TEMP/findings.jsonl") finding(s))"
+
+      # `success() &&` is load-bearing. Any explicit `if:` REPLACES the implicit
+      # success() check, so `if: inputs.dry != true` alone would run delivery
+      # after the scan step had already failed — filing issues from a findings
+      # file the watcher never finished writing.
+      - name: File findings as issues
+        if: ${{ success() && inputs.dry != true }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node monitoring/report.mjs "$RUNNER_TEMP/findings.jsonl"
+
+      - name: Persist the block checkpoint
+        if: ${{ success() && inputs.dry != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          STATE_DIR="$RUNNER_TEMP/state"
+          if [ ! -d "$STATE_DIR/.git" ]; then
+            mkdir -p "$STATE_DIR"
+            git -C "$STATE_DIR" init --quiet
+            git -C "$STATE_DIR" checkout --quiet --orphan "$STATE_BRANCH"
+            git -C "$STATE_DIR" remote add origin \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          cp monitoring/.watch-state.json "$STATE_DIR/.watch-state.json"
+          git -C "$STATE_DIR" config user.name  'tosh-watcher'
+          git -C "$STATE_DIR" config user.email 'watcher@users.noreply.github.com'
+          git -C "$STATE_DIR" add .watch-state.json
+          if git -C "$STATE_DIR" diff --cached --quiet; then
+            echo 'checkpoint unchanged'
+            exit 0
+          fi
+          git -C "$STATE_DIR" commit --quiet \
+            -m "checkpoint $(node -p "require('$STATE_DIR/.watch-state.json').lastBlock")"
+          git -C "$STATE_DIR" push --quiet origin "HEAD:$STATE_BRANCH"
+
+      # The run log is the only place the non-paging findings and the "ran but
+      # could not check" gaps appear, and nobody opens a green run's log.
+      - name: Summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo '### On-chain watcher'
+            echo
+            if [ -s "$RUNNER_TEMP/findings.jsonl" ]; then
+              echo '| id | severity | pages | message |'
+              echo '|---|---|---|---|'
+              node -e '
+                const fs = require("fs")
+                for (const l of fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean)) {
+                  const f = JSON.parse(l)
+                  const m = f.message.replace(/\|/g, "\\|").slice(0, 160)
+                  console.log(`| ${f.id} | ${f.severity} | ${f.page ? "yes" : "no"} | ${m} |`)
+                }
+              ' "$RUNNER_TEMP/findings.jsonl"
+            else
+              echo 'No findings this pass.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

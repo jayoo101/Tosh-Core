@@ -125,9 +125,35 @@ const isHookAddress = addr => (BigInt(addr) & REQUIRED_HOOK_FLAGS) === REQUIRED_
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-const state = existsSync(STATE_PATH)
-  ? JSON.parse(readFileSync(STATE_PATH, 'utf8'))
-  : { lastBlock: null, hooks: [], armedSince: null, lastPiggybackBlock: null, lastRun: null }
+/**
+ * A state file that will not parse must not be confused with a state file that
+ * is not there, and must not be confused with a P0.
+ *
+ * Bare `JSON.parse` here threw a stack trace and exited 1 — the same code a
+ * paging finding uses — so a truncated or BOM-prefixed file arrives at the
+ * scheduler looking exactly like a live incident, while the pass in fact
+ * scanned nothing. Exit 2 is already this script's "you configured me wrong",
+ * and that is what this is.
+ *
+ * The BOM is stripped rather than rejected because it is the likeliest form of
+ * corruption here and the least meaningful: `Set-Content -Encoding utf8` on
+ * Windows PowerShell writes one by default, this repository already runs a
+ * CI guard for exactly that class of damage, and it is how the first draft of
+ * this file's own test harness broke.
+ */
+let state = { lastBlock: null, hooks: [], armedSince: null, lastPiggybackBlock: null, lastRun: null }
+if (existsSync(STATE_PATH)) {
+  const raw = readFileSync(STATE_PATH, 'utf8').replace(/^\uFEFF/, '')
+  try {
+    state = JSON.parse(raw)
+  } catch (err) {
+    console.error(`State file ${STATE_PATH} is not valid JSON: ${err.message}`)
+    console.error('Refusing to continue. Resuming from a checkpoint that cannot be read would')
+    console.error('mean rescanning MAX_SPAN and re-reporting old events as new. Delete the file')
+    console.error('to start cold on purpose, or restore it from the state branch.')
+    process.exit(2)
+  }
+}
 
 const findings = []
 const record = (id, severity, page, message, extra = {}) =>
@@ -147,6 +173,54 @@ const gap = (id, message) => gaps.push(`${id}: ${message}`)
 
 const head = Number(await rpc('eth_blockNumber'))
 const chainId = Number(await rpc('eth_chainId'))
+
+/**
+ * A checkpoint is only meaningful on the chain that produced it, and nothing in
+ * the file said which chain that was.
+ *
+ * This is the C1 cutover, and it fails silently in the worst direction. Point
+ * MONITOR_RPC at mainnet while the state still holds a testnet checkpoint and
+ * `from` becomes `lastBlock + 1` — a testnet height, far ABOVE the mainnet head.
+ * The `from > head` branch below then reports "no new blocks" and exits 0. Not
+ * an error, not a gap, not a finding: a green run, every cycle, monitoring
+ * nothing, on the day the contracts holding real money go live. Testnet is at
+ * ~112.7M blocks and mainnet at ~54.2M, so the gap is around 58 million blocks
+ * and would not close on its own within the life of the protocol.
+ *
+ * So the chain id is part of the checkpoint now, and a change discards it
+ * rather than reinterpreting it. Discarding costs one noisy pass: without a
+ * lastBlock the scan falls back to the most recent MAX_SPAN, and events in that
+ * window are re-reported as new. That is the right trade — a duplicate alert is
+ * read and dismissed in seconds, and a silent monitor is not read at all.
+ */
+/* Two tests, because the first one cannot see the file that is already on disk.
+ * Existing state predates the `chainId` field, so a mismatch is unrecognisable
+ * on the very run where it matters most — the first one after the cutover. The
+ * second test needs no field: a checkpoint AHEAD of the head is impossible on
+ * the chain that produced it, so it is evidence of the same fault by itself.
+ * It also catches a chain rolled back beneath us, which is the other way this
+ * arithmetic silently inverts. */
+const staleChain = state.chainId != null && state.chainId !== chainId
+const impossible = state.lastBlock != null && state.lastBlock > head
+
+if (staleChain || impossible) {
+  record('WATCHER-03', 'P1', true,
+    (staleChain
+      ? `State file was written against chain ${state.chainId}, but this endpoint is chain ${chainId}.`
+      : `State file's checkpoint (${state.lastBlock.toLocaleString()}) is AHEAD of chain ` +
+        `${chainId}'s head (${head.toLocaleString()}), which cannot happen on the chain that ` +
+        `wrote it — so it was written against a different chain, or this one rolled back.`) +
+    ` The checkpoint has been discarded, along with the harvested hooks and the STATE-06 ` +
+    `window. This pass rescans recent history, so expect duplicates of anything already ` +
+    `seen. If this is the mainnet cutover, that is correct: close this once the first pass ` +
+    `lands and check that the next run resumes normally.`)
+  state.lastBlock = null
+  state.hooks = []
+  state.armedSince = null
+  state.lastPiggybackBlock = null
+  delete state.treasuryBalance
+}
+state.chainId = chainId
 
 // A window wider than the node will answer gets split. 1M was measured as
 // acceptable on this endpoint; staying under it keeps one pass to one call per

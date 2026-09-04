@@ -4,6 +4,11 @@ permissions: {}
 
 on:
   push:
+    # `watcher-state` carries one generated file: the block checkpoint that
+    # watch.yml pushes on every pass. Without this exclusion each push would
+    # start a full Foundry build, both test runs and every guard below — twice
+    # an hour, on a branch with no Solidity on it.
+    branches-ignore: [watcher-state]
   pull_request:
   workflow_dispatch:
 
