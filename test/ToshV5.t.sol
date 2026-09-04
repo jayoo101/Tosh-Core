@@ -1496,6 +1496,90 @@ contract ToshV5Test is Test {
         assertEq(reservoirCut + platformCut, (ethIn * 100) / 10_000, "and together they must be the whole 1.0% tax");
     }
 
+    /// @dev A CONTRACT platform treasury whose `receive()` costs far more than
+    ///      the 2300-gas stipend must still be payable — because production's
+    ///      is one.
+    ///
+    ///      `PLATFORM_TREASURY` is planned to be the 2-of-3 owner Safe, and a
+    ///      Safe is not a cheap recipient: it emits `SafeReceived`, and a
+    ///      measured plain send to a 1.4.1 Safe on chain 46630 used 29,944 gas,
+    ///      roughly 8,900 of it inside the Safe.  Every other test here points
+    ///      the fee at `makeAddr(...)`, a bare EOA that would be payable even
+    ///      through a 2300-gas `transfer()`, so none of them can distinguish a
+    ///      chain that forwards all gas from one that forwards a stipend.
+    ///
+    ///      That distinction is not ours to choose.  v4-core's
+    ///      `CurrencyLibrary.transfer` sends native value with
+    ///      `call(gas(), to, amount, 0, 0, 0, 0)`, forwarding everything left.
+    ///      A Safe works as the fee recipient BECAUSE of that line, not by
+    ///      margin — swap it for a stipend and this test is the one that
+    ///      notices, which matters because `platformFeeRecipient` is immutable
+    ///      on both the factory and the hook implementation.  Getting it wrong
+    ///      is a factory redeploy and a migration of every pool.
+    function test_buyTax_paysAPlatformTreasuryThatCostsRealGasToPay() public {
+        vm.etch(platformTreasury, address(new SafeCostReceiver()).code);
+
+        (, ToshLaunchpadHook hook) = _launchProject("SafeCost", "SFC", alice, address(0));
+
+        uint256 ethIn = 1 ether;
+        uint256 platformBefore = platformTreasury.balance;
+
+        _swapBuy(hook, trader, ethIn);
+
+        assertEq(
+            platformTreasury.balance - platformBefore,
+            (ethIn * 30) / 10_000,
+            "a Safe-shaped recipient must be paid the same 0.3% as an EOA"
+        );
+
+        // State the margin rather than implying it: this recipient really does
+        // cost more than a stipend would have carried, so the assertion above
+        // is evidence about gas forwarding and not just about arithmetic.
+        uint256 gasBefore = gasleft();
+        (bool ok,) = platformTreasury.call{value: 1 wei}("");
+        uint256 receiveCost = gasBefore - gasleft();
+        assertTrue(ok, "recipient must accept a plain send");
+        assertGt(receiveCost, 2300, "recipient must be dearer than a transfer() stipend, or this test proves nothing");
+    }
+
+    /// @dev And the other edge of the same knife: a fee recipient that REVERTS
+    ///      takes every buy on every pool down with it.
+    ///
+    ///      This is asserted rather than merely warned about in a comment, so
+    ///      that nobody later "hardens" the fee payment into a try/catch and
+    ///      quietly converts a loud, immediate, total failure into silent fee
+    ///      loss.  The loudness is the safer behaviour here: the address is
+    ///      immutable, so a swallowed error would mean bleeding 0.3% of every
+    ///      buy into a reverting contract forever with nothing to show for it.
+    ///
+    ///      v4-core bubbles the failure up as `NativeTransferFailed`, wrapped
+    ///      by the router, hence the untyped `expectRevert`.
+    ///      Not written with `_swapBuy`, and the reason is a trap worth naming:
+    ///      that helper passes `hook.getPoolKey()` as an argument, so the pool
+    ///      key is fetched by an external call that Solidity evaluates BEFORE
+    ///      the swap. `expectRevert` would bind to that getter, watch it return
+    ///      a pool key perfectly happily, and report "next call did not revert"
+    ///      — a failure that looks exactly like the protocol being fine. The
+    ///      key is read up front so the next call really is the swap.
+    function test_buyTax_revertingPlatformTreasuryBricksEveryBuy() public {
+        vm.etch(platformTreasury, address(new RevertingReceiver()).code);
+
+        (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
+        PoolKey memory key = hook.getPoolKey();
+
+        uint256 ethIn = 1 ether;
+        vm.prank(trader);
+        vm.expectRevert();
+        swapRouter.swap{value: ethIn}(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+    }
+
     /// @dev Sell leg: the FULL 1.0% of the INPUT TOKENS is burned in place, and
     ///      is NOT split.  No ETH moves and the platform is paid nothing.
     ///
@@ -3021,6 +3105,34 @@ contract ToshV5Test is Test {
 ///         A round trip measured that way looks profitable no matter what the
 ///         protocol does.  Routing the calls through a real contract removes
 ///         the ambiguity entirely.
+/// @notice A recipient that costs real gas to pay, standing in for a Gnosis
+///         Safe as `PLATFORM_TREASURY`.
+///
+/// @dev    A Safe's `receive()` emits `SafeReceived`; measured on 46630, a
+///         plain send to a 1.4.1 Safe cost 29,944 gas total. The exact figure
+///         is not what matters and is not reproduced here — what matters is
+///         being decisively above the 2300-gas stipend, which the storage write
+///         guarantees. `receive` is `payable` and does not revert, which is the
+///         other half of what production's recipient must satisfy.
+contract SafeCostReceiver {
+    event Got(address indexed from, uint256 amount);
+
+    uint256 public total;
+
+    receive() external payable {
+        total += msg.value;
+        emit Got(msg.sender, msg.value);
+    }
+}
+
+/// @notice A recipient that refuses ETH, to pin down what that costs the
+///         protocol. See `test_buyTax_revertingPlatformTreasuryBricksEveryBuy`.
+contract RevertingReceiver {
+    receive() external payable {
+        revert("I will not take your money");
+    }
+}
+
 contract FreeRider {
     receive() external payable {}
 

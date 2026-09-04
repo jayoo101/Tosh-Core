@@ -65,3 +65,7 @@ Thumbs.db
 .vscode/
 
 scripts/.drill-state.json
+
+# Real Safe signer addresses + their proof-of-control signatures (PM-D4).
+# Template is safe-owners.example.json.
+safe-owners.json

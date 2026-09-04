@@ -1,0 +1,40 @@
+{
+  "_readme": [
+    "Copy to safe-owners.json (gitignored) and fill in. Input to the three PM-D4",
+    "scripts, in order: verifySignerCandidates.mjs, createOwnerSafe.mjs,",
+    "verifyOwnerSafe.mjs.",
+    "",
+    "Send each candidate docs/SIGNER_BRIEF.md and the `message` below, verbatim.",
+    "They sign it with their wallet's 'Sign message' (EIP-191) — not a",
+    "transaction, no gas, cannot move anything — and send back only the address",
+    "and the signature.",
+    "",
+    "NEVER put a private key or seed phrase in this file. The scripts refuse to",
+    "run if they find one, and rightly: a signer key that has been transmitted is",
+    "no longer a signer key. Nobody entitled to ask you for one will ask.",
+    "",
+    "The message is signed by all three and includes the purpose and a date, so a",
+    "signature they produced for something else cannot be replayed into this role.",
+    "Change the date to the day you actually collect them."
+  ],
+
+  "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04.",
+
+  "signers": [
+    {
+      "name": "you (fresh hardware key — NOT the deployer EOA)",
+      "address": "0x0000000000000000000000000000000000000000",
+      "signature": "0x"
+    },
+    {
+      "name": "signer 2",
+      "address": "0x0000000000000000000000000000000000000000",
+      "signature": "0x"
+    },
+    {
+      "name": "signer 3",
+      "address": "0x0000000000000000000000000000000000000000",
+      "signature": "0x"
+    }
+  ]
+}

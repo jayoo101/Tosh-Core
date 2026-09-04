@@ -1,0 +1,221 @@
+#!/usr/bin/env node
+/*
+ * verifyOwnerSafe.mjs
+ * ───────────────────
+ * Step three of PM-D4: check the Safe you just created is the Safe you meant,
+ * and that it satisfies every precondition `DeployMainnet.s.sol` will assert —
+ * now, rather than at the moment of the mainnet broadcast.
+ *
+ * That timing is the point. The deploy script's `requireDistinctRoles` reverts
+ * on a role collision, which is the correct behaviour and a terrible time to
+ * learn about it: C1 is a single broadcast that deploys the factory, the hook
+ * implementation and the treasury and stages both ownership transfers. Finding
+ * out there that PLATFORM_TREASURY equals the PoG signer means unpicking a
+ * half-done launch under time pressure.
+ *
+ * The last check is the one that cannot be undone later. Per the decision to
+ * let the owner Safe also be PLATFORM_TREASURY, this address will receive
+ * 0.30 % of the ETH input of every buy on every pool, forever, and it is
+ * IMMUTABLE — baked into both the factory and the hook implementation's
+ * `platformFeeRecipient`. Rotating it is a factory redeploy and a migration of
+ * every pool. It is also paid on a path that is not fault-isolated: v4-core's
+ * `CurrencyLibrary.transfer` bubbles a failed native send up as
+ * `NativeTransferFailed`, so a recipient that reverts on receive does not lose
+ * one fee — it bricks every buy on every pool.
+ *
+ * Usage:  node scripts/verifyOwnerSafe.mjs <safe-address> [safe-owners.json]
+ */
+
+import fs from 'node:fs'
+import { ethers } from 'ethers'
+import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
+
+const MAINNET_ID = 4663n
+const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+const TX_SERVICE = 'https://api.safe.global/tx-service/robinhood/api/v1'
+
+// keccak256("fallback_manager.handler.address")
+const FALLBACK_SLOT = '0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5'
+
+const SAFE_ABI = [
+  'function getOwners() view returns (address[])',
+  'function getThreshold() view returns (uint256)',
+  'function VERSION() view returns (string)',
+  'function nonce() view returns (uint256)',
+]
+
+const safeAddr = process.argv[2]
+const file = process.argv[3] || 'safe-owners.json'
+if (!safeAddr || !ethers.isAddress(safeAddr)) {
+  console.error('usage: node scripts/verifyOwnerSafe.mjs <safe-address> [safe-owners.json]')
+  process.exit(1)
+}
+
+const ROLES = ['PRIVATE_KEY', 'POG_SIGNER_ADDRESS']
+const roleEnv = loadRoleEnv(ROLES)
+console.log('roles being checked against:')
+reportRoleEnv(ROLES, roleEnv)
+
+const provider = new ethers.JsonRpcProvider(RPC)
+const net = await provider.getNetwork()
+const problems = []
+const notes = roleEnv.missing.map(k =>
+  `${k} was unset, so the collision check against that role did not run. `
+  + 'DeployMainnet.s.sol asserts it at C1 regardless.')
+
+if (net.chainId !== MAINNET_ID) {
+  console.error(`✗ connected to chain ${net.chainId}, expected ${MAINNET_ID}.`)
+  process.exit(1)
+}
+
+const safe = new ethers.Contract(ethers.getAddress(safeAddr), SAFE_ABI, provider)
+
+// ── 1. It exists and is a Safe ────────────────────────────────────────────────
+if ((await provider.getCode(safeAddr)) === '0x') {
+  console.error(`✗ no code at ${safeAddr} on chain ${net.chainId}.`)
+  process.exit(1)
+}
+
+const owners = (await safe.getOwners()).map(a => ethers.getAddress(a))
+const threshold = await safe.getThreshold()
+const version = await safe.VERSION()
+const nonce = await safe.nonce()
+
+console.log(`safe        ${ethers.getAddress(safeAddr)}`)
+console.log(`version     ${version}`)
+console.log(`threshold   ${threshold} of ${owners.length}`)
+console.log(`nonce       ${nonce}`)
+owners.forEach((o, i) => console.log(`  owner ${i + 1}   ${o}`))
+
+// ── 2. Threshold and owner count ──────────────────────────────────────────────
+if (owners.length !== 3 || threshold !== 2n) {
+  problems.push(`this is ${threshold}-of-${owners.length}, not 2-of-3. §1.1 settled on `
+    + '2-of-3: a lower threshold voids PRD §11 D2, and 2-of-2 means one unreachable '
+    + 'signer freezes the brake, which is the failure the brake exists to prevent.')
+}
+
+// ── 3. Owners match what was agreed ───────────────────────────────────────────
+if (fs.existsSync(file)) {
+  const input = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const expected = (input.signers || [])
+    .filter(s => ethers.isAddress(s.address))
+    .map(s => ethers.getAddress(s.address))
+  const missing = expected.filter(e => !owners.includes(e))
+  const extra = owners.filter(o => !expected.includes(o))
+  if (missing.length) problems.push(`agreed owners absent from the Safe: ${missing.join(', ')}.`)
+  if (extra.length) {
+    problems.push(`the Safe has owners nobody agreed to: ${extra.join(', ')}. Treat this `
+      + 'as a compromised setup, not a typo — an unexpected owner is one signature '
+      + 'toward a 2-of-3 quorum.')
+  }
+  if (!missing.length && !extra.length) console.log('\n  ✓ owner set matches ' + file + ' exactly')
+} else {
+  notes.push(`${file} not found, so the owner set was not cross-checked against what `
+    + 'was agreed — only against itself.')
+}
+
+// ── 4. Fallback handler ───────────────────────────────────────────────────────
+const handler = ethers.getAddress('0x' + (await provider.getStorage(safeAddr, FALLBACK_SLOT)).slice(26))
+console.log(`  fallback  ${handler}`)
+if (handler === ethers.ZeroAddress) {
+  problems.push('no fallback handler set. Without CompatibilityFallbackHandler the Safe '
+    + 'cannot answer the EIP-1271 and message-hash queries that tooling and the '
+    + 'transaction service rely on.')
+}
+
+// ── 5. The transaction service can see it ─────────────────────────────────────
+//
+// A Safe deployed against the plain singleton instead of SafeL2 works perfectly
+// on chain and is invisible here, because the L2 variant is what emits the
+// events the indexer consumes. That combination is the dangerous one: it owns
+// the factory while nobody can drive it from the interface the playbook names.
+try {
+  const res = await fetch(`${TX_SERVICE}/safes/${ethers.getAddress(safeAddr)}/`)
+  if (res.ok) {
+    const j = await res.json()
+    console.log(`\n  tx service  indexed, version ${j.version}, threshold ${j.threshold}, ${j.owners?.length} owners`)
+    if (!String(j.version).includes('L2')) {
+      problems.push(`the service reports version "${j.version}" with no L2 marker. Chain `
+        + `${MAINNET_ID} is l2:true in Safe's config, so this was likely deployed `
+        + 'against the plain singleton and will not stay indexed.')
+    }
+  } else if (res.status === 404) {
+    problems.push('the transaction service does not know this Safe (404). Either it was '
+      + 'not deployed with SafeL2, or indexing has not caught up — re-run in a minute '
+      + 'before concluding.')
+  } else {
+    notes.push(`transaction service returned ${res.status}; could not confirm indexing.`)
+  }
+} catch (err) {
+  notes.push(`could not reach the transaction service (${err.message}).`)
+}
+
+// ── 6. Role separation, as DeployMainnet will assert it ───────────────────────
+const roles = []
+if (process.env.PRIVATE_KEY) roles.push(['deployer EOA', new ethers.Wallet(process.env.PRIVATE_KEY).address])
+if (process.env.POG_SIGNER_ADDRESS && ethers.isAddress(process.env.POG_SIGNER_ADDRESS)) {
+  roles.push(['PoG signer', ethers.getAddress(process.env.POG_SIGNER_ADDRESS)])
+}
+console.log()
+for (const [name, addr] of roles) {
+  const asSafe = ethers.getAddress(addr) === ethers.getAddress(safeAddr)
+  const asOwner = owners.includes(ethers.getAddress(addr))
+  console.log(`  vs ${name.padEnd(12)} ${addr}  ${asSafe ? '✗ IS the Safe' : asOwner ? '✗ is an owner' : '✓ distinct'}`)
+  if (asSafe) {
+    problems.push(`${name} equals the Safe address. DeployMainnet's requireDistinctRoles `
+      + 'reverts on this, and it would revert mid-broadcast.')
+  }
+  if (asOwner && name === 'deployer EOA') {
+    problems.push('the deployer EOA is one of the three owners. Its key is plaintext in '
+      + '.env and PM-D1 replaces it at C1, so that owner slot is not worth what the '
+      + '2-of-3 implies.')
+  }
+  if (asOwner && name === 'PoG signer') {
+    problems.push('the PoG signer is one of the three owners, and its key is online by design.')
+  }
+}
+
+// ── 7. It accepts plain ETH — the irreversible PLATFORM_TREASURY property ─────
+//
+// Measured, not assumed. A Safe's receive() emits SafeReceived, which costs far
+// more than the 2300-gas stipend a bare `transfer()` would forward: on 46630 a
+// plain send to a 1.4.1 Safe used 29,944 gas total, roughly 8,900 of it inside
+// the Safe. We are safe only because v4-core sends with `call(gas(), ...)` and
+// forwards everything. That is a real dependency on a vendored library, so it
+// is worth restating wherever this address is checked.
+try {
+  const gas = await provider.estimateGas({
+    to: ethers.getAddress(safeAddr),
+    value: 1n,
+    from: roles[0]?.[1] ?? owners[0],
+  })
+  console.log(`\n  plain ETH   accepted, ~${gas} gas — well over the 2300 a bare transfer()`)
+  console.log('              would forward. v4-core uses call(gas(), …), so this is fine;')
+  console.log('              it is fine BECAUSE of that, not by margin.')
+  if (gas > 100000n) {
+    problems.push(`receiving ETH costs ${gas} gas, which is high enough to be worth `
+      + 'understanding before making this the permanent fee recipient.')
+  }
+} catch (err) {
+  problems.push('a plain ETH transfer to this address does not even estimate '
+    + `(${err.message}). As PLATFORM_TREASURY it would revert every buy on every pool, `
+    + 'and the address is immutable once the factory is deployed. Do NOT use it as '
+    + 'PLATFORM_TREASURY.')
+}
+
+// ── Verdict ───────────────────────────────────────────────────────────────────
+console.log()
+for (const n of notes) console.log('  ⚠ ' + n)
+if (problems.length) {
+  console.error('\n✗ NOT ready to put in .env.production:\n')
+  for (const p of problems) console.error('  · ' + p)
+  process.exit(1)
+}
+
+console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, accepts ETH.')
+console.log('\n  Safe to set BOTH of these in .env.production:')
+console.log(`    PROD_OWNER_SAFE=${ethers.getAddress(safeAddr)}`)
+console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)
+console.log('\n  Remaining for D4: fill INCIDENT_RESPONSE.md §1 with all three signers,')
+console.log('  and re-run the §8.2 Q1 drill on 46630 with one of the new signers taking')
+console.log('  part — that is the third Q1 criterion, and the only one still unmet.')
