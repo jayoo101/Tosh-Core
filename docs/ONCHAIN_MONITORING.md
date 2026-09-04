@@ -16,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | 🟡 **built and rehearsed on testnet, not scheduled** (§7.1, §7.2) |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **scheduled and delivering on testnet 46630** (§7.3). Two things keep it from ✅: it is pointed at testnet until C1, and its sink is GitHub Issues, which is a monitor and not a pager |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -378,6 +378,62 @@ carries all of `0x20CC`. Each produced an empty watch list and no error.
 
 ---
 
+### 7.3 The host and the sink — and what they are not
+
+`.github/workflows/watch.yml` runs the watcher on a schedule and
+`monitoring/report.mjs` files paging findings as GitHub Issues. Both were driven
+end to end against 46630 on 2026-09-04, not just written:
+
+- A cold start with no checkpoint scanned a **bounded** 5,000 blocks and said in
+  the log which window it was therefore *not* scanning.
+- A deliberate 900,000-block sweep produced 17 findings, 11 paging — the same
+  count §7.2 recorded — and filed 11 correctly labelled issues.
+- Re-sweeping the identical window **suppressed all 11 and filed nothing**.
+- A resumed pass picked up from the persisted checkpoint, scanned only new
+  blocks, and advanced it (112,827,090 → 112,827,580).
+
+**The checkpoint lives on an orphan `watcher-state` branch**, because every
+runner is fresh and `monitoring/.watch-state*.json` is gitignored. `test.yml`
+and `frontend.yml` exclude that branch from `on: push`; without the exclusion
+each checkpoint would start a full Foundry build twice an hour.
+
+**Deduplication is keyed on the situation, not the reading.** Event findings key
+on the transaction hash and are filed once. State findings have no transaction
+and are re-evaluated every pass, so they key on the alert id plus the address in
+the message and deliberately ignore the numbers — otherwise STATE-02 would file
+a fresh issue every time the treasury balance moved, and §6's noise budget would
+be spent on the alerts it exists to protect. Nothing auto-closes: a check going
+quiet is equally consistent with the check having broken.
+
+> **This is a monitor. It is not a pager, and it must not be described as one.**
+>
+> GitHub's scheduled workflows are explicitly best-effort. Delays of tens of
+> minutes are routine when the shared pool is busy, and runs are dropped
+> outright under load — the cron here is offset to `:07,:37` rather than the
+> hour for that reason, which reduces contention and guarantees nothing. So the
+> **15-minute detection criterion in `INCIDENT_RESPONSE.md` §8 Q4 is not met by
+> this host**, and Q4 must not be marked passed on the strength of it.
+>
+> Two silent failure modes come with the platform. Scheduled workflows are
+> **disabled automatically after 60 days without repository activity** — the
+> monitor stops and nothing announces it, because the thing that would announce
+> it is the monitor. And an issue is not a notification unless someone has
+> repository notifications on and reads them out of hours; a P0 filed at 03:00
+> into an inbox nobody watches has been detected and not reported.
+>
+> Closing that last gap needs a channel that pushes, which is the same missing
+> piece as the contact column in `INCIDENT_RESPONSE.md` §1. Until then the
+> honest claim is: **the protocol will notice, and will write it down.**
+
+**Cost, measured rather than assumed.** Each pass takes 19–30 s of wall time and
+GitHub bills a whole minute per run. At the current `:07,:37` cadence that is 48
+runs/day ≈ **1,440 min/month**, against `test.yml` at 4.4 min and
+`frontend.yml` at 2.4 min per push. On a private repository those come out of
+the same allowance, so the cadence is a budget decision as much as a detection
+one: hourly is ≈720 min/month, every 15 minutes ≈2,880.
+
+---
+
 ## 8. Definition of done for PM-E2
 
 - [x] Provider chosen and the 24 alerts imported from `monitoring/alerts.json`
@@ -389,21 +445,40 @@ carries all of `0x20CC`. Each produced an empty watch list and no error.
       never given, through the address-less topic filter (method 1); the same
       address was harvested from `LaunchCreated`'s `topics[3]` into the watch
       list (method 2) so the state checks have something to call.
-- [~] All 7 `stateChecks` scheduled and firing, STATE-06 included — it is the
-      only one needing a window rather than a reading (§7). **Implemented and
-      exercised, not yet scheduled**: STATE-01/03/04/05/07 were run against the
-      live testnet, and 02/03/04/06 were each driven to fire (§7.2). Scheduling
-      waits on a host, which is deferred to C1.
+- [x] All 7 `stateChecks` scheduled and firing, STATE-06 included — it is the
+      only one needing a window rather than a reading (§7). STATE-01/03/04/05/07
+      were run against the live testnet and 02/03/04/06 were each driven to fire
+      (§7.2); `.github/workflows/watch.yml` now runs the lot on a schedule with
+      a durable checkpoint (§7.3). **Scheduled against 46630. It must be
+      re-pointed at 4663 at C1** — change the `MONITOR_*` repository variables
+      and the `MONITOR_RPC` secret, nothing in the code.
+- [x] A checkpoint that survives the cutover. `lastBlock` recorded no chain, so
+      re-pointing at mainnet would have made `from` a testnet height above the
+      mainnet head, and the "no new blocks" branch would have exited 0 on every
+      cycle — a green run monitoring nothing, starting the day real money went
+      live. WATCHER-03 now discards a checkpoint whose chain id differs, and
+      also one that is simply ahead of the head, since the file already on disk
+      has no chain id to compare.
 - [ ] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce
       (PM-C8 / `SECURITY_AUDIT.md` §2.3). Listing a token before this is
-      scheduled means running that window unobserved.
-- [ ] P0 routes to a pager that has been tested with a synthetic event
-- [ ] The 22 `mustNotPage` events confirmed not paging
+      scheduled means running that window unobserved. Scheduled on testnet; this
+      box closes when the same schedule points at 4663.
+- [ ] P0 routes to a pager that has been tested with a synthetic event.
+      **Deliberately still open.** Delivery exists and was tested with real
+      findings, but it delivers to GitHub Issues, and §7.3 sets out why that is
+      a monitor and not a pager: best-effort scheduling, silent disablement
+      after 60 idle days, and an issue nobody is notified of at 03:00. Marking
+      this done because something now arrives somewhere is precisely the
+      substitution this list exists to prevent.
+- [x] The 22 `mustNotPage` events confirmed not paging — the 900k-block sweep
+      produced 17 findings of which 11 paged, and `report.mjs` filed exactly the
+      11. The non-paging six reached the run summary and nothing else.
 - [ ] Correlation rule in §3.1 written into the on-call runbook
 - [ ] `INCIDENT_RESPONSE.md` §8 Q4 drill re-scheduled now that its detection
-      dependency exists
+      dependency exists — note Q4's criterion names a 15-minute detection, which
+      §7.3 explains this host does not guarantee
 
 The second box is the one that gets skipped and the one that matters: an
 untested hook subscription is the failure in §2.1, and it presents as silence.

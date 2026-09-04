@@ -792,10 +792,17 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 > alert, and there will not be one: on-chain alerting is **PM-E2** in
 > `docs/PRE_MAINNET_CHECKLIST.md`, and it is served by `monitoring/watch.mjs`
 > against the chain's own RPC rather than by a vendor
-> (`ONCHAIN_MONITORING.md` §7.1). Detection is therefore built and rehearsed —
-> but nothing schedules it and no P0 has anywhere to land, so an alert still
-> cannot reach a human unattended. Rewrite Q4's criterion to name the watcher,
-> and run it only once that watcher has a host and a sink. The
+> (`ONCHAIN_MONITORING.md` §7.1). Detection is built, rehearsed, **and since
+> 2026-09-04 scheduled**: `.github/workflows/watch.yml` runs it twice an hour
+> and files paging findings as deduplicated GitHub Issues (§7.3). So rewrite
+> Q4's criterion to name the watcher rather than Defender.
+>
+> **But do not simply mark Q4 runnable.** Its criterion is detection within 15
+> minutes, and that host cannot promise it: GitHub's scheduled runs are
+> best-effort and routinely late, and an issue filed at 03:00 wakes nobody. The
+> schedule also points at 46630 until C1. Q4 as written needs either a pager, or
+> a criterion honestly rewritten to "detected and recorded", with the reporting
+> half measured separately. The
 > frontend error
 > monitoring that *was* wired (Sentry, PM-E1) reports browser and API-route
 > errors — it sees nothing on chain, and a forged-attestation attempt that
