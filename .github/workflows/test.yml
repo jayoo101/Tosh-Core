@@ -379,6 +379,37 @@ jobs:
       - name: Check the narrowing-cast triage matches forge lint
         run: node scripts/checkLintFindings.mjs
 
+      # SECURITY_AUDIT §5.7 is the same artefact as §2.5, three times the size:
+      # 71 Slither findings, each with a written disposition, all maintained by
+      # hand. Running the tool on 2026-09-04 found both failure modes at once.
+      #
+      # The table had never summed to its own stated total — its rows came to
+      # 68 against a prose figure of 70, because `low-level-calls` had no row
+      # at all while the impact split counted it. And the run had moved: the
+      # dark tax added `_skimInputTax`, which Slither reads as three more
+      # `reentrancy-events`, so a new function on the money path went into the
+      # audit package with nothing said about it.
+      #
+      # The second is the one worth a CI minute. "Every finding has been looked
+      # at" is the only claim that section makes, and it expires on the next
+      # commit unless something re-checks it.
+      #
+      # Keyed by (detector, file, enclosing scope), so code motion is invisible
+      # and a finding appearing or vanishing is not. It also fails when a
+      # detector fires with NO row naming it, which is the check that would
+      # have caught low-level-calls — a table can be internally consistent and
+      # still omit a whole detector.
+      #
+      # Slither must be pinned: detector counts move between releases, so a
+      # baseline against an unstated version means nothing. The version here
+      # and the constant in the script have to change together. ~15 s to run
+      # against this tree; the pip install dominates.
+      - name: Install Slither
+        run: pip install slither-analyzer==0.11.6
+
+      - name: Check the Slither triage matches a real run
+        run: node scripts/checkSlitherFindings.mjs
+
       # `scripts/` carries its own package.json. Two steps below need what it
       # installs — the typecheck, and the drill-page guard, which talks to
       # 46630 through ethers. Hoisted into its own step so that dependency is

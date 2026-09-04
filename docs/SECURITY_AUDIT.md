@@ -755,10 +755,19 @@ telling us things CI could have:
       how. Five mutations verified: a new cast, a cast removed, two-on-one-line
       becoming one, and a contradicting count each fail the build; pure line
       drift does not.
-- [x] Slither run, output triaged into this document — 70 findings across 65
-      contracts, every one dispositioned in §5.7. No code changed as a result;
-      the findings that needed real verification are recorded with the
-      reasoning rather than waved off, and the single High is noise.
+- [x] Slither run, output triaged into this document, and now a CI gate — 71
+      findings across 66 contracts, every one dispositioned in §5.7. No code
+      changed as a result; the findings that needed real verification are
+      recorded with the reasoning rather than waved off, and the single High is
+      noise.
+      The gate is `scripts/checkSlitherFindings.mjs` against
+      `slither-baseline.json`, Slither pinned to 0.11.6. Added on 2026-09-04
+      because re-running the tool showed the section had gone stale in both
+      available directions at once: the dark tax had added three
+      `reentrancy-events` nobody had triaged, and the table had never summed to
+      its own total because a detector was missing a row. Six mutations
+      verified, including a detector losing its row and a new finding appearing
+      in `src/`; pure line drift does not fail.
 - [x] Frontend artifacts in sync (`scripts/extractAbis.js` produces no
         diff) — CI gate.
 - [x] Frontend behaviour tests — 50 across five suites, covering the server
@@ -1212,17 +1221,39 @@ slither . --filter-paths "lib/|test/|script/" --json slither.json
 node scripts/slitherTriage.mjs --full
 ```
 
-65 contracts, 102 detectors, **70 findings**. The JSON is ~8 MB and gitignored;
+66 contracts, 102 detectors, **71 findings**. The JSON is ~8.6 MB and gitignored;
 regenerate it with the command above. `scripts/slitherTriage.mjs` groups a run
 by impact and detector, which is the form worth re-reading: on a later run the
 signal is a count that moved, not the seventeenth `timestamp` note.
 
-**Re-run 2026-08-27**, after `PIGGYBACK_MIN_GAS` changed and
-`_nextSpendAmount` became `virtual` (`ROBINHOOD_MIGRATION.md` §F.7). Identical:
-70 findings, 1 high / 24 medium / 26 low / 19 informational, same detectors at
-the same counts. Neither edit introduced a pattern Slither reacts to, which is
-the expected result for a constant and a keyword and is recorded only so the
-next re-run has a dated baseline to move against.
+**Re-run 2026-08-27**, after `PIGGYBACK_MIN_GAS` changed and `_nextSpendAmount`
+became `virtual` (`ROBINHOOD_MIGRATION.md` §F.7). Identical to the run before
+it — the expected result for a constant and a keyword, recorded only so the
+next re-run had a dated baseline to move against.
+
+**Re-run 2026-09-04, and it had moved.** 71 findings, 1 high / 24 medium /
+27 low / 19 informational, across 66 contracts. Two defects surfaced, and only
+one of them is about the code:
+
+- **The dark tax went in untriaged.** `_skimInputTax` landed after the
+  2026-08-27 run, and Slither reads it as three `reentrancy-events`. Nobody
+  re-ran, so a new function on the money path sat in the audit package with
+  nothing said about it. The claim this section exists to make is "every
+  finding has been looked at", and that claim expires on the next commit unless
+  something re-checks it. Dispositioned below.
+- **The table never summed to its own total.** Its rows came to 68 against a
+  prose figure of 70, because `low-level-calls` had no row at all. The impact
+  split counted those two findings, the table did not, and nothing compared the
+  three summaries of one run against each other. Also below.
+
+Both are now held by `scripts/checkSlitherFindings.mjs`, a CI gate against
+`slither-baseline.json`. It keys each finding by (detector, file, enclosing
+scope) rather than by line, so code motion is invisible to it, and it fails if
+a row below disagrees with the run, if the prose totals disagree, or — the
+check that would have caught `low-level-calls` — if any detector fires without
+some row naming it. Slither is pinned to 0.11.6 there and here, because
+detector counts move between releases and a baseline against an unstated
+version means nothing.
 
 **Nothing here changed the code.** That is a claim worth being suspicious of,
 so the findings that could plausibly have been real are written up with the
@@ -1238,10 +1269,11 @@ to Slither is stated rather than assumed.
 | `uninitialized-local` | Medium | 6 | Accepted — loop accumulators (`filled`, `cost`, `sold`, `legs`) whose intended initial value is zero. An explicit `= 0` costs gas and says nothing. |
 | `divide-before-multiply` | Medium | 2 | Reviewed against real magnitudes, bounded, not changed. Below. |
 | `timestamp` | Low | 17 | Already inventoried in §2.4 — the genesis clock and the TWAP window, both intentionally wall-clock. |
-| `reentrancy-events` / `reentrancy-benign` | Low | 7 | Accepted — event ordering only; no state a caller can observe or act on. |
+| `reentrancy-events` / `reentrancy-benign` | Low | 8 | Accepted — event ordering only; no state a caller can observe or act on. Three of the eight are the dark tax and are new since 2026-08-27. Below. |
 | `calls-loop` | Low | 2 | Accepted — the piggyback loop is bounded by `LEGS_PER_POKE` and every leg is `try/catch` fault-isolated. |
 | `assembly` | Info | 9 | Expected — transient-storage mutex, hook-address bit checks, clone initcode. |
 | `missing-inheritance` | Info | 3 | Accepted — the three interfaces are consumed cross-contract; declaring inheritance adds a vtable for nothing. |
+| `low-level-calls` | Info | 2 | Accepted — the two identical `_sendEth` helpers. Deliberate, and the alternative is worse. Below. |
 | `naming-convention`, `too-many-digits`, `cyclomatic-complexity` | Info | 5 | Style. `_PIGGYBACK_SLOT`'s literal is a namespaced transient slot, meant to be unreadable as a number. |
 
 **`weak-prng` (High) is the detector firing on a `%` inside a condition.**
@@ -1301,6 +1333,54 @@ reasons.** Worth spelling out, because the reason Slither misses them differs:
   identifies as the dangerous one. Reaching it needs a ladder entry whose pool
   re-enters the treasury directly, which is not constructible from the current
   fixtures.
+
+**The three new `reentrancy-events` are the dark tax, and they are log
+ordering.** All three are in `ToshLaunchpadHook._skimInputTax`, and all three
+say the same thing: a `poolManager.take` precedes the event that reports it.
+
+| Recipient of the `take` | Event emitted after |
+|---|---|
+| `ladderTreasury`, currency0 | `BuyTaxToTreasury` |
+| `platformFeeRecipient`, currency0 | `PlatformSwapFeePaid` |
+| `DEAD_ADDRESS`, currency1 | `SellTaxBurned` |
+
+The events are telemetry. Nothing on chain reads them, and no state is written
+after the calls, so re-entering reorders logs and does nothing else — the same
+disposition the other five in this cluster carry.
+
+What deserves an auditor's time at this site is not the log ordering, and §2.4
+already names it: `platformFeeRecipient` is paid by a raw `take` on a path with
+no `try`/`catch`, so a recipient that reverts on receipt bricks every buy on
+every pool. Slither does not report that. It is why PM-C9 exists, and why
+`test/ToshV5.t.sol` now pins both ends of it — a Safe-style recipient costs
+29,944 gas and passes, a reverting recipient fails the buy.
+
+**`low-level-calls` — the two `_sendEth` helpers, deliberate.**
+
+```solidity
+function _sendEth(address to, uint256 amount) internal {
+    (bool ok,) = payable(to).call{value: amount}("");
+    if (!ok) revert EthTransferFailed();
+}
+```
+
+Byte-identical in `ToshFactory` and `ToshLaunchpadHook`. Eight call sites
+between them — refunds, referral claims, change, and fee routing — spread over
+five functions (`refund`, `launch`, `claimReferralReward`, `mintBondingCurve`,
+`createLaunch`), every one of them `nonReentrant`.
+
+The detector fires on the `.call` itself, and both alternatives it implies are
+worse here: `transfer` and `send` cap the callee at 2 300 gas, which this
+repository has measured as too little for a Safe-style recipient. Using either
+would mean the platform treasury could not be a Safe, which is the arrangement
+PM-C9 settled on.
+
+Two things the detector cannot see. The boolean **is** checked, and reverts
+with `EthTransferFailed`. The return data is dropped on purpose: there is
+nothing to interpret, and bubbling it would let a hostile recipient choose this
+contract's revert reason. What remains is that the call forwards all remaining
+gas, and that exposure is held by the `nonReentrant` above rather than by
+anything at this line.
 
 **`divide-before-multiply` in `launch()` — reviewed against real magnitudes,
 deliberately left alone.**

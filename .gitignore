@@ -45,6 +45,14 @@ next-env.d.ts
 # recorded there.
 slither.json
 slither-run.txt
+# Ad-hoc dumps under other names. Two of these — 12.5 MB and 9 MB — were
+# sitting untracked while §5.7 claimed the raw JSON was ignored, i.e. one
+# `git add .` from a 21 MB commit.
+.slither-*.json
+slither-*.log
+# NOT ignored: slither-baseline.json, the distilled (detector, file, scope)
+# set that scripts/checkSlitherFindings.mjs gates §5.7 against. It is ~20 KB,
+# it is the thing a re-run is compared to, and it has to be in the tree.
 
 # ─── Local scratch ───────────────────────────────────────────────────────────
 # Anvil fork snapshots and one-off scratch files from debugging sessions.

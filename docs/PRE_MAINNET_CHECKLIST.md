@@ -58,7 +58,7 @@ and verification artifact downstream.
 | **PM-A2** | All Critical / High findings resolved | Remediation log in `SECURITY_AUDIT.md` §6 | ❌ |
 | **PM-A3** | Remediation re-review passed | Auditor sign-off in §7 of that doc | ❌ |
 | **PM-A4** | Pre-audit hygiene list complete | `SECURITY_AUDIT.md` §5 all boxes ticked | 🟡 10/11 as of 2026-09-04. The `forge lint` box closed: §2.5 stopped being an inventory handed to the auditor and now disposes of all 19 narrowing casts by what bounds each one, gated in CI by `scripts/checkLintFindings.mjs`. Doing it here rather than buying it found that §2.5 had drifted — a row for a cast the tool no longer reports, and a missing site — while its total still reconciled. The one box left is the branch freeze, which is PM-A1 and not engineering |
-| **PM-A5** | Slither run and output triaged into the dossier | **`SECURITY_AUDIT.md` §5.7**, not §6 — see note | ✅ 70 findings (1H/24M/26L/19I), each dispositioned. Re-run 2026-08-27 after the `PIGGYBACK_MIN_GAS` change: counts unchanged |
+| **PM-A5** | Slither run and output triaged into the dossier | **`SECURITY_AUDIT.md` §5.7**, not §6 — see note | ✅ 71 findings (1H/24M/27L/19I) across 66 contracts, each dispositioned, and gated in CI by `scripts/checkSlitherFindings.mjs` since 2026-09-04. That re-run is why the numbers moved: the dark tax had added three untriaged `reentrancy-events`, and the table had never summed to its own total because `low-level-calls` had no row. A triage is only true as of a commit, so it is now re-checked on every push |
 
 > `SECURITY_AUDIT.md` §0 is the authority for A1–A3. Do not duplicate its state
 > here; check these boxes only when that table is green.
