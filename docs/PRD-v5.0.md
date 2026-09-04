@@ -1583,8 +1583,8 @@ encodeBurnPayload({
 | 同区块锁 + 105% 门控 | `test_tierMintAntiSpikeAndCeiling` | `:967` |
 | TWAP 击败单区块拉盘 | `test_tierMint_twapDefeatsASingleBlockPump` | `:1006` |
 | 开盘窗口参考价封顶 p0 | `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` | `:899` |
-| 买入侧税 1% 拆分为储备池 0.7% + 平台 0.3% | `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform` | `:1482` |
-| 卖出侧税全额 1% 就地销毁，不拆分 | `test_sellTax_burnsTheFullOnePercentOfTokensInPlace` | `:1506` |
+| 买入侧税 1% 拆分为储备池 0.7% + 平台 0.3% | `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform` | `test/ToshV5.t.sol` |
+| 卖出侧税全额 1% 就地销毁，不拆分 | `test_sellTax_burnsTheFullOnePercentOfTokensInPlace` | `test/ToshV5.t.sol` |
 | 创世 LP 永久锁定 | `test_genesisLiquidityIsPermanentlyLocked` | `:613` |
 | 散户 LP 自由进出且不影响创世 | `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` | `:633` |
 | 顺风车轮转回购 | `test_treasuryPiggybackRoundRobin` | `:1110` |

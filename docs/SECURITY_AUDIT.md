@@ -622,7 +622,11 @@ telling us things CI could have:
       pins.
 - [x] `npm audit` clean at high/critical in `soat-frontend` — fixed 9 → 0, and
       held by the `npm audit --audit-level=high` job in
-      `.github/workflows/frontend.yml`. See §5.1.
+      `.github/workflows/frontend.yml`. See §5.1. Note the one gap in that
+      gate: if npm's audit endpoint is unreachable the step warns and passes
+      rather than failing, so a green run means "no advisories found OR the
+      registry could not be asked". The step prints a `::warning::` in the
+      second case; §5.1 records why it is not fatal.
 
 ### 5.1 Frontend dependency posture
 
@@ -660,6 +664,17 @@ version **within the same major** so nothing takes a breaking bump:
 
 **Result: 9 → 0 advisories.** `npm audit --audit-level=high` now runs as its own
 CI job so a regression is a red check, not a discovery.
+
+**2026-09-04 — the gate no longer fails on npm's outages.** The job went red
+because npmjs.org answered the audit endpoint with 503, which says nothing
+about this tree. `npm audit` exits non-zero for both "found advisories" and
+"could not look", and only the first is ours; a gate that goes red on someone
+else's downtime is one people re-run without reading, which is how a real
+regression would slip past it. The step now separates the two: findings stay
+fatal, an unreachable registry emits a `::warning::` and passes. The cost is
+stated plainly — a green run means "no advisories found OR the registry could
+not be asked", so a run whose annotations carry that warning has not actually
+checked anything.
 
 > **Caveat worth stating.** `next` vendors some dependencies inside its own
 > published tarball (`next/dist/compiled/**`). `overrides` cannot reach those,

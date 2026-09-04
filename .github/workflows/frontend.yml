@@ -169,5 +169,29 @@ jobs:
       # held there by the `overrides` block in package.json. The gate exists so
       # that going back to nine is a red check rather than something someone
       # notices by chance months later. See docs/SECURITY_AUDIT.md §5.1.
+      #
+      # `npm audit` exits non-zero for two unrelated reasons: it found
+      # advisories, or it could not reach the registry to look. Only the first
+      # is ours. This step went red on 2026-09-04 because npmjs.org answered
+      # the audit endpoint with 503, and a gate that fails on somebody else's
+      # outage is a gate people learn to re-run without reading -- which is
+      # exactly how the nine advisories this exists to catch would slip past.
+      # Unreachable is a warning; findings stay fatal.
       - name: npm audit (fail on high or critical)
-        run: npm audit --audit-level=high
+        run: |
+          # Actions runs this with `set -e`, so capture the status through an
+          # AND-OR list rather than a bare `$?`, which the -e would act on
+          # before the next line could read it.
+          out=$(npm audit --audit-level=high 2>&1) && code=0 || code=$?
+          printf '%s\n' "$out"
+
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+
+          if printf '%s' "$out" | grep -qE 'audit endpoint returned an error|Service Unavailable|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up'; then
+            echo "::warning::npm's audit endpoint was unreachable, so advisories were NOT checked on this run."
+            exit 0
+          fi
+
+          exit "$code"
