@@ -42,18 +42,36 @@ P2/P3 are handled in-band by ordinary engineering rotation.
 
 ## 1. On-call roster & contacts
 
-> Replace the placeholders below **before** mainnet launch. Keep this section
-> deliberately short — the lookup belongs in 1Password / your team's pager
-> system, not a public repo.
+> Replace the remaining placeholders **before** mainnet launch. Keep this
+> section deliberately short — the contact lookup belongs in 1Password / your
+> team's pager system, not in this repo.
 
-| Role | Primary | Backup |
-|------|---------|--------|
-| Incident commander | `@<oncall-1>` | `@<oncall-2>` |
-| Gnosis Safe signer #1 | `<sig-1>` (`<phone>`) | — |
-| Gnosis Safe signer #2 | `<sig-2>` (`<phone>`) | — |
-| Gnosis Safe signer #3 | `<sig-3>` (`<phone>`) | — |
-| Comms lead | `@<comms>` | `@<comms-backup>` |
-| Legal | `@<legal>` | — |
+The three Safe signers are identified as of 2026-09-04. Each address below is
+one of the three owners of `0x2953957774482efA660921df85A1E7634ccfe27A` (§1.1),
+and each proved control of it by signature before the Safe was created.
+
+| Role | Primary | Address | Reachable on |
+|------|---------|---------|--------------|
+| Incident commander | `@<oncall-1>` | — | `<not yet filled>` |
+| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | **`<not yet filled>`** |
+| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | **`<not yet filled>`** |
+| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | **`<not yet filled>`** |
+| Comms lead | `@<comms>` | — | `<not yet filled>` |
+| Legal | `@<legal>` | — | `<not yet filled>` |
+
+**The "Reachable on" column is the part that is not done, and naming the
+signers did not do it.** This section exists to answer one question under time
+pressure — *how do I get two of these three to sign, right now, at 03:00* — and
+a name does not answer it. §8.2 measured the mechanical path at 5 s against a
+60-second budget, which means essentially the entire budget is spent waking
+people up. A signer who cannot be woken is not a signer; with one unreachable,
+a 2-of-3 Safe is a 2-of-2, and D2's premise in `docs/PRD-v5.0.md` §11 — which
+declines a timelock specifically because a 2/N Safe exists — starts to wobble.
+
+Each row needs a channel that pushes through a silent phone: a phone number, or
+a pager/PagerDuty handle. A chat handle nobody has notifications on is worse
+than blank, because it reads as filled. Until all three carry one, PM-D4 and
+PM-E4 stay partial no matter how complete this table looks.
 
 The pager rotation **must** be reachable around the clock for at least 90 days
 post-launch.
