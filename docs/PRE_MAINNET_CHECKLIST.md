@@ -626,7 +626,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
-| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either `scanGasHistoryForWallet` reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the ceiling | ❌ `route.ts` does `void userAddress; return MOCK_CHAIN_GAS` — see §6.4 |
+| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either `scanGasHistoryForWallet` reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | ❌ `route.ts` does `void userAddress; return MOCK_CHAIN_GAS` — 0.0033 ETH for everyone at the seeded rate, see §6.4 |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
@@ -978,12 +978,18 @@ async function scanGasHistoryForWallet(userAddress: Address): Promise<ChainGasDa
 }
 ```
 
-`MOCK_CHAIN_GAS` is a fixed four-row table summing to 0.033 ETH, which at the
-seeded rate floors at `MAX_ALLOC_ETH_WEI`. So every address that clears the
-gates receives an identical attestation for the on-chain ceiling, and the
+`MOCK_CHAIN_GAS` is a fixed four-row table summing to 0.033 ETH. Through
+`computeMaxAllocWei` at the seeded rate of 0.1 that is `min(0.0033, 0.1)` =
+**0.0033 ETH**, which is 3.30 % of the `MAX_ALLOC_ETH_WEI` ceiling — the ceiling
+is only reached if the rotatable rate is raised past 3.0303. So every address
+that clears the gates receives the same attestation for the same amount, and the
 address it was issued for is discarded before it is used. This is deliberate,
 labelled at the call site as the seam a real indexer drops into, and correct as
 a stub.
+
+The finding is the uniformity, not the size. A flat 0.0033 ETH is not a
+give-away; it is that nothing distinguishes one claimant from another, so the
+only thing rationing genesis supply is how many addresses show up.
 
 **What makes it a checklist item rather than a TODO** is that other documents
 have already spent it. §2.1 of the audit dossier describes the PoG signer as
@@ -999,10 +1005,10 @@ Two ways to close it, and they are genuinely different products:
   untouched, so the work is the data source and its failure modes, not the
   pipeline.
 - **Ship the flat allocation on purpose**, and say so: every eligible address
-  gets the ceiling, first come until `maxPogAllocationLimit` is reached. Then
-  §2.3 and the launch copy have to be rewritten to match, and the global limit
-  becomes the only thing rationing supply, which is a sizing decision in its own
-  right.
+  gets the same 0.0033 ETH, first come until the global limit is reached. Then
+  §2.3 and the launch copy have to be rewritten to match, and headcount becomes
+  the only thing rationing supply — which makes Sybil resistance the whole
+  design, since the marginal cost of a second claim is one fresh address.
 
 Either is defensible. Shipping the mock while the docs describe the first option
 is not, and that is the state this row exists to prevent.
@@ -1085,7 +1091,7 @@ below, in the order it actually blocks.
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
-| **PM-F9** | ❌ | Genesis allocation is computed from a constant table: scanGasHistoryForWallet discards the address and returns MOCK_CHAIN_GAS, so every eligible wallet is attested for the ceiling. Added 2026-09-04 — the row did not exist, while §2.1 of the audit dossier already described the signer as attesting to real gas history. Close it by wiring an indexer or by saying plainly that the allocation is flat. See §6.4. |
+| **PM-F9** | ❌ | Genesis allocation is computed from a constant table: `scanGasHistoryForWallet` discards the address and returns `MOCK_CHAIN_GAS`, so every eligible wallet is attested for the same 0.0033 ETH (3.30 % of the ceiling at the seeded rate) and nothing distinguishes one claimant from another. Added 2026-09-04 — the row did not exist, while §2.1 of the audit dossier already described the signer as attesting to real gas history. Close it by wiring an indexer or by saying plainly that the allocation is flat. See §6.4. |
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem. Gate C is the mainnet

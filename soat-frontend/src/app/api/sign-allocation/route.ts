@@ -50,6 +50,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { fetchPogNonce } from '@/app/lib/onchainNonce'
 import { reportError } from '@/lib/observability'
 import {
+  FACTORY_ADDRESS,
   POG_SCAN_AUTH_DOMAIN,
   POG_SESSION_AUTH_TTL_MS,
   buildPoGScanAuthMessage,
@@ -104,9 +105,36 @@ const RATE_LIMIT_OPTS = {
 // LOCKED PARAMETERS — must match on-chain expectations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Attestation TTL — registerPoG() must land before this hits.  24 h is a
- *  conservative ceiling for human-paced wallet flows. */
-const ATTESTATION_TTL_SEC: number = 24 * 60 * 60
+/** The on-chain ceiling this TTL has to stay under.
+ *  Mirrors `ToshFactory.MAX_SIG_VALIDITY`. */
+const MAX_SIG_VALIDITY_SEC = 24 * 60 * 60
+
+/**
+ * Attestation TTL — `registerPoG()` must land before this hits.
+ *
+ * Deliberately BELOW `MAX_SIG_VALIDITY_SEC`, because the on-chain check is
+ * two-sided and the upper side had no margin at all:
+ *
+ *   if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
+ *
+ * With `deadline = serverNow + MAX_SIG_VALIDITY` the two `MAX_SIG_VALIDITY`
+ * terms cancel and the condition reduces to `serverNow > block.timestamp` —
+ * so an attestation was valid only while this server's clock was at or behind
+ * the timestamp of the block that mines the registration.
+ *
+ * That is not a rare edge. It fails whenever this host's clock runs even one
+ * second fast, and whenever the chain's timestamps lag wall time, which some
+ * sequencers do routinely. And it fails CLOSED and TOTAL: not a slow path or a
+ * degraded one, but `SignatureTooLong` on every registration for as long as the
+ * skew lasts, with an error name that points at the signature's length rather
+ * than at a clock. Nothing in the pipeline would have said which host was
+ * wrong.
+ *
+ * An hour of headroom costs nothing — the window is sized for human-paced
+ * wallet flows, where 23 h and 24 h are the same number — and buys tolerance
+ * for any skew smaller than an hour in the direction that breaks.
+ */
+const ATTESTATION_TTL_SEC: number = MAX_SIG_VALIDITY_SEC - 60 * 60
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROOF-OF-GAS MULTI-CHAIN SCANNER
@@ -198,6 +226,27 @@ export async function POST(req: Request) {
   // ── Field validation ─────────────────────────────────────────────────
   if (!userAddress     || !isAddress(userAddress))     return corsify(req, clientError('Invalid userAddress'))
   if (!contractAddress || !isAddress(contractAddress)) return corsify(req, clientError('Invalid contractAddress'))
+  // Pinned to the configured factory rather than merely well-formed.
+  //
+  // This is the address the oracle signs into the digest's `contract_` field,
+  // and it arrived from the body. It is not exploitable today: `registerPoG`
+  // hashes `address(this)`, so a signature naming anything else simply fails to
+  // recover at the real factory and is worth nothing to whoever asked for it.
+  //
+  // It is pinned because the endpoint was, in effect, a service that would sign
+  // "the Tosh oracle attests that <wallet> may claim <amount> at <any contract
+  // you name>". That is only inert for as long as no second contract trusts
+  // `pogSigner` — and the day one does, the pre-authorisations already exist,
+  // issued long before anyone thought about it. The honest client has always
+  // sent exactly this value (`PogScanButton.tsx`), so pinning it costs nothing
+  // and removes the whole class rather than the current instance.
+  //
+  // Secondary, and the reason this is not merely hypothetical hygiene: the
+  // value was passed straight to `fetchPogNonce`, making every request an
+  // `eth_call` to a caller-chosen address on the server's RPC credentials.
+  if (contractAddress.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) {
+    return corsify(req, clientError('contractAddress is not this deployment\'s factory'))
+  }
   if (typeof chainId !== 'number' || !Number.isInteger(chainId) || chainId <= 0) {
     return corsify(req, clientError('Invalid chainId'))
   }

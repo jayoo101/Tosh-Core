@@ -1635,8 +1635,11 @@ each defect fails a named test (4/4 caught), and the pair of guards on
 
 **Open, and not a code fix.** The same review flagged that
 `scanGasHistoryForWallet` in `api/sign-allocation/route.ts` is `void
-userAddress; return MOCK_CHAIN_GAS` — a constant table, so every address that
-clears the gates receives an identical attestation for the on-chain ceiling.
+userAddress; return MOCK_CHAIN_GAS` — a constant four-row table summing to
+0.033 ETH, so every address that clears the gates receives an identical
+attestation. At the seeded rate of 0.1 that is 0.0033 ETH, 3.30 % of the
+`MAX_ALLOC_ETH_WEI` ceiling; the ceiling is only reached if the rotatable rate
+is raised past 3.0303. The uniformity is the finding, not the magnitude.
 This is deliberate and documented at the call site as the seam for a real
 indexer, but it is a *product* decision with an audit consequence, and it
 appears nowhere in this dossier's trust model: §2.1 describes the PoG signer as
@@ -1646,15 +1649,67 @@ indexer, or state plainly in §2.3 and in user-facing copy that genesis
 allocation is open to all comers up to the global ceiling — and it is tracked as
 such rather than silently inherited.
 
+**Triage of the Medium and Low items.** Three were reported for the paths that
+did run. Each was re-derived from source rather than accepted, and two of the
+three moved severity in the process.
+
+*Zero-margin attestation TTL — confirmed, and the sharpest of the three.*
+`registerPoG` bounds the deadline on both sides:
+
+```solidity
+if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
+if (block.timestamp > deadline)                    revert SignatureExpired();
+```
+
+The route signed `deadline = serverNow + ATTESTATION_TTL_SEC` with
+`ATTESTATION_TTL_SEC` set to 24 h — exactly `MAX_SIG_VALIDITY`. Both ceiling
+terms cancel and the upper check reduces to `serverNow > block.timestamp`, so
+every attestation this deployment issued was valid only while the signing host's
+clock sat at or behind the timestamp of the block that mined the registration.
+Reported as Low; it is really an availability defect with a total failure mode.
+It does not degrade — it reverts 100 % of registrations for as long as the skew
+lasts, triggered by a host clock one second fast or by a sequencer whose
+timestamps lag wall time, and it surfaces as `SignatureTooLong`, which points at
+the signature rather than at a clock. Fixed by signing a 23 h deadline: the
+window exists for human-paced wallet flows, where the hour is free, and it buys
+tolerance for any skew below an hour in the direction that breaks. Three
+mutations — zero margin, a one-second margin, and a TTL past the ceiling — all
+fail the new test.
+
+*Caller-chosen contract address in the digest — confirmed, but not Medium.*
+`contractAddress` arrived in the body, was validated only by `isAddress`, and
+was signed into the digest's `contract_` field. It is not exploitable at the
+factory: line 511 hashes `address(this)`, so a signature naming any other
+address cannot recover there and is worth nothing to whoever requested it. What
+it did make the endpoint is a service that would sign "the Tosh oracle attests
+that *wallet* may claim *amount* at *any address you name*" — inert only while
+no second contract trusts `pogSigner`, and the pre-authorisations would already
+exist on the day one did. Pinned to the configured factory, which the honest
+client (`PogScanButton.tsx`) has always sent. It also closes a smaller present
+issue: the value was passed to `fetchPogNonce`, making every request an
+`eth_call` to a caller-chosen address on the server's own RPC credentials. Both
+directions mutation-tested.
+
+*Unbounded `setDefaultSoftCap` / `setMaxPogAllocationLimit` — confirmed as
+written, not fixed, and deliberately so.* Both are floored and neither is
+capped: `setDefaultSoftCap` rejects below `MIN_SOFT_CAP_PROD`,
+`setMaxPogAllocationLimit` rejects only zero. Both are `onlyOwner`, and the
+owner is the 2-of-3 Safe, so this is not an unprivileged path. It is recorded
+rather than closed for two reasons. Contracts under `src/` are frozen for the
+engagement (§0), and a ceiling is precisely the kind of change that should not
+land between freezing the scope and handing over the commit hash. And the
+interesting part is not the missing bound in isolation but that
+`maxPogAllocationLimit` is the *on-chain backstop on the off-chain oracle* — the
+last thing standing between a compromised or simply wrong signer and the token
+supply. It therefore compounds with PM-F9 above, where that same oracle is
+currently a constant table, and the pair is worth an auditor's attention as one
+question rather than two. Flagged for the engagement; no code change.
+
 **Scope.** This sweep covered the off-chain surface only: API routes, RLS
 posture, the PoG signing path, and the factory/clone libraries. The
 `ToshLaunchpadHook` and `ToshLadderTreasury` reviews queued alongside it did not
 run, so §1.1's "largest attack surface in the system" remains covered only by
-§5.7's Slither pass and the test suite, not by this sweep. Medium and Low items
-reported for the paths that did run — a caller-chosen contract address in the
-attestation digest, a zero-margin TTL, and unbounded `softCap` /
-`maxPogAllocationLimit` setters — are queued for triage and are **not** yet
-verified against source; nothing above should be read as dispositioning them.
+§5.7's Slither pass and the test suite, not by this sweep.
 
 ---
 
