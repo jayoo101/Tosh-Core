@@ -979,17 +979,32 @@ get marked done while the on-chain alerting still does not exist.
 
 ## 8. Current state at a glance
 
-Recounted 2026-09-04 against the rows above, not against memory.
+Recounted 2026-09-04 against the rows above, not against memory — and now
+recounted by `scripts/checkChecklistCounts.mjs` in CI rather than by hand,
+because the previous version of this table drifted within hours of being
+written by hand. See the note under the table.
 
-| Gate | Open | Partial | Gated | Done |
-|---|---:|---:|---:|---:|
-| A — Audit | 3 | 1 | 0 | 1 |
-| B — Chain decisions | 0 | 0 | 0 | 4 |
-| C — Deploy & handoff | 6 | 0 | 1 | 1 |
-| D — Keys & secrets | 2 | 2 | 0 | 0 |
-| E — Observability & ops | 2 | 2 | 0 | 2 |
-| F — Frontend & platform | 0 | 0 | 0 | 8 |
-| **Total** | **13** | **5** | **1** | **16** |
+| Gate | Open | Partial | Gated | N/A | Done |
+|---|---:|---:|---:|---:|---:|
+| A — Audit | 3 | 1 | 0 | 0 | 1 |
+| B — Chain decisions | 0 | 0 | 0 | 0 | 4 |
+| C — Deploy & handoff | 6 | 0 | 1 | 0 | 1 |
+| D — Keys & secrets | 1 | 2 | 0 | 1 | 0 |
+| E — Observability & ops | 2 | 2 | 0 | 0 | 2 |
+| F — Frontend & platform | 0 | 0 | 0 | 0 | 8 |
+| **Total** | **12** | **5** | **1** | **1** | **16** |
+
+The **N/A** column is new and holds exactly one row, PM-D2. It exists because
+the table had no column for a retired item, so closing D2 as not-applicable
+left it counted under *Open* — the table said thirteen open items when twelve
+were open and one no longer existed. That is the smallest possible version of
+the failure this document keeps finding elsewhere: a summary maintained
+separately from the thing it summarises, agreeing with it only for as long as
+someone remembers both. The counts are now derived from the gate tables by
+`node scripts/checkChecklistCounts.mjs`, which also compares the status glyph
+in **Still open** against the gate row it repeats and fails if a row that is
+not ✅ is missing from that list. Eight mutations, all caught. This table can
+no longer disagree with the rows without CI saying so.
 
 Gate B and Gate F are closed. The accounts-and-credentials group that was
 blocking F and half of E is done: Upstash, Supabase (with `chain_id`), Sentry

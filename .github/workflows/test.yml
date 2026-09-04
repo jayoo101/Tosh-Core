@@ -330,6 +330,19 @@ jobs:
       - name: Check the status page still agrees with the playbook
         run: node scripts/checkStatusPage.mjs
 
+      # PRE_MAINNET_CHECKLIST §8 summarises its own gate tables three times
+      # over: as per-gate counts, as a total, and as a "Still open" list that
+      # repeats each item's status glyph. All three were maintained by hand.
+      #
+      # They drifted the same day the table was recounted by hand, and the
+      # line above the table said "against the rows above, not against
+      # memory" while it did so: retiring PM-D2 left it in no column the table
+      # had, so it stayed counted as open and the total read 13 against 12.
+      # Small, but it is the failure mode this whole document keeps finding in
+      # other people's summaries.
+      - name: Check the checklist summary matches its own rows
+        run: node scripts/checkChecklistCounts.mjs
+
       # `scripts/` was checked by nothing. frontend.yml runs `tsc --noEmit`
       # inside soat-frontend/ only, so `pogSigner.ts` — which produces the
       # signatures the factory's `registerPoG` recovers against, i.e. the
