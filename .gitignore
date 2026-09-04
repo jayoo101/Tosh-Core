@@ -63,3 +63,5 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+scripts/.drill-state.json

@@ -51,6 +51,11 @@ const PAUSED_SELECTOR = '0x5c975abb' // keccak("paused()")[0:4]
 const drift = []
 const unreachable = []
 
+/** Which chain the deployed page currently names, and the factory it reads.
+ *  Filled by check 5, consumed by check 6. */
+let STATUS_PAGE_CHAIN = null
+let STATUS_PAGE_FACTORY = null
+
 /** Collapse the wording differences that carry no meaning — line wrapping in
  *  markdown, string-concatenation breaks in JS — so the comparison is about
  *  the sentence and not about where each file happened to wrap it. */
@@ -165,6 +170,38 @@ if (html) {
       'the page no longer links MANUAL_INTERACTION.md, which §6b instructs it '
       + 'to offer users during a frontend outage.')
   }
+
+  // ── 5. The page's four chain fields name ONE chain ────────────────────────
+  //
+  // The page reads paused() over `rpc` from `factory`, and sends users to
+  // `explorer` under the label `name`. A half-finished cutover — new factory,
+  // old RPC — produces a page that queries an address that does not exist on
+  // the chain it asked, which reads as "could not reach the RPC" rather than
+  // as a misconfiguration, and points users at an explorer where their money
+  // is not. Unanimity is cheap to check and the disagreement is invisible.
+  const active = html.match(/^const CHAIN = \{([\s\S]*?)\n\}/m)
+  if (!active) {
+    drift.push(
+      'could not find the active `const CHAIN = { … }` block. The page still '
+      + 'has to name a chain somewhere; this guard can no longer tell which.')
+  } else {
+    const field = k => active[1].match(new RegExp(`${k}:\\s*'([^']*)'`))?.[1] ?? ''
+    const chain = { name: field('name'), rpc: field('rpc'), explorer: field('explorer') }
+    // Each field votes testnet or mainnet by its own text.
+    const vote = s => (/testnet|46630/i.test(s) ? 'testnet' : /mainnet|4663\b/.test(s) ? 'mainnet' : '?')
+    const votes = Object.fromEntries(Object.entries(chain).map(([k, v]) => [k, vote(v)]))
+    const distinct = [...new Set(Object.values(votes))]
+    if (distinct.length !== 1 || distinct[0] === '?') {
+      drift.push(
+        'the page\'s chain fields do not agree on one chain: '
+        + Object.entries(votes).map(([k, v]) => `${k}=${v}`).join(' ')
+        + '. It reads paused() from the factory over `rpc` and sends users to '
+        + '`explorer`; if those are different chains the page is confidently '
+        + 'wrong rather than visibly broken.')
+    }
+    STATUS_PAGE_CHAIN = distinct.length === 1 ? distinct[0] : '?'
+    STATUS_PAGE_FACTORY = field('factory').toLowerCase()
+  }
 }
 
 // ── 3. The guide §6b hands to users still resolves ──────────────────────────
@@ -184,6 +221,37 @@ try {
   }
 }
 
+// ── 6. Once mainnet exists, the page must be pointing at it ─────────────────
+//
+// Inactive until PM-C1, and it turns itself on. This is the gap the 2026-09-04
+// drill (§8.2) surfaced: the page hardcodes its own chain in another
+// repository, and PM-C7 — "frontend pointed at the 4663 factory" — says
+// nothing about it. Repoint the frontend, forget the page, and the page goes
+// on reading a *testnet* contract's paused() and presenting it as production
+// truth. Nothing looks wrong: the banner and the chain agree, so even the
+// page's own disagreement warning stays quiet. It would be reporting the
+// health of a contract nobody is using.
+//
+// `broadcast/<script>/4663/` is where PM-C1 records the mainnet run, so its
+// appearance is exactly the moment the page becomes wrong. No new constant to
+// maintain, and no way to satisfy this by editing a comment.
+const MAINNET_ID = '4663'
+const broadcastRoot = path.join(REPO_ROOT, 'broadcast')
+const mainnetDeployed = fs.existsSync(broadcastRoot)
+  && fs.readdirSync(broadcastRoot).some(script =>
+    fs.existsSync(path.join(broadcastRoot, script, MAINNET_ID)))
+
+if (mainnetDeployed && STATUS_PAGE_CHAIN && STATUS_PAGE_CHAIN !== 'mainnet') {
+  drift.push(
+    `broadcast/*/${MAINNET_ID}/ exists, so the mainnet factory is deployed, but `
+    + `the status page still names the ${STATUS_PAGE_CHAIN} chain `
+    + `(factory ${STATUS_PAGE_FACTORY}). It is reporting the paused() state of a `
+    + 'contract that is not the one holding user funds, and it will look '
+    + 'perfectly healthy while doing so. Swap the two CHAIN blocks in the '
+    + 'status page repository — PM-C7 covers the frontend and has never '
+    + 'covered this page.')
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────
 if (drift.length) {
   console.error('[checkStatusPage] DRIFT')
@@ -201,3 +269,7 @@ if (unreachable.length) process.exit(2)
 console.log(
   '[checkStatusPage] OK — page is up, its paused copy matches Step 4 verbatim, '
   + 'it still reads paused() from the chain, and the guide §6b links resolves.')
+console.log(
+  `[checkStatusPage] chain: page names ${STATUS_PAGE_CHAIN}, mainnet deploy `
+  + `${mainnetDeployed ? 'RECORDED' : 'not yet recorded'} — cutover check `
+  + `${mainnetDeployed ? 'active' : 'inactive, will activate at PM-C1'}.`)

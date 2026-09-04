@@ -100,6 +100,17 @@ arbitrary contract call with ABI-encoded calldata — proven on this chain rathe
 than assumed from other deployments. `paused()` was chosen because it is a view
 function, so the rehearsal changed no state and touched no ownership.
 
+**Then the real path, later the same day — §8.2.** Choosing a view function
+kept that first run harmless and also kept it short of the thing Step 1
+claims. A second drill deployed a **2-of-3** Safe, moved the testnet factory's
+ownership to it (which is PM-C2's mechanism), and executed `pause()` and
+`unpause()` through it with two signatures. That run is where the numbers in
+Step 1 come from, and it is also where the claim "a single signer cannot
+pause" stops being a reading of the modifier and becomes something that was
+tried. Read §8.2 for the measurements; the shortest version is that the
+mechanism costs 5 seconds and the rest of the 60-second budget belongs to
+whoever has to answer their phone.
+
 **SafeL2 was required, not preferred.** Safe's config marks 46630 `l2: true`,
 and the transaction service indexes L2 deployments through `SafeL2`'s events.
 The plain singleton would have deployed a working Safe that the service — and
@@ -157,6 +168,13 @@ deployer EOA — that is the path the first drill used (§8.1).
 4. ABI: paste `ToshFactory` ABI; pick `pause()`; no args.
 5. Submit. **Two signers must sign within 60 seconds.** The Safe is configured
    2-of-N for a reason — that is the lower bound of what you can ship.
+
+   Measured on 46630 through a real 2-of-3 (§8.2): building the transaction,
+   collecting both signatures and getting it confirmed took **5 seconds**.
+   So essentially the whole 60-second budget is available for reaching the
+   second human, and none of it is owed to the tooling. Do not spend it
+   deliberating — §2's decision list is the deliberation, and it already
+   happened.
 6. Confirm on-chain: `cast call $FACTORY_ADDRESS "paused()(bool)" --rpc-url $RPC`
    must return `true`. The explorer is
    `https://explorer.testnet.chain.robinhood.com` on the rehearsal chain and
@@ -231,8 +249,13 @@ other step already references.
 
 1. **Public status page** — <https://jayoo101.github.io/tosh-status/>, source
    at `jayoo101/tosh-status`. Set `STATUS = 'paused'` in `index.html`, add the
-   one specific fact to `DETAIL`, stamp `UPDATED`, commit to `main`. Pages
-   rebuilds in about a minute. **Do not compose prose here under stress:** the
+   one specific fact to `DETAIL`, stamp `UPDATED`, commit to `main`. Measured
+   over three pushes during the §8.2 drill, the change became publicly visible
+   **8.9 s, 21.3 s and 32.0 s** after `git push` — comfortable, but not
+   instant. Do not announce elsewhere that the page is updated until you have
+   reloaded it yourself and seen the change; for up to half a minute you will
+   be pointing people at the old banner.
+   **Do not compose prose here under stress:** the
    wording below is already in the page as the `paused` copy, verbatim, and
    rewording one without the other is how the page and this playbook start
    contradicting each other while a responder reads both.
@@ -251,6 +274,9 @@ other step already references.
    result, so the one fact that matters is right even in the minutes before
    you get to it — and if your banner and the chain disagree, the page says so
    and names the chain as the authority rather than quietly showing one.
+   Both halves of that were verified against a real pause in §8.2: the warning
+   appeared while the banner still said `operational`, and disappeared once it
+   was updated to agree.
 
    It is hosted on GitHub Pages, deliberately sharing nothing with the
    application: a page served from the same Vercel project would be down or
@@ -809,6 +835,139 @@ Three stale pointers this sitting found and corrected in the same file:
   `NEXT_PUBLIC_ROBINHOOD_RPC`, and the chain-agnostic `NEXT_PUBLIC_RPC_URL`.
 - §6b linked "the factory address on Etherscan". The rehearsal chain's
   explorer is Blockscout at `explorer.testnet.chain.robinhood.com`.
+
+### 8.2 Second drill — 2026-09-04, the mainnet Step 1 path and the status page
+
+§8.1 paused through the **deployer EOA**, and said so: "the 2-of-3 signing bar
+was not [rehearsed]". §1.1's Safe rehearsal the next day deliberately called
+`paused()` — a *view* — so it "changed no state and touched no ownership".
+Between them, the path a real P0 actually uses had never run: a Safe holding
+ownership, executing `pause()`, which is `onlyOwner`. Neither had PM-C2's
+`acceptOwnership`. This sitting drove both, on 46630, and carried the
+announcement on the public status page in the same window.
+
+**The drill Safe:**
+[`0x83f877BE0bFC436c627741c4b97a01685684bB63`](https://explorer.testnet.chain.robinhood.com/address/0x83f877BE0bFC436c627741c4b97a01685684bB63)
+— SafeL2 1.4.1, **2-of-3**, 318,831 gas, indexed by the transaction service as
+`1.4.1+L2`. Threshold 2 was the point: a 1-of-1 cannot measure a bar that
+reads "two signers must sign". Owners are the deployer plus two stand-ins
+derived from Foundry's public test mnemonic — visibly not secrets, so the run
+is reproducible and the keys are worthless by construction.
+
+The harness is `scripts/drillSafe.mjs`, kept rather than thrown away because
+Q1 is meant to be re-run and the next person should not have to re-derive
+Safe's signature packing. It **refuses to run on any chain but 46630**: two of
+its three owners are a mnemonic printed in Foundry's own documentation, so the
+2-of-3 it builds is in practice a 1-of-1 that anyone can co-sign. On the
+rehearsal chain that is the point. On 4663 it would be strictly worse than the
+single EOA it replaced, and that mistake is one wrong `--rpc-url` away.
+
+**PM-C2, rehearsed:**
+
+| Step | tx | gas | wall |
+|---|---|---|---|
+| `transferOwnership(safe)` by deployer | [`0x84e4a475…`](https://explorer.testnet.chain.robinhood.com/tx/0x84e4a475b472ac5fd49a983159218eee2ecf5a091d816e2d811ffd1158b9904f) | 53,745 | 5.6 s |
+| `acceptOwnership()` **through the Safe**, 2 signatures | [`0xd920ae11…`](https://explorer.testnet.chain.robinhood.com/tx/0xd920ae11bdf1c95d3024ee320d131b48eb40bab4f99bf85a08e1fe49a5760a7f) | 106,308 | 3.92 s |
+
+`Ownable2Step` is why this was safe to try: `transferOwnership` only sets
+`pendingOwner`, so the deployer stayed owner until the Safe accepted and the
+staging step was reversible on its own.
+
+**The controls, which are what make the rest of this drill mean anything.**
+With the Safe as owner, `pause()` was simulated from three senders:
+
+| Sender | Result |
+|---|---|
+| deployer EOA `0x73db078f…` | reverts `0x118cdaa7` = `OwnableUnauthorizedAccount` |
+| a single Safe owner, acting alone | reverts `0x118cdaa7` — same |
+| the Safe `0x83f877BE…` | succeeds |
+
+So the brake really did move. Without these three lines the timings below
+would not distinguish "paused through a 2-of-3" from "paused through an EOA
+that still happened to be owner".
+
+**Step 1 through the Safe, and Step 4 on the page:**
+
+| | value |
+|---|---|
+| `pause()` via `execTransaction`, 2 signatures | [`0xb3906a04…`](https://explorer.testnet.chain.robinhood.com/tx/0xb3906a04c0eec520270e82ea8436964fdeebf841eb3f63e0a5f6e3621a835824), 107,816 gas |
+| signature collection (mechanical) | **0.49 s** |
+| safeTxHash → confirmed on chain | **4.99 s** |
+| status page declared `paused`, publicly visible | **8.9 s** after `git push` |
+| `unpause()` via `execTransaction`, 2 signatures | [`0x1db7a62f…`](https://explorer.testnet.chain.robinhood.com/tx/0x1db7a62febefd9f123afffcdd6e68897e407045d984b6261d67d8c3dce9fe448), 80,358 gas, 4.54 s |
+| pause window | 3,913 blocks ≈ **6 min 31 s** |
+| whole drill, ownership out and back | **0.000008032 ETH** |
+
+Ownership was handed back the same way it went out — the Safe executed
+`transferOwnership(deployer)` ([`0x541a505c…`](https://explorer.testnet.chain.robinhood.com/tx/0x541a505ce8a8e8e0f3e9976f44a722dcde4c05495d202d892a588bd3d9d5a3da),
+105,035 gas, 2 signatures) and the deployer accepted
+([`0xf9422282…`](https://explorer.testnet.chain.robinhood.com/tx/0xf9422282b3e18f88909b6b4144260de97a4dfa4809acfd0f082cd9b6b31b74ef),
+31,078 gas). Post-drill state verified: owner is the deployer,
+`pendingOwner` is zero, `paused()` is false.
+
+**§8.1's golden rule holds identically under a Safe-executed pause**, probed
+with `cast call` while paused:
+
+| Surface | during pause | after unpause |
+|---|---|---|
+| `createLaunch` | `0xd93c0665` **`EnforcedPause`** | `"zero treasury"` — past the modifier, into the body |
+| `registerPoG` | `0xd93c0665` **`EnforcedPause`** | `0x0819bdcd` `SignatureExpired` |
+| `deposit` | `0x1f2a2005` `ZeroAmount` — **not** paused | `0x1f2a2005` unchanged |
+
+There was no reason to expect otherwise — it is the same function behind the
+same modifier — but the claim being made is about the deployment, and it had
+only ever been measured with the owner being an EOA.
+
+**Q1 pass criteria, rescored:**
+
+- `pause()` then `unpause()` within 30 min — **met**, 6 min 31 s, and this time
+  through the Safe rather than the EOA.
+- Public status page — **now met.** §8.1 said this line "does not become a pass
+  until a drill actually posts to the page and back". It did: `paused` with a
+  drill notice, then `resolved`, then back to `operational`, each verified by
+  fetching the deployed page rather than the local file.
+- At least one new signer participating — **still not met.** The two stand-ins
+  are a public test mnemonic on one laptop, which is a threshold of two in the
+  contract's eyes and a threshold of one in reality. This is PM-D4 and no
+  amount of rehearsal substitutes for it.
+
+**Four things this drill established that were previously assumed:**
+
+1. **The 60-second bar in Step 1 is almost entirely human latency.** The
+   mechanical path — build the transaction, collect two signatures, get it
+   confirmed — was 5 s. So the budget is not spent on tooling; it is spent
+   waiting for two people to look at a phone. That is worth knowing before
+   recruiting, because it means the requirement to state to a candidate is
+   *reachability*, not competence or speed.
+2. **A single signer cannot pause.** Verified, not inferred. A 2-of-3 with one
+   reachable signer is a brake with nobody able to press it, which makes
+   signer reachability the single most load-bearing human requirement in this
+   document — and is why §1.1 declines to drop to 2-of-2.
+3. **The status page is not instant.** Three pushes propagated in 8.9 s, 21.3 s
+   and 32.0 s. All comfortable, none immediate. Step 4 now says so, because a
+   commander who pushes and immediately tells people to refresh will appear
+   wrong for half a minute during the exact window when appearing wrong is
+   expensive.
+4. **The page's contradiction warning works on a real pause.** Before the page
+   was updated it was live with the banner reading `operational` while the
+   chain read `paused() = true`, and it said, verbatim: *"The factory reports
+   paused() = true, but the banner above has not been updated to say so. Treat
+   the chain as the authority and assume the protocol is paused."* After the
+   banner was updated to agree, the warning was gone. Both halves matter: a
+   warning that never fires is decoration, and one that always fires is noise.
+
+**And one gap it surfaced, which nothing was watching.** The status page
+hardcodes its own chain — RPC, explorer, factory — in a different repository.
+PM-C7 is "frontend pointed at the 4663 factory" and says nothing about the
+page. Repoint the frontend at cutover, forget the page, and the page keeps
+reading a *testnet* contract's `paused()` and presenting it as production
+truth. Nothing would look wrong, and the contradiction warning above would
+stay silent, because the banner and the (wrong) chain would agree. Closed in
+CI: `scripts/checkStatusPage.mjs` now also requires the page's four chain
+fields to name one chain, and requires the page to be on mainnet once
+`broadcast/*/4663/` exists — which is the artifact PM-C1 creates, so the check
+turns itself on at exactly the moment the page becomes wrong. Six mutations,
+including two that must *not* fire, all behaved correctly.
 
 ---
 
