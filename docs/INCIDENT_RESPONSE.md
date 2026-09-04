@@ -1100,19 +1100,46 @@ Ownership is staged: `transferOwnership(drill Safe)`
 remains owner until the Safe accepts, so this step is reversible on its own and
 the testnet factory is in its normal state while the drill waits.
 
-**Status: awaiting two signatures. Q1's third criterion is not yet met, and
-saying otherwise here would be the thing this section exists to prevent.**
-The mechanical half is finished and verified; what remains is two people, which
-is the half §8.2 identified as the entire budget.
+**Status: Q1's third criterion is met.** Two of the three real owners — **Joe
+and Tom** — signed all four payloads, recovered to their claimed addresses,
+and those signatures were the only ones `execTransaction` consumed. The
+operator's key is still not an owner; it paid gas and could not have originated
+any of the four. That is the property neither §8.1 nor §8.2 could show.
 
-**One limitation, recorded rather than discovered later.** All four hashes are
-computed up front — Safe nonces are deterministic — so each signer signs once
-in one sitting instead of being interrupted four times. That is a concession to
-human availability and it costs a measurement: this run can time the mechanical
-path and the round-trip to a person who is expecting the request, but it cannot
-time *rousing someone who is not*. §8.2 established that the latter is nearly
-the whole of the 60-second budget. Nothing scheduled can measure it; only an
-unannounced drill can, and none has been run.
+| Step | tx | gas | wall | signed by |
+|---|---|---|---|---|
+| `acceptOwnership()` | [`0x9ed70d18…`](https://explorer.testnet.chain.robinhood.com/tx/0x9ed70d1866435213fdfa81a1af192a08d885806df4bd5a4af5133ed10259ab5b) | 105,942 | 4.65 s | Joe + Tom |
+| `pause()` | [`0x7d12c1c5…`](https://explorer.testnet.chain.robinhood.com/tx/0x7d12c1c53b38903a6eb4c41504edeb7b20504d3e77010e0f0413257e63d035b9) | 107,280 | 4.91 s | Joe + Tom |
+| status page `STATUS='paused'` publicly visible | — | — | **15.7 s** after `git push` | — |
+| `unpause()` | [`0xee733c38…`](https://explorer.testnet.chain.robinhood.com/tx/0xee733c38b2663d86346077c23be73ce9793a6857568072763976b175f765dc9e) | 84,854 | 4.09 s | Joe + Tom |
+| `transferOwnership(deployer)` | [`0xfb0da063…`](https://explorer.testnet.chain.robinhood.com/tx/0xfb0da063a04b95b924f903bcf6a055f0f71d7c78d7567dd27acb1aa41d0184eb) | 109,887 | 4.32 s | Joe + Tom |
+| deployer `acceptOwnership()` | [`0x15c5d58b…`](https://explorer.testnet.chain.robinhood.com/tx/0x15c5d58b6deb07dc043524eb35e019726d2609e8af987010d9e9a29e4de531e9) | 32,332 | — | deployer (gas only) |
+
+Pause window: blocks 112,850,505 → 112,851,107 = **602 blocks ≈ 1 min 56 s**
+on the wall clock (13:29:34 → 13:31:30 UTC), well inside the 30-minute bar.
+While paused: `paused() == true`, owner was the drill Safe, and the deployer's
+own `unpause()` reverted `0x118cdaa7` `OwnableUnauthorizedAccount` — the brake
+had actually moved, and the operator could not move it back alone. After
+reclaim: owner is the deployer, `pendingOwner` is zero, `paused()` is false.
+The `/drill/` page was taken down once the four nonces were spent; leftover
+signatures are useless against nonce 4, and the CI guard is self-retiring on
+404.
+
+**Q1 pass criteria, final score:**
+
+- `pause()` then `unpause()` within 30 min — **met**, 1 min 56 s, through a
+  2-of-3 whose owners are the real mainnet signer set.
+- Public status page — **met**, banner fetched live at 15.7 s, then restored
+  to `operational`.
+- At least one *new* signer participating — **now met.** Tom is one of the two
+  people recruited for PM-D4; Joe is the third owner. Neither key was on the
+  operator's laptop. Jack did not need to sign — threshold is two.
+
+The limitation recorded above still holds: the four hashes were signed in one
+sitting by people who were expecting the request. This run timed the mechanical
+path and a round-trip to a person who was waiting. It did not time rousing
+someone who was not. §8.2 established that the latter is nearly the whole of
+the 60-second budget. Nothing scheduled can measure it.
 
 ---
 
