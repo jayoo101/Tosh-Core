@@ -13,7 +13,9 @@
  *   G1  FACTORY CONTROL      launchFee · defaultSoftCap · maxPogAllocationLimit
  *                            · cooldownDuration · quotaWindowDuration
  *                            → FactoryDials.tsx
- *   G2  POG SIGNER           setPogSigner  → Signers.tsx
+ *   G2  SIGNER & FEE         setPogSigner, plus the immutable platformTreasury
+ *                            readout — 0.30 % of every buy lands there and no
+ *                            setter exists  → Signers.tsx
  *   G3  SAFETY & RISK        pause / unpause          → CircuitBreaker.tsx
  *                            haltLadderMinting        → LadderHalt.tsx
  *                            setBlacklist / lift      → Blacklist.tsx
@@ -152,6 +154,107 @@ function AccessBanner({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GROUP RUNNING ORDER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One record per governance group, feeding BOTH the jump bar and the headings.
+ *
+ * They share a source because they drifted when they did not: the console is
+ * fourteen panels and twelve thousand pixels tall, and a jump bar whose labels
+ * disagree with the headings they land on is worse than no jump bar at all.
+ * `chip` is the short form the bar can afford at 390 px; `header` is the full
+ * heading, and the key is the anchor.
+ */
+const GROUPS = {
+  g1: {
+    chip: 'Dials',
+    header: {
+      index: 'G1 · FACTORY CONTROL',
+      title: 'Platform parameters',
+      blurb: 'Global dials on ToshFactory. Every one of these is forward-looking: a live raise keeps the terms frozen into its hook at construction, so retuning here governs the next launch, never the current one.',
+    },
+  },
+  g2: {
+    chip: 'Signer',
+    header: {
+      index: 'G2 · SIGNER AND FEE RECIPIENT',
+      title: 'Oracle signer and platform revenue',
+      blurb: 'Two addresses the factory holds, with opposite mutability. The PoG signer is the EOA whose attestations registerPoG() trusts, and it rotates from here. The platform fee recipient collects 0.30 % of every buy and is immutable — it has no setter, so redirecting platform revenue would mean deploying a new factory.',
+    },
+  },
+  g3: {
+    chip: 'Safety',
+    header: {
+      index: 'G3 · SAFETY & RISK',
+      title: 'Circuit breaker and blacklist',
+      blurb: "Incident controls. The circuit breaker and the blacklist are scoped to the factory's own entry points; the ladder halt is the single exception that reaches a launched project, and it expires on its own.",
+    },
+  },
+  g4: {
+    chip: 'Roster',
+    header: {
+      index: 'G4 · TREASURY CURATION',
+      title: 'Buyback ladder roster',
+      blurb: 'The only owner authority the ladder treasury exposes. Curation decides which launched tokens the burn engine rotates through; it cannot move funds.',
+    },
+  },
+  g5: {
+    chip: 'Owner',
+    header: {
+      index: 'G5 · OWNERSHIP',
+      title: 'Two-step handoff',
+      blurb: 'Ownable2Step on both contracts. Initiating a transfer changes nothing until the recipient accepts, which is what makes a mistyped address recoverable.',
+    },
+  },
+  diag: {
+    chip: 'Diag',
+    header: {
+      index: 'DIAG · DIAGNOSTICS',
+      title: 'Build fingerprint and off-chain config',
+      blurb: 'Read-only telemetry plus the one control on this page that is a signed API call rather than a transaction.',
+    },
+  },
+} as const
+
+const GROUP_ORDER = ['g1', 'g2', 'g3', 'g4', 'g5', 'diag'] as const
+
+/**
+ * Jump bar for a console that is fourteen phone screens tall.
+ *
+ * The reason this exists is G3.  An operator who needs the circuit breaker
+ * needs it during an incident, and it sits six screens down behind the fee
+ * dials — findable by scrolling, which is exactly the wrong thing to be doing
+ * at that moment.  Plain anchors, so it works before hydration and a
+ * middle-click still opens a section in a new tab.
+ */
+function GroupJumpBar() {
+  return (
+    <nav
+      aria-label="Console sections"
+      className="sticky top-0 z-30 -mx-6 mb-2 px-6 border-b border-border-subtle/60
+                 bg-bg-base/95 backdrop-blur overflow-x-auto"
+    >
+      <ul className="flex items-center gap-1 min-w-max">
+        {GROUP_ORDER.map(key => (
+          <li key={key}>
+            <a
+              href={`#${key}`}
+              className="inline-flex items-center min-h-11 px-2 rounded-lg
+                         font-mono text-label uppercase tracking-wide
+                         text-text-tertiary hover:text-brand hover:bg-surface-hover/40
+                         transition-colors"
+            >
+              {GROUPS[key].chip}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -203,69 +306,47 @@ export default function AdminPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 pb-24 pt-4">
-          <AccessBanner
-            isConnected={isConnected}
-            ownerLoading={ownerLoading}
-            owner={owner}
-            isOwner={isOwner}
-          />
+        <GroupJumpBar />
 
-          <GroupHeader
-            index="G1 · FACTORY CONTROL"
-            title="Platform parameters"
-            blurb="Global dials on ToshFactory. Every one of these is forward-looking: a live raise keeps the terms frozen into its hook at construction, so retuning here governs the next launch, never the current one."
-          />
-          <LaunchFeePanel />
-            <SoftCapPanel />
-            <PogLimitPanel />
-            <CooldownDurationPanel />
-          <QuotaWindowPanel />
+        <AccessBanner
+          isConnected={isConnected}
+          ownerLoading={ownerLoading}
+          owner={owner}
+          isOwner={isOwner}
+        />
 
-          <GroupHeader
-            index="G2 · POG AUTHORITY"
-            title="Oracle signer"
-            blurb="The single EOA whose signatures the PoG registration path trusts, plus the legacy treasury pointer kept for metadata compatibility."
-          />
-          <PogSignerPanel />
-            <PlatformTreasuryPanel />
+        <GroupHeader anchor="g1" {...GROUPS.g1.header} />
+        <LaunchFeePanel />
+        <SoftCapPanel />
+        <PogLimitPanel />
+        <CooldownDurationPanel />
+        <QuotaWindowPanel />
 
-          <GroupHeader
-            index="G3 · SAFETY & RISK"
-            title="Circuit breaker and blacklist"
-            blurb="Incident controls. The circuit breaker and the blacklist are scoped to the factory's own entry points; the ladder halt is the single exception that reaches a launched project, and it expires on its own."
-          />
-          <CircuitBreakerPanel />
-          <LadderHaltPanel />
-          <BlacklistConsole />
+        <GroupHeader anchor="g2" {...GROUPS.g2.header} />
+        <PogSignerPanel />
+        <PlatformTreasuryPanel />
 
-          <GroupHeader
-            index="G4 · TREASURY CURATION"
-            title="Buyback ladder roster"
-            blurb="The only owner authority the ladder treasury exposes. Curation decides which launched tokens the burn engine rotates through; it cannot move funds."
-          />
-          <LadderTreasuryPanel />
+        <GroupHeader anchor="g3" {...GROUPS.g3.header} />
+        <CircuitBreakerPanel />
+        <LadderHaltPanel />
+        <BlacklistConsole />
 
-          <GroupHeader
-            index="G5 · OWNERSHIP"
-            title="Two-step handoff"
-            blurb="Ownable2Step on both contracts. Initiating a transfer changes nothing until the recipient accepts, which is what makes a mistyped address recoverable."
-          />
-          <OwnershipPanel connected={address} />
+        <GroupHeader anchor="g4" {...GROUPS.g4.header} />
+        <LadderTreasuryPanel />
 
-          <GroupHeader
-            index="DIAG · DIAGNOSTICS"
-            title="Build fingerprint and off-chain config"
-            blurb="Read-only telemetry plus the one control on this page that is a signed API call rather than a transaction."
-          />
-          <InitcodeHashMonitor />
-            <ExchangeRatePanel />
+        <GroupHeader anchor="g5" {...GROUPS.g5.header} />
+        <OwnershipPanel connected={address} />
 
-            <div className="pt-12">
-              <Line />
-            <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
-              every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
-              </p>
-            </div>
+        <GroupHeader anchor="diag" {...GROUPS.diag.header} />
+        <InitcodeHashMonitor />
+        <ExchangeRatePanel />
+
+        <div className="pt-12">
+          <Line />
+          <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
+            every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
+          </p>
+        </div>
       </main>
     </div>
     </ActionGateProvider>

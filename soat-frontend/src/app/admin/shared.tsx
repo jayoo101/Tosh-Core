@@ -25,16 +25,23 @@ export function Line({ className = '' }: { className?: string }) {
   return <div aria-hidden className={`h-px bg-surface-hover ${className}`} />
 }
 
-/** Group heading — separates the five governance domains. */
+/**
+ * Group heading — separates the five governance domains.
+ *
+ * `anchor` is what the jump bar targets.  `scroll-mt-20` keeps the sticky bar
+ * from parking on top of the heading it just scrolled to, which is the usual
+ * way an anchor lands a reader one line below where they aimed.
+ */
 export function GroupHeader({
-  index, title, blurb,
+  index, title, blurb, anchor,
 }: {
-  index: string
-  title: string
-  blurb: string
+  index:   string
+  title:   string
+  blurb:   string
+  anchor?: string
 }) {
   return (
-    <div className="mt-12 first:mt-4">
+    <div id={anchor} className="mt-12 first:mt-4 scroll-mt-20">
       <Line />
       <div className="pt-5 flex flex-col gap-1">
         <span className="text-label font-mono tracking-[0.4em] uppercase text-brand">
@@ -179,13 +186,24 @@ export function Readout({
   )
 }
 
+/**
+ * A full address, linked to the explorer.
+ *
+ * The phone-only padding is a tap-target fix, not decoration.  A wrapped
+ * address measures 37–38 px tall, which is under the 44 px floor the rest of
+ * the app holds to, and these are the links an operator reaches for while
+ * checking that a handoff went where they meant it to.  Desktop keeps the
+ * tighter row, because a mouse does not need the margin and the console is
+ * already fourteen screens long.
+ */
 export function AddressLink({ addr }: { addr?: string }) {
   if (!addr) return <>—</>
   return (
     <a
       href={testnetExplorerAddress(addr)}
       target="_blank" rel="noopener noreferrer"
-      className="hover:text-brand underline decoration-dotted break-all"
+      className="hover:text-brand underline decoration-dotted break-all
+                 max-md:inline-block max-md:py-1"
     >
       {addr}
     </a>
