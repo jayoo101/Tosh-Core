@@ -20,6 +20,7 @@
     "check:upstash": "node scripts/checkUpstash.mjs",
     "check:supabase": "node scripts/checkSupabaseRls.mjs",
     "check:sentry": "node scripts/checkSentry.mjs",
+    "check:secrets": "node scripts/checkSecretStore.mjs",
     "guard:v4math": "node scripts/runTsGuard.mjs scripts/checkV4Math.ts",
     "guard:lpactions": "node scripts/runTsGuard.mjs scripts/checkLpActions.ts",
     "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:rpc && npm run guard:supabase && npm run guard:v4math && npm run guard:lpactions",

@@ -347,7 +347,7 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-D1** | PoG signer is a **new** key, distinct from the deployer, held only in the production secret store | Cutover: `factory.pogSigner()` ≠ deployer; `POG_SIGNER_PRIVATE_KEY` set in Vercel Production only; absent from every laptop `.env*`. See §4.1 | 🟡 storage decided (Vercel encrypted env, not KMS). The key itself is not rotated until C1 — and it must be, along with every other wallet, see §4.1 |
 | **PM-D2** | PoG signer wallet pre-funded (~0.05 ETH) for signature gas | Balance check | ❌ |
-| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | No secret in any committed `.env*` | 🟡 Both secrets are encrypted in Vercel Production and absent from git. They are still also in `soat-frontend/.env.local` (gitignored). They are **not** in GitHub Actions, and the Sentry token should stay out of CI: a workflow run that is not a production deploy would create a Sentry release for a commit that never shipped. Remaining: whether any CI job needs the Supabase service key, and PM-D1 for the PoG key that still sits in the same local file |
+| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | `npm run check:secrets` green; no secret in any committed `.env*` | 🟡 Custody is now checked mechanically — see §4.2. All four credentials are in Vercel Production at the write-only tier, nothing has ever been committed, and the open question "does any CI job need the Supabase service key" is answered **no**: the workflows reference exactly one secret, `ROBINHOOD_RPC`. `SENTRY_AUTH_TOKEN` is fully closed — Vercel only, no laptop copy — and stays out of GitHub Actions on purpose, because a workflow run that is not a production deploy would cut a Sentry release for a commit that never shipped. What keeps this amber is the *only*: `SUPABASE_SERVICE_ROLE_KEY`, `UPSTASH_REDIS_REST_TOKEN` and the PoG key still have laptop copies in `soat-frontend/.env.local`. Those are testnet-era values already treated as burned by §4.1, so the row closes at C1 with the rotation, not before |
 | **PM-D4** | Gnosis Safe threshold and signer set confirmed, signers reachable | `INCIDENT_RESPONSE.md` §1 filled | ❌ |
 
 > **PM-D1 is the highest-severity open item that is not the audit.** The key
@@ -395,6 +395,49 @@ them in `.env.production` on this machine recreates the thing the rotation
 is for. The deployer's public address can be funded in advance (D2's cousin);
 the PoG private key is generated, pasted into Vercel, and discarded, in that
 order, on the sitting that broadcasts.
+
+### 4.2 Custody is checked, not remembered
+
+`npm run check:secrets` (`scripts/checkSecretStore.mjs`) reads the live Vercel
+Production environment and the GitHub Actions secret list and compares both
+against an inventory that names every credential and says which store it
+belongs in. Run it before C1 and again after the §4.1 rotation, because that
+rotation re-adds every row and "I put them all back" is a different claim from
+"they are all there, and none of them landed one tier too readable".
+
+**The tier is the point.** Vercel has two, and the dashboard draws them almost
+identically:
+
+| `type` | Who can read it back |
+|---|---|
+| `sensitive` | Nobody. Not the dashboard, not `vercel env pull`, not the owner |
+| `encrypted` | Any account with project access, in plaintext |
+
+`vercel env add` chooses between them with a prompt that is easy to click past.
+A signer key that lands on `encrypted` is stored, encrypted at rest, shown with
+a lock — and readable by every collaborator forever, with nothing anywhere
+saying so. That is the failure the check is aimed at, and it is why the script
+asserts the tier rather than mere presence.
+
+The inventory is closed in both directions. A credential live in either store
+that no row classifies is a finding, so a variable cannot be added to
+Production without someone deciding what it is; and `ADMIN_SECRET` is
+classified `absent`, so setting it is also a finding. That last one is not
+pedantry: unset, `POST /api/admin/config` has no bearer path at all and the
+recovered-signature-equals-`factory.owner()` check is the only way in. Filling
+the variable because its name looks like a gap re-opens a shared-secret route
+to a privileged endpoint.
+
+Five injected faults — a credential downgraded to `encrypted`, a required one
+missing, an `absent` one set, an unclassified variable live in Vercel, and a
+missing CI secret — were each caught by the script before it was committed.
+
+It needs an authenticated `vercel` and `gh`, which CI deliberately does not
+have, so it is an operator command and not a gate. **Preview and Development
+hold nothing**, which is a posture rather than an oversight: a preview with no
+variables fails at boot, where one holding the production service-role key
+would come up looking healthy and writing to the real registry. The script
+prints that state and flags it if Preview ever stops being empty.
 
 ---
 
@@ -969,7 +1012,7 @@ below, in the order it actually blocks.
 | **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. |
 | **PM-D1** | 🟡 | Storage is Vercel encrypted env, not KMS (§4.1). The key — and every other wallet that has been used — is replaced at C1. |
 | **PM-D2** | ❌ | Pre-fund the production PoG signer. After D1 names the wallet. |
-| **PM-D3** | 🟡 | Secrets are in Vercel Production, not in git, and still also on the laptop. Sentry token must not go into GitHub Actions. |
+| **PM-D3** | 🟡 | Tiers and stores verified by `npm run check:secrets` (§4.2); no CI job needs the Supabase key. Closes at C1, when rotation clears the remaining laptop copies. |
 | **PM-D4** | ❌ | Gnosis Safe, 2-of-3, three reachable signers. Blocks C2 and the human half of E5. |
 | **PM-E2** | 🟡 | Alert definitions exist; nothing is imported into a provider. Detection half of every on-chain playbook. |
 | **PM-E4** | ❌ | On-call roster is still placeholders. Single-person project. |
