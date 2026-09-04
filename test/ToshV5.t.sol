@@ -2319,6 +2319,15 @@ contract ToshV5Test is Test {
     /// @dev    This is the number that matters for "is trading expensive". It
     ///         covers v4's own swap accounting plus both of our hook callbacks,
     ///         and the hook's share of it is the only part we control.
+    ///
+    ///         The ceiling rose when the buy-side tax was split: the leg now
+    ///         settles TWO payouts, the reservoir's 70 bps and the platform's
+    ///         30 bps, where it used to settle one.  A second recipient is a
+    ///         second cold account touched and a second value transfer, and
+    ///         that is a permanent cost of the split rather than a regression
+    ///         to hunt.  `--isolate` is what surfaces it; a plain `forge test`
+    ///         shares warmth across the run and reads ~9k lower, so trust CI's
+    ///         number over a local one.
     function test_gas_swapBuy() public {
         (, ToshLaunchpadHook hook) = _launchProject("GasSwap", "GSW", alice, address(0));
         _nextBlock();
@@ -2336,7 +2345,8 @@ contract ToshV5Test is Test {
         uint256 used = before - gasleft();
 
         emit log_named_uint("swap buy, end to end", used);
-        assertLt(used, 228_000, "swap path regressed");
+        emit log_named_uint("ceiling, while the buy-side tax was a single payout", 228_000);
+        assertLt(used, 253_000, "swap path regressed");
     }
 
     /// @notice The same buy again, one block later.
