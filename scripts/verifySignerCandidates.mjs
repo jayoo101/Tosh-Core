@@ -46,10 +46,30 @@ if (!fs.existsSync(file)) {
 }
 const input = JSON.parse(fs.readFileSync(file, 'utf8'))
 
-if (!input.message || typeof input.message !== 'string') {
-  console.error('✗ the file has no `message` string. Every signer must sign the SAME')
-  console.error('  message, and it must name this purpose and a date, so a signature')
-  console.error('  collected for something else cannot be replayed into this role.')
+// The signing page emits one object per signer with the message inside it, so
+// that the text travels with the signature that covers it. A hand-written file
+// is likelier to carry one message at the top. Accept both, and then require
+// that whatever arrives agrees: three owners who signed three different
+// statements have each proved control of a key, but they have not all accepted
+// the same role, and only one of those two things is what this step is for.
+const messageFor = s => s.message ?? input.message
+const messages = new Set((input.signers ?? []).map(messageFor).filter(Boolean))
+
+if (messages.size === 0) {
+  console.error('✗ no `message` found, neither at the top level nor on any signer.')
+  console.error('  Every signer must sign the SAME text, and it must name this purpose')
+  console.error('  and a date, so a signature collected for something else cannot be')
+  console.error('  replayed into this role. The signing page emits the text alongside')
+  console.error('  the signature for exactly this reason.')
+  process.exit(1)
+}
+if (messages.size > 1) {
+  console.error(`✗ ${messages.size} different messages were signed:\n`)
+  for (const m of messages) console.error(`  · "${m}"`)
+  console.error('\n  These must be identical. A signer whose text differs — even by a')
+  console.error('  date or a stray space — signed a different statement, and if the')
+  console.error('  difference is the wording rather than the whitespace then they')
+  console.error('  agreed to something other than what the other two agreed to.')
   process.exit(1)
 }
 if (!Array.isArray(input.signers) || input.signers.length !== 3) {
@@ -99,7 +119,8 @@ try {
   chainOk = false
 }
 
-console.log(`message all three must have signed:\n  "${input.message}"\n`)
+const MESSAGE = [...messages][0]
+console.log(`message all three must have signed:\n  "${MESSAGE}"\n`)
 
 const problems = []
 const seen = new Map()
@@ -127,7 +148,7 @@ for (const s of input.signers) {
   // 1. The signature must recover to the claimed address.
   let recovered = null
   try {
-    recovered = ethers.verifyMessage(input.message, s.signature)
+    recovered = ethers.verifyMessage(messageFor(s), s.signature)
   } catch (err) {
     problems.push(`${label}: signature could not be parsed (${err.message}).`)
   }

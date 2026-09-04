@@ -4,37 +4,48 @@
     "scripts, in order: verifySignerCandidates.mjs, createOwnerSafe.mjs,",
     "verifyOwnerSafe.mjs.",
     "",
-    "Send each candidate docs/SIGNER_BRIEF.md and the `message` below, verbatim.",
-    "They sign it with their wallet's 'Sign message' (EIP-191) — not a",
-    "transaction, no gas, cannot move anything — and send back only the address",
-    "and the signature.",
+    "HOW TO COLLECT THIS. Send each candidate two links:",
+    "  · docs/SIGNER_BRIEF.md — what the role is and what the key can do",
+    "  · https://jayoo101.github.io/tosh-status/sign/ — one button",
+    "",
+    "That page exists because MetaMask has no 'sign a message' button in its",
+    "interface, and because a signer who retypes the message by hand produces a",
+    "signature over different bytes the moment they add a space. The page holds",
+    "the text, they press one button, and it hands them a JSON block shaped like",
+    "the entries below. Paste the three blocks straight into `signers`.",
+    "",
+    "The message may sit on each signer (which is what the page emits, so the",
+    "text travels with the signature covering it) or once at the top level for a",
+    "hand-written file. Either works; the scripts require that all three agree,",
+    "because three people who signed three different statements have each proved",
+    "control of a key without all having accepted the same role.",
     "",
     "NEVER put a private key or seed phrase in this file. The scripts refuse to",
     "run if they find one, and rightly: a signer key that has been transmitted is",
     "no longer a signer key. Nobody entitled to ask you for one will ask.",
     "",
-    "The message is signed by all three and includes the purpose and a date, so a",
-    "signature they produced for something else cannot be replayed into this role.",
-    "Change the date to the day you actually collect them."
+    "Addresses and signatures are not secret — both are about to be public on",
+    "chain. The real file is gitignored only because it names people."
   ],
-
-  "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04.",
 
   "signers": [
     {
       "name": "you (fresh hardware key — NOT the deployer EOA)",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x"
+      "signature": "0x",
+      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
     },
     {
       "name": "signer 2",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x"
+      "signature": "0x",
+      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
     },
     {
       "name": "signer 3",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x"
+      "signature": "0x",
+      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
     }
   ]
 }

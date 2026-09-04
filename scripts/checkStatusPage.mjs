@@ -252,6 +252,71 @@ if (mainnetDeployed && STATUS_PAGE_CHAIN && STATUS_PAGE_CHAIN !== 'mainnet') {
     + 'covered this page.')
 }
 
+// ── 7. The signing page signs the message we verify against ─────────────────
+//
+// PM-D4 collects a proof-of-control signature from each prospective Safe owner
+// through /sign/, and `verifySignerCandidates.mjs` recovers an address from it
+// using the message carried in safe-owners.json. Those two strings live in two
+// different repositories, and if they ever diverge every signature fails — with
+// the *misleading* diagnostic, because a signature over different bytes recovers
+// a valid-looking but unrelated address. The script would then report that the
+// signature recovers to some other address than the one claimed, i.e. it would
+// accuse three honest signers of sending the wrong address.
+//
+// Compared byte for byte, with none of check 2's normalization: whitespace is
+// not cosmetic here, it is part of what was hashed.
+const SIGN_URL = 'https://jayoo101.github.io/tosh-status/sign/'
+const OWNERS_TEMPLATE = path.join(REPO_ROOT, 'safe-owners.example.json')
+
+try {
+  const signHtml = await get(SIGN_URL)
+  const onPage = signHtml.match(/^const MESSAGE = '([^']*)'/m)?.[1]
+
+  // Resolved the same way `verifySignerCandidates.mjs` resolves it, because a
+  // guard that only understands one of the two accepted shapes reports drift
+  // when the template switches shape — a false alarm about a real invariant,
+  // which is the kind that gets a check deleted.
+  const template = JSON.parse(fs.readFileSync(OWNERS_TEMPLATE, 'utf8'))
+  const candidates = new Set(
+    (template.signers ?? []).map(s => s.message ?? template.message).filter(Boolean))
+  if (template.message) candidates.add(template.message)
+  const expected = candidates.size === 1 ? [...candidates][0] : null
+
+  if (candidates.size > 1) {
+    drift.push(
+      `${path.basename(OWNERS_TEMPLATE)} carries ${candidates.size} different messages, `
+      + 'so it cannot say which one the signing page should hold. The template is '
+      + 'what three people are asked to sign from; it has to name one statement.')
+  }
+
+  if (!onPage) {
+    drift.push(
+      `${SIGN_URL} has no \`const MESSAGE = '…'\` line, so there is nothing to `
+      + 'compare against safe-owners.example.json. Either the page stopped '
+      + 'hardcoding the message — which would mean it takes one from the URL, '
+      + 'the phishing shape its own header rules out — or it was restructured '
+      + 'and this check needs rewriting rather than deleting.')
+  } else if (expected && onPage !== expected) {
+    drift.push(
+      `the signing page and safe-owners.example.json disagree about the message.\n`
+      + `      page:     ${JSON.stringify(onPage)}\n`
+      + `      template: ${JSON.stringify(expected)}\n`
+      + '    Signatures collected through the page would fail verification, and '
+      + 'they would fail by recovering an unrelated address — so the report '
+      + 'would blame the signers for sending a wrong address rather than name '
+      + 'this mismatch.')
+  }
+} catch (err) {
+  if (/HTTP 4\d\d/.test(err.message)) {
+    drift.push(
+      `${SIGN_URL} returns ${err.message}. PM-D4 hands that URL to prospective `
+      + 'signers as the one-click way to prove control of their address; '
+      + 'without it they are back to three sets of instructions.')
+  } else {
+    unreachable.push(`${SIGN_URL} — ${err.message}`)
+  }
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────
 if (drift.length) {
   console.error('[checkStatusPage] DRIFT')

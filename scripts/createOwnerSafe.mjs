@@ -78,6 +78,19 @@ if (!Array.isArray(input.signers) || input.signers.length !== 3) {
   die(`✗ expected exactly 3 signers, found ${input.signers?.length ?? 0}.`)
 }
 
+// Same shape tolerance as verifySignerCandidates.mjs: the signing page puts the
+// message on each signer, a hand-written file usually puts it at the top. And
+// the same requirement that they agree — checked here too, because this is the
+// step that writes to chain and it should not be able to pass by having skipped
+// the step that checks.
+const messageFor = s => s.message ?? input.message
+const messages = new Set(input.signers.map(messageFor).filter(Boolean))
+if (messages.size > 1) {
+  die(`✗ the three signers signed ${messages.size} different messages.`,
+    '  Run: node scripts/verifySignerCandidates.mjs ' + file,
+    '  It prints them side by side. They must be identical.')
+}
+
 const owners = []
 for (const s of input.signers) {
   if (!ethers.isAddress(s.address)) die(`✗ "${s.address}" (${s.name}) is not an address.`)
@@ -86,15 +99,15 @@ for (const s of input.signers) {
   // Re-verify the signature here rather than trusting that step one was run.
   // The whole point of that step is that an unsignable owner is invisible until
   // it matters, so the check belongs at the write, not only upstream of it.
-  if (!input.message || !s.signature) {
-    die(`✗ ${s.name} has no signature in ${file}.`,
+  if (!messageFor(s) || !s.signature) {
+    die(`✗ ${s.name} has no signature (or no message) in ${file}.`,
       '  Run: node scripts/verifySignerCandidates.mjs ' + file,
       '  An owner who cannot sign looks identical to one who can until the first',
       '  time you need two signatures inside sixty seconds.')
   }
   let recovered
   try {
-    recovered = ethers.getAddress(ethers.verifyMessage(input.message, s.signature))
+    recovered = ethers.getAddress(ethers.verifyMessage(messageFor(s), s.signature))
   } catch (err) {
     die(`✗ ${s.name}: signature unparseable (${err.message}).`)
   }
