@@ -14,11 +14,14 @@
     "the text, they press one button, and it hands them a JSON block shaped like",
     "the entries below. Paste the three blocks straight into `signers`.",
     "",
-    "The message may sit on each signer (which is what the page emits, so the",
-    "text travels with the signature covering it) or once at the top level for a",
-    "hand-written file. Either works; the scripts require that all three agree,",
-    "because three people who signed three different statements have each proved",
-    "control of a key without all having accepted the same role.",
+    "The message sits at the top level here, once, so that anyone opening this",
+    "file can see the exact text without hunting for it. The page emits a copy",
+    "inside each signer block instead, so the text travels with the signature",
+    "covering it; when you paste those blocks in, the per-signer copy is what",
+    "counts and this top-level one is ignored. Both shapes work. What the",
+    "scripts insist on is that all three signers agree, because three people",
+    "who signed three different statements have each proved control of a key",
+    "without all having accepted the same role.",
     "",
     "NEVER put a private key or seed phrase in this file. The scripts refuse to",
     "run if they find one, and rightly: a signer key that has been transmitted is",
@@ -28,24 +31,23 @@
     "chain. The real file is gitignored only because it names people."
   ],
 
+  "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04.",
+
   "signers": [
     {
-      "name": "you (fresh hardware key — NOT the deployer EOA)",
+      "name": "you (a fresh dedicated key — NOT the deployer EOA)",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x",
-      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
+      "signature": "0x"
     },
     {
       "name": "signer 2",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x",
-      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
+      "signature": "0x"
     },
     {
       "name": "signer 3",
       "address": "0x0000000000000000000000000000000000000000",
-      "signature": "0x",
-      "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04."
+      "signature": "0x"
     }
   ]
 }
