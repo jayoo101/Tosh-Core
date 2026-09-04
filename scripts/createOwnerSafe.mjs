@@ -53,7 +53,14 @@ const confirmed = process.argv.includes('--confirm')
 const die = (...lines) => { for (const l of lines) console.error(l); process.exit(1) }
 
 if (!fs.existsSync(file)) die(`✗ ${file} not found.`)
-const input = JSON.parse(fs.readFileSync(file, 'utf8'))
+let input
+try {
+  input = JSON.parse(fs.readFileSync(file, 'utf8'))
+} catch (err) {
+  die(`✗ ${file} is not valid JSON: ${err.message}`,
+    '  Usually a trailing comma after the last entry in `signers`, a missing one',
+    '  between two, or a block pasted through a chat app that curled the quotes.')
+}
 
 const ROLES = ['PRIVATE_KEY', 'POG_SIGNER_ADDRESS']
 console.log('roles being checked against:')

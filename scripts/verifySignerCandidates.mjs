@@ -44,7 +44,21 @@ if (!fs.existsSync(file)) {
   console.error(`✗ ${file} not found. Copy safe-owners.example.json and fill it in.`)
   process.exit(1)
 }
-const input = JSON.parse(fs.readFileSync(file, 'utf8'))
+/* This file is assembled by hand from three blocks pasted out of a browser, so
+ * a syntax error here is the single likeliest thing to go wrong in all of D4.
+ * An uncaught SyntaxError would answer it with a stack trace and a byte offset,
+ * which is the least useful form the answer could take. */
+let input
+try {
+  input = JSON.parse(fs.readFileSync(file, 'utf8'))
+} catch (err) {
+  console.error(`✗ ${file} is not valid JSON: ${err.message}`)
+  console.error('  Three things cause this almost every time:')
+  console.error('   · a comma after the LAST entry in `signers`, or a missing one between two')
+  console.error('   · a block pasted through a chat app that turned " into a curly quote')
+  console.error('   · one block pasted twice, leaving a stray } or ]')
+  process.exit(1)
+}
 
 // The signing page emits one object per signer with the message inside it, so
 // that the text travels with the signature that covers it. A hand-written file
