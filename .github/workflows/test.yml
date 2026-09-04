@@ -348,6 +348,14 @@ jobs:
       - name: Check the checklist summary matches its own rows
         run: node scripts/checkChecklistCounts.mjs
 
+      # `scripts/` carries its own package.json. Two steps below need what it
+      # installs — the typecheck, and the drill-page guard, which talks to
+      # 46630 through ethers. Hoisted into its own step so that dependency is
+      # stated rather than inherited from whichever step happens to run first.
+      - name: Install script dependencies
+        working-directory: scripts
+        run: npm ci
+
       # The Q1 drill co-signing page asks three non-engineers to approve four
       # EIP-712 Safe payloads. Everything that makes those payloads safe is a
       # literal hand-typed into the status-page repository — a Safe address, a
@@ -371,6 +379,4 @@ jobs:
       # A type error there is not caught until someone runs it by hand.
       - name: Typecheck scripts (pogSigner and friends)
         working-directory: scripts
-        run: |
-          npm ci
-          npx tsc --noEmit -p tsconfig.json
+        run: npx tsc --noEmit -p tsconfig.json
