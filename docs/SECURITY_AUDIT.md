@@ -1553,6 +1553,111 @@ project entirely from chain, with no registry involved.
 
 ---
 
+### 5.10 Sixth sweep — two fixes that reopened what they closed
+
+A parallel review of the off-chain surface, run 2026-09-04. Its two High
+findings share a shape worth naming, because it is the shape a checklist is
+blind to: both sit in code written *specifically* to fix an earlier version of
+the same bug, both carry a header comment that accurately describes the original
+attack, and both had a passing test whose assertion pointed the wrong way. The
+box was ticked, the reasoning was written down and correct, and the defect
+survived underneath it.
+
+**H-1 · The rate limiter still let a caller choose its own bucket.**
+`clientIp` in `app/lib/apiGuard.ts` keys every bucket, including the one in
+front of `/api/sign-allocation`. Its previous defect — trusting the leftmost,
+caller-supplied `X-Forwarded-For` entry — was fixed by preferring "platform
+headers the edge sets itself and strips from client input", listed as
+`cf-connecting-ip`, `x-vercel-forwarded-for`, `true-client-ip`, and consulted in
+that order.
+
+A header is only unspoofable if the edge that sets it is in front. This app
+deploys to Vercel and nothing else: `.vercel/project.json` names the project,
+and there is no `vercel.json`, no `wrangler.toml`, no `_headers`, and no
+Cloudflare configuration anywhere in the tree — `cf-connecting-ip` appears in
+exactly two files, `apiGuard.ts` and its test. Vercel does not set, strip, or
+overwrite Cloudflare's headers, so `cf-connecting-ip` arrived verbatim from the
+caller *and* was consulted first, ahead of the one header that is genuinely
+trustworthy here. One extra header per request bought a fresh full bucket on
+every route: the identical defect, one header over.
+
+The test could not fire. `prefers a platform header over anything in
+X-Forwarded-For` held `cf-connecting-ip` **constant** and varied XFF, so it
+asserted precedence — which is true, and is exactly what made the bypass
+invisible. The attacker-controlled input was the fixture.
+
+Fixed by making trust a deployment fact rather than a code guess.
+`x-vercel-forwarded-for` is preferred outright; other edges' headers are read
+only when `RATE_LIMIT_EDGE` names the edge that sets them, and unset means
+nobody, which is the true answer here. Nothing at request time distinguishes
+"Cloudflare wrote this" from "the caller typed it", so inference is not
+available and was not attempted. Two tests replace the one: the bypass case now
+varies the attacker-controlled header and requires throttling, and its mirror
+requires that a deployment genuinely behind Cloudflare can still say so rather
+than pooling every visitor into one bucket.
+
+**H-2 · One creator signature authorised unlimited rows for one launch.**
+`POST /api/projects` validates `txHash` against `/^0x[0-9a-fA-F]{64}$/` and
+inserted it in whatever casing arrived. Uniqueness of `(chain_id, tx_hash)` is
+what the route leans on for "one launch, one row", and Postgres compares `text`
+byte for byte — so a hash with *k* hex letters had 2^k spellings, each a
+distinct key naming one transaction.
+
+What made that reachable rather than untidy is the signing side.
+`lib/projectAttestation.ts` lowercases the hash before building the message, so
+one genuine signature from the real creator validates against every casing of
+their own hash. An attacker who watched any creator publish once could replay
+that creator's own signature with the hash recased and own a second row for the
+same launch. The directory renders every row it gets back. That is precisely the
+squat the file's own header describes and claims to have closed: "keyed by a
+txHash that can only ever be inserted once, so a replay reproduces a row that
+already exists." The claim was load-bearing for the decision to omit a nonce.
+
+Fixed by canonicalising immediately after validation, before the chain read, the
+message build, the log line and the insert. Lowercase rather than an arbitrary
+choice: it is what the signed message already uses, what `viem` returns from
+`getTransactionReceipt`, and what existing rows hold.
+
+**Alongside them**, `GET /api/projects` was an unauthenticated, uncached
+`select('*')` with no ceiling, returning whole rows including free-text
+`description`. It is the multiplier that turned H-2 from defacement into
+availability loss — response size was a function of how many rows anyone had
+managed to insert, and `REGISTRY_READ_DEADLINE_MS` converts a large enough table
+into a 503 for every visitor rather than a slow page. Now capped at 500 rows,
+sized as a bound on the failure and not as a paging scheme; a directory that
+legitimately approaches it needs real pagination and should not find that out by
+silently dropping projects.
+
+All three are pinned by mutation testing in the manner of §5.7: reintroducing
+each defect fails a named test (4/4 caught), and the pair of guards on
+`RATE_LIMIT_EDGE` covers both directions so the fix cannot degenerate into
+"ignore those headers forever".
+
+**Open, and not a code fix.** The same review flagged that
+`scanGasHistoryForWallet` in `api/sign-allocation/route.ts` is `void
+userAddress; return MOCK_CHAIN_GAS` — a constant table, so every address that
+clears the gates receives an identical attestation for the on-chain ceiling.
+This is deliberate and documented at the call site as the seam for a real
+indexer, but it is a *product* decision with an audit consequence, and it
+appears nowhere in this dossier's trust model: §2.1 describes the PoG signer as
+attesting to gas history, and with the mock in place there is no history being
+attested. It must be resolved before mainnet in one of two ways — wire a real
+indexer, or state plainly in §2.3 and in user-facing copy that genesis
+allocation is open to all comers up to the global ceiling — and it is tracked as
+such rather than silently inherited.
+
+**Scope.** This sweep covered the off-chain surface only: API routes, RLS
+posture, the PoG signing path, and the factory/clone libraries. The
+`ToshLaunchpadHook` and `ToshLadderTreasury` reviews queued alongside it did not
+run, so §1.1's "largest attack surface in the system" remains covered only by
+§5.7's Slither pass and the test suite, not by this sweep. Medium and Low items
+reported for the paths that did run — a caller-chosen contract address in the
+attestation digest, a zero-margin TTL, and unbounded `softCap` /
+`maxPogAllocationLimit` setters — are queued for triage and are **not** yet
+verified against source; nothing above should be read as dispositioning them.
+
+---
+
 ## 6. Findings
 
 > **Populate from the auditor's report. One subsection per finding, using

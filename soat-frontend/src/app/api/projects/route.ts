@@ -45,6 +45,12 @@ const GET_RATE_LIMIT = {
   refillPerSec: 10,
 } as const
 
+/** Ceiling on rows the public directory read returns.
+ *  Sized as a bound on the worst case rather than as a page: a directory that
+ *  ever legitimately approaches this needs real pagination, and should not
+ *  discover that by silently dropping projects. */
+const MAX_DIRECTORY_ROWS = 500
+
 const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
 
 export async function OPTIONS(req: NextRequest) {
@@ -202,15 +208,32 @@ export async function POST(req: NextRequest) {
   if (parsed.error) return applyCors(parsed.error, req, CORS_OPTS)
   const body = parsed.data
 
-  const { txHash, logoUrl, website, twitter, telegram, description, signature } = body
+  const { txHash: rawTxHash, logoUrl, website, twitter, telegram, description, signature } = body
 
-  if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+  if (typeof rawTxHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(rawTxHash)) {
     return applyCors(
       NextResponse.json({ error: 'txHash must be a 32-byte hex string' }, { status: 422 }),
       req,
       CORS_OPTS,
     )
   }
+
+  // Canonicalise BEFORE anything reads it, because the uniqueness this route
+  // leans on is the database's, and Postgres compares `text` byte by byte.
+  //
+  // The validator accepts `[0-9a-fA-F]`, so one launch has 2^k spellings for k
+  // hex letters in its hash. `buildProjectAttestationMessage` lowercases before
+  // signing — so ONE signature from the real creator authorises every one of
+  // those spellings, and each inserted a distinct row past a unique index that
+  // never saw them as equal. The squat that file describes was therefore still
+  // open to anyone who had watched a creator publish once: re-POST their own
+  // signature with the hash recased and own a second row for the same launch.
+  // The directory renders every row, so the duplicates are the attack.
+  //
+  // Lowercase is the right canonical form rather than an arbitrary one: it is
+  // what the signed message already uses, what `viem` returns from
+  // `getTransactionReceipt`, and what the existing rows were written with.
+  const txHash = rawTxHash.toLowerCase()
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]+$/.test(signature)) {
     return applyCors(
       NextResponse.json({ error: 'signature (hex string) required' }, { status: 401 }),
@@ -375,6 +398,14 @@ export async function GET(req: NextRequest) {
     // rows are not forged, they are about somewhere else.
     .eq('chain_id', targetChain.id)
     .order('created_at', { ascending: false })
+    // Bounded because this is public, uncached, and returns whole rows
+    // including free-text `description`. Unbounded, the response size was a
+    // function of how many rows anyone had managed to insert, and the read
+    // deadline above turns a large enough table into a 500 for every visitor
+    // rather than a slow page. The cap is well above any plausible directory,
+    // so it is a ceiling on the failure and not a paging scheme; `created_at
+    // DESC` above means what it drops is the oldest.
+    .limit(MAX_DIRECTORY_ROWS)
     .abortSignal(AbortSignal.timeout(REGISTRY_READ_DEADLINE_MS))
 
   if (error) {

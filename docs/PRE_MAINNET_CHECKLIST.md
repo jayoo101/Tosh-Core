@@ -626,6 +626,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
+| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either `scanGasHistoryForWallet` reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the ceiling | ❌ `route.ts` does `void userAddress; return MOCK_CHAIN_GAS` — see §6.4 |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
@@ -960,6 +961,54 @@ is PM-D3.
 
 ---
 
+### 6.4 PM-F9 — the allocation nobody is measuring
+
+Added 2026-09-04, from the sweep recorded as §5.10 of the audit dossier. Like
+PM-C9 before it, the notable part is not the defect but that the row did not
+exist: an irreversible, user-visible property of launch day, with no line in
+this file to be answered on.
+
+`scanGasHistoryForWallet` in `soat-frontend/src/app/api/sign-allocation/route.ts`
+is two statements:
+
+```ts
+async function scanGasHistoryForWallet(userAddress: Address): Promise<ChainGasData[]> {
+  void userAddress
+  return MOCK_CHAIN_GAS
+}
+```
+
+`MOCK_CHAIN_GAS` is a fixed four-row table summing to 0.033 ETH, which at the
+seeded rate floors at `MAX_ALLOC_ETH_WEI`. So every address that clears the
+gates receives an identical attestation for the on-chain ceiling, and the
+address it was issued for is discarded before it is used. This is deliberate,
+labelled at the call site as the seam a real indexer drops into, and correct as
+a stub.
+
+**What makes it a checklist item rather than a TODO** is that other documents
+have already spent it. §2.1 of the audit dossier describes the PoG signer as
+attesting to a wallet's multi-chain gas history; with the mock in place there is
+no history being attested, and the trust model claims a bound the code does not
+supply. Anything user-facing that describes genesis allocation as earned by past
+gas spend is in the same position.
+
+Two ways to close it, and they are genuinely different products:
+
+- **Wire a live indexer** behind the seam. Everything downstream — rate fetch,
+  `computeMaxAllocWei`, nonce sync, digest framing — is already built and stays
+  untouched, so the work is the data source and its failure modes, not the
+  pipeline.
+- **Ship the flat allocation on purpose**, and say so: every eligible address
+  gets the ceiling, first come until `maxPogAllocationLimit` is reached. Then
+  §2.3 and the launch copy have to be rewritten to match, and the global limit
+  becomes the only thing rationing supply, which is a sizing decision in its own
+  right.
+
+Either is defensible. Shipping the mock while the docs describe the first option
+is not, and that is the state this row exists to prevent.
+
+---
+
 ## 7. Legacy number crosswalk
 
 For anyone who arrives here from a code comment:
@@ -992,8 +1041,8 @@ written by hand. See the note under the table.
 | C — Deploy & handoff | 7 | 0 | 1 | 0 | 1 |
 | D — Keys & secrets | 0 | 3 | 0 | 1 | 0 |
 | E — Observability & ops | 1 | 2 | 0 | 0 | 3 |
-| F — Frontend & platform | 0 | 0 | 0 | 0 | 8 |
-| **Total** | **11** | **6** | **1** | **1** | **17** |
+| F — Frontend & platform | 1 | 0 | 0 | 0 | 8 |
+| **Total** | **12** | **6** | **1** | **1** | **17** |
 
 The **N/A** column is new and holds exactly one row, PM-D2. It exists because
 the table had no column for a retired item, so closing D2 as not-applicable
@@ -1007,10 +1056,12 @@ in **Still open** against the gate row it repeats and fails if a row that is
 not ✅ is missing from that list. Eight mutations, all caught. This table can
 no longer disagree with the rows without CI saying so.
 
-Gate B and Gate F are closed. The accounts-and-credentials group that was
-blocking F and half of E is done: Upstash, Supabase (with `chain_id`), Sentry
-(both ingest routes and a real source-map upload), and the Vercel project
-serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
+Gate B is closed. Gate F was, until the 2026-09-04 sweep added PM-F9 — the
+genesis allocation is still computed from a constant table, and nothing in this
+file had ever asked about it. It reopens as one row rather than eight; the
+accounts-and-credentials group that was blocking F and half of E is done:
+Upstash, Supabase (with `chain_id`), Sentry (both ingest routes and a real
+source-map upload), and the Vercel project serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
 half of the first incident drill are dated. What is still open is listed
 below, in the order it actually blocks.
 
@@ -1034,6 +1085,7 @@ below, in the order it actually blocks.
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
+| **PM-F9** | ❌ | Genesis allocation is computed from a constant table: scanGasHistoryForWallet discards the address and returns MOCK_CHAIN_GAS, so every eligible wallet is attested for the ceiling. Added 2026-09-04 — the row did not exist, while §2.1 of the audit dossier already described the signer as attesting to real gas history. Close it by wiring an indexer or by saying plainly that the allocation is flat. See §6.4. |
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem. Gate C is the mainnet

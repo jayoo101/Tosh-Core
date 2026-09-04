@@ -48,6 +48,8 @@ let adminUnavailable: boolean
 let recovered: string
 /** The row handed to `.insert()`, so what is written can be asserted. */
 let adminRow: Record<string, unknown> | undefined
+/** The argument to `.limit()`, so the directory read's ceiling can be asserted. */
+let selectLimit: unknown
 
 function builder(
   onInsert: (row: Record<string, unknown>) => void,
@@ -57,9 +59,10 @@ function builder(
   // `eq` is here because the READ paths filter on chain_id. It is a no-op for
   // POST, and its absence would surface as "chain.eq is not a function" from a
   // GET test rather than as anything about chains.
-  for (const method of ['from', 'select', 'order', 'or', 'limit', 'single', 'eq']) {
+  for (const method of ['from', 'select', 'order', 'or', 'single', 'eq']) {
     chain[method] = () => chain
   }
+  chain.limit = (n: unknown) => { selectLimit = n; return chain }
   chain.insert = (row: Record<string, unknown>) => { onInsert(row); return chain }
   chain.abortSignal = (s: AbortSignal) => { onSignal(s); return chain }
   chain.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) =>
@@ -117,6 +120,7 @@ beforeEach(() => {
   adminInserts = 0
   adminSignal = undefined
   adminRow = undefined
+  selectLimit = undefined
   adminUnavailable = false
   recovered = CREATOR
   adminResult = { data: { id: 'row-1' }, error: null }
@@ -199,6 +203,35 @@ describe('POST /api/projects — the writer', () => {
     // correctly authenticated in it.
     await post()
     expect(adminRow?.chain_id).toBe(31337)
+  })
+
+  it('writes the tx hash in one canonical casing, whatever casing was sent', async () => {
+    // The uniqueness this route leans on for "one launch, one row" is the
+    // database's, and Postgres compares `text` byte for byte. The validating
+    // regex accepts `[0-9a-fA-F]`, so `0xAB..` and `0xab..` were two different
+    // keys naming one transaction.
+    //
+    // What made that reachable rather than merely untidy: the signed message
+    // built by `lib/projectAttestation.ts` lowercases the hash before signing.
+    // So a single genuine signature from the real creator authorises EVERY
+    // casing of their own hash — replay it recased and the unique index does
+    // not object. The directory renders every row it gets back, which is the
+    // squat that file's header describes, reopened one `.toUpperCase()` later.
+    await post({ txHash: TX_HASH.toUpperCase().replace('0X', '0x') })
+    expect(adminRow?.tx_hash).toBe(TX_HASH)
+  })
+
+  it('bounds the public directory read', async () => {
+    // GET is unauthenticated, uncached, and returns whole rows including a
+    // free-text description. Unbounded, its response size was set by however
+    // many rows existed, and the read deadline turns a big enough table into a
+    // 503 for every visitor rather than a slow page.
+    const { GET } = await import('./route')
+    await GET(new NextRequest('https://tosh.test/api/projects', {
+      headers: { 'x-forwarded-for': `203.0.113.${ipSeq++ % 250}` },
+    }))
+    expect(selectLimit).toBeTypeOf('number')
+    expect(selectLimit).toBeLessThanOrEqual(1_000)
   })
 
   it('takes identity from the receipt and never from the request body', async () => {

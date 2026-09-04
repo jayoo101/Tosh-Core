@@ -75,7 +75,7 @@ describe('applyRateLimit — a caller cannot choose its own bucket', () => {
     expect(limited).toBe(0)
   })
 
-  it('prefers a platform header over anything in X-Forwarded-For', async () => {
+  it('prefers the platform header over anything in X-Forwarded-For', async () => {
     const { applyRateLimit } = await loadGuard('1')
     const opts = bucket(10)
 
@@ -83,7 +83,7 @@ describe('applyRateLimit — a caller cannot choose its own bucket', () => {
     for (let i = 0; i < 30; i++) {
       const res = await applyRateLimit(
         reqWith({
-          'cf-connecting-ip': '198.51.100.1',
+          'x-vercel-forwarded-for': '198.51.100.1',
           'x-forwarded-for': `10.0.0.${i}, 203.0.113.${i}`,
         }),
         opts,
@@ -91,6 +91,53 @@ describe('applyRateLimit — a caller cannot choose its own bucket', () => {
       if (res) limited++
     }
     expect(limited).toBe(20)
+  })
+
+  it('ignores an edge header when that edge is not in front', async () => {
+    // The case the test above was shaped to miss. It held `cf-connecting-ip`
+    // CONSTANT and varied XFF, so it proved "the platform header wins" — which
+    // is true, and is exactly why the bypass was invisible. Vary the header the
+    // attacker actually controls instead.
+    //
+    // Nothing in the tree puts Cloudflare in front: Vercel neither sets nor
+    // strips `cf-connecting-ip`, so it arrived verbatim from the caller while
+    // being consulted FIRST. A fresh value per request meant a fresh full
+    // bucket per request.
+    const { applyRateLimit } = await loadGuard('1')
+    const opts = bucket(10)
+
+    let limited = 0
+    for (let i = 0; i < 30; i++) {
+      const res = await applyRateLimit(
+        reqWith({
+          'cf-connecting-ip': `198.51.100.${i}`,
+          'true-client-ip': `198.51.100.${i}`,
+          'x-forwarded-for': `10.0.0.9, 203.0.113.7`,
+        }),
+        opts,
+      )
+      if (res) limited++
+    }
+    expect(limited).toBe(20)
+  })
+
+  it('honours an edge header once RATE_LIMIT_EDGE says that edge is in front', async () => {
+    // The mirror: the fix must not be "ignore these headers forever". A
+    // deployment that really does sit behind Cloudflare has to be able to say
+    // so, or every visitor behind it shares one bucket.
+    vi.stubEnv('RATE_LIMIT_EDGE', 'cloudflare')
+    const { applyRateLimit } = await loadGuard('1')
+    const opts = bucket(10)
+
+    let limited = 0
+    for (let i = 0; i < 30; i++) {
+      const res = await applyRateLimit(
+        reqWith({ 'cf-connecting-ip': `198.51.100.${i}` }),
+        opts,
+      )
+      if (res) limited++
+    }
+    expect(limited).toBe(0)
   })
 
   it('counts from the right when two proxies are declared', async () => {

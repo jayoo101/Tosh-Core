@@ -180,23 +180,62 @@ const TRUSTED_PROXY_HOPS = (() => {
  * `/api/sign-allocation` — a key-signing endpoint, and the whole point of
  * PM-F5 — came off with one header.
  *
+ * THE BUG THAT REPLACED IT
+ *
+ * The fix above preferred "platform headers", listing `cf-connecting-ip`,
+ * `x-vercel-forwarded-for` and `true-client-ip` and calling them "the only
+ * unspoofable options". A header is only unspoofable if the edge that sets it
+ * is actually in front, and this app deploys to Vercel with no Cloudflare:
+ * `.vercel/project.json` names the project, there is no `vercel.json`, no
+ * `wrangler.toml`, and no Cloudflare configuration anywhere in the tree.
+ *
+ * Vercel sets `x-vercel-forwarded-for` and normalises `x-forwarded-for`. It
+ * does not set, strip, or overwrite Cloudflare's headers — so `cf-connecting-ip`
+ * arrived verbatim from the client AND was consulted first, overriding the one
+ * header that is genuinely trustworthy here. One extra header per request
+ * bought a fresh full bucket, on every route, which is the identical defect
+ * one header over.
+ *
  * ORDER OF PREFERENCE
  *
- * 1. Platform headers the edge sets itself and strips from client input.
- *    These are the only unspoofable options, so they win when present.
- * 2. `X-Forwarded-For`, counted from the right by `TRUSTED_PROXY_HOPS`.
- * 3. `X-Real-IP` / `.ip`, only when no XFF exists at all.
+ * 1. `x-vercel-forwarded-for`. Set by the platform this actually runs on, and
+ *    overwritten there rather than appended to.
+ * 2. Headers belonging to an edge that is NOT in front by default. They are
+ *    consulted only when `RATE_LIMIT_EDGE` names the edge that sets them,
+ *    because trusting a header is trusting whoever can write it, and that is a
+ *    deployment fact rather than a code fact. Unset means "nobody", which is
+ *    the true answer here.
+ * 3. `X-Forwarded-For`, counted from the right by `TRUSTED_PROXY_HOPS`.
+ * 4. `X-Real-IP` / `.ip`, only when no XFF exists at all.
  *
  * Falling back to a shared `'unknown'` bucket is deliberate: an unidentifiable
  * caller should share a bucket with every other unidentifiable caller rather
  * than get a private one.
  */
+
+/**
+ * Which edge, if any, terminates connections in front of this app.
+ *
+ * Deliberately opt-in and deliberately not inferred. There is no request-time
+ * signal that distinguishes "Cloudflare set this header" from "the caller typed
+ * it", so the only safe default is to believe neither.
+ */
+const EDGE_HEADERS: Record<string, readonly string[]> = {
+  cloudflare: ['cf-connecting-ip', 'true-client-ip'],
+  akamai: ['true-client-ip'],
+}
+const TRUSTED_EDGE_HEADERS: readonly string[] =
+  EDGE_HEADERS[(process.env.RATE_LIMIT_EDGE ?? '').trim().toLowerCase()] ?? []
+
 function clientIp(req: NextRequest | Request): string {
-  const platform =
-    req.headers.get('cf-connecting-ip') ??
-    req.headers.get('x-vercel-forwarded-for') ??
-    req.headers.get('true-client-ip')
-  if (platform) return platform.trim()
+  // Vercel's own header, which the platform overwrites on the way in.
+  const vercel = req.headers.get('x-vercel-forwarded-for')
+  if (vercel) return vercel.trim()
+
+  for (const h of TRUSTED_EDGE_HEADERS) {
+    const v = req.headers.get(h)
+    if (v) return v.trim()
+  }
 
   const xff = req.headers.get('x-forwarded-for')
   if (xff && TRUSTED_PROXY_HOPS > 0) {

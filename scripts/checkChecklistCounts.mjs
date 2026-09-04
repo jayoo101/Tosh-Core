@@ -118,12 +118,44 @@ if (claimedTotal) {
 // cell is expanded rather than string-matched, and an item may also be
 // satisfied by being named in a row's prose, which is how PM-A4 is currently
 // carried ("A4's remaining two boxes wait on A1").
-const stillOpen = summaryHalf.slice(summaryHalf.indexOf('**Still open**'))
+// Anchored to the HEADING, which is `**Still open**` alone on its own line.
+//
+// This used to be `indexOf('**Still open**')`, and the first occurrence in §8
+// is not the heading — it is the paragraph above it explaining what the list is
+// for ("...compares the status glyph in **Still open** against the gate row").
+// So the searched region began several hundred words early and swallowed the
+// surrounding prose, and the fallback below, which accepts an item named
+// anywhere in that region, could be satisfied by a sentence that merely
+// mentioned the item rather than by a row listing it. PM-F9 was added with no
+// row and the guard passed, because the paragraph introducing it said "PM-F9".
+//
+// That is the same defect as both High findings in §5.10 of the audit dossier:
+// a check that reads the right thing at the wrong scope, and therefore asserts
+// something weaker than its name claims. Caught here by the mutation that
+// deletes a row and expects a failure.
+const heading = summaryHalf.match(/^\*\*Still open\*\*\s*$/m)
+if (!heading) {
+  console.error(`✗ ${DOC}: no "**Still open**" heading on a line of its own.`)
+  console.error('  Without it this guard cannot tell the list from the prose')
+  console.error('  about the list, and checks membership against neither.')
+  process.exit(1)
+}
+const stillOpen = summaryHalf.slice(heading.index)
+
+// Only the table rows, joined, so the prose fallback below searches the list
+// and not the commentary around it. The blockquote notes under the table talk
+// about items at length — "**PM-C2 is the one people skip**" — and against the
+// whole section that sentence was enough to satisfy membership for an item
+// whose row had been deleted. The fallback is meant to cover an item carried
+// inside ANOTHER item's row, which is how PM-A4 rides along on PM-A1's, not an
+// item merely discussed nearby.
+const rowLines = []
 
 const rowIds = new Set()
 for (const line of stillOpen.split(/\r?\n/)) {
   const row = line.match(/^\|\s*\*\*([^|*]+)\*\*\s*\|\s*(✅|🟡|❌|⏸|⬜)?\s*\|/)
   if (!row) continue
+  rowLines.push(line)
   let gate = null
   for (const part of row[1].split(',').map(s => s.trim())) {
     const m = part.match(/^(?:PM-)?([A-F])?(\d+)$/)
@@ -151,7 +183,7 @@ for (const [id, s] of status) {
     // document writes it; scoped to this section so it cannot be satisfied by
     // an unrelated mention elsewhere in the file.
     const bare = id.slice(3)
-    if (!new RegExp(`\\b(?:${id}|${bare})\\b`).test(stillOpen)) {
+    if (!new RegExp(`\\b(?:${id}|${bare})\\b`).test(rowLines.join('\n'))) {
       problems.push(
         `${id} is not ✅ but is absent from "Still open", which is the list a `
         + 'reader treats as the remaining work.')
