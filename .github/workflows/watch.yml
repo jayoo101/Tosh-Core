@@ -122,12 +122,27 @@ jobs:
           # An explicit `since` from a human wins over the cold-start bound;
           # sweeping a known gap is the reason that input exists.
           window="${SINCE:-${COLD:-}}"
-          args=()
-          [ -n "$window" ] && args+=(--since "$window")
-          [ "${DRY:-false}" = "true" ] && args+=(--dry)
 
+          # `if`, not `[ … ] && …`. GitHub runs every step as `bash -e {0}`, and
+          # under -e an `&&` list whose test is FALSE returns 1 and kills the
+          # step. That is the normal case here, not an edge one: on any resumed
+          # pass `window` is empty and `dry` is false, so both lines would be
+          # false and a healthy scheduled run would die before scanning
+          # anything. It only survived testing because the first manual run
+          # passed a `since`.
+          args=()
+          if [ -n "$window" ]; then args+=(--since "$window"); fi
+          if [ "${DRY:-false}" = "true" ]; then args+=(--dry); fi
+
+          # Same -e, opposite problem. `set -uo pipefail` does not clear the -e
+          # that GitHub put on the command line, so watch.mjs exiting 1 aborted
+          # the step before `code=$?` could read it — turning "a finding paged"
+          # into a red build, which is exactly what the comment below says this
+          # must not do.
+          set +e
           node monitoring/watch.mjs "${args[@]}" > "$RUNNER_TEMP/findings.jsonl"
           code=$?
+          set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
           # 2 is "you configured me wrong" — no factory address, or a checkpoint
