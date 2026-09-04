@@ -107,16 +107,21 @@ jobs:
       # landed, so it would no longer have caught the deletion it was written
       # for. A floor that trails the suite is a floor that has stopped working.
       #
-      # 349 is safe WITHOUT the fork secret, which is the state this repository
-      # is in. Measured rather than assumed: forge counts a `vm.skip`'d test in
-      # its "(N total tests)" summary (probed with a two-test contract, one
-      # skipping — forge reported "1 passed; 0 failed; 1 skipped (2 total
-      # tests)"). So the 8 fork tests that skip here still count, and the
-      # number this step reads is 349 either way.
+      # The floor is safe WITHOUT the fork secret, which is the state this
+      # repository is in. Measured rather than assumed: forge counts a
+      # `vm.skip`'d test in its "(N total tests)" summary (probed with a
+      # two-test contract, one skipping — forge reported "1 passed; 0 failed;
+      # 1 skipped (2 total tests)"). So the 8 fork tests that skip here still
+      # count, and the number this step reads is the same either way.
+      #
+      # 349 -> 350 on 2026-09-04:
+      # `test_piggyback_innerMutexHoldsAgainstAReentrantLadderHook`, which
+      # closes the coverage gap SECURITY_AUDIT.md §5.7 had recorded against
+      # itself — `_runPiggyback`'s own mutex check was reached by no test.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=349
+          floor=350
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

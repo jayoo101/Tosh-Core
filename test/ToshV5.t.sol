@@ -24,6 +24,12 @@ import {ToshToken} from "../src/ToshToken.sol";
 import {HookMiner} from "../src/libraries/HookMiner.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 
+/// @dev Namespaced storage slot for `ReentrantLadderHook`'s counter. File-level
+///      so the mock that writes it and the assertion that reads it cannot drift
+///      apart — and namespaced because the mock is etched over a live EIP-1167
+///      clone, where slot 0 belongs to the hook's own state.
+uint256 constant _REENTRANT_HOOK_CALLS_SLOT = uint256(keccak256("tosh.test.reentrantHook.calls"));
+
 /// @notice v5.0 suite —ETH-native launches, the global referral graph, the
 ///         discrete tier ladder with its anti-spike gates, the asymmetric
 ///         in-flight tax, and the round-robin piggyback buyback.
@@ -2096,6 +2102,93 @@ contract ToshV5Test is Test {
         assertGt(tokenB.balanceOf(DEAD), deadBefore, "the healthy leg still executes");
     }
 
+    /// @notice The piggyback mutex has two layers and the suite only ever
+    ///         reached one. This reaches the other.
+    ///
+    /// @dev    `SECURITY_AUDIT.md` §5.7 flagged the gap against itself: every
+    ///         ladder token is a Tosh token, so each leg swaps through another
+    ///         Tosh pool, whose hook reads `piggybackActive()` in `beforeSwap`
+    ///         and goes passive BEFORE poking us. That outer layer returns
+    ///         early, so `_runPiggyback`'s own `if (piggybackActive()) return;`
+    ///         was never reached by any test.
+    ///
+    ///         It is defence in depth, not dead code, and the case it defends
+    ///         is the dangerous one: a ladder entry whose pool re-enters the
+    ///         treasury directly, where the outer layer does not exist at all.
+    ///         §5.7 called that "not constructible from the current fixtures".
+    ///         It is constructible by etching — the factory keys `registeredHooks`
+    ///         by ADDRESS, not by code, so replacing a listed hook's code models
+    ///         a hook that misbehaves without forging a registration. That is
+    ///         also the honest threat model: `addLadderToken` is `onlyOwner` and
+    ///         checks provenance, so the way an attacker-controlled callee gets
+    ///         inside the loop is a listed hook going bad, not an unlisted token
+    ///         getting listed.
+    ///
+    ///         Measured with the guard deleted, and again with it inverted:
+    ///         the re-entrant call starts a second cycle from inside the first,
+    ///         re-reads the cursor (unchanged, since the outer loop writes it
+    ///         only at the end), and swaps the same pool again — which
+    ///         re-enters `beforeSwap`, which re-enters again, until the nested
+    ///         leg dies and `try/catch` swallows the whole thing as
+    ///         `BuybackSkipped`. Nothing is bought, and the hostile hook's own
+    ///         counter rolls back with the leg, which is why the first
+    ///         assertion below is the one that trips.
+    ///
+    ///         So the guard is not merely tidy. Without it a single bad listing
+    ///         turns every poke into a no-op for the token at the cursor, and
+    ///         the round-robin never gets past it.
+    function test_piggyback_innerMutexHoldsAgainstAReentrantLadderHook() public {
+        (ToshToken tokenB, ToshLaunchpadHook hookB) = _launchProject("ReentB", "RNB", alice, address(0));
+        (ToshToken tokenC,) = _launchProject("ReentC", "RNC", alice, address(0));
+
+        vm.startPrank(admin);
+        ladder.addLadderToken(address(tokenB));
+        ladder.addLadderToken(address(tokenC));
+        vm.stopPrank();
+
+        // B is at the cursor, so B's hook is the one that runs inside the leg.
+        assertEq(ladder.currentCursor(), 0, "the first leg must be the token we made hostile");
+
+        // Etched AFTER listing: `addLadderToken` reads the venue off the real
+        // hook, and the point here is a hook that turns hostile once listed.
+        ReentrantLadderHook hostile = new ReentrantLadderHook(ladder);
+        vm.etch(address(hookB), address(hostile).code);
+
+        vm.deal(address(ladder), 1 ether);
+        uint256 burnedBefore = tokenB.balanceOf(DEAD);
+
+        vm.recordLogs();
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // 1. The attack happened, once, and the leg survived it. Without this
+        //    the rest is vacuous — a test that proves a guard holds because
+        //    nothing ever reached it is the hole this test exists to close.
+        //
+        //    This is also the assertion that trips when the guard is removed,
+        //    and not for the reason you would guess: the runaway nesting kills
+        //    the leg, `try/catch` swallows it, and the counter rolls back to 0
+        //    with everything else the leg touched.
+        uint256 attempts = uint256(vm.load(address(hookB), bytes32(_REENTRANT_HOOK_CALLS_SLOT)));
+        assertEq(attempts, 1, "the hostile hook must have re-entered exactly once, and the leg must survive it");
+
+        // 2. The buyback still delivered. A guard that holds by aborting the
+        //    leg would satisfy every other assertion here.
+        assertGt(tokenB.balanceOf(DEAD), burnedBefore, "the leg must still buy and burn under the attack");
+
+        // 3. It bought nothing twice. One poke, one cycle, one accounting event.
+        uint256 executed;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == ToshLadderTreasury.PiggybackExecuted.selector) ++executed;
+        }
+        assertEq(executed, 1, "a re-entrant hook must not start a second cycle");
+
+        // 4. The flag is not left raised, which would wedge every later poke.
+        assertFalse(ladder.piggybackActive(), "the transient mutex must be clear on the way out");
+        assertEq(ladder.currentCursor(), 1, "the cursor advances by exactly one leg");
+    }
+
     /// @dev The one-way valve: there is no owner path that moves ETH out.
     function test_ladderTreasury_hasNoWithdrawPath() public {
         vm.deal(address(ladder), 5 ether);
@@ -3043,9 +3136,13 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("PeakTrig", "PKT", alice, address(0));
 
         for (uint256 i; i < ladderCount; ++i) {
-            (ToshToken t,) = _launchProject(
-                string.concat("Peak", vm.toString(i)), string.concat("PK", vm.toString(i)), alice, address(0)
-            );
+            // The two `string.concat`s are hoisted rather than passed inline.
+            // Inline, this call site is the one expression in the suite that
+            // `forge coverage --ir-minimum` cannot stack-allocate, and it takes
+            // the whole coverage build down with it (`scripts/coverage.ps1`).
+            string memory nm = string.concat("Peak", vm.toString(i));
+            string memory sym = string.concat("PK", vm.toString(i));
+            (ToshToken t,) = _launchProject(nm, sym, alice, address(0));
             vm.prank(admin);
             ladder.addLadderToken(address(t));
         }
@@ -3130,6 +3227,61 @@ contract SafeCostReceiver {
 contract RevertingReceiver {
     receive() external payable {
         revert("I will not take your money");
+    }
+}
+
+/// @notice A listed hook that has gone bad: it calls the treasury back from
+///         inside the buyback leg it is being paid by.
+///
+/// @dev    Etched over a real, listed hook's address. The factory keys
+///         `registeredHooks` by address rather than by code, so swapping the
+///         code past `onlyHook` is what a compromised or malicious listing
+///         looks like from the treasury's side.
+///
+///         The V4 return types are spelled as their underlying primitives —
+///         `int256` for `BeforeSwapDelta`, `int256` for `BalanceDelta`. Those
+///         are user-defined value types, so the canonical signature (and hence
+///         the selector, and hence what the PoolManager decodes) is identical,
+///         and the mock needs no v4 type imports to stay ABI-compatible.
+contract ReentrantLadderHook {
+    ToshLadderTreasury internal immutable TREASURY;
+
+    constructor(ToshLadderTreasury treasury) {
+        TREASURY = treasury;
+    }
+
+    /// @dev The hostile call. `beforeSwap` runs inside `_buyAndBurn`'s
+    ///      `poolManager.swap`, which runs inside `_runPiggyback`'s loop, which
+    ///      runs with the transient mutex raised — so this is the re-entry the
+    ///      inner guard exists for.
+    function beforeSwap(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+        external
+        returns (bytes4, int256, uint24)
+    {
+        // Hoisted: inline assembly takes direct number constants only, and this
+        // one is derived from a keccak256.
+        uint256 slot = _REENTRANT_HOOK_CALLS_SLOT;
+        assembly ("memory-safe") {
+            sstore(slot, add(sload(slot), 1))
+        }
+        TREASURY.autoPiggybackBuyback();
+        return (ReentrantLadderHook.beforeSwap.selector, int256(0), uint24(0));
+    }
+
+    function afterSwap(address, PoolKey calldata, SwapParams calldata, int256, bytes calldata)
+        external
+        pure
+        returns (bytes4, int128)
+    {
+        return (ReentrantLadderHook.afterSwap.selector, int128(0));
+    }
+
+    /// @dev `_buybackSqrtFloor` reads this before the swap. Zero means "no
+    ///      reference yet", which sends the leg down the already-documented
+    ///      unbounded path rather than reverting it — keeping this test about
+    ///      the mutex and nothing else.
+    function twapSqrtPriceX96() external pure returns (uint160) {
+        return 0;
     }
 }
 

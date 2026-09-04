@@ -707,9 +707,9 @@ telling us things CI could have:
       in `test/ToshHookClone.t.sol` that embeds a full hook creation code, it is
       never deployed, and Foundry does not distinguish test contracts in that
       table. Read the table with that in mind rather than as a pass/fail.
-- [x] `forge test` — 349/349 green, and 349/349 again under
+- [x] `forge test` — 350/350 green, and 350/350 again under
       `forge test --isolate`. Both are CI gates in `.github/workflows/test.yml`,
-      and that workflow now also asserts the COUNT: a floor of 349 and an
+      and that workflow now also asserts the COUNT: a floor of 350 and an
       equality check between the two runs. Added because an interrupted build
       leaves an artifact with a complete ABI and empty bytecode, which forge
       reports as "no tests found" for that suite and skips — the whole main suite
@@ -718,9 +718,10 @@ telling us things CI could have:
       The floor is only useful while it tracks the suite. It sat at 335 against
       349 actual until 2026-09-04, i.e. 14 tests of slack, which is enough to
       lose a whole suite without tripping — the exact failure it was built for.
-      Raising it is part of adding tests, not a separate chore. 349 holds even
-      without `ROBINHOOD_RPC`, because forge counts a `vm.skip`'d test in its
-      total; that was measured, not assumed.
+      Raising it is part of adding tests, not a separate chore, and it moved to
+      350 in the same commit as the §5.7 mutex test. 350 holds even without
+      `ROBINHOOD_RPC`, because forge counts a `vm.skip`'d test in its total;
+      that was measured, not assumed.
       The count rose from 305 with the regression tests for the two contract
       defects in §5.2, the `genesisDuration` guard in §5.3, and
       `ToshV5Abi.t.sol` — three tests pinning `abis.ts` to the Foundry
@@ -1318,21 +1319,41 @@ reasons.** Worth spelling out, because the reason Slither misses them differs:
   loop, and the transient flag is then the only thing between that and
   `currentCursor`.
 
-  **Coverage gap on that flag, found while re-checking this section.** The
-  mutex has two layers and the suite only reaches one. Ladder tokens are
-  themselves Tosh tokens, so every leg in `test_treasuryPiggybackRoundRobin` and
-  `test_piggyback_isolatesAFaultyLadderLeg` swaps through another Tosh pool and
-  exercises the OUTER layer — the hook reading `_piggybackActive()` in
-  `beforeSwap` / `afterSwap` and going passive. That layer returns before it
-  ever pokes the treasury, so `_runPiggyback`'s own `if (piggybackActive())
-  return;` at `ToshLadderTreasury.sol:453` is never reached by any test.
+  **Coverage gap on that flag — found while re-checking this section on
+  2026-08-27, closed on 2026-09-04.** The mutex has two layers and the suite
+  only reached one. Ladder tokens are themselves Tosh tokens, so every leg in
+  `test_treasuryPiggybackRoundRobin` and `test_piggyback_isolatesAFaultyLadderLeg`
+  swaps through another Tosh pool and exercises the OUTER layer — the hook
+  reading `_piggybackActive()` in `beforeSwap` / `afterSwap` and going passive.
+  That layer returns before it ever pokes the treasury, so `_runPiggyback`'s own
+  `if (piggybackActive()) return;` was reached by no test at all.
 
   It is defence in depth rather than dead code, and it is the layer that matters
   precisely in the non-Tosh-callee scenario above, where the outer layer does not
-  exist. So the untested line is the one guarding the case the paragraph above
-  identifies as the dangerous one. Reaching it needs a ladder entry whose pool
-  re-enters the treasury directly, which is not constructible from the current
-  fixtures.
+  exist — so the untested line was the one guarding the case this section itself
+  identifies as the dangerous one. The note used to end "not constructible from
+  the current fixtures". It is constructible by etching:
+  `registeredHooks` is keyed by ADDRESS, not by code, so replacing a listed
+  hook's code models a listing that goes bad without forging a registration,
+  which is also the honest threat model given `addLadderToken` is `onlyOwner`
+  and checks provenance.
+
+  `test_piggyback_innerMutexHoldsAgainstAReentrantLadderHook` now does that: a
+  listed hook whose `beforeSwap` calls `autoPiggybackBuyback` from inside the
+  leg it is being paid by. It asserts the re-entry happened exactly once, that
+  the leg still bought and burned, that only one `PiggybackExecuted` was
+  emitted, and that the flag is clear on the way out.
+
+  Two mutations verified, and what they produce is worth recording because it
+  is not the obvious answer. Deleting the guard, and separately inverting it,
+  does not merely permit a second cycle: the nested call re-reads the unchanged
+  cursor, swaps the same pool, re-enters `beforeSwap` again, and recurses until
+  the leg dies — at which point `try`/`catch` swallows the whole thing as
+  `BuybackSkipped`. Nothing is bought and the hostile hook's own counter rolls
+  back with the leg. **A single bad listing would turn every poke into a no-op
+  for the token at the cursor, and the round-robin would never get past it.**
+  That is the cost of the missing line, and it is larger than "an event fires
+  twice".
 
 **The three new `reentrancy-events` are the dark tax, and they are log
 ordering.** All three are in `ToshLaunchpadHook._skimInputTax`, and all three
