@@ -190,6 +190,12 @@ The commander writes a single short post in this exact order:
    rewording one without the other is how the page and this playbook start
    contradicting each other while a responder reads both.
 
+   That identity is not left to whoever edits next: `scripts/checkStatusPage.mjs`
+   fetches the deployed page in CI and fails if this blockquote and the page's
+   `paused` copy differ, if the page stops calling `paused()` on chain, or if
+   the guide §6b hands to users stops resolving. Reword this and CI goes red
+   until the page matches.
+
    > "Tosh Protocol is currently paused while we investigate a security
    > report. Existing deposits remain refundable. We will update this page
    > within 30 minutes."

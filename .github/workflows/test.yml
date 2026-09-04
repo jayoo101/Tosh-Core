@@ -317,6 +317,19 @@ jobs:
       - name: Check documentation anchors still resolve
         run: node scripts/checkDocAnchors.js --strict
 
+      # The status page lives in another repository so that it stays up when
+      # this one's deploys do not. That separation means nothing here can see
+      # it change. Step 4 and the page both instruct their editor to keep the
+      # paused wording identical, and instructions in prose are exactly what
+      # drifted when `docs/` claimed 25 alerts against a config holding 24.
+      #
+      # Exit 1 is drift. Exit 2 means the check could not run — transient
+      # failures are already retried three times inside the script, so a 2
+      # here is a real outage or a page that no longer exists, and both are
+      # worth a red build on a page the P0 playbook depends on.
+      - name: Check the status page still agrees with the playbook
+        run: node scripts/checkStatusPage.mjs
+
       # `scripts/` was checked by nothing. frontend.yml runs `tsc --noEmit`
       # inside soat-frontend/ only, so `pogSigner.ts` — which produces the
       # signatures the factory's `registerPoG` recovers against, i.e. the

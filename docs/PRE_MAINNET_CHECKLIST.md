@@ -1042,6 +1042,19 @@ What is left that is purely engineering:
   a malicious frontend bundle. It reads `paused()` off the chain in the
   browser, so the fact that matters is not hostage to a human remembering to
   edit it, and it names the chain as the authority when the two disagree.
+
+  Living in another repository buys that availability and costs coupling:
+  nothing here can see the page change. `scripts/checkStatusPage.mjs` closes
+  that in CI — it fetches the deployed page and fails if the paused wording no
+  longer matches Step 4 verbatim, if the page stops calling `paused()`, or if
+  the guide §6b hands to users stops resolving. Five mutations, all caught.
+
+  One of them caught a hole in the guard itself: the chain-read check
+  originally asked whether the page *contained* the `paused()` selector, and a
+  mutation repointing the call at `0xdeadbeef` passed, because the selector was
+  still sitting in the comment one line above. Presence is not use, and a check
+  a comment can satisfy is reading the documentation rather than the behaviour.
+  It now matches the selector in the `data:` position of the call.
 - ~~Publishing `MANUAL_INTERACTION.md`~~ — **done**, and it was a real bug
   rather than a tidying job. `INCIDENT_RESPONSE.md` §6b tells the status page
   to link that guide during a frontend outage, but it lived in this private
