@@ -14,8 +14,16 @@ on:
   # that schedules are best-effort — delays of tens of minutes are routine and
   # runs can be dropped outright under load. Odd minutes are measurably less
   # contended. This does NOT make the cadence a guarantee; see §7.3.
+  #
+  # Hourly, chosen 2026-09-04 as a budget decision rather than a detection one.
+  # A pass costs one billed minute and this repository is private, so twice an
+  # hour would be ~1,440 min/month against the same allowance that `test.yml`
+  # (4.4 min) and `frontend.yml` (2.4 min) draw on for every push. Halving it
+  # costs detection latency that the platform was never going to guarantee
+  # anyway — §7.3 is explicit that the 15-minute bar in Q4 is not met here, so
+  # paying double for a cadence that still misses it buys nothing.
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '7 * * * *'
 
   workflow_dispatch:
     inputs:

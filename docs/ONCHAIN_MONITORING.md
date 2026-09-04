@@ -426,11 +426,17 @@ quiet is equally consistent with the check having broken.
 > honest claim is: **the protocol will notice, and will write it down.**
 
 **Cost, measured rather than assumed.** Each pass takes 19–30 s of wall time and
-GitHub bills a whole minute per run. At the current `:07,:37` cadence that is 48
-runs/day ≈ **1,440 min/month**, against `test.yml` at 4.4 min and
-`frontend.yml` at 2.4 min per push. On a private repository those come out of
-the same allowance, so the cadence is a budget decision as much as a detection
-one: hourly is ≈720 min/month, every 15 minutes ≈2,880.
+GitHub bills a whole minute per run, so cadence converts directly into spend:
+hourly ≈720 min/month, every 30 minutes ≈1,440, every 15 ≈2,880. This is a
+private repository, so those come out of the same allowance `test.yml` (4.4 min
+per push) and `frontend.yml` (2.4 min) draw on.
+
+**Hourly, at `:07`, decided 2026-09-04.** A budget decision, and cheap to make
+because the thing being given up was not real: the platform never guaranteed the
+15-minute bar at any cadence, so paying double for a schedule that still misses
+it buys latency on paper only. Raise it when detection latency is backed by
+something that can actually promise it — at which point the host itself is
+probably the thing to change.
 
 ---
 
