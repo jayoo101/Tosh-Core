@@ -85,7 +85,35 @@ not hypothetical. Had any of that been missing, PM-D4 would have been a
 contract problem rather than a recruiting one, and the timelock question in
 `PRD-v5.0.md` §11 D2 would have reopened immediately.
 
-**Status: decided, not yet executed.** The Safe does not exist yet (PM-D4), so
+**Rehearsed on 46630, 2026-09-04.** Verifying the singletons exist is weaker
+than driving them, so the whole mechanism was run once end to end with a
+throwaway Safe:
+
+| Step | Result |
+|---|---|
+| Safe deployed | [`0x3e3A1223…`](https://explorer.testnet.chain.robinhood.com/address/0x3e3A122389267277cdf1d0DBE0434a8a0d4568DF) — SafeL2 1.4.1, 1-of-1, 270,604 gas, tx [`0x36c59b05…`](https://explorer.testnet.chain.robinhood.com/tx/0x36c59b05459d9c5fee8a24ae2a86c8fe3be3efcccf39cd5db39117f469c726d9) |
+| Indexed by the service | `version=1.4.1+L2`, threshold and owner both as deployed — this is the read `app.safe.global` does, so the UI will see a real Safe |
+| Contract call through it | `execTransaction` → factory `paused()`, `isExecuted=true isSuccessful=true`, tx [`0xec6766e2…`](https://explorer.testnet.chain.robinhood.com/tx/0xec6766e2abcaccf72c7487cf30609f3002ae216b0e05fb0310f01b562c8d3826), Safe nonce 0 → 1 |
+
+The third row is the one that matters: it is the same path §2 Step 1 uses — an
+arbitrary contract call with ABI-encoded calldata — proven on this chain rather
+than assumed from other deployments. `paused()` was chosen because it is a view
+function, so the rehearsal changed no state and touched no ownership.
+
+**SafeL2 was required, not preferred.** Safe's config marks 46630 `l2: true`,
+and the transaction service indexes L2 deployments through `SafeL2`'s events.
+The plain singleton would have deployed a working Safe that the service — and
+therefore the UI — could not see: a Safe that holds ownership and cannot be
+operated from the interface the playbook assumes. Confirmed by the service
+reporting `+L2`.
+
+> **⚠ That Safe must never own anything on mainnet.** It is 1-of-1 with the
+> deployer as sole owner, which is precisely the structure `PRD-v5.0.md` §11
+> D2 trigger ① names as voiding the no-timelock decision. It exists to prove
+> the mechanism and should be treated as disposable.
+
+**Status: decided, not yet executed.** The real Safe does not exist yet
+(PM-D4), so
 nothing above is on chain. This section records the intent so the premise is
 auditable rather than remembered; D2 trigger ③ asks for the *actual* N and
 threshold to be recorded here once ownership transfer completes (PM-C2), and
