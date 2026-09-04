@@ -117,8 +117,9 @@ playbook rather than inventing a parallel vocabulary.
 | **P2** | Silent degradation | Ticket, next business day |
 | **P3** | Informational | Dashboard / digest — **never** pages |
 
-Current inventory: **7 P0, 5 P1, 9 P2, 4 P3**, plus 7 state checks and 21
-events explicitly routed away from the pager.
+Current inventory: **6 P0, 5 P1, 9 P2, 4 P3**, plus 7 state checks and 22
+events explicitly routed away from the pager. These counts are asserted against
+`monitoring/alerts.json` by `scripts/verifyAlertTopics.js`; see §5.
 
 ### 3.1 Correlation is what makes governance alerts actionable
 
@@ -233,7 +234,7 @@ The failure mode of a new monitoring setup is not too few alerts. It is a
 firehose that gets muted wholesale in week two, taking the P0 alerts down with
 it.
 
-`mustNotPage` in `alerts.json` lists 21 events that are high-volume and entirely
+`mustNotPage` in `alerts.json` lists 22 events that are high-volume and entirely
 normal — deposits, tier mints, tax receipts, referral accruals, quota resets.
 They belong on a dashboard or in a daily digest. Two specifics worth knowing:
 
@@ -281,7 +282,7 @@ cycle. Track the last `PiggybackExecuted` block alongside the balance.
 
 ## 8. Definition of done for PM-E2
 
-- [ ] Provider chosen and the 25 alerts imported from `monitoring/alerts.json`
+- [ ] Provider chosen and the 24 alerts imported from `monitoring/alerts.json`
 - [ ] Hook coverage verified by §2.1 method 1 or 2 — **tested by creating a
       launch and confirming its hook events arrive**
 - [ ] All 7 `stateChecks` scheduled and firing, STATE-06 included — it is the
@@ -292,7 +293,7 @@ cycle. Track the last `PiggybackExecuted` block alongside the balance.
       (PM-C8 / `SECURITY_AUDIT.md` §2.3). Listing a token before this is
       scheduled means running that window unobserved.
 - [ ] P0 routes to a pager that has been tested with a synthetic event
-- [ ] The 21 `mustNotPage` events confirmed not paging
+- [ ] The 22 `mustNotPage` events confirmed not paging
 - [ ] Correlation rule in §3.1 written into the on-call runbook
 - [ ] `INCIDENT_RESPONSE.md` §8 Q4 drill re-scheduled now that its detection
       dependency exists

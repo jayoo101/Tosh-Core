@@ -18,6 +18,12 @@
  *   3. Every event the contracts emit is accounted for — either it has an
  *      alert, or it is explicitly listed under `mustNotPage`. A new event that
  *      nobody classified is the real hazard, since it is silently unmonitored.
+ *   4. The counts quoted in the prose docs match the config. Those sentences
+ *      are what a reader trusts when deciding whether a provider import is
+ *      complete, and they drifted the first time the catalogue changed:
+ *      removing GOV-05 and muting PlatformSwapFeePaid left four sentences
+ *      claiming 25 alerts and 21 muted events against a file holding 24 and 22.
+ *      Checks 1-3 all passed throughout, because none of them reads the docs.
  *
  * Usage (from repository root, after `forge build`):
  *     node scripts/verifyAlertTopics.js
@@ -136,6 +142,95 @@ for (const [contract, sigs] of Object.entries(signaturesByContract)) {
     }
 }
 
+// ─── 4. The docs quote the same numbers the config holds ─────────────────────
+//
+// A count in prose is a claim about this file, and the only reason to write one
+// is so a reader does not have to open the JSON. That makes a stale count worse
+// than no count: "import the 25 alerts" reads as a complete instruction while
+// leaving the importer no way to notice they finished at 24.
+//
+// Each pattern must match exactly once. A pattern that matches nothing is a
+// failure too — otherwise rewording the sentence would quietly retire the check
+// rather than break it, which is the same silent-drift shape as the rest of
+// this file.
+
+const sevCount = alerts.reduce((acc, a) => ((acc[a.severity] = (acc[a.severity] || 0) + 1), acc), {});
+const actual = {
+    alerts: alerts.length,
+    stateChecks: (config.stateChecks || []).length,
+    muted: muted.size,
+    P0: sevCount.P0 || 0,
+    P1: sevCount.P1 || 0,
+    P2: sevCount.P2 || 0,
+    P3: sevCount.P3 || 0,
+};
+
+const DOC_CLAIMS = [
+    {
+        file: 'docs/ONCHAIN_MONITORING.md',
+        what: '§3 severity inventory',
+        pattern: /Current inventory: \*\*(\d+) P0, (\d+) P1, (\d+) P2, (\d+) P3\*\*, plus (\d+) state checks and (\d+)\s*\n?events explicitly routed away/,
+        expect: ['P0', 'P1', 'P2', 'P3', 'stateChecks', 'muted'],
+    },
+    {
+        file: 'docs/ONCHAIN_MONITORING.md',
+        what: '§6 noise budget',
+        pattern: /`mustNotPage` in `alerts\.json` lists (\d+) events/,
+        expect: ['muted'],
+    },
+    {
+        file: 'docs/ONCHAIN_MONITORING.md',
+        what: '§8 done-list, alert import',
+        pattern: /Provider chosen and the (\d+) alerts imported/,
+        expect: ['alerts'],
+    },
+    {
+        file: 'docs/ONCHAIN_MONITORING.md',
+        what: '§8 done-list, state checks',
+        pattern: /All (\d+) `stateChecks` scheduled/,
+        expect: ['stateChecks'],
+    },
+    {
+        file: 'docs/ONCHAIN_MONITORING.md',
+        what: '§8 done-list, muted events',
+        pattern: /The (\d+) `mustNotPage` events confirmed not paging/,
+        expect: ['muted'],
+    },
+    {
+        file: 'docs/PRE_MAINNET_CHECKLIST.md',
+        what: 'PM-E2 row',
+        pattern: /`monitoring\/alerts\.json` \((\d+) alerts, (\d+) state checks\)/,
+        expect: ['alerts', 'stateChecks'],
+    },
+];
+
+for (const claim of DOC_CLAIMS) {
+    const abs = path.join(REPO_ROOT, claim.file);
+    if (!fs.existsSync(abs)) {
+        fail(`${claim.file} is missing, so its ${claim.what} count cannot be checked`);
+        continue;
+    }
+    const text = fs.readFileSync(abs, 'utf8');
+    const m = text.match(claim.pattern);
+    if (!m) {
+        fail(
+            `${claim.file} — ${claim.what}: the sentence this guard reads has been reworded, ` +
+                `so its count is no longer checked. Update the pattern in ` +
+                `scripts/verifyAlertTopics.js to match the new wording.`,
+        );
+        continue;
+    }
+    claim.expect.forEach((key, i) => {
+        const stated = Number(m[i + 1]);
+        if (stated !== actual[key]) {
+            fail(
+                `${claim.file} — ${claim.what} says ${stated} ${key}, but ` +
+                    `monitoring/alerts.json holds ${actual[key]}.`,
+            );
+        }
+    });
+}
+
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 if (!castAvailable) {
@@ -153,9 +248,9 @@ if (problems.length > 0) {
     process.exit(1);
 }
 
-const counts = alerts.reduce((acc, a) => ((acc[a.severity] = (acc[a.severity] || 0) + 1), acc), {});
 console.log(
-    `[verifyAlertTopics] OK — ${alerts.length} alerts ` +
-        `(${Object.entries(counts).sort().map(([k, v]) => `${k}:${v}`).join(' ')}), ` +
-        `${(config.stateChecks || []).length} state checks, ${muted.size} muted events.`,
+    `[verifyAlertTopics] OK — ${actual.alerts} alerts ` +
+        `(${Object.entries(sevCount).sort().map(([k, v]) => `${k}:${v}`).join(' ')}), ` +
+        `${actual.stateChecks} state checks, ${actual.muted} muted events, ` +
+        `and ${DOC_CLAIMS.length} documented counts agree.`,
 );
