@@ -65,6 +65,9 @@ const FACTORY = (process.env.MONITOR_FACTORY || process.env.NEXT_PUBLIC_FACTORY_
 const TREASURY = (process.env.MONITOR_TREASURY || process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '').toLowerCase()
 const EXPECTED_OWNER = (process.env.MONITOR_EXPECTED_OWNER || '').toLowerCase()
 const EXPECTED_SIGNER = (process.env.MONITOR_EXPECTED_POG_SIGNER || '').toLowerCase()
+// Empty unless an automated keeper exists. See STATE-05 below for why this is
+// not the PoG signer.
+const KEEPER_ADDRESS = (process.env.MONITOR_KEEPER_ADDRESS || '').toLowerCase()
 const GAS_FLOOR_WEI = BigInt(process.env.MONITOR_GAS_FLOOR_WEI || 50_000_000_000_000_000n) // 0.05 ETH
 
 if (!FACTORY || !TREASURY) {
@@ -278,16 +281,39 @@ try {
   if (!EXPECTED_SIGNER) {
     gap('STATE-04', `MONITOR_EXPECTED_POG_SIGNER unset — signer is ${signer}, compared against nothing`)
   }
-
-  // STATE-05 — the signer runs dry silently and blocks every new depositor.
-  const bal = BigInt(await rpc('eth_getBalance', [signer, 'latest']))
-  if (bal < GAS_FLOOR_WEI) {
-    record('STATE-05', sev('STATE-05'), pages('STATE-05'),
-      `PoG signer ${signer} holds ${(Number(bal) / 1e18).toFixed(4)} ETH, below the ` +
-      `${(Number(GAS_FLOOR_WEI) / 1e18).toFixed(4)} ETH floor — /api/sign-allocation fails when it empties`)
-  }
 } catch (err) {
   record('STATE-04', 'P1', false, `PoG signer check failed: ${err.message}`)
+}
+
+/**
+ * STATE-05 — a gas floor, for a wallet that does not exist yet.
+ *
+ * This deliberately does NOT watch the PoG signer. That signer never sends a
+ * transaction: `registerPoG` is external and keys off `msg.sender`, so the
+ * depositor pays, and both consumers of the key sign without a chain
+ * connection -- `privateKeyToAccount().signMessage()` in the API route, and an
+ * `ethers.Wallet(pk)` with no provider in `scripts/pogSigner.ts`, which cannot
+ * broadcast even in principle. A signer holding nothing signs perfectly well,
+ * and a key that guards a balance is worth more to steal than one that does
+ * not.
+ *
+ * The check survives because its shape fits a case that has not arrived.
+ * `pokeBuyback()` is permissionless and STATE-06's remedy is a human calling
+ * it; automate that and the protocol acquires its first wallet that really
+ * does need gas, one that would fail silently on running dry.
+ */
+if (KEEPER_ADDRESS) {
+  try {
+    const bal = BigInt(await rpc('eth_getBalance', [KEEPER_ADDRESS, 'latest']))
+    if (bal < GAS_FLOOR_WEI) {
+      record('STATE-05', sev('STATE-05'), pages('STATE-05'),
+        `Keeper ${KEEPER_ADDRESS} holds ${(Number(bal) / 1e18).toFixed(4)} ETH, below the ` +
+        `${(Number(GAS_FLOOR_WEI) / 1e18).toFixed(4)} ETH floor — it stops transacting when it empties, ` +
+        `and nothing else announces that`)
+    }
+  } catch (err) {
+    record('STATE-05', 'P1', false, `keeper balance check failed: ${err.message}`)
+  }
 }
 
 // STATE-02 and STATE-06 — the treasury's balance, read two different ways.

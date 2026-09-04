@@ -192,12 +192,45 @@ condition it watches for **emits no event**:
 | STATE-02 | P0 | 15 min | treasury balance non-decreasing outside a buyback | the invariant suite cannot speak for deployed bytecode |
 | STATE-03 | P0 | 15 min | `factory.owner()` / `pendingOwner()` | belt to GOV-01/02's braces; event delivery can fail |
 | STATE-04 | P1 | 15 min | `factory.pogSigner()` | same reasoning applied to GOV-04 |
-| STATE-05 | P1 | daily | PoG signer gas balance | runs dry silently, blocks every new depositor |
+| STATE-05 | P1 | daily | keeper gas balance, **only if one is configured** | inactive by default — nothing this protocol runs needs gas (§4.1) |
 | STATE-06 | P2 | hourly | reservoir armed ≥ 24h with no `PiggybackExecuted` | a gas-gated skip is deliberately not logged (§2.3) |
 | STATE-07 | P1 | 5 min | `twapSqrtPriceX96() != 0` on every listed ladder token | the buyback's price bound is *absent*, not loose, while that reads 0 |
 
 STATE-06 is the only one that needs a window rather than a single reading, which
 is a real implementation constraint — see §7.
+
+### 4.1 STATE-05 watched a wallet that never spends anything
+
+**Corrected 2026-09-04.** This check used to read the PoG signer's balance
+against a 0.05 ETH floor, and PM-D2 existed to top that wallet up. The premise
+was wrong: **the PoG signer never sends a transaction.**
+
+`registerPoG` is `external` and every branch keys off `msg.sender`, so the
+*depositor* submits it and pays for it. The signer's address enters the
+contract only as the expected result of `hash.recover(signature)`. Both
+consumers of the key sign with no chain connection at all — the API route uses
+viem's `privateKeyToAccount().signMessage()`, and `scripts/pogSigner.ts`
+constructs `ethers.Wallet(pk)` with **no provider**, which cannot broadcast
+even in principle.
+
+A signer holding nothing therefore signs exactly as well as one holding fifty
+ETH, and funding it was slightly worse than pointless: the key sits in a Vercel
+environment variable, and a key guarding a balance is worth more to steal than
+one guarding nothing.
+
+Nothing downstream could have caught this. The check was implementable, the
+threshold was readable, and on testnet it even fired — because there the signer
+is also the deployer (`PRE_MAINNET_CHECKLIST.md` §4.1's role collapse), so the
+balance it read was real and belonged to a different role. A check can be
+correct in every mechanical respect and still be about the wrong thing.
+
+The ID is kept rather than retired because the shape fits a case that has not
+arrived. `pokeBuyback()` is permissionless and STATE-06's remedy is currently a
+human calling it; automating that would give the protocol its first wallet that
+genuinely needs gas, and it would go quiet on running dry with nothing to say
+so. Setting `MONITOR_KEEPER_ADDRESS` activates the check for that wallet. Until
+then it does not run, and `monitoring/watch.mjs` says nothing about it rather
+than reporting a floor nobody is standing on.
 
 ---
 
@@ -315,9 +348,13 @@ Run over 900,000 blocks of 46630 — real history, not a fixture:
   (`LaunchCreated`, `Launched`), and the `Paused`/`Unpaused` pair left by the
   2026-09-03 incident drill in `INCIDENT_RESPONSE.md` §8.1. The drill is now
   also the monitoring fixture.
-- **A real finding on the first run.** STATE-05: the PoG signer held 0.0445
-  ETH against a 0.05 floor. That is PM-D2, detected by the check written for
-  it rather than by a depositor hitting a failing `/api/sign-allocation`.
+- **A finding on the first run, which turned out to be the check's own bug.**
+  STATE-05 reported the PoG signer at 0.0445 ETH against a 0.05 floor, and it
+  was initially written up as PM-D2 caught in advance. Chasing it down instead
+  established that the signer never sends a transaction and needs no gas at
+  all — §4.1. So the rehearsal's most useful result was not an incident it
+  detected but a check it disproved, and the only reason the number looked
+  plausible is that on 46630 the signer is also the deployer.
 - **Four checks driven to fire** by feeding a wrong expectation or a doctored
   state file: STATE-03 (ownership mismatch, P0), STATE-04 (signer mismatch),
   STATE-02 (balance drop with no buyback to explain it, P0), and STATE-06 on

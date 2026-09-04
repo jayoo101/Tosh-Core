@@ -361,8 +361,14 @@
       "id": "STATE-05",
       "severity": "P1",
       "cadence": "daily",
-      "check": "PoG signer wallet balance above the gas floor (PM-D2, ~0.05 ETH)",
-      "why": "When the signer runs out of gas, /api/sign-allocation starts failing and every new depositor is blocked. Sentry (PM-E1) reports the resulting 5xx, so this is detected either way — but as a symptom hours later, not as a threshold crossed in advance."
+      "conditional": "MONITOR_KEEPER_ADDRESS",
+      "check": "IF an automated keeper is configured: its wallet balance is above the gas floor. Inactive by default, because no wallet this protocol operates needs gas.",
+      "why": [
+        "This check used to watch the PoG signer, on the premise that it needs gas to sign. It does not, and the premise was wrong in a way nothing downstream could catch.",
+        "registerPoG() is external and keys off msg.sender: the DEPOSITOR sends that transaction and pays for it. The signer's address appears in the contract only as the expected result of hash.recover(signature). Both consumers of the key sign without a chain connection at all — the API route uses viem's privateKeyToAccount().signMessage(), and scripts/pogSigner.ts constructs ethers.Wallet(pk) with no provider, which cannot send a transaction even in principle.",
+        "So a PoG signer holding 0 ETH signs exactly as well as one holding 50. Funding it was not merely unnecessary but slightly harmful: the key lives in a Vercel environment variable, and a key guarding a balance is worth more to steal than one guarding nothing.",
+        "The check is kept rather than deleted because the shape is right for a case that does not exist yet. pokeBuyback() is permissionless and STATE-06's remedy is currently a human calling it; automating that would introduce the protocol's first wallet that genuinely needs gas, and it would fail silently when it ran dry. Set MONITOR_KEEPER_ADDRESS at that point and this activates."
+      ]
     },
     {
       "id": "STATE-06",
