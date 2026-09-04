@@ -73,6 +73,28 @@ satisfies the premise with no margin above it — dropping one signer would put
 the owner at 2/2, where a single unreachable signer freezes every emergency
 control, and lowering the threshold would void D2.
 
+**The mainnet Safe exists, as of 2026-09-04:
+`0x2953957774482efA660921df85A1E7634ccfe27A`** on chain 4663 — SafeL2 1.4.1,
+2-of-3, created in tx `0x0ac80e07…3b96ae8d` for 305,871 gas. The transaction
+service reports it as `1.4.1+L2`, which is the property that matters and not a
+formality: on an `l2: true` chain the plain singleton yields a Safe that works
+perfectly on chain while being invisible to the service and to
+`app.safe.global` — holding every kill switch where nobody can reach it from
+the interface Step 1 assumes.
+
+Each of the three owners proved control of their address by signing a fixed
+statement before the Safe was created, and `verifySignerCandidates.mjs`
+recovered all three. That step is cheap and the failure it prevents is not: an
+owner nobody can sign for is indistinguishable from a working one until the
+first time two signatures are needed inside sixty seconds, and by then the
+threshold is effectively 2-of-2. Re-verify with `verifyOwnerSafe.mjs`, which
+also checks the properties this paragraph asserts rather than trusting it.
+
+> **This Safe is not yet the owner of anything.** `transferOwnership` happens
+> inside the C1 broadcast and the Safe must then call `acceptOwnership` — see
+> PM-C2. Until it does, the deployer EOA still holds every `onlyOwner`
+> function.
+
 **The chain can carry a Safe — verified, not assumed.** Robinhood Chain is a
 custom Orbit chain, and everything above plus PM-C2 and Q1 rests on a Safe
 being possible there, which nothing had ever checked. Confirmed 2026-09-04:

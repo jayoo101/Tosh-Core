@@ -176,13 +176,37 @@ console.log('\n  creating…')
 const tx = await pf.createProxyWithNonce(SAFE_L2, initializer, BigInt(Date.now()))
 const rcpt = await tx.wait()
 
-// The proxy address comes out of the ProxyCreation event rather than being
-// guessed: createProxyWithNonce is CREATE2, and re-deriving the salt here would
-// be a second implementation of something the receipt already states.
-const created = rcpt.logs
-  .map(l => { try { return ethers.getAddress('0x' + l.data.slice(26, 66)) } catch { return null } })
-  .find(a => a && a !== ethers.ZeroAddress)
-const safeAddr = created ?? rcpt.logs[0]?.address
+/* The proxy address comes out of the ProxyCreation event rather than being
+ * guessed: createProxyWithNonce is CREATE2, and re-deriving the salt here would
+ * be a second implementation of something the receipt already states.
+ *
+ * Matched on the event topic, and read from topics[1]. An earlier version
+ * scanned every log for the first `data` slice that parsed as an address, which
+ * is wrong twice over: `proxy` is INDEXED in 1.4.1 so it is not in `data` at
+ * all, and the first log in the receipt is the Safe's own SafeSetup, whose data
+ * begins with an ABI offset word. That combination produced
+ * 0x…0080 — a perfectly well-formed address, printed with no error, for a Safe
+ * that had in fact been created correctly. A wrong answer stated confidently is
+ * the worst shape this could take, since the number is about to be written into
+ * PROD_OWNER_SAFE.
+ */
+const PROXY_CREATION = ethers.id('ProxyCreation(address,address)')
+const ev = rcpt.logs.find(l => l.topics[0] === PROXY_CREATION)
+if (!ev) {
+  die('✗ the transaction succeeded but emitted no ProxyCreation event.',
+    `  Receipt: ${rcpt.hash}. Do not guess the address — read it off the`,
+    '  explorer and confirm with verifyOwnerSafe.mjs before using it anywhere.')
+}
+const safeAddr = ethers.getAddress('0x' + ev.topics[1].slice(26))
+
+// The singleton is the event's second argument. Checked rather than assumed,
+// because the whole point of passing SAFE_L2 is invisible if it did not take.
+const singletonUsed = ethers.getAddress('0x' + ev.data.slice(26, 66))
+if (singletonUsed !== ethers.getAddress(SAFE_L2)) {
+  die(`✗ the proxy points at singleton ${singletonUsed}, not SafeL2 ${SAFE_L2}.`,
+    '  This Safe would work on chain and stay invisible to the transaction',
+    '  service and app.safe.global. Do not use it.')
+}
 
 console.log(`  tx              ${rcpt.hash}`)
 console.log(`  gas used        ${rcpt.gasUsed}`)
