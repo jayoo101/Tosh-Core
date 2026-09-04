@@ -131,6 +131,52 @@ export const CHAIN_POSITIONING = !IS_TESTNET
     : `Settlement on ${MAINNET_CHAIN_LABEL} — currently staging on the public testnet.`
 
 /**
+ * Whether `CHAIN_STATUS_BADGE` already names the settlement chain.
+ *
+ * The landing hero shows the badge and, beside it, a "Settles on X" line. That
+ * second line was gated on `IS_TESTNET`, which reads as though it were the
+ * question being asked and is not: look at the badge's arms and BOTH the
+ * mainnet and testnet ones interpolate `MAINNET_CHAIN_LABEL`. Only the devnet
+ * arm names something else. So on the public testnet — the build everyone has
+ * actually been looking at — the badge said "TESTNET · ROBINHOOD CHAIN" and
+ * the line beside it said "Settles on Robinhood Chain", which is the same
+ * sentence twice, forty pixels apart.
+ *
+ * Derived from the badge rather than from the chain, because "does the badge
+ * already say this" is the actual question. Retuning `CHAIN_STATUS_BADGE`
+ * cannot now leave the hero repeating itself, and cannot leave it silent about
+ * settlement on a devnet either.
+ *
+ * `checkChainCopy.mjs` evaluates this on all three chains.
+ */
+export const BADGE_NAMES_SETTLEMENT_CHAIN =
+  CHAIN_STATUS_BADGE.includes(MAINNET_CHAIN_LABEL.toUpperCase())
+
+/**
+ * The provisional-status caveat ALONE, with no settlement chain in it.
+ *
+ * `CHAIN_POSITIONING` carries both halves — "Settlement on Robinhood Chain"
+ * plus "currently staging on the public testnet" — which is right for a
+ * standalone sentence and wrong directly under an `<h1>` that already ends in
+ * the chain's name. The hero was naming the chain in the badge, in the line
+ * beside the badge, in the headline, and again three words into the paragraph
+ * below it: four times above the fold.
+ *
+ * Empty on mainnet, and that is the correct value rather than a missing one.
+ * There is nothing provisional to disclose, and the headline has already said
+ * where this settles.
+ *
+ * MUST NOT name `MAINNET_CHAIN_LABEL`. That is the whole invariant, and
+ * `checkChainCopy.mjs` asserts it on every chain — this constant exists only
+ * to be the half that does not repeat the headline.
+ */
+export const CHAIN_STAGING_NOTE = !IS_TESTNET
+  ? ''
+  : TARGET_CHAIN_ID === FOUNDRY_CHAIN_ID
+    ? 'Currently running against a local devnet.'
+    : 'Currently staging on the public testnet.'
+
+/**
  * Read off the chain definition rather than enumerated here.
  *
  * The enumerated version had a `return 'https://sepolia.basescan.org'` as its

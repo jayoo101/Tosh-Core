@@ -7,9 +7,9 @@ import { GitBranch } from 'lucide-react'
 import {
   MAINNET_CHAIN_LABEL,
   ACTIVE_CHAIN_LABEL,
-  IS_TESTNET,
   CHAIN_STATUS_BADGE,
-  CHAIN_POSITIONING,
+  BADGE_NAMES_SETTLEMENT_CHAIN,
+  CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
 import { A2AFeed } from './A2AFeed'
 import { MeritXProjectCard, SkeletonCard } from './MeritXProjectCard'
@@ -79,7 +79,7 @@ function EmptyTab({
       {offerLaunch ? (
         <Link
           href="/launch"
-          className="mt-gap-tight inline-flex items-center rounded-input bg-brand px-card py-gap-tight text-note font-bold text-bg-base shadow-armed transition-colors hover:bg-brand-hover"
+          className="mt-gap-tight inline-flex min-h-11 items-center rounded-input bg-brand px-card py-gap-tight text-note font-bold text-bg-base shadow-armed transition-colors hover:bg-brand-hover"
         >
           Open the first launch
         </Link>
@@ -98,8 +98,45 @@ function EmptyTab({
 
 export default function AgentDirectoryHome() {
   const { projects, counts, loading, refetch } = useDirectoryProjects()
-  const [activeTab, setActiveTab] = useState<DirectoryTab>('live')
   const [refreshing, setRefreshing] = useState(false)
+
+  /**
+   * The tab the reader picked, or `null` while they have not picked one.
+   *
+   * The null is load-bearing and is why this is not just `useState('live')`:
+   * it distinguishes "showing Funding because that is the default" from
+   * "showing Funding because someone asked for Funding", and only the first
+   * of those may be overridden below.
+   */
+  const [chosenTab, setChosenTab] = useState<DirectoryTab | null>(null)
+  const selectTab = (tab: DirectoryTab) => setChosenTab(tab)
+
+  /**
+   * Land on a tab that has something in it.
+   *
+   * `live` is the right tab to OPEN on and the wrong one to be STUCK on. The
+   * counts arrive asynchronously, so the first paint cannot know which tabs
+   * are populated — which is how a visitor reached a directory whose own
+   * status line read "0 funding · 0 awaiting launch · 1 trading" with the
+   * empty Funding tab selected and the one real project sitting a click away
+   * behind a tab labelled "Trading 1". The empty state was well written and
+   * answered a question nobody had asked.
+   *
+   * DERIVED DURING RENDER, not corrected afterwards in an effect. The effect
+   * version worked and `react-hooks/set-state-in-effect` was right to reject
+   * it: it painted the empty tab first and replaced it on a second render, so
+   * the flash it was meant to remove was still there, once, on every load.
+   * There is no state to synchronise here — which tab to show is a function
+   * of the counts and the reader's choice, and a function of its inputs
+   * belongs in the render body.
+   *
+   * Falls back to `live` both while loading and when every tab is empty, so a
+   * brand-new deployment opens on the tab whose empty copy explains what
+   * would put the first card there.
+   */
+  const activeTab: DirectoryTab =
+    chosenTab
+    ?? (loading ? 'live' : TABS.find(t => counts[t.key] > 0)?.key ?? 'live')
 
   const tabProjects = useMemo(
     () => projects.filter(p => p.tab === activeTab),
@@ -123,9 +160,11 @@ export default function AgentDirectoryHome() {
           <div className="max-w-3xl">
             <div className="flex items-center gap-3 mb-4">
               <span className="bg-brand text-bg-base text-label font-bold px-2.5 py-0.5 rounded">{CHAIN_STATUS_BADGE}</span>
-              {/* Redundant once the badge itself reads "MAINNET · ETHEREUM"; it
-                  earns its place only while the badge shows somewhere else. */}
-              {IS_TESTNET && (
+              {/* Only when the badge does not already name the settlement
+                  chain, which on every arm but the devnet one it does. Gated
+                  on `IS_TESTNET` before, and that read as the right question
+                  while being the wrong one — see the constant. */}
+              {!BADGE_NAMES_SETTLEMENT_CHAIN && (
                 <span className="text-text-tertiary text-label font-mono tracking-widest uppercase">
                   Settles on {MAINNET_CHAIN_LABEL}
                 </span>
@@ -135,13 +174,23 @@ export default function AgentDirectoryHome() {
               Fair-Launch Terminal for{' '}
               <span className="text-brand">Agent Tokens on {MAINNET_CHAIN_LABEL}.</span>
             </h1>
+            {/* `CHAIN_STAGING_NOTE`, not `CHAIN_POSITIONING`: the headline
+                immediately above already ends in the settlement chain's name,
+                and the full positioning sentence opens by naming it again.
+                Empty on mainnet, where there is nothing provisional to say. */}
             <p className="text-text-secondary text-body max-w-xl leading-relaxed">
-              {CHAIN_POSITIONING} Fund a launch in ETH through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own Uniswap V4 pool.
+              {CHAIN_STAGING_NOTE && `${CHAIN_STAGING_NOTE} `}
+              Fund a launch in ETH through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own Uniswap V4 pool.
             </p>
             <div className="flex items-center gap-4 mt-5 flex-wrap">
+              {/* `min-h-11` is 44px, the touch floor. The base rule in
+                  globals.css cannot reach these: it is scoped to header / nav
+                  / footer so that an inline link inside a paragraph does not
+                  get a 44px box and tear a hole in the prose around it. A
+                  button-shaped link in main asks for the floor explicitly. */}
               <Link
                 href="/launch"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-input text-note font-bold uppercase tracking-wider text-text-secondary bg-transparent border border-border-strong hover:border-brand/50 hover:text-text-primary transition-all"
+                className="inline-flex min-h-11 items-center gap-2 px-5 py-2.5 rounded-input text-note font-bold uppercase tracking-wider text-text-secondary bg-transparent border border-border-strong hover:border-brand/50 hover:text-text-primary transition-all"
               >
                 Launch a token
               </Link>
@@ -149,7 +198,7 @@ export default function AgentDirectoryHome() {
                 href="https://github.com/tosh-protocol"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-input text-note font-bold uppercase tracking-wider text-text-secondary bg-transparent border border-border-strong hover:border-brand/50 hover:text-text-primary transition-all"
+                className="inline-flex min-h-11 items-center gap-2 px-5 py-2.5 rounded-input text-note font-bold uppercase tracking-wider text-text-secondary bg-transparent border border-border-strong hover:border-brand/50 hover:text-text-primary transition-all"
               >
                 <GitBranch size={14} className="text-brand" />
                 GitHub
@@ -193,7 +242,7 @@ export default function AgentDirectoryHome() {
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => selectTab(tab.key)}
                   className={`py-2.5 px-2 text-label font-bold uppercase tracking-widest rounded-input transition-all flex items-center justify-center gap-1.5 text-center sm:px-3
                     ${active ? 'bg-surface-elevated text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}
                 >
@@ -213,7 +262,7 @@ export default function AgentDirectoryHome() {
             <EmptyTab
               tab={activeTab}
               liveCount={counts.live}
-              onBrowseLive={() => setActiveTab('live')}
+              onBrowseLive={() => selectTab('live')}
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

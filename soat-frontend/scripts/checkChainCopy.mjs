@@ -38,6 +38,20 @@ const CHAINS = [
 /** Strings the user reads. Every one of these must be true on every chain. */
 const COPY_KEYS = ['CHAIN_BYLINE', 'CHAIN_POSITIONING', 'CHAIN_STATUS_BADGE', 'MAINNET_CHAIN_LABEL', 'ACTIVE_CHAIN_LABEL']
 
+/**
+ * The landing hero's two derived pieces, checked separately from `COPY_KEYS`
+ * because the generic rules there do not fit them: one is a boolean and the
+ * other is legitimately EMPTY on mainnet, which `COPY_KEYS` treats as a defect.
+ *
+ * These exist because the per-string repetition check below cannot see the
+ * hero. It asks whether one string names the settlement chain twice, and the
+ * hero's repetition was spread across four separate elements — the badge, the
+ * line beside the badge, the `<h1>`, and the opening words of the paragraph
+ * under it. Each string was individually fine. The screenful said "Robinhood
+ * Chain" four times above the fold.
+ */
+const HERO_KEYS = ['BADGE_NAMES_SETTLEMENT_CHAIN', 'CHAIN_STAGING_NOTE']
+
 const js = ts.transpileModule(readFileSync(SRC, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
@@ -52,7 +66,7 @@ try {
     const probe = `
       import * as m from './${TMP.split('/').pop()}'
       const out = {}
-      for (const k of ${JSON.stringify([...COPY_KEYS, 'IS_TESTNET'])}) out[k] = m[k]
+      for (const k of ${JSON.stringify([...COPY_KEYS, ...HERO_KEYS, 'IS_TESTNET'])}) out[k] = m[k]
       process.stdout.write(JSON.stringify(out))
     `
     const probeFile = 'src/lib/.chainCopyProbeRunner.mjs'
@@ -68,7 +82,9 @@ try {
     }
 
     console.log(`\n${chain.name} (${chain.id})`)
-    for (const k of COPY_KEYS) console.log(`  ${k.padEnd(20)} ${values[k]}`)
+    for (const k of [...COPY_KEYS, ...HERO_KEYS]) {
+      console.log(`  ${k.padEnd(28)} ${JSON.stringify(values[k])}`)
+    }
 
     if (values.IS_TESTNET === chain.mainnet) {
       fail(chain, `IS_TESTNET is ${values.IS_TESTNET}, expected ${!chain.mainnet}`)
@@ -91,6 +107,43 @@ try {
       }
 
       if (!v.trim()) fail(chain, `${k} is empty`)
+    }
+
+    // ── The hero, as a composed screenful ────────────────────────────────
+    const label = String(values.MAINNET_CHAIN_LABEL)
+    const note = String(values.CHAIN_STAGING_NOTE ?? '')
+    const isDevnet = chain.id === 31337
+
+    // The `<h1>` always ends in the settlement chain's name, so this note --
+    // which renders directly beneath it -- must never say it again. This is
+    // the whole reason the constant exists apart from `CHAIN_POSITIONING`.
+    if (label && note.includes(label)) {
+      fail(chain, `CHAIN_STAGING_NOTE repeats the headline's "${label}": "${note}"`)
+    }
+
+    // Empty is the CORRECT value on mainnet, not a missing one: nothing is
+    // provisional. Non-empty anywhere else, or the hero silently stops
+    // disclosing that this is not production.
+    if (chain.mainnet && note !== '') {
+      fail(chain, `CHAIN_STAGING_NOTE must be empty on a production chain, got "${note}"`)
+    }
+    if (!chain.mainnet && note === '') {
+      fail(chain, 'CHAIN_STAGING_NOTE is empty on a non-production chain — the hero stops disclosing it')
+    }
+
+    // Pins which arm shows the hero's "Settles on X" line. The badge names the
+    // settlement chain on the mainnet and testnet arms and the ACTIVE chain on
+    // the devnet one, so the extra line is redundant on the first two and is
+    // the only mention on the third.
+    const badgeNames = values.BADGE_NAMES_SETTLEMENT_CHAIN
+    if (typeof badgeNames !== 'boolean') {
+      fail(chain, `BADGE_NAMES_SETTLEMENT_CHAIN is ${typeof badgeNames}, expected a boolean`)
+    } else if (badgeNames === isDevnet) {
+      fail(
+        chain,
+        `BADGE_NAMES_SETTLEMENT_CHAIN is ${badgeNames} on ${isDevnet ? 'the devnet' : 'a named'} arm ` +
+        `— the hero would ${badgeNames ? 'repeat "' + label + '" beside a badge that already says it' : 'never name the settlement chain'}`,
+      )
     }
   }
 } finally {

@@ -48,6 +48,8 @@ export {
   CHAIN_BYLINE,
   CHAIN_STATUS_BADGE,
   CHAIN_POSITIONING,
+  BADGE_NAMES_SETTLEMENT_CHAIN,
+  CHAIN_STAGING_NOTE,
   testnetExplorerTx,
   testnetExplorerAddress,
   targetChain,

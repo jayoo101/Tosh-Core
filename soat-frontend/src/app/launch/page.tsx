@@ -113,7 +113,17 @@ export default function GenesisConsole() {
   const [website, setWebsite] = useState('')
   const [twitter, setTwitter] = useState('')
   const [telegram, setTelegram] = useState('')
-  const [ack, setAck] = useState(false)
+  /**
+   * The terms that were ticked, or `null` for not ticked.
+   *
+   * A `boolean` here made consent portable between different pacts, which is
+   * the one thing it must not be. The creator agrees to a specific launch fee
+   * and a specific minimum raise; both are owner-tunable dials read live off
+   * the factory. Storing only "yes" let a tick survive the numbers it was
+   * given for — the same failure the salt effect below already guards against
+   * for the soft cap and the wallet cap, which is where the shape came from.
+   */
+  const [ackedTerms, setAckedTerms] = useState<{ fee: bigint; softCap: bigint } | null>(null)
   const [projectAdmin, setProjectAdmin] = useState('')
 
   const [salt, setSalt] = useState('')
@@ -200,7 +210,23 @@ export default function GenesisConsole() {
   // msg.value to sign. Treat the three dials as one all-or-nothing quote.
   const dials = feeRead.data
   const dialsReady = dials !== undefined && dials.every(d => d.status === 'success')
-  const dialsFailed = dials !== undefined && dials.some(d => d.status === 'failure')
+  /**
+   * `isError` as well as the per-call statuses, because they describe two
+   * different failures and only one of them was covered.
+   *
+   * A per-call `status: 'failure'` is a reverting contract: the batch came
+   * back and one entry in it did not. But if the BATCH fails — RPC down,
+   * multicall reverting, transport error — wagmi leaves `data` undefined and
+   * reports it on `isError`, which nothing here read. Both flags derive from
+   * `dials !== undefined`, so both were false, and false/false is the same
+   * state as "still loading".
+   *
+   * The page therefore sat on "Reading the terms…" indefinitely with an
+   * unreachable factory, and the `dials-unreachable` blocker written for
+   * exactly that case could never fire.
+   */
+  const dialsFailed =
+    feeRead.isError || (dials !== undefined && dials.some(d => d.status === 'failure'))
 
   const launchFeeWei = dialsReady ? (dials[0].result as bigint) : 0n
   const softCapWei = dialsReady ? (dials[1].result as bigint) : 0n
@@ -213,6 +239,20 @@ export default function GenesisConsole() {
     () => (dialsReady ? trimEth(formatUnits(softCapWei, 18)) : EM_DASH),
     [dialsReady, softCapWei],
   )
+
+  /**
+   * Whether the pact currently on screen is the one that was agreed to.
+   *
+   * Derived rather than stored, so it cannot drift: it goes false on its own
+   * if the dials stop resolving or if the owner retunes either number between
+   * the tick and the signature. Both of those used to leave the box ticked
+   * against terms that were no longer the terms.
+   */
+  const ack =
+    dialsReady
+    && ackedTerms !== null
+    && ackedTerms.fee === launchFeeWei
+    && ackedTerms.softCap === softCapWei
   // PM-F8. `maxFeePerGas` rather than the base fee: it is what the wallet will
   // authorise, so quoting the base fee would under-promise and leave a creator
   // short exactly when the network is busy.
@@ -659,18 +699,49 @@ export default function GenesisConsole() {
                 </CardWell>
               )}
 
-              <label className="flex cursor-pointer items-start gap-gap select-none">
+              {/* There is nothing to accept until the numbers are known.
+                  `feeDisplay` and `softCapDisplay` fall back to an em dash,
+                  which is the right answer for the "Live factory dials"
+                  readout further down — a readout with no value should say so
+                  — and the wrong one inside a pact, where it rendered as
+                  "I accept the immutable pact: — ETH launch fee, — ETH
+                  minimum raise" beside a box that could still be ticked. The
+                  deploy button was already gated on `dialsReady`, so this was
+                  never signable; it was a consent statement presenting blanks
+                  as terms, which is its own defect. */}
+              <label
+                className={`flex items-start gap-gap select-none ${
+                  dialsReady ? 'cursor-pointer' : 'cursor-not-allowed'
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={ack}
-                  onChange={() => setAck(a => !a)}
-                  className="mt-1 h-4 w-4 accent-brand"
+                  disabled={!dialsReady}
+                  onChange={() =>
+                    setAckedTerms(ack ? null : { fee: launchFeeWei, softCap: softCapWei })
+                  }
+                  className="mt-1 h-4 w-4 accent-brand disabled:opacity-40"
                 />
-                <span className="text-note text-text-secondary leading-relaxed">
-                  I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
-                  minimum raise, a genesis window that cannot close early, and a{' '}
-                  <span className="text-warning">full refund</span> if the raise misses or the{' '}
-                  {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
+                <span className="text-note leading-relaxed text-text-secondary">
+                  {dialsReady ? (
+                    <>
+                      I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
+                      minimum raise, a genesis window that cannot close early, and a{' '}
+                      <span className="text-warning">full refund</span> if the raise misses or the{' '}
+                      {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
+                    </>
+                  ) : dialsFailed ? (
+                    <span className="text-danger">
+                      The factory did not answer on chain {TARGET_CHAIN_ID}, so the launch fee and
+                      minimum raise are unknown. There are no terms to accept yet.
+                    </span>
+                  ) : (
+                    <span className="text-text-tertiary">
+                      Reading the launch fee and the minimum raise off the factory — the pact
+                      appears here with its real numbers in it.
+                    </span>
+                  )}
                 </span>
               </label>
 
@@ -697,9 +768,15 @@ export default function GenesisConsole() {
                 </p>
               )}
 
+              {/* `min-h-11` is the 44px touch floor. The base rule in
+                  globals.css covers header / nav / footer only, so that an
+                  inline link inside a paragraph is not given a 44px box; a
+                  standalone control in main opts in. This one measured 15px
+                  tall — the shortest tap target on the page, and the one that
+                  abandons a part-filled form. */}
               <Link
                 href="/"
-                className="self-start font-mono text-label text-text-tertiary hover:text-text-secondary"
+                className="inline-flex min-h-11 items-center self-start font-mono text-label text-text-tertiary hover:text-text-secondary"
               >
                 Cancel
               </Link>

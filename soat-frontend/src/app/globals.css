@@ -121,6 +121,30 @@
   --tosh-info-dim:    #0E7490;
   --tosh-admin-dim:   #6B21A8;
 
+  /* -- Type sizes and tracking, for the four steps that have a MOBILE step.
+   *
+   *    These are raw values behind the `@theme` type scale, and they exist as
+   *    `:root` entries for one reason: `@theme inline` inlines a literal, so a
+   *    literal in the scale cannot be overridden by a media query. Routing the
+   *    small end through `var()` is what makes the block at the bottom of this
+   *    file possible. The three large steps (`hero`, `section`, `figure`) and
+   *    `title` stay literals in `@theme`, because they are legible at 390 px
+   *    already and nothing needs to move them.
+   *
+   *    Named `--tosh-size-*` / `--tosh-track-*` and NOT `--tosh-text-*`, which
+   *    is already taken by the four type COLOURS above. A size and a colour
+   *    sharing one prefix is how a later edit puts a length where a hex
+   *    belongs.
+   * --------------------------------------------------------------------- */
+  --tosh-size-body:    0.8125rem;  /* 13px */
+  --tosh-size-note:    0.6875rem;  /* 11px */
+  --tosh-size-label:   0.625rem;   /* 10px */
+  --tosh-size-micro:   0.5625rem;  /*  9px */
+  --tosh-size-readout: 0.875rem;   /* 14px */
+
+  --tosh-track-label: 0.28em;
+  --tosh-track-micro: 0.22em;
+
   /* -- Motion ----------------------------------------------------------- */
   --tosh-dur-fast:  120ms;   /* hover / colour swap */
   --tosh-dur-base:  180ms;   /* the default; see --default-transition-* */
@@ -211,27 +235,27 @@
   --text-title--letter-spacing: -0.01em;
   --text-title--font-weight: 700;
 
-  --text-body: 0.8125rem;
+  --text-body: var(--tosh-size-body);
   --text-body--line-height: 1.6;
   --text-body--letter-spacing: 0em;
   --text-body--font-weight: 400;
 
-  --text-note: 0.6875rem;
+  --text-note: var(--tosh-size-note);
   --text-note--line-height: 1.55;
   --text-note--letter-spacing: 0.01em;
   --text-note--font-weight: 400;
 
-  --text-label: 0.625rem;
+  --text-label: var(--tosh-size-label);
   --text-label--line-height: 1.4;
-  --text-label--letter-spacing: 0.28em;
+  --text-label--letter-spacing: var(--tosh-track-label);
   --text-label--font-weight: 600;
 
-  --text-micro: 0.5625rem;
+  --text-micro: var(--tosh-size-micro);
   --text-micro--line-height: 1.35;
-  --text-micro--letter-spacing: 0.22em;
+  --text-micro--letter-spacing: var(--tosh-track-micro);
   --text-micro--font-weight: 600;
 
-  --text-readout: 0.875rem;
+  --text-readout: var(--tosh-size-readout);
   --text-readout--line-height: 1.25;
   --text-readout--letter-spacing: 0.01em;
   --text-readout--font-weight: 500;
@@ -317,6 +341,116 @@ select:focus {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* =============================================================================
+ * THE MOBILE STEP
+ *
+ * The type scale above is calibrated for a desk. On a 390 px phone the same
+ * literals put prose at 13 px, hints at 11 px, captions at 10 px and status
+ * text at 9 px — measured, not estimated, by walking `getComputedStyle` over
+ * the rendered home page. That is the console aesthetic working exactly as
+ * designed and being unreadable anyway, which is a different problem from a
+ * page being wrong.
+ *
+ * So the small end gets one step up below `md`. Only the small end: `hero`,
+ * `section`, `figure` and `title` are legible at 390 px already, so moving
+ * them would cost line breaks and buy nothing.
+ *
+ * 767px, not a `pointer: coarse` query, and deliberately. Tailwind's `md:`
+ * breakpoint is 768 px, so this boundary is the same one the markup already
+ * branches on (`hidden md:inline` and friends) — one breakpoint to reason
+ * about instead of two that can disagree. A 700 px desktop window gets the
+ * larger type too, which is the right answer for a 700 px window.
+ *
+ * TRACKING COMES DOWN AS THE SIZE GOES UP, and that pairing is the point
+ * rather than a flourish. `label` carries 0.28em, which is very wide: it is
+ * what makes a 10 px uppercase caption read as a caption instead of as small
+ * prose. Scaling that tracking up alongside the size is what turns a caption
+ * into a line-wrapping caption — the cost lands on the longest strings first,
+ * which is where the copy already needs the room.
+ *
+ * `label` and `micro` both land on 11 px here, so the two densest steps
+ * collapse into one on a phone. That is the intended consequence of the 9 px
+ * step not surviving mobile: what still separates them is tracking, weight
+ * and colour, which is enough, and the alternative was a 10 px step nobody
+ * can read sitting one notch under an 11 px step nobody can read.
+ * ========================================================================== */
+
+@media (max-width: 767px) {
+  :root {
+    --tosh-size-body:    0.9375rem;  /* 13px -> 15px  prose */
+    --tosh-size-note:    0.8125rem;  /* 11px -> 13px  hints, card blurbs */
+    --tosh-size-label:   0.6875rem;  /* 10px -> 11px  captions, pills */
+    --tosh-size-micro:   0.6875rem;  /*  9px -> 11px  collapses into label */
+    --tosh-size-readout: 0.9375rem;  /* 14px -> 15px  numbers and addresses */
+
+    --tosh-track-label: 0.14em;      /* 0.28em, halved against the size rise */
+    --tosh-track-micro: 0.12em;      /* 0.22em */
+  }
+}
+
+/* =============================================================================
+ * TOUCH TARGETS
+ *
+ * Measured on the rendered home page at 390 px, every interactive element was
+ * under the 44 px minimum that both Apple's HIG and WCAG 2.5.5 ask for:
+ * navigation links 29 px tall, `Connect Wallet` 31 px, the directory filter
+ * tabs 34 px, and the footer links 14 px. Not one of them was written wrong —
+ * they are `py-1.5` and `py-2.5`, which is correct for a mouse and too small
+ * for a thumb.
+ *
+ * Fixing that at ~40 call sites invites the next component to reintroduce it,
+ * so the floor lives here instead and the call sites keep their padding.
+ *
+ * THE QUERY IS A UNION, AND NOT FOR TIDINESS.
+ * `pointer: coarse` is the honest question — this is about the input device,
+ * not the layout, and a thumb-driven tablet needs 44 px at any width. But it
+ * is a question the client can decline to answer: it reported `false` under
+ * the device emulation these numbers were measured in, and a media feature
+ * that silently fails to match is a fix that silently is not there. So the
+ * width bound rides along as the floor that cannot go missing, at the same
+ * 767 px the type step uses, which also keeps "phone" one concept rather
+ * than two that can disagree. A 700 px desktop window gets 44 px targets it
+ * did not need; that is the cheaper failure.
+ *
+ * WHY `min-height` IS NOT ENOUGH ON ITS OWN
+ * `min-height` does nothing to an inline box, and an `<a>` is inline by
+ * default, so the nav and footer links needed a display change to grow at
+ * all — which is why they are the one selector here that sets `display`.
+ * `<button>` is already `inline-block`, so it takes `min-height` directly and
+ * is left alone otherwise.
+ *
+ * Links inside prose are deliberately NOT matched. Giving a sentence's inline
+ * link a 44 px box would open a gap in the paragraph it sits in, so the
+ * selector is scoped to the three landmarks whose links are all controls.
+ * ========================================================================== */
+
+@media (pointer: coarse), (max-width: 767px) {
+  button,
+  summary,
+  [role="button"],
+  [role="tab"],
+  select {
+    min-height: 44px;
+  }
+
+  :where(header, nav, footer) a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* iOS Safari zooms the whole page in when a focused field's text is under
+   * 16 px, then leaves it zoomed — so a 13 px input does not read as small,
+   * it reads as the layout jumping on first tap. `max()` keeps any field that
+   * is already larger at its own size. */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+    min-height: 44px;
   }
 }
 
