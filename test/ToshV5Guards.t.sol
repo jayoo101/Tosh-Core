@@ -62,7 +62,7 @@ contract ToshV5GuardsTest is Test {
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
 
-        implAsSelf = new ToshLaunchpadHook(mockPoolManager, address(this), ladder);
+        implAsSelf = new ToshLaunchpadHook(mockPoolManager, address(this), ladder, treasury);
     }
 
     function _buildPoGSig(address user, uint256 maxAlloc, uint256 nonce, uint256 deadline)
@@ -140,17 +140,27 @@ contract ToshV5GuardsTest is Test {
 
     function test_hook_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshLaunchpadHook(address(0), address(factory), ladder);
+        new ToshLaunchpadHook(address(0), address(factory), ladder, treasury);
     }
 
     function test_hook_ctor_revertsOnZeroFactory() public {
         vm.expectRevert(bytes("zero factory"));
-        new ToshLaunchpadHook(mockPoolManager, address(0), ladder);
+        new ToshLaunchpadHook(mockPoolManager, address(0), ladder, treasury);
     }
 
     function test_hook_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshLaunchpadHook(mockPoolManager, address(factory), payable(address(0)));
+        new ToshLaunchpadHook(mockPoolManager, address(factory), payable(address(0)), treasury);
+    }
+
+    /// @dev `platformFeeRecipient` is on a money path — it takes
+    ///      `PLATFORM_SWAP_FEE_BPS` of every buy's ETH input via a raw
+    ///      `poolManager.take`.  Zero would burn that cut to an address nobody
+    ///      controls on every single swap, so it is rejected at construction
+    ///      exactly like `ladderTreasury`.
+    function test_hook_ctor_revertsOnZeroPlatformFeeRecipient() public {
+        vm.expectRevert(bytes("zero platformFeeRecipient"));
+        new ToshLaunchpadHook(mockPoolManager, address(factory), ladder, address(0));
     }
 
     function test_hook_windowConstantsAreThreeTwentyFourSeventyTwo() public view {
@@ -169,6 +179,7 @@ contract ToshV5GuardsTest is Test {
         assertEq(address(hook.poolManager()), mockPoolManager);
         assertEq(hook.factory(), address(factory));
         assertEq(hook.ladderTreasury(), ladder);
+        assertEq(hook.platformFeeRecipient(), payable(treasury));
 
         // Baked into this clone's code.
         assertEq(hook.projectTreasury(), projTreasury);
@@ -182,7 +193,8 @@ contract ToshV5GuardsTest is Test {
         assertEq(hook.genesisDeadline(), block.timestamp + 24 hours);
 
         assertEq(hook.POOL_FEE(), 3000);
-        assertEq(hook.TAX_BPS(), 70);
+        assertEq(hook.TAX_BPS(), 100);
+        assertEq(hook.PLATFORM_SWAP_FEE_BPS(), 30);
     }
 
     /// @dev Every clone hard-codes the implementation it delegates to, inside its

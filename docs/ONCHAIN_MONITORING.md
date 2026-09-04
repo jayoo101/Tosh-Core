@@ -152,8 +152,23 @@ Summary of the P0 set:
 | GOV-03 | `OwnershipTransferred` | Treasury |
 | GOV-07 | `OwnershipTransferStarted` | Treasury |
 | GOV-04 | `PogSignerUpdated` | Factory |
-| GOV-05 | `TreasuryUpdated` | Factory |
 | GOV-06 | `FactorySet` | Treasury |
+
+> **GOV-05 was removed, and the ID is deliberately not reused.** It watched
+> `TreasuryUpdated`, the companion event to `setPlatformTreasury`. Both were
+> deleted when `platformTreasury` went back onto a money path — it now receives
+> 0.30 % of the ETH input of every buy — because a mutable fee-routing target
+> is audit finding M-2, so the mutability went rather than the inflow. The
+> field is `immutable` on the factory and the same address is baked into the
+> hook implementation as `platformFeeRecipient`.
+>
+> That means the event can never fire again, and a rule that can never fire is
+> the worst kind of monitoring: it is silent for the wrong reason, and on a
+> dashboard it is indistinguishable from a healthy system. Nothing replaces it
+> in the governance set, because there is no governance action left to watch —
+> the owner cannot retarget that revenue any more than a stranger can. The
+> fee flow itself is visible as `PlatformSwapFeePaid`, which fires on every buy
+> and is therefore classified under `mustNotPage`.
 
 Both halves of the two-step ownership transfer are alerted, on both contracts.
 `Ownable2Step` makes a takeover two transactions, and the window between them is

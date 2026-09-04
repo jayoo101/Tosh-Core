@@ -20,6 +20,20 @@ contract DeployLocal is Script {
         // exercising factory-level flows (PoG, referral binding, eligibility).
         address poolManager = vm.envOr("V4_POOL_MANAGER", address(1));
 
+        // REQUIRED even on anvil, and deliberately not defaulted to `deployer`.
+        //
+        // `platformTreasury` now receives 0.30 % of the ETH input of every buy
+        // (`ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS`) and is immutable on both
+        // the factory and the hook implementation. A default here would train
+        // the muscle memory that this address does not need thinking about,
+        // which on a real chain is an unrecoverable mistake — there is no
+        // setter, so a wrong value means redeploying the factory.
+        //
+        // Set it to anvil account #1 for local work:
+        //   PLATFORM_TREASURY=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+        address platformTreasury = vm.envAddress("PLATFORM_TREASURY");
+        require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
+
         vm.startBroadcast(deployerPk);
 
         // Treasury first — the factory needs its address at construction time.
@@ -29,7 +43,7 @@ contract DeployLocal is Script {
         ToshFactory factory = new ToshFactory(
             poolManager, // _poolManager
             deployer, // _pogSigner        (deployer signs PoG attestations)
-            deployer, // _platformTreasury
+            platformTreasury, // _platformTreasury (0.30 % of every buy, immutable)
             address(treasury) // _ladderTreasury
         );
 
@@ -40,6 +54,7 @@ contract DeployLocal is Script {
         console.log(address(factory));
         console.log("Ladder Treasury :", address(treasury));
         console.log("PoG Signer      :", deployer);
+        console.log("Platform Treasury (0.30% of buys, IMMUTABLE):", platformTreasury);
         console.log("====================================");
         console.log("v5.0: launch fee and deposits are NATIVE ETH (no approve).");
         console.log("      Hook salt mask is 0x20CC.");

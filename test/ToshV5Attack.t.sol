@@ -393,8 +393,8 @@ contract ToshV5AttackTest is Test {
         ladder.addLadderToken(address(token));
 
         // Fund the reservoir.  100 ETH is a modest figure for a platform that
-        // routes every launch fee, every 0.7 % buy tax and every 1 % shelf cut
-        // into a contract with no withdraw path.
+        // routes every launch fee, every 1 % shelf cut and the 70 bps reservoir
+        // share of every buy tax into a contract with no withdraw path.
         vm.deal(address(ladder), 100 ether);
         console2.log("reservoir           ", address(ladder).balance);
         console2.log("spend this cycle    ", ladder.nextSpendAmount());
@@ -715,7 +715,7 @@ contract ToshV5AttackTest is Test {
     //
     // `beforeInitialize` stops anyone opening a pool THAT USES THIS HOOK.  It
     // says nothing about a HOOKLESS pool over the same ERC-20, which V4 lets
-    // anybody create.  Such a pool pays no 0.7 % tax, feeds no oracle, and
+    // anybody create.  Such a pool pays no 1 % tax, feeds no oracle, and
     // funds no buyback.
     function test_probeH_hooklessParallelPool() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
@@ -748,7 +748,7 @@ contract ToshV5AttackTest is Test {
         // locked in the official pool forever — and depth is what makes
         // `_safeReferencePrice` worth reading, since it is single-venue.
         //
-        // If this ever stops holding, the exposure is not the lost 0.7 %: it is
+        // If this ever stops holding, the exposure is not the lost 1 %: it is
         // that the anti-spike gate is measured against a book that has thinned.
         assertEq(uint256(uint160(address(rogue.hooks))), 0, "the rogue pool is genuinely hookless, by construction");
         assertGt(
@@ -972,37 +972,118 @@ contract ToshV5AttackTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  PROBE D — can the 0.7 % in-flight tax be rounded away with dust swaps?
+    //  PROBE D — can the 1.0 % in-flight tax be rounded away with dust swaps?
     // ══════════════════════════════════════════════════════════════════════════
     //
-    // `tax = input * 70 / 10_000` floors, and `beforeSwap` returns early when it
-    // lands on zero.  Any input below 143 wei therefore trades untaxed.
+    // `tax = input * 100 / 10_000` floors, and `beforeSwap` returns early when it
+    // lands on zero.  Any input below 100 wei therefore trades untaxed.
+    //
+    // The band NARROWED when the rate went 70 → 100 bps: it used to run to
+    // 142 wei, and a higher rate reaches its first whole wei of tax sooner.
+    // Raising a rate cannot widen a floor-division dead zone, so this direction
+    // is the only one available — but it is worth pinning rather than assuming,
+    // because the split introduced a SECOND, wider boundary above it.
     function test_probeD_dustSwapEvadesTax() public {
         (, ToshLaunchpadHook hook) = _launchProject(10 ether);
         _nextBlock();
 
         uint256 treasuryBefore = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
 
-        // 142 wei * 70 / 10_000 == 0
+        // 99 wei * 100 / 10_000 == 0
         for (uint256 i; i < 20; ++i) {
-            _buy(hook, attacker, 142);
+            _buy(hook, attacker, 99);
         }
 
         console2.log("treasury delta after 20 dust buys", address(ladder).balance - treasuryBefore);
-        console2.log("tax on 142 wei", uint256(142 * 70) / 10_000);
-        console2.log("tax on 143 wei", uint256(143 * 70) / 10_000);
+        console2.log("tax on 99 wei ", uint256(99 * 100) / 10_000);
+        console2.log("tax on 100 wei", uint256(100 * 100) / 10_000);
 
         // ACCEPTED, NOT FIXED.  The evasion is real and it is worthless: to move
-        // 1 ETH untaxed you would need ~7e15 swaps of 142 wei, each paying full
-        // calldata and pool-accounting gas, to avoid 0.007 ETH of tax.  The
+        // 1 ETH untaxed you would need ~1e16 swaps of 99 wei, each paying full
+        // calldata and pool-accounting gas, to avoid 0.01 ETH of tax.  The
         // rounding runs in the trader's favour by one wei-scale unit, which is
         // the same direction every other rounding in this codebase runs.
         //
         // What is worth pinning is the THRESHOLD, so a future change to TAX_BPS
         // or to the early-return cannot silently widen the untaxed band.
-        assertEq(uint256(142 * 70) / 10_000, 0, "142 wei is the largest untaxed input");
-        assertEq(uint256(143 * 70) / 10_000, 1, "143 wei is the smallest taxed one");
+        assertEq(uint256(99 * 100) / 10_000, 0, "99 wei is the largest untaxed input");
+        assertEq(uint256(100 * 100) / 10_000, 1, "100 wei is the smallest taxed one");
         assertEq(address(ladder).balance, treasuryBefore, "so 20 dust buys yield the treasury nothing");
+        assertEq(platformTreasury.balance, platformBefore, "and the platform nothing either");
+    }
+
+    // ── PROBE D, second boundary: the platform cut's own floor ────────────────
+    //
+    // The buy leg now splits its skim, and the platform's 30 bps floors to zero
+    // over a band THREE TIMES WIDER than the one above: `input * 30 / 10_000` is
+    // 0 for every input below 334 wei, while `tax` itself is already non-zero
+    // from 100 wei up.  Between those two figures the swap IS taxed and the
+    // platform is paid nothing.
+    //
+    // That gap is not a leak, and the point of this probe is to show why.  The
+    // reservoir's share is computed as `tax - platformCut`, not as its own
+    // multiplication, so every wei the platform's floor division drops stays
+    // inside the credit the hook already claimed and is `take`n to the buyback
+    // instead.  Conservation is what the pool's solvency depends on — both call
+    // sites hand V4 a hook delta of exactly `tax`, so a split that summed to
+    // less would revert `CurrencyNotSettled` and a split that summed to more
+    // would draw currency the hook was never credited.
+    //
+    // So there is nothing to evade here: shrinking your trade below 334 wei
+    // does not reduce what you pay, it only redirects the platform's third of
+    // it into the buyback.  Which is the strictly worse outcome for anyone
+    // trying to game it, and the reason the dust bias was pointed this way.
+    function test_probeD_platformCutFloorsToZeroBelowThreeThirtyFour() public {
+        (, ToshLaunchpadHook hook) = _launchProject(10 ether);
+        _nextBlock();
+
+        // The documented worked example: 110 wei is taxed one wei, and that
+        // whole wei goes to the reservoir because 110 * 30 / 10_000 floors to 0.
+        // A naive `110 * 70 / 10_000` would also floor to 0 — the pair would
+        // settle nothing against a credit of 1, and the swap would revert.
+        assertEq(uint256(110 * 100) / 10_000, 1, "110 wei owes one wei of tax");
+        assertEq(uint256(110 * 30) / 10_000, 0, "which the platform's rate cannot see");
+        assertEq(uint256(110 * 70) / 10_000, 0, "and neither could a naive reservoir rate");
+
+        _assertBuySplitConserves(hook, 110, 1, 0);
+
+        // Walk the platform boundary itself.  333 wei: tax 3, platform 0.
+        // 334 wei: tax 3, platform 1.  Neither reverts.
+        assertEq(uint256(333 * 30) / 10_000, 0, "333 wei is the largest input the platform sees nothing from");
+        assertEq(uint256(334 * 30) / 10_000, 1, "334 wei is the smallest it does");
+
+        _assertBuySplitConserves(hook, 333, 3, 0);
+        _assertBuySplitConserves(hook, 334, 3, 1);
+
+        // And nothing in the whole band from the first taxed wei to well past
+        // the platform boundary reverts or mis-settles.
+        for (uint256 input = 100; input <= 400; ++input) {
+            uint256 tax = (input * 100) / 10_000;
+            uint256 expectedPlatform = (input * 30) / 10_000;
+            _assertBuySplitConserves(hook, input, tax, expectedPlatform);
+        }
+    }
+
+    /// @dev Execute one dust buy and assert the split both conserves `tax` and
+    ///      lands the expected amount on each side.
+    function _assertBuySplitConserves(
+        ToshLaunchpadHook hook,
+        uint256 input,
+        uint256 expectedTax,
+        uint256 expectedPlatform
+    ) internal {
+        uint256 ladderBefore = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
+
+        _buy(hook, attacker, input);
+
+        uint256 reservoirCut = address(ladder).balance - ladderBefore;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+
+        assertEq(platformCut, expectedPlatform, "platform cut at this input");
+        assertEq(reservoirCut, expectedTax - expectedPlatform, "reservoir takes the remainder, dust included");
+        assertEq(reservoirCut + platformCut, expectedTax, "the two cuts must sum to the credited tax");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

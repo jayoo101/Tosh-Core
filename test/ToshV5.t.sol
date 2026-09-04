@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test, Vm, console2} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -204,6 +204,18 @@ contract ToshV5Test is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
+    /// @dev How many bps of a BUY's ETH input actually land in `ladderTreasury`.
+    ///
+    ///      Not `TAX_BPS`.  The buy leg's 1.00 % skim is split — the platform's
+    ///      `PLATFORM_SWAP_FEE_BPS` is `take`n to `platformFeeRecipient` and
+    ///      never touches the reservoir — so anything reasoning about the
+    ///      reservoir's BALANCE (the piggyback arming threshold, above all)
+    ///      must use this and not the headline rate.  Derived from the hook's
+    ///      own constants so the two cannot drift apart in a later rate change.
+    function _reservoirBps(ToshLaunchpadHook hook) internal view returns (uint256) {
+        return hook.TAX_BPS() - hook.PLATFORM_SWAP_FEE_BPS();
+    }
+
     function _genesisLiquidity(ToshLaunchpadHook hook) internal view returns (uint128 liq) {
         (liq,,) = IPoolManager(address(poolManager))
             .getPositionInfo(hook.getPoolKey().toId(), address(hook), TICK_LOWER, TICK_UPPER, bytes32(0));
@@ -316,13 +328,21 @@ contract ToshV5Test is Test {
         assertEq(uint160(address(hook)) & mask, mask, "hook address must carry the v5.0 flag mask");
     }
 
-    /// @notice Total trader friction is 1.00 %, split 0.30 % native pool fee
-    ///         (LPs, settled by V4) + 0.70 % hook tax (treasury / burn).
+    /// @notice Total trader friction is 1.30 %: a 0.30 % native pool fee that
+    ///         V4 pays to third-party LPs, plus a 1.00 % hook tax.
+    ///
+    /// @dev    The hook tax used to be 0.70 % for a 1.00 % all-in toll.  The
+    ///         extra 30 bps is the platform's maintenance cut; it is carved out
+    ///         of the hook tax on the buy leg only, so the buyback reservoir
+    ///         still receives the same 70 bps it always did.  The pool fee is
+    ///         untouched — it is V4's, not ours.
     function test_poolKey_chargesThirtyBpsToLPs() public {
         (, ToshLaunchpadHook hook) = _launchProject("PoolFee", "PFE", alice, address(0));
 
         assertEq(hook.POOL_FEE(), 3000, "native pool fee must be 0.30 %");
-        assertEq(hook.TAX_BPS(), 70, "hook tax must be 0.70 %");
+        assertEq(hook.TAX_BPS(), 100, "hook tax must be 1.00 %");
+        assertEq(hook.PLATFORM_SWAP_FEE_BPS(), 30, "the platform's carve-out must be 0.30 %");
+        assertEq(hook.TAX_BPS() - hook.PLATFORM_SWAP_FEE_BPS(), 70, "leaving the reservoir's share at 0.70 %");
         assertEq(hook.getPoolKey().fee, 3000, "the live PoolKey must carry the 0.30 % fee");
     }
 
@@ -1451,21 +1471,39 @@ contract ToshV5Test is Test {
     //  6. Asymmetric in-flight tax
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @dev Buy leg: 0.7% of the INPUT ETH is skimmed and routed to the
-    ///      buyback reservoir.  Nothing is burned on this leg.
-    function test_buyTax_skimsSeventyBpsEthToLadderTreasury() public {
+    /// @dev Buy leg: 1.0% of the INPUT ETH is skimmed, and then SPLIT — 70 bps
+    ///      to the buyback reservoir, 30 bps to the platform.  Nothing is
+    ///      burned on this leg.
+    ///
+    ///      The reservoir's 70 bps is the same 70 bps it received before the
+    ///      split existed, which is why this assertion's number did not move
+    ///      when `TAX_BPS` went 70 → 100.  The platform's 30 bps is new money
+    ///      out of the trader's pocket, not out of the reservoir's.
+    function test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform() public {
         (, ToshLaunchpadHook hook) = _launchProject("BuyTax", "BTX", alice, address(0));
 
         uint256 ethIn = 1 ether;
         uint256 before = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
 
         _swapBuy(hook, trader, ethIn);
 
-        assertEq(address(ladder).balance - before, (ethIn * 70) / 10_000, "0.7% of input ETH must reach the treasury");
+        uint256 reservoirCut = address(ladder).balance - before;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+
+        assertEq(reservoirCut, (ethIn * 70) / 10_000, "0.7% of input ETH must reach the reservoir");
+        assertEq(platformCut, (ethIn * 30) / 10_000, "0.3% of input ETH must reach the platform");
+        assertEq(reservoirCut + platformCut, (ethIn * 100) / 10_000, "and together they must be the whole 1.0% tax");
     }
 
-    /// @dev Sell leg: 0.7% of the INPUT TOKENS is burned in place. No ETH moves.
-    function test_sellTax_burnsSeventyBpsOfTokensInPlace() public {
+    /// @dev Sell leg: the FULL 1.0% of the INPUT TOKENS is burned in place, and
+    ///      is NOT split.  No ETH moves and the platform is paid nothing.
+    ///
+    ///      This is the deliberate asymmetry.  The sell leg's input is the
+    ///      project's own token, so paying the platform's cut in kind would
+    ///      accumulate illiquid bags of every project's token; burning the
+    ///      whole thing keeps the leg deflationary and the platform ETH-only.
+    function test_sellTax_burnsTheFullOnePercentOfTokensInPlace() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("SellTax", "STX", alice, address(0));
         vm.prank(alice);
         hook.claimGenesis();
@@ -1473,11 +1511,15 @@ contract ToshV5Test is Test {
         uint256 tokensIn = 100_000e18;
         uint256 deadBefore = token.balanceOf(DEAD);
         uint256 ladderBefore = address(ladder).balance;
+        uint256 platformTokBefore = token.balanceOf(platformTreasury);
+        uint256 platformEthBefore = platformTreasury.balance;
 
         _swapSell(hook, alice, tokensIn);
 
-        assertEq(token.balanceOf(DEAD) - deadBefore, (tokensIn * 70) / 10_000, "0.7% of input tokens must be burned");
+        assertEq(token.balanceOf(DEAD) - deadBefore, (tokensIn * 100) / 10_000, "1.0% of input tokens must be burned");
         assertEq(address(ladder).balance, ladderBefore, "the sell leg must not route ETH to the treasury");
+        assertEq(token.balanceOf(platformTreasury), platformTokBefore, "the platform must not be paid in tokens");
+        assertEq(platformTreasury.balance, platformEthBefore, "nor in ETH on this leg");
     }
 
     /// @notice Exact-output buy: specified is TOKEN, but the tax must still
@@ -1489,6 +1531,7 @@ contract ToshV5Test is Test {
         uint256 tokensOut = 10_000e18;
         uint256 deadBefore = token.balanceOf(DEAD);
         uint256 ladderBefore = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
         uint256 ethBefore = address(this).balance;
 
         vm.prank(trader);
@@ -1502,9 +1545,19 @@ contract ToshV5Test is Test {
         );
 
         uint256 ethSpent = ethBefore - address(this).balance;
-        uint256 taxIn = address(ladder).balance - ladderBefore;
-        uint256 poolIn = ethSpent - taxIn;
-        assertEq(taxIn, (poolIn * 70) / 10_000, "0.7% of the ETH input must reach the treasury");
+        uint256 reservoirCut = address(ladder).balance - ladderBefore;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+
+        // Exact-output is EXCLUSIVE: the tax is charged on the input the pool
+        // consumed and the trader pays it on top, so the base is `ethSpent`
+        // minus the whole skim, not `ethSpent`.
+        uint256 poolIn = ethSpent - reservoirCut - platformCut;
+
+        assertEq(reservoirCut, (poolIn * 70) / 10_000, "0.7% of the ETH input must reach the reservoir");
+        assertEq(platformCut, (poolIn * 30) / 10_000, "0.3% of the ETH input must reach the platform");
+        assertEq(
+            reservoirCut + platformCut, (poolIn * 100) / 10_000, "the split must conserve the whole 1.0% skim on X-out"
+        );
         assertEq(token.balanceOf(DEAD), deadBefore, "exact-output buy must not burn tokens");
     }
 
@@ -1520,6 +1573,7 @@ contract ToshV5Test is Test {
         uint256 ethOut = 0.01 ether;
         uint256 deadBefore = token.balanceOf(DEAD);
         uint256 ladderBefore = address(ladder).balance;
+        uint256 platformEthBefore = platformTreasury.balance;
         uint256 tokBefore = token.balanceOf(alice);
 
         PoolKey memory key = hook.getPoolKey();
@@ -1538,8 +1592,218 @@ contract ToshV5Test is Test {
         uint256 tokSpent = tokBefore - token.balanceOf(alice);
         uint256 burned = token.balanceOf(DEAD) - deadBefore;
         uint256 poolIn = tokSpent - burned;
-        assertEq(burned, (poolIn * 70) / 10_000, "0.7% of the token input must burn");
+        assertEq(burned, (poolIn * 100) / 10_000, "1.0% of the token input must burn");
         assertEq(address(ladder).balance, ladderBefore, "exact-output sell must not fund the treasury");
+        assertEq(platformTreasury.balance, platformEthBefore, "nor pay the platform: the sell leg is never split");
+        assertEq(token.balanceOf(platformTreasury), 0, "and the platform is never paid in project tokens");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  6b. The buy-leg split
+    //
+    //  The buy leg's 1.00 % skim divides 70/30 between the buyback reservoir
+    //  and the platform.  Three things have to hold, and only the first is
+    //  about revenue:
+    //
+    //    1. each side gets its own rate off the ETH input;
+    //    2. the two sum to EXACTLY the credit the hook claimed from V4 — this
+    //       is a liveness property, not an accounting nicety.  Both call sites
+    //       hand V4 a hook delta of `tax`; take less and the swap reverts
+    //       `CurrencyNotSettled`, take more and the hook draws currency it was
+    //       never credited.  A split that does not conserve does not mispay,
+    //       it makes the pool untradeable;
+    //    3. the sell leg is not split at all.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Conservation, over the whole range of inputs a trader might use.
+    ///
+    /// @dev    This is the invariant that keeps the pool tradeable, so it is
+    ///         fuzzed rather than sampled.  Note what is asserted and what is
+    ///         not: the SUM is pinned exactly at every input, but the reservoir
+    ///         is only pinned to its own 70 bps where the input is large enough
+    ///         for that rate to be exact.
+    ///
+    ///         Below 334 wei the platform's floor division drops its share to
+    ///         zero and the reservoir takes the whole tax — strictly more than
+    ///         70 bps of the input.  That is the documented dust bias and the
+    ///         reason `reservoirCut` is `tax - platformCut` rather than its own
+    ///         multiplication.  Asserting each cut independently everywhere
+    ///         would fail there, and "fixing" it by giving the reservoir its
+    ///         own multiplication would break conservation instead.
+    ///
+    ///         `_swapBuy` bounds the low end at something the pool will price,
+    ///         so the wei-scale end of that range is covered by PROBE D in
+    ///         `ToshV5Attack.t.sol` where inputs are dust by construction.
+    function testFuzz_buyTax_splitAlwaysConservesTheCreditedTax(uint256 ethInRaw) public {
+        (, ToshLaunchpadHook hook) = _launchProject("FuzzSplit", "FZS", alice, address(0));
+
+        uint256 ethIn = bound(ethInRaw, 1e6, 5 ether);
+        vm.deal(trader, ethIn);
+
+        uint256 ladderBefore = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
+
+        _swapBuy(hook, trader, ethIn);
+
+        uint256 reservoirCut = address(ladder).balance - ladderBefore;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 tax = (ethIn * hook.TAX_BPS()) / 10_000;
+
+        assertEq(reservoirCut + platformCut, tax, "the two cuts must sum to the tax V4 was told about");
+        assertEq(platformCut, (ethIn * hook.PLATFORM_SWAP_FEE_BPS()) / 10_000, "platform takes its own rate");
+        assertEq(reservoirCut, tax - platformCut, "reservoir takes the remainder, never its own product");
+        assertGe(reservoirCut, (ethIn * _reservoirBps(hook)) / 10_000, "and dust may only ever favour the buyback");
+    }
+
+    /// @notice `PlatformSwapFeePaid` fires on a buy and never on a sell.
+    ///
+    /// @dev    The event is how an indexer separates platform revenue from
+    ///         buyback fuel, and the two legs report differently on purpose:
+    ///         a buy emits `BuyTaxToTreasury` (the reservoir's 70 bps) AND
+    ///         `PlatformSwapFeePaid` (the platform's 30), while a sell emits
+    ///         only `SellTaxBurned` carrying the whole skim.  An indexer that
+    ///         summed `PlatformSwapFeePaid` across both legs and got a non-zero
+    ///         sell-side figure would be reporting revenue that does not exist.
+    function test_platformSwapFeePaid_firesOnBuysAndNeverOnSells() public {
+        (, ToshLaunchpadHook hook) = _launchProject("EvtSplit", "EVS", alice, address(0));
+        vm.prank(alice);
+        hook.claimGenesis();
+
+        uint256 ethIn = 1 ether;
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit ToshLaunchpadHook.PlatformSwapFeePaid(platformTreasury, (ethIn * 30) / 10_000);
+        _swapBuy(hook, trader, ethIn);
+
+        // The sell leg must emit `SellTaxBurned` for the FULL skim and no
+        // platform event at all.  `recordLogs` rather than a negative
+        // `expectEmit`, which cannot express "this never appears".
+        uint256 tokensIn = 100_000e18;
+        vm.recordLogs();
+        _swapSell(hook, alice, tokensIn);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool sawBurn;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(hook)) continue;
+            assertTrue(
+                logs[i].topics[0] != ToshLaunchpadHook.PlatformSwapFeePaid.selector,
+                "the sell leg must never pay the platform"
+            );
+            if (logs[i].topics[0] == ToshLaunchpadHook.SellTaxBurned.selector) {
+                sawBurn = true;
+                assertEq(abi.decode(logs[i].data, (uint256)), (tokensIn * 100) / 10_000, "burn carries the whole 1 %");
+            }
+        }
+        assertTrue(sawBurn, "the sell leg must still report its burn");
+    }
+
+    /// @notice The platform's cut is taken from the TRADER, not from the
+    ///         buyback: arming the piggyback still takes the same volume it
+    ///         always did.
+    ///
+    /// @dev    The failure this rules out is the plausible reading of "split
+    ///         the tax 70/30" — that the reservoir's existing 70 bps was
+    ///         divided rather than the trader's bill raised.  Under that
+    ///         reading the reservoir would receive 49 bps, `TRIGGER_STEP` would
+    ///         need ~204 ETH of volume instead of ~143, and the buyback engine
+    ///         would quietly slow by 30 % with no test failing: every existing
+    ///         assertion is either about the tax total or about a balance the
+    ///         fixture `vm.deal`s directly.
+    ///
+    ///         Measured as the volume actually required, not as a rate, because
+    ///         the rate is what the plausible-but-wrong version also gets right.
+    function test_platformCut_doesNotSlowTheBuybackArmingVolume() public {
+        (, ToshLaunchpadHook hook) = _launchProject("ArmVol", "AVL", alice, address(0));
+
+        uint256 ethIn = 1 ether;
+        uint256 before = address(ladder).balance;
+        vm.deal(trader, ethIn);
+        _swapBuy(hook, trader, ethIn);
+
+        uint256 inflowPerEth = address(ladder).balance - before;
+        assertEq(inflowPerEth, 0.007 ether, "the reservoir must still fill at 70 bps of buy volume");
+
+        // Volume to arm one buyback, rounded up. Unchanged from before the split.
+        uint256 volumeToArm = (ladder.TRIGGER_STEP() + inflowPerEth - 1) / inflowPerEth;
+        assertEq(volumeToArm, 143, "arming still takes ~143 ETH of buy volume, exactly as it did at a flat 0.7 %");
+    }
+
+    /// @notice `TAX_BPS` and `PLATFORM_TAX_BPS` are both 100 and mean entirely
+    ///         different things.  Referenced from the natspec on `TAX_BPS`.
+    ///
+    /// @dev    The hazard is purely one of reading: two constants thirty lines
+    ///         apart share a literal, so a maintainer changing "the 1 %" can
+    ///         easily change the wrong one, and a reviewer checking that "the
+    ///         1 % is charged once" can convince themselves of it by finding
+    ///         either.  They apply to DIFFERENT BASES on DIFFERENT PATHS and
+    ///         never to the same wei:
+    ///
+    ///           `TAX_BPS`          — 1 % of a SWAP INPUT, split on the buy leg
+    ///                                between reservoir and platform, burned
+    ///                                whole on the sell leg. Charged in
+    ///                                `beforeSwap` / `afterSwap`.
+    ///           `PLATFORM_TAX_BPS` — 1 % of PHASE-2 SHELF PROCEEDS, routed
+    ///                                entirely to the buyback reservoir, with
+    ///                                the other 99 % going to `projectAdmin`.
+    ///                                Charged in `mintBondingCurve`, which
+    ///                                never touches the pool.
+    ///
+    ///         So this test drives both paths and shows each rate applying to
+    ///         its own base — and, the part worth having, that a shelf mint
+    ///         pays no swap tax and a swap pays no shelf cut.  If the two ever
+    ///         did overlap, the same ETH would be charged twice and neither
+    ///         constant's documentation would be wrong on its face.
+    function test_taxRates_areDistinctPathsDespiteSharedLiteral() public {
+        (, ToshLaunchpadHook hook) = _launchProject("TwoRates", "TWR", alice, address(0));
+
+        assertEq(hook.TAX_BPS(), hook.PLATFORM_TAX_BPS(), "premise: the literal really is shared");
+
+        // ── Path 1: a shelf mint. `PLATFORM_TAX_BPS` of the COST reaches the
+        //    reservoir; the rest reaches the project. No burn, no platform fee
+        //    recipient, no pool.
+        _openLadder(hook, 0.01 ether);
+
+        uint256 want = 1_000e18;
+        uint256 cost = hook.quoteMint(want);
+
+        uint256 ladderBefore = address(ladder).balance;
+        uint256 projectBefore = projTreasury.balance;
+        uint256 platformBefore = platformTreasury.balance;
+
+        vm.deal(bob, cost);
+        vm.prank(bob);
+        hook.mintBondingCurve{value: cost}(want);
+
+        uint256 shelfCut = address(ladder).balance - ladderBefore;
+        assertEq(shelfCut, (cost * hook.PLATFORM_TAX_BPS()) / 10_000, "shelf cut is 1 % of the MINT COST");
+        assertEq(projTreasury.balance - projectBefore, cost - shelfCut, "and the project takes the other 99 %");
+        assertEq(platformTreasury.balance, platformBefore, "a shelf mint pays the swap tax's recipient nothing");
+
+        // ── Path 2: a swap. `TAX_BPS` of the INPUT is skimmed and split; the
+        //    project's admin receives nothing at all, because a swap is not a
+        //    mint and the shelf cut never applies to it.
+        _nextBlock();
+
+        uint256 ethIn = 1 ether;
+        ladderBefore = address(ladder).balance;
+        projectBefore = projTreasury.balance;
+        platformBefore = platformTreasury.balance;
+
+        vm.deal(trader, ethIn);
+        _swapBuy(hook, trader, ethIn);
+
+        uint256 reservoirCut = address(ladder).balance - ladderBefore;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+
+        assertEq(reservoirCut + platformCut, (ethIn * hook.TAX_BPS()) / 10_000, "swap tax is 1 % of the SWAP INPUT");
+        assertEq(projTreasury.balance, projectBefore, "a swap pays the shelf cut's counterparty nothing");
+
+        // The two bases are unrelated quantities: neither figure is derivable
+        // from the other, which is the concrete sense in which they never apply
+        // to the same wei.
+        assertTrue(cost != ethIn, "fixture: the two bases must actually differ");
+        assertTrue(shelfCut != reservoirCut + platformCut, "so the two 1 % charges are different amounts of ETH");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1688,8 +1952,14 @@ contract ToshV5Test is Test {
         // deep, so the fill binds on pool depth well before 5 ETH lands.
         // What we pin is that a full pot outspends the 1 ETH floor rather
         // than dripping TRIGGER_STEP regardless of how much is sitting there.
-        uint256 taxIn = (0.5 ether * 70) / 10_000;
-        uint256 spent = before + taxIn - address(ladder).balance;
+        //
+        // The correction term is what the swap ADDED to this balance, which is
+        // the reservoir's 70 bps share and not the whole 100 bps skim — the
+        // platform's 30 bps went to a different address. The number is the
+        // same one this line has always carried, but it means the reservoir's
+        // rate now rather than the tax rate.
+        uint256 reservoirIn = (0.5 ether * _reservoirBps(trigger)) / 10_000;
+        uint256 spent = before + reservoirIn - address(ladder).balance;
         assertGt(spent, 1 ether, "a full pot must outspend the 1 ETH floor");
         assertGt(tokenB.balanceOf(DEAD), 0);
         assertGt(tokenC.balanceOf(DEAD), 0);
@@ -1931,12 +2201,19 @@ contract ToshV5Test is Test {
 
     /// @notice One wei short of the threshold, nothing is spent.
     ///
-    /// @dev    The reservoir has to be funded to `threshold - tax - 1`, not to
-    ///         `threshold - 1`: this swap's own 0.7 % buy tax is `take`n to the
-    ///         treasury during `beforeSwap`, so the balance the gate reads in
-    ///         `afterSwap` already includes it.  Dealing `threshold - 1` arms
-    ///         the buyback instead of leaving it idle, which is how the first
-    ///         draft of this test failed.
+    /// @dev    The reservoir has to be funded to `threshold - inflow - 1`, not
+    ///         to `threshold - 1`: this swap's own buy-side skim is `take`n to
+    ///         the treasury during `beforeSwap`, so the balance the gate reads
+    ///         in `afterSwap` already includes it.  Dealing `threshold - 1`
+    ///         arms the buyback instead of leaving it idle, which is how the
+    ///         first draft of this test failed.
+    ///
+    ///         ⚠ `inflow` is the RESERVOIR'S SHARE, not `TAX_BPS`.  Since the
+    ///         platform's 30 bps was carved out of the skim, only 70 bps of the
+    ///         input reaches this balance; using `TAX_BPS` here overshoots by
+    ///         30 bps and lands the fixture 30 bps ABOVE the threshold rather
+    ///         than one wei below it, silently converting this test into a
+    ///         duplicate of `test_piggybackFiresExactlyAtTheThreshold`.
     function test_piggybackStaysIdleOneWeiBelowTheThreshold() public {
         (, ToshLaunchpadHook trigger) = _launchProject("IdleEx", "IDX", alice, address(0));
         (ToshToken healthy,) = _launchProject("HealthyId", "HLI", alice, address(0));
@@ -1948,8 +2225,8 @@ contract ToshV5Test is Test {
         _nextBlock();
 
         uint256 ethIn = 0.01 ether;
-        uint256 buyTax = (ethIn * trigger.TAX_BPS()) / 10_000;
-        vm.deal(address(ladder), ladder.TRIGGER_STEP() - buyTax - 1);
+        uint256 inflow = (ethIn * _reservoirBps(trigger)) / 10_000;
+        vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow - 1);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
@@ -2275,10 +2552,14 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        // One wei short of arming: this swap's own tax is what tips it.
+        // One wei short of arming: this swap's own reservoir inflow is what
+        // tips it.  That inflow is 70 bps, not `TAX_BPS` — the platform's
+        // 30 bps is `take`n to a different address and never touches this
+        // balance, so budgeting against the whole tax would leave the reservoir
+        // 30 bps past the trigger before the swap even starts.
         uint256 ethIn = 0.01 ether;
-        uint256 buyTax = (ethIn * trigger.TAX_BPS()) / 10_000;
-        vm.deal(address(ladder), ladder.TRIGGER_STEP() - buyTax);
+        uint256 inflow = (ethIn * _reservoirBps(trigger)) / 10_000;
+        vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
 

@@ -177,9 +177,9 @@ export default function AdminPage() {
     <ActionGateProvider value={access}>
       <div className="text-text-primary font-sans">
         <header className="border-b border-border-subtle/60 px-6 py-6">
-          <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
                 <span className="w-2 h-2 rounded-full bg-admin dot-breathe" />
                 <span className="text-label font-mono text-admin uppercase tracking-widest">
                   Operator Console
@@ -199,10 +199,10 @@ export default function AdminPage() {
               </p>
             </div>
             <WalletBar />
-          </div>
-        </header>
+        </div>
+      </header>
 
-        <main className="max-w-3xl mx-auto px-6 pb-24 pt-4">
+      <main className="max-w-3xl mx-auto px-6 pb-24 pt-4">
           <AccessBanner
             isConnected={isConnected}
             ownerLoading={ownerLoading}
@@ -216,9 +216,9 @@ export default function AdminPage() {
             blurb="Global dials on ToshFactory. Every one of these is forward-looking: a live raise keeps the terms frozen into its hook at construction, so retuning here governs the next launch, never the current one."
           />
           <LaunchFeePanel />
-          <SoftCapPanel />
-          <PogLimitPanel />
-          <CooldownDurationPanel />
+            <SoftCapPanel />
+            <PogLimitPanel />
+            <CooldownDurationPanel />
           <QuotaWindowPanel />
 
           <GroupHeader
@@ -227,7 +227,7 @@ export default function AdminPage() {
             blurb="The single EOA whose signatures the PoG registration path trusts, plus the legacy treasury pointer kept for metadata compatibility."
           />
           <PogSignerPanel />
-          <PlatformTreasuryPanel />
+            <PlatformTreasuryPanel />
 
           <GroupHeader
             index="G3 · SAFETY & RISK"
@@ -258,16 +258,16 @@ export default function AdminPage() {
             blurb="Read-only telemetry plus the one control on this page that is a signed API call rather than a transaction."
           />
           <InitcodeHashMonitor />
-          <ExchangeRatePanel />
+            <ExchangeRatePanel />
 
-          <div className="pt-12">
-            <Line />
+            <div className="pt-12">
+              <Line />
             <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
               every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
-            </p>
-          </div>
-        </main>
-      </div>
+              </p>
+            </div>
+      </main>
+    </div>
     </ActionGateProvider>
   )
 }

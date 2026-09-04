@@ -265,8 +265,9 @@ cast call $HOOK "getPoolKey()" --rpc-url $RPC
 ```
 
 Pool parameters are `POOL_FEE = 3000` (0.30%) and `TICK_SPACING = 200`. A
-0.7% tax applies on hook-routed swaps: buys feed the ladder treasury, sells
-burn tokens.
+1.00% tax applies on hook-routed swaps, so total friction is 1.30%. Buys split
+theirs — 0.70% of the ETH input to the ladder treasury, 0.30% to the platform's
+fee recipient. Sells are not split: the full 1.00% of the token input is burned.
 
 > **Beware lookalike pools.** Anyone can open a V4 pool for the same token with
 > a different hook — one that has no tax and no ladder. The canonical pool is

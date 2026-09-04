@@ -161,7 +161,8 @@ contract ToshV5FuzzTest is Test {
         // The shelf-price curve is a closed form over `shelfP0` and constants —
         // it reads no per-project immutable arg — so a bare implementation is a
         // sufficient host for poking the base value into storage.
-        ToshLaunchpadHook h = new ToshLaunchpadHook(address(poolManager), address(factory), payable(address(ladder)));
+        ToshLaunchpadHook h =
+            new ToshLaunchpadHook(address(poolManager), address(factory), payable(address(ladder)), platformTreasury);
         vm.store(address(h), bytes32(_shelfP0Slot(h)), bytes32(base));
 
         uint256 a = h.tierPriceAt(idx);

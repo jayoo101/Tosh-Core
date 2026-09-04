@@ -73,6 +73,7 @@ contract RecomputeInitcodeHashScript is Script {
         console2.log("Wired V4 PoolManager    :", poolManager);
         console2.log("Wired PoG signer        :", pogSigner);
         console2.log("Wired Platform Treasury :", platformTreasury);
+        console2.log("  (immutable; takes 0.30% of every buy's ETH input)");
         console2.log("Wired Ladder Treasury   :", ladderTreasury);
         console2.log("Launch Fee (wei)        :", launchFee);
         console2.log("Default Soft Cap (wei)  :", defaultSoftCap);

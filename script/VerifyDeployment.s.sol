@@ -7,6 +7,7 @@ import "forge-std/console2.sol";
 import {IERC20Metadata} from "../lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
+import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
 //  VerifyDeployment.s.sol  —  Post-deploy invariant smoke test
@@ -21,6 +22,9 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 //    5. The factory's PoG signer is the address you passed in env.
 //    6. `getLiveHookInitcodeHash()` is deterministic and stable
 //       (re-reads in a single block return the same hash).
+//    7. `factory.platformTreasury()` equals the hook implementation's
+//       `platformFeeRecipient` — the address that is actually paid 0.30 % of
+//       every buy. Both are immutable, so divergence is unfixable and silent.
 //
 //  ANY failure throws a clear `revert` with the offending field name so the
 //  operator immediately knows what to fix.  Designed to be the very first
@@ -67,6 +71,21 @@ contract VerifyDeploymentScript is Script {
 
         address lt = factory.ladderTreasury();
         if (lt == address(0)) revert MissingField("ladderTreasury");
+
+        // The factory RECORDS the platform's payout address; the hook
+        // implementation is what actually PAYS it, from its own
+        // `platformFeeRecipient` immutable, on every buy. Both are wired from
+        // the same constructor argument via `HookDeployLib.deployImplementation`,
+        // so they can only disagree if that wiring regressed — but if they ever
+        // do, every operator who reads the factory to confirm where the money
+        // goes gets a confident, wrong answer, while 0.30 % of every buy on
+        // every pool keeps landing somewhere else. Neither address is settable,
+        // so the only remedy would be a factory redeploy. Worth one call here.
+        address impl = factory.hookImplementation();
+        if (impl == address(0)) revert MissingField("hookImplementation");
+
+        address hookRecipient = ToshLaunchpadHook(payable(impl)).platformFeeRecipient();
+        if (hookRecipient != pt) revert UnexpectedAddress("hook.platformFeeRecipient", pt, hookRecipient);
 
         // The treasury authenticates piggyback callers against the factory's
         // hook registry, so a treasury that was never bound (or bound to a
@@ -118,6 +137,8 @@ contract VerifyDeploymentScript is Script {
         console2.log("V4 PoolManager          :", pm);
         console2.log("PoG signer              :", ps);
         console2.log("Platform Treasury       :", pt);
+        console2.log("  (== hook.platformFeeRecipient, takes 0.30% of every buy)");
+        console2.log("Hook implementation     :", impl);
         console2.log("Ladder Treasury         :", lt);
         console2.log("Launch fee (wei)        :", factory.launchFee());
         console2.log("Default soft cap (wei)  :", factory.defaultSoftCap());

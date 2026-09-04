@@ -121,15 +121,23 @@ contract CloneDeployer {
     /// @dev The status quo for the hook: CREATE2 a full ~19.6 KB copy.
     ///
     ///      The nine words appended here are what the per-project constructor
-    ///      tuple used to be. The constructor now takes three, and the extra
+    ///      tuple used to be. The constructor now takes four, and the extra
     ///      words are simply ignored — which is fine, because the only thing
     ///      being measured is the cost of depositing that much code.
-    function deployFullHookMeasured(bytes32 salt, address poolManager, address ladderTreasury)
-        external
-        returns (address deployed, uint256 gasUsed)
-    {
+    ///
+    ///      Every argument must nonetheless be non-zero: the constructor rejects
+    ///      a zero `poolManager`, `factory`, `ladderTreasury`, or
+    ///      `platformFeeRecipient`, and a reverted CREATE2 yields `address(0)`
+    ///      and a gas figure that measures nothing.
+    function deployFullHookMeasured(
+        bytes32 salt,
+        address poolManager,
+        address ladderTreasury,
+        address platformFeeRecipient
+    ) external returns (address deployed, uint256 gasUsed) {
         bytes memory initcode = abi.encodePacked(
-            type(ToshLaunchpadHook).creationCode, abi.encode(poolManager, address(this), ladderTreasury)
+            type(ToshLaunchpadHook).creationCode,
+            abi.encode(poolManager, address(this), ladderTreasury, platformFeeRecipient)
         );
         uint256 before = gasleft();
         assembly {
@@ -424,7 +432,9 @@ contract ToshHookCloneTest is Test {
         );
 
         (address fullHook, uint256 fullGas) =
-            deployer.deployFullHookMeasured(bytes32(uint256(101)), address(0x1111), address(0x3333));
+            deployer.deployFullHookMeasured(bytes32(uint256(101)), address(0x1111), address(0x3333), address(0x4444));
+
+        assertTrue(fullHook != address(0), "the full deploy must actually have landed");
 
         uint256 fullRuntime = fullHook.code.length;
         uint256 cloneRuntime = ToshCloneLib.RUNTIME_LEN;
@@ -461,7 +471,8 @@ contract ToshHookCloneTest is Test {
     function test_deployComponentOfCreateLaunch() public {
         uint256 MEASURED_CREATE_LAUNCH = 5_016_031;
 
-        (, uint256 hookFull) = deployer.deployFullHookMeasured(bytes32(uint256(200)), address(0x1111), address(0x3333));
+        (, uint256 hookFull) =
+            deployer.deployFullHookMeasured(bytes32(uint256(200)), address(0x1111), address(0x3333), address(0x4444));
         (, uint256 hookClone) = deployer.deployMeasured(
             bytes32(uint256(201)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
         );

@@ -1,9 +1,15 @@
 'use client'
 
 /**
- * G2 · POG AUTHORITY — the oracle signer, plus the legacy treasury pointer.
+ * G2 · POG AUTHORITY — the oracle signer, plus the platform fee recipient.
  *
- * Both are the same write: swap one address for another.  The refusals are the
+ * These used to be two instances of the same rotation panel.  They are not any
+ * more: `setPlatformTreasury` was deleted from the factory when
+ * `platformTreasury` went back onto a money path (it now receives 0.30 % of
+ * every buy's ETH input), because a mutable fee-routing target is audit finding
+ * M-2.  The field is immutable, so the treasury half is now a readout.
+ *
+ * What remains rotatable is the PoG signer.  The refusals there are the
  * interesting part, and two of the three are ours rather than the contract's —
  * the factory would happily accept the zero address or the value it already
  * holds, and neither is ever what an operator meant.
@@ -29,8 +35,8 @@ export function AddressRotationPanel({
   id:          string
   title:       string
   subtitle:    string
-  readFn:      'platformTreasury' | 'pogSigner'
-  writeFn:     'setPlatformTreasury' | 'setPogSigner'
+  readFn:      'pogSigner'
+  writeFn:     'setPogSigner'
   txLabel:     string
   placeholder: string
   note:        React.ReactNode
@@ -163,24 +169,51 @@ export function PogSignerPanel() {
   )
 }
 
+/**
+ * Read-only by construction, not by permission.
+ *
+ * This panel used to offer a `setPlatformTreasury` rotation.  That function no
+ * longer exists on the factory: the address is `immutable`, and the same value
+ * is baked into the hook implementation as `platformFeeRecipient` at
+ * construction.  There is nothing to gate and nothing to disable — there is no
+ * transaction to send.
+ */
 export function PlatformTreasuryPanel() {
+  const {
+    data: treasury, isLoading, isFetching,
+  } = useReadContract({
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'platformTreasury',
+  })
+
   return (
-    <AddressRotationPanel
+    <Section
       id="G2-B"
-      title="PLATFORM TREASURY (LEGACY · NO FUNDS)"
-      subtitle="setPlatformTreasury · v4.x leftover kept for metadata compatibility"
-      readFn="platformTreasury" writeFn="setPlatformTreasury"
-      txLabel="TREASURY"
-      placeholder="0x… metadata only, not a payout address"
-      note={
-        <>
-          This address receives nothing in v5.0. All platform revenue — the 1 %
-          shelf-mint cut, the 0.7 % buy tax, launch fees and orphaned referral
-          commission — routes to the ladder treasury, which is an immutable
-          constructor argument on every hook and cannot be retargeted from here.
-        </>
-      }
-      confirmBody="Metadata only — this rotation moves no funds and changes no revenue routing."
-    />
+      title="PLATFORM FEE RECIPIENT (IMMUTABLE)"
+      subtitle="platformTreasury · receives 0.30 % of every buy · no setter exists"
+    >
+      <Readout
+        label="LIVE ON-CHAIN"
+        value={isLoading && treasury === undefined
+          ? 'reading…'
+          : <AddressLink addr={treasury as string | undefined} />}
+        hint={isFetching && !isLoading ? 'syncing' : null}
+      />
+      <ScopeNote>
+        Every buy pays a 1.00 % tax on its ETH input. 0.70 % of that funds the
+        ladder treasury&apos;s buyback-and-burn; the remaining 0.30 % is paid here
+        as platform revenue. The sell leg is not split — the whole 1.00 % of a
+        sell&apos;s token input is burned — so this address only ever receives ETH.
+        Launch fees, the 1 % shelf-mint cut and orphaned referral commission all
+        still route entirely to the ladder treasury.
+      </ScopeNote>
+      <ScopeNote tone="warn">
+        This address cannot be rotated. It is an immutable constructor argument
+        on the factory and is baked into the hook implementation as
+        <span className="text-text-secondary"> platformFeeRecipient</span>, so
+        both would have to change together and neither has a setter. Redirecting
+        platform revenue means deploying a new factory. The setter was removed
+        deliberately: a mutable fee-routing target was audit finding M-2.
+      </ScopeNote>
+    </Section>
   )
 }

@@ -26,7 +26,8 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 //   PRIVATE_KEY          -- deployer wallet private key (must hold testnet ETH)
 //   V4_POOL_MANAGER      -- Uniswap V4 PoolManager (0x8366a3...e40951)
 //   POG_SIGNER_ADDRESS   -- address whose private key signs PoG attestations
-//   PLATFORM_TREASURY    -- platform address (multisig recommended)
+//   PLATFORM_TREASURY    -- recipient of the 0.30 % platform cut of every buy.
+//                           NO DEFAULT, and immutable once deployed: see below.
 //
 // Deploy command (run after `source .env`):
 //   forge script script/Deploy.s.sol:DeployScript \
@@ -48,7 +49,23 @@ contract DeployScript is Script {
 
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address pogSigner = vm.envOr("POG_SIGNER_ADDRESS", deployer);
-        address platformTreasury = vm.envOr("PLATFORM_TREASURY", deployer);
+
+        // REQUIRED, no default.  This used to be `vm.envOr(..., deployer)`,
+        // which was harmless while `platformTreasury` received nothing — it was
+        // a metadata field on no money path.  It now takes 0.30 % of the ETH
+        // input of every buy on every pool, so defaulting it would silently
+        // route the platform's revenue to whichever key happened to broadcast.
+        //
+        // It is also IMMUTABLE on both the factory and the hook implementation:
+        // there is no setter, and correcting a mistake here means redeploying
+        // the whole factory. Getting it wrong is not a config error, it is a
+        // migration.
+        //
+        // It must accept ETH unconditionally. `poolManager.take` performs a raw
+        // value transfer and this path is NOT fault-isolated, so a recipient
+        // whose `receive()` can revert bricks every buy on every pool.
+        address platformTreasury = vm.envAddress("PLATFORM_TREASURY");
+        require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
 
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad v5.0 -- Robinhood Chain testnet Deployment");
@@ -56,7 +73,7 @@ contract DeployScript is Script {
         console2.log("Deployer         :", deployer);
         console2.log("V4 PoolManager   :", poolManager);
         console2.log("PoG Signer       :", pogSigner);
-        console2.log("Platform Treasury:", platformTreasury);
+        console2.log("Platform Treasury (0.30% of buys, IMMUTABLE):", platformTreasury);
         console2.log("------------------------------------------------------------");
 
         vm.startBroadcast(deployerPk);

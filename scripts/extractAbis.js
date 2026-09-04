@@ -56,11 +56,23 @@ const header = `// AUTO-GENERATED from Foundry artifacts — do not edit by hand
 //     answers the OLD signature and reverts on this one.  If the launch page
 //     reports 'hookInitcodeHash reverted', check hookImplementation() first:
 //     it exists only on clone-era factories, and the real fix is a redeploy.
-//   • Hook constructor is 3-arg: (poolManager, factory, ladderTreasury).  It
-//     builds the shared IMPLEMENTATION; per-project config lives in the clone's
-//     immutable args, not in a constructor call.
+//   • Hook constructor is 4-arg: (poolManager, factory, ladderTreasury,
+//     platformFeeRecipient).  It builds the shared IMPLEMENTATION; per-project
+//     config lives in the clone's immutable args, not in a constructor call.
 //   • mintBondingCurve(tokenAmount) is payable; quoteMint returns ETH cost
 //   • Hook address mask is 0x20CC
+//   • Swap tax is TAX_BPS = 100 (1.00 % of the swap INPUT), on top of the
+//     0.30 % POOL_FEE that V4 pays to LPs — total trader friction is 1.30 %.
+//     The buy leg SPLITS it: PLATFORM_SWAP_FEE_BPS (30) of the ETH input goes
+//     to platformFeeRecipient and emits PlatformSwapFeePaid, the remaining
+//     70 bps goes to the ladder treasury and emits BuyTaxToTreasury.  The sell
+//     leg is NOT split: the full 100 bps of the token input is burned and
+//     emits SellTaxBurned.  An indexer summing platform revenue must read
+//     PlatformSwapFeePaid only, and must not treat BuyTaxToTreasury as the
+//     whole tax.
+//   • platformTreasury is a VIEW with no setter — it is immutable, and equals
+//     ToshLaunchpadHook(factory.hookImplementation()).platformFeeRecipient().
+//     setPlatformTreasury and the TreasuryUpdated event no longer exist.
 //   • Treasury owner surface is curation ONLY: addLadderToken / removeLadderToken.
 //     There is no withdraw path — do not go looking for one in the admin UI.
 `;

@@ -57,12 +57,16 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      ceiling so the project cannot mint its way down into the pool and
 ///      drain it.
 ///
-///   4. ASYMMETRIC IN-FLIGHT TAX & DIRECT BURN.  A 0.7 % skim is taken off the
+///   4. ASYMMETRIC IN-FLIGHT TAX & DIRECT BURN.  A 1.0 % skim is taken off the
 ///      INPUT of every swap, routed by direction rather than by which currency
 ///      happened to be `amountSpecified`:
 ///
 ///        BUY  (ETH in)   → 0.7 % ETH   → ToshLadderTreasury  (buyback fuel)
-///        SELL (token in) → 0.7 % TOKEN → 0xdead              (burned in place)
+///                        + 0.3 % ETH   → platformFeeRecipient (platform revenue)
+///        SELL (token in) → 1.0 % TOKEN → 0xdead              (burned in place)
+///
+///      Only the buy leg is split, and only because only the buy leg's input is
+///      ETH — see `PLATFORM_SWAP_FEE_BPS`.
 ///
 ///      Exact-input settles that skim in `beforeSwap` (specified IS the input).
 ///      Exact-output settles it in `afterSwap` against the unspecified input,
@@ -75,17 +79,22 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      The v4.x `harvestAndBurn` entry point and its off-chain MEV-defence bot
 ///      are deleted — the flywheel is now fully on-chain and self-driving.
 ///
-///   5. OPEN LP + A 1 % FRICTION BUDGET, SPLIT.  v4.x reverted every
+///   5. OPEN LP + A FRICTION BUDGET, SPLIT.  v4.x reverted every
 ///      `removeLiquidity` to keep the genesis position locked, which also
 ///      trapped anyone else who provided liquidity — so nobody did, and the
 ///      1 % pool fee it charged accrued to a position no one could ever
 ///      collect from.  Stacked on the 1 % tax, traders paid 2 % and half of it
 ///      was destroyed on arrival.
 ///
-///      v5.0 opens the pool to third-party LPs and splits one 1 % budget:
+///      v5.0 opens the pool to third-party LPs and splits the budget:
 ///
 ///        0.3 %  POOL_FEE  → LPs, settled natively by V4 (no code of ours)
-///        0.7 %  hook tax  → buyback reservoir / burn
+///        1.0 %  hook tax  → buyback reservoir / burn / platform
+///
+///      That started as a flat 1 % all-in (0.3 + 0.7).  Carving the platform's
+///      maintenance cut out of the hook tax raised the total toll to 1.3 % —
+///      still well below v4.x's 2 %, and the pool fee half is no longer dead
+///      weight.  See `PLATFORM_SWAP_FEE_BPS` for what that bought and cost.
 ///
 ///      The genesis position stays locked without any callback: V4 keys
 ///      positions to their creator, it belongs to this hook, and this hook has
@@ -273,34 +282,77 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     uint256 public constant PLATFORM_TAX_BPS = 100;
 
     /// @notice Asymmetric in-flight tax skimmed off the INPUT of every pool
-    ///         swap (0.70 %).  Buys (ETH in) fund the treasury; sells (token
-    ///         in) burn.  Exact-input settles in `beforeSwap`; exact-output
+    ///         swap (1.00 %).  Buys (ETH in) split between the buyback
+    ///         reservoir and the platform fee recipient; sells (token in) burn
+    ///         in full.  Exact-input settles in `beforeSwap`; exact-output
     ///         settles in `afterSwap` so a router cannot starve the reservoir
     ///         by asking for an exact token amount out.
     ///
-    /// @dev    Sized as the remainder of a 1.00 % friction budget after the
-    ///         0.30 % `POOL_FEE` that now goes to third-party LPs: 0.30 + 0.70
-    ///         = 1.00, so traders see exactly the same cost as v4.x while LPs
-    ///         finally get paid for the risk they carry.
+    /// @dev    ⚠ NOT THE SAME 100 AS `PLATFORM_TAX_BPS`, which is also 100 and
+    ///         sits thirty lines up.  That one is 1 % of Phase-2 SHELF PROCEEDS
+    ///         and is denominated in the ETH a minter pays the bonding curve.
+    ///         This one is 1 % of a SWAP INPUT.  The two never apply to the
+    ///         same wei — shelf mints do not touch the pool — but the shared
+    ///         literal is a reading hazard, so they are named apart on purpose
+    ///         and `test_taxRates_areDistinctPathsDespiteSharedLiteral` pins
+    ///         both against their own paths.
+    ///
+    /// @dev    Stacked on the 0.30 % `POOL_FEE` that goes to third-party LPs,
+    ///         a trader's total friction is 1.30 %.  This was 0.70 % (a flat
+    ///         1.00 % all-in) until the platform's own maintenance cut was
+    ///         carved out; see `PLATFORM_SWAP_FEE_BPS` for what changed and
+    ///         what it cost.
     ///
     /// @dev    THE TWO PATHS APPLY THIS RATE TO DIFFERENT BASES, ON PURPOSE.
     ///
-    ///         Exact-input charges 70 bps of `amountSpecified` — the gross the
+    ///         Exact-input charges 100 bps of `amountSpecified` — the gross the
     ///         trader has already committed — so the tax is INCLUSIVE and works
-    ///         out to exactly 70 bps of their outlay.
+    ///         out to exactly 100 bps of their outlay.
     ///
-    ///         Exact-output charges 70 bps of the input the pool consumed,
+    ///         Exact-output charges 100 bps of the input the pool consumed,
     ///         which the trader then pays ON TOP.  That is EXCLUSIVE, so the
-    ///         realised rate is 70 / 1.007 = 69.5 bps of total outlay.
+    ///         realised rate is 100 / 1.01 = 99.0 bps of total outlay.
     ///
-    ///         Half a basis point apart, and left alone deliberately.  Closing
-    ///         it means grossing up by `70 / (10_000 - 70)`, which buys
-    ///         0.5 bps at the cost of a division nobody reading
-    ///         `_skimUnspecifiedInput` would expect and a rate constant that no
-    ///         longer means what it says.  Recorded here so the asymmetry reads
-    ///         as a decision rather than an oversight — it has been raised once
-    ///         already by a reviewer who could not tell which it was.
-    uint256 public constant TAX_BPS = 70;
+    ///         One basis point apart, and left alone deliberately.  Closing it
+    ///         means grossing up by `100 / (10_000 - 100)`, which buys 1 bps at
+    ///         the cost of a division nobody reading `_skimUnspecifiedInput`
+    ///         would expect and a rate constant that no longer means what it
+    ///         says.  Recorded here so the asymmetry reads as a decision rather
+    ///         than an oversight — it has been raised once already by a
+    ///         reviewer who could not tell which it was.
+    ///
+    ///         The gap widened from 0.5 bps to 1 bps when the rate went 70 →
+    ///         100, because it is second-order in the rate itself.  Still below
+    ///         the threshold where it is worth the division.
+    uint256 public constant TAX_BPS = 100;
+
+    /// @notice The platform's maintenance cut, carved OUT OF `TAX_BPS` on the
+    ///         buy leg only (0.30 % of the ETH input), paid to
+    ///         `platformFeeRecipient`.
+    ///
+    /// @dev    CARVED OUT OF, NOT ADDED ON TOP.  `TAX_BPS` is the whole toll a
+    ///         trader pays; this is how the buy leg divides it.  The reservoir
+    ///         receives `TAX_BPS - PLATFORM_SWAP_FEE_BPS` = 70 bps, which is
+    ///         exactly what it received before this split existed, so the
+    ///         buyback engine's economics are untouched and every reservoir
+    ///         assertion written against 70 bps of input still holds.
+    ///
+    /// @dev    BUY LEG ONLY, and that is the substantive half of the decision.
+    ///         The sell leg's input is the project's own token, so splitting it
+    ///         would pay the platform in whatever each project happens to have
+    ///         issued — a growing bag of illiquid positions in the very tokens
+    ///         it is supposed to be neutral about, which it would then have to
+    ///         sell into those pools to realise.  Burning the full 1 % instead
+    ///         keeps the sell leg deflationary and keeps the platform holding
+    ///         nothing but ETH.
+    ///
+    /// @dev    This is the one place platform revenue does NOT end at
+    ///         `ladderTreasury`, and it is a deliberate break with the v5.0
+    ///         claim that all of it is committed to buyback-and-burn.  Three
+    ///         other pipes (launch fees, the shelf cut, orphaned referral
+    ///         commission) still route there in full.  The break is documented
+    ///         as such in `PRD-v5.0.md` §2 rather than being quietly true.
+    uint256 public constant PLATFORM_SWAP_FEE_BPS = 30;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
 
@@ -536,9 +588,38 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     IPoolManager public immutable poolManager;
     address public immutable factory;
 
-    /// @notice Platform buyback reservoir; receives the 0.7 % buy-side dark tax
-    ///         and any orphaned referral commission.
+    /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
+    ///         share of the buy-side dark tax and any orphaned referral
+    ///         commission.
     address payable public immutable ladderTreasury;
+
+    /// @notice Receives `PLATFORM_SWAP_FEE_BPS` (30 bps) of every buy's ETH
+    ///         input — the platform's maintenance and development cut.
+    ///
+    /// @dev    IMMUTABLE ON PURPOSE, and this is a re-litigated decision.
+    ///         v4.x let the factory owner retarget Phase-2 fee routing through
+    ///         a mutable `platformTreasury`; that was audit finding M-2, and
+    ///         v5.0 closed it by making every revenue sink an immutable
+    ///         constructor argument.  Reading a mutable factory field here
+    ///         would reopen M-2 on a far bigger base — the factory owner could
+    ///         redirect every buy on every project at will — so this sink is
+    ///         shaped exactly like `ladderTreasury` instead.
+    ///
+    ///         Being an implementation-level immutable rather than a clone arg
+    ///         means changing it needs a new hook implementation and a factory
+    ///         repoint, and only affects launches created afterwards.  Existing
+    ///         projects keep the recipient they launched with, which is the
+    ///         property M-2 was about.
+    ///
+    /// @dev    MUST accept ETH unconditionally.  `poolManager.take` performs a
+    ///         raw value transfer for the native currency, and this call is NOT
+    ///         fault-isolated the way the piggyback poke is — a recipient that
+    ///         reverts on receive bricks every buy on every pool.  An EOA or a
+    ///         Safe is fine; a contract with a reverting or gas-hungry
+    ///         `receive()` is not.  `ladderTreasury` carries the same
+    ///         requirement, so this adds no new class of risk, only a second
+    ///         address that has to satisfy it.
+    address payable public immutable platformFeeRecipient;
 
     /// @dev This implementation's own address, captured at construction. Under
     ///      DELEGATECALL `address(this)` is the clone, so `address(this) ==
@@ -787,10 +868,27 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @notice Emitted when a shelf sells out and the ladder advances.
     event TierAdvanced(uint256 indexed newTierIndex, uint256 newTierPrice);
 
-    /// @notice Emitted when an ETH-side skim funds the platform buyback reservoir.
+    /// @notice Emitted when an ETH-side skim funds the platform buyback
+    ///         reservoir.  Carries the reservoir's share only (70 bps of the
+    ///         input), NOT the whole `TAX_BPS` skim — the platform's 30 bps is
+    ///         reported separately by `PlatformSwapFeePaid` in the same swap,
+    ///         and the two sum to the skim.
+    ///
+    /// @dev    The name predates the split and is kept so existing indexers and
+    ///         the `monitoring/alerts.json` rules do not silently stop
+    ///         matching.  What changed is the amount, not the meaning: this was
+    ///         always "what the reservoir received".
     event BuyTaxToTreasury(uint256 ethAmount);
 
+    /// @notice Emitted when a buy's ETH-side skim pays the platform's
+    ///         maintenance cut to `platformFeeRecipient`.
+    ///
+    /// @dev    Buys only.  A sell emits `SellTaxBurned` alone, because the sell
+    ///         leg is not split — see `PLATFORM_SWAP_FEE_BPS`.
+    event PlatformSwapFeePaid(address indexed recipient, uint256 ethAmount);
+
     /// @notice Emitted when a token-side skim is burned in place at 0xdead.
+    ///         Carries the FULL `TAX_BPS` skim; the sell leg is not split.
     event SellTaxBurned(uint256 tokenAmount);
 
     /// @notice Emitted when the `afterSwap` buyback poke reverted and was
@@ -882,14 +980,16 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      args and are validated in `initializeToken`.
     ///
     ///      This instance is never usable as a hook itself — see `onlyClone`.
-    constructor(address _poolManager, address _factory, address _ladderTreasury) {
+    constructor(address _poolManager, address _factory, address _ladderTreasury, address _platformFeeRecipient) {
         require(_poolManager != address(0), "zero poolManager");
         require(_factory != address(0), "zero factory");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
+        require(_platformFeeRecipient != address(0), "zero platformFeeRecipient");
 
         poolManager = IPoolManager(_poolManager);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
+        platformFeeRecipient = payable(_platformFeeRecipient);
         _self = address(this);
         _hasArbSys = ARB_SYS.code.length != 0;
     }
@@ -1566,16 +1666,21 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         return IHooks.beforeRemoveLiquidity.selector;
     }
 
-    /// @notice ASYMMETRIC IN-FLIGHT TAX — 0.7 % of every swap's INPUT, routed
+    /// @notice ASYMMETRIC IN-FLIGHT TAX — 1.0 % of every swap's INPUT, routed
     ///         by direction so the buyback flywheel cannot be starved.
     ///
     /// ── The rule ────────────────────────────────────────────────────────────
     ///
     ///     BUY  (ETH → token) : 0.7 % of the ETH input  → ToshLadderTreasury
-    ///     SELL (token → ETH) : 0.7 % of the token input → 0xdead
+    ///                        + 0.3 % of the ETH input  → platformFeeRecipient
+    ///     SELL (token → ETH) : 1.0 % of the token input → 0xdead
     ///
-    ///   Stacked on the 0.3 % native pool fee this is a 1.00 % total toll.
+    ///   Stacked on the 0.3 % native pool fee this is a 1.30 % total toll.
     ///   The pool fee accrues to LPs via V4; this tax is the protocol's cut.
+    ///
+    ///   The asymmetry in the rule above is the split, not the rate: both legs
+    ///   charge the same 1.0 %.  Only the buy leg divides it, because only the
+    ///   buy leg's input is ETH — see `PLATFORM_SWAP_FEE_BPS`.
     ///
     /// ── Why two callbacks ───────────────────────────────────────────────────
     ///
@@ -1616,12 +1721,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
-        uint256 tax = (uint256(-params.amountSpecified) * TAX_BPS) / BPS_DENOMINATOR;
+        uint256 input = uint256(-params.amountSpecified);
+        uint256 tax = (input * TAX_BPS) / BPS_DENOMINATOR;
         if (tax == 0) {
             return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
-        _skimInputTax(key, params.zeroForOne, tax);
+        _skimInputTax(key, params.zeroForOne, input, tax);
         return (IHooks.beforeSwap.selector, toBeforeSwapDelta(SafeCast.toInt128(tax), 0), 0);
     }
 
@@ -1727,15 +1833,67 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         return (IHooks.afterSwap.selector, hookUnspecified);
     }
 
-    /// @dev Route `tax` of the input asset: ETH (a buy) to the reservoir,
-    ///      tokens (a sell) to the fire.
-    function _skimInputTax(PoolKey calldata key, bool ethIsInput, uint256 tax) internal {
-        if (ethIsInput) {
-            poolManager.take(key.currency0, ladderTreasury, tax);
-            emit BuyTaxToTreasury(tax);
-        } else {
+    /// @dev Route `tax` of the input asset: ETH (a buy) splits between the
+    ///      reservoir and the platform; tokens (a sell) all go to the fire.
+    ///
+    ///      `input` is the gross input the rate was applied to, passed in so
+    ///      the platform's share is computed from the SAME base as `tax`
+    ///      rather than as a percentage of a percentage.
+    ///
+    ///      ── The conservation requirement ────────────────────────────────
+    ///
+    ///      Both call sites hand V4 a hook delta of exactly `tax`, so the sum
+    ///      of what this function `take`s MUST equal `tax` to the wei.  Take
+    ///      less and the swap reverts `CurrencyNotSettled` with the remainder
+    ///      stranded; take more and the hook is drawing on currency it was
+    ///      never credited.  Either way it is not a rounding blemish, it is a
+    ///      pool that cannot be traded.
+    ///
+    ///      Which is why the reservoir's share is `tax - platformCut` and not
+    ///      its own multiplication.  Two independent floor divisions of the
+    ///      same base do not have to sum back to a third:
+    ///
+    ///          input = 110 wei
+    ///          tax          = 110 · 100 / 10_000 = 1   (floor of 1.1)
+    ///          platformCut  = 110 ·  30 / 10_000 = 0   (floor of 0.33)
+    ///          70 bps direct= 110 ·  70 / 10_000 = 0   (floor of 0.77)
+    ///
+    ///      so the naive pair would settle 0 against a credit of 1.  By
+    ///      subtraction the reservoir takes 1, and the wei that rounding
+    ///      would have dropped lands in the reservoir rather than nowhere.
+    ///      The bias is deliberate and one-directional: dust favours the
+    ///      buyback, never the platform.
+    ///
+    ///      The subtraction cannot underflow.  `floor(a·30/d) ≤ floor(a·100/d)`
+    ///      holds for every non-negative `a` because the numerator is strictly
+    ///      smaller, so `platformCut ≤ tax` always.
+    function _skimInputTax(PoolKey calldata key, bool ethIsInput, uint256 input, uint256 tax) internal {
+        if (!ethIsInput) {
+            // Sell leg: not split. The platform takes no share of a project's
+            // own token — see `PLATFORM_SWAP_FEE_BPS`.
             poolManager.take(key.currency1, DEAD_ADDRESS, tax);
             emit SellTaxBurned(tax);
+            return;
+        }
+
+        uint256 platformCut = (input * PLATFORM_SWAP_FEE_BPS) / BPS_DENOMINATOR;
+        uint256 reservoirCut = tax - platformCut;
+
+        // `reservoirCut` needs no zero guard, in two cases. Below 334 wei of
+        // input `platformCut` floors to 0, so `reservoirCut == tax`, which the
+        // caller already established is non-zero. At or above 334 wei
+        // `tax >= 3` and `platformCut < 0.4 * tax`, so the difference is at
+        // least 2. Either way it is positive.
+        //
+        // `platformCut` does need the guard — it is 0 for that entire first
+        // case, and a zero-value `take` would spend gas and emit a fee event
+        // reporting nothing.
+        poolManager.take(key.currency0, ladderTreasury, reservoirCut);
+        emit BuyTaxToTreasury(reservoirCut);
+
+        if (platformCut > 0) {
+            poolManager.take(key.currency0, platformFeeRecipient, platformCut);
+            emit PlatformSwapFeePaid(platformFeeRecipient, platformCut);
         }
     }
 
@@ -1752,10 +1910,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         int128 inputDelta = ethIsInput ? delta.amount0() : delta.amount1();
         if (inputDelta >= 0) return 0;
 
-        uint256 tax = (uint256(uint128(-inputDelta)) * TAX_BPS) / BPS_DENOMINATOR;
+        uint256 input = uint256(uint128(-inputDelta));
+        uint256 tax = (input * TAX_BPS) / BPS_DENOMINATOR;
         if (tax == 0) return 0;
 
-        _skimInputTax(key, ethIsInput, tax);
+        _skimInputTax(key, ethIsInput, input, tax);
         return SafeCast.toInt128(tax);
     }
 

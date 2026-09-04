@@ -16,7 +16,9 @@ import {IPoolManager} from "../../lib/v4-core/src/interfaces/IPoolManager.sol";
 ///   The piggyback branch only executes once the reservoir holds `TRIGGER_STEP`
 ///   — 1 ETH, a `constant` with no setter. A testnet faucet does not dispense
 ///   that, and the dark tax that would fill it organically needs roughly 143 ETH
-///   of swap volume. So on every chain where the constants COULD be measured,
+///   of swap volume — the reservoir takes 70 bps of a buy, and the other 30 bps
+///   of the 1 % tax is the platform's cut and never lands here. So on every
+///   chain where the constants COULD be measured,
 ///   the code that consumes them is unreachable.
 ///
 ///   A Foundry fork does not close the gap either: it replays ArbOS state on a

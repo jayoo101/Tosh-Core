@@ -154,8 +154,19 @@ Do not report these as findings; report them only if the reasoning is wrong:
   the rug vector entirely.
 - **No minter kill-switch on `ToshToken`** (`ToshToken.sol:116`). The only
   minter is the hook, fixed at construction.
-- **`platformTreasury` is on no money path** (`ToshFactory.sol:77`). A v4.x
-  leftover kept for metadata continuity.
+- ~~**`platformTreasury` is on no money path.**~~ **NO LONGER TRUE — audit it.**
+  It receives `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS` (30 bps) of the ETH
+  input of every buy, on every pool. It is `immutable` on the factory with no
+  setter, and the same address is baked into the hook implementation as
+  `platformFeeRecipient`; the hook's copy is what actually performs the `take`.
+  Two things are worth an auditor's attention rather than a pass: (a) the buy
+  leg's two `take`s must sum to exactly the hook delta declared to V4, or the
+  pool becomes untradeable rather than merely mispaying, which is why the
+  reservoir's share is `tax - platformCut` and not its own floor division; (b) the
+  recipient is paid by a raw `poolManager.take` on a path with no `try/catch`,
+  so a recipient that can revert on receipt bricks every buy platform-wide.
+  This closed PRD wart ⚠️ 8.2 and re-closed audit finding M-2 by removing the
+  mutability rather than the inflow.
 - **`block.timestamp` comparisons.** Every one is against a 3–72 hour genesis
   window or a 7-day launch window; validator drift cannot move either.
   `forge lint` flags 18 of these in `src/` — 11 in `ToshFactory`, 7 in
@@ -289,7 +300,9 @@ treasury's only egress is `autoPiggybackBuyback`, which is `onlyHook` and fires
 exclusively from a hook's `afterSwap` — and the handler could not swap. The
 invariant held because the payout path was unreachable, not because it was safe.
 
-With swaps in the fuzzer's hands the reservoir fills from the 0.7% buy-side tax,
+With swaps in the fuzzer's hands the reservoir fills from the 70 bps reservoir
+share of the 1% buy-side tax (the other 30 bps is the platform's cut and never
+reaches this balance),
 crosses `TRIGGER_STEP`, and real ETH leaves on arbitrary sequences while the
 owner is simultaneously re-curating the ladder. So the claim is now split into
 the two halves that are actually load bearing: outflow may happen **only** on a
@@ -480,9 +493,13 @@ is the silent hazard the guard exists for.
 Worth reading the trace once (`forge test --match-test
 test_fork_buyThroughRealUniversalRouter -vvvv`): the router calls `unlock` on
 the singleton, the singleton calls back into the router, and only then does
-`swap` reach `beforeSwap` with `sender` set to the router. The 70 bps tax is
+`swap` reach `beforeSwap` with `sender` set to the router. The 100 bps tax is
 asserted as an exact equality rather than `> 0`, because the failure that costs
-money is not "no tax" but "wrong tax". A companion test sends an unsatisfiable
+money is not "no tax" but "wrong tax". Each side of the buy-leg split is
+asserted at its own rate (70 bps to the reservoir, 30 to the platform) and so is
+their sum: against the real singleton, the sum is the assertion that says the
+split still settles, since a pair that does not add back to the declared hook
+delta reverts `CurrencyNotSettled` rather than mispaying. A companion test sends an unsatisfiable
 `amountOutMinimum` and confirms the router reverts with
 `V4TooLittleReceived(min, received)` where `received` is the **post-tax** figure
 — i.e. the router's slippage check sees the amount the hook actually left, so a
@@ -820,13 +837,16 @@ caps beside it. Pinned by
 `ToshHookClone.t.sol::test_genesisDurationAboveUint32Reverts`, which asserts
 the deploy path and the hash path separately.
 
-**Considered and deliberately not changed.** Exact-output swaps realise 69.5 bps
-of the trader's total outlay where exact-input realises 70 — the exact-input tax
+**Considered and deliberately not changed.** Exact-output swaps realise 99.0 bps
+of the trader's total outlay where exact-input realises 100 — the exact-input tax
 is inclusive of the specified amount, the exact-output tax is charged on top of
-the pool's input. Closing the half-basis-point means grossing up by
-`70 / (10_000 - 70)`, which buys little and leaves `TAX_BPS` meaning something
+the pool's input. Closing the basis point means grossing up by
+`100 / (10_000 - 100)`, which buys little and leaves `TAX_BPS` meaning something
 other than what it says. The choice is now stated in the natspec on `TAX_BPS` so
-it reads as a decision rather than an oversight.
+it reads as a decision rather than an oversight. The gap was 0.5 bps while the
+rate was 70; it widened to 1 bps when the rate went to 100, because it is
+second-order in the rate itself. Still below the threshold where it earns the
+division.
 
 ---
 

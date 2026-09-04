@@ -528,8 +528,9 @@ contract ToshInvariantHandler is Test {
     // never swaps therefore proves "the treasury never pays out" by arranging
     // for the payout path to be unreachable, which is not a proof of anything.
     //
-    // With swaps in the fuzzer's hands the reservoir fills from the 0.7% buy
-    // tax, crosses `TRIGGER_STEP`, and real ETH starts leaving on arbitrary
+    // With swaps in the fuzzer's hands the reservoir fills from the 70 bps
+    // reservoir share of the 1% buy tax (the other 30 bps is the platform's
+    // cut and lands elsewhere), crosses `TRIGGER_STEP`, and ETH starts leaving on arbitrary
     // call sequences while the owner is simultaneously re-curating the ladder
     // and flipping every other switch. That is the state the one-way valve
     // claim is actually about.
@@ -1035,8 +1036,10 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         selectors[n++] = ToshInvariantHandler.ownerSetMaxPogAllocationLimit.selector;
 
         // Buys weighted like deposits: a buyback needs the reservoir over
-        // 1 ETH, and the 0.7% buy-side tax is the only inflow that scales with
-        // fuzzer activity rather than with project count.
+        // 1 ETH, and the 70 bps reservoir share of the buy-side tax is the only
+        // inflow that scales with fuzzer activity rather than with project
+        // count. (The tax is 100 bps; 30 of those go to the platform and never
+        // reach this balance, so the arming rate is 70 bps of volume.)
         selectors[n++] = ToshInvariantHandler.swapBuy.selector;
         selectors[n++] = ToshInvariantHandler.swapBuy.selector;
         selectors[n++] = ToshInvariantHandler.swapBuy.selector;
@@ -1422,7 +1425,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///
     ///         Note there is no `vm.deal` to the treasury here, unlike the
     ///         acceptance tests in `ToshV5.t.sol`. The reservoir is armed the
-    ///         way production arms it — launch fees plus the buy tax — because
+    ///         way production arms it — launch fees plus the reservoir's share
+    ///         of the buy tax — because
     ///         topping up the pot under test would also fake the accounting the
     ///         drop audit compares against.
     function test_handlerCanReachBuybackAndBurn() public {
@@ -1506,9 +1510,12 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // Arm the reservoir organically, the same way `test_handlerCanReach-
         // BuybackAndBurn` does — launch fees, which the fuzzer also controls.
         //
-        // Not by trading: `swapBuy` caps a leg at 3 ether and the buy tax is
-        // 0.7 %, so reaching `TRIGGER_STEP` needs ~143 ether of volume, which is
-        // more than the actors hold between them. An earlier version tried six
+        // Not by trading: `swapBuy` caps a leg at 3 ether and only the 70 bps
+        // reservoir share of the 1 % buy tax lands here, so reaching
+        // `TRIGGER_STEP` still needs ~143 ether of volume — the figure did not
+        // move when the tax went 70 → 100 bps, because the extra 30 bps is the
+        // platform's and never touches this balance. That is still more than
+        // the actors hold between them. An earlier version tried six
         // 3-ether buys and papered over the shortfall with `vm.assume` — which
         // in a non-fuzz test cannot resample, so it just failed the run.
         //

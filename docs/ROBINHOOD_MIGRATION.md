@@ -594,8 +594,10 @@ window opens — precisely and only when the script is meant to work. Now an
 **2. `TRIGGER_STEP` puts the buyback out of reach of a faucet.** A cycle arms at
 a 1 ETH reservoir balance, and it is a `constant` with no setter — unlike the
 soft cap and wallet cap, it cannot be scaled down for a rehearsal. The reservoir
-fills from the 0.7 % dark tax, so arming it honestly needs on the order of 143
-ETH of swap volume. On the fork the balance was set directly with
+fills from the 70 bps reservoir share of the dark tax, so arming it honestly
+needs on the order of 143 ETH of swap volume. (The tax is now 1.00 %, but the
+other 30 bps is the platform's cut and never reaches this balance, so the 143
+figure is unchanged from when the tax was a flat 0.70 %.) On the fork the balance was set directly with
 `anvil_setBalance` and the leg then ran correctly against the real V4 contracts:
 0.3333 ETH spent (1 ETH ÷ `BATCH_SIZE`), tokens delivered to `DEAD_ADDRESS`.
 **On the real testnet this leg stays unreachable**, and `Phase4Ladder` reports
@@ -693,7 +695,10 @@ The rest, all re-read from chain rather than taken from script output:
 - **Genesis → launch.** 8.4 M supply minted, 3.78 M seated as full-range
   liquidity, 0.001 ETH launch fee forwarded to the treasury.
 - **Buy.** 0.002 ETH in, 681,651.2 tokens out, and 14 gwei of dark tax to the
-  reservoir — 0.7 % to the wei.
+  reservoir — 0.7 % to the wei. (Measured before the buy leg was split. The
+  reservoir's share is still 0.7 %, so this figure would reproduce today; what
+  changed is that the trader now also pays a further 30 bps to the platform, so
+  the total skim on the same trade would be 20 gwei rather than 14.)
 - **Mint.** `quoteMint` said 787,499,999,685 wei and `mintBondingCurve` charged
   787,499,999,685 wei. Exact agreement against live pool state is the one thing
   no unit test can establish. `maxMintable` went 3,150 → 2,835, draining by
@@ -751,7 +756,9 @@ Run 1: [`0xc556bcaf…`](https://explorer.testnet.chain.robinhood.com/tx/0xc556b
 block 108,146,482, 233,062 gas for the whole transaction. It moved 0.001 ETH out
 of the probe reservoir, burned 256,258 tokens to `0xdEaD`, and paid 0.7 % of the
 buy as dark tax to the *production* treasury — the leg is a real market buy, not
-a simulation of one.
+a simulation of one. (Recorded before the buy leg was split; the treasury's
+share is still 0.7 %, and a further 30 bps would now also leave for the platform
+fee recipient.)
 
 Two things the spread is worth reading for. **Run 1 is dearer by ~19k because it
 took that token's `0xdEaD` balance slot from zero**, which is a once-per-token
@@ -1032,7 +1039,9 @@ inverted to match: it now fails when `lib/` and the deployed layout **differ**.
 **And the five-field encoding does not fail loudly — that is the part worth
 keeping.** Mutation-tested against the live router: reverting the fork suite to
 the old hand-roll leaves seven of its eight tests green, including the exact
-70 bps tax assertion. Three coincidences stack up:
+tax assertion (70 bps when this was measured; 100 bps, split 70/30, today —
+the mutation survives either way, which is the point). Three coincidences stack
+up:
 
 - the deployed decoder is `swapParams := add(params.offset, calldataload(params.offset))`,
   a raw pointer cast with no length check, so a short tuple is reinterpreted

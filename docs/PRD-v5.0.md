@@ -53,7 +53,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 |---|---|---|
 | **项目创作者（creator）** | 用最小成本开一个有真实底池、有可信规则的代币 | 0.1 ETH 发射费；三档创世时长可选；99% 货架收入归 `projectAdmin`；规则在部署时冻结进 immutable |
 | **创世储户** | 早期低价 + 确定的下行保护 | 结构性 10% 开盘溢价；软顶未达成 / 7 天僵尸窗口超时可 100% 无罚退款 |
-| **二级交易者** | 有深度、无隐藏抽水的池子 | 全区间创世流动性永久锁定；总摩擦 1.00%（0.3% 给 LP + 0.7% 协议） |
+| **二级交易者** | 有深度、无隐藏抽水的池子 | 全区间创世流动性永久锁定；总摩擦 **1.30%**（0.30% 给 LP + 1.00% 协议税，其中 0.70% 回购销毁、0.30% 平台收入） |
 | **散户 LP** | 赚池子费而不被锁仓 | 0.30% 池子费由 V4 原生结算；随时可撤；UI 提供极简全区间面板 |
 | **推荐人** | 拉新分佣 | 全平台终身绑定，被推荐人**每一次**创世出资的 10% 都归推荐人（⚠️ 见 8.3：官方 UI 目前不传推荐人） |
 | **平台 owner** | 平台可运营但不可作恶 | 可调发射费 / 软顶 / 额度 / 冷却 / 黑名单 / 暂停 / 回购策展；但**不能**动任何一分资金 |
@@ -62,8 +62,10 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 - **不是 bonding-curve-only**：v5.0 有**真实的 Uniswap V4 池子**（Phase 1 结束就建池），阶梯货架（Phase 2）是**平行于池子**的一级增发渠道，且被池子的价格反向门控。这与 pump.fun 类"曲线内交易，毕业后才建池"是完全不同的结构。
 - **不是 tan(z) 连续曲线**：v4.x 的泰勒展开切线曲线被删除，换成 4000 档**离散定价货架**（`TIER_COUNT = 4000`，每档 3,150 枚，档间 +0.19025%，全程跨度 2000×），价格用快速幂闭式求值而非累乘，避免 4000 次截断漂移（`src/ToshLaunchpadHook.sol`）。
-- **卖压直接销毁**：卖出侧 0.7% 的代币在 `beforeSwap` 里就被 `take` 到 `0xdead`，不进储备、不需要回购换手（`_skimInputTax` @ `src/ToshLaunchpadHook.sol`）。
-- **平台收入不是利润**：发射费、货架 1% 切片、孤儿推荐佣金、买入侧 0.7% ETH 税，四条管道全部汇入 `ToshLadderTreasury`，只能用于回购销毁（`src/ToshLadderTreasury.sol:23-29`）。
+- **卖压直接销毁**：卖出侧 **1.0%** 的代币在 `beforeSwap` 里就被 `take` 到 `0xdead`，不进储备、不需要回购换手，**也不分给平台**（`_skimInputTax` @ `src/ToshLaunchpadHook.sol`）。
+- **平台收入的绝大部分不是利润，但不再是全部**：发射费、货架 1% 切片、孤儿推荐佣金三条管道**仍然 100% 汇入** `ToshLadderTreasury`，只能用于回购销毁；买入侧 1.0% ETH 税则**按 70/30 拆分**——70 bps 进 `ToshLadderTreasury`（与拆分前完全一致），30 bps 作为平台维护收入进 `platformTreasury`（`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`、`src/ToshLadderTreasury.sol:23-29`）。
+
+  > **这一行以前写的是「四条管道全部汇入 `ToshLadderTreasury`，只能用于回购销毁」，那句话现在是假的。** 它是整个设计的承重信任声明，所以这里不做技术性措辞回避：平台现在从每一笔买单里抽走 30 bps 的 ETH 作为自己的收入，这笔钱不进回购、不销毁、归平台支配。回购引擎拿到的绝对数额没有变（还是买入量的 70 bps），变的是交易者的总摩擦从 1.00% 涨到 1.30%——多出来的 30 bps 是新增的，不是从回购里挪的。完整的决策与代价见 §2.2.5.1。
 
 ---
 
@@ -123,7 +125,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 | 序 | 调用方 → 被调方 | 函数 | 说明 | 行号 |
 |---|---|---|---|---|
 | 1 | 部署者 → Treasury | `constructor` | 必须先于工厂部署（工厂把它当 immutable 构造参数） | `script/Deploy.s.sol:51` |
-| 2 | 部署者 → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | 同时算出 `HOOK_CREATION_CODEHASH` | `src/ToshFactory.sol` |
+| 2 | 部署者 → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | 同时算出 `HOOK_CREATION_CODEHASH`，并 DELEGATECALL `HookDeployLib.deployImplementation` 把 `platformTreasury` 一并烧进 hook 实现的 `platformFeeRecipient` immutable。**两个地址同源、同为 immutable，且都没有 setter** —— 这是防止「工厂读到新地址、swap 仍付旧地址」的唯一结构性保证 | `src/ToshFactory.sol` |
 | 3 | owner → Treasury | `setFactory` | **一次性**，闭环。未闭环则所有回购静默失效 | `src/ToshLadderTreasury.sol` |
 | 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2 部署 hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol` |
 | 5 | 储户 → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | 资格校验全在工厂，记账全在 hook | `src/ToshFactory.sol` → `src/ToshLaunchpadHook.sol` |
@@ -144,7 +146,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 | 暂停 / 恢复工厂 | `pause` / `unpause` | **只影响 `createLaunch` 与 `registerPoG` 两个入口**。`deposit` 没有 `whenNotPaused`——已开启的创世轮次照常收款（⚠️ 8.12） | `src/ToshFactory.sol` |
 | 停售 / 恢复阶梯 | `haltLadderMinting` / `resumeLadderMinting` | **唯一能触及已开盘项目的刹车**，且只触及 `mintBondingCurve`。单次 `≤ MAX_HALT_DURATION = 7 days` 且自动失效（`HaltDurationTooLong`）；`hook == address(0)` 停全部，否则只停该项目。不影响 swap / LP / `claimGenesis` / `claimReferralReward` / `refund`——**能让买家损失机会，不能让任何人损失余额**。见 §11 D3 | `src/ToshFactory.sol` `haltLadderMinting` |
 | 轮换 PoG 签名者 | `setPogSigner` | 非零 | `src/ToshFactory.sol` |
-| 轮换 `platformTreasury` | `setPlatformTreasury` | 非零；但该地址无任何资金流（⚠️ 8.2） | `src/ToshFactory.sol` |
+| ~~轮换 `platformTreasury`~~ | ~~`setPlatformTreasury`~~ | **已删除**。该地址现在收每笔买单 30 bps 的 ETH，可变的费流目标正是审计项 M-2；因此改为 `immutable`，轮换需重新部署工厂（见 §2.2.5） | — |
 | 调整发射费 | `setLaunchFee` | 允许为 0；受调用方 `expectedFee` 滑点保护 | `src/ToshFactory.sol` |
 | 调整冷却期 | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`；为 0 时 PoG 额度退化为终身预算（⚠️ 8.25） | `src/ToshFactory.sol` |
 | 调整默认软顶 | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`，防 `p0` 截断为 0 | `src/ToshFactory.sol` |
@@ -186,8 +188,25 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 #### 2.2.5 平台金库（platformTreasury）
 
-- 工厂的可变 owner 状态（`platformTreasury` / `setPlatformTreasury` @ `src/ToshFactory.sol`）。
-- **⚠️ 8.2：没有任何资金流向它。** 发射费走 `ladderTreasury`（`createLaunch` @ `src/ToshFactory.sol`），Phase-2 的 1% 平台切片也走 `ladderTreasury`（`mintBondingCurve` @ `src/ToshLaunchpadHook.sol`）。`platformTreasury` 在代码里只被 `getLiveHookInitcodeHash` 当作哨兵地址填充占位（`src/ToshFactory.sol`）。
+- 工厂的 **immutable** 构造参数（`platformTreasury` @ `src/ToshFactory.sol`），**没有 setter**。
+- **收每笔买单 ETH input 的 0.30%**（`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`），这是平台唯一一笔不承诺回购销毁的收入。**⚠️ 8.2 由此闭环**——这个地址曾经确实不在任何资金路径上，那句话现在已经不成立。
+- 发射费、Phase-2 的 1% 货架切片、孤儿推荐佣金**仍然全部**走 `ladderTreasury`，一分不进这里。
+- **卖出侧不分给它。** 卖单的 input 是项目自己的代币，1.0% 全额销毁——理由见 §2.2.5.1。
+- 同一个地址在 hook 实现里另有一份 immutable 拷贝 `platformFeeRecipient`（由 `HookDeployLib.deployImplementation` 从同一个构造参数烧入）。**实际付钱的是 hook 那一份，工厂那一份只是可读记录**；两者必须相等，`script/VerifyDeployment.s.sol` 与 `test_platformTreasury_matchesHookPlatformFeeRecipient` 各钉一次。
+- **必须无条件收 ETH。** hook 用 `poolManager.take` 原生转账支付它，且这条路径**没有做故障隔离**（不像 `autoPiggybackBuyback` 有 `try/catch`）：一个会 revert 的 `receive()` 不是少收一笔手续费，而是**让全平台每一个池子的每一笔买单都失败**。多签（Safe）可以，带条件逻辑的 `receive()` 不行。
+- 它仍然兼任 `getLiveHookInitcodeHash` 的哨兵填充地址（`src/ToshFactory.sol`），但那已不再是它存在的理由。
+
+##### 2.2.5.1 决策记录：买入侧税率 0.70% → 1.00%，并按 70/30 拆分
+
+**改了什么。** `TAX_BPS` 从 70 提到 100。`POOL_FEE` 不动，仍是 0.30% 且仍然全额归第三方 LP。买单（ETH 为 input）的 1.00% 拆成两笔 `take`：70 bps 进 `ladderTreasury`，30 bps 进 `platformFeeRecipient`。卖单（代币为 input）的 1.00% **不拆**，全额销毁到 `0xdead`。
+
+**代价，说清楚。** 交易者的总摩擦从 **1.00% 涨到 1.30%**。这是真实的用户成本上升，不是会计口径调整。回购引擎拿到的钱没有减少（还是买入量的 70 bps，`TRIGGER_STEP` 的触发量仍然是约 143 ETH 买入量），涨的那 30 bps 完全是新增在交易者账单上的。§1.4 那条「平台收入不是利润」的承诺因此**部分失效**，本文档已在该处直接改写而非用措辞绕过。
+
+**为什么卖出侧不拆。** 卖单的 input 是项目自己的代币。按比例分给平台，等于让平台持续积累每一个项目的、不流通的代币仓位——而平台本应对这些项目保持中立，且最终只能把它们砸回各自的池子才能变现。全额销毁则同时保住两件事：卖出侧仍然是纯通缩的，平台账上只有 ETH。
+
+**为什么收款地址做成 immutable。** 这个字段在 v4.x 是可变的，并且收费，那正是审计项 **M-2**（工厂 owner 可以重定向活跃费流）。v5.0 把所有平台收入改道 `ladderTreasury`，M-2 是靠**掐掉入金**关掉的。现在入金回来了，所以这次改为掐掉**可变性**：`setPlatformTreasury` 删除，字段改 `immutable`。另有一层理由是防发散——hook 实现在构造时把同一个地址烧成自己的 `platformFeeRecipient`，如果工厂那一份可变，运维就能把工厂改掉、读回新值、而每一笔 swap 仍在付旧地址，链上没有任何东西会反驳他。**一个地址，设一次，两处一致。**
+
+**没有改的。** exact-input / exact-out 的基数不对称仍然保留（exact-output 的实际税率是 100/1.01 = 99.0 bps）。这个缺口随税率上升从 0.5 bps 扩大到 1 bps，仍在不值得多做一次除法的范围内——理由写在 `TAX_BPS` 的 natspec 里。
 
 #### 2.2.6 创世储户
 
@@ -201,7 +220,7 @@ Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每
 
 #### 2.2.7 二级交易者
 
-- 在 V4 池子上正常 swap。每笔付 **1.00%** 摩擦：0.30% `POOL_FEE` 归 LP（V4 原生结算），0.70% `TAX_BPS` 归协议（`POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol`）。
+- 在 V4 池子上正常 swap。每笔付 **1.30%** 摩擦：0.30% `POOL_FEE` 归 LP（V4 原生结算），1.00% `TAX_BPS` 归协议（`POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol`）。协议那 1.00% 的去向按方向不同：**买单**拆成 0.70% 回购储备 + 0.30% 平台收入；**卖单**全额 1.00% 销毁，不拆（`PLATFORM_SWAP_FEE_BPS`，见 §2.2.5.1）。
 - 无白名单、无额度、无冷却、无黑名单——池子层面完全开放（黑名单只作用于 `factory.deposit`）。
 
 #### 2.2.8 推荐人
@@ -356,28 +375,32 @@ p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
 | 推荐佣金 | `REFERRAL_BPS` | 10%（1000 bps） | 每笔创世出资 | 推荐人；无推荐人→`ladderTreasury` | `REFERRAL_BPS` / `deposit` @ `src/ToshLaunchpadHook.sol` |
 | Phase-2 平台切片 | `PLATFORM_TAX_BPS` | **1%**（100 bps） | 货架成交额 | `ladderTreasury` | `PLATFORM_TAX_BPS` / `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
 | Phase-2 项目切片 | 余额 | **99%** | 货架成交额 | `projectAdmin` | `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
-| 交易税（协议） | `TAX_BPS` | **0.70%**（70 bps） | 每笔 swap 的 **input**（按买/卖方向，不按 specified 币种） | 买单 ETH→`ladderTreasury`；卖单代币→`0xdead` | `TAX_BPS` / `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 交易税（协议） | `TAX_BPS` | **1.00%**（100 bps） | 每笔 swap 的 **input**（按买/卖方向，不按 specified 币种） | 买单 ETH→拆分（见下两行）；卖单代币→`0xdead`（**不拆，全额**） | `TAX_BPS` / `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| └ 回购储备份额 | `TAX_BPS - PLATFORM_SWAP_FEE_BPS` | **0.70%**（70 bps） | 买单的 ETH input | `ladderTreasury`（回购销毁） | `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
+| └ **平台维护切片** | `PLATFORM_SWAP_FEE_BPS` | **0.30%**（30 bps） | 买单的 ETH input（**仅买单**） | `platformFeeRecipient` = `ToshFactory.platformTreasury`，**平台收入，不销毁** | `PLATFORM_SWAP_FEE_BPS` / `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
 | 池子费（LP） | `POOL_FEE` | **0.30%**（3000，V4 单位） | 每笔 swap | LP（V4 原生结算，Tosh 无代码） | `POOL_FEE` @ `src/ToshLaunchpadHook.sol` |
-| **交易者总摩擦** | — | **1.00%** | — | 0.30 给 LP + 0.70 给协议 | `POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol` |
+| **交易者总摩擦** | — | **1.30%** | — | 0.30 给 LP + 0.70 回购 + 0.30 平台 | `POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol` |
 
-**v4.x → v5.0 的摩擦重分配**：v4.x 收 1% 池子费 + 1% 税 = 2%，而池子费那一半是死重（唯一 LP 是永久锁定的创世仓位，没人能领）。v5.0 把总摩擦砍回 1.00%，并让池子费真正有了领取人（`src/ToshLaunchpadHook.sol:73-84`）。
+> 两笔 `take` 必须**恰好**加总为 `tax`：两个调用点都向 V4 申报了 `tax` 这一个 hook delta，少取则 swap 以 `CurrencyNotSettled` 回滚，多取则动用未被授信的资金。所以回购份额写成 `tax - platformCut` 而**不是**自己再乘一次 70/10000——同一基数的两次独立向下取整不保证加总回第三个。舍入产生的尘埃因此恒定偏向回购、永不偏向平台（`_skimInputTax` 的注释里有 110 wei 的算例；`testFuzz_buyTax_splitAlwaysConservesTheCreditedTax` 钉住这条不变量）。
+
+**v4.x → v5.0 的摩擦重分配**：v4.x 收 1% 池子费 + 1% 税 = 2%，而池子费那一半是死重（唯一 LP 是永久锁定的创世仓位，没人能领）。v5.0 把总摩擦砍到 1.00%，并让池子费真正有了领取人（`src/ToshLaunchpadHook.sol:73-84`）。随后平台维护切片把总摩擦抬到 **1.30%**——仍低于 v4.x 的 2%，但比 v5.0 初版高 30 bps，这是一次真实的用户成本上升，决策与理由见 §2.2.5.1。
 
 **交易税按买卖方向抽 input，不按 specified 侧币种。** exact-input 在 `beforeSwap` 结算；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码含 `AFTER_SWAP_RETURNS_DELTA`）。
 
 | 交易形态 | `amountSpecified` | `zeroForOne` | 抽哪一侧 | 去向 | 回调 |
 |---|---|---|---|---|---|
-| 买（exact-input） | 负 | true | ETH input | `ladderTreasury` | `beforeSwap` |
-| 卖（exact-input） | 负 | false | 代币 input | `0xdead` | `beforeSwap` |
-| 买（exact-output） | 正 | true | ETH input | `ladderTreasury` | `afterSwap` |
-| 卖（exact-output） | 正 | false | 代币 input | `0xdead` | `afterSwap` |
+| 买（exact-input） | 负 | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `beforeSwap` |
+| 卖（exact-input） | 负 | false | 代币 input | 100 bps→`0xdead`（不拆） | `beforeSwap` |
+| 买（exact-output） | 正 | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `afterSwap` |
+| 卖（exact-output） | 正 | false | 代币 input | 100 bps→`0xdead`（不拆） | `afterSwap` |
 
-这样聚合器把买单全部构造成 "N tokens out" 也无法让国库收 0 ETH。测试：`test_buyTax_skimsSeventyBpsEthToLadderTreasury`、`test_sellTax_burnsSeventyBpsOfTokensInPlace`、`test_buyTax_exactOutputSkimsEthNotTokens`、`test_sellTax_exactOutputBurnsTokensNotEth`。
+这样聚合器把买单全部构造成 "N tokens out" 也无法让国库收 0 ETH。测试：`test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform`、`test_sellTax_burnsTheFullOnePercentOfTokensInPlace`、`test_buyTax_exactOutputSkimsEthNotTokens`、`test_sellTax_exactOutputBurnsTokensNotEth`、`testFuzz_buyTax_splitAlwaysConservesTheCreditedTax`、`test_platformSwapFeePaid_firesOnBuysAndNeverOnSells`。
 
 ### 3.6 国库的四条进水管
 
 `src/ToshLadderTreasury.sol:23-29` 明确列出：
 
-1. 每个 Tosh 池的**买入侧 0.7% ETH 税**；
+1. 每个 Tosh 池买入侧 ETH 税的 **70 bps 份额**（税本身是 1.00%，另外 30 bps 是平台切片，**不进这里**——见 §2.2.5.1）；
 2. `ToshFactory` 的**项目发射费**；
 3. **孤儿推荐佣金**（无推荐人的出资的 10%）；
 4. 每笔货架铸造的 **1% 平台切片**。
@@ -596,7 +619,9 @@ require(digest.recover(signature) == pogSigner)
 
 **创世流动性为何不需要回调就锁死**（`src/ToshLaunchpadHook.sol` 的 `beforeRemoveLiquidity` 注释，与 `unlockCallback` 的实现）：V4 把每个仓位按调用 `modifyLiquidity` 的地址归属（`Pool.ModifyLiquidityParams.owner = msg.sender`）。创世仓位归 hook，而 hook 的 `unlockCallback` 只识别 `ACTION_ADD_LIQUIDITY`、且 delta 严格为正。任何人（包括 creator、包括 owner）都无法寻址那个仓位。所以锁是**结构性**的，而不是靠一个会 revert 的回调，`BEFORE_REMOVE_LIQUIDITY` 因此从掩码里删除而不是软化成条件 revert。
 
-**`platformTreasury` 快照被删除**（`src/ToshLaunchpadHook.sol:714-718`）：v4.x 在这里快照 `platformTreasury` 以防工厂 owner 事后改动重定向 Phase-2 费流（M-2 修复）。v5.0 不需要快照——所有平台收入都流向 `ladderTreasury`，那是 immutable 构造参数，重定向向量在字节码层面就不存在。
+**`platformTreasury` 快照被删除**（`src/ToshLaunchpadHook.sol:714-718`）：v4.x 在这里快照 `platformTreasury` 以防工厂 owner 事后改动重定向 Phase-2 费流（M-2 修复）。v5.0 不需要**在这里**快照——Phase-2 的 1% 切片流向 `ladderTreasury`，那是 immutable 构造参数，这条路径上的重定向向量在字节码层面就不存在。
+
+> **M-2 的现状（已更新）**：`platformTreasury` 后来重新回到了资金路径上——它收每笔买单 30 bps 的 ETH（`PLATFORM_SWAP_FEE_BPS`）。这**重新打开了 M-2 描述的那个面**，所以这次拿掉的不是入金而是**可变性**：`setPlatformTreasury` 已删除，工厂的字段改为 `immutable`，同一个地址在构造时烧进 hook 实现的 `platformFeeRecipient`。换句话说，M-2 现在是靠「地址不可改」关闭的，而不是靠「地址收不到钱」关闭的。逐项快照因此仍然多余——不是因为没有费流，而是因为源头本身已经不可变。见 §2.2.5.1。
 
 > **⚠️ 8.14**：建池时 `getLiquidityForAmounts` 取两侧的最小值（`src/ToshLaunchpadHook.sol:1225-1231`），所以实际消耗的 ETH 与代币都 ≤ 输入量，余尘留在 hook 里。同理，`claimGenesis` 的整除余尘（`allocation = CLAIM_SUPPLY × dep / total`，`src/ToshLaunchpadHook.sol:775`）也会有极小残余永久留在 hook 中。合约**没有任何清扫路径**。这与国库"单向阀"是同一取舍，但 hook 侧没有被文档化。
 
@@ -931,7 +956,7 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 5. 项目方因享有 99% 货架返佣，做同样操作的回报约为外部套利者的两倍。返佣不改变套利是否成立，只放大项目方的收益。
 6. **若未来要收窄**：方案是给成交单价加市价地板 `max(tierPriceAt(i), min(spot, TWAP))`。这只改单腿的计价，**不需要改动货架账本**（`currentTierIndex` / `currentTierSold` / `phase2Minted` 的语义不变）。
 
-**对比：什么时候扫货是亏钱的**（`test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`）：当市场**没有**跑在阶梯前面时，扫货必亏。理由是结构性的：货架铸造不触碰池子，所以拖不动 spot 跟上来；买家至少按 1.05× 市价付款，然后必须用自己的规模把同一个市场**往下砸**才能卖出，这还没算 1.00% 的往返摩擦。断言是"亏损必须 > 成本的 1/20"（实质性亏损，不是边际亏损）。
+**对比：什么时候扫货是亏钱的**（`test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`）：当市场**没有**跑在阶梯前面时，扫货必亏。理由是结构性的：货架铸造不触碰池子，所以拖不动 spot 跟上来；买家至少按 1.05× 市价付款，然后必须用自己的规模把同一个市场**往下砸**才能卖出，这还没算 1.30% 的往返摩擦。断言是"亏损必须 > 成本的 1/20"（实质性亏损，不是边际亏损）。
 
 **两个测试合起来才是完整的产品陈述**：即时铸造砸盘永远亏；滞后套利（市场先涨）稳定赚。前者是安全属性，后者是设计代价。
 
@@ -1421,7 +1446,8 @@ encodeBurnPayload({
 | `LAUNCH_WINDOW` | 7 days | 218 |
 | `REFERRAL_BPS` | 1000（10%） | 226 |
 | `PLATFORM_TAX_BPS` | 100（1%） | 230 |
-| `TAX_BPS` | 70（0.70%） | 239 |
+| `TAX_BPS` | 100（1.00%） | 239 |
+| `PLATFORM_SWAP_FEE_BPS` | 30（0.30%） | 从 `TAX_BPS` 里**切出**、非叠加；仅买单。回购份额 = `TAX_BPS - PLATFORM_SWAP_FEE_BPS` = 70 bps |
 | `BPS_DENOMINATOR`（internal） | 10,000 | 241 |
 | `PRICE_CEILING_BPS` | 10,500（105%） | 247 |
 | `SHELF_PREMIUM_BPS` | 10,500（105%） | 279 |
@@ -1472,9 +1498,13 @@ encodeBurnPayload({
 | Hook | `TokenInitialized` / `Deposited` / `Launched` / `GenesisFailed` / `ZombieRefund` / `Refunded` / `GenesisShareClaimed` | 440-446 |
 | Hook | `ReferralAccrued` / `ReferralClaimed` / `OrphanReferralForwarded` / `ProjectAdminChanged` | 447-450 |
 | Hook | `TierMinted(buyer, tierIndex, tierPrice, tokensOut, ethIn)` / `TierAdvanced(newTierIndex, newTierPrice)` | 453-458 |
-| Hook | `BuyTaxToTreasury(ethAmount)` / `SellTaxBurned(tokenAmount)` / `PiggybackPokeFailed(treasury)` | 461-469 |
+| Hook | `BuyTaxToTreasury(ethAmount)` / `PlatformSwapFeePaid(recipient, ethAmount)` / `SellTaxBurned(tokenAmount)` / `PiggybackPokeFailed(treasury)` | 461-469 |
 | Factory | `LaunchCreated` / `Blacklisted` / `PoGRegistered` / `GenesisDeposit` / `ReferralBound` | 147-158 |
-| Factory | `PogSignerUpdated` / `TreasuryUpdated` / `LaunchFeeUpdated` / `LaunchFeeForwarded` / `CooldownDurationUpdated` / `DefaultSoftCapUpdated` / `MaxPogAllocationLimitUpdated` / `QuotaWindowReset` | 159-168 |
+| Factory | `PogSignerUpdated` / `LaunchFeeUpdated` / `LaunchFeeForwarded` / `CooldownDurationUpdated` / `DefaultSoftCapUpdated` / `MaxPogAllocationLimitUpdated` / `QuotaWindowReset` | 159-168 |
+
+**`BuyTaxToTreasury` 现在只承载 70 bps，不是整笔税。** 名字没改（改了会打断现有索引器的匹配），但含义变了：买单的另外 30 bps 由**同一笔 swap 里**的 `PlatformSwapFeePaid` 单独上报。把 `BuyTaxToTreasury` 当作「买入税总额」求和，会低报 30%。`SellTaxBurned` 反过来——卖单不拆，它承载的是完整的 1.00%。
+
+**`TreasuryUpdated` 已删除。** 它是 `setPlatformTreasury` 的伴生事件，那个函数不存在了，所以这个事件**永远不可能再触发**。任何仍在监听它的告警规则都是一条静默的死规则（`monitoring/alerts.json` 已移除对应项，并新增了 `PlatformSwapFeePaid` 的规则）。
 | Treasury | `FactorySet` / `LadderTokenAdded` / `LadderTokenRemoved` / `TaxReceived` / `PiggybackExecuted` / `BuybackBurned` / `BuybackSkipped` | 110-123 |
 
 **`PiggybackExecuted` 的频率变了**：`LEGS_PER_POKE = 1` 之后它每条腿发一次，而不是每三条腿一次。同样的 ETH，三倍的事件数——按旧节奏调过阈值的告警规则会把这读成回购风暴。
@@ -1553,8 +1583,8 @@ encodeBurnPayload({
 | 同区块锁 + 105% 门控 | `test_tierMintAntiSpikeAndCeiling` | `:967` |
 | TWAP 击败单区块拉盘 | `test_tierMint_twapDefeatsASingleBlockPump` | `:1006` |
 | 开盘窗口参考价封顶 p0 | `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` | `:899` |
-| 买入侧税进国库 | `test_buyTax_skimsSeventyBpsEthToLadderTreasury` | `:1033` |
-| 卖出侧税就地销毁 | `test_sellTax_burnsSeventyBpsOfTokensInPlace` | `:1046` |
+| 买入侧税 1% 拆分为储备池 0.7% + 平台 0.3% | `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform` | `:1482` |
+| 卖出侧税全额 1% 就地销毁，不拆分 | `test_sellTax_burnsTheFullOnePercentOfTokensInPlace` | `:1506` |
 | 创世 LP 永久锁定 | `test_genesisLiquidityIsPermanentlyLocked` | `:613` |
 | 散户 LP 自由进出且不影响创世 | `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` | `:633` |
 | 顺风车轮转回购 | `test_treasuryPiggybackRoundRobin` | `:1110` |
@@ -1592,7 +1622,7 @@ encodeBurnPayload({
 | 原编号 | 条目 | 处置 |
 |--------|------|------|
 | 8.1 | `projectTreasury` 是纯元数据 | **保留代码，改文档**。它是 CREATE2 构造元组的一员，改名或移除都会让已挖的盐全部失效（连改注释都会——见 8.13），而经济收益为零。natspec 已明确标注「此地址永不收款，找钱请看 `projectAdmin` 与 `ladderTreasury`」 |
-| 8.2 | `platformTreasury` 也没有资金流 | 同上，改文档。已在 `ToshFactory` natspec、`.env.example`、`.env.production.example`、admin 面板标题、`INCIDENT_RESPONSE.md` 五处标注为 v4.x 遗留、不在资金路径上。考古确认 v4.x 时它确实收 2% Phase-2 SATO，v5.0 改道 `ladderTreasury` 时被遗留 |
+| 8.2 | `platformTreasury` 也没有资金流 | **已关闭——但不是靠文档，是靠给它资金流。** 原处置是「改文档」：在 `ToshFactory` natspec、`.env.example`、`.env.production.example`、admin 面板标题、`INCIDENT_RESPONSE.md` 五处标注为 v4.x 遗留、不在资金路径上。现在这个字段收每笔买单 ETH input 的 0.30%（`PLATFORM_SWAP_FEE_BPS`），是平台的维护收入，所以那五处标注**全部已改回**，不再是遗留字段。附带处置：由于收费地址可变正是审计项 M-2，`setPlatformTreasury` 与 `TreasuryUpdated` 已删除、字段改 `immutable`，并与 hook 实现的 `platformFeeRecipient` 同源。详见 §2.2.5.1 |
 | 8.3 | 推荐人硬编码零地址 | **已修**。新增 `soat-frontend/src/lib/useReferral.ts`：`?ref=` 校验 + 校验和化 + localStorage 首写优先；`<ReferralCapture/>` 挂在根布局，任意页面落地都能捕获；自荐在 spend 时清除存储而非忽略，避免用户点自己的链接测试后永久占住唯一的绑定名额 |
 | 8.4 | `claimReferralReward()` 无 UI | **已修**。`ReferralPanel` 读 `claimableReferral`，连接钱包即显示（佣金为零也显示，否则用户找不到自己的链接） |
 | 8.5 | `hook.launch()` 无 UI | **已修**。`AwaitingLaunchPanel` 提供 creator 专属入口，并明示不开盘则 7 天后全员退款 |
@@ -1606,7 +1636,7 @@ encodeBurnPayload({
 | 8.27 | `useTosh` slot 注释矛盾 | **已修**，注释改为 `Slot A: createLaunch` |
 | — | `LiquidityPanel` 不可达 | **本文档原本漏报**。它挂在 `ProjectTerminal` 的 `full` 变体里，而唯一调用点传的是 `action-only`，导致整个加/撤流动性功能用户点不到。已移入实际渲染的分支，并删除不可达的 `full` 变体（259 行） |
 | 8.1 (新) | `launch()` 必须等满窗口 | **保持**。和「窗口内一直可投、无硬顶」自洽。`/launch` 时长选择器旁加了警示，确认勾选也写明窗口不会因软顶提前结束 |
-| 8.2 (新) | 交易税按 specified 侧路由 | **已闭环**。exact-input 仍在 `beforeSwap` 抽 input；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码 `0x20C8` → `0x20CC`）。买单无论怎么构造都把 0.7% ETH 送进国库，卖单都烧币。`test_buyTax_exactOutputSkimsEthNotTokens` / `test_sellTax_exactOutputBurnsTokensNotEth` |
+| 8.2 (新) | 交易税按 specified 侧路由 | **已闭环**。exact-input 仍在 `beforeSwap` 抽 input；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码 `0x20C8` → `0x20CC`）。买单无论怎么构造都把 1.0% 的 ETH 抽走（70 bps 进国库 + 30 bps 进平台），卖单都烧币。`test_buyTax_exactOutputSkimsEthNotTokens` / `test_sellTax_exactOutputBurnsTokensNotEth` |
 | 8.3 (新) | `pogQuota` 只上调不下调 | **保持**。风控收紧不追溯。README 与 `registerPoG` natspec 已写明：调低 `maxPogAllocationLimit` 不回收已登记额度 |
 | 8.4 (新) | `registerPoG` 不检查黑名单 | **已修**。与 `deposit` 对齐，被拉黑钱包无法注册或提升额度。`test_registerPoG_rejectsBlacklisted` |
 | 8.5 (新) | 平台暂停覆盖不到 hook 与池子 | **接受，后经 D3 部分修订**。`pause()` 覆盖面维持不变，「已发射项目的交易、领取、退款不可被平台干预」仍然成立；但 D3 新增了一个**只停阶梯铸造、7 天自动失效、可按项目分域**的独立刹车，用于货架定价本身出缺陷时的事故响应。`INCIDENT_RESPONSE.md` 需同步这条新边界 |
@@ -1633,7 +1663,7 @@ encodeBurnPayload({
 | 8.28 (红队) | **推荐返佣可用第二个钱包自我农场** | **已修（缓解）**。`_recordReferral` 原本只挡 `referrer == user`，而 natspec 声称这阻止了「任何人农自己的 10%」。一个地址的深度：换个自己的小号即可，且那个小号不需要额度、不需要出资、不需要任何历史——这不是推荐计划，是给知情者的一个 10% 暗折，由只有不知情者才会缴的孤儿佣金买单。现要求 `pogQuota[referrer] > 0`。**这挡不住铁了心的女巫**（推荐人本质就是个地址，链上做不到），它把判断挪到唯一能判断的地方：PoG 预言机。详见 §2.2.8。`test_probeJ_referralSelfFarmViaSecondWallet` |
 | 8.29 (红队) | **TWAP 深度即 `TWAP_WINDOW`** | **已缓解（参数）**。见 §5.1 的 ⚠️ 8.29 与 8.30。`TWAP_WINDOW` 600 → 1800；`twapSqrtPriceX96()` 未满窗口返回 0，与 `_safeReferencePrice` 口径对齐。**无结构性解**——要更深必须上环形缓冲，见 §11 待决策 D4 |
 | 8.30 (红队) | **国库「单向阀」管的是保管权，不是受益人** | **已缓解**。`ToshLadderTreasury` 声称「owner、hook、工厂谁都无法转走一个 wei」——这句话为真，但极易被读成关于受益人的声明。资金确实被销毁，但 owner 可以用 `removeLadderToken` 把挂牌列表收窄到一个代币，从而把全部买压指向自己持有的盘口，把国库当作价格支撑使用。`perToken` 原为 `spend / count`，窄名单会拿到**同样一张支票的浓缩**；现改为 `spend / BATCH_SIZE`，稳态（≥3 个挂牌）行为完全不变，只在被人为收窄的列表上生效。需要说清的是：该池深下真正的限流器是 `_buybackSqrtFloor`——储备再大，单腿也只能把价格推到 TWAP 下限就停止成交，除数是它背后的纵深防御。（8.33 把每次 poke 的腿数降到 1 之后，投放同样多的 ETH 需要三倍的 poke 次数，但每腿的额度与这条下限都没变，所以这里的结论不受影响。）natspec 与 admin 面板文案均已诚实化。**未加时间锁**，见 §11 待决策 D2。`test_probeL_ownerDirectsEntireReservoirAtOneMarket` |
-| 8.31 (红队) | **同一代币可开无 hook 平行池** | **无链上解，改文档**。V4 只对指名自己的池子发言，`beforeInitialize` 只能挡绑定本 hook 的池。任何人都能给同一个 ERC-20 开无 hook 的 ETH/token 池，绕过 0.7% 税、不喂预言机、不供回购；代币是无 transfer hook 的普通 ERC-20，合约层无从阻止，也没有尝试阻止。**真正要记住的不是漏掉的税**，而是 `_safeReferencePrice` 是**单场地**的——它只读本池。流动性外迁会削薄反尖刺闸门所依据的那本盘口，从而降低撬动它的成本。创世仓位永久锁在本池，这才是本池保持最深的原因，也才是参考价有意义的原因。`test_probeH_hooklessParallelPool` |
+| 8.31 (红队) | **同一代币可开无 hook 平行池** | **无链上解，改文档**。V4 只对指名自己的池子发言，`beforeInitialize` 只能挡绑定本 hook 的池。任何人都能给同一个 ERC-20 开无 hook 的 ETH/token 池，绕过 1.0% 税、不喂预言机、不供回购；代币是无 transfer hook 的普通 ERC-20，合约层无从阻止，也没有尝试阻止。**真正要记住的不是漏掉的税**，而是 `_safeReferencePrice` 是**单场地**的——它只读本池。流动性外迁会削薄反尖刺闸门所依据的那本盘口，从而降低撬动它的成本。创世仓位永久锁在本池，这才是本池保持最深的原因，也才是参考价有意义的原因。`test_probeH_hooklessParallelPool` |
 
 **低危、已作为现状接受**（均已在代码注释中记录）：143 wei 以下的粉尘 swap 因取整免税（经济上不成立）；1 wei 可买 799,999 wei-token 的铸造取整边缘（不可放大）；砸盘会暂时冻结阶梯直到套利回补（`min(spot, TWAP)` 设计的既定代价）；186 wei-token 的创世残尘（与 8.9 新 同一取舍）。
 

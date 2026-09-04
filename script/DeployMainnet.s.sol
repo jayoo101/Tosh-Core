@@ -62,9 +62,24 @@ contract DeployMainnetScript is Script {
     /// @dev Public so the test can exercise the 46630 collapse without
     ///      mutating process env — `vm.setEnv` is not snapshotted, and this
     ///      tree's `.env` already has deployer and signer as the same address.
-    function requireDistinctRoles(address deployer, address pogSigner, address prodOwnerSafe) public pure {
+    ///
+    ///      `platformTreasury` joined this guard when it went back onto a money
+    ///      path.  It receives 0.30 % of the ETH input of every buy, forever
+    ///      and immutably, so a deploy that leaves it pointing at the hot
+    ///      deployer key sends the platform's entire swap revenue to a
+    ///      single-signature EOA that lives on a CI runner — and there is no
+    ///      setter to correct it with.  The `pogSigner` collision is worth
+    ///      refusing for the same reason it always was, plus one more: the PoG
+    ///      signer's key is online by design, so pointing revenue at it is
+    ///      strictly worse than pointing revenue at the deployer.
+    function requireDistinctRoles(address deployer, address pogSigner, address prodOwnerSafe, address platformTreasury)
+        public
+        pure
+    {
         require(pogSigner != deployer, "POG_SIGNER_ADDRESS must not equal deployer");
         require(prodOwnerSafe != deployer, "PROD_OWNER_SAFE must NOT equal deployer EOA");
+        require(platformTreasury != deployer, "PLATFORM_TREASURY must NOT equal deployer EOA");
+        require(platformTreasury != pogSigner, "PLATFORM_TREASURY must NOT equal the PoG signer");
     }
 
     function run() external {
@@ -86,13 +101,22 @@ contract DeployMainnetScript is Script {
         address pogSigner = vm.envAddress("POG_SIGNER_ADDRESS");
         require(pogSigner != address(0), "POG_SIGNER_ADDRESS unset");
 
+        // Takes 0.30 % of the ETH input of every buy, on every pool, forever.
+        // Immutable on the factory AND baked into the hook implementation as
+        // `platformFeeRecipient`, so this value cannot be rotated — a mistake
+        // here is a factory redeploy, not a config change.
+        //
+        // It must accept ETH unconditionally: `poolManager.take` performs a raw
+        // value transfer and the buy path is NOT fault-isolated, so a recipient
+        // whose `receive()` can revert bricks every buy on every pool. A Safe
+        // is fine; a contract with conditional logic in `receive()` is not.
         address platformTreasury = vm.envAddress("PLATFORM_TREASURY");
         require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
 
         address prodOwnerSafe = vm.envAddress("PROD_OWNER_SAFE");
         require(prodOwnerSafe != address(0), "PROD_OWNER_SAFE unset");
 
-        requireDistinctRoles(deployer, pogSigner, prodOwnerSafe);
+        requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, platformTreasury);
 
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad -- MAINNET Deployment");
@@ -102,7 +126,9 @@ contract DeployMainnetScript is Script {
         console2.log("PROD owner (Gnosis Safe)  :", prodOwnerSafe);
         console2.log("V4 PoolManager            :", poolManager);
         console2.log("PoG Signer (not deployer) :", pogSigner);
-        console2.log("Platform Treasury (Safe)  :", platformTreasury);
+        console2.log("Platform fee recipient    :", platformTreasury);
+        console2.log("  ^ takes 0.30% of every buy's ETH input. IMMUTABLE: no setter,");
+        console2.log("    baked into the hook implementation too. Must accept ETH always.");
         console2.log("------------------------------------------------------------");
 
         vm.startBroadcast(deployerPk);
@@ -177,7 +203,13 @@ contract DeployMainnetScript is Script {
         console2.log("     with ~0.05 ETH. Its key is in Vercel Production only.");
         console2.log("  6. Wire monitoring:  Defender / Tenderly alerts on FACTORY_ADDRESS");
         console2.log("     for events Paused / Unpaused / OwnershipTransferred /");
-        console2.log("     PogSignerUpdated / TreasuryUpdated / LaunchCreated.");
+        console2.log("     PogSignerUpdated / LaunchCreated.");
+        console2.log("     (TreasuryUpdated is gone -- platformTreasury is immutable.)");
+        console2.log("  7. Confirm the platform fee recipient is wired identically in");
+        console2.log("     both places, since divergence there is a money bug:");
+        console2.log("       factory.platformTreasury() ==");
+        console2.log("         ToshLaunchpadHook(factory.hookImplementation()).platformFeeRecipient()");
+        console2.log("     script/VerifyDeployment.s.sol asserts this.");
         console2.log("============================================================");
     }
 }

@@ -443,7 +443,7 @@ contract ToshV5ForkTest is Test {
     ///         that calls `unlock` directly. The UniversalRouter reaches the
     ///         same `swap` through its own command dispatcher, its own delta
     ///         settlement and its own slippage accounting — and our hook takes
-    ///         a 70 bps cut inside that flow via `beforeSwap`/`afterSwap`.
+    ///         a 100 bps cut inside that flow via `beforeSwap`/`afterSwap`.
     ///         Whether those two agree about who owes what is not something the
     ///         test double can answer.
     ///
@@ -468,26 +468,52 @@ contract ToshV5ForkTest is Test {
         assertEq(ethBefore - trader.balance, amountIn, "router spent an amount we did not authorise");
     }
 
-    /// @notice The buy tax reaches the ladder treasury through the production
-    ///         router, and it is **exactly** 70 bps of the input.
+    /// @notice The buy tax is **exactly** 100 bps of the input through the
+    ///         production router, and it arrives SPLIT — 70 bps to the ladder
+    ///         treasury, 30 bps to the platform.
     ///
     /// @dev    Asserted as equality rather than `> 0` on purpose. The tax is
     ///         skimmed inside the hook's swap callbacks, so it is the part most
     ///         exposed to a difference in how the caller settles its deltas —
     ///         and the failure that would actually cost money is not "no tax"
     ///         but "wrong tax", which a `> 0` assertion cannot see.
+    ///
+    ///         ⚠ The treasury's expected delta is `TAX_BPS - PLATFORM_SWAP_FEE_BPS`,
+    ///         NOT `TAX_BPS`.  It was `TAX_BPS` while the two happened to be the
+    ///         same number, and reading the headline rate off the hook made that
+    ///         look principled rather than coincidental.  It is the reservoir's
+    ///         own share that belongs here.
+    ///
+    ///         The conservation assertion is the one that matters most on this
+    ///         path: both call sites hand V4 a hook delta of exactly `tax`, so
+    ///         if the two `take`s do not sum back to it the swap reverts
+    ///         `CurrencyNotSettled` rather than merely mispaying.  Against the
+    ///         real singleton, this is the check that says the split did not
+    ///         break settlement.
     function test_fork_buyTaxIsExactThroughTheRealRouter() public {
         _requireFork();
 
         (, ToshLaunchpadHook hook) = _launchProject();
 
         uint256 ladderBefore = address(ladder).balance;
+        uint256 platformBefore = platformTreasury.balance;
         uint128 amountIn = 0.05 ether;
 
         _buyThroughRouter(hook.getPoolKey(), amountIn, 0);
 
-        uint256 expected = (amountIn * hook.TAX_BPS()) / 10_000;
-        assertEq(address(ladder).balance - ladderBefore, expected, "tax through the real router is wrong");
+        uint256 reservoirCut = address(ladder).balance - ladderBefore;
+        uint256 platformCut = platformTreasury.balance - platformBefore;
+
+        uint256 expectedReservoir = (amountIn * (hook.TAX_BPS() - hook.PLATFORM_SWAP_FEE_BPS())) / 10_000;
+        uint256 expectedPlatform = (amountIn * hook.PLATFORM_SWAP_FEE_BPS()) / 10_000;
+
+        assertEq(reservoirCut, expectedReservoir, "reservoir share through the real router is wrong");
+        assertEq(platformCut, expectedPlatform, "platform share through the real router is wrong");
+        assertEq(
+            reservoirCut + platformCut,
+            (uint256(amountIn) * hook.TAX_BPS()) / 10_000,
+            "the split must conserve the whole skim, or V4 would not have settled"
+        );
     }
 
     /// @notice A slippage bound the pool cannot satisfy makes the deployed router
@@ -542,7 +568,7 @@ contract ToshV5ForkTest is Test {
     ///
     ///         Three coincidences, all of them contingent on facts about our
     ///         calldata rather than on the encoding being right. So `> 0 tokens`
-    ///         and `exactly 70 bps` are true under both layouts and cannot tell
+    ///         and `exactly 100 bps` are true under both layouts and cannot tell
     ///         them apart. Forcing the field to a bound nothing can satisfy can:
     ///         a revert here means the router read OUR word 9, at the offset the
     ///         six-field layout puts it.

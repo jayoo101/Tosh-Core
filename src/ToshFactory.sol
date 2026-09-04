@@ -95,17 +95,38 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Legacy platform fee destination.
     ///
-    /// @dev    ⚠ NO LONGER ON ANY MONEY PATH.  In v4.x this collected the
-    ///         launch fee and the Phase-2 platform cut.  v5.0 routes 100 % of
-    ///         platform revenue to `ladderTreasury` instead, where it is burned
-    ///         rather than banked — so both of those flows moved and this
-    ///         address kept nothing.
+    /// @notice Receives the platform's 0.30 % maintenance cut of every buy's
+    ///         ETH input, and nothing else.
     ///
-    ///         Its one remaining function is as the sentinel filler in
-    ///         `getLiveHookInitcodeHash`.  `setPlatformTreasury` still exists
-    ///         and still emits, but rotating it changes no economic behaviour;
-    ///         treat it as metadata, not as a lever.
-    address public platformTreasury;
+    /// @dev    ON A MONEY PATH AGAIN, AND IMMUTABLE BECAUSE OF IT.
+    ///
+    ///         The history is worth knowing, because this field has been all
+    ///         three things.  In v4.x it collected the launch fee and the
+    ///         Phase-2 platform cut, and it was mutable — which was audit
+    ///         finding M-2, since the owner could retarget live fee routing.
+    ///         v5.0 moved 100 % of platform revenue to `ladderTreasury` to be
+    ///         burned rather than banked, which closed M-2 by leaving this
+    ///         address with no inflow at all; for a while it survived only as
+    ///         the sentinel filler in `getLiveHookInitcodeHash`, documented as
+    ///         metadata rather than a lever.
+    ///
+    ///         It now carries `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS`.  That
+    ///         reopens exactly the surface M-2 described, so the mutability
+    ///         went instead of the inflow: this is `immutable` and
+    ///         `setPlatformTreasury` is gone.  Rotating the payout address
+    ///         means deploying a new factory.
+    ///
+    ///         Being immutable here is also what keeps this field HONEST.  The
+    ///         hook implementation bakes the same address in as its own
+    ///         `platformFeeRecipient` immutable at construction, so a mutable
+    ///         field would have let the two diverge — an operator could rotate
+    ///         this one, read it back changed, and still be paying the old
+    ///         address on every swap.  One address, set once, in both places.
+    ///
+    ///         Everything else still routes to `ladderTreasury`: launch fees,
+    ///         the Phase-2 shelf cut, orphaned referral commission, and the
+    ///         70 bps reservoir share of the same buy-side tax.
+    address public immutable platformTreasury;
 
     /// @notice Per-(wallet, hook) re-deposit throttle.  Orthogonal to the
     ///         PoG quota window — a wallet can be off cooldown and still
@@ -216,7 +237,6 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     event GenesisDeposit(address indexed user, address indexed hook, uint256 amount, address indexed referrer);
     event ReferralBound(address indexed user, address indexed referrer);
     event PogSignerUpdated(address indexed newSigner);
-    event TreasuryUpdated(address indexed newTreasury);
     event LaunchFeeUpdated(uint256 fee);
     event LaunchFeeForwarded(uint256 amount);
     event CooldownDurationUpdated(uint256 duration);
@@ -270,7 +290,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     {
         require(_poolManager != address(0), "zero poolManager");
         require(_pogSigner != address(0), "zero pogSigner");
-        require(_platformTreasury != address(0), "zero treasury");
+        require(_platformTreasury != address(0), "zero platformTreasury");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
 
         poolManager = _poolManager;
@@ -283,7 +303,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // Deploying the implementation here is what lets it hold `factory` as an
         // ordinary immutable: the library call is a DELEGATECALL, so
         // `address(this)` inside it is this factory, mid-construction.
-        hookImplementation = HookDeployLib.deployImplementation(_poolManager, _ladderTreasury);
+        hookImplementation = HookDeployLib.deployImplementation(_poolManager, _ladderTreasury, _platformTreasury);
         tokenImplementation = address(new ToshToken(address(this)));
     }
 
@@ -402,12 +422,6 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         require(newSigner != address(0), "zero signer");
         pogSigner = newSigner;
         emit PogSignerUpdated(newSigner);
-    }
-
-    function setPlatformTreasury(address newTreasury) external onlyOwner {
-        require(newTreasury != address(0), "zero treasury");
-        platformTreasury = newTreasury;
-        emit TreasuryUpdated(newTreasury);
     }
 
     function setLaunchFee(uint256 fee) external onlyOwner {

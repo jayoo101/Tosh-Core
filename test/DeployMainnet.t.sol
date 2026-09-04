@@ -14,6 +14,7 @@ import {Test} from "forge-std/Test.sol";
 import {DeployMainnetScript} from "../script/DeployMainnet.s.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
+import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 
 contract DeployMainnetTest is Test {
@@ -114,15 +115,54 @@ contract DeployMainnetTest is Test {
 
     function test_requireDistinctRoles_refusesPogSignerEqualToDeployer() public {
         vm.expectRevert(bytes("POG_SIGNER_ADDRESS must not equal deployer"));
-        script.requireDistinctRoles(deployer, deployer, prodOwnerSafe);
+        script.requireDistinctRoles(deployer, deployer, prodOwnerSafe, platformTreasury);
     }
 
     function test_requireDistinctRoles_refusesSafeEqualToDeployer() public {
         vm.expectRevert(bytes("PROD_OWNER_SAFE must NOT equal deployer EOA"));
-        script.requireDistinctRoles(deployer, pogSigner, deployer);
+        script.requireDistinctRoles(deployer, pogSigner, deployer, platformTreasury);
+    }
+
+    /// @dev `platformTreasury` is now the recipient of 0.30 % of every buy and
+    ///      is immutable on both the factory and the hook implementation.
+    ///      Pointing it at the deployer key sends the platform's whole swap
+    ///      revenue to a hot single-signature EOA with no way to correct it
+    ///      short of redeploying the factory — which is precisely the failure
+    ///      the old `vm.envOr("PLATFORM_TREASURY", deployer)` default would
+    ///      have produced silently on a forgotten env var.
+    function test_requireDistinctRoles_refusesPlatformTreasuryEqualToDeployer() public {
+        vm.expectRevert(bytes("PLATFORM_TREASURY must NOT equal deployer EOA"));
+        script.requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, deployer);
+    }
+
+    /// @dev And not the PoG signer either: that key is online by design, so it
+    ///      is a strictly worse home for revenue than the deployer.
+    function test_requireDistinctRoles_refusesPlatformTreasuryEqualToPogSigner() public {
+        vm.expectRevert(bytes("PLATFORM_TREASURY must NOT equal the PoG signer"));
+        script.requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, pogSigner);
     }
 
     function test_requireDistinctRoles_acceptsDistinct() public view {
-        script.requireDistinctRoles(deployer, pogSigner, prodOwnerSafe);
+        script.requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, platformTreasury);
+    }
+
+    /// @dev The anti-divergence guard, at the deployment layer rather than the
+    ///      unit layer: the address the operator put in `PLATFORM_TREASURY` has
+    ///      to be the one the hook will actually pay on every buy. The factory
+    ///      records it; the hook implementation pays it. Both are immutable and
+    ///      both come from this one env var, so if `HookDeployLib` ever stopped
+    ///      forwarding it, the factory would keep reporting the right answer
+    ///      while every swap paid someone else.
+    function test_deploy_wiresPlatformTreasuryIntoTheHookImplementation() public {
+        vm.chainId(TARGET_CHAIN);
+
+        uint256 nonce = vm.getNonce(deployer);
+        ToshFactory factory = ToshFactory(vm.computeCreateAddress(deployer, nonce + 1));
+
+        script.run();
+
+        ToshLaunchpadHook impl = ToshLaunchpadHook(payable(factory.hookImplementation()));
+        assertEq(impl.platformFeeRecipient(), payable(platformTreasury), "hook must pay the address we deployed with");
+        assertEq(impl.platformFeeRecipient(), payable(factory.platformTreasury()), "and the factory must agree");
     }
 }

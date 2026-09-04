@@ -106,11 +106,19 @@ per project; the treasury is shared by the whole platform.
 ```
 ToshFactory  ──creates──▶  ToshToken + ToshLaunchpadHook   (one pair per project)
      │                              │
-     │ launch fee, 1 % shelf cut,   │ 0.7 % buy-side tax
+     │ launch fee, 1 % shelf cut,   │ 0.70 % of the 1.00 % buy-side tax
      │ orphaned referral commission │
      ▼                              ▼
         ToshLadderTreasury  ──buy & burn──▶  0xdead
+
+                                    │ the other 0.30 % of the buy-side tax
+                                    ▼
+                            platformTreasury   (platform revenue, not burned)
 ```
+
+The sell-side tax is not split: the full 1.00 % of a sell's token input is
+burned on contact, so the platform is only ever paid in ETH. `platformTreasury`
+is immutable and has no setter — see §3.
 
 | Role               | Who        | Can do                                                        |
 |--------------------|------------|---------------------------------------------------------------|
@@ -188,8 +196,18 @@ headline number cannot be restated without the other two.
 | Shelf proceeds         | 99 %  | `projectAdmin`                   |
 | Shelf platform cut     | 1 %   | `ladderTreasury`                 |
 | Referral commission    | 10 %  | referrer, or treasury if unbound |
-| In-flight tax          | 0.7 % | ETH → treasury, tokens → burned  |
+| In-flight tax (buy)    | 1.0 % of the ETH input | split: 0.7 % → `ladderTreasury`, 0.3 % → `platformTreasury` |
+| In-flight tax (sell)   | 1.0 % of the token input | burned to `0xdead` — **not** split |
 | Pool fee               | 0.3 % | third-party LPs (native V4)      |
+| **Total trader friction** | **1.3 %** | 0.3 % LPs + 0.7 % buyback + 0.3 % platform |
+
+The 0.3 % platform cut is the one fee that is not committed to buyback-and-burn.
+It applies to the buy leg only: a sell's input is the project's own token, and
+paying the platform in kind would leave it holding illiquid bags of every token
+it is meant to be neutral about. `platformTreasury` is an immutable constructor
+argument with no setter — redirecting it means deploying a new factory — and it
+must accept ETH unconditionally, because the hook pays it with a raw
+`poolManager.take` on a path that is not fault-isolated.
 
 ---
 
@@ -312,6 +330,10 @@ salt mined against stale caps reverts with `InvalidHookSalt`.
 > `platformTreasury` for the three address fields as a sentinel, so salts mined
 > against it will always revert. It exists only as a reference value for
 > tooling.
+>
+> "Sentinel" describes its role in *this* function only. `platformTreasury` is
+> a real payout address — it receives 0.30 % of every buy — so do not read this
+> paragraph as saying the value is arbitrary.
 
 ### CLI miner
 

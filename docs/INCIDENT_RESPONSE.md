@@ -449,9 +449,14 @@ compromised, the attacker can:
   they still cannot touch swaps, LP, claims, or refunds. Treat it as a loud
   nuisance, not a fund-loss event, and let it inform how fast you must
   complete the ownership migration below.
-- `setPlatformTreasury(<their-address>)` — **no effect.** This is a v4.x
-  leftover that no longer sits on any money path; all platform revenue goes to
-  the immutable `ladderTreasury`. Do not spend incident time on it.
+- `setPlatformTreasury(<their-address>)` — **the function does not exist.** It
+  was deleted when `platformTreasury` went back onto a money path: it now takes
+  0.30% of the ETH input of every buy, and a mutable fee-routing target was
+  audit finding M-2. The field is `immutable` on the factory and the same
+  address is baked into the hook implementation as `platformFeeRecipient`, so
+  an attacker with the owner key **cannot** redirect that revenue stream. The
+  other three platform pipes (launch fees, the shelf cut, orphaned referral
+  commission) still go to the immutable `ladderTreasury`. Nothing to do here.
 - `addLadderToken(<token>)` — the strongest treasury vector they have, and it
   is bounded: `addLadderToken` only accepts tokens this factory launched and
   derives the buyback pool from the token's own hook, so the attacker cannot

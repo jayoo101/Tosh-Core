@@ -159,7 +159,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_ctor_revertsOnZeroTreasury() public {
-        vm.expectRevert(bytes("zero treasury"));
+        vm.expectRevert(bytes("zero platformTreasury"));
         new ToshFactory(mockPoolManager, pogSigner, address(0), ladder);
     }
 
@@ -316,23 +316,51 @@ contract ToshV5FactoryTest is Test {
         factory.liftBlacklist(targets);
     }
 
-    function test_setPlatformTreasury() public {
-        address neu = makeAddr("newTreasury");
-        vm.prank(admin);
-        factory.setPlatformTreasury(neu);
-        assertEq(factory.platformTreasury(), neu);
+    // ── platformTreasury: immutable, and the same address the hook pays ───────
+    //
+    // `setPlatformTreasury` used to live here.  It was deleted when this field
+    // went back onto a money path (`PLATFORM_SWAP_FEE_BPS`, 30 bps of every
+    // buy's ETH input): a mutable fee-routing target is audit finding M-2, so
+    // the mutability went rather than the inflow.  The three tests that pinned
+    // the setter's happy path, its zero guard, and its owner gate are replaced
+    // by the three below, which pin the property that replaced it.
+
+    /// @dev The setter is gone from the ABI, not merely gated.  A gated setter
+    ///      still routes money at the owner's discretion, which is the thing
+    ///      M-2 objected to, so "reverts for non-owners" would be the wrong
+    ///      assertion — the selector must not resolve at all.
+    function test_platformTreasury_hasNoSetter() public {
+        // keccak256("setPlatformTreasury(address)")[0:4]
+        bytes4 gone = bytes4(keccak256("setPlatformTreasury(address)"));
+        (bool ok,) = address(factory).call(abi.encodeWithSelector(gone, makeAddr("newTreasury")));
+        assertFalse(ok, "setPlatformTreasury must not be callable");
+        assertEq(factory.platformTreasury(), treasury, "and the address must be unchanged");
     }
 
-    function test_setPlatformTreasury_rejectsZero() public {
+    /// @dev Non-zero is a constructor invariant (`test_ctor_revertsOnZeroTreasury`),
+    ///      and because the field is immutable that guard holds for the whole
+    ///      life of the factory rather than only until the next admin call.
+    function test_platformTreasury_isNonZeroForever() public {
+        assertTrue(factory.platformTreasury() != address(0));
+        vm.warp(block.timestamp + 3650 days);
         vm.prank(admin);
-        vm.expectRevert(bytes("zero treasury"));
-        factory.setPlatformTreasury(address(0));
+        factory.setPogSigner(makeAddr("rotated"));
+        assertEq(factory.platformTreasury(), treasury, "immutable across any other admin activity");
     }
 
-    function test_setPlatformTreasury_rejectsNonOwner() public {
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        factory.setPlatformTreasury(user1);
+    /// @dev THE ANTI-DIVERGENCE GUARD.  The factory records the platform's
+    ///      payout address; the hook implementation bakes the SAME address in
+    ///      as its own `platformFeeRecipient` immutable, and it is the hook —
+    ///      not the factory — that actually performs the `take` on every buy.
+    ///      Back when the factory field was mutable these two could drift: an
+    ///      operator rotates the factory's copy, reads it back changed, and
+    ///      every swap keeps paying the old address with nothing on chain
+    ///      contradicting them.  Both are immutable and both are wired from
+    ///      the same constructor argument, so the only way this can fail is a
+    ///      wiring regression in `HookDeployLib.deployImplementation`.
+    function test_platformTreasury_matchesHookPlatformFeeRecipient() public view {
+        ToshLaunchpadHook impl = ToshLaunchpadHook(payable(factory.hookImplementation()));
+        assertEq(impl.platformFeeRecipient(), payable(factory.platformTreasury()), "factory and hook must agree");
     }
 
     function test_setPogSigner_happy() public {

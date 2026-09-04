@@ -54,11 +54,20 @@ library HookDeployLib {
     ///         address carries no V4 permission bits and nothing needs to predict
     ///         it. Clones commit to it by baking it into their own runtime.
     ///
-    /// @param poolManager    Uniswap V4 PoolManager.
-    /// @param ladderTreasury Platform buyback reservoir.
-    /// @return impl          The shared implementation.
-    function deployImplementation(address poolManager, address ladderTreasury) external returns (address impl) {
-        impl = address(new ToshLaunchpadHook(poolManager, address(this), ladderTreasury));
+    /// @param poolManager      Uniswap V4 PoolManager.
+    /// @param ladderTreasury   Platform buyback reservoir; takes the 70 bps
+    ///                         reservoir share of the buy-side tax.
+    /// @param platformTreasury Platform maintenance cut recipient; takes the
+    ///                         30 bps `PLATFORM_SWAP_FEE_BPS` share. Baked into
+    ///                         the implementation as an immutable, which is why
+    ///                         the factory holds the same address immutably —
+    ///                         see `ToshFactory.platformTreasury` on M-2.
+    /// @return impl            The shared implementation.
+    function deployImplementation(address poolManager, address ladderTreasury, address platformTreasury)
+        external
+        returns (address impl)
+    {
+        impl = address(new ToshLaunchpadHook(poolManager, address(this), ladderTreasury, platformTreasury));
     }
 
     /// @notice keccak256 of ToshLaunchpadHook.creationCode.
