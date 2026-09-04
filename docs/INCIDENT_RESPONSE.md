@@ -182,9 +182,26 @@ The commander writes a single short post in this exact order:
 
 1. **#status channel** (internal): "Factory paused at block N. Cause:
    `<one-line>`. Updates here every 15 min."
-2. **Public status page**: "Tosh Protocol is currently paused while we
-   investigate a security report. Existing deposits remain refundable. We will
-   update this page within 30 minutes."
+2. **Public status page** — <https://jayoo101.github.io/tosh-status/>, source
+   at `jayoo101/tosh-status`. Set `STATUS = 'paused'` in `index.html`, add the
+   one specific fact to `DETAIL`, stamp `UPDATED`, commit to `main`. Pages
+   rebuilds in about a minute. **Do not compose prose here under stress:** the
+   wording below is already in the page as the `paused` copy, verbatim, and
+   rewording one without the other is how the page and this playbook start
+   contradicting each other while a responder reads both.
+
+   > "Tosh Protocol is currently paused while we investigate a security
+   > report. Existing deposits remain refundable. We will update this page
+   > within 30 minutes."
+
+   The page also reads `paused()` off the chain by itself and prints the
+   result, so the one fact that matters is right even in the minutes before
+   you get to it — and if your banner and the chain disagree, the page says so
+   and names the chain as the authority rather than quietly showing one.
+
+   It is hosted on GitHub Pages, deliberately sharing nothing with the
+   application: a page served from the same Vercel project would be down or
+   compromised in the §0 P0 case that names a malicious frontend bundle.
 3. **Twitter / X**: Link to the status page; **do not speculate on cause**.
 4. **Discord**: Pin the status-page link in #announcements.
 
@@ -532,6 +549,17 @@ can interact with the factory directly via `cast` (`createLaunch`, `deposit`,
 
 …so determined power-users can still operate.
 
+> **⚠ This step cannot be executed as written.** The status page links the
+> factory, but not `MANUAL_INTERACTION.md`, because `jayoo101/Tosh-Core` is a
+> **private** repository — the raw URL returns 404 to the users this step
+> exists to help. All 463 lines of that file are user-facing (reads, deposits,
+> the refund path, revert decoding, a safety checklist) and none of it is
+> operator-only, so nothing about the content justifies it being unreachable;
+> it simply lives in the wrong place for the job this playbook gives it.
+> Publishing it somewhere public is an open decision, and until it is made,
+> a frontend outage leaves users with the explorer and nothing that tells
+> them what to send it.
+
 ---
 
 ## 6c. P2 — Buyback reservoir armed but idle (STATE-06)
@@ -679,10 +707,14 @@ already launched.
 **Q1 pass criteria, scored honestly:**
 
 - `pause()` then `unpause()` within 30 min — **met**, 29 s.
-- Public status page — **not exercised**. There is no status page. Step 4 of
-  the P0 playbook names four channels (`#status`, a public status page,
-  Twitter/X, Discord #announcements) and none of them exist yet. The comms
-  half of this drill would have been posting into the void.
+- Public status page — **not exercised at the time; the page now exists.**
+  When this sitting ran, Step 4 named four channels (`#status`, a public status
+  page, Twitter/X, Discord #announcements) and none of them existed, so the
+  comms half would have been posting into the void. One of the four is now
+  live at <https://jayoo101.github.io/tosh-status/> — the only one of the four
+  that was engineering rather than an account signup. The remaining three are
+  still absent, so Step 4 is still not executable end to end, and this line
+  does not become a pass until a drill actually posts to the page and back.
 - At least one new signer participating — **not exercised**. Single EOA, no
   Safe. The 2-of-3 bar in Step 1 is still theatre until PM-D4.
 

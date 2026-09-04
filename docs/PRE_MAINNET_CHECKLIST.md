@@ -449,7 +449,7 @@ prints that state and flags it if Preview ever stops being empty.
 | **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (24 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **Remaining: a host and a delivery sink** — §8 of that doc is the done-list. | 🟡 built and rehearsed, not scheduled. There is **no vendor**: `monitoring/probeRpc.mjs` measured both §7 capabilities on the chain's own RPC, so `monitoring/watch.mjs` consumes the catalogue directly (§7.1). Rehearsed over 900k blocks of 46630: 11 of 24 alerts matched real history, hook coverage worked by both §2.1 methods against an address it was never given, and STATE-05's "finding" turned out to be the check's own false premise, which is how PM-D2 got closed (§4.1). Four checks were driven to fire, STATE-06 on both sides of its 24 h window (§7.2). What is left is a host and a pager, both deferred to C1 |
 | **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | ✅ DSN + org + project + `org:ci` token in Vercel Production. Event `09496d0b8e…` confirmed in `tosh-production` under `environment=production`, and verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Source maps upload for real: release `5e9d92ba…` attached to `tosh-production`, 121 of 122 chunks paired with a map and a debug id, bundle `af8399aa…`. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 has real handles | ❌ |
-| **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | 🟡 On-chain half dated 2026-09-03, §8.1. `pause()` 5 s / `unpause()` 4 s on factory `0x2E690A91…`, 29 s window. `deposit` stayed `ZeroAmount` through the pause — the claim this file was rewritten to make. Q1 is **not** passed: no status page, no second signer. |
+| **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | 🟡 On-chain half dated 2026-09-03, §8.1. `pause()` 5 s / `unpause()` 4 s on factory `0x2E690A91…`, 29 s window. `deposit` stayed `ZeroAmount` through the pause — the claim this file was rewritten to make. Q1 is **not** passed. The status page now exists (<https://jayoo101.github.io/tosh-status/>, repo `jayoo101/tosh-status`) — hosted off Vercel on purpose, and it reads `paused()` off the chain itself rather than trusting a human to update it. Still missing for Q1: a second signer (D4), and the other three Step 4 channels, which are account signups. |
 | **PM-E6** | D1–D4 accepted-risk review triggers have an owner watching them | Named owner per trigger (`PRD-v5.0.md` §11) | ❌ |
 
 > **PM-E2 is a documented dependency, not a nice-to-have.**
@@ -1016,7 +1016,7 @@ below, in the order it actually blocks.
 | **PM-D4** | ❌ | Gnosis Safe, 2-of-3, three reachable signers. Blocks C2 and the human half of E5. |
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | ❌ | On-call roster is still placeholders. Single-person project. |
-| **PM-E5** | 🟡 | On-chain pause/unpause dated 2026-09-03. Q1 is not passed: no status page, no second signer. |
+| **PM-E5** | 🟡 | On-chain pause/unpause dated 2026-09-03. Status page now live (`jayoo101/tosh-status`). Q1 still not passed: no second signer (D4), and three of Step 4's four comms channels are account signups that do not exist. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
 
 **The shape of the remaining work:** almost none of it is writing application
@@ -1030,6 +1030,23 @@ What is left that is purely engineering:
   exist, and a hook event has been confirmed arriving from an address the
   watcher was never given (`ONCHAIN_MONITORING.md` §7.2). What does not exist is
   somewhere for it to run and somewhere for a P0 to land. Neither is code.
+- ~~The public status page~~ — **done**, at
+  <https://jayoo101.github.io/tosh-status/> (repo `jayoo101/tosh-status`). It
+  is worth recording that the sentence above this list — "Gate E's two red rows
+  are a roster" — was wrong: E5's status page was engineering, unblocked, and
+  sitting inside a 🟡 row where the summary table's colour hid it. Reading the
+  blockers off the red rows alone missed it.
+
+  Hosted on GitHub Pages rather than Vercel, because a status page sharing a
+  deploy pipeline with the application is useless in the §0 P0 case that names
+  a malicious frontend bundle. It reads `paused()` off the chain in the
+  browser, so the fact that matters is not hostage to a human remembering to
+  edit it, and it names the chain as the authority when the two disagree.
+- **Publishing `MANUAL_INTERACTION.md`** — newly identified while wiring the
+  page up. `INCIDENT_RESPONSE.md` §6b tells the status page to link it during a
+  frontend outage, but `jayoo101/Tosh-Core` is private, so that link 404s for
+  exactly the users the step is for. All 463 lines are user-facing, so this is
+  a question of where the file lives, not whether it can be shown.
 - ~~Fork tests against a live V4 deployment~~ — **done**.
   `test/ToshV5Fork.t.sol` runs the launch lifecycle and a UniversalRouter buy
   against the V4 singleton deployed on Robinhood Chain (`SECURITY_AUDIT.md`
