@@ -98,14 +98,33 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Minimum acceptable `defaultSoftCap`, denominated in ETH (v5.0).
     ///
-    /// @dev    Guards the `p0 = 0` configuration trapdoor.  The hook derives
+    /// @dev    Guards two cliffs, and the one this comment used to name alone is
+    ///         not the binding one.
+    ///
+    ///         The obvious cliff is `p0 = 0`.  The hook derives
     ///         `p0 = (lpEth * 1e18) / GENESIS_LP_SUPPLY` with
     ///         `GENESIS_LP_SUPPLY = 3.78e24`, so `p0` truncates to zero once
     ///         `lpEth < 3_780_000` wei — which would collapse the entire tier
-    ///         ladder to a free-mint zone.  A 0.01 ETH floor keeps `p0` around
-    ///         2.38e9 wei/token, astronomically clear of that cliff, while
-    ///         still permitting small testnet raises.  Defence-in-depth: the
-    ///         hook's `launch()` also asserts `p0 > 0`.
+    ///         ladder to a free-mint zone.  This cliff does have a backstop:
+    ///         the hook's `launch()` asserts `p0 > 0`.
+    ///
+    ///         The binding cliff is ladder *flattening*, it sits far above the
+    ///         first, and it has no backstop.  Shelf monotonicity breaks below
+    ///         `shelfP0 = 526` wei: at 525 the step to shelf 1 rounds to 0 wei,
+    ///         which would let a buyer clear the upper shelf at the lower
+    ///         shelf's price.  Dropping this floor to 1 gwei yields `p0 = 238`
+    ///         and `shelfP0 = 249` — non-zero, so `launch()`'s assert still
+    ///         passes, yet shelves 0 and 1 come out identically priced.
+    ///         Nothing else in the system checks for a flat ladder, so this
+    ///         literal is the entire defence.
+    ///
+    ///         At 0.01 ETH, `p0` is around 2.38e9 wei/token and `shelfP0`
+    ///         around 2.5e9, where the step is 4,756,270 wei — a margin of
+    ///         4.75 million to one over break-even — while still permitting
+    ///         small testnet raises.  Pinned by
+    ///         `test_setDefaultSoftCap_rejectsBelowFloor` and
+    ///         `testFuzz_tierPriceAt_strictlyMonotone`; derived in
+    ///         `docs/SECURITY_AUDIT.md` §5.11.
     uint256 public constant MIN_SOFT_CAP_PROD = 0.01 ether;
 
     // ─── Immutables ───────────────────────────────────────────────────────────

@@ -46,26 +46,40 @@ not evidence.
 
 ---
 
-## 1. Gate A — Audit (blocks everything else)
+## 1. Gate A — Security review (no longer blocks anything)
 
-Nothing in §2 onward should be started while §1 is open: a remediation round
-can change deployed bytecode, which invalidates every address, initcode hash
-and verification artifact downstream.
+**This gate blocked everything else, and as of 2026-09-06 it blocks nothing.**
+The ordering rule read: nothing in §2 onward should be started while §1 is open,
+because a remediation round can change deployed bytecode, which invalidates
+every address, initcode hash and verification artifact downstream. With A1–A3
+retired (`SECURITY_AUDIT.md` §0) there is no remediation round to wait for, and
+PM-C1 — the mainnet deploy — is procedurally unblocked.
+
+The *reason* behind the rule survives its trigger, so it is restated rather than
+deleted: **`src/` must stop changing before C1, not before an audit.** Internal
+sweeps also change bytecode — §5.15 bounded two setters and §5.11's re-disposal
+edited a `ToshFactory` comment, either of which moves an artifact if it lands
+after a deploy. The gate to watch is now the last `src/` commit, and nothing in
+this document enforces that automatically.
 
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
-| **PM-A1** | Third-party audit engaged, scope frozen, commit hash recorded | `docs/SECURITY_AUDIT.md` §0 board filled; branch frozen | ❌ |
-| **PM-A2** | All Critical / High findings resolved | Remediation log in `SECURITY_AUDIT.md` §6 | ❌ |
-| **PM-A3** | Remediation re-review passed | Auditor sign-off in §7 of that doc | ❌ |
-| **PM-A4** | Pre-audit hygiene list complete | `SECURITY_AUDIT.md` §5 all boxes ticked | 🟡 10/11 as of 2026-09-04. The `forge lint` box closed: §2.5 stopped being an inventory handed to the auditor and now disposes of all 19 narrowing casts by what bounds each one, gated in CI by `scripts/checkLintFindings.mjs`. Doing it here rather than buying it found that §2.5 had drifted — a row for a cast the tool no longer reports, and a missing site — while its total still reconciled. The one box left is the branch freeze, which is PM-A1 and not engineering |
+| **PM-A1** | Third-party audit engaged, scope frozen, commit hash recorded | Retired — see `SECURITY_AUDIT.md` §0 | ⬜ **Retired 2026-09-06 by decision, not satisfied.** This protocol ships without a third-party audit, permanently. The row is kept rather than deleted so the decision stays legible: a checklist that deletes what it abandons reads as complete for the wrong reason. What the decision costs is quantified in `SECURITY_AUDIT.md` §0.1, and the work that lost its owner along with the engagement is listed in §0.4 |
+| **PM-A2** | All Critical / High findings resolved | Retired — no external findings will exist | ⬜ Retired with A1. Applied to an auditor's findings; there will be none. Findings this team makes are still triaged on the §6 severity ladder and Critical / High still block a deploy, but as an internal commitment nobody outside checks — `SECURITY_AUDIT.md` §0.3 |
+| **PM-A3** | Remediation re-review passed | Retired — no re-reviewer | ⬜ Retired with A1. §7 of that doc is retired for the same reason: two of its three columns had no source once the engagement was cancelled, and the third is already recorded per finding in §5 |
+| **PM-A4** | Hygiene list complete | `SECURITY_AUDIT.md` §5 boxes | ✅ 10 of 10 that still apply, 2026-09-06. It stood at 10/11 for two days, and the single unticked box was "audit branch frozen, commit hash written into §0" — which A1's retirement voids rather than completes. The box is struck through in place rather than ticked or deleted. Earlier the `forge lint` box closed by doing the work instead of buying it: §2.5 now disposes of all 19 narrowing casts by what bounds each one, gated by `scripts/checkLintFindings.mjs`, and doing it here found that §2.5 had drifted — a row for a cast the tool no longer reports, and a missing site — while its total still reconciled |
 | **PM-A5** | Slither run and output triaged into the dossier | **`SECURITY_AUDIT.md` §5.7**, not §6 — see note | ✅ 71 findings (1H/24M/27L/19I) across 66 contracts, each dispositioned, and gated in CI by `scripts/checkSlitherFindings.mjs` since 2026-09-04. That re-run is why the numbers moved: the dark tax had added three untriaged `reentrancy-events`, and the table had never summed to its own total because `low-level-calls` had no row. A triage is only true as of a commit, so it is now re-checked on every push |
 
-> `SECURITY_AUDIT.md` §0 is the authority for A1–A3. Do not duplicate its state
-> here; check these boxes only when that table is green.
+> **Gate A is closed, and three of its five rows closed by being abandoned.**
+> `SECURITY_AUDIT.md` §0 remains the authority for A1–A3; it no longer holds an
+> engagement board to go green, it holds the decision not to have one. Read §0.1
+> before treating this gate as done in the ordinary sense — the rows are
+> resolved, the risk they existed to retire is not.
 >
 > **PM-A5's evidence column used to point at §6, and §6 is the wrong place.**
-> That section is reserved for the auditor's own findings, under the auditor's
-> own IDs. Static analysis lives in §5.7 with the rest of the pre-audit hygiene,
+> That section was reserved for an auditor's own findings, under their own IDs,
+> and now keeps only the severity ladder. Static analysis lives in §5.7 with the
+> rest of the hygiene list,
 > and has done since it was run — the row said `❌` while the work sat one
 > section away, which cost one duplicate triage before anyone checked the
 > document instead of the checkbox.
@@ -1333,18 +1347,23 @@ written by hand. See the note under the table.
 
 | Gate | Open | Partial | Gated | N/A | Done |
 |---|---:|---:|---:|---:|---:|
-| A — Audit | 3 | 1 | 0 | 0 | 1 |
+| A — Security review | 0 | 0 | 0 | 3 | 2 |
 | B — Chain decisions | 0 | 0 | 0 | 0 | 4 |
 | C — Deploy & handoff | 7 | 0 | 1 | 0 | 1 |
 | D — Keys & secrets | 0 | 3 | 0 | 1 | 0 |
 | E — Observability & ops | 1 | 2 | 0 | 0 | 3 |
 | F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **11** | **6** | **1** | **1** | **18** |
+| **Total** | **8** | **5** | **1** | **4** | **19** |
 
-The **N/A** column is new and holds exactly one row, PM-D2. It exists because
-the table had no column for a retired item, so closing D2 as not-applicable
-left it counted under *Open* — the table said thirteen open items when twelve
-were open and one no longer existed. That is the smallest possible version of
+The **N/A** column holds four rows: PM-D2, and PM-A1 through PM-A3 as of
+2026-09-06. It was added for D2 alone, because the table had no column for a
+retired item, so closing D2 as not-applicable left it counted under *Open* — the
+table said thirteen open items when twelve were open and one no longer existed.
+Three days later it absorbed the entire audit gate, which is a good argument for
+having built it: the decision in `SECURITY_AUDIT.md` §0 moved three items out of
+*Open* at once, and without this column that would have read as three items
+quietly completed. **N/A is not Done.** A1–A3 are counted here precisely so the
+19 in the Done column cannot be read as covering them. That is the smallest possible version of
 the failure this document keeps finding elsewhere: a summary maintained
 separately from the thing it summarises, agreeing with it only for as long as
 someone remembers both. The counts are now derived from the gate tables by
@@ -1373,7 +1392,7 @@ below, in the order it actually blocks.
 
 | ID | Status | Why it is still open |
 |---|---|---|
-| **PM-A1, A2, A3** | ❌ | Third-party audit. Calendar and procurement, not a commit. A4's remaining two boxes wait on A1. |
+| **PM-A1, A2, A3** | ⬜ | Retired 2026-09-06: no third-party audit, permanently. Listed here because **N/A is not Done** — nothing further will happen on these rows, and `SECURITY_AUDIT.md` §0.1 states what that leaves uncovered. A4 no longer waits on A1 and has closed. |
 | **PM-C1** | ❌ | Mainnet deploy. The 46630 rehearsal is finished; this row is the 4663 run. Now gated by `preflightMainnet.mjs`, which verifies `.env.production` itself — including the check `DeployMainnet.s.sol` lacks, that `PLATFORM_TREASURY` has code at all. It also established that **the deployer holds 29 % of the ETH this broadcast costs**; see the note under §3. |
 | **PM-C2** | ❌ | Safe `acceptOwnership` on factory and treasury. Blocked on D4, but the mechanism is rehearsed: a 2-of-3 Safe took and returned ownership of the testnet factory on 2026-09-04 (§8.2). |
 | **PM-C3** | ⏸ | Do not announce the factory until C2. |
@@ -1390,9 +1409,17 @@ below, in the order it actually blocks.
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
 **The shape of the remaining work:** almost none of it is writing application
-code. Gate A is a procurement and calendar problem. Gate C is the mainnet
-deploy and is blocked on a Safe (D4) for everything after the broadcast.
-Gate D is credentials and people. Gate E's remaining red row is a roster.
+code. Gate A used to be a procurement and calendar problem and is now neither —
+it was retired rather than solved (§1), which removes the last item on this list
+that money could have bought. Gate C is the mainnet deploy and is blocked on a
+Safe (D4) for everything after the broadcast. Gate D is credentials and people.
+Gate E's remaining red row is a roster.
+
+That leaves a list on which **every single remaining item is procedural or
+operational**, and not one of them is a second opinion on the contracts. Worth
+noticing before reading the count as reassuring: 8 open and 5 partial is a
+smaller number than it was this morning largely because three items stopped
+being attempted.
 
 What is left that is purely engineering:
 

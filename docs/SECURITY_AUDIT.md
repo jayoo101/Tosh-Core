@@ -1,38 +1,147 @@
-# Tosh Protocol — Security Audit Dossier
+# Tosh Protocol — Internal Security Review Dossier
 
 **Version:** v5.0 (pre-mainnet)
-**Status:** 🟡 **SCOPE FROZEN — NO AUDIT ENGAGED YET**
+**Status:** 🟠 **INTERNAL REVIEW ONLY — NO EXTERNAL AUDIT, BY DECISION (2026-09-06)**
 **Owner:** Protocol Engineering
 **Companion documents:** `docs/INCIDENT_RESPONSE.md`, `jayoo101/tosh-status` → `MANUAL_INTERACTION.md` (public),
 `docs/PRD-v5.0.md`
 
-> **What this document is.** The package handed to an external auditor at
-> kickoff, and the place their findings come back to. It exists so the audit
-> starts from a written scope and a written set of assumptions rather than from
-> a repo link and a phone call.
+> **What this document is.** The record of every security review this protocol
+> has actually had, all of it internal: the scope, the assumptions, fourteen
+> numbered sweeps of `src/` and its settings, the static-analysis triage, and
+> the disposition of everything each sweep found.
 >
-> **What this document is not.** Evidence that an audit happened. Sections 6
-> through 8 are empty scaffolding. **Do not deploy to mainnet while §6 still
-> reads "none".** The unaudited state is the honest state until an auditor's
-> signed report replaces it.
+> **What this document is not, and this is the load-bearing sentence.** Evidence
+> that anyone outside this team has read this code. Nobody has. That is not a
+> gap waiting to be filled — as of 2026-09-06 it is a **decision**, recorded in
+> §0 with what it costs.
 
 ---
 
-## 0. Audit status board
+## 0. Review status, and the decision not to buy an external audit
 
-| Field | Value |
-|-------|-------|
-| Audit firm | `<TBD>` |
-| Engagement window | `<TBD>` |
-| Commit hash under review | `<TBD — fill at kickoff, freeze the branch>` |
-| Report delivered | ❌ |
-| All Critical / High resolved | ❌ |
-| Remediation re-review passed | ❌ |
-| Public report URL | `<TBD>` |
+**Decided 2026-09-06: this protocol ships to mainnet without a third-party
+audit, permanently.** Not deferred, not pending budget, not waiting for a
+calendar slot. `PM-A1`, `PM-A2` and `PM-A3` in `docs/PRE_MAINNET_CHECKLIST.md`
+are retired as N/A rather than left open, because leaving them open would keep
+describing an intention that no longer exists.
 
-**Mainnet gate.** Every row above must be ✅ before `script/DeployMainnet.s.sol`
-runs against a production RPC. This table is the single checklist; if it
-disagrees with anyone's memory, the table wins.
+**Nothing replaces the gate.** The previous version of this section said every
+row of an engagement board had to be ✅ before `script/DeployMainnet.s.sol` could
+run against a production RPC. That gate is removed and **not** substituted — no
+bug bounty stands in for it, and no staged deposit cap limits early exposure
+while confidence accumulates. Mainnet proceeds on the strength of internal
+review alone. This is written down so that a reader who finds no external gate
+here later cannot mistake its absence for an oversight; it was chosen.
+
+### 0.1 What the decision actually costs
+
+Internal review and external audit do not buy the same thing, and the
+difference is not effort or rigour — it is whose imagination bounds the result.
+Everything in §5 is a search for problems *we were able to conceive of*. An
+audit is bought precisely for the complement of that set. Declining to buy it
+does not shrink the complement; it only means nothing is looking there.
+
+Concretely unreviewed by anyone outside this team:
+
+| Surface | Size |
+|---|---|
+| Contracts in scope (§1.1) | 4 contracts + 2 libraries |
+| Externally reachable functions | 95, enumerated with their modifiers in §5.17 |
+| Largest single attack surface | `ToshLaunchpadHook` — holds genesis ETH, seeds the pool, runs the ladder, owns the refund path |
+| Value at risk on day one | Unbounded by design, per the paragraph above: no deposit cap staging was adopted |
+
+The class of finding this most plausibly forgoes is the one every sweep in §5
+shares a blind spot for: an interaction between two mechanisms that are each
+correct alone. §5.11 (ladder pricing against exact-output third-party routers)
+and §5.13 (the read nobody was charged for) are both that shape, and both were
+found only because someone went looking on a hunch. There is no reason to think
+the supply of such interactions is exhausted, and internal review has no
+systematic way to enumerate them.
+
+**The document names its own strongest example.** §2.3's first accepted surface
+— the buyback being unbounded in a pool's first `TWAP_WINDOW` — is annotated
+"**Please challenge this one**", and closes by saying an auditor who thinks the
+trade is wrong should say so. That surface is held shut by an operational rule on
+an owner-only key rather than by code, which the row itself calls "exactly as
+strong as the runbook and the alert pipeline, and weaker than the one-line code
+change that would make it unreachable". The invitation to disagree with that
+choice is now open to nobody. It is the clearest single instance of what §0
+costs, and it is a live acceptance, not history.
+
+### 0.2 What internal review did produce
+
+Stated precisely, because the honest argument for this decision rests on it
+being substantial — not on it being equivalent to an audit, which it is not.
+
+| Evidence | State |
+|---|---|
+| Numbered review sweeps of `src/` and the settings surface | 14 (§5.1–§5.18) |
+| Foundry tests | 362, with a CI floor equal to the suite |
+| Frontend tests | 188, same |
+| Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
+| Narrowing casts disposed of by the bound each rests on | 19, gated in CI |
+| Mutation testing | Applied to every guard and fix in §5.10 onward; each sweep records its counts and its survivors |
+
+Two things about that table are worth saying plainly. First, the mutation
+counts are what make it more than a list of activity: a test that cannot fail is
+indistinguishable from no test, and §5.14 through §5.18 each caught a case where
+a verification tool was silently not running. Second, none of it addresses §0.1.
+A suite measures the questions it was written to ask.
+
+### 0.3 Severity ladder — still in force, now self-enforced
+
+The ladder in §6 is retained for findings this team makes, and Critical / High
+still block a mainnet deploy. What changed is that nobody outside the team
+checks whether the rule was followed. It is now an internal commitment rather
+than a gate somebody else holds.
+
+### 0.4 Deferrals that just lost their owner
+
+The expensive part of cancelling an engagement is not the sections that talk
+about auditors — those are cosmetic and were rewritten in the same pass. It is
+the work that earlier sweeps explicitly **handed forward** to it. Each item
+below reads as settled in the section that wrote it, because a named future
+owner is indistinguishable from a plan. That owner no longer exists, so each is
+re-assigned here or is recorded as abandoned in as many words.
+
+| Deferred | Where it was parked | Now |
+|---|---|---|
+| Fuzz depth above 256 runs; invariant soak past depth 100 | §4, "ask for a higher run count during audit" | **Reassigned to us.** This one needed machine time, not a vendor, and the deferral was never really about money. `FOUNDRY_INVARIANT_RUNS` and a long soak are runnable on any box. Not yet done. |
+| Anything requiring a live adversarial fork | §5.11, "staying with the engagement" | **Abandoned.** No internal substitute is planned. The 8 fork tests in §4 exercise the live V4 singleton on happy and router paths, not an adversary. |
+| The 6 assumptions in §2.2, challenged by someone who did not write them | §2.2, its whole purpose | **Abandoned, and this is the largest single loss.** Restated in §2.2 so a reader does not take the list for a reviewed list. |
+| Whether the PoG-quota compounding in PM-F9 is exploitable in composition | §5.10, "still the auditor's question" | **Abandoned as an external question.** The bound is derived internally and tested; nobody will attack it. |
+| The tier ladder as an economic model — is a 2,000× span over 4,000 rungs the right shape? | §5.11 | **Unchanged.** This was never an audit deliverable; it is a question about markets, and it was mis-parked. |
+| §4's per-file test table, hand-maintained | Nowhere — found while rewriting §4 today | **Recorded, not fixed.** It had drifted 28 low and never summed to its header. A guard would be cheap; the CI floor already reads the true total, so the table is documentation rather than a control. |
+
+**And one premise, now void everywhere.** Three places in §5 decline a code
+change because "`src/` is frozen for the engagement". That freeze had exactly
+one basis and it is gone. Pre-mainnet, `src/` is not frozen by anything: salt
+mining reads `hookInitcodeHash` from the factory at runtime, so changing hook
+source before deployment costs a rebuild and nothing else. §5.15 already
+demonstrated this by bounding two setters the day after §5.10 declined to on
+freeze grounds.
+
+A real freeze does apply, but **only after** `script/DeployMainnet.s.sol` runs:
+the deployed factory bakes `HOOK_CREATION_CODEHASH` into its constructor (§2.2
+item 6), so once it exists on mainnet, editing `src/ToshLaunchpadHook.sol` —
+including a comment, which moves the metadata hash and therefore the initcode
+hash — desynchronises every address that factory predicts. The two live
+decisions that appealed to the wrong freeze are re-disposed in place, at §5.11.
+
+### 0.5 How to read the rest of this document
+
+§§1–5 were written while an engagement was still the plan, and about twenty
+places in them address an auditor directly: "the auditor should confirm the bound
+on each", "worth an auditor confirming", "an auditor short on time should spend
+it here". **Those sentences are left standing on purpose.** They are the record
+of which claims their own author considered least self-evident, and that is
+useful information — scrubbing the word would delete the signal and pretend the
+document was always written for this decision.
+
+Read them as annotations rather than as plans. Where such a sentence deferred
+actual work rather than merely flagging a claim, it is listed in §0.4; nothing
+outside that table is waiting on anybody.
 
 ---
 
@@ -52,8 +161,8 @@ disagrees with anyone's memory, the table wins.
 ### 1.2 Out of scope
 
 - `lib/**` — Uniswap v4-core, v4-periphery, OpenZeppelin, forge-std. Vendored
-  dependencies, audited upstream. **Pin the exact commits at kickoff** so the
-  auditor reviews the same bytecode we deploy.
+  dependencies, audited upstream. **The exact commits are pinned** — §5.6 — so
+  that the bytecode reviewed in §5 is the bytecode deployed.
 - `soat-frontend/**` — the Next.js UI. Reviewed separately; a frontend
   compromise is covered by `docs/INCIDENT_RESPONSE.md` §2, not here.
 - The off-chain PoG signing service, **except** for the on-chain signature
@@ -63,7 +172,7 @@ disagrees with anyone's memory, the table wins.
   `InvalidSignature()`. This used to name a helper called
   `_verifyPoGSignature`, which has never existed in `src/` — see §5.12.
 
-### 1.3 Build configuration the auditor must reproduce
+### 1.3 Build configuration the deployed bytecode depends on
 
 ```toml
 solc            = "0.8.26"
@@ -96,10 +205,15 @@ note in `foundry.toml`.
 | **Project creator** | Project's EOA | `launch()` within the 7-day `LAUNCH_WINDOW` | Access depositor funds. Refunds are unconditional on their inaction. |
 | **Project admin** | Project's EOA | `changeProjectAdmin` | Anything on the money path. `projectTreasury` never receives funds in v5. |
 
-### 2.2 Assumptions the auditor should challenge
+### 2.2 Assumptions nobody outside this team has challenged
 
 These are the load-bearing beliefs. If any is false, the security argument
-collapses, so each is stated plainly rather than buried in a comment:
+collapses, so each is stated plainly rather than buried in a comment.
+
+> Per §0 these were going to be handed to an auditor precisely so that someone
+> who did not write them would try to break them. That is not happening. Each
+> is now supported only by the derivation printed next to it and by the tests
+> cited — which is to say, by the same reasoning that produced it.
 
 1. **The owner cannot reach depositor money.** Once `createLaunch` returns,
    the hook is closed to the factory owner. `refund()` and `claimGenesis()`
@@ -134,7 +248,8 @@ collapses, so each is stated plainly rather than buried in a comment:
 ### 2.3 Known-and-accepted design surfaces
 
 Documented in the contract natspec and exercised by `test/ToshV5Attack.t.sol`.
-The auditor should confirm the *bound* on each, not that it is absent:
+Each is bounded rather than absent, and the bound is the thing to check. Nobody
+outside this team has checked one (§0.1):
 
 | Surface | Bound we believe holds |
 |---------|------------------------|
@@ -392,30 +507,41 @@ it here:
 
 ---
 
-## 4. Test coverage handed to the auditor
+## 4. Test coverage
 
-`forge test` — **327 passing**, and again under `forge test --isolate`, which
+`forge test` — **354 passing**, and again under `forge test --isolate`, which
 bills each call the way a real transaction would rather than letting storage
 touched in setup stay warm for the rest of the test. Both runs are CI gates.
 
 A further **8 fork tests** run only when `ROBINHOOD_RPC` is set and report as
-SKIPPED otherwise, so the headline count is 327 or 335 depending on whether the
-runner has an endpoint. They are listed below but excluded from the 327
-deliberately: a number that changes with a credential is not a number.
+SKIPPED otherwise, so the passing count is 354 or 362 depending on whether the
+runner has an endpoint. They are listed below but excluded from the 354
+deliberately: a number that changes with a credential is not a number. The CI
+floor is immune to that distinction because it reads forge's `(N total tests)`,
+which counts a skipped test — so the gate is 362 either way, measured rather
+than assumed in `.github/workflows/test.yml`.
+
+> **Every number below was re-measured from `forge test --list` on 2026-09-06,
+> and none of them survived.** The table had drifted 28 tests low while §5.10
+> through §5.15 landed, and it had never summed to its own header: the rows
+> totalled 326 against a stated 327. Both defects are the exact shape §5.7 and
+> §2.5 were each caught with — a total that reconciles against nothing. This
+> table is still hand-maintained and still has no guard, which is recorded in
+> §0.4 rather than fixed.
 
 | File | Tests | Focus |
 |------|------:|-------|
-| `test/ToshV5Factory.t.sol` | 101 | Pause, blacklist, PoG quota/cooldown/nonce, launch fee, name registry, ownership. |
-| `test/ToshV5.t.sol` | 80 | Happy paths: genesis → launch → claim → shelf ladder → refund; ladder halt. Also the gas budgets and the piggyback gas gate. |
-| `test/ToshV5Guards.t.sol` | 70 | Access control and phase guards across every external entry point. |
+| `test/ToshV5Factory.t.sol` | 112 | Pause, blacklist, PoG quota/cooldown/nonce, launch fee, name registry, ownership. Also the four bounded setters (§5.14, §5.15). |
+| `test/ToshV5.t.sol` | 87 | Happy paths: genesis → launch → claim → shelf ladder → refund; ladder halt. Also the gas budgets and the piggyback gas gate. |
+| `test/ToshV5Guards.t.sol` | 72 | Access control and phase guards across every external entry point. |
 | `test/ToshHookClone.t.sol` | 18 | EIP-1167 clone layout, immutable-arg round-trip, per-clone isolation, salt mining, deployment gas. |
-| `test/ToshV5Attack.t.sol` | 16 | The §2.3 surfaces, adversarially. |
+| `test/ToshV5Attack.t.sol` | 17 | The §2.3 surfaces, adversarially. |
 | `test/ToshV5Invariants.t.sol` | 14 | **Stateful invariants** for §2.2 items 1, 2 and 5. See below. |
 | `test/ToshV5Abi.t.sol` | 8 | Drift between the contracts and everything that binds to them by name rather than by type: 3 pin `abis.ts` to the Foundry artifacts, 5 pin the duck-typed cross-contract interfaces to the implementations that answer them (§5.7). |
+| `test/DeployMainnet.t.sol` | 8 | Deploy script, including the forced Safe ownership handoff and the distinct-role refusals. |
 | `test/ToshV5ArbSys.t.sol` | 7 | `_blockNumber()` on an Arbitrum Orbit chain: that the hook stamps the **L2** height rather than `block.number`'s L1 one, and that it still falls back correctly where `ArbSys` is absent. Two contracts, with and without the precompile etched. |
-| `test/ToshV5Fuzz.t.sol` | 6 | Property fuzzing, 256 runs per property. |
+| `test/ToshV5Fuzz.t.sol` | 7 | Property fuzzing, 256 runs per property. |
 | `test/ToshV5LpMathVectors.t.sol` | 4 | Fixed vectors for the V4 liquidity math, checked against independently computed expectations. |
-| `test/DeployMainnet.t.sol` | 2 | Deploy script, including the forced Safe ownership handoff. |
 | `test/ToshV5Fork.t.sol` | 8 | **Live chain 4663**, skipped without `ROBINHOOD_RPC`. Lifecycle against the deployed V4 singleton; a buy through the deployed UniversalRouter; the router's calldata layout pinned against the chain. See §4.2. |
 
 ### 4.1 Stateful invariant suite
@@ -659,16 +785,18 @@ and the tip is all an unpinned fork asks for.
 
 **Known coverage gaps, stated up front rather than discovered:**
 
-- Fuzz depth is 256 runs per property — adequate for CI, thin for an
-  invariant-hunting engagement. Ask for a higher run count during audit; the
-  invariant suite likewise deserves a long soak (`FOUNDRY_INVARIANT_RUNS`) at a
-  depth well past 100.
+- Fuzz depth is 256 runs per property — adequate for CI, thin for
+  invariant hunting. A higher run count and a long invariant soak
+  (`FOUNDRY_INVARIANT_RUNS`) at a depth well past 100 were going to be asked of
+  an auditor; per §0.4 that is now ours to run and has not been run yet. It
+  needs machine time, not a vendor.
 - Swap coverage in the invariant handler is now real but **thin per run**. A
   measured run reaches roughly 6 buys, 2 sells, one ladder listing and one
   buyback cycle inside its 100 calls, because a buyback is several actions deep
   past launch (fund → launch → list → accumulate 1 ETH → swap). The invariants
   are exercised rather than vacuous, but this specific path deserves a long soak
-  at higher depth during the engagement, not just the CI budget.
+  at higher depth rather than only the CI budget — same owner and same status as
+  the bullet above (§0.4).
 - The shelf ladder (`mintBondingCurve`) has no invariant action. Its price gates
   are covered by the unit and attack suites only, so the tier-boundary and
   same-block-lockout logic is not composed against arbitrary sequences.
@@ -708,10 +836,12 @@ and the tip is all an unpinned fork asks for.
 
 ---
 
-## 5. Pre-audit hygiene checklist
+## 5. Hygiene checklist and review sweeps
 
-Complete before the auditor starts, so their hours go to logic rather than to
-telling us things CI could have:
+Originally scoped as work to finish *before* an auditor started, so their hours
+would go to logic rather than to telling us things CI could have. With §0's
+decision it is no longer a preparation for anything — it is the review itself,
+which is why §5.2 onward grew from a checklist into fourteen numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -790,8 +920,14 @@ telling us things CI could have:
       code where §5.2–§5.4 found defects. Every suite mutation-tested against
       the original bug. CI gate via `npm test` in
       `.github/workflows/frontend.yml`. Scope and limits in §5.5.
-- [ ] Audit branch frozen, commit hash written into §0
-- [x] `lib/**` dependency commits pinned and listed for the auditor — §5.6.
+- ⬜ ~~Audit branch frozen, commit hash written into §0~~ — **retired
+      2026-09-06 by §0.** There is no engagement to freeze a branch for, and §0
+      no longer has a commit-hash field to write into. This was the only
+      unticked box in this list, so the list is now 10 of 10 that still apply
+      rather than 10 of 11. It is left visible instead of deleted: a checklist
+      that shortens itself when an item is abandoned is a checklist that reads
+      as complete for the wrong reason.
+- [x] `lib/**` dependency commits pinned and listed — §5.6.
       All four (plus the nested solmate) recorded with commit, date and release
       status; the compiled surface of each is enumerated. One drift corrected:
       solmate was checked out at `main` head rather than the revision v4-core
@@ -1961,12 +2097,19 @@ dust swap (the flip side of §5's finding 1, which made buyback swaps stamp the
 lockout on purpose; costs the griefer a swap per block and delays a mint by one
 block).
 
-One cosmetic defect not worth a code change under the freeze:
+One cosmetic defect, **accepted on its merits rather than on the freeze**:
 `PiggybackExecuted` emits `perToken * count` regardless of whether a leg was
 skipped or partially filled, so it overstates ETH deployed. `BuybackBurned`
 carries the true figure. This matters only for off-chain accounting, and the two
 places that consume the event — `STATE-02` and `STATE-06` — use it as a *presence*
 signal rather than an amount, so neither is misled.
+
+> Re-checked 2026-09-06 (§0.4), because the original wording was "not worth a
+> code change under the freeze" and that reason has evaporated. The disposition
+> is unchanged, but it now rests on the two sentences above — a truthful sibling
+> event and two consumers that read presence — rather than on a scope freeze.
+> Unlike the `MIN_SOFT_CAP_PROD` comment, this one is a payload change in code
+> and would need its own test, so it is accepted rather than done.
 
 #### The two areas this sweep first excluded, then covered
 
@@ -2004,9 +2147,19 @@ case. Measured by mutation: dropping the floor to 1 gwei yields `p0 = 238` and
 below the 526-wei break-even and shelves 0 and 1 come out at the same price.
 So the flattening cliff sits far above the `p0 = 0` cliff, and the only thing
 between the system and a flat ladder is the `MIN_SOFT_CAP_PROD` literal itself.
-`src/` is frozen for the engagement, so the comment is not being edited; the
-constant's real job is recorded here and pinned by the new test, which fails on
-all four mutations of the three constants (4/4).
+The constant's real job is pinned by the new test, which fails on all four
+mutations of the three constants (4/4).
+
+> **Re-disposed 2026-09-06 — the comment is now fixed (§0.4).** This paragraph
+> originally ended "`src/` is frozen for the engagement, so the comment is not
+> being edited." That freeze was an audit engagement, it has been cancelled, and
+> it never bound `src/` pre-mainnet anyway: `ToshFactory` is deployed by nonce
+> rather than by CREATE2, so editing its comments moves neither its own address
+> nor the `hookInitcodeHash` the salt miner reads at runtime. The natspec on
+> `MIN_SOFT_CAP_PROD` now names flattening as the binding cliff and explicitly
+> withdraws `launch()`'s `p0 > 0` assert as a backstop for it — the claim this
+> sweep found false. Leaving a finding in a document while the contract keeps
+> asserting the opposite is how §5.18's drift started.
 
 **The price ceiling can only block, never underprice — and the reason is the
 `min`.** §2.3 asserts this; here is why it holds. `_safeReferencePrice()` returns
@@ -2943,15 +3096,22 @@ future sentence of the form "X no longer exists". Recorded, not built.
 
 ## 6. Findings
 
-> **Populate from the auditor's report. One subsection per finding, using
-> their IDs — do not renumber.** An empty section here means unaudited, and
-> unaudited means no mainnet deploy.
+> **This section was reserved for an external report, and by §0 there will not
+> be one. It stays because the severity ladder below is still the vocabulary
+> every §5 sweep triages against, and §0.3 points here.**
 >
-> Static analysis does not belong here. Slither's 70 findings are triaged in
-> **§5.7**, under pre-audit hygiene, and adding them to this section would put
-> tool output under the auditor's numbering.
+> Internal findings are **not** collected here. They live where they were found,
+> in the sweep that found them — §5.2 through §5.18 — each with its fix commit,
+> its regression test, and its mutation counts. Moving them into a register
+> would separate each finding from the reasoning that produced it, which is the
+> part worth keeping when nobody external is reading either.
+>
+> Static analysis is not here either: Slither's 71 findings are triaged in
+> **§5.7**.
 
-**Findings to date: none — no audit has been performed.**
+**External findings to date: none, and none expected.** Previously this line
+read "none — no audit has been performed", which described a schedule. It now
+describes a decision; see §0.
 
 | ID | Severity | Title | Status | Resolution |
 |----|----------|-------|--------|------------|
@@ -2988,30 +3148,48 @@ buggy commit and pass on the fix.
 
 ## 7. Remediation log
 
-| Date | Finding | Commit | Regression test | Re-reviewed |
-|------|---------|--------|-----------------|-------------|
-| — | — | — | — | — |
+**Retired 2026-09-06.** This table paired external findings with their fixes and
+their re-review. Two of its three columns had no source once §0 was decided, and
+the third — the fix — is already recorded per finding in §5, next to the
+regression test that pins it and the mutation run that proves the test can fail.
+A second copy would drift from the first; §5.18 is what that costs.
+
+Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
+§5.8 through §5.18 for the numbered ones.
 
 ---
 
 ## 8. Sign-off
 
-Mainnet deployment requires all four signatures. An unsigned row is a blocker,
+Mainnet deployment requires all three signatures. An unsigned row is a blocker,
 not a formality.
 
 | Party | Name | Date | Signature |
 |-------|------|------|-----------|
-| Lead auditor | | | |
 | Protocol engineering lead | | | |
 | Safe signer (outside engineering) | | | |
 | Operations / on-call lead | | | |
 
-**Post-audit obligations.** Any code change after sign-off — including a
-comment, which changes the hook address — invalidates the reviewed commit.
-Either re-engage the auditor for a delta review or deploy the reviewed commit
-unmodified.
+> **A fourth row read "Lead auditor" and was removed by §0, not satisfied.**
+> The three that remain are the same three as before and are not a substitute
+> for it — per §0 nothing is. Note what the remaining rows have in common: all
+> three sign from inside the project. The "outside engineering" qualifier on the
+> Safe signer is the widest the reviewing circle now gets.
+
+**Obligations at deploy time.** Any change to `src/ToshLaunchpadHook.sol` after
+the factory is deployed — including a comment, which moves the metadata hash and
+therefore the initcode hash — desynchronises every address that factory predicts,
+because `HOOK_CREATION_CODEHASH` is baked into its constructor. This was
+previously filed as a post-audit obligation; it is not an audit artefact at all
+but a property of CREATE2, and it now binds from the deploy transaction rather
+than from a sign-off date. Before deployment there is no such constraint (§0.4).
 
 ---
 
-*Last updated: 2026-08-26 — initial scaffold. §§6–8 are intentionally empty;
-they are filled by an engagement that has not yet been booked.*
+*Last updated: 2026-09-06 — reframed from an external-audit package to the
+internal review record it actually is, after the decision in §0 not to engage a
+third-party auditor. §6 retains only its severity ladder and §7 is retired;
+both explain why in place. §§0.4 and 0.5 are new and are the parts to read
+first: 0.4 lists the work that lost its owner when the engagement was cancelled,
+and 0.5 says how to read the twenty-odd sentences in §§1–5 that still address an
+auditor.*
