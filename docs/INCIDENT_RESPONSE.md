@@ -85,6 +85,60 @@ All three signers hold gas on 4663 (0.005 / 0.005 / 0.089 ETH as of
 pays. Before this, only Joe was funded, which would have made him a single point
 of failure for pressing the button regardless of who had signed.
 
+### 1.0 Before any governance alert becomes an incident: correlate
+
+`ONCHAIN_MONITORING.md` §3.1 states this rule and calls it the whole value of
+alerting on governance events. It had never been written down here, which is the
+half that matters: §3.1 is a spec nobody opens at 03:00, and this is the document
+the on-call actually opens.
+
+> **On any `GOV-*` or `SWITCH-01` / `SWITCH-02` alert: find the corresponding Safe
+> transaction within 5 minutes. A match downgrades it to an audit-trail entry. No
+> match escalates to P0 regardless of the severity the alert arrived with.**
+
+Every alert in those two families fires on a legitimate action too. `Paused` is
+byte-for-byte identical whether we did it or someone else did; so is
+`OwnershipTransferStarted`, and so is `PogSignerUpdated`. The event cannot carry
+the answer, so correlation is not a formality before the real work — **it is the
+only step that determines whether there is any real work.**
+
+**Where the record is.** `0x2953957774482efA660921df85A1E7634ccfe27A` (§1.1), via
+`app.safe.global` or the transaction service. Correlate against **the Safe's
+transaction history, not against any signer's address**: signatures are collected
+off chain and any one of the three may be the executor (§1), so `msg.sender` on a
+legitimate call is the Safe every time and the identity of the submitting EOA
+tells you nothing.
+
+**The escalation is an inversion, not a step up.** `SWITCH-01` (`Paused`) is
+catalogued **P1** and pages. An unmatched `Paused` is **P0** — it means the owner
+key acted without us, which is a strictly worse situation than whatever the pause
+was reacting to. Do not let the label in the alert set the ceiling; §3.1's rule
+overrides it in exactly this direction and never the other.
+
+**Where no-match routes**, by what the unexplained call proves someone holds:
+
+| Unmatched alert | What it means | Go to |
+|---|---|---|
+| `GOV-01` / `GOV-02` (factory ownership) | owner key acted without us | **§5** |
+| `GOV-03` / `GOV-07` (treasury ownership) | same, on the treasury | **§5** |
+| `GOV-06` (`FactorySet` on treasury) | same, and the buyback source is being repointed | **§5** |
+| `GOV-04` (`PogSignerUpdated`) | owner key used to swap the attestation oracle | **§4**, then **§5** — §4 alone assumes *we* are rotating |
+| `SWITCH-01` / `SWITCH-02` (pause state) | owner key holds the brake | **§5** |
+
+Every row lands in §5 because they share one premise: after PM-C2 the owner *is*
+the Safe, so a call the Safe has no record of is not a mystery about intent, it is
+evidence about custody. **Until C2 the owner is still the deployer EOA**, and
+correlation has no Safe to check against — during that window the question is
+whether the deployer key did it, the answer lives in whoever holds that key, and
+the absence of a Safe record proves nothing. This rule reaches full strength only
+once C2 is done, and that is another reason not to announce the factory before it
+(PM-C3).
+
+**What this prevents** is the specific failure §3.1 names: governance alerts that
+fire on routine actions, with no rule attached, train the on-call to acknowledge
+and move on. That is worse than having no governance alerts at all, because it
+converts a P0 signal into a habit.
+
 ### 1.1 Safe threshold — the decision, and what depends on it
 
 **Decided 2026-09-03: 2-of-3.** Three signers, two signatures to execute. The
@@ -1228,6 +1282,15 @@ on one. The refusal half is proven; the noticing half is open.
 │  POKE BUYBACK           cast send $TREASURY "pokeBuyback()"            │
 │                         NO ROLE NEEDED — anyone, no Safe tx.  Use when │
 │                         STATE-06 fires (reservoir ≥1 ETH, idle 24h).   │
+│                                                                        │
+│  GOV-* / SWITCH-01 / SWITCH-02 ALERT?  CORRELATE FIRST (§1.0).         │
+│  Find the matching Safe tx within 5 min at app.safe.global.            │
+│    MATCH    → audit-trail entry, not an incident.                      │
+│    NO MATCH → P0 regardless of the alert's own label, and go to §5.    │
+│  An unmatched Paused is P0 even though SWITCH-01 is catalogued P1:     │
+│  it means the owner key acted without us.  Check the SAFE's history,   │
+│  not a signer's address — any signer may execute, so msg.sender is     │
+│  the Safe on every legitimate call.                                    │
 │                                                                        │
 │  PAUSE IS NARROW.  It stops createLaunch and registerPoG.  THAT IS     │
 │  ALL.  It does NOT stop deposits into a live genesis round — deposit   │

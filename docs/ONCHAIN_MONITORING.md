@@ -481,7 +481,17 @@ probably the thing to change.
 - [x] The 22 `mustNotPage` events confirmed not paging — the 900k-block sweep
       produced 17 findings of which 11 paged, and `report.mjs` filed exactly the
       11. The non-paging six reached the run summary and nothing else.
-- [ ] Correlation rule in §3.1 written into the on-call runbook
+- [x] Correlation rule in §3.1 written into the on-call runbook —
+      `INCIDENT_RESPONSE.md` §1.0, 2026-09-05, with the routing this catalogue
+      implies and had not stated: which playbook each *unmatched* alert goes to.
+      Writing it out surfaced two things §3.1 does not say. `SWITCH-01` is
+      catalogued P1, so "escalate regardless of severity" is an **inversion** for
+      the pause family, not a step up — an unmatched `Paused` outranks its own
+      label. And correlation must be done against the **Safe's** history rather
+      than a signer's address, since signatures are off chain and any owner may
+      execute, so `msg.sender` is the Safe on every legitimate call. Also recorded
+      there: until PM-C2 the owner is still the deployer EOA, so there is no Safe
+      record to correlate against and the rule reaches full strength only at C2.
 - [ ] `INCIDENT_RESPONSE.md` §8 Q4 drill re-scheduled now that its detection
       dependency exists — note Q4's criterion names a 15-minute detection, which
       §7.3 explains this host does not guarantee
