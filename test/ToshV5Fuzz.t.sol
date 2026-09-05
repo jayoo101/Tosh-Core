@@ -172,6 +172,61 @@ contract ToshV5FuzzTest is Test {
         assertEq(h.tierPriceAt(h.TIER_COUNT()), 0);
     }
 
+    /// @dev The step from `shelfP0` to shelf 1, in wei, at a poked base.
+    function _firstStepAt(ToshLaunchpadHook h, uint256 base) internal returns (uint256) {
+        vm.store(address(h), bytes32(_shelfP0Slot(h)), bytes32(base));
+        // Non-decreasing by construction, so this cannot underflow; zero is
+        // exactly the failure this measures.
+        return h.tierPriceAt(1) - h.tierPriceAt(0);
+    }
+
+    /// @notice Monotonicity has a break-even, and THREE constants decide whether
+    ///         the system can reach it.
+    ///
+    /// @dev    The fuzz above bounds the base at a hardcoded `1e6`, which is a
+    ///         number about the fuzzer rather than about this system — nothing
+    ///         ties it to what the constants permit. `MIN_SOFT_CAP_PROD`,
+    ///         `GENESIS_LP_SUPPLY` and `SHELF_PREMIUM_BPS` between them fix the
+    ///         smallest `shelfP0` a real launch can produce, and any of the three
+    ///         can be retuned on its own. Two adjacent shelves sharing a price
+    ///         would let a buyer clear the upper one at the lower one's price, so
+    ///         the chain from those constants down to "the ladder still steps"
+    ///         is worth one assertion.
+    ///
+    ///         The break-even is pinned as a measurement, not a literal belief:
+    ///         `STEP` is 1.0019025, so a base of 525 wei steps by
+    ///         `floor(525 · 1.0019025) − 525 = 0`, and 526 is the first base that
+    ///         moves at all. Both directions are asserted, because a test that
+    ///         only shows the healthy side cannot tell a real margin from an
+    ///         arithmetic accident.
+    function test_smallestReachableShelfP0_stillStepsTheLadder() public {
+        ToshLaunchpadHook h =
+            new ToshLaunchpadHook(address(poolManager), address(factory), payable(address(ladder)), platformTreasury);
+
+        assertEq(_firstStepAt(h, 525), 0, "525 is below the break-even: shelves 0 and 1 share a price");
+        assertEq(_firstStepAt(h, 526), 1, "526 is the break-even: the ladder steps by one wei");
+
+        // Smallest raise `launch()` accepts, and the least of it that can reach
+        // the LP — the referral carve takes at most `REFERRAL_BPS`.
+        uint256 minRaise = factory.MIN_SOFT_CAP_PROD();
+        uint256 minLpEth = minRaise - (minRaise * h.REFERRAL_BPS()) / 10_000;
+        uint256 minShelfP0 = (((minLpEth * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
+
+        // 0.01 ETH → p0 2,380,952,380 → shelfP0 2,499,999,999. The factory
+        // natspec quotes the middle figure as "2.38e9"; this is the one shelf
+        // pricing actually reads. Note it is a wei under 2.5e9 and not exactly
+        // `p0 · 1.05` — both divisions floor, so even here the arithmetic gives
+        // the wei to the buyer.
+        assertEq(minShelfP0, 2_499_999_999, "smallest reachable ladder base");
+
+        assertGe(
+            minShelfP0 / 526,
+            4_000_000,
+            "the reachable minimum must sit millions of times above the break-even, not just above it"
+        );
+        assertEq(_firstStepAt(h, minShelfP0), 4_756_270, "step at the reachable minimum");
+    }
+
     /// @dev Pro-rata genesis claims never overshoot GENESIS_CLAIM_SUPPLY.
     function testFuzz_claimGenesis_proRataNeverExceedsClaimSupply(uint256 d1, uint256 d2) public {
         d1 = bound(d1, 1, 0.4 ether);

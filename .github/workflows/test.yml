@@ -118,10 +118,16 @@ jobs:
       # `test_piggyback_innerMutexHoldsAgainstAReentrantLadderHook`, which
       # closes the coverage gap SECURITY_AUDIT.md §5.7 had recorded against
       # itself — `_runPiggyback`'s own mutex check was reached by no test.
+      #
+      # 350 -> 351 on 2026-09-05:
+      # `test_smallestReachableShelfP0_stillStepsTheLadder`, from the §5.11
+      # ladder-pricing sweep. Shelf monotonicity has a break-even at a base of
+      # 526 wei and three independently retunable constants decide whether the
+      # system can reach it; nothing linked them.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=350
+          floor=351
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

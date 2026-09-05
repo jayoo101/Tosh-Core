@@ -719,9 +719,9 @@ telling us things CI could have:
       in `test/ToshHookClone.t.sol` that embeds a full hook creation code, it is
       never deployed, and Foundry does not distinguish test contracts in that
       table. Read the table with that in mind rather than as a pass/fail.
-- [x] `forge test` — 350/350 green, and 350/350 again under
+- [x] `forge test` — 351/351 green, and 351/351 again under
       `forge test --isolate`. Both are CI gates in `.github/workflows/test.yml`,
-      and that workflow now also asserts the COUNT: a floor of 350 and an
+      and that workflow now also asserts the COUNT: a floor of 351 and an
       equality check between the two runs. Added because an interrupted build
       leaves an artifact with a complete ABI and empty bytecode, which forge
       reports as "no tests found" for that suite and skips — the whole main suite
@@ -730,10 +730,10 @@ telling us things CI could have:
       The floor is only useful while it tracks the suite. It sat at 335 against
       349 actual until 2026-09-04, i.e. 14 tests of slack, which is enough to
       lose a whole suite without tripping — the exact failure it was built for.
-      Raising it is part of adding tests, not a separate chore, and it moved to
-      350 in the same commit as the §5.7 mutex test. 350 holds even without
-      `ROBINHOOD_RPC`, because forge counts a `vm.skip`'d test in its total;
-      that was measured, not assumed.
+      Raising it is part of adding tests, not a separate chore: it moved to 350
+      with the §5.7 mutex test and to 351 with the §5.11 ladder-monotonicity
+      test. The floor holds even without `ROBINHOOD_RPC`, because forge counts a
+      `vm.skip`'d test in its total; that was measured, not assumed.
       The count rose from 305 with the regression tests for the two contract
       defects in §5.2, the `genesisDuration` guard in §5.3, and
       `ToshV5Abi.t.sol` — three tests pinning `abis.ts` to the Foundry
@@ -1959,11 +1959,79 @@ carries the true figure. This matters only for off-chain accounting, and the two
 places that consume the event — `STATE-02` and `STATE-06` — use it as a *presence*
 signal rather than an amount, so neither is misled.
 
-**Scope of this sweep.** By hand, both contracts, focused on the five properties
-above. NOT covered: the tier pricing algebra (`tierPriceAt` over 4,000 rungs) as
-an economic model rather than as arithmetic, the exact-output tax path's
-interaction with third-party routers, and anything requiring a live adversarial
-fork. Those stay with the engagement.
+#### The two areas this sweep first excluded, then covered
+
+The paragraph below originally deferred the tier pricing algebra and the
+exact-output tax to the engagement. Both were then done. **Neither produced a
+defect**, which is worth recording precisely, because the useful output of a
+sweep that finds nothing is the set of numbers nobody has to re-derive.
+
+**Ladder pricing — every rounding runs one way, and the margin is measured.**
+`tierPriceAt` is `shelfP0 · STEP^index` by exponentiation-by-squaring over
+`FullMath.mulDiv`, which floors. So the price is *understated*, never overstated:
+the truncation favours the buyer. On the mint path the same direction holds —
+`legCost = (tierPrice · take) / 1e18`, floored, at most 1 wei per leg and bounded
+to 32 by `MAX_TIERS_PER_TX` — and it cannot compound into a free mint because
+`cost == 0` reverts.
+
+The property that could actually break is **monotonicity**: two adjacent shelves
+priced identically would let a buyer clear the upper one at the lower one's price.
+The break-even is exact and was computed rather than estimated — at
+`shelfP0 = 525` wei the step to shelf 1 rounds to **0 wei**; at 526 it is 1 wei.
+The smallest `shelfP0` the system can produce is fixed by
+`ToshFactory.MIN_SOFT_CAP_PROD` (0.01 ETH → `p0 = 2.38e9` → `shelfP0 ≈ 2.5e9`),
+where the step is **4,756,270 wei**. That is a margin of 4.75 million to one, and
+`testFuzz_tierPriceAt_strictlyMonotone` fuzzes the base from `1e6` — itself 2,500×
+below the reachable minimum and 1,900× above the break-even. The property is
+tested well outside its operating range, and `setDefaultSoftCap`'s floor is what
+keeps the operating range where it is (`test_setDefaultSoftCap_rejectsBelowFloor`).
+
+**One finding, in a comment rather than in code.** `MIN_SOFT_CAP_PROD`'s natspec
+says it "guards the `p0 = 0` configuration trapdoor" and offers as
+defence-in-depth that "the hook's `launch()` also asserts `p0 > 0`". The floor
+guards strictly more than that, and the stated backstop does not reach the wider
+case. Measured by mutation: dropping the floor to 1 gwei yields `p0 = 238` and
+`shelfP0 = 249` — `p0` is non-zero, so `launch()`'s assert passes, yet 249 is
+below the 526-wei break-even and shelves 0 and 1 come out at the same price.
+So the flattening cliff sits far above the `p0 = 0` cliff, and the only thing
+between the system and a flat ladder is the `MIN_SOFT_CAP_PROD` literal itself.
+`src/` is frozen for the engagement, so the comment is not being edited; the
+constant's real job is recorded here and pinned by the new test, which fails on
+all four mutations of the three constants (4/4).
+
+**The price ceiling can only block, never underprice — and the reason is the
+`min`.** §2.3 asserts this; here is why it holds. `_safeReferencePrice()` returns
+`min(spot, slow)`, where `slow` is `p0` until the TWAP matures and the TWAP after.
+Pushing spot *up* therefore cannot lift the reference above `slow`, so it cannot
+admit a shelf the ladder had priced out; pushing spot *down* lowers the reference
+and only tightens the gate. Admitting a higher shelf requires moving the TWAP,
+which is 1800 s of sustained manipulation — the assumption the design already
+declares.
+
+**Exact-output tax — no double charge, and the sign is right.** `beforeSwap`
+returns `ZERO_DELTA` whenever `amountSpecified >= 0` and `afterSwap` skims only
+when `> 0`, so exactly one of the two taxes any swap; the branches are mutually
+exclusive on the sign, not by convention. The settlement was checked against
+v4-core rather than assumed: `Hooks.sol:307-312` builds `hookDelta` and applies
+`swapDelta = swapDelta - hookDelta`, so the hook's positive return debits the
+*swapper*, which is what the natspec claims. The hook's own account nets to zero —
+`poolManager.take` debits it by `tax`, the returned `+tax` credits it back — which
+is why the unlock settles.
+
+Re-deriving the effective rates from scratch reproduced the figure §5.3 already
+records: exact-input pays **100.0 bps** of what the trader hands over, exact-output
+**99.01 bps**, because one rate is inclusive of the specified amount and the other
+is charged on top of the pool's input. An independent derivation landing on the
+documented number is the result worth having here. `test_buyTax_exactOutputSkims`
+`EthNotTokens` already encodes the same distinction in code, computing its base as
+`ethSpent − skim`.
+
+**Scope of this sweep.** By hand, both contracts, the five properties above plus
+the two just described. Still NOT covered, and staying with the engagement: the
+tier ladder as an *economic* model rather than as arithmetic — whether a 2,000×
+span over 4,000 rungs is the right shape for this token's demand curve is a
+question about markets, not about `mulDiv` — and anything requiring a live
+adversarial fork.
 
 ---
 
