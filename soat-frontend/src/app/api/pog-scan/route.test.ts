@@ -56,10 +56,25 @@ vi.mock('@/app/lib/gasHistory', async (importOriginal) => {
 })
 vi.mock('@/app/lib/gasToSatoRate', () => ({ getGasToSatoRate: async () => 0.1 }))
 
-/** The IP bucket is not what these tests are measuring; it has its own file. */
+/**
+ * The IP bucket's arithmetic is not what these tests measure — `apiGuard.test.ts`
+ * has that. Which bucket each verb is charged against is wiring, and is measured
+ * here, so the stand-in records the name it was asked for and can be made to
+ * refuse under it.
+ */
+let bucketsCharged: string[]
+let refuseBucket: Set<string>
 vi.mock('@/app/lib/apiGuard', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/app/lib/apiGuard')>()
-  return { ...actual, applyRateLimit: async () => null }
+  const { NextResponse } = await import('next/server')
+  return {
+    ...actual,
+    applyRateLimit: async (_req: unknown, opts: { name: string }) => {
+      bucketsCharged.push(opts.name)
+      if (!refuseBucket.has(opts.name)) return null
+      return NextResponse.json({ error: 'Too many requests', retryAfterMs: 1_000 }, { status: 429 })
+    },
+  }
 })
 
 // 鈹€鈹€鈹€ The store, as a plain map so the tests can see what survived 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -81,8 +96,16 @@ let freshness: boolean
 let creditBalance: number | null
 let creditGaugeThrows: boolean
 
+/** Every store read, in order. The point of recording them is that reaching the
+ *  store at all is the cost the GET bucket exists to bound, so "was it charged"
+ *  and "was the store spared" are two different assertions. */
+let storeReads: string[]
+
 vi.mock('@/app/lib/scanJobStore', () => ({
-  readScanJob: async (a: string) => store.get(a.toLowerCase()) ?? null,
+  readScanJob: async (a: string) => {
+    storeReads.push(a.toLowerCase())
+    return store.get(a.toLowerCase()) ?? null
+  },
   startScanJob: async (a: string) => {
     const job: Job = { status: 'running', address: a.toLowerCase(), startedAt: Date.now() }
     store.set(a.toLowerCase(), job)
@@ -143,9 +166,28 @@ function doneJob(): Job {
   }
 }
 
+/**
+ * `origin` defaults to the un-allowlisted host the POST helper uses, matching the
+ * rest of this file. The one test that asserts a CORS header passes an allowed
+ * one instead: with `ALLOWED_ORIGINS` unset and `NODE_ENV` not production,
+ * `apiGuard` falls back to localhost, and it omits `Access-Control-Allow-Origin`
+ * for anything else — so asserting that header under `tosh.test` would have
+ * measured the allow-list rather than the refusal path.
+ */
+async function get(address: string = USER, origin = 'https://tosh.test') {
+  const { GET } = await import('./route')
+  return GET(new Request(
+    `https://tosh.test/api/pog-scan?address=${address}`,
+    { headers: { origin } },
+  ))
+}
+
 beforeEach(() => {
   authRecovers = true
   scheduled = 0
+  bucketsCharged = []
+  refuseBucket = new Set()
+  storeReads = []
   store = new Map()
   freshness = true
   charged = []
@@ -351,5 +393,70 @@ describe('POST /api/pog-scan 鈥?the two limits that are not request counts', ()
     creditBalance = 10
     await post()
     expect(charged).toEqual([])
+  })
+})
+
+/**
+ * GET had no bucket at all, on the reasoning that reads are free. They are not:
+ * a GET spends an Upstash command in `readScanJob` before it can discover the
+ * address is unknown, and Upstash is the substrate the rate limiter itself runs
+ * on — `consumeRateLimit` answers a store failure by counting per-instance for
+ * 30 s, at which point `pog-scan:global` is no longer global and the Blockscout
+ * credit budget it protects is open. So the unauthenticated, unbucketed handler
+ * was the cheapest lever on the outage this whole route is arranged to avoid.
+ */
+describe('GET /api/pog-scan — the bucket it used to be missing', () => {
+  it('charges its own bucket', async () => {
+    store.set(USER.toLowerCase(), doneJob())
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(bucketsCharged).toEqual(['pog-scan-get'])
+  })
+
+  it('spends no store command on a request it refuses', async () => {
+    // The ordering is the whole defence. Charging after the read would leave the
+    // cost being bounded payable by every request that gets turned away.
+    refuseBucket.add('pog-scan-get')
+    const res = await get()
+    expect(res.status).toBe(429)
+    expect(storeReads).toEqual([])
+  })
+
+  it('charges the bucket even for an address nobody has ever scanned', async () => {
+    // An unknown address still costs a lookup to establish that it is unknown, so
+    // pointing a flood at random addresses must not be the free path.
+    const res = await get('0x0000000000000000000000000000000000000009')
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ status: 'absent' })
+    expect(bucketsCharged).toEqual(['pog-scan-get'])
+    expect(storeReads).toEqual(['0x0000000000000000000000000000000000000009'])
+  })
+
+  it('rejects a malformed address without reaching the store', async () => {
+    const res = await get('not-an-address')
+    expect(res.status).toBe(400)
+    expect(storeReads).toEqual([])
+  })
+
+  it('reads from a different bucket than POST, so polling cannot lock out starting', async () => {
+    // The trap in fixing this: reusing `RATE_LIMIT_OPTS` would have bucketed GET
+    // at three tokens refilling once a minute, and `PogScanButton` polls every
+    // two seconds for up to 135 s. One scan's own polling would then exhaust the
+    // bucket that starts scans, so the fix for an abuse path would have broken
+    // the ordinary one. Distinct names is what keeps the two from interfering.
+    store.set(USER.toLowerCase(), doneJob())
+    await get()
+    await post({ force: true })
+    expect(new Set(bucketsCharged).size).toBe(2)
+    expect(bucketsCharged).toEqual(['pog-scan-get', 'pog-scan'])
+  })
+
+  it('still answers a refusal with CORS headers', async () => {
+    // A 429 the browser cannot read is indistinguishable from the network being
+    // down, and the client would retry into it.
+    refuseBucket.add('pog-scan-get')
+    const res = await get(USER, 'http://localhost:3000')
+    expect(res.status).toBe(429)
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:3000')
   })
 })

@@ -24,8 +24,15 @@
  * means a caller can only ever spend the budget on a wallet they control.
  *
  * GET carries no auth because it discloses nothing private: every figure in it
- * is a sum of public transaction fees, readable by anyone with the address. The
- * asymmetry is deliberate — writes cost us money, reads do not.
+ * is a sum of public transaction fees, readable by anyone with the address.
+ *
+ * It is still bucketed, and the sentence that used to be here — "writes cost us
+ * money, reads do not" — is why it was not. A read costs an Upstash command
+ * before it can even find out the address is unknown, and Upstash is what the
+ * rate limiter runs on, so the cheapest way to weaken every budget below was to
+ * hammer the one handler that had none. See `GET_RATE_LIMIT`. Auth and
+ * throttling are separate questions and only the first one is settled by the
+ * data being public.
  *
  * WHY `after()` AND WHAT ITS ACTUAL LIMIT IS
  *
@@ -93,6 +100,36 @@ const RATE_LIMIT_OPTS = {
   name: 'pog-scan',
   capacity: 3,
   refillPerSec: 1 / 60,
+} as const
+
+/**
+ * GET's bucket, which this route did without.
+ *
+ * The omission had a reason written above it — "writes cost us money, reads do
+ * not" — and the reason is false. A GET spends one Upstash command in
+ * `readScanJob` before it can even discover the address is unknown, and two once
+ * the job is `done`, because `present()` reads the live rate. Unauthenticated and
+ * unbucketed, that made this the one handler in the app with no ceiling on how
+ * much shared store it can be made to spend: every other GET here is throttled,
+ * including `admin/config`'s, whose comment describes this exact case — public
+ * data, no auth, "still throttled to fend off scrapers".
+ *
+ * What makes it worth more than a bill is which store it is. Upstash backs the
+ * rate limiter itself, and `consumeRateLimit` answers a store failure by falling
+ * back to per-instance counting for 30 s. `pog-scan:global` is a per-instance
+ * ceiling at that point, so the 120/hour sized to protect the Blockscout credit
+ * budget stops being global exactly when something is straining the store. The
+ * end of that chain is the failure this file already names: credits exhausted,
+ * `CREDIT_RESERVE` refusing, and genesis allocation closed for everybody.
+ *
+ * Sized so legitimate polling cannot trip it: `PogScanButton` polls every 2 s for
+ * at most 135 s, so ~0.5 req/s sustained and ~68 per scan. 10/s refill leaves a
+ * twentyfold margin and matches what `projects` already calls a cheap read.
+ */
+const GET_RATE_LIMIT = {
+  name: 'pog-scan-get',
+  capacity: 60,
+  refillPerSec: 10,
 } as const
 
 /**
@@ -353,6 +390,12 @@ export async function OPTIONS(req: Request) {
 }
 
 export async function GET(req: Request) {
+  // Before the store is touched, not after: the first Upstash command is the
+  // cost being bounded, so charging for it afterwards would leave the whole
+  // budget spendable by requests that are refused.
+  const limited = await applyRateLimit(req, GET_RATE_LIMIT)
+  if (limited) return applyCors(limited, req, CORS_OPTS)
+
   const address = new URL(req.url).searchParams.get('address') ?? ''
   if (!isAddress(address)) return corsify(req, clientError('Invalid address'))
 

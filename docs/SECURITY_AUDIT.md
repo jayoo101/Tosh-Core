@@ -2228,6 +2228,107 @@ the documents — which is where the sweep's only defects were.
 
 ---
 
+### 5.13 Ninth sweep — the other half of Q4, and the read nobody was charged for
+
+With `src/` reviewed by hand and Q4 drilled (`INCIDENT_RESPONSE.md` §8.4), the
+obvious next question is the complement of the one Q4 answers. Q4 shows the chain
+refuses a *forged* attestation. It says nothing about whether an attacker can
+obtain a **genuine** one for quota they never earned — and that path is entirely
+off-chain, in code written after the last sweep: `gasHistory.ts` (784 lines) reads
+five explorers to decide a wallet's historical spend, `/api/pog-scan` runs it as a
+job, and `sign-allocation` signs whatever the finished job says. If the scan
+over-counts, the signature is valid, `registerPoG` accepts it, and every guarantee
+Q4 established is beside the point.
+
+#### The over-award question, and why the answer is no
+
+Walked deliberately looking for a way to make the total too large, since the whole
+design is stated as "every bound can only under-award":
+
+- **Direction filtering.** v1 `txlist` cannot filter by sender — `filter`,
+  `filter_to` and `direction` are accepted and ignored — so the from-side check is
+  the module's own, and it is applied on both dialects even where the server
+  claims to have done it. Without it the metric would be "gas that happened to
+  arrive at this address", which is the error `gas_usage_count` makes and the
+  reason it is unused despite costing one call.
+- **Window overlap.** `startblock` is inclusive, so the boundary block appears in
+  two consecutive windows. Hashes from the previous window's last block are
+  remembered and skipped, and the set holds one block rather than the whole
+  history. A block wider than `V1_PAGE_SIZE` cannot advance the cursor, which
+  terminates as `truncated` — an under-count, in the safe direction.
+- **Probe-then-fall-through.** A chain is probed with one exact v2 page and only
+  re-walked with v1 if a second page exists. The probe's rows are discarded rather
+  than added to the v1 total, so the two fee bases never mix.
+- **Cross-chain arithmetic.** The sum is wei of real fees, not transaction counts,
+  so the four cheap chains offer no arbitrage against Ethereum: earning a wei of
+  credit costs a wei of gas wherever it is spent. With a 1 ETH cap producing at
+  most 0.1 ETH of allocation, spending to farm quota loses money by construction.
+- **Who can spend the budget on whom.** `POST` requires the same EIP-191 wallet
+  signature `sign-allocation` requires, so a scan can only ever be started for an
+  address the caller controls; and the job key is `keccak`-free but lower-cased in
+  `keyFor()`, so the mixed-case trick that produced H-2 in §5.10 does not recur.
+- **Staleness.** `sign-allocation` refuses anything that is not a `done` job
+  inside `RESULT_TTL_MS`, so an hour-old figure cannot be signed against.
+
+No over-award path found. That is the sweep's result on the question it set out to
+ask, and the reason the finding below is about availability instead.
+
+#### The defect — the one handler in the app with no ceiling
+
+`GET /api/pog-scan` had no rate limit. The comment above it explained why: "the
+asymmetry is deliberate — writes cost us money, reads do not."
+
+Reads cost. A GET spends one Upstash command inside `readScanJob` *before* it can
+establish that the address is unknown, and two once the job is `done`, because
+`present()` reads the live rate through `getGasToSatoRate()` — which has no cache
+and goes to Redis on every call. Unauthenticated and unbucketed, this was the
+cheapest lever in the application on the one store everything shares.
+
+Which store it is, is what turns a bill into an outage. Upstash also backs the
+rate limiter, and `consumeRateLimit` answers a store failure by falling back to
+per-instance counting for `BREAKER_COOLDOWN_MS`. In that state `pog-scan:global`
+— the 120/hour ceiling sized specifically to protect the Blockscout daily credit
+budget — is no longer global at all, because each serverless instance counts
+alone. The rest of the chain is already written down in the route's own header:
+credits exhausted, `CREDIT_RESERVE` refusing every new scan, and genesis
+allocation closed for everybody. The file describes that outcome as "a denial of
+service on the launch that we deliver to ourselves", and left the cheapest route
+to it unmetered.
+
+It is also inconsistent with the codebase rather than a judgement call. Every
+other GET here is throttled, and `admin/config`'s carries a comment describing
+this exact case — public data, no auth, "still throttled to fend off scrapers".
+
+**Fixed.** `GET` now charges a `pog-scan-get` bucket before it touches the store,
+sized against the client rather than guessed: `PogScanButton` polls every 2 s for
+at most 135 s, so roughly 0.5 req/s and ~68 reads per scan, against a bucket of 60
+refilling at 10/s. The header's justification was corrected rather than deleted,
+because "the data is public" settles authentication and says nothing about
+throttling, and conflating the two is what left the hole.
+
+Six tests, and the trap they exist to pin is the fix itself: reusing the POST
+bucket — three tokens refilling once a minute — would have throttled a single
+scan's own polling on the second request, so a fix for an abuse path would have
+broken the ordinary one. That is asserted directly, along with the charge
+happening before the store read (otherwise refused requests still cost the thing
+being conserved) and the 429 carrying CORS (a refusal a browser cannot read is
+indistinguishable from an outage, and the client retries into it). 4 of 4
+mutations caught: the bucket deleted, the bucket reused from POST, the charge
+moved after the store read, and the refusal returned without CORS. The first
+attempt at the third mutation was reported MISSED and was wrong — it inserted the
+gate after the address validation but still ahead of the store, so behaviour had
+not changed and the tests were right to stay green.
+
+**Scope.** By hand: `gasHistory.ts`, `scanJobStore.ts`, `/api/pog-scan`, and
+`sign-allocation`'s allocation-derivation path. Not covered: the arithmetic of
+`computeMaxAllocFromWei` and the band coherence it asserts, which §5.9 examined;
+and the OP-stack L1-fee shortfall, which is a stated under-count rather than a
+defect. One asymmetry noticed and left alone: CI has a floor guard against the
+Foundry suite shrinking (351) and none against the frontend suite, which now
+stands at 152.
+
+---
+
 ## 6. Findings
 
 > **Populate from the auditor's report. One subsection per finding, using
