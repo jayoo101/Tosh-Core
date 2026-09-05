@@ -132,11 +132,16 @@ runs = 256
 # drawn from exactly that confusion in the course of choosing this value.
 #
 # Cost, measured on the whole contract at the real runs=128 rather than
-# extrapolated from the runs=64 probe: 7.8s -> 39.5s. That is ~5x, not the ~2x
-# the single-invariant probe above suggests, because the probe timed one
+# extrapolated from the runs=64 probe: 7.8s -> 39.5s locally. That is ~5x, not
+# the ~2x the single-invariant probe above suggests, because the probe timed one
 # invariant and the suite runs nine plus five unit tests, so it saturates the
-# available cores differently. Extrapolating the probe was the fourth wrong
-# reading in this exercise and it is corrected here rather than quietly.
+# available cores differently.
+#
+# The number that actually matters is CI, which runs the whole suite TWICE
+# (plain and --isolate) on a slower runner: 7m27s at depth 100 -> 13m12s at
+# depth 250, measured across consecutive pushes. Nearly double. If that is not
+# worth paying on every push, the deep setting belongs on the scheduled
+# workflow rather than here — see SECURITY_AUDIT.md §5.19.
 # ---------------------------------------------------------------------------
 [profile.default.invariant]
 runs = 128

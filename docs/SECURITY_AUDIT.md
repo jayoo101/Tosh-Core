@@ -3171,11 +3171,23 @@ forgotten: raising depth further would look like more rigour and would quietly
 buy less genesis exercise.
 
 Cost, measured on the whole contract at the real `runs = 128` instead of
-extrapolated from the runs=64 probe: **7.8 s → 39.5 s**, about 5×. The probe
-implied 2×, because it timed one invariant where the suite runs nine plus five
-unit tests and saturates the cores differently. That was the fourth wrong
-reading in this exercise, and the pattern in all four is the same: a number
-measured under one configuration, then used to describe another.
+extrapolated from the runs=64 probe: **7.8 s → 39.5 s** locally, about 5×. The
+probe implied 2×, because it timed one invariant where the suite runs nine plus
+five unit tests and saturates the cores differently.
+
+**And the local figure is the wrong figure, which is the fifth instance of the
+same mistake.** What anyone actually waits on is CI, which runs the whole suite
+twice — plain and `--isolate` — on a slower runner. Measured across consecutive
+pushes: **7 m 27 s and 7 m 31 s at depth 100, then 13 m 12 s at depth 250.** CI
+very nearly doubled. Quoting "39.5 s" as the price of this change would have been
+true and useless, in exactly the way the three coverage claims above were true of
+one sample.
+
+So the pattern in all five readings is one thing: a number measured under one
+configuration, then used to describe another. Whether ~6 extra CI minutes on
+every push is worth this depth is a budget question rather than a technical one,
+and the alternative worth knowing is that the deep configuration could run on the
+existing scheduled workflow instead of on every push.
 
 **Not done, and stated rather than left implied.** The counters still sample one
 run, so the instrumentation that this sweep just spent its value correcting is
