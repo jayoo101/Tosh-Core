@@ -50,7 +50,7 @@ import {
   buildPoGScanAuthMessage,
   isSupportedPogChain,
 } from '@/lib/contracts'
-import { scanGasHistory, GasScanUnavailable } from '@/app/lib/gasHistory'
+import { scanGasHistory, GasScanUnavailable, scanKeyPresent } from '@/app/lib/gasHistory'
 import {
   readScanJob, startScanJob, finishScanJob, failScanJob,
   isFresh, JOB_LEASE_MS, RESULT_TTL_MS,
@@ -107,16 +107,35 @@ const RATE_LIMIT_OPTS = {
  * deliver to ourselves.
  */
 
-/** Ceiling on scans started by anyone, per hour.
+/**
+ * Ceiling on scans started by anyone, per hour.
  *
- *  Sized against what the dependency absorbs rather than what we expect: a scan
- *  issues roughly 5–25 requests over five hosts, so 240/hour is at worst about
- *  1,200 per host per hour, well under one per second each. It also sits far
- *  above any plausible organic rate, since a claimant scans once and the answer
- *  is then cached for an hour. Exceeding it means either abuse or a launch much
- *  busier than planned, and in both cases shedding load beats losing the
- *  dependency for everyone. */
-const GLOBAL_SCAN_LIMIT = { capacity: 240, windowMs: 60 * 60 * 1000 } as const
+ * This was 240, reasoned from what five hosts "ought to absorb". Then the hosts
+ * were asked. Unkeyed, Arbitrum and Base advertise `x-ratelimit-limit: 10` on a
+ * window near forty minutes and return 429 on the tenth request — measured
+ * twice, reproducibly, in `gasHistory.ts`'s table. Since every chain must
+ * succeed for a total to be a total, the real unkeyed ceiling is about **ten
+ * wallets an hour**, and 240 was not a budget but a fiction that would have
+ * handed the eleventh claimant a failed scan and us a pile of 429s.
+ *
+ * So the number now comes from the tier we are actually on:
+ *
+ * - **No key** — 10/hour, matching the tightest host. Self-limiting to what the
+ *   dependency grants is strictly better than discovering it by refusal, because
+ *   our own 503 can say when to come back and a 429 from someone else cannot.
+ * - **Keyed** — 40/hour. The free tier is 100k credits/day at a documented 20
+ *   credits per call, about 5,000 calls/day, and a light scan is five calls:
+ *   roughly a thousand scans a day, which is 40/hour sustained. Paid tiers raise
+ *   this; see `gasHistory.ts`.
+ *
+ * Ten an hour is not a launch-day capacity, and no constant here can make it
+ * one. That is a procurement question, recorded as such in
+ * `PRE_MAINNET_CHECKLIST.md` §6.4 rather than papered over with a bigger number.
+ */
+const GLOBAL_SCAN_LIMIT = {
+  capacity: scanKeyPresent() ? 40 : 10,
+  windowMs: 60 * 60 * 1000,
+} as const
 
 /** Ceiling on scans for one address, per hour.
  *

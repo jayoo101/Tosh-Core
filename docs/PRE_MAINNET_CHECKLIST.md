@@ -626,7 +626,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
-| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either the scan reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | ✅ `gasHistory.ts` sums outbound fees across five chains via Blockscout, banded by a 0.05 ETH floor and a 1 ETH cap; live scan green against real hosts. Residual limits recorded in §6.4 |
+| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either the scan reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | 🟡 `gasHistory.ts` sums outbound fees across five chains via Blockscout, banded by a 0.05 ETH floor and a 1 ETH cap; live scan green. Remaining: unkeyed Arbitrum and Base grant 10 requests per ~40 min, capping the product at ~10 wallets/hour. Needs a Blockscout API key — see §6.4 |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
@@ -1059,9 +1059,14 @@ allocation that we would be delivering to ourselves. Wallet auth does not help:
 keypairs are free, so each fresh address is a fresh cache key and a real
 five-chain read, and a proxy pool multiplies the per-IP bucket. So `/api/pog-scan`
 runs the scan as a job behind four gates — a 1-hour result cache, an in-flight
-join, a **240/hour global ceiling**, and **6/hour per address** — with the last
-two charged only when a scan will really run, so that polling and cache hits are
+join, a **global hourly ceiling**, and **6/hour per address** — with the last two
+charged only when a scan will really run, so that polling and cache hits are
 free. Ten tests, nine mutations, all caught.
+
+That global ceiling was first set to 240/hour, reasoned from what five hosts
+"ought to absorb". Then the hosts were asked, and the answer is in the next
+section: it is now 10/hour unkeyed and 40/hour with a key, because 240 was
+never the binding constraint.
 
 One residual trap was removed rather than documented: `totalGasEth()` still
 defaulted its argument to `MOCK_CHAIN_GAS`, so a caller who forgot to pass a scan
@@ -1082,6 +1087,80 @@ Not yet done: nobody has clicked it against a live deployment. `tsc`, `eslint`,
 the unit suite and `next build` all pass, and the scan underneath is verified
 against real hosts, but the assembled flow has not been exercised in a browser.
 That belongs with PM-C7, when the frontend is pointed at 4663.
+
+#### Reopened the same day — the free tier is ten wallets an hour
+
+Everything above was sized against a guess about what the public Blockscout
+instances tolerate. They were then measured, by walking each host up to its limit
+until it refused:
+
+| Host | `x-ratelimit-limit` | Window | Effective | Behaviour at the limit |
+|---|---:|---|---|---|
+| Ethereum, Optimism | 180 | ~60 s | 3 req/s | fine for our volumes |
+| **Arbitrum, Base** | **10** | **~40 min** | **~10 req/hour** | `429` on the tenth, twice, reproducibly |
+
+The 429 body is `{"message":"Too many requests. Increase limits now at
+https://dev.blockscout.com"}`. A scan needs at least one request per chain and
+**every** chain must succeed for a total to be a total — an unreachable chain
+reads as a smaller wallet, and that difference is an allocation. So those ten
+requests, not anything in this repository, are the ceiling on the whole product.
+
+How many wallets ten requests buys depends on the wallet, and not in the
+direction one would guess:
+
+| Wallet | Cost on Arbitrum | Wallets per window |
+|---|---:|---:|
+| Few transactions | 1 (the v2 probe answers in one page) | ~10 |
+| Long history, under the cap | up to 5 (probe + four v1 windows) | ~2 |
+| Whale | **0** | unlimited |
+
+The whale row is not a mistake. `GAS_SCAN_CHAINS` puts Ethereum first precisely
+because fees there dominate, so a wallet that reaches the 1 ETH cap on Ethereum
+alone never issues a request to Arbitrum or Base at all — the early exit that
+exists to save time also spares the tightest hosts. The expensive case is the
+middle: a wallet with tens of thousands of cheap transactions and no single chain
+large enough to end the scan.
+
+Call it **ten wallets an hour** as a planning figure, understanding that a run of
+busy-but-not-rich wallets can make it two.
+
+That is not a launch-day capacity, and no constant here can make it one. Three
+consequences, all now recorded in code:
+
+1. **The 240/hour ceiling was fiction.** It is now `10` unkeyed and `40` with a
+   key — the latter from the free tier's 100k credits/day at a documented 20
+   credits per call, about 5,000 calls/day against a five-call light scan.
+   Self-limiting to what the dependency grants beats discovering it by refusal,
+   because our own 503 can say when to come back and someone else's 429 cannot.
+2. **The retry loop was making it worse.** A 429 was retried on a 400/800/1200 ms
+   backoff against a window that refills in forty minutes — three more requests
+   from a budget with none left, aimed at a host that had just asked us to stop.
+   It now reads `x-ratelimit-reset` and only retries a window about to turn over,
+   naming `BLOCKSCOUT_API_KEY` in the error a human will read. Seven mutations,
+   all caught, including both directions of that threshold.
+3. **`BLOCKSCOUT_API_KEY` is plumbed but unset**, and the key itself has not been
+   obtained, so the claim that a key raises the limit is *documented and
+   untested*. What is tested is that the key reaches every request and is
+   URL-escaped rather than spliced in raw.
+
+**The decision this leaves open** is procurement, not engineering:
+
+- **Free key** (account at dev.blockscout.com, no card): 5 req/s, ~5,000
+  calls/day ⇒ roughly a thousand wallets a day. Enough for a modest launch.
+- **$49/mo**: 15 req/s, 100M credits/month ⇒ effectively unbounded for this use.
+- **Do neither**: ten wallets an hour, and the eleventh claimant of each hour
+  gets a 503 telling them to come back.
+
+One thing worth noting for whoever picks: Robinhood Chain (4663) **is** in the
+Blockscout multichain registry, so moving to the keyed PRO API at
+`api.blockscout.com` with a `chain_id` parameter would also retire the Cloudflare
+`User-Agent` workaround and collapse five hosts and two API dialects into one.
+That is the only route by which limit #2 above stops being a dependency on
+someone else's bot policy.
+
+Until a key exists, PM-F9 is **partial**: the allocation is sized from something
+real, which is what the row asked, but the thing doing the sizing serves ten
+wallets an hour.
 
 ---
 
@@ -1117,8 +1196,8 @@ written by hand. See the note under the table.
 | C — Deploy & handoff | 7 | 0 | 1 | 0 | 1 |
 | D — Keys & secrets | 0 | 3 | 0 | 1 | 0 |
 | E — Observability & ops | 1 | 2 | 0 | 0 | 3 |
-| F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **11** | **6** | **1** | **1** | **18** |
+| F — Frontend & platform | 0 | 1 | 0 | 0 | 8 |
+| **Total** | **11** | **7** | **1** | **1** | **17** |
 
 The **N/A** column is new and holds exactly one row, PM-D2. It exists because
 the table had no column for a retired item, so closing D2 as not-applicable
@@ -1132,11 +1211,13 @@ in **Still open** against the gate row it repeats and fails if a row that is
 not ✅ is missing from that list. Eight mutations, all caught. This table can
 no longer disagree with the rows without CI saying so.
 
-Gates B and F are closed. F reopened for a day when the 2026-09-04 sweep added
-PM-F9 — the genesis allocation was computed from a constant table and nothing in
-this file had ever asked about it — and closed again on 2026-09-05 once the scan
-read real chains (§6.4). The accounts-and-credentials group that was blocking F
-and half of E is done:
+Gate B is closed. Gate F has one partial row: the 2026-09-04 sweep added PM-F9 —
+the genesis allocation was computed from a constant table and nothing in this file
+had ever asked about it — and 2026-09-05 replaced that with a real five-chain
+scan, then measured the free tier those chains are served on and found it grants
+about ten wallets an hour (§6.4). The correctness half is done; the throughput
+half is a free API key nobody has fetched. The accounts-and-credentials group
+that was blocking F and half of E is done:
 Upstash, Supabase (with `chain_id`), Sentry (both ingest routes and a real
 source-map upload), and the Vercel project serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
 half of the first incident drill are dated. What is still open is listed
@@ -1162,6 +1243,7 @@ below, in the order it actually blocks.
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
+| **PM-F9** | 🟡 | Allocation is sized from real multi-chain gas history, banded 0.05–1 ETH, live-verified. What is left is throughput, not correctness: unkeyed Arbitrum and Base grant ten requests per ~40-minute window and 429 on the tenth, so the whole product serves about ten wallets an hour. `BLOCKSCOUT_API_KEY` is plumbed and tested but unset, and obtaining it is procurement (free tier ⇒ ~1,000 wallets/day). See §6.4. |
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem. Gate C is the mainnet
 deploy and is blocked on a Safe (D4) for everything after the broadcast.

@@ -203,6 +203,53 @@ function headersFor(chain: GasScanChain): Record<string, string> {
     : { Accept: 'application/json' }
 }
 
+/**
+ * A free Blockscout key, and why the scan is not deployable without one.
+ *
+ * Measured 2026-09-05 against the unkeyed public instances, walking each host up
+ * to its limit until it refused:
+ *
+ * | Host | `x-ratelimit-limit` | Window | Effective |
+ * |---|---|---|---|
+ * | Ethereum, Optimism | 180 | ~60 s | 3 req/s |
+ * | Arbitrum, Base | **10** | **~40 min** | **10 req/hour** |
+ *
+ * Both of the low ones returned `429 {"message":"Too many requests. Increase
+ * limits now at https://dev.blockscout.com"}` on the tenth request, twice,
+ * reproducibly. Since a scan needs at least one request per chain and every
+ * chain must succeed for the total to be a total, **the unkeyed ceiling is about
+ * ten wallets an hour** — set by the two tightest hosts, not by anything in this
+ * codebase. The 240/hour budget in `/api/pog-scan` is not the binding constraint
+ * and never was.
+ *
+ * With a key (free at dev.blockscout.com: 5 req/s, 100k credits/day, and at the
+ * documented 20 credits per call about 5,000 calls/day) the same ceiling is
+ * roughly a thousand wallets a day. Paid tiers raise the rate, not the coverage.
+ *
+ * Unset is therefore a deployment error rather than a degraded mode, and
+ * `assertScanKeyPresent()` exists so it fails at boot instead of at the tenth
+ * claimant. Left optional here only so tests and the offline signer run without
+ * one.
+ *
+ * NOT YET VERIFIED: that the per-instance hosts honour a key on the `apikey`
+ * query parameter. It is what their own 429 points at and what the
+ * Etherscan-compatible v1 route implies, but nobody has held a key against it.
+ * The alternative, if they do not, is the PRO API at `api.blockscout.com` with a
+ * `chain_id` parameter — which would also retire the Cloudflare `User-Agent`
+ * workaround, since Robinhood Chain (4663) is in that registry.
+ */
+const API_KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
+
+export function scanKeyPresent(): boolean {
+  return API_KEY.length > 0
+}
+
+/** Append the key to a Blockscout URL, if we have one. */
+function withKey(url: string): string {
+  if (!API_KEY) return url
+  return `${url}${url.includes('?') ? '&' : '?'}apikey=${encodeURIComponent(API_KEY)}`
+}
+
 // ─── Results ─────────────────────────────────────────────────────────────────
 
 export interface ChainSpend {
@@ -253,19 +300,56 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
+/**
+ * Longest `x-ratelimit-reset` still worth waiting out by retrying.
+ *
+ * Measured, not chosen: unkeyed Arbitrum and Base answer with
+ * `x-ratelimit-limit: 10` and a reset around 2,370,000 ms — a ten-request budget
+ * that refills in about forty minutes. Retrying that on a 400 ms backoff spends
+ * three more of a budget that has none left and cannot recover inside the
+ * request, so the retry was pure noise aimed at a host that had just asked us to
+ * stop. Anything past this bound is reported as the exhaustion it is.
+ */
+const RETRYABLE_RESET_MS = 5_000
+
+/** `x-ratelimit-reset` in ms, or null when the host does not say. All four
+ *  Blockscout hosts that answered did say; the value is a plain countdown. */
+function resetMsOf(res: Response): number | null {
+  const raw = res.headers.get('x-ratelimit-reset')
+  if (!raw) return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
 async function getJson<T>(url: string, chain: GasScanChain): Promise<T> {
   let lastReason = 'unknown'
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) await sleep(400 * attempt)
     try {
-      const res = await fetch(url, {
+      const res = await fetch(withKey(url), {
         headers: headersFor(chain),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         cache: 'no-store',
       })
-      // 429 and 5xx deserve another attempt. Any other non-2xx is a request we
-      // built wrong, and repeating it only burns the budget.
-      if (res.status === 429 || res.status >= 500) {
+      if (res.status === 429) {
+        // Retry only a limit that is about to refill anyway. A long reset means
+        // the budget is gone for this window, and the honest move is to say so
+        // rather than knock three more times.
+        const resetMs = resetMsOf(res)
+        if (resetMs !== null && resetMs > RETRYABLE_RESET_MS) {
+          const limit = res.headers.get('x-ratelimit-limit') ?? '?'
+          throw new GasScanUnavailable(
+            chain.chain,
+            `rate limited (${limit}/window, resets in ${Math.ceil(resetMs / 1000)}s)`
+            + '; set BLOCKSCOUT_API_KEY to raise it',
+          )
+        }
+        lastReason = 'HTTP 429'
+        continue
+      }
+      // 5xx deserves another attempt. Any other non-2xx is a request we built
+      // wrong, and repeating it only burns the budget.
+      if (res.status >= 500) {
         lastReason = `HTTP ${res.status}`
         continue
       }

@@ -61,7 +61,13 @@ function v1Response(rows: object[]) {
   return { status: '1', message: 'OK', result: rows }
 }
 
-interface Route { match: (url: string) => boolean; body: () => unknown; status?: number }
+interface Route {
+  match: (url: string) => boolean
+  body: () => unknown
+  status?: number
+  /** Rate-limit headers, which decide whether a 429 is worth retrying. */
+  headers?: Record<string, string>
+}
 
 let routes: Route[] = []
 let requestLog: string[] = []
@@ -73,10 +79,12 @@ function installFetch() {
     const route = routes.find(r => r.match(url))
     if (!route) throw new Error(`no fixture for ${url}`)
     const status = route.status ?? 200
+    const headers = new Headers(route.headers ?? {})
     return {
       ok: status >= 200 && status < 300,
       status,
       statusText: 'x',
+      headers,
       json: async () => route.body(),
     } as unknown as Response
   }))
@@ -327,6 +335,66 @@ describe('failure direction', () => {
     expect(requestLog).toHaveLength(1)
   })
 
+  it('stops knocking when a 429 says the budget refills in forty minutes', async () => {
+    // Measured against the real hosts on 2026-09-05: unkeyed Arbitrum and Base
+    // answer `x-ratelimit-limit: 10` with a reset near 2,370,000 ms and refuse
+    // the tenth request. The retry loop backed off 400/800/1200 ms against that,
+    // which spent three more of a budget that had none left and could not
+    // recover inside the request — three extra refusals aimed at a host that had
+    // just asked us to stop.
+    routes = [{
+      match: isV2,
+      body: () => ({ message: 'Too many requests.' }),
+      status: 429,
+      headers: { 'x-ratelimit-limit': '10', 'x-ratelimit-reset': '2370000' },
+    }]
+
+    await expect(scanGasHistory(USER)).rejects.toThrow(GasScanUnavailable)
+    expect(requestLog).toHaveLength(1)
+  })
+
+  it('says which knob fixes a rate limit, in the error a human will read', async () => {
+    routes = [{
+      match: isV2,
+      body: () => ({}),
+      status: 429,
+      headers: { 'x-ratelimit-limit': '10', 'x-ratelimit-reset': '2370000' },
+    }]
+    await expect(scanGasHistory(USER)).rejects.toThrow(/BLOCKSCOUT_API_KEY/)
+  })
+
+  it('still retries a 429 whose window is about to turn over anyway', async () => {
+    // The distinction the fix rests on. A limit resetting in under a second is
+    // worth waiting out; treating every 429 as fatal would throw away scans that
+    // one backoff would have completed.
+    let attempts = 0
+    routes = [{
+      match: isV2,
+      get status() { return ++attempts <= 1 ? 429 : 200 },
+      body: () => v2Page([v2Item(USER, 10n ** 15n)]),
+      headers: { 'x-ratelimit-limit': '180', 'x-ratelimit-reset': '900' },
+    } as Route]
+
+    const h = await scanGasHistory(USER)
+    expect(attempts).toBeGreaterThan(1)
+    expect(h.totalWei).toBeGreaterThan(0n)
+  })
+
+  it('retries a 429 from a host that does not say when it resets', async () => {
+    // No header means no evidence, and the old behaviour is the safe default:
+    // back off and try, rather than fail a scan on a guess.
+    let attempts = 0
+    routes = [{
+      match: isV2,
+      get status() { return ++attempts <= 1 ? 429 : 200 },
+      body: () => v2Page([v2Item(USER, 10n ** 15n)]),
+    } as Route]
+
+    const h = await scanGasHistory(USER)
+    expect(attempts).toBeGreaterThan(1)
+    expect(h.totalWei).toBeGreaterThan(0n)
+  })
+
   it('reports truncation instead of pretending a bounded total is complete', async () => {
     // A history longer than the budget yields a lower bound. That is allowed —
     // it can only under-award — but it must be visible, because the caller
@@ -351,6 +419,53 @@ describe('failure direction', () => {
 })
 
 // ─── Upstream contract ───────────────────────────────────────────────────────
+
+describe('the API key, which is what makes the scan deployable at all', () => {
+  /**
+   * Measured 2026-09-05: unkeyed, Arbitrum and Base grant ten requests per
+   * ~40-minute window and 429 on the eleventh, which caps the whole product at
+   * roughly ten wallets an hour. A key is the difference between that and about
+   * a thousand a day, so "is the key actually on the request" is load-bearing
+   * rather than cosmetic — and it is exactly the kind of plumbing that silently
+   * does nothing.
+   *
+   * Read at module load, so these re-import rather than restub.
+   */
+  async function scanWithKey(key: string | undefined) {
+    vi.resetModules()
+    if (key === undefined) vi.stubEnv('BLOCKSCOUT_API_KEY', undefined as unknown as string)
+    else vi.stubEnv('BLOCKSCOUT_API_KEY', key)
+    const mod = await import('./gasHistory')
+    await mod.scanGasHistory(USER)
+    return mod
+  }
+
+  afterEach(() => { vi.unstubAllEnvs(); vi.resetModules() })
+
+  it('puts the key on every upstream request when one is configured', async () => {
+    await scanWithKey('test-key-123')
+    expect(requestLog.length).toBeGreaterThan(0)
+    expect(requestLog.every(u => u.includes('apikey=test-key-123'))).toBe(true)
+  })
+
+  it('sends no apikey parameter at all when none is configured', async () => {
+    await scanWithKey(undefined)
+    expect(requestLog.length).toBeGreaterThan(0)
+    expect(requestLog.some(u => u.includes('apikey'))).toBe(false)
+  })
+
+  it('escapes a key rather than splicing it into the query raw', async () => {
+    await scanWithKey('a&b=c')
+    expect(requestLog.every(u => u.includes('apikey=a%26b%3Dc'))).toBe(true)
+  })
+
+  it('reports whether a key is present, since the scan ceiling depends on it', async () => {
+    const withKey = await scanWithKey('k')
+    expect(withKey.scanKeyPresent()).toBe(true)
+    const without = await scanWithKey(undefined)
+    expect(without.scanKeyPresent()).toBe(false)
+  })
+})
 
 describe('assumptions about the upstream API', () => {
   it('asks v2 for the from-side only', async () => {

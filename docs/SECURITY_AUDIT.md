@@ -1683,11 +1683,32 @@ does not bound this: it proves control of the address named, but keypairs are
 free, so every fresh address is a fresh cache key and therefore a real five-chain
 read, and a rented proxy pool multiplies the per-IP bucket by however many IPs
 were rented. `/api/pog-scan` therefore runs the scan as a job behind a 1-hour
-result cache, an in-flight join, a 240/hour global ceiling and 6/hour per
-address, with the last two charged only when a scan will really run so that
-polling and cache hits stay free. Ten tests; nine mutations including the
-ordering of the two ceilings and a `force` path that used to delete the cached
-result *before* consulting them, all caught.
+result cache, an in-flight join, a global hourly ceiling and 6/hour per address,
+with the last two charged only when a scan will really run so that polling and
+cache hits stay free. Ten tests; nine mutations including the ordering of the two
+ceilings and a `force` path that used to delete the cached result *before*
+consulting them, all caught.
+
+**The ceiling was then measured rather than assumed, and it was wrong by 24×.**
+The global limit began at 240/hour, reasoned from what five hosts ought to
+tolerate. Walking each host up to its actual limit found that unkeyed Arbitrum
+and Base advertise `x-ratelimit-limit: 10` on a window near forty minutes and
+return 429 on the tenth request — twice, reproducibly. Since every chain must
+succeed for a total to be a total, the real unkeyed ceiling is about ten wallets
+an hour. Two consequences matter to a reviewer. First, a defence sized by
+reasoning about someone else's capacity is not a defence, and the fix was to
+derive it from the tier in use (10 unkeyed, 40 keyed) so that we refuse with a
+503 that says when to return rather than absorbing a 429 that does not. Second,
+the retry loop was *amplifying* the condition it was meant to survive: a 429 was
+retried three times on a sub-second backoff against a budget that refills in
+forty minutes. It now reads `x-ratelimit-reset` and retries only a window about
+to turn over. Seven mutations, all caught, including both directions of that
+threshold and the case where a host sends no header at all.
+
+`BLOCKSCOUT_API_KEY` is plumbed, escaped and asserted onto every request, but no
+key has been obtained, so "a key raises the limit" is documented on the vendor's
+authority and not on ours. Recorded in `PRE_MAINNET_CHECKLIST.md` §6.4 as
+procurement; PM-F9 is partial rather than closed because of it.
 
 One residual trap was removed rather than documented: `totalGasEth()` still
 defaulted its argument to `MOCK_CHAIN_GAS`, so a caller who forgot to pass a scan
