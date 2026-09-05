@@ -109,6 +109,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_LAUNCH_FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_SIG_VALIDITY",
     "inputs": [],
     "outputs": [
@@ -1623,6 +1636,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "IsBlacklisted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LaunchFeeTooHigh",
     "inputs": []
   },
   {

@@ -394,6 +394,36 @@ contract ToshV5FactoryTest is Test {
         assertEq(factory.launchFee(), 0);
     }
 
+    /// @dev The ceiling is inclusive, so the boundary is a legal setting rather
+    ///      than an off-by-one that only shows up when someone tries to use it.
+    function test_setLaunchFee_atBoundary() public {
+        // Read the ceiling first: `vm.prank` applies to the next call, and a
+        // getter in the argument list is that call.
+        uint256 ceiling = factory.MAX_LAUNCH_FEE();
+        vm.prank(admin);
+        factory.setLaunchFee(ceiling);
+        assertEq(factory.launchFee(), ceiling);
+    }
+
+    /// @dev `setLaunchFee` was the only setter here with no validation at all.
+    ///      The realistic failure is a wei/ether slip in a Safe transaction
+    ///      builder, which would make `createLaunch` unaffordable for everyone
+    ///      until a second owner transaction undid it — an outage from a typo.
+    function test_setLaunchFee_rejectsAboveCeiling() public {
+        uint256 ceiling = factory.MAX_LAUNCH_FEE();
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.LaunchFeeTooHigh.selector);
+        factory.setLaunchFee(ceiling + 1);
+    }
+
+    /// @dev The slip this exists for, at its real magnitude: 0.1 ether typed as
+    ///      0.1e18 ether. Nothing in the old setter would have stopped it.
+    function test_setLaunchFee_rejectsOrderOfMagnitudeSlip() public {
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.LaunchFeeTooHigh.selector);
+        factory.setLaunchFee(0.1e18 ether);
+    }
+
     function test_setCooldownDuration_acceptsZero() public {
         vm.prank(admin);
         factory.setCooldownDuration(0);

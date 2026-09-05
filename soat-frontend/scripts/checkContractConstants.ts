@@ -50,7 +50,7 @@ import {
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY, BONDING_MAX,
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
   PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS,
-  GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_COOLDOWN_SECONDS,
+  GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_LAUNCH_FEE, MAX_COOLDOWN_SECONDS,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
 } from '../src/lib/contracts'
 import {
@@ -197,6 +197,8 @@ const FIELDS: Field[] = [
     cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
   { sol: 'MIN_SOFT_CAP_PROD', file: FACTORY, ts: MIN_SOFT_CAP_PROD, where: 'contracts.MIN_SOFT_CAP_PROD',
     cost: 'the launch form accepts a soft cap the factory rejects, or blocks one it allows' },
+  { sol: 'MAX_LAUNCH_FEE', file: FACTORY, ts: MAX_LAUNCH_FEE, where: 'contracts.MAX_LAUNCH_FEE',
+    cost: 'the admin panel accepts a fee the factory reverts on with LaunchFeeTooHigh' },
   { sol: 'MAX_COOLDOWN', file: FACTORY, ts: BigInt(MAX_COOLDOWN_SECONDS), where: 'contracts.MAX_COOLDOWN_SECONDS',
     cost: 'the admin panel offers a cooldown the factory reverts on' },
   { sol: 'MAX_SIG_VALIDITY', file: FACTORY, ts: BigInt(SIG_VALIDITY_SECONDS), where: 'pogQuota.SIG_VALIDITY_SECONDS',

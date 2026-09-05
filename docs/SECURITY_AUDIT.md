@@ -2440,20 +2440,104 @@ because they are risk controls that should apply immediately. Every duration set
 is capped at 7 days. `pause()` is narrow in the direction that matters — it stops
 new launches and new quota, not an in-flight genesis round or a refund.
 
-#### Noted, not changed
+#### The two smaller findings, closed in a second pass
 
-- `setLaunchFee` has no bounds of any kind. The owner is a Safe and the fee is
-  read only at `createLaunch`, so the blast radius is "launches become
-  unaffordable until the next owner transaction", but it is the one setter with no
-  validation whatsoever.
-- `SUPPORTED_POG_CHAIN_IDS` includes `FOUNDRY_CHAIN_ID` unconditionally, so a
-  production build accepts `chainId: 31337` and the request travels as far as an
-  RPC attempt against loopback before failing 503. It fails closed, and the digest
-  binds `block.chainid`, so a 31337-bound attestation is unusable on 4663 — but the
-  same allowlist is also written a second time, independently, in
-  `onchainNonce.ts`.
-- The frontend suite still has no floor guard against shrinking, unlike the
-  Foundry suite (351). It now stands at 162.
+Both were first recorded here as "noted, not changed". Neither is an exploit and
+neither was urgent, which is exactly why they are worth finishing rather than
+carrying: they are the kind of item that stays on a list until the list stops
+being read.
+
+**`setLaunchFee` was the one setter on the factory with no validation at all** —
+no floor, no ceiling, no zero-check — while both duration setters are capped at
+`MAX_COOLDOWN` and `setDefaultSoftCap` is floored at `MIN_SOFT_CAP_PROD`. The
+failure it admits is not an attack, it is an accident with no undo short of a
+second owner transaction: the fee is denominated in wei, and the distance between
+`0.1 ether` and `0.1e18 ether` is one keystroke in a Safe transaction builder.
+Above the ceiling, `createLaunch` is unaffordable for everyone — a platform-wide
+outage produced by a typo.
+
+`MAX_LAUNCH_FEE = 10 ether` now bounds it, with `LaunchFeeTooHigh`. Deliberately
+generous, at 100x the 0.1 ETH default, because it guards against an
+order-of-magnitude slip rather than against pricing judgement; zero stays legal
+and `test_setLaunchFee_allowsZero` pins that. Three Foundry tests cover the
+inclusive boundary, the first value above it, and the slip at its real magnitude
+(`0.1e18 ether`). The suite floor in `test.yml` moved 351 → 354 with the reason
+recorded inline, since a floor that rises without explanation is indistinguishable
+from a floor someone edited to make a red check go away.
+
+The part that would have been missed by fixing only the contract: **a bound that
+exists only on-chain converts the typo into a reverted owner transaction instead
+of an inline refusal**, and the admin panel is precisely where the typo gets typed.
+Both other bounded dials are mirrored in `contracts.ts` and enforced in the panel
+before the button arms — `belowFloor` naming `InvalidSoftCap`, `overMax` naming
+`MAX_COOLDOWN`. `MAX_LAUNCH_FEE` is now mirrored the same way, `LaunchFeePanel`
+blocks on `aboveCeiling`, and the mirror is covered by the new
+`checkContractConstants.ts` (18 constants now, up from 17) so the copy cannot drift
+from the contract it claims to follow.
+
+One incidental wrinkle, recorded because the fix is not obvious from the
+diff: adding the ceiling check made the React Compiler unable to preserve
+`LaunchFeePanel`'s hand-written `useCallback`, which made it **skip optimizing the
+whole component**. The `useCallback` was dropped — no other panel in
+`FactoryDials.tsx` used one — which is both the lint fix and the faster outcome.
+
+**The PoG chain allowlist accepted the devnet in production, and was written
+twice.** `SUPPORTED_POG_CHAIN_IDS` included `FOUNDRY_CHAIN_ID` unconditionally, so
+a deployed build accepted `chainId: 31337` and carried the request as far as an RPC
+attempt against loopback before failing 503. That fails closed, and the attestation
+digest binds `block.chainid` so a 31337-bound signature is unusable on 4663 — but
+"the only thing stopping it is that nothing listens on localhost" is not a control,
+and the same decision was also written inline in `onchainNonce.ts` as
+`chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID`. Two copies of one
+allowlist is the shape that produced the deadline defect above: tightening either
+one alone would have left the other accepting what the first had just refused.
+
+The devnet is now included only when this is not a production build — which also
+tightens a deployed *testnet* build, correctly, since it has no loopback node
+either — and the list itself is no longer exported, only the predicate and
+`supportedPogChainLabel()` for error messages. `onchainNonce.ts` asks
+`isSupportedPogChain`. `chain.test.ts` (7 tests) exercises each environment in a
+fresh module registry, since the allowlist is computed at load, and its last test
+scans the calling modules for a hand-rolled `FOUNDRY_CHAIN_ID` comparison — which
+is what stops a third copy appearing next to the next caller that wants one.
+
+9 of 9 mutations caught across the three runners: the ceiling deleted, made
+exclusive, and raised past the slip it exists for; the mirror drifted in each
+direction; the devnet re-allowed unconditionally; the environment test inverted;
+the target chain dropped from its own allowlist; and `onchainNonce.ts` growing a
+second allowlist again.
+
+#### The asymmetry two sweeps had only recorded
+
+§5.13 and §5.14 both noted that the Foundry job has had a floor guard against the
+suite silently shrinking since it was written, and the frontend job never did.
+That is now closed, at a floor of 169.
+
+It is not redundant with the tests passing, and the deadline defect above is the
+argument. A suite that stops being *collected* — a renamed file that no longer
+matches the include glob, a `describe` that throws at import, a mock that swallows
+the module under test — reports success, because "every test that ran, passed" and
+"the tests ran" produce the same exit code. `computeDeadline()` had no test file at
+all and nothing anywhere said so.
+
+The parse is the part worth verifying rather than trusting, since a floor guard
+that cannot read its input either fails on every run or never fires, and passing
+once distinguishes neither. Checked against a real captured run plus synthetic
+inputs: the coloured summary CI actually emits (the reset code after the closing
+paren is why the pattern is not end-anchored), a red run — where the
+parenthesised total is still the collected count, which is what the floor is about
+— a shrunken suite, and unparseable input, which must yield empty so the
+workflow's `-z` test turns it into a loud failure instead of a silent pass. All
+eight checks pass, including the floor comparison itself at, below and above the
+line.
+
+#### Still open
+
+- The UI ceiling check has no test, and neither do `belowFloor` or `overMax`
+  before it — there are zero component tests in the frontend suite. The substance
+  is covered on both sides of it (Foundry for the bound, the guard for the mirror);
+  what is untested is the affordance. Recorded rather than papered over with a
+  source-text assertion that would only prove a string is present.
 
 ---
 

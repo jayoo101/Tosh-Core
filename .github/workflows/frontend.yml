@@ -153,7 +153,55 @@ jobs:
       # reintroduced and the tests were confirmed to fail — so they pin
       # behaviour rather than merely covering lines.
       - name: Server behaviour tests
-        run: npm test
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee /tmp/vitest.log
+
+      # The Foundry job has had a floor guard since it was written; this side
+      # never did, and SECURITY_AUDIT.md §5.13 and §5.14 both recorded the
+      # asymmetry rather than closing it.
+      #
+      # It is not redundant with the tests passing. A suite that stops being
+      # collected — a renamed file that no longer matches the include glob, a
+      # `describe` that throws at import, a `vi.mock` that swallows the module
+      # under test — reports success, because "every test that ran, passed" and
+      # "the tests ran" are the same exit code. That is precisely how the PoG
+      # deadline went untested: `computeDeadline()` had no test file at all, and
+      # nothing anywhere said so.
+      #
+      # 169 on 2026-09-05: 162 after the §5.14 deadline sweep added
+      # `pogQuota.test.ts` (10), plus 7 in `chain.test.ts` for the PoG chain
+      # allowlist. Lower this in the same commit as any deliberate removal, and
+      # say why.
+      - name: Assert the frontend suite did not silently shrink
+        run: |
+          set -euo pipefail
+          floor=169
+
+          # vitest's summary reads `Tests  169 passed (169)`, and on a red run
+          # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
+          # collected count either way, which is the number this guards.
+          #
+          # ANSI colour is stripped first and the match is not anchored at the end
+          # of the line: vitest colours that summary, so a trailing reset code sits
+          # after the closing paren and an anchored pattern silently finds nothing.
+          # A guard that cannot parse its input fails closed below, but it fails on
+          # every run rather than never — which is the same as not having it.
+          total=$(sed -e 's/\x1b\[[0-9;]*m//g' /tmp/vitest.log \
+                  | grep -oE '^[[:space:]]*Tests[[:space:]].*\([0-9]+\)' \
+                  | tail -1 | grep -oE '\([0-9]+\)' | tail -1 | tr -d '()')
+
+          if [ -z "$total" ]; then
+            echo "::error::Could not read a test count from vitest's summary line. The output format changed, or the run did not finish."
+            exit 1
+          fi
+
+          echo "collected=$total floor=$floor"
+
+          if [ "$total" -lt "$floor" ]; then
+            echo "::error::$total tests were collected, below the floor of $floor. A suite is missing rather than failing. If tests were deliberately removed, lower the floor in this workflow in the same commit and say why."
+            exit 1
+          fi
 
       - name: Build
         run: npm run build

@@ -55,10 +55,40 @@ function resolveTargetChain(): Chain {
 
 export const targetChain: Chain = resolveTargetChain()
 
-export const SUPPORTED_POG_CHAIN_IDS = [TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID] as const
+/**
+ * Chains the Proof-of-Gas signing path accepts.
+ *
+ * The local devnet is included only when this is NOT a production build. It used
+ * to be unconditional, so a deployed production build accepted `chainId: 31337`
+ * and carried the request all the way to an RPC attempt against loopback before
+ * failing 503. That fails closed, and the attestation digest binds
+ * `block.chainid` so a 31337-bound signature is unusable on 4663 — but it is a
+ * chain the deployment can never serve, reached through the oracle's own signing
+ * path, and "the only thing stopping it is that nothing listens on localhost" is
+ * not a control.
+ *
+ * `next build` sets `NODE_ENV=production` for a testnet deployment too, which is
+ * the wanted behaviour: a deployed testnet build has no loopback node either. A
+ * developer running `next dev` against the public testnet keeps the devnet.
+ *
+ * Exported only as a predicate, and the list is not exported, because this
+ * decision used to be written twice — here, and again inline in
+ * `onchainNonce.ts` as `chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID`.
+ * Two copies of one allowlist is the shape that let the PoG deadline drift; see
+ * docs/SECURITY_AUDIT.md §5.14.
+ */
+const SUPPORTED_POG_CHAIN_IDS: readonly number[] =
+  process.env.NODE_ENV !== 'production' && TARGET_CHAIN_ID !== FOUNDRY_CHAIN_ID
+    ? [TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID]
+    : [TARGET_CHAIN_ID]
 
 export function isSupportedPogChain(chainId: number): boolean {
-  return (SUPPORTED_POG_CHAIN_IDS as readonly number[]).includes(chainId)
+  return SUPPORTED_POG_CHAIN_IDS.includes(chainId)
+}
+
+/** For error messages that need to name what IS accepted. */
+export function supportedPogChainLabel(): string {
+  return SUPPORTED_POG_CHAIN_IDS.join(', ')
 }
 
 /**

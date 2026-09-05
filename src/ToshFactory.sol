@@ -43,6 +43,27 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant MAX_SIG_VALIDITY = 24 hours;
     uint256 public constant MAX_COOLDOWN = 7 days;
 
+    /// @notice Ceiling on `launchFee`, denominated in ETH.
+    ///
+    /// @dev    `setLaunchFee` was the one setter on this contract with no
+    ///         validation of any kind — no floor, no ceiling, no zero-check —
+    ///         while both duration setters are capped at `MAX_COOLDOWN` and
+    ///         `setDefaultSoftCap` is floored at `MIN_SOFT_CAP_PROD`.
+    ///
+    ///         The failure it admits is not an exploit, it is an accident with
+    ///         no undo short of a second owner transaction: the fee is quoted in
+    ///         wei, and the difference between `0.1 ether` and `0.1e18 ether` is
+    ///         one keystroke in a Safe transaction builder.  Above the ceiling
+    ///         `createLaunch` becomes unaffordable for everyone, which is a
+    ///         platform-wide outage produced by a typo rather than by an
+    ///         attacker.
+    ///
+    ///         Deliberately generous — 100x the 0.1 ETH default — because this
+    ///         guards against an order-of-magnitude slip, not against pricing
+    ///         judgement.  Zero stays legal: a fee-free platform is a policy
+    ///         choice, and `test_setLaunchFee_allowsZero` pins it.
+    uint256 public constant MAX_LAUNCH_FEE = 10 ether;
+
     /// @notice Minimum acceptable `defaultSoftCap`, denominated in ETH (v5.0).
     ///
     /// @dev    Guards the `p0 = 0` configuration trapdoor.  The hook derives
@@ -267,6 +288,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error InvalidAdmin();
     error ExceedsGlobalPogLimit();
     error InvalidSoftCap();
+    error LaunchFeeTooHigh();
     /// @notice `maxPogAllocationLimit` may not be set to zero — the hook
     ///         constructor rejects a zero per-wallet cap, so it would brick
     ///         `createLaunch` platform-wide.
@@ -424,7 +446,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit PogSignerUpdated(newSigner);
     }
 
+    /// @notice Set the native-ETH toll charged by `createLaunch`.
+    /// @dev    Bounded above by `MAX_LAUNCH_FEE`; see that constant for why.
+    ///         Zero is legal.  Not retroactive in any sense — `createLaunch`
+    ///         reads it live and `expectedFee` protects the creator against a
+    ///         change that lands in the same block.
     function setLaunchFee(uint256 fee) external onlyOwner {
+        if (fee > MAX_LAUNCH_FEE) revert LaunchFeeTooHigh();
         launchFee = fee;
         emit LaunchFeeUpdated(fee);
     }

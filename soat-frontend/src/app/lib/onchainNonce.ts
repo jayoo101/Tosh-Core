@@ -24,7 +24,7 @@ import type { Address, PublicClient } from 'viem'
 
 import { FACTORY_ABI } from './abis'
 import { serverPublicClient } from './serverRpc'
-import { TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
+import { isSupportedPogChain, supportedPogChainLabel } from '@/lib/chain'
 
 /**
  * Endpoint selection lives in `serverRpc` so that the chain bound to the
@@ -35,10 +35,15 @@ import { TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
  * gas to revert.
  */
 export function getPublicClientForChain(chainId: number): PublicClient {
-  if (chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID) {
+  // Asks `chain.ts` rather than restating the allowlist. This used to be its own
+  // `chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID`, a second
+  // independent copy of the same decision — so tightening one of the two would
+  // have left the other accepting what the first had just refused, and the
+  // route's own check is the other one.
+  if (!isSupportedPogChain(chainId)) {
     throw new Error(
       `[onchainNonce] Unsupported chainId ${chainId}. ` +
-      'PoG signing is limited to the target chain and the local devnet.',
+      `PoG signing accepts ${supportedPogChainLabel()}.`,
     )
   }
   return serverPublicClient(chainId)

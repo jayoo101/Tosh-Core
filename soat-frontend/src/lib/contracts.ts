@@ -40,8 +40,8 @@ export {
   ROBINHOOD_ID,
   ROBINHOOD_TESTNET_ID,
   FOUNDRY_CHAIN_ID,
-  SUPPORTED_POG_CHAIN_IDS,
   isSupportedPogChain,
+  supportedPogChainLabel,
   MAINNET_CHAIN_LABEL,
   ACTIVE_CHAIN_LABEL,
   IS_TESTNET,
@@ -195,6 +195,18 @@ export const treasuryContract = {
  */
 export const MIN_SOFT_CAP_PROD: bigint = 10n ** 16n
 export const MIN_SOFT_CAP_PROD_LABEL = '0.01'
+
+/**
+ * Ceiling on `launchFee` (mirrors `Factory.MAX_LAUNCH_FEE`).
+ *
+ * Mirrored here for the same reason the soft-cap floor and the cooldown maximum
+ * are: the admin panel is where the value is typed, and the slip this ceiling
+ * exists to catch — `0.1 ether` entered as `0.1e18 ether` — is a keystroke. A
+ * bound that lives only on-chain turns that keystroke into a reverted owner
+ * transaction instead of an inline refusal.
+ */
+export const MAX_LAUNCH_FEE: bigint = 10n * 10n ** 18n
+export const MAX_LAUNCH_FEE_LABEL = '10'
 
 /**
  * The 40 / 60 genesis-to-ladder split (mirrors `Hook.GENESIS_SUPPLY` and

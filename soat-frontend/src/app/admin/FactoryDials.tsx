@@ -9,7 +9,7 @@
  * says which guard is holding it and what would clear it.
  */
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useReadContract } from 'wagmi'
 import type { Abi } from 'viem'
 import {
@@ -17,6 +17,8 @@ import {
   FACTORY_ADDRESS,
   MIN_SOFT_CAP_PROD,
   MIN_SOFT_CAP_PROD_LABEL,
+  MAX_LAUNCH_FEE,
+  MAX_LAUNCH_FEE_LABEL,
   MAX_COOLDOWN_SECONDS,
 } from '@/lib/contracts'
 import {
@@ -74,29 +76,42 @@ export function LaunchFeePanel() {
 
   const tx = useTxAction({ action: 'update the launch fee', onConfirmed: () => { void refetch() } })
   const parsed = parseEthInput(feeInput)
+  const aboveCeiling = parsed.ok && parsed.value > MAX_LAUNCH_FEE
 
-  const submit = useCallback(() => {
+  // Not wrapped in `useCallback`, like every other panel in this file. Reading
+  // `parsed` for the ceiling check above left the React Compiler unable to
+  // preserve the manual memoization, which made it skip optimizing the whole
+  // component — a strictly worse trade than letting it memoize this itself.
+  const submit = () => {
     setConfirming(false)
-    if (!parsed.ok) return
+    if (!parsed.ok || aboveCeiling) return
     tx.send({
       address: FACTORY_ADDRESS,
       abi: FACTORY_ABI as unknown as Abi,
       functionName: 'setLaunchFee',
       args: [parsed.value],
     })
-  }, [parsed, tx])
+  }
 
   const gate = useActionGate({
     action: 'Update launch fee',
     onAct: () => setConfirming(true),
     tx,
-    blockersInRevertOrder: revertOrder(...amountBlockers(feeInput, parsed, 'fee')),
+    blockersInRevertOrder: revertOrder(
+      ...amountBlockers(feeInput, parsed, 'fee'),
+      {
+        id: 'above-max-launch-fee',
+        active: aboveCeiling,
+        label: '[max_launch_fee_violation]',
+        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ETH). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
+      },
+    ),
   })
 
   return (
     <Section
       id="G1-A" title="LAUNCH FEE"
-      subtitle="setLaunchFee · native ETH charged on every createLaunch · anti-spam toll, forwarded to the ladder treasury"
+      subtitle={`setLaunchFee · native ETH charged on every createLaunch · anti-spam toll, forwarded to the ladder treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ETH`}
     >
       <Readout
         label="CURRENT FEE"
@@ -104,18 +119,21 @@ export function LaunchFeePanel() {
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label="NEW FEE · ETH · 0 ALLOWED"
+        label={`NEW FEE · ETH · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
         value={feeInput}
         onChange={setFeeInput}
         placeholder="e.g. 0.1"
         inputMode="decimal"
         disabled={tx.isBusy}
-        fluo={parsed.ok}
+        errored={aboveCeiling}
+        fluo={parsed.ok && !aboveCeiling}
       />
-      <ScopeNote>
+      <ScopeNote tone={aboveCeiling ? 'warn' : 'mute'}>
         A zero fee is legal and disables the anti-spam toll entirely. The change
         applies to the next createLaunch onward; launches already in flight paid
-        the old fee and are unaffected.
+        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} ETH the
+        factory reverts LaunchFeeTooHigh, so this button stays inert rather than
+        burning gas on a typo.
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />
