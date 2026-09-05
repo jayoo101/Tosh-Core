@@ -1040,6 +1040,19 @@ answers Node's default `fetch` with a 403 challenge and a browser `User-Agent`
 without one. That last is a fragile dependency on someone else's bot policy, and
 if it changes the scan fails closed on that chain.
 
+**And it has no RPC fallback, though `gasHistory.ts` claimed one.** Counting the
+chain from the RPC we already run for the watcher sounds like the obvious escape
+until the chain is measured: Robinhood is an Arbitrum Nitro rollup with a
+**0.20 s block time**, which put it at **54.8 M blocks 127 days after launch**.
+JSON-RPC has no `eth_getTransactionsByAddress` — maintaining that index is what an
+explorer is *for* — so finding one wallet's sends means walking every block: about
+**548,000 batched requests, for one wallet, on one chain**. `trace_filter` and
+`arbtrace_filter` are both absent from that node, so there is no shortcut, and
+`eth_getLogs` cannot substitute because a plain ETH send emits no logs. The
+comment is corrected; a fallback that does not work is worse than an admitted gap.
+The real one is the keyed PRO API, which reaches 4663 by `chain_id` and never
+touches this host.
+
 The band you asked for is `pogQuota.ts`:
 
 - **Floor `POG_GAS_FLOOR_WEI` = 0.05 ETH.** Below it, `computeMaxAllocFromWei`

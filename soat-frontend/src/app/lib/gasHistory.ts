@@ -189,9 +189,20 @@ const MAX_RETRIES = 3
  * This is recorded as a dependency, not offered as a solution. It is exactly as
  * durable as a Cloudflare configuration that is not ours, and when it tightens
  * the Robinhood leg fails closed — which, by the failure rule above, takes the
- * whole scan with it. The standing fallback is to count that chain from the RPC
- * we already operate for the watcher. That is real work; it is tracked, not
- * assumed.
+ * whole scan with it.
+ *
+ * THERE IS NO RPC FALLBACK, though this comment used to claim one. Counting the
+ * chain from the RPC we already operate for the watcher sounds like the obvious
+ * escape until the chain is measured: Robinhood is an Arbitrum Nitro rollup with
+ * a 0.20 s block time, which put it at 54.8 M blocks 127 days after launch.
+ * JSON-RPC has no `eth_getTransactionsByAddress` — that index is the thing an
+ * explorer exists to maintain — so finding one wallet's sends means walking every
+ * block: ~548,000 batched requests, for one wallet, on one chain. `trace_filter`
+ * and `arbtrace_filter` are both absent from that node, so there is no shortcut,
+ * and `eth_getLogs` cannot substitute because a plain ETH send emits no logs.
+ *
+ * The real fallback is the keyed PRO API at `api.blockscout.com`, which reaches
+ * 4663 by `chain_id` and never touches this host. See `checkBlockscoutKey.mjs`.
  */
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
