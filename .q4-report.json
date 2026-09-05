@@ -1,0 +1,170 @@
+{
+  "drill": "Q4",
+  "chainId": 46630,
+  "factory": "0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA",
+  "pogSigner": "0x73db078fa94607893270079AC8F5c7492aB480cd",
+  "head": 113401308,
+  "ranAt": "2026-09-05T10:26:33.943Z",
+  "artefact": "0xf1c6257e5f4ba00e6102676cc99e38199e9c1d312b2259043719205f18a80942",
+  "artefactGenuine": true,
+  "vectors": [
+    {
+      "vector": "deadline further out than MAX_SIG_VALIDITY",
+      "want": [
+        "SignatureTooLong"
+      ],
+      "draws": 1,
+      "got": "SignatureTooLong×1",
+      "pass": true,
+      "why": "the TTL ceiling is live"
+    },
+    {
+      "vector": "deadline already passed",
+      "want": [
+        "SignatureExpired"
+      ],
+      "draws": 1,
+      "got": "SignatureExpired×1",
+      "pass": true,
+      "why": "the expiry gate is live"
+    },
+    {
+      "vector": "nonce skipped ahead",
+      "want": [
+        "NonceConflict"
+      ],
+      "draws": 1,
+      "got": "NonceConflict×1",
+      "pass": true,
+      "why": "the nonce gate is live and sequential"
+    },
+    {
+      "vector": "maxAlloc one wei over the per-wallet ceiling",
+      "want": [
+        "ExceedsGlobalPogLimit"
+      ],
+      "draws": 1,
+      "got": "ExceedsGlobalPogLimit×1",
+      "pass": true,
+      "why": "the ceiling is live and is not silently clamped"
+    },
+    {
+      "vector": "PERFECT envelope, signed by an attacker key",
+      "want": [
+        "InvalidSignature"
+      ],
+      "draws": 1,
+      "got": "InvalidSignature×1",
+      "pass": true,
+      "why": "THE Q4 PROPERTY — every gate satisfied, refused on the signature alone"
+    },
+    {
+      "vector": "attacker signs a digest naming the VICTIM as sender, submits it himself",
+      "want": [
+        "InvalidSignature"
+      ],
+      "draws": 1,
+      "got": "InvalidSignature×1",
+      "pass": true,
+      "why": "no key, no quota — the digest is not the weak point, the key is"
+    },
+    {
+      "vector": "GENUINE attestation replayed verbatim by its original sender",
+      "want": [
+        "SignatureExpired"
+      ],
+      "draws": 1,
+      "got": "SignatureExpired×1",
+      "pass": true,
+      "why": "a real signature is already dead on TTL alone, before any other check"
+    },
+    {
+      "vector": "GENUINE attestation lifted to the attacker wallet, verbatim",
+      "want": [
+        "SignatureExpired"
+      ],
+      "draws": 1,
+      "got": "SignatureExpired×1",
+      "pass": true,
+      "why": "stopped by the cheapest gate; sender-binding is never even consulted"
+    },
+    {
+      "vector": "GENUINE signature, deadline refreshed AND nonce advanced to the sender's current one",
+      "want": [
+        "InvalidSignature"
+      ],
+      "draws": 1,
+      "got": "InvalidSignature×1",
+      "pass": true,
+      "why": "both had to move to reach the signature check at all — this IS the two-field coupling that makes single-field isolation unreachable from public data"
+    },
+    {
+      "vector": "GENUINE signature, deadline refreshed but the spent nonce reused",
+      "want": [
+        "NonceConflict"
+      ],
+      "draws": 1,
+      "got": "NonceConflict×1",
+      "pass": true,
+      "why": "the spent nonce is refused before the signature is even looked at, so a consumed attestation has two independent reasons to die"
+    },
+    {
+      "vector": "GENUINE signature, refreshed deadline, lifted to the attacker wallet",
+      "want": [
+        "InvalidSignature"
+      ],
+      "draws": 1,
+      "got": "InvalidSignature×1",
+      "pass": true,
+      "why": "the only artefact on chain cannot be reused at all"
+    },
+    {
+      "vector": "malleable signature — s flipped to the upper half of the curve",
+      "want": [
+        "ECDSAInvalidSignatureS"
+      ],
+      "draws": 1,
+      "got": "ECDSAInvalidSignatureS×1",
+      "pass": true,
+      "why": "high-s is named and refused inside recover(), not quietly accepted as a second valid encoding of a signature the signer really did issue"
+    },
+    {
+      "vector": "all-zero 65-byte signature",
+      "want": [
+        "ECDSAInvalidSignature"
+      ],
+      "draws": 1,
+      "got": "ECDSAInvalidSignature×1",
+      "pass": true,
+      "why": "recovery fails outright — a null signature does not resolve to address(0), which is the version of this bug that would matter"
+    },
+    {
+      "vector": "random 65 bytes, 8 independent draws",
+      "want": [
+        "ECDSAInvalidSignature",
+        "ECDSAInvalidSignatureS",
+        "InvalidSignature"
+      ],
+      "draws": 8,
+      "got": "ECDSAInvalidSignatureS×3, ECDSAInvalidSignature×5",
+      "pass": true,
+      "why": "brute force has no cheaper entry than the key itself, by any of three paths"
+    },
+    {
+      "vector": "truncated 64-byte signature",
+      "want": [
+        "ECDSAInvalidSignatureLength"
+      ],
+      "draws": 1,
+      "got": "ECDSAInvalidSignatureLength×1",
+      "pass": true,
+      "why": "a wrong-length blob is refused on length, so no short-read path exists"
+    }
+  ],
+  "quotas": {
+    "0x46deC0a07EdD5221430A7DeAA8494086B45361B5": "0",
+    "0x2d68Ce6c08e4234F8600F568D37245e32B8d8942": "0",
+    "0x73db078fa94607893270079AC8F5c7492aB480cd": "10000000000000000"
+  },
+  "pass": true
+}

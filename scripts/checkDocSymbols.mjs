@@ -66,10 +66,33 @@ const DOC_DIR = join(REPO, 'docs');
 //   to reread §5.12 rather than to delete the entry.
 const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md'];
 
-// Backticked camelCase / _camelCase identifiers, >= 6 chars, optional (). The
-// length floor and the lower-case start keep SCREAMING_CASE constants, env
-// vars, contract names and single prose words out.
-const IDENT = /`(_?[a-z][A-Za-z0-9]{5,})\(?\)?`/g;
+// Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
+// wanted: `registerPoG` for functions and members, and `InvalidSignature` for
+// the custom errors — which matter MORE than the functions here, because Q4's
+// pass criterion in INCIDENT_RESPONSE.md is built almost entirely out of error
+// names, and a dangling error name is exactly as uncheckable as a dangling
+// function. The first version of this guard only matched lower-case starts and
+// so read straight past every one of them.
+//
+// `isCandidate` drops SCREAMING_SNAKE_CASE, which is env vars and Solidity
+// constants whose names legitimately appear in prose without being greppable
+// symbols. A single lower-case letter anywhere is enough to distinguish them.
+//
+// It deliberately does NOT drop interior underscores, though an earlier version
+// did, folding them in with the env vars. That was the guard's largest blind
+// spot and it survived two rounds of hardening: every Foundry test is named
+// `test_thing_doesWhat`, so the rule skipped the entire class — and a cited test
+// name is the most common form of EVIDENCE in these documents. "Fixed, see
+// `test_x`" is a claim that rests completely on `test_x` existing, so a dangling
+// one is worse than a dangling function name, which is usually just narration.
+// Caught by mutation: renaming a real test in `test/` left the guard silent
+// while §5.11 and the PRD went on citing the old name.
+const IDENT = /`(_?[A-Za-z][A-Za-z0-9_]{5,})\(?\)?`/g;
+
+const isCandidate = (n) => {
+  const body = n.startsWith('_') ? n.slice(1) : n;
+  return /[a-z]/.test(body); // must have a lower-case letter: excludes ALLCAPS
+};
 
 // Solidity/JS keywords and ordinary words that show up in backticks as prose.
 const PROSE = new Set([
@@ -90,11 +113,19 @@ const ALLOW = new Map([
   ['webSocket', 'asserted ABSENT — §5.1 proves no viem webSocket() transport is used'],
   ['master', 'a git branch name in the submodule pin table, not a code symbol'],
   // A dossier that records a stale-name finding has to be able to print the
-  // stale name. Both of these appear in §5.12 for exactly that reason, and both
-  // must stay absent from the tree — if either ever resolves again, someone has
-  // reintroduced the symbol and §5.12 needs rereading.
+  // stale name. Both appear in §5.12 for exactly that reason. Note what an ALLOW
+  // entry costs: the name is skipped BEFORE the search runs, so this guard would
+  // not notice if either symbol came back into `src/`. Nothing here watches for
+  // that, and pretending otherwise would be the same kind of unverifiable claim
+  // §5.12 is about.
   ['_verifyPoGSignature', 'the §5.12 finding itself — named to record that it never existed'],
   ['mintFromShelf', 'the §5.12 finding itself — the real name is mintBondingCurve'],
+  // The third finding, and the one that shows the cost above is real: the whole
+  // point of `EthNotTokens` is that it is the dangling TAIL of a line-wrapped
+  // `test_buyTax_exactOutputSkimsEthNotTokens`. The full name resolves and is
+  // checked normally wherever §5.11 and the PRD cite it; only the orphaned half
+  // is skipped. So this entry does not blind the guard to the test going away.
+  ['EthNotTokens', 'the §5.12 finding itself — the wrapped tail of test_buyTax_exactOutputSkimsEthNotTokens'],
   // Named in §5.12 as UNFIXED drift in PRD-v5.0.md, which is outside this
   // guard's gate. Allowlisted only because the dossier quotes them; the drift
   // itself is open. If one of these starts resolving, the PRD may have been
@@ -122,7 +153,7 @@ for (const f of docs) {
   const text = readFileSync(join(DOC_DIR, f), 'utf8');
   for (const m of text.matchAll(IDENT)) {
     const name = m[1];
-    if (PROSE.has(name) || ALLOW.has(name)) continue;
+    if (!isCandidate(name) || PROSE.has(name) || ALLOW.has(name)) continue;
     if (!seenIn.has(name)) seenIn.set(name, new Set());
     seenIn.get(name).add(f);
   }
@@ -165,6 +196,20 @@ try {
       // present, on the strength of its own prose, and silently stops working —
       // which is how the mutation harness first found it broken.
       '--glob', '!scripts/checkDocSymbols.mjs',
+      // Generated artifacts are not evidence that a symbol exists. `gasreport.txt`
+      // is tracked, 130 KB, and lists the name of every test that existed when it
+      // was last regenerated; `slither-baseline.json` embeds source snippets the
+      // same way. Either one keeps a DELETED symbol resolving indefinitely, which
+      // is the precise failure this guard exists to prevent — a doc citing a test
+      // that is gone, passing because a stale report still mentions it. Found by
+      // mutation: renaming a real test in `test/` stayed green until these were
+      // excluded. Regenerating them is not a fix; being outside the haystack is.
+      '--glob', '!gasreport.txt',
+      '--glob', '!slither*.json',
+      '--glob', '!*-report.json',
+      '--glob', '!*.tsbuildinfo',
+      '--glob', '!**/*.lock',
+      '--glob', '!**/pnpm-lock.yaml',
       REPO,
     ],
     { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
@@ -193,8 +238,11 @@ if (missing.length === 0) {
 }
 
 console.error(`check:doc-symbols FAILED — ${missing.length} identifier(s) named in docs but found nowhere:\n`);
+// Width is measured, not guessed at 38: test names run past 40 characters and a
+// fixed column silently glued the name to the label.
+const col = Math.max(...missing.map((n) => n.length)) + 5;
 for (const n of missing) {
-  console.error(`  \`${n}\``.padEnd(38) + `named in: ${[...seenIn.get(n)].join(', ')}`);
+  console.error(`  \`${n}\``.padEnd(col) + `named in: ${[...seenIn.get(n)].join(', ')}`);
 }
 console.error(
   '\nEither the symbol was renamed (fix the doc to match the code), or it never\n' +

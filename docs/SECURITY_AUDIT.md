@@ -2025,9 +2025,9 @@ Re-deriving the effective rates from scratch reproduced the figure §5.3 already
 records: exact-input pays **100.0 bps** of what the trader hands over, exact-output
 **99.01 bps**, because one rate is inclusive of the specified amount and the other
 is charged on top of the pool's input. An independent derivation landing on the
-documented number is the result worth having here. `test_buyTax_exactOutputSkims`
-`EthNotTokens` already encodes the same distinction in code, computing its base as
-`ethSpent − skim`.
+documented number is the result worth having here.
+`test_buyTax_exactOutputSkimsEthNotTokens` already encodes the same distinction in
+code, computing its base as `ethSpent − skim`.
 
 **Scope of this sweep.** By hand, both contracts, the five properties above plus
 the two just described. Still NOT covered, and staying with the engagement: the
@@ -2049,10 +2049,11 @@ surface. Read 2026-09-05, together with `ToshToken` (184), `ToshCloneLib` (320),
 `HookMiner` (119) and `HookDeployLib` (79). **With §5.11 this completes a by-hand
 pass over all of `src/`.**
 
-**No defect in the contracts. One in the documents that describe them**, and it
-is the kind that makes a control unverifiable rather than wrong.
+**No defect in the contracts. Three in the documents that describe them**, all of
+the kind that makes a control unverifiable rather than wrong — and one of the three
+was found only after the guard written for the first two was widened.
 
-#### The finding — two documents pointed at a function that has never existed
+#### The findings — three documents pointed at symbols that resolve nowhere
 
 §1.2 scoped in "the on-chain signature verification path in `ToshFactory`
 (`registerPoG`, `_verifyPoGSignature`)". There is no `_verifyPoGSignature`, in
@@ -2069,7 +2070,15 @@ attempts fail at a function that does not exist, so the drill could be recorded
 as passed by anyone who did not go looking, and nothing in the sentence would have
 contradicted them. It is the same shape as the `STATE-07` defect in §5.11: not a
 control that is wrong, a control whose success condition nobody could actually
-check. Q4 has not been run yet, so nothing false has been recorded.
+check. Q4 had never been run, so nothing false had been recorded — and it has
+since been run against the live testnet factory on the strength of the rewritten
+criterion: 15 vectors, 22 calls, every one refused, quotas unmoved.
+`INCIDENT_RESPONSE.md` §8.4 has the sitting, `scripts/drillQ4.mjs` the harness.
+Running it corrected the criterion twice more, both times in my wording rather
+than in the contract: it had named only the factory's own errors, missing the
+three OpenZeppelin `ECDSA*` reverts that fire from inside `recover` before any
+address exists to compare, and its brute-force vector was non-deterministic in a
+way that pinning a seed would have hidden.
 
 Both are fixed. §1.2 now names `registerPoG` alone with the file and line of the
 recover, and Q4's criterion is now something a drill can actually produce: every
@@ -2089,17 +2098,75 @@ than a correction. `scripts/checkDocSymbols.mjs` extracts every backticked
 identifier from the three documents where a dangling name has a security
 consequence — the dossier says what to review, the runbook says what to check
 under pressure, the monitoring doc says what the alerts mean — and fails the build
-on any that resolves nowhere in the tree. 182 identifiers currently pass. Names
-the docs mention *because* they are absent (`_headers`, `webSocket()`, and the two
+on any that resolves nowhere in the tree. 305 identifiers currently pass. Names
+the docs mention *because* they are absent (`_headers`, `webSocket()`, and the
 findings above) sit in an allowlist that requires a reason per entry; dropping one
 turns the build red, which is checked.
+
+**The guard found a third, of a kind not anticipated.** Its first version only
+matched lower-case-initial names, which read straight past every custom error —
+and Q4's pass criterion in the runbook is built almost entirely out of error
+names, so the guard was blind to the very sentences that had just been rewritten.
+Widening it to upper-camel names took the checked set from 182 to 261 and
+immediately failed on `EthNotTokens`. That one was not a rename: the real test is
+`test_buyTax_exactOutputSkimsEthNotTokens`, and a line wrap in §5.11 had split it
+across two lines with backticks closed around each half. The first half greps
+clean because it is a genuine prefix, so only the second half dangled. It reads
+perfectly to a human, cites a test that exists, and points at nothing — the
+failure mode a spell-checker cannot see and a compiler never reads.
 
 The guard's first version was itself broken, and its mutation harness is what
 found that: naming `_verifyPoGSignature` in its own header comment made the symbol
 "exist", so the guard reported clean on the very drift it was written for. It now
-excludes its own file. 8 of 8 mutations behave as specified, including one that
-plants a name in the guard's prose alone to prove the exclusion holds, and one
-invented name per gated document to prove all three are really read.
+excludes its own file. That was not the last of it: the same harness, pointed at
+the `EthNotTokens` fix, then found the guard's largest blind spot and a second way
+for it to pass on absent symbols. Both are recorded below because each had
+survived a round of hardening.
+
+**Blind spot: it checked no test names at all.** The candidate filter dropped any
+identifier with an interior underscore, on the reasoning that those are env vars
+and `SCREAMING_SNAKE` constants. Every Foundry test is named *test_thing_doesWhat*,
+so the rule silently excluded the entire class — and a
+cited test name is the most common form of *evidence* in this dossier. "Fixed, see
+*test_x*" rests completely on that test existing, which makes a dangling test name
+worse than a dangling function name, where the surrounding sentence is usually
+narration. A single lower-case letter anywhere already separates the env vars, so
+the underscore rule bought nothing. Removing it took the checked set from 261 to
+305; all 44 newly-visible names resolve, so no further drift was hiding there, but
+the class had been unguarded since the guard was written.
+
+**Second hole: generated artifacts were vouching for deleted code.** With test
+names in scope, renaming a real test in `test/` *still* left the build green.
+`gasreport.txt` is tracked, 130 KB, and lists the name of every test that existed
+when it was last regenerated; `slither-baseline.json` embeds source snippets the
+same way. Either one keeps a deleted symbol resolving indefinitely — precisely the
+failure the guard exists to prevent, a document citing a test that is gone, passing
+because a stale report still mentions it. Regenerating the artifacts is not a fix,
+since the next deletion reopens the window until someone regenerates again; they
+are now outside the haystack.
+
+**A fourth instance of the original drift, in shipping code.** Chasing why one
+mutation would not fail showed `_verifyPoGSignature` still resolving from two
+files. One is `scripts/drillQ4.mjs`, narrating the finding, which is expected. The
+other was `soat-frontend/src/app/api/sign-allocation/route.ts`, whose comment
+asserted that the signing digest "matches the on-chain `_verifyPoGSignature`
+recover path" — a claim about the contract, in production code, resting on a
+function that never existed. Corrected to name `ToshFactory.registerPoG`. This also
+exposes a limit worth stating plainly rather than discovering later: because
+"exists somewhere in the tree" counts comments, a genuinely absent symbol can be
+vouched for by the very prose describing its absence. The guard cannot close that
+without parsing, and pretending otherwise would be the same species of claim
+§5.12 is about.
+
+15 of 15 mutations behave as specified — one invented name per gated document to
+prove all three are read, one invented *error* name for the class the upper-camel
+widening added, one invented *test* name for the class the underscore fix added, a
+real test renamed in `test/`, the same rename with a stale `gasreport.txt` still
+naming it, one line-wrap split reproducing `EthNotTokens`, one planted in the
+guard's own prose to prove the self-exclusion holds, an allowlist pair (covered
+name silent, entry dropped goes red), and four controls — a real function, a real
+error, a `SCREAMING_SNAKE` env var, and a real test name — that must stay silent,
+the last of them there so the widening cannot be paid for in false positives.
 
 `PRD-v5.0.md` and `ROBINHOOD_MIGRATION.md` are deliberately outside the gate — a
 stale name in a product spec is a nit, not an unverifiable control — and they are

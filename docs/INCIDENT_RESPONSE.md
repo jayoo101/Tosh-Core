@@ -777,7 +777,7 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 | Q1 | Full-factory pause on Robinhood testnet, communicate, unpause. | `pause()` → public status page → `unpause()` within 30 min, with at least one new signer participating. |
 | Q2 | Targeted blacklist of a fake exploit address on Robinhood testnet. | Two-engineer sign-off recorded, `setBlacklist` executed, `liftBlacklist` after 1 h. |
 | Q3 | PoG signer rotation on Robinhood testnet. | New signer key in Vercel Production only, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
-| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment for 2 h. | Every attempt reverts out of `ToshFactory.registerPoG` with `InvalidSignature()` (or `NonceConflict()` / `SignatureExpired()` / `SignatureTooLong()` for a replay or a stale deadline), and `pogQuota` is unchanged for every address tried; on-call detects within 15 min via Defender alert. |
+| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment. | Every attempt reverts out of `ToshFactory.registerPoG`, and `pogQuota` is unchanged for every address tried. Two layers of refusal both count: the factory's own `InvalidSignature` / `NonceConflict` / `SignatureExpired` / `SignatureTooLong` / `ExceedsGlobalPogLimit`, and OpenZeppelin's `ECDSAInvalidSignature` / `ECDSAInvalidSignatureS` / `ECDSAInvalidSignatureLength`, which fire from inside `recover` before any address is compared. Harness: `scripts/drillQ4.mjs`. First run §8.4. |
 
 > **The rehearsal chain is Robinhood testnet, chain id 46630.** Every row above
 > said "Sepolia" until 2026-09-03, which was correct while the project targeted
@@ -1140,6 +1140,71 @@ sitting by people who were expecting the request. This run timed the mechanical
 path and a round-trip to a person who was waiting. It did not time rousing
 someone who was not. §8.2 established that the latter is nearly the whole of
 the 60-second budget. Nothing scheduled can measure it.
+
+### 8.4 Fourth drill — 2026-09-05, Q4 forged PoG attestations on chain 46630
+
+**Result: PASS.** 15 vectors, 22 calls, every one refused; `pogQuota` unchanged
+for all three addresses touched. Report at `.q4-report.json`, harness
+`scripts/drillQ4.mjs`, against the live testnet factory
+[`0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA`](https://explorer.testnet.chain.robinhood.com/address/0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA)
+at head 113,398,466.
+
+**Q4 had never been runnable.** Its pass criterion read "all attempts fail at
+`_verifyPoGSignature`" — a function that has never existed in `src/`; the
+signature check is inline in `registerPoG`. You cannot watch calls fail somewhere
+that is not there, so the drill could have been marked passed by anyone who did
+not go looking. `SECURITY_AUDIT.md` §5.12 has the finding. The criterion above is
+its replacement, and this sitting is the first time it has been executed.
+
+**Attacker model: a real outsider.** No signer key, no owner key, nothing but
+public chain data — which is why every vector runs through `eth_call`. An
+attacker's transactions would revert and change nothing, while `eth_call` walks
+the identical path and hands back the exact selector. A reverting top-level call
+cannot mutate state, so *reverts* already implies *quota unchanged*; the quota is
+read before and after anyway, as the cross-check that would catch an attempt
+which did **not** revert.
+
+**Why the drill cannot be trivially green.** Without the signer key there is no
+way to demonstrate the accept path, so a factory refusing everything for an
+unrelated reason — paused, signer pointed at a dead address — would sail through a
+naive sitting. Two things prevent that. The harness aborts if `paused` is true.
+And four vectors drive the gates *before* the signature check, each returning its
+own distinct selector: `SignatureTooLong`, `SignatureExpired`, `NonceConflict`,
+`ExceedsGlobalPogLimit`. Reaching `InvalidSignature` specifically is what proves
+execution got past all of them rather than bouncing off something earlier.
+
+**The genuine artefact.** This deployment has exactly one `PoGRegistered` ever
+([`0xf1c6257e…`](https://explorer.testnet.chain.robinhood.com/tx/0xf1c6257e5f4ba00e6102676cc99e38199e9c1d312b2259043719205f18a80942),
+block 112,268,387), and its calldata carries a real `pogSigner` signature. Step 0
+recovers it and confirms it matches the live signer, so five vectors attack with
+a signature the platform actually issued rather than only with forgeries. All
+five are refused: verbatim replay dies on TTL, and every mutation needed to get
+past the TTL gate destroys the digest.
+
+**What this sitting could not reach, and why that is structural.**
+Sender-binding and cross-chain / cross-contract domain separation are *not*
+exercised. The only genuine artefact is expired, the deadline gate precedes the
+signature check, and getting past that gate requires mutating the deadline —
+which changes the digest, so every resulting failure is attributable to two
+fields at once. No single-field isolation is reachable from public data. Those
+properties are proven instead by §5.12's read of the digest construction and by
+the unit tests in `test/ToshV5Factory.t.sol`, which hold the key.
+
+**Two things the run corrected, both mine rather than the contract's.** The
+criterion as first written listed only the factory's errors, so the three
+malformed-signature vectors were scored as failures on the first pass —
+OpenZeppelin's `recover` reverts from *inside*, before an address exists to
+compare, and `InvalidSignature` is therefore the wrong expectation for a
+malformed blob. The criterion now names both layers. Second, the brute-force
+vector was non-deterministic: random bytes are refused by whichever gate they hit
+first, and pinning a seed to force one answer would have hidden that behind a
+green tick. It now asserts a set across 8 independent draws; this sitting split
+5 `ECDSAInvalidSignature` to 3 `ECDSAInvalidSignatureS`.
+
+**Not covered:** the criterion's detection half — *on-call notices within 15 min
+via a Defender alert* — was not exercised. No alert exists for repeated
+`registerPoG` reverts, and `monitoring/alerts.json` has no rule that would fire
+on one. The refusal half is proven; the noticing half is open.
 
 ---
 

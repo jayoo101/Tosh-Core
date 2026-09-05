@@ -423,7 +423,7 @@ export async function POST(req: Request) {
   // automatically frames as
   //   keccak256("\x19Ethereum Signed Message:\n32" || digest)
   // which matches OpenZeppelin's `MessageHashUtils.toEthSignedMessageHash`
-  // used by the on-chain `_verifyPoGSignature` recover path.
+  // used by the recover path inlined in `ToshFactory.registerPoG`.
   const attestationSig: `0x${string}` = await account.signMessage({
     message: { raw: digest },
   })
