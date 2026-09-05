@@ -131,6 +131,19 @@ jobs:
       - name: posm action payloads have the layout the decoder reads
         run: npm run guard:lpactions
 
+      # `contracts.ts` restates ~18 numbers the contracts define — the genesis
+      # supply split, the tier ladder, the price ceiling, the TWAP and launch
+      # windows, the genesis durations — plus the factory's MIN_SOFT_CAP_PROD and
+      # MAX_COOLDOWN, and pogQuota.ts mirrors MAX_SIG_VALIDITY. Only the four
+      # pool-geometry values were checked against Solidity (checkPoolGeometry.mjs,
+      # over in test.yml); the rest were two independent declarations of one
+      # number. Nothing here throws on drift — the UI just quotes a supply that
+      # is not minted, or mines a salt `createLaunch` rejects as InvalidHookSalt.
+      # Added after the PoG attestation TTL drifted this exact way and only an
+      # eth_call against a live factory caught it.
+      - name: Frontend constants mirror the contracts
+        run: npm run guard:constants
+
       # The guards above are static checks on source text; these exercise the
       # code. Both are needed: a guard cannot tell whether a rate-limit bucket
       # is actually keyed on the entry it reads, and a test cannot see a

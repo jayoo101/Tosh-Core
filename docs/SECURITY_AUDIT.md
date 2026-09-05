@@ -2329,6 +2329,134 @@ stands at 152.
 
 ---
 
+### 5.14 Tenth sweep — the settings, as a surface
+
+Every sweep so far has followed a code path. This one followed a *number*: the
+platform's configuration, taken as one surface rather than per-file — the owner
+setters on the factory and the ladder treasury, the compile-time constants in
+`src/`, the constants the frontend restates, and the environment variables. The
+question was not "is this value right" but "how many places decide it, and do they
+agree".
+
+That framing is what found the defect. Both findings below are the same shape, and
+neither is visible from inside a single file.
+
+#### The attestation deadline: one number, two signers, one of them broken
+
+`ToshFactory.registerPoG` bounds the deadline on both sides, and the upper side is
+strict:
+
+    if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
+
+Sign `deadline = signerNow + T` and the bound fails exactly when
+`signerNow - block.timestamp > MAX_SIG_VALIDITY - T`. So **the headroom a signer
+leaves under the ceiling is the clock skew it tolerates**, and a TTL equal to the
+ceiling tolerates none.
+
+`sign-allocation` had worked this out and given itself an hour, with a test and a
+long comment explaining why. `computeDeadline()` in `pogQuota.ts` — the shared
+helper, and the only thing `scripts/pogSigner.ts` calls — still returned
+`nowSec + SIG_VALIDITY_SECONDS`, the ceiling exactly, with no test at all. The
+route's comment was therefore true of one signer and false of the other, and had
+been since the margin was added.
+
+Measured rather than argued, with `scripts/probeDeadlineMargin.mjs`. The bound is
+checked before the nonce and before `recover` — blacklist, then this, then expiry,
+then nonce, then the cap, then the signature — so an `eth_call` with a junk
+signature reveals which gate a given deadline lands on, and bisecting the deadline
+locates the threshold instead of guessing at the timestamp a node uses for a call.
+Against the live 46630 factory, from a host whose clock sat 3 s ahead:
+
+| signer | TTL | tolerated skew | gate reached |
+|---|---|---|---|
+| `computeDeadline()` → `pogSigner.ts` | 86400 s | **0 s** | `SignatureTooLong` |
+| `sign-allocation` | 82800 s | 3600 s | `ECDSAInvalidSignature` — gate cleared |
+
+Reaching a *later* revert is what a cleared gate looks like here; reaching
+`SignatureTooLong` is the defect, observed, not derived.
+
+The failure mode is worth stating because it is the reason this survived: it is not
+a slow path or a degraded one. While the skew lasts, *every* CLI-issued
+registration reverts, under an error name that points at the signature's length
+rather than at a clock — so nothing in the pipeline names the host that is wrong.
+
+**Fixed** by making the headroom one decision instead of two. `pogQuota.ts` now
+exports `ATTESTATION_HEADROOM_SECONDS` and `ATTESTATION_TTL_SECONDS`;
+`computeDeadline()` uses the latter, and `sign-allocation` imports it rather than
+deriving its own. `assertPogBandCoherent()` gained the deadline relationship
+alongside the allocation one, since both are relationships between numbers that
+live apart and both have now drifted once. A new `pogQuota.test.ts` (10 tests)
+transcribes the on-chain predicate and asserts the tolerated skew equals the
+headroom, reads `MAX_SIG_VALIDITY` out of `src/ToshFactory.sol` so the mirror is
+verified rather than restated, and asserts the route still imports the shared TTL.
+6 of 6 mutations caught, including the original defect and a 1-second headroom that
+would satisfy "has margin" while tolerating nothing.
+
+This is the second time these two signers diverged on a number they share; the
+first was the exchange rate, in `gasToSatoRate.ts` (§5.9, item 7).
+
+#### Seventeen mirrored constants, four of them checked
+
+`contracts.ts` restates the genesis supply split, the tier ladder, the price
+ceiling, the TWAP and launch windows and the genesis durations from
+`ToshLaunchpadHook.sol`, plus `MIN_SOFT_CAP_PROD` and `MAX_COOLDOWN` from the
+factory; `pogQuota.ts` mirrors `MAX_SIG_VALIDITY`; `hookMiner.ts` keeps a second
+copy of the three durations. Of all of it, four values were checked against
+Solidity — `TICK_LOWER`, `TICK_UPPER`, `POOL_FEE`, `TICK_SPACING`, by
+`checkPoolGeometry.mjs`. The rest were two independent declarations of one number
+with nothing comparing them, which is a comment, not a constant.
+
+Nothing throws on that kind of drift, which is what makes it worth a guard:
+`GENESIS_LP_SUPPLY` sets the quoted opening price, `TIER_STEP_E18` compounds over
+4000 shelves, and a wrong genesis duration mines a salt `createLaunch` rejects as
+`InvalidHookSalt` *after* the user has paid to mine it.
+
+**Checked: all seventeen currently agree.** So the new
+`soat-frontend/scripts/checkContractConstants.ts` is prophylaxis, not a repair. It
+parses the constants out of `src/*.sol` — most are `internal constant` with no
+getter, so source is the only way to obtain them without retyping them — and
+compares against the TS values *imported*, so what is checked is the number the app
+computes rather than a literal sitting near the right name. It also covers the
+`users.length <= 200` batch bound that `ADMIN_BATCH_MAX` mirrors, `DEAD_ADDRESS`,
+and `hookMiner.ts`'s second copy of the durations against `contracts.ts`. 14 of 14
+mutations caught, applied to each side in turn and to every literal form the
+evaluator has to understand: `e18`, `N hours`, `0.01 ether`, and
+`BONDING_MAX = TIER_COUNT * TIER_SIZE`, where moving `TIER_COUNT` correctly moved
+the product too.
+
+One wiring detail nearly made the guard worthless, and it is the failure this repo
+has already had twice. `npm run guards` is **not** what CI runs: `frontend.yml`
+lists each guard as its own step, deliberately, so a red check names the failing
+stage. Adding `guard:constants` to the aggregate script alone would have left it
+never executing. It is wired into `frontend.yml` explicitly.
+
+#### Checked and sound
+
+The setter surface behaves as documented. Retroactivity is deliberate and
+consistent: `defaultSoftCap` and `maxPogAllocationLimit` are frozen into the hook's
+initcode at `createLaunch`, so a retune cannot move the goalposts on an open round,
+while `pogSigner`, the cooldown, the quota window and the blacklist are read live
+because they are risk controls that should apply immediately. Every duration setter
+is capped at 7 days. `pause()` is narrow in the direction that matters — it stops
+new launches and new quota, not an in-flight genesis round or a refund.
+
+#### Noted, not changed
+
+- `setLaunchFee` has no bounds of any kind. The owner is a Safe and the fee is
+  read only at `createLaunch`, so the blast radius is "launches become
+  unaffordable until the next owner transaction", but it is the one setter with no
+  validation whatsoever.
+- `SUPPORTED_POG_CHAIN_IDS` includes `FOUNDRY_CHAIN_ID` unconditionally, so a
+  production build accepts `chainId: 31337` and the request travels as far as an
+  RPC attempt against loopback before failing 503. It fails closed, and the digest
+  binds `block.chainid`, so a 31337-bound attestation is unusable on 4663 — but the
+  same allowlist is also written a second time, independently, in
+  `onchainNonce.ts`.
+- The frontend suite still has no floor guard against shrinking, unlike the
+  Foundry suite (351). It now stands at 162.
+
+---
+
 ## 6. Findings
 
 > **Populate from the auditor's report. One subsection per finding, using

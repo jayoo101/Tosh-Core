@@ -27,9 +27,42 @@ export const MAX_ALLOC_ETH_WEI: bigint = 10n ** 17n  // 0.1 ether
 /** @deprecated v4.x alias — PoG quota is ETH-native in v5.0. */
 export const MAX_ALLOC_SATO_WEI = MAX_ALLOC_ETH_WEI
 
-/** Validity window for PoG signatures (seconds).
- *  Must be ≤ `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). */
+/** The on-chain ceiling on how far ahead a deadline may sit.
+ *  Mirrors `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). Not a TTL to sign with —
+ *  see `ATTESTATION_TTL_SECONDS`, which is. */
 export const SIG_VALIDITY_SECONDS = 24 * 60 * 60
+
+/**
+ * Headroom every signer must leave under `SIG_VALIDITY_SECONDS`.
+ *
+ * The on-chain bound is two-sided and the upper side is strict:
+ *
+ *   `if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();`
+ *
+ * Signing `deadline = signerNow + T` makes that fail exactly when
+ * `signerNow - block.timestamp > MAX_SIG_VALIDITY - T`. So the headroom a signer
+ * leaves IS the clock skew it tolerates, and a TTL equal to the ceiling tolerates
+ * none: one second of fast clock, or a sequencer whose timestamps lag wall time,
+ * and every attestation reverts — totally, for as long as the skew lasts, under
+ * an error name that points at the signature's length rather than at a clock.
+ *
+ * An hour costs nothing. The window is sized for human-paced wallet flows, where
+ * 23 h and 24 h are the same number.
+ *
+ * This lives here, rather than in whichever route needs it, because it did not:
+ * `sign-allocation` worked this out and applied it locally while
+ * `computeDeadline()` — the shared helper, and the one `scripts/pogSigner.ts`
+ * calls — kept the ceiling as its TTL. Measured against the live 46630 factory
+ * with `scripts/probeDeadlineMargin.mjs`: the CLI path tolerated 0 s and reverted
+ * `SignatureTooLong` on a machine 3 s fast, while the route path tolerated 3600 s
+ * and cleared the gate. Same pair of signers, same class of divergence as the
+ * exchange rate in `gasToSatoRate.ts`.
+ */
+export const ATTESTATION_HEADROOM_SECONDS = 60 * 60
+
+/** The TTL a signer actually uses. One decision, both signers. */
+export const ATTESTATION_TTL_SECONDS =
+  SIG_VALIDITY_SECONDS - ATTESTATION_HEADROOM_SECONDS
 
 // ─── Eligibility band (PM-F9) ────────────────────────────────────────────────
 
@@ -234,6 +267,19 @@ export function assertPogBandCoherent(): void {
       + `${MAX_ALLOC_ETH_WEI}. Cap, ceiling and ToshFactory.maxPogAllocationLimit `
       + 'are one decision in three places — see docs/PRE_MAINNET_CHECKLIST.md §6.4.')
   }
+  // The deadline band, checked here for the same reason the allocation band is:
+  // it is a relationship between numbers that live apart, and it drifted once.
+  if (ATTESTATION_HEADROOM_SECONDS <= 0) {
+    throw new Error(
+      'ATTESTATION_HEADROOM_SECONDS must be positive. At zero, a signer whose clock '
+      + 'is one second fast makes every registration revert SignatureTooLong.')
+  }
+  if (ATTESTATION_TTL_SECONDS <= 0 || ATTESTATION_TTL_SECONDS >= SIG_VALIDITY_SECONDS) {
+    throw new Error(
+      `ATTESTATION_TTL_SECONDS (${ATTESTATION_TTL_SECONDS}) must sit strictly between 0 `
+      + `and SIG_VALIDITY_SECONDS (${SIG_VALIDITY_SECONDS}), which mirrors the on-chain `
+      + 'ToshFactory.MAX_SIG_VALIDITY ceiling.')
+  }
 }
 
 assertPogBandCoherent()
@@ -241,9 +287,13 @@ assertPogBandCoherent()
 /**
  * Produce the deadline timestamp (Unix seconds) for a fresh signature.
  * `nowSec` is injected for deterministic tests.
+ *
+ * Uses `ATTESTATION_TTL_SECONDS`, not `SIG_VALIDITY_SECONDS`. The latter is the
+ * on-chain ceiling; signing right at it leaves no tolerance for clock skew in the
+ * one direction that reverts. See `ATTESTATION_HEADROOM_SECONDS`.
  */
 export function computeDeadline(nowSec: number = Math.floor(Date.now() / 1000)): number {
-  return nowSec + SIG_VALIDITY_SECONDS
+  return nowSec + ATTESTATION_TTL_SECONDS
 }
 
 // `breakdownByChain` used to live here: it split a `maxAlloc` across

@@ -25,7 +25,8 @@
     "check:doc-symbols": "node ../scripts/checkDocSymbols.mjs",
     "guard:v4math": "node scripts/runTsGuard.mjs scripts/checkV4Math.ts",
     "guard:lpactions": "node scripts/runTsGuard.mjs scripts/checkLpActions.ts",
-    "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:rpc && npm run guard:supabase && npm run guard:v4math && npm run guard:lpactions",
+    "guard:constants": "node scripts/runTsGuard.mjs scripts/checkContractConstants.ts",
+    "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:rpc && npm run guard:supabase && npm run guard:v4math && npm run guard:lpactions && npm run guard:constants",
     "verify": "node scripts/checkTokens.mjs --strict && tsc --noEmit && eslint && npm run guards && npm test && next build"
   },
   "dependencies": {

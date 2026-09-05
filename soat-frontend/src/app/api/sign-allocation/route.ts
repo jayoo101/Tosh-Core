@@ -58,6 +58,7 @@ import {
 } from '@/lib/contracts'
 import {
   POG_GAS_FLOOR_WEI,
+  ATTESTATION_TTL_SECONDS,
   computeMaxAllocFromWei,
   isPogEligible,
 } from '@/app/lib/pogQuota'
@@ -105,14 +106,19 @@ const RATE_LIMIT_OPTS = {
 // LOCKED PARAMETERS — must match on-chain expectations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The on-chain ceiling this TTL has to stay under.
- *  Mirrors `ToshFactory.MAX_SIG_VALIDITY`. */
-const MAX_SIG_VALIDITY_SEC = 24 * 60 * 60
-
 /**
  * Attestation TTL — `registerPoG()` must land before this hits.
  *
- * Deliberately BELOW `MAX_SIG_VALIDITY_SEC`, because the on-chain check is
+ * Imported rather than derived here, and that is the fix to a second defect
+ * rather than tidying. This route worked out the margin below and applied it to a
+ * local constant, while `pogQuota.computeDeadline()` — the shared helper, and what
+ * `scripts/pogSigner.ts` calls — went on using the ceiling as its TTL. Everything
+ * this comment says was therefore true of one signer and false of the other for
+ * as long as the two numbers lived apart. Measured with
+ * `scripts/probeDeadlineMargin.mjs`: the CLI path tolerated 0 s of clock skew and
+ * reverted `SignatureTooLong` from a host 3 s fast.
+ *
+ * Deliberately BELOW `SIG_VALIDITY_SECONDS`, because the on-chain check is
  * two-sided and the upper side had no margin at all:
  *
  *   if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
@@ -134,7 +140,7 @@ const MAX_SIG_VALIDITY_SEC = 24 * 60 * 60
  * wallet flows, where 23 h and 24 h are the same number — and buys tolerance
  * for any skew smaller than an hour in the direction that breaks.
  */
-const ATTESTATION_TTL_SEC: number = MAX_SIG_VALIDITY_SEC - 60 * 60
+const ATTESTATION_TTL_SEC: number = ATTESTATION_TTL_SECONDS
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROOF-OF-GAS GAS HISTORY — read, not derived
