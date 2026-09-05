@@ -91,6 +91,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
 | Narrowing casts disposed of by the bound each rests on | 19, gated in CI |
 | Mutation testing | Applied to every guard and fix in §5.10 onward; each sweep records its counts and its survivors |
+| Deepest search actually run | Invariants 1.28 M calls each (100× CI), fuzz 4 M runs total (1,953× CI) — §5.19, no violations |
 
 Two things about that table are worth saying plainly. First, the mutation
 counts are what make it more than a list of activity: a test that cannot fail is
@@ -116,7 +117,7 @@ re-assigned here or is recorded as abandoned in as many words.
 
 | Deferred | Where it was parked | Now |
 |---|---|---|
-| Fuzz depth above 256 runs; invariant soak past depth 100 | §4, "ask for a higher run count during audit" | **Reassigned to us.** This one needed machine time, not a vendor, and the deferral was never really about money. `FOUNDRY_INVARIANT_RUNS` and a long soak are runnable on any box. Not yet done. |
+| Fuzz depth above 256 runs; invariant soak past depth 100 | §4, "ask for a higher run count during audit" | **Reassigned to us and done 2026-09-06 — §5.19.** It needed machine time, not a vendor. Invariants at 512 × 2500 (100× CI, 1.28 M calls each) and fuzz at 500,000 runs per property (1,953× CI): no violations. Its real output was correcting how this suite's coverage counters are read, and raising the CI depth to 250. |
 | Anything requiring a live adversarial fork | §5.11, "staying with the engagement" | **Abandoned.** No internal substitute is planned. The 8 fork tests in §4 exercise the live V4 singleton on happy and router paths, not an adversary. |
 | The 6 assumptions in §2.2, challenged by someone who did not write them | §2.2, its whole purpose | **Abandoned, and this is the largest single loss.** Restated in §2.2 so a reader does not take the list for a reviewed list. |
 | Whether the PoG-quota compounding in PM-F9 is exploitable in composition | §5.10, "still the auditor's question" | **Abandoned as an external question.** The bound is derived internally and tested; nobody will attack it. |
@@ -797,15 +798,20 @@ and the tip is all an unpinned fork asks for.
 - Fuzz depth is 256 runs per property — adequate for CI, thin for
   invariant hunting. A higher run count and a long invariant soak
   (`FOUNDRY_INVARIANT_RUNS`) at a depth well past 100 were going to be asked of
-  an auditor; per §0.4 that is now ours to run and has not been run yet. It
-  needs machine time, not a vendor.
-- Swap coverage in the invariant handler is now real but **thin per run**. A
-  measured run reaches roughly 6 buys, 2 sells, one ladder listing and one
-  buyback cycle inside its 100 calls, because a buyback is several actions deep
-  past launch (fund → launch → list → accumulate 1 ETH → swap). The invariants
-  are exercised rather than vacuous, but this specific path deserves a long soak
-  at higher depth rather than only the CI budget — same owner and same status as
-  the bullet above (§0.4).
+  an auditor; per §0.4 that became ours to run, and **it was run on 2026-09-06 —
+  see §5.19.** Nothing failed. The CI depth was raised 100 → 250 as a result,
+  which is the only lasting change it produced.
+- Swap coverage in the invariant handler is real, and **how thin it is per run
+  depends entirely on depth**, which is measured in §5.19 rather than sampled
+  once here. A buyback is several actions deep past launch (fund → launch → list
+  → accumulate 1 ETH → swap), so at depth 100 a sampled run reached 5 buys and
+  1 sell; at depth 1000 the same invariant reached 75 and 38.
+
+  > This bullet used to read "a measured run reaches roughly 6 buys, 2 sells, one
+  > ladder listing and one buyback cycle inside its 100 calls." That number came
+  > from `afterInvariant()`, which logs the **last run only** — one sample out of
+  > `runs` — so it was a sample presented as a property of the suite. §5.19
+  > describes how far wrong that reading can go.
 - The shelf ladder (`mintBondingCurve`) has no invariant action. Its price gates
   are covered by the unit and attack suites only, so the tier-boundary and
   same-block-lockout logic is not composed against arbitrary sequences.
@@ -3100,6 +3106,85 @@ Blockscout's verified-source layout rather than this repository, and one is the
 incident runbook recording a dead pointer it had already fixed. A guard here would
 need a ten-entry allowlist to defend against zero live defects, and would tax every
 future sentence of the form "X no longer exists". Recorded, not built.
+
+---
+
+### 5.19 Fifteenth sweep — the soak §0.4 handed back to us
+
+§0.4 reassigned one deferral from the cancelled engagement to us: a higher fuzz
+run count and an invariant soak at depth well past 100. It was the only item on
+that list that needed machine time rather than a vendor. Run 2026-09-06.
+
+**What was run, and it found nothing.**
+
+| | CI setting | Soak | Multiple | Result |
+|---|---|---|---|---|
+| Invariants | 128 runs × 100 depth | **512 × 2500** — 1,280,000 calls per invariant, 9 invariants | 100× | 9/9 pass, 46 min wall, 5.4 CPU-hours |
+| Fuzz properties | 256 runs | **500,000 runs** × 8 properties = 4,000,000 | 1,953× | 8/8 pass, 3.5 min |
+
+No violation of any kind, at either scale. That is the headline and it is worth
+exactly what it is worth: two orders of magnitude more search against the same
+predicates, which cannot find a property nobody wrote.
+
+**The useful output was a correction to how this suite's coverage is read.**
+
+`afterInvariant()` prints twelve action counters, and they are the only evidence
+anyone has for whether an invariant run is vacuous. They log the **last run
+only** — one sample out of `runs`. Every statement of the form "the suite
+reaches N buys" derived from them is a statement about one sequence.
+
+Three conclusions were drawn from those counters during this sweep and all three
+were false. They are recorded because the failure is not arithmetic, it is a
+category error that the log's format invites, and it has already reached this
+document once:
+
+| Claimed from the counters | Refuted by | Actual |
+|---|---|---|
+| At the CI depth the suite never reaches launch, so the four post-launch invariants are vacuous | Re-reading the same counters on a different invariant at runs=64 | Depth 100 reached **2 launches, 5 buys, 1 sell, 1 listing** |
+| The referral commission path is never exercised at any depth | The depth probes | `okClaimReferral` = 1, 1, 2, 1 at depths 100 / 250 / 500 / 1000 |
+| Only one launch is reachable per run even at depth 2500 | Same | 2 launches at every probed depth; the soak's 1 was its own last run |
+
+The first of those was measured on `invariant_unlaunchedHookCanPayEveryRefund`
+and generalised to the suite. The soak's own nine samples looked like strong
+evidence because they agreed with each other almost exactly — hooks 10, creates
+7, launches 1, buys 211, sells 80, listings 1, identical across all nine, with
+only `ok pokes` (11–17) and `ok owner actions` (640–650) varying. Nine agreeing
+samples of the last run of nine tests that share one handler and one selector
+table is one observation reported nine times, not nine observations. Why they
+agree that closely is not established here.
+
+**§4's coverage bullet was the same error, already in the document.** It read "a
+measured run reaches roughly 6 buys, 2 sells, one ladder listing and one buyback
+cycle inside its 100 calls" — consistent with the 5 / 1 / 1 measured here at
+depth 100, and misleading as a characterisation, since the same invariant reaches
+75 buys and 38 sells at depth 1000. Corrected in place.
+
+**The one lasting change: CI invariant depth 100 → 250.** Chosen from measurement
+rather than from taste. Across depths 100 / 250 / 500 / 1000 on one invariant at
+runs=64, buys went 5 → 25 → 35 → 75 while deposits went 10 → 13 → 8 → 5. Depth
+250 is the knee — the last value that improves post-launch composition without
+costing genesis composition, because past it a run spends proportionally more of
+its calls after the genesis windows have expired. **Depth trades genesis coverage
+for post-launch coverage rather than adding coverage.** That is why CI carries 250
+and not the soak's 2500, and it is the part of this sweep most likely to be
+forgotten: raising depth further would look like more rigour and would quietly
+buy less genesis exercise.
+
+Cost, measured on the whole contract at the real `runs = 128` instead of
+extrapolated from the runs=64 probe: **7.8 s → 39.5 s**, about 5×. The probe
+implied 2×, because it timed one invariant where the suite runs nine plus five
+unit tests and saturates the cores differently. That was the fourth wrong
+reading in this exercise, and the pattern in all four is the same: a number
+measured under one configuration, then used to describe another.
+
+**Not done, and stated rather than left implied.** The counters still sample one
+run, so the instrumentation that this sweep just spent its value correcting is
+unchanged. Making them cumulative is not a comment fix: Foundry restores state
+between invariant runs, so an in-contract counter cannot accumulate, and the
+honest options are a cheatcode-written file or dropping the coverage claims
+entirely. Nothing in CI would notice if a future handler change made every run
+revert into its `catch` blocks except the five deterministic `test_handler*`
+tests, which is what they are for and which the soak did not improve.
 
 ---
 

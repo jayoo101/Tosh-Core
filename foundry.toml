@@ -110,10 +110,37 @@ runs = 256
 # enough to reach a *funded* treasury: the buyback invariants need a launched
 # pool, a listed ladder token and 1 ETH of accumulated tax before any ETH can
 # leave, which is several actions deep past launch.
+#
+# depth 100 -> 250 on 2026-09-06, from the soak in SECURITY_AUDIT.md §5.19.
+# Measured on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one sample per
+# depth, reading afterInvariant()'s counters:
+#
+#   depth  100    250    500   1000      wall (64 runs)
+#   buys     5     25     35     75      3.1s  5.9s  12.1s  26.4s
+#   sells    1     11     15     38
+#   deposits 10     13      8      5
+#
+# 250 is the knee: it is the last depth that improves post-launch composition
+# WITHOUT costing genesis composition. Past it, deposits fall away — deeper runs
+# spend proportionally more of their calls after the genesis windows have expired,
+# so depth trades genesis coverage for post-launch coverage rather than adding
+# coverage outright. That trade is the reason this is 250 and not 2500; the soak
+# itself ran at 2500 and is not what CI should carry.
+#
+# Read the numbers above as one sample each, not as suite properties:
+# afterInvariant() logs the LAST run only. §5.19 records three wrong conclusions
+# drawn from exactly that confusion in the course of choosing this value.
+#
+# Cost, measured on the whole contract at the real runs=128 rather than
+# extrapolated from the runs=64 probe: 7.8s -> 39.5s. That is ~5x, not the ~2x
+# the single-invariant probe above suggests, because the probe timed one
+# invariant and the suite runs nine plus five unit tests, so it saturates the
+# available cores differently. Extrapolating the probe was the fourth wrong
+# reading in this exercise and it is corrected here rather than quietly.
 # ---------------------------------------------------------------------------
 [profile.default.invariant]
 runs = 128
-depth = 100
+depth = 250
 fail_on_revert = false
 call_override = false
 shrink_run_limit = 2000
