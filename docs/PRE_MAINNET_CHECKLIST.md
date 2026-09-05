@@ -251,7 +251,7 @@ Ordered. Each step's output feeds the next.
 
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
-| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/4663/` exists | ❌ mainnet. The 46630 rehearsal (RH-F1) is complete — launch, claim, buy, shelf mint, and a TWAP-matured `addLadderToken`, `ROBINHOOD_MIGRATION.md` §F.8 |
+| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/4663/` exists; `preflightMainnet.mjs` green | ❌ mainnet. The 46630 rehearsal (RH-F1) is complete — launch, claim, buy, shelf mint, and a TWAP-matured `addLadderToken`, `ROBINHOOD_MIGRATION.md` §F.8. **A pre-broadcast gate exists as of 2026-09-05: `scripts/preflightMainnet.mjs`, which checks the file the deploy actually sources.** It found that **the deployer cannot currently pay for this broadcast** — see the note below |
 | **PM-C2** | Gnosis Safe has called `acceptOwnership()` on **both** factory and ladder treasury | `VerifyDeployment.s.sol` passes with `EXPECTED_OWNER=<safe>` | ❌ **but the mechanism is no longer untested.** Rehearsed end to end on 46630, 2026-09-04 (`INCIDENT_RESPONSE.md` §8.2): the deployer staged `transferOwnership` to a 2-of-3 Safe (53,745 gas) and the **Safe** called `acceptOwnership` with two signatures (106,308 gas, 3.92 s), after which `owner()` was the Safe and the deployer's own `pause()` reverted `OwnableUnauthorizedAccount`. `Ownable2Step` is what made trying it safe: the staging step only sets `pendingOwner`, so it is reversible until the Safe accepts. Still blocked on D4 for a real Safe |
 | **PM-C3** | **Factory address not announced publicly until PM-C2 is done** | — | ⏸ gated |
 | **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ |
@@ -260,6 +260,26 @@ Ordered. Each step's output feeds the next.
 | **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` — **and the status page's `CHAIN` block repointed** | Deployed frontend reads the right factory; `checkStatusPage.mjs` green | ❌ mainnet. Staging (`tosh-two.vercel.app`) already reads factory `0x2E690A91…` on 46630, which is the right factory *for now*. **The status page half was added 2026-09-04 and was previously nobody's job:** the page hardcodes its own chain, RPC, explorer and factory in a *different* repository, so repointing the frontend here would have left the page reading a **testnet** contract's `paused()` and presenting it as production truth — while looking perfectly healthy, since its banner and that chain would agree. Now enforced rather than remembered: `checkStatusPage.mjs` fails once `broadcast/*/4663/` exists and the page is still on testnet, which is the artifact C1 creates. See `INCIDENT_RESPONSE.md` §8.2 |
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
 | **PM-C9** | Deploy-side role addresses decided and distinct: `PROD_OWNER_SAFE`, `PLATFORM_TREASURY`, `POG_SIGNER_ADDRESS` | `verifyOwnerSafe.mjs` green; `DeployMainnet.s.sol`'s `requireDistinctRoles` passes | ❌ **added 2026-09-04, because `PLATFORM_TREASURY` had no checklist row at all.** C7 covers the *frontend* env; nothing covered the *deploy* env, and one of its values can never be changed. `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool, forever, and is immutable — baked into the factory *and* into the hook implementation's `platformFeeRecipient`, so rotating it means redeploying the factory and migrating every pool. The deploy script asserts only that it is non-zero and differs from the deployer and the PoG signer, so a personal EOA passes and is then permanent. **Decided:** the 2-of-3 owner Safe serves as both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`. Two properties of that choice which a comment had claimed and no test had checked are now asserted in `ToshV5.t.sol`: a recipient dearer than a `transfer()` stipend is still payable — a 1.4.1 Safe cost 29,944 gas to pay on 46630, and it works **only** because v4-core sends native value with `call(gas(), …)` — and a recipient that *reverts* does brick every buy on every pool. Note that `.env` today points all three roles at the deployer, which would fail all three assertions |
+
+> **PM-C1 cannot currently be broadcast: the deployer is short of gas.**
+> Measured 2026-09-05. `0x73db078f…` holds **0.001627 ETH** on 4663. The 46630
+> rehearsal broadcast is on disk with receipts, and it totals **14,580,627 gas**
+> — 7,950,106 of that the factory alone, 5,085,484 `HookDeployLib`, 1,494,539 the
+> treasury, plus the `setFactory` wiring. At the 0.38 gwei this chain was quoting,
+> that is **~0.0056 ETH**, so the deployer covers **29 %** of its own deploy.
+>
+> This is recoverable — it is only funding — but it is the one item on this list
+> that fails *during* the irreversible step rather than before it. A broadcast
+> that runs out part-way leaves `HookDeployLib` and the treasury live and the
+> factory absent, or the factory live and unowned, which is the half-deployed
+> state PM-C2's warning is about with nobody to hand it to. Fund it to at least
+> 2x the measured cost before the run: the figure above is a single gas-price
+> sample and the script re-prices it live rather than trusting this row.
+>
+> `preflightMainnet.mjs` checks this by summing the rehearsal receipts and
+> pricing them at the live gas price, rather than against a threshold someone
+> picked — on a chain whose gas price moves, a hardcoded "at least 0.01 ETH"
+> would be wrong in both directions.
 
 > **PM-C2 is the one people skip.** `script/DeployMainnet.s.sol:134` says it in
 > its own output: until the Safe accepts, the deployer EOA still owns the
@@ -1354,7 +1374,7 @@ below, in the order it actually blocks.
 | ID | Status | Why it is still open |
 |---|---|---|
 | **PM-A1, A2, A3** | ❌ | Third-party audit. Calendar and procurement, not a commit. A4's remaining two boxes wait on A1. |
-| **PM-C1** | ❌ | Mainnet deploy. The 46630 rehearsal is finished; this row is the 4663 run. |
+| **PM-C1** | ❌ | Mainnet deploy. The 46630 rehearsal is finished; this row is the 4663 run. Now gated by `preflightMainnet.mjs`, which verifies `.env.production` itself — including the check `DeployMainnet.s.sol` lacks, that `PLATFORM_TREASURY` has code at all. It also established that **the deployer holds 29 % of the ETH this broadcast costs**; see the note under §3. |
 | **PM-C2** | ❌ | Safe `acceptOwnership` on factory and treasury. Blocked on D4, but the mechanism is rehearsed: a 2-of-3 Safe took and returned ownership of the testnet factory on 2026-09-04 (§8.2). |
 | **PM-C3** | ⏸ | Do not announce the factory until C2. |
 | **PM-C4** | ❌ | Explorer verification of the *mainnet* deploy. Testnet 46630 is already verified. |

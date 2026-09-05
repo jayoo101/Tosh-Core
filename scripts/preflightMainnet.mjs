@@ -1,0 +1,388 @@
+#!/usr/bin/env node
+/*
+ * preflightMainnet.mjs
+ * ────────────────────
+ * The last gate before PM-C1, run against the file the deploy will actually
+ * source rather than against values passed on a command line.
+ *
+ * ── Why this exists, given the two checks that already do ────────────────────
+ *
+ * `DeployMainnet.s.sol` asserts the chain id and that the four privileged roles
+ * are non-zero and distinct. `verifyOwnerSafe.mjs` verifies a Safe deeply —
+ * 2-of-3, owners as agreed, SafeL2 and indexed, and that it accepts plain ETH.
+ * Both are good and neither closes the gap this one does.
+ *
+ * The gap is a paste. `verifyOwnerSafe.mjs` takes the Safe on argv and ends by
+ * printing "Safe to set BOTH of these in .env.production". Nothing then checks
+ * that they were set, or set to that. And `DeployMainnet.s.sol` will accept any
+ * two non-zero, distinct, mutually different addresses — including a personal
+ * EOA, which is the failure PRE_MAINNET_CHECKLIST.md PM-C9 names in as many
+ * words: "the deploy script asserts only that it is non-zero and differs from
+ * the deployer and the PoG signer, so a personal EOA passes and is then
+ * permanent."
+ *
+ * `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool,
+ * forever, and is immutable — baked into the factory AND into the hook
+ * implementation's `platformFeeRecipient`. Changing it is a factory redeploy and
+ * a migration of every pool. So the one check that matters most is the one
+ * neither existing gate performs: **does that address have code at all.**
+ *
+ * ── Ordering ─────────────────────────────────────────────────────────────────
+ *
+ * Checks are ordered by how permanent their failure is, not by how cheap they
+ * are to run. Anything recoverable by a second owner transaction comes after
+ * everything that is not recoverable at all.
+ *
+ * ── Exit codes ───────────────────────────────────────────────────────────────
+ *
+ *   0  every check passed — clear for C1
+ *   1  at least one check FAILED — do not broadcast
+ *   2  could not run (no .env.production, unreachable RPC). NOT a pass; a
+ *      guard that cannot run must not be mistaken for one that found nothing.
+ *
+ * Usage:  node scripts/preflightMainnet.mjs
+ */
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { ethers } from 'ethers'
+
+import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
+
+const REPO = path.resolve(import.meta.dirname, '..')
+const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+
+/** Mirrored in `soat-frontend/src/lib/contracts.ts`, parsed rather than retyped. */
+const CONTRACTS_TS = path.join(REPO, 'soat-frontend', 'src', 'lib', 'contracts.ts')
+
+const ROLES = [
+  'PRIVATE_KEY',
+  'TARGET_CHAIN_ID',
+  'V4_POOL_MANAGER',
+  'POG_SIGNER_ADDRESS',
+  'PLATFORM_TREASURY',
+  'PROD_OWNER_SAFE',
+]
+
+const failures = []
+const notes = []
+
+function fail(what, why, fix) {
+  failures.push({ what, why, fix })
+  console.log(`  FAIL  ${what}`)
+}
+function pass(what, detail = '') {
+  console.log(`  ok    ${what}${detail ? '   ' + detail : ''}`)
+}
+function cannotRun(why) {
+  console.error(`\n[preflight] CANNOT RUN — ${why}`)
+  console.error('[preflight] exit 2. This is not a pass. Fix the above and re-run.')
+  process.exit(2)
+}
+
+// ── 0. The file the deploy sources ───────────────────────────────────────────
+//
+// `.env.production` is gitignored and does not exist until deploy day, which is
+// exactly why it is unverified: the example file carries `0xREPLACE_ME_*` and
+// `loadRoleEnv` skips those, so a half-filled file reads as a set of missing
+// vars rather than as wrong ones.
+const ENV_PROD = path.join(REPO, '.env.production')
+if (!fs.existsSync(ENV_PROD)) {
+  cannotRun(
+    '.env.production does not exist.\n'
+    + '            Copy .env.production.example to .env.production and fill it.\n'
+    + '            Reading .env instead would be worse than not running: it holds\n'
+    + '            testnet roles where PLATFORM_TREASURY and POG_SIGNER_ADDRESS are\n'
+    + '            both the deployer, so this would report three real failures about\n'
+    + '            a file that is not the one being deployed.',
+  )
+}
+
+console.log('[preflight] PM-C1 pre-broadcast checks, ordered by permanence\n')
+console.log('roles, and where each came from:')
+const roleEnv = loadRoleEnv(ROLES)
+reportRoleEnv(ROLES, roleEnv)
+
+if (roleEnv.missing.length) {
+  cannotRun(
+    `${roleEnv.missing.length} role var(s) still unset or left as a REPLACE_ME placeholder: `
+    + `${roleEnv.missing.join(', ')}.\n`
+    + '            Every check below depends on these, so none of them ran.',
+  )
+}
+
+// Everything below needs the chain.
+const provider = new ethers.JsonRpcProvider(RPC)
+let net
+try {
+  net = await provider.getNetwork()
+} catch (err) {
+  cannotRun(`could not reach ${RPC} (${err.message}).`)
+}
+
+const targetChainId = BigInt(process.env.TARGET_CHAIN_ID)
+if (net.chainId !== targetChainId) {
+  cannotRun(
+    `TARGET_CHAIN_ID is ${targetChainId} but ${RPC} reports chain ${net.chainId}.\n`
+    + '            Set ROBINHOOD_RPC to an endpoint for the chain you are deploying to.\n'
+    + '            DeployMainnet.s.sol asserts this too, but at broadcast time.',
+  )
+}
+
+const deployer = new ethers.Wallet(process.env.PRIVATE_KEY).address
+const platformTreasury = ethers.getAddress(process.env.PLATFORM_TREASURY)
+const prodOwnerSafe = ethers.getAddress(process.env.PROD_OWNER_SAFE)
+const pogSigner = ethers.getAddress(process.env.POG_SIGNER_ADDRESS)
+const poolManager = ethers.getAddress(process.env.V4_POOL_MANAGER)
+
+console.log(`chain ${net.chainId} via ${RPC}`)
+console.log(`deployer ${deployer}\n`)
+
+const codeOf = async (addr) => await provider.getCode(addr)
+
+// ── 1. PLATFORM_TREASURY has code ────────────────────────────────────────────
+//
+// The single irreversible field on this list, and the one nothing else checks.
+console.log('1. irreversible — PLATFORM_TREASURY (immutable, on every buy, forever)')
+const treasuryCode = await codeOf(platformTreasury)
+if (treasuryCode === '0x') {
+  fail(
+    'PLATFORM_TREASURY has no code — it is an EOA',
+    'This address is immutable once the factory is deployed: it is baked into the '
+    + 'factory and into the hook implementation as platformFeeRecipient, and it takes '
+    + '0.30 % of the ETH input of every buy on every pool, forever. An EOA here is not '
+    + 'a configuration to revisit later, it is permanent. PM-C9 decided this is the '
+    + '2-of-3 owner Safe. DeployMainnet.s.sol does NOT check this and will accept it.',
+    'Set PLATFORM_TREASURY to the owner Safe in .env.production.',
+  )
+} else {
+  pass('PLATFORM_TREASURY is a contract', `${(treasuryCode.length - 2) / 2} bytes`)
+}
+
+// ── 2. PROD_OWNER_SAFE has code ──────────────────────────────────────────────
+console.log('\n2. near-irreversible — PROD_OWNER_SAFE (holds every kill switch)')
+const ownerCode = await codeOf(prodOwnerSafe)
+if (ownerCode === '0x') {
+  fail(
+    'PROD_OWNER_SAFE has no code — it is an EOA',
+    'Ownership is recoverable in principle, but an EOA owner voids PRD-v5.0.md §11 D2, '
+    + 'which declines a timelock on treasury curation specifically because the owner is '
+    + 'a 2/N Safe. D2 review trigger (1) says a single-EOA owner lapses that decision and '
+    + 'a timelock must be added immediately.',
+    'Set PROD_OWNER_SAFE to the 2-of-3 Safe in .env.production.',
+  )
+} else {
+  pass('PROD_OWNER_SAFE is a contract', `${(ownerCode.length - 2) / 2} bytes`)
+}
+
+// ── 3. The PM-C9 decision: both roles are the same Safe ──────────────────────
+if (platformTreasury === prodOwnerSafe) {
+  pass('PLATFORM_TREASURY == PROD_OWNER_SAFE', 'as PM-C9 decided')
+} else {
+  notes.push(
+    'PLATFORM_TREASURY and PROD_OWNER_SAFE are different addresses. PM-C9 decided they '
+    + 'are the same 2-of-3 Safe. This is not fatal and may be deliberate, but if it is '
+    + 'not, one of the two is a paste error — and the treasury one is permanent. Note '
+    + 'that verifyOwnerSafe.mjs below only inspects PROD_OWNER_SAFE, so a distinct '
+    + 'treasury Safe is NOT deeply verified by this run.',
+  )
+  console.log('  note  the two roles differ — see the notes at the end')
+}
+
+// ── 4. POG_SIGNER_ADDRESS must NOT have code ─────────────────────────────────
+//
+// The inverse of checks 1 and 2, and a silent failure rather than a loud one.
+console.log('\n3. silent-until-launch — POG_SIGNER_ADDRESS must be an EOA')
+const signerCode = await codeOf(pogSigner)
+if (signerCode !== '0x') {
+  fail(
+    'POG_SIGNER_ADDRESS is a contract',
+    'registerPoG authenticates with hash.recover(signature), which can only ever yield '
+    + 'an EOA. A contract address here can never match, so every registration reverts '
+    + 'InvalidSignature — after launch, on every user, with a factory that looks '
+    + 'perfectly healthy. setPogSigner can fix it, but only once someone works out why '
+    + 'nobody can register.',
+    'Set POG_SIGNER_ADDRESS to the EOA whose private key is in Vercel Production.',
+  )
+} else {
+  pass('POG_SIGNER_ADDRESS is an EOA')
+}
+
+// ── 5. requireDistinctRoles, before the broadcast rather than during it ──────
+console.log('\n4. would revert mid-broadcast — role separation')
+const distinct = [
+  [pogSigner !== deployer, 'POG_SIGNER_ADDRESS != deployer'],
+  [prodOwnerSafe !== deployer, 'PROD_OWNER_SAFE != deployer'],
+  [platformTreasury !== deployer, 'PLATFORM_TREASURY != deployer'],
+  [platformTreasury !== pogSigner, 'PLATFORM_TREASURY != POG_SIGNER_ADDRESS'],
+]
+for (const [ok, label] of distinct) {
+  if (ok) pass(label)
+  else {
+    fail(
+      label.replace(' != ', ' equals '),
+      'DeployMainnet.s.sol:requireDistinctRoles reverts on this. C1 is a single broadcast '
+      + 'that deploys the factory, the hook implementation and the treasury and stages '
+      + 'both ownership transfers, so hitting it there means unpicking a half-done launch.',
+      'Fix the collision in .env.production before broadcasting.',
+    )
+  }
+}
+
+// ── 6. V4_POOL_MANAGER: has code, and agrees with the frontend's copy ────────
+//
+// contracts.ts hardcodes POOL_MANAGER and says why it is deliberately not
+// env-bound: a wrong one silently mis-computes every hook's CREATE2 address.
+// That makes it two independent declarations of one address with nothing
+// comparing them — the same shape as the mirrored-constant drift that
+// checkContractConstants.ts exists for, but across the deploy env boundary.
+console.log('\n5. silent mis-derivation — V4_POOL_MANAGER')
+const pmCode = await codeOf(poolManager)
+if (pmCode === '0x') {
+  fail(
+    'V4_POOL_MANAGER has no code on this chain',
+    'Every hook is CREATE2-deployed against this address and every pool is opened on it. '
+    + 'A wrong or stale value produces a factory that reverts on the first createLaunch, '
+    + 'or worse, mines hook addresses against a PoolManager that does not exist.',
+    'Set V4_POOL_MANAGER to the Uniswap V4 PoolManager on this chain.',
+  )
+} else {
+  pass('V4_POOL_MANAGER is a contract', `${(pmCode.length - 2) / 2} bytes`)
+
+  let mirrored = null
+  try {
+    const src = fs.readFileSync(CONTRACTS_TS, 'utf8')
+    mirrored = src.match(/export const POOL_MANAGER\s*:\s*Address\s*=\s*'(0x[0-9a-fA-F]{40})'/)?.[1]
+  } catch {
+    notes.push(`could not read ${path.relative(REPO, CONTRACTS_TS)} to cross-check POOL_MANAGER.`)
+  }
+  if (mirrored && ethers.getAddress(mirrored) !== poolManager) {
+    fail(
+      'V4_POOL_MANAGER disagrees with the frontend',
+      `.env.production says ${poolManager}; contracts.ts hardcodes ${ethers.getAddress(mirrored)}. `
+      + 'The frontend derives every hook address by CREATE2 against its own copy, so the two '
+      + 'must agree or the UI will look up hooks the factory never deployed. contracts.ts '
+      + 'deliberately does not read this from the environment, which is what makes them two '
+      + 'independent declarations with nothing comparing them until now.',
+      'Make .env.production and soat-frontend/src/lib/contracts.ts name the same PoolManager.',
+    )
+  } else if (mirrored) {
+    pass('matches contracts.ts POOL_MANAGER', 'frontend CREATE2 derivation agrees')
+  }
+}
+
+// ── 7. Recoverable, so last: can the deployer pay for the broadcast ──────────
+//
+// Not a threshold anyone picked. The 46630 rehearsal broadcast is on disk with
+// per-transaction receipts, so the requirement is measured and then priced at
+// the live gas price. An arbitrary "at least 0.01 ETH" would have been a number
+// with no argument behind it, and on a chain whose gas price moves it would be
+// wrong in both directions.
+console.log('\n6. recoverable — can the deployer actually pay for C1')
+const balance = await provider.getBalance(deployer)
+
+// Recorded from broadcast/Deploy.s.sol/46630/run-latest.json, which deployed the
+// same three contracts. Kept as a fallback so this check still has a basis if
+// the broadcast directory is absent or gets pruned.
+const C1_REHEARSED_GAS = 14_580_627n
+let requiredGas = C1_REHEARSED_GAS
+const REHEARSAL = path.join(REPO, 'broadcast', 'Deploy.s.sol', '46630', 'run-latest.json')
+try {
+  const receipts = JSON.parse(fs.readFileSync(REHEARSAL, 'utf8')).receipts ?? []
+  const summed = receipts.reduce((a, r) => a + BigInt(r.gasUsed), 0n)
+  if (summed > 0n) requiredGas = summed
+} catch {
+  notes.push(
+    `could not read ${path.relative(REPO, REHEARSAL)}; priced C1 from the recorded `
+    + `${C1_REHEARSED_GAS} gas instead of re-summing the rehearsal receipts.`,
+  )
+}
+
+const feeData = await provider.getFeeData()
+const gasPrice = feeData.gasPrice ?? feeData.maxFeePerGas
+if (!gasPrice) {
+  notes.push('the RPC returned no gas price, so affordability was not checked.')
+} else {
+  const need = requiredGas * gasPrice
+  console.log(`        C1 measured at ${requiredGas} gas (rehearsal), priced at `
+    + `${ethers.formatUnits(gasPrice, 'gwei')} gwei`)
+  console.log(`        needs ~${ethers.formatEther(need)} ETH, deployer holds `
+    + `${ethers.formatEther(balance)} ETH`)
+
+  // DeployMainnet does slightly more than the rehearsal it is priced from — it
+  // also stages two ownership transfers — and the gas price read here is a
+  // single sample. Hence a margin rather than a bare comparison.
+  if (balance < need) {
+    fail(
+      `deployer cannot afford C1 — holds ${ethers.formatEther(balance)} ETH, needs ~${ethers.formatEther(need)} ETH`,
+      `That is ${(balance * 100n) / need} % of the requirement, short by `
+      + `${ethers.formatEther(need - balance)} ETH. C1 is a single broadcast that deploys `
+      + 'HookDeployLib, the treasury and the factory and then wires them together; the '
+      + 'factory alone was 7.95 M gas in rehearsal. A broadcast that runs out of gas '
+      + 'part-way leaves exactly the half-deployed platform this script exists to prevent, '
+      + 'with some contracts live and unowned.',
+      `Fund ${deployer} with at least ${ethers.formatEther(need * 2n - balance)} ETH more `
+      + '(2x the measured cost, so a gas-price move between this check and the broadcast '
+      + 'does not strand it).',
+    )
+  } else if (balance < need * 2n) {
+    notes.push(
+      `deployer holds ${ethers.formatEther(balance)} ETH against a measured requirement of `
+      + `${ethers.formatEther(need)} ETH — enough at the current gas price with less than 2x `
+      + 'margin. The price above is one sample; if it rises before the broadcast this '
+      + 'becomes insufficient mid-deploy.',
+    )
+    pass('deployer can afford C1', 'but with under 2x margin — see notes')
+  } else {
+    pass('deployer can afford C1', `${ethers.formatEther(balance)} ETH, over 2x the measured cost`)
+  }
+}
+
+// ── 8. Delegate the deep Safe verification to the script that owns it ────────
+//
+// Deliberately a subprocess against the address THE FILE names, not a
+// reimplementation: verifyOwnerSafe.mjs already checks 2-of-3, the agreed owner
+// set, the fallback handler, SafeL2 indexing and that plain ETH is accepted.
+// Re-running it here is what turns "the Safe we blessed" into "the Safe we are
+// about to deploy against".
+console.log('\n7. deep Safe verification, delegated to verifyOwnerSafe.mjs')
+console.log(`   (against PROD_OWNER_SAFE as written in .env.production: ${prodOwnerSafe})\n`)
+const sub = spawnSync(process.execPath, [path.join(REPO, 'scripts', 'verifyOwnerSafe.mjs'), prodOwnerSafe], {
+  cwd: REPO,
+  encoding: 'utf8',
+})
+const subOut = (sub.stdout || '') + (sub.stderr || '')
+console.log(subOut.split(/\r?\n/).map(l => (l ? '   │ ' + l : '   │')).join('\n'))
+if (sub.status === null) {
+  notes.push(`verifyOwnerSafe.mjs did not run to completion (${sub.error?.message ?? 'unknown'}).`)
+} else if (sub.status !== 0) {
+  fail(
+    'verifyOwnerSafe.mjs rejected PROD_OWNER_SAFE',
+    'Its findings are printed above. It is the authority on the Safe itself; this script '
+    + 'only established that .env.production points at it.',
+    'Resolve every point it lists, then re-run this preflight.',
+  )
+} else {
+  pass('verifyOwnerSafe.mjs accepted the Safe named in .env.production')
+}
+
+// ── Verdict ──────────────────────────────────────────────────────────────────
+console.log('\n' + '─'.repeat(74))
+for (const n of notes) console.log(`\nnote: ${n}`)
+
+if (failures.length) {
+  console.error(`\n✗ ${failures.length} check(s) failed. DO NOT BROADCAST C1.\n`)
+  for (const f of failures) {
+    console.error(`  · ${f.what}`)
+    console.error(`      why: ${f.why}`)
+    console.error(`      fix: ${f.fix}\n`)
+  }
+  process.exit(1)
+}
+
+console.log('\n✓ clear for C1.')
+console.log('  Still not covered by any pre-broadcast check, because they are only')
+console.log('  observable afterwards: that the PoG signer KEY in Vercel matches')
+console.log('  POG_SIGNER_ADDRESS above (PM-C7), and the status page CHAIN block')
+console.log('  (checkStatusPage.mjs, which arms itself once broadcast/*/4663/ exists).')

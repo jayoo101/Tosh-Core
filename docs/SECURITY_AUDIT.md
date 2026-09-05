@@ -2680,6 +2680,76 @@ same lesson as §5.14's `verdictFor` and the doc-symbol harness that vouched for
 itself — a verification tool that cannot fail loudly is indistinguishable from the
 thing it was built to detect.
 
+### 5.16 Twelfth sweep — the deploy environment, which no guard had ever read
+
+`scripts/preflightMainnet.mjs`, 2026-09-05. Every sweep so far has audited code.
+This one audits the **inputs** to the one irreversible action on the roadmap, and
+the finding is that they were the least-guarded surface in the repository.
+
+**The gap is a paste.** Two checks already exist either side of it and neither
+covers it. `DeployMainnet.s.sol` asserts the chain id and that four roles are
+non-zero and mutually distinct. `verifyOwnerSafe.mjs` verifies a Safe deeply —
+2-of-3, owners as agreed, SafeL2 and indexed, accepts plain ETH — and then ends by
+printing "Safe to set BOTH of these in `.env.production`". Nothing checked that
+they were set, or set to that. `.env.production` is gitignored and does not exist
+until deploy day, so the file the broadcast actually sources had no guard reading
+it at all.
+
+**What `requireDistinctRoles` does not assert is that `PLATFORM_TREASURY` has
+code.** PM-C9 wrote this down in as many words — "a personal EOA passes and is
+then permanent" — and it stayed a sentence in a checklist rather than a check. The
+address takes 0.30 % of the ETH input of every buy on every pool, forever, and is
+immutable in two places: the factory and the hook implementation's
+`platformFeeRecipient`. Distinctness from the deployer and the PoG signer is
+satisfied by *any* third address, including a personal wallet, which is exactly
+the mistake a hurried deploy makes.
+
+**The inverse holds for the PoG signer and is worse for being silent.**
+`POG_SIGNER_ADDRESS` must *not* have code: `registerPoG` authenticates with
+`hash.recover(signature)`, which can only ever yield an EOA, so a contract there
+can never match. Nothing reverts at deploy. The factory comes up healthy and every
+user registration fails `InvalidSignature` afterwards. `setPogSigner` can repair
+it, once somebody works out why nobody can register.
+
+**One cross-layer check nothing else does.** `contracts.ts` hardcodes
+`POOL_MANAGER` and its own comment explains why it is deliberately not env-bound:
+a wrong one silently mis-computes every hook's CREATE2 address. That makes it two
+independent declarations of one address with nothing comparing them — the same
+drift `checkContractConstants.ts` exists to prevent, one boundary further out. The
+preflight compares them.
+
+**Deep Safe verification is delegated, not reimplemented.** The script shells out
+to `verifyOwnerSafe.mjs` against the address *the file names*, which is what turns
+"the Safe we blessed on a command line" into "the Safe we are about to deploy
+against".
+
+**And it immediately found something the checklist had not asked about.** The
+deployer holds **0.001627 ETH** on 4663 and the rehearsal broadcast on disk totals
+**14,580,627 gas** — 7.95 M the factory alone. At the quoted 0.38 gwei that is
+~0.0056 ETH, so the deployer covers **29 %** of its own deploy. Recoverable, being
+only funding, but it is the single item that fails *during* the irreversible step:
+a broadcast that runs out part-way leaves some contracts live and the factory
+absent or unowned. The check is measured rather than chosen — it sums the receipts
+and prices them live — because a hardcoded ETH threshold on a chain whose gas price
+moves is wrong in both directions.
+
+**9 scenarios, and the ninth is the one that mattered.** Eight prove refusal: the
+treasury as an EOA, the owner as an EOA, the signer as a contract, a real-but-wrong
+PoolManager, a role collision, a leftover `REPLACE_ME`, a chain-id mismatch, and no
+file at all. The ninth proves **exit 0 is reachable** — after the first eight
+passed, everything verified was that it says no, and a gate that can only refuse is
+as useless as one that only permits. Running it also confirmed the intended env
+layering, since omitting `PRIVATE_KEY` from `.env.production` correctly fell back
+to `.env` rather than failing.
+
+**Exit 2 is not exit 1 and not exit 0.** A missing `.env.production`, a leftover
+placeholder, an unreachable RPC or a chain-id mismatch exit **2** — could not run.
+The same lesson as §5.15's harness and §5.14's `verdictFor`, now applied where it
+is most tempting to skip: reading `.env` instead would be *worse* than not running,
+because it holds testnet roles where `PLATFORM_TREASURY` and `POG_SIGNER_ADDRESS`
+are both the deployer, and it would have reported three confident failures about a
+file nobody is deploying.
+
 ---
 
 ## 6. Findings
