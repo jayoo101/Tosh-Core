@@ -2168,6 +2168,50 @@ name silent, entry dropped goes red), and four controls — a real function, a r
 error, a `SCREAMING_SNAKE` env var, and a real test name — that must stay silent,
 the last of them there so the widening cannot be paid for in false positives.
 
+**And it had never once run in CI.** Everything above was measured on a laptop.
+The guard shelled out to `rg`, ripgrep is not on the GitHub runner image, and so
+from the commit that introduced it every push failed with
+`check:doc-symbols could not run ripgrep — spawnSync rg ENOENT`: five consecutive
+red `CI` runs, while five commit messages and five sweeps of this dossier reported
+the guard as green. The step sits late in a seven-minute job behind a fork-test
+suite, which is why nobody looked, and the `Frontend` workflow stayed green
+throughout, which made the repository look half-healthy rather than broken.
+
+Failing closed was the one thing it got right — the guard did not pretend to pass,
+it refused to run, and exit 2 is a distinct code precisely so this case is not
+mistaken for a clean sweep. What was wrong is that it depended on a binary nobody
+had declared, and that the dependency was invisible on the machine where it was
+written. A guard that only runs where its author sits is not a CI guard, and its
+findings should not be quoted as if CI had confirmed them.
+
+The haystack is now assembled with `git ls-files`, which the checkout already
+depends on: `--cached --recurse-submodules` plus `--others --exclude-standard`,
+which is the precise equivalent of what ripgrep scanned — tracked files, plus
+untracked ones that are not ignored. That equivalence is load-bearing in both
+directions and neither half was obvious. Ripgrep honoured `.gitignore` for free,
+which is what kept `.next/` and `out/` out of the haystack; and it descended into
+the `lib/` submodules, where `ProtocolFees`, `SignedMath`, `feesAccrued` and
+`hookDelta` live. A first version without `--recurse-submodules` reported all four
+as invented — four confident, false findings a reviewer would have acted on, which
+is why the replacement was diffed against the ripgrep result rather than merely
+run.
+
+10 of 10 mutations behave as specified, split deliberately across both directions:
+three prove the haystack still reaches `src/`, the `lib/` submodules and
+`soat-frontend/`, so the guard can still find things; five prove it refuses to be
+vouched for by `gasreport.txt`, a Slither report, its own prose, another gated
+document, or gitignored build output — every exclusion re-expressed as a path
+regex, and a regex that fails to match its path would have silently re-armed the
+holes above while still printing OK; one proves an invented name is still
+reported; and one proves an empty haystack is exit 2 rather than a pass.
+
+The mutation harness caught itself first, which is worth recording. Sitting
+untracked-but-not-ignored at the repository root made it part of the haystack, so
+the sentinel name written as a literal in the harness vouched for itself and all
+five "must be reported" cases came back green. That is the same self-reference the
+guard's own header describes, met by accident from the other side; the sentinel is
+now assembled at runtime so the literal never appears in the file.
+
 `PRD-v5.0.md` and `ROBINHOOD_MIGRATION.md` are deliberately outside the gate — a
 stale name in a product spec is a nit, not an unverifiable control — and they are
 **not** clean. Running the probe across them found three UI symbols absent from

@@ -29,7 +29,7 @@
 // Usage: node scripts/checkDocSymbols.mjs
 // Exit:  0 clean · 1 unknown identifier(s) · 2 guard could not run
 
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -165,67 +165,115 @@ if (seenIn.size === 0) {
   process.exit();
 }
 
-// ── One ripgrep over the tree, excluding the docs themselves ────────────────
-const PATTERN_NAME = '.doc-symbols.pattern';
-const patternFile = join(REPO, PATTERN_NAME);
-// A leading `\b` cannot precede an underscore when the character before it in
-// the source is a word character, and the docs abbreviate shared test prefixes
-// exactly that way — `test_ladderCuration_rejectsForeignTokens` /
-// `_rejectsUnlaunchedProjects`. So anchor the tail only for `_`-leading names,
-// which still leaves a genuinely invented `_foo` unmatched.
-writeFileSync(
-  patternFile,
-  [...seenIn.keys()].map((n) => (n.startsWith('_') ? `${n}\\b` : `\\b${n}\\b`)).join('\n'),
-  'utf8'
-);
+// ── One pass over the tree, excluding the docs themselves ───────────────────
+//
+// This used to shell out to `rg`, and it was never once green in CI. Ripgrep is
+// not on the GitHub runner image, so the guard failed closed with
+// `spawnSync rg ENOENT` on every push from the commit that introduced it — five
+// consecutive red runs, unnoticed because the step sits late in a seven-minute
+// job. Failing closed was right; depending on a binary nobody had declared was
+// not. A guard that only runs on the author's laptop is not a CI guard.
+//
+// The haystack is now assembled with `git`, which the checkout already depends
+// on. `--cached --others --exclude-standard` is the precise equivalent of what
+// ripgrep scanned: tracked files, plus untracked ones that are not ignored. That
+// equivalence is load-bearing rather than incidental — ripgrep honoured
+// `.gitignore` for free, and the exclusions below are the record of what happens
+// when generated output reaches the haystack.
+const EXCLUDED = [
+  /^docs\//,
+  /(^|\/)node_modules\//,
+  /^out\//,
+  /^cache\//,
+  // This file names stale symbols in its own header in order to explain itself.
+  // Without this exclusion the guard reports every such symbol as present, on
+  // the strength of its own prose, and silently stops working — which is how the
+  // mutation harness first found it broken.
+  /^scripts\/checkDocSymbols\.mjs$/,
+  // Generated artifacts are not evidence that a symbol exists. `gasreport.txt`
+  // is tracked, 130 KB, and lists the name of every test that existed when it
+  // was last regenerated; `slither-baseline.json` embeds source snippets the
+  // same way. Either one keeps a DELETED symbol resolving indefinitely, which
+  // is the precise failure this guard exists to prevent — a doc citing a test
+  // that is gone, passing because a stale report still mentions it. Found by
+  // mutation: renaming a real test in `test/` stayed green until these were
+  // excluded. Regenerating them is not a fix; being outside the haystack is.
+  /^gasreport\.txt$/,
+  /(^|\/)slither[^/]*\.json$/,
+  /(^|\/)[^/]*-report\.json$/,
+  /\.tsbuildinfo$/,
+  /\.lock$/,
+  /(^|\/)pnpm-lock\.yaml$/,
+];
 
-let found = new Set();
-try {
-  const rg = spawnSync(
-    'rg',
-    [
-      '-o', '-N', '--no-heading', '--no-filename',
-      '-f', patternFile,
-      '--glob', '!docs/**',
-      '--glob', '!node_modules/**',
-      '--glob', '!out/**',
-      '--glob', '!cache/**',
-      '--glob', `!${PATTERN_NAME}`,
-      // This file names stale symbols in its own header in order to explain
-      // itself. Without this exclusion the guard reports every such symbol as
-      // present, on the strength of its own prose, and silently stops working —
-      // which is how the mutation harness first found it broken.
-      '--glob', '!scripts/checkDocSymbols.mjs',
-      // Generated artifacts are not evidence that a symbol exists. `gasreport.txt`
-      // is tracked, 130 KB, and lists the name of every test that existed when it
-      // was last regenerated; `slither-baseline.json` embeds source snippets the
-      // same way. Either one keeps a DELETED symbol resolving indefinitely, which
-      // is the precise failure this guard exists to prevent — a doc citing a test
-      // that is gone, passing because a stale report still mentions it. Found by
-      // mutation: renaming a real test in `test/` stayed green until these were
-      // excluded. Regenerating them is not a fix; being outside the haystack is.
-      '--glob', '!gasreport.txt',
-      '--glob', '!slither*.json',
-      '--glob', '!*-report.json',
-      '--glob', '!*.tsbuildinfo',
-      '--glob', '!**/*.lock',
-      '--glob', '!**/pnpm-lock.yaml',
-      REPO,
-    ],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
-  );
-  // rg exits 1 on "no matches", which is a legitimate (if alarming) result.
-  if (rg.error) throw rg.error;
-  if (rg.status !== 0 && rg.status !== 1) {
-    throw new Error(`rg exited ${rg.status}: ${(rg.stderr || '').slice(0, 400)}`);
+function gitList(args) {
+  const ls = spawnSync('git', ['ls-files', '-z', ...args], {
+    cwd: REPO,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (ls.error || ls.status !== 0) {
+    const why = ls.error
+      ? ls.error.message
+      : `git exited ${ls.status}: ${(ls.stderr || '').slice(0, 400)}`;
+    fail(2, `check:doc-symbols could not list the tree with git ${args.join(' ')} — ${why}`);
+    process.exit();
   }
-  found = new Set((rg.stdout || '').split(/\r?\n/).filter(Boolean));
-} catch (e) {
-  unlinkSync(patternFile);
-  fail(2, `check:doc-symbols could not run ripgrep — ${e.message}`);
+  return ls.stdout.split('\0').filter(Boolean);
+}
+
+// Two calls, because `--recurse-submodules` and `--others` are mutually
+// exclusive in git, and both halves are needed.
+//
+// The submodules are not optional here: `ProtocolFees`, `SignedMath`,
+// `feesAccrued` and `hookDelta` are named in the audit and exist only in
+// vendored v4-core and OpenZeppelin under `lib/`. Listing the superproject alone
+// reported all four as invented, which is the answer a reviewer would have acted
+// on — and the reason this replacement was checked against the ripgrep result
+// instead of merely being run.
+const haystack = [
+  ...new Set([
+    ...gitList(['--cached', '--recurse-submodules']),
+    ...gitList(['--others', '--exclude-standard']),
+  ]),
+].filter((p) => !EXCLUDED.some((re) => re.test(p)));
+
+if (haystack.length === 0) {
+  fail(2, 'check:doc-symbols has an empty haystack, which cannot be right');
   process.exit();
 }
-unlinkSync(patternFile);
+
+// One alternation, longest name first so a name that is a bounded prefix of
+// another cannot shadow it. `\b` is zero-width, so each match is the name itself.
+//
+// The tail-only anchor for `_`-leading names is carried over from the ripgrep
+// pattern file: a leading `\b` cannot precede an underscore when the character
+// before it in the source is a word character, and the docs abbreviate shared
+// test prefixes exactly that way — `test_ladderCuration_rejectsForeignTokens` /
+// `_rejectsUnlaunchedProjects`. That still leaves a genuinely invented `_foo`
+// unmatched.
+const names = [...seenIn.keys()].sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
+const NEEDLES = new RegExp(
+  names
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .map((n) => (n.startsWith('_') ? `${n}\\b` : `\\b${n}\\b`))
+    .join('|'),
+  'g'
+);
+
+const found = new Set();
+for (const rel of haystack) {
+  let text;
+  try {
+    text = readFileSync(join(REPO, rel), 'utf8');
+  } catch {
+    // Unreadable or gone between the listing and the read. Not evidence either
+    // way, and not worth failing the build over.
+    continue;
+  }
+  for (const m of text.matchAll(NEEDLES)) found.add(m[0]);
+  if (found.size === names.length) break;
+}
 
 const missing = [...seenIn.keys()].filter((n) => !found.has(n)).sort();
 
