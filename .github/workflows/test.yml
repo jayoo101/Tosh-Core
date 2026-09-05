@@ -371,6 +371,21 @@ jobs:
       - name: Check the checklist summary matches its own rows
         run: node scripts/checkChecklistCounts.mjs
 
+      # The §5.12 sweep found SECURITY_AUDIT §1.2 scoping in a function called
+      # `_verifyPoGSignature` that has never existed — the PoG signature check
+      # is inline in `registerPoG`. A stale name in a scope paragraph is a
+      # nuisance; the same name in INCIDENT_RESPONSE §Q4, as the red-team
+      # drill's PASS CRITERION, is a control nobody could check, because you
+      # cannot watch calls fail at a function that does not exist. The same
+      # probe found `mintFromShelf` for `mintBondingCurve` in the invariant
+      # notes. Two in one pass, in prose no compiler reads, is a class of drift.
+      #
+      # Gated on the three docs where a dangling name has a security
+      # consequence. The guard's header records why the PRD is excluded and
+      # which three symbols in it are known stale.
+      - name: Check the docs name only symbols that exist
+        run: node scripts/checkDocSymbols.mjs
+
       # SECURITY_AUDIT §2.5 is the auditor's map of every narrowing cast in
       # `src/` and the bound each one rests on. It was hand-maintained, and by
       # 2026-09-04 it had rotted in the way that is hardest to notice: it

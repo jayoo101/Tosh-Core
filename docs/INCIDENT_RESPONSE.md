@@ -777,7 +777,7 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 | Q1 | Full-factory pause on Robinhood testnet, communicate, unpause. | `pause()` → public status page → `unpause()` within 30 min, with at least one new signer participating. |
 | Q2 | Targeted blacklist of a fake exploit address on Robinhood testnet. | Two-engineer sign-off recorded, `setBlacklist` executed, `liftBlacklist` after 1 h. |
 | Q3 | PoG signer rotation on Robinhood testnet. | New signer key in Vercel Production only, `setPogSigner` executed via Safe, sign-allocation API redeployed and serving. |
-| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment for 2 h. | All attempts fail at `_verifyPoGSignature`; on-call detects within 15 min via Defender alert. |
+| Q4 | Full red-team: external attacker tries a forged PoG attestation against the Robinhood testnet deployment for 2 h. | Every attempt reverts out of `ToshFactory.registerPoG` with `InvalidSignature()` (or `NonceConflict()` / `SignatureExpired()` / `SignatureTooLong()` for a replay or a stale deadline), and `pogQuota` is unchanged for every address tried; on-call detects within 15 min via Defender alert. |
 
 > **The rehearsal chain is Robinhood testnet, chain id 46630.** Every row above
 > said "Sepolia" until 2026-09-03, which was correct while the project targeted

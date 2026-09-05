@@ -57,8 +57,11 @@ disagrees with anyone's memory, the table wins.
 - `soat-frontend/**` — the Next.js UI. Reviewed separately; a frontend
   compromise is covered by `docs/INCIDENT_RESPONSE.md` §2, not here.
 - The off-chain PoG signing service, **except** for the on-chain signature
-  verification path in `ToshFactory` (`registerPoG`, `_verifyPoGSignature`),
-  which is firmly in scope.
+  verification path, which is firmly in scope. That path is
+  `ToshFactory.registerPoG` and nothing else: the digest is built and recovered
+  inline there (`src/ToshFactory.sol:511-513`), and a bad signature leaves as
+  `InvalidSignature()`. This used to name a helper called
+  `_verifyPoGSignature`, which has never existed in `src/` — see §5.12.
 
 ### 1.3 Build configuration the auditor must reproduce
 
@@ -666,7 +669,7 @@ and the tip is all an unpinned fork asks for.
   past launch (fund → launch → list → accumulate 1 ETH → swap). The invariants
   are exercised rather than vacuous, but this specific path deserves a long soak
   at higher depth during the engagement, not just the CI budget.
-- The shelf ladder (`mintFromShelf`) has no invariant action. Its price gates
+- The shelf ladder (`mintBondingCurve`) has no invariant action. Its price gates
   are covered by the unit and attack suites only, so the tier-boundary and
   same-block-lockout logic is not composed against arbitrary sequences.
 - Fork coverage exists but is **narrow by design**. `test/ToshV5Fork.t.sol` runs
@@ -2032,6 +2035,129 @@ tier ladder as an *economic* model rather than as arithmetic — whether a 2,000
 span over 4,000 rungs is the right shape for this token's demand curve is a
 question about markets, not about `mulDiv` — and anything requiring a live
 adversarial fork.
+
+---
+
+### 5.12 Eighth sweep — the rest of `src/`, by hand
+
+`ToshFactory` (855 lines) had never had the treatment §5.11 gave the hook and the
+treasury. It had been touched piecemeal — the setter ceilings in §5.10, the
+`nonReentrant` note in §3, the signature path named in §1.2 — but never read end
+to end, which left the contract that holds ownership, the PoG ledger, the
+blacklist, the kill switches and the CREATE2 gate as the last large unswept
+surface. Read 2026-09-05, together with `ToshToken` (184), `ToshCloneLib` (320),
+`HookMiner` (119) and `HookDeployLib` (79). **With §5.11 this completes a by-hand
+pass over all of `src/`.**
+
+**No defect in the contracts. One in the documents that describe them**, and it
+is the kind that makes a control unverifiable rather than wrong.
+
+#### The finding — two documents pointed at a function that has never existed
+
+§1.2 scoped in "the on-chain signature verification path in `ToshFactory`
+(`registerPoG`, `_verifyPoGSignature`)". There is no `_verifyPoGSignature`, in
+`src/` or in `test/`, and there never has been: `registerPoG` builds the digest
+and recovers it inline in three lines. On its own that is a stale name in a scope
+paragraph, worth fixing so an auditor does not go looking for code that is not
+there.
+
+What made it worth calling a finding is the second reference.
+`INCIDENT_RESPONSE.md` §Q4 — the annual red-team drill against forged PoG
+attestations — stated its pass criterion as "all attempts fail at
+`_verifyPoGSignature`". **That criterion cannot be observed.** You cannot watch
+attempts fail at a function that does not exist, so the drill could be recorded
+as passed by anyone who did not go looking, and nothing in the sentence would have
+contradicted them. It is the same shape as the `STATE-07` defect in §5.11: not a
+control that is wrong, a control whose success condition nobody could actually
+check. Q4 has not been run yet, so nothing false has been recorded.
+
+Both are fixed. §1.2 now names `registerPoG` alone with the file and line of the
+recover, and Q4's criterion is now something a drill can actually produce: every
+attempt reverts out of `registerPoG` with `InvalidSignature()` — or
+`NonceConflict()` / `SignatureExpired()` / `SignatureTooLong()` for a replay or a
+stale deadline — and `pogQuota` is unchanged for every address tried. The quota
+assertion is the part that makes it a test rather than a log inspection.
+
+**Then the same probe found a second one**, which is what turned this from an
+accident into a class. §4's invariant-coverage notes credited the shelf ladder to
+`mintFromShelf`; the function is `mintBondingCurve`. The claim it decorated was
+still true — there is no shelf-mint action in the invariant handler — so only the
+name was wrong, but an auditor checking the claim would have searched for nothing.
+
+Two stale symbols in one pass, in prose no compiler reads, is worth a guard rather
+than a correction. `scripts/checkDocSymbols.mjs` extracts every backticked
+identifier from the three documents where a dangling name has a security
+consequence — the dossier says what to review, the runbook says what to check
+under pressure, the monitoring doc says what the alerts mean — and fails the build
+on any that resolves nowhere in the tree. 182 identifiers currently pass. Names
+the docs mention *because* they are absent (`_headers`, `webSocket()`, and the two
+findings above) sit in an allowlist that requires a reason per entry; dropping one
+turns the build red, which is checked.
+
+The guard's first version was itself broken, and its mutation harness is what
+found that: naming `_verifyPoGSignature` in its own header comment made the symbol
+"exist", so the guard reported clean on the very drift it was written for. It now
+excludes its own file. 8 of 8 mutations behave as specified, including one that
+plants a name in the guard's prose alone to prove the exclusion holds, and one
+invented name per gated document to prove all three are really read.
+
+`PRD-v5.0.md` and `ROBINHOOD_MIGRATION.md` are deliberately outside the gate — a
+stale name in a product spec is a nit, not an unverifiable control — and they are
+**not** clean. Running the probe across them found three UI symbols absent from
+all of `soat-frontend/`: `feeMode`, `handleDeposit` and `handleMineSalt`, cited
+with precise line ranges against a launch page that now exposes a single
+`handleLaunch`. Recorded here rather than allowlisted, because an allowlist entry
+would make it look handled. Repairing those sections is a product-spec job.
+
+#### Six hypotheses that died on contact
+
+Recorded because a dismissed hypothesis is the part of a clean sweep that has
+value — it is what the engagement should not have to re-derive.
+
+| Hypothesis | Why it fails |
+|---|---|
+| PoG attestations replay across chains, contracts, or via signature malleability | The digest is `abi.encode(msg.sender, maxAlloc, nonce, deadline, address(this), block.chainid)` — sender, contract and chain are all in the domain, `abi.encode` leaves no packing ambiguity, and OZ's `recover` rejects a malleable `s`. The nonce is per-sender, strictly sequential, and consumable only by its own sender, so no third party can burn it. |
+| `eligibility()` drifts from `_rollQuotaWindow()`, whose logic it re-implements without calling | The mirror matches on all three branches (`duration == 0`, window lapsed, window live). It is also pinned end-to-end rather than by inspection: `test_pogQuota_refillsAfterTheCooldownWindow` reads `eligible == false` before the boundary and `remaining == 0.3 ether` after it, then performs the deposit the view promised. |
+| A creator's mined salt can be front-run | `finalSalt = keccak256(abi.encode(msg.sender, hookSalt))`. A thief's `msg.sender` yields a different salt, a different address, and almost certainly one that fails the flag mask. |
+| The hook can be made to renounce `MINTER_ROLE`, bricking supply forever | `ToshToken` leaves `DEFAULT_ADMIN_ROLE` vacant, so `renounceRole` is the only surviving door and only the hook may walk through it. The hook has no arbitrary-call surface: the only `.call` in the hook, factory or treasury is `_sendEth`, whose calldata is the empty string, and none of the three contains a `delegatecall`. The Immutable Pact holds. |
+| A reverting `receive()` on the ladder treasury blocks `createLaunch` platform-wide | The treasury's `receive()` is a single `emit` with no revert path and no external call, and `_sendEth` forwards all remaining gas. |
+| `genesisDuration` truncating to `uint32` lets two durations share an initcode hash | Already fixed: `cloneInitcode` reverts `DurationTooLargeToPack` above `type(uint32).max`, alongside `CapTooLargeToPack` for the two caps. The comment names the real reason — `initcodeHash` is the public view the frontend mines salts against — rather than the deployment. |
+
+**Two observations for the engagement, neither a defect.**
+
+*The mask is checked on a predicted address, never on the deployed one.*
+`createLaunch` computes `predictedHook`, gates the V4 flag mask on it, then
+CREATE2s through a separate call and compares the result only against
+`address(0)` — the two addresses are never checked against each other. They
+cannot diverge today, because `initcodeHash` and `deployHook` both derive their
+bytes from the one `cloneInitcode` and the factory hands them identical
+arguments. But that is an invariant held by convention across two call sites, and
+§5.11 established that bit 13 is the single thing stopping a stranger from
+opening a second pool against a hook. What actually pins it is a test, not the
+contract: `test_minedHookAddress_carriesV5FlagMask` asserts the mask on the
+address `createLaunch` really returned.
+
+*Almost every deployed hook carries callback flags nobody asked for.*
+`isValidHookAddress` requires the `0x20CC` bits to be SET; it does not require the
+other nine low bits to be CLEAR. Enumerating the low 14 bits under the required
+mask and V4's two return-delta dependency rules gives 288 legal patterns, of which
+exactly one is `0x20CC` alone — so **99.65 % of hooks are deployed at addresses
+that enable extra callbacks**, and which ones is a property of the salt the
+creator happened to mine. This is harmless only because all ten `IHooks` members
+are permissive: three do the real work (bits 13, 7, 6), and the other seven either
+return their own selector or, in `beforeRemoveLiquidity`'s case, pass through
+deliberately (§5.11's LP-withdrawal claim). It is worth stating plainly because
+the tempting "hardening" — making an unused callback revert — would brick launches
+non-deterministically, depending on each project's salt, which is close to the
+worst failure mode to diagnose. `ToshV5Guards.t.sol:568-612` pins all seven and
+turns red first. Note in passing that `beforeRemoveLiquidity` carries
+`onlyPoolManager` while the six selector stubs are bare `pure` functions; the
+asymmetry costs nothing, since a no-op is no more dangerous for being callable.
+
+**Scope.** By hand, the five files named above. Nothing was added to `test/`:
+every contract property this sweep would have pinned already had a test, and that
+is the result rather than an omission. What it added instead is one CI guard, over
+the documents — which is where the sweep's only defects were.
 
 ---
 
