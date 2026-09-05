@@ -130,10 +130,19 @@ jobs:
       # `_rejectsOrderOfMagnitudeSlip`, from the §5.14 settings sweep.
       # `setLaunchFee` was the one setter on the factory with no validation of
       # any kind; it is now bounded by `MAX_LAUNCH_FEE`.
+      #
+      # 354 -> 362 on 2026-09-05: the eight boundary and unit-slip tests §5.15
+      # added for `setDefaultSoftCap` and `setMaxPogAllocationLimit`. The floor
+      # was not raised with them, so for a day it sat exactly 8 below the suite
+      # — which is the same failure the 335 -> 349 entry above describes, and
+      # the amount it had drifted was precisely the block of tests most likely
+      # to be deleted together. The frontend floor in `frontend.yml` was raised
+      # to 188 in the same commit; this one was missed, which is the argument
+      # for reading both numbers off a run rather than off the diff.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=354
+          floor=362
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
