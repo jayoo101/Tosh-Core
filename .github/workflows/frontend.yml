@@ -178,10 +178,15 @@ jobs:
       # tests in this suite. The three bounded admin dials refuse a value the
       # factory reverts on, and §5.14 had recorded all three as untested because
       # nothing here could render a component at all.
+      #
+      # 179 -> 188: §5.15 gave `setDefaultSoftCap` and `setMaxPogAllocationLimit`
+      # the ceilings §5.10 had declined to add, so both dials gained boundary and
+      # wei/ether-slip tests, plus one pinning that the new upper blocker did not
+      # shadow the zero blocker that keeps `createLaunch` alive.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=179
+          floor=188
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

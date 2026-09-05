@@ -8,7 +8,15 @@ import {
   MAX_COOLDOWN_SECONDS,
 } from '@/lib/contracts'
 
-import { LaunchFeePanel, SoftCapPanel, CooldownDurationPanel } from './FactoryDials'
+import { LaunchFeePanel, SoftCapPanel, PogLimitPanel, CooldownDurationPanel } from './FactoryDials'
+
+/**
+ * The two 1 M ETH ceilings are typed as plain digits rather than through their
+ * `_LABEL` exports, which carry thousands separators for the UI. `MAX_LAUNCH_FEE`
+ * is small enough that its label doubles as a typeable value; these are not.
+ */
+const MAX_SOFT_CAP_TYPED = '1000000'
+const MAX_POG_LIMIT_TYPED = '1000000'
 
 /**
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
@@ -142,6 +150,70 @@ describe('DEFAULT SOFT CAP dial', () => {
     expect(v.label).toBe('[min_soft_cap_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('InvalidSoftCap')
+  })
+
+  it('arms exactly at the ceiling', () => {
+    const v = verdictFor(<SoftCapPanel />, MAX_SOFT_CAP_TYPED)
+    expect(v.label).toBe(READY)
+    expect(v.disabled).toBe(false)
+  })
+
+  it('refuses one wei above the ceiling, naming the revert', () => {
+    const v = verdictFor(<SoftCapPanel />, '1000000.000000000000000001')
+    expect(v.label).toBe('[max_soft_cap_violation]')
+    expect(v.disabled).toBe(true)
+    expect(v.reason).toContain('SoftCapTooHigh')
+  })
+
+  it('refuses the wei/ether slip: the 10 ETH default typed as its wei value', () => {
+    const v = verdictFor(<SoftCapPanel />, '10000000000000000000')
+    expect(v.label).toBe('[max_soft_cap_violation]')
+    expect(v.disabled).toBe(true)
+  })
+
+  it('still arms at a large but real raise, because the ceiling is not a view on size', () => {
+    // 8000 ETH is what `batchA-R2-fresh.ps1` sets, and the Foundry side pins the
+    // same value. A ceiling tightened to something tidy would fail here first.
+    const v = verdictFor(<SoftCapPanel />, '8000')
+    expect(v.label).toBe(READY)
+    expect(v.disabled).toBe(false)
+  })
+})
+
+describe('POG ALLOCATION CEILING dial', () => {
+  const READY = 'Update PoG ceiling'
+
+  it('arms exactly at the ceiling', () => {
+    const v = verdictFor(<PogLimitPanel />, MAX_POG_LIMIT_TYPED)
+    expect(v.label).toBe(READY)
+    expect(v.disabled).toBe(false)
+  })
+
+  it('refuses one wei above the ceiling, naming the revert', () => {
+    const v = verdictFor(<PogLimitPanel />, '1000000.000000000000000001')
+    expect(v.label).toBe('[max_pog_limit_violation]')
+    expect(v.disabled).toBe(true)
+    expect(v.reason).toContain('PogLimitTooHigh')
+  })
+
+  it('refuses the wei/ether slip: 0.1 ETH typed as its wei value', () => {
+    const v = verdictFor(<PogLimitPanel />, '100000000000000000')
+    expect(v.label).toBe('[max_pog_limit_violation]')
+    expect(v.disabled).toBe(true)
+  })
+
+  it('still refuses zero, which the new ceiling must not have displaced', () => {
+    // Both blockers live on this dial now. Adding the upper one must not shadow
+    // the lower one, which is the blocker that keeps createLaunch alive.
+    const v = verdictFor(<PogLimitPanel />, '0')
+    expect(v.label).toBe('[invalid_pog_limit]')
+    expect(v.disabled).toBe(true)
+  })
+
+  it('arms at the 1000 ETH limit this repo\'s own fixtures use', () => {
+    const v = verdictFor(<PogLimitPanel />, '1000')
+    expect(v.label).toBe(READY)
+    expect(v.disabled).toBe(false)
   })
 })
 

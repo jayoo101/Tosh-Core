@@ -488,6 +488,43 @@ contract ToshV5FactoryTest is Test {
         factory.setMaxPogAllocationLimit(1);
     }
 
+    function test_setMaxPogAllocationLimit_atBoundary() public {
+        uint256 ceiling = factory.MAX_POG_ALLOCATION_LIMIT();
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(ceiling);
+        assertEq(factory.maxPogAllocationLimit(), ceiling);
+    }
+
+    function test_setMaxPogAllocationLimit_rejectsAboveCeiling() public {
+        uint256 ceiling = factory.MAX_POG_ALLOCATION_LIMIT();
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.PogLimitTooHigh.selector);
+        factory.setMaxPogAllocationLimit(ceiling + 1);
+    }
+
+    /// @dev The slip at its real magnitude: 0.1 ether typed as 0.1e18 ether.
+    function test_setMaxPogAllocationLimit_rejectsOrderOfMagnitudeSlip() public {
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.PogLimitTooHigh.selector);
+        factory.setMaxPogAllocationLimit(0.1e18 ether);
+    }
+
+    /// @dev The reason this ceiling is 1 M ETH and not something tidy like 100x
+    ///      the default. These two values are not hypothetical: `setUp` here
+    ///      raises the limit to 1000 ETH so the `registerPoG` tests can work in
+    ///      round numbers, and `test_registerPoG_noSilentClamp` needs 300. A
+    ///      bound chosen for neatness would have failed this repo's own suite,
+    ///      which is the cheapest available evidence that it was the wrong bound.
+    function test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses() public {
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(1000 ether);
+        assertEq(factory.maxPogAllocationLimit(), 1000 ether);
+
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(300 ether);
+        assertEq(factory.maxPogAllocationLimit(), 300 ether);
+    }
+
     function test_setDefaultSoftCap_rotatesAndBakesIntoNewHook() public {
         vm.prank(admin);
         factory.setDefaultSoftCap(2 ether);
@@ -514,6 +551,41 @@ contract ToshV5FactoryTest is Test {
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         factory.setDefaultSoftCap(1 ether);
+    }
+
+    function test_setDefaultSoftCap_atBoundary() public {
+        uint256 ceiling = factory.MAX_DEFAULT_SOFT_CAP();
+        vm.prank(admin);
+        factory.setDefaultSoftCap(ceiling);
+        assertEq(factory.defaultSoftCap(), ceiling);
+    }
+
+    /// @dev Unreachable rather than unaffordable, which is why the floor alone was
+    ///      not enough: a soft cap no depositor base can clear does not revert
+    ///      anything, it lets every project created afterwards open a genesis
+    ///      round that can only ever end in refunds.
+    function test_setDefaultSoftCap_rejectsAboveCeiling() public {
+        uint256 ceiling = factory.MAX_DEFAULT_SOFT_CAP();
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.SoftCapTooHigh.selector);
+        factory.setDefaultSoftCap(ceiling + 1);
+    }
+
+    /// @dev 10 ether typed as 10e18 ether — the default, off by the wei/ether
+    ///      confusion this ceiling exists for.
+    function test_setDefaultSoftCap_rejectsOrderOfMagnitudeSlip() public {
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.SoftCapTooHigh.selector);
+        factory.setDefaultSoftCap(10e18 ether);
+    }
+
+    /// @dev Companion to `test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses`:
+    ///      8000 ETH is the soft cap `soat-frontend/scripts/batchA-R2-fresh.ps1`
+    ///      sets against a local Anvil node, so it has to keep working.
+    function test_setDefaultSoftCap_admitsALargeButRealRaise() public {
+        vm.prank(admin);
+        factory.setDefaultSoftCap(8000 ether);
+        assertEq(factory.defaultSoftCap(), 8000 ether);
     }
 
     // ── Pause ─────────────────────────────────────────────────────────────────

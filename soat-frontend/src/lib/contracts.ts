@@ -209,6 +209,22 @@ export const MAX_LAUNCH_FEE: bigint = 10n * 10n ** 18n
 export const MAX_LAUNCH_FEE_LABEL = '10'
 
 /**
+ * Ceilings on the other two ETH dials (mirror `Factory.MAX_DEFAULT_SOFT_CAP` and
+ * `Factory.MAX_POG_ALLOCATION_LIMIT`).
+ *
+ * Far looser than `MAX_LAUNCH_FEE`, and read the Solidity natspec before
+ * tightening either: a value picked for neatness here would reject raises and
+ * wallet caps this repo's own test fixtures and rehearsal scripts depend on.
+ * These catch wei/ether confusion and nothing subtler — in particular a
+ * per-wallet limit under the ceiling is not evidence that PoG still caps whales.
+ */
+export const MAX_DEFAULT_SOFT_CAP: bigint = 1_000_000n * 10n ** 18n
+export const MAX_DEFAULT_SOFT_CAP_LABEL = '1,000,000'
+
+export const MAX_POG_ALLOCATION_LIMIT: bigint = 1_000_000n * 10n ** 18n
+export const MAX_POG_ALLOCATION_LIMIT_LABEL = '1,000,000'
+
+/**
  * The 40 / 60 genesis-to-ladder split (mirrors `Hook.GENESIS_SUPPLY` and
  * friends).  Genesis is 55 % claim / 45 % LP, which is what makes the
  * depositors' opening premium exactly 10 % against the 10 % referral carve.

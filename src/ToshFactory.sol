@@ -64,6 +64,38 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         choice, and `test_setLaunchFee_allowsZero` pins it.
     uint256 public constant MAX_LAUNCH_FEE = 10 ether;
 
+    /// @notice Ceilings on the two other ETH-denominated dials, in wei.
+    ///
+    /// @dev    Same failure mode as `MAX_LAUNCH_FEE` — a wei-denominated field
+    ///         typed into a Safe transaction builder — but deliberately many
+    ///         orders of magnitude looser, and the difference is the point.
+    ///
+    ///         A launch fee above 10 ETH cannot be a considered choice, so that
+    ///         ceiling can double as a sanity bound on pricing judgement.  These
+    ///         two have no such comfortable range: this repo's own suites set a
+    ///         1000 ETH per-wallet limit in a fixture and a 300 ETH one to pin
+    ///         `test_registerPoG_noSilentClamp`, and an 8000 ETH soft cap
+    ///         appears in a local rehearsal script.  A tight bound here would
+    ///         not be conservative, it would be wrong.
+    ///
+    ///         So these guard exactly one class of mistake: **unit confusion**.
+    ///         `10 ether` entered as `10e18 ether` is eighteen orders of
+    ///         magnitude, and 1 M ETH is both far above any conceivable raise or
+    ///         wallet cap — roughly 1% of all ETH in existence — and ~1e14 below
+    ///         that slip.  Do not read them as anything more.  In particular a
+    ///         `maxPogAllocationLimit` under this ceiling is **not** evidence
+    ///         that PoG still limits whales: once the per-wallet cap reaches the
+    ///         soft cap a single wallet can fill an entire genesis round, and no
+    ///         constant can enforce that ratio, because `defaultSoftCap` moves
+    ///         independently and coupling the two would make the outcome depend
+    ///         on which setter the owner happened to call first.  That sizing is
+    ///         a policy judgement and stays one.
+    uint256 public constant MAX_DEFAULT_SOFT_CAP = 1_000_000 ether;
+
+    /// @dev    See `MAX_DEFAULT_SOFT_CAP`; identical reasoning, kept as its own
+    ///         constant so the two can diverge without a migration.
+    uint256 public constant MAX_POG_ALLOCATION_LIMIT = 1_000_000 ether;
+
     /// @notice Minimum acceptable `defaultSoftCap`, denominated in ETH (v5.0).
     ///
     /// @dev    Guards the `p0 = 0` configuration trapdoor.  The hook derives
@@ -289,10 +321,14 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error ExceedsGlobalPogLimit();
     error InvalidSoftCap();
     error LaunchFeeTooHigh();
+    /// @notice `defaultSoftCap` above `MAX_DEFAULT_SOFT_CAP` — see that constant.
+    error SoftCapTooHigh();
     /// @notice `maxPogAllocationLimit` may not be set to zero — the hook
     ///         constructor rejects a zero per-wallet cap, so it would brick
     ///         `createLaunch` platform-wide.
     error InvalidPogLimit();
+    /// @notice `maxPogAllocationLimit` above `MAX_POG_ALLOCATION_LIMIT`.
+    error PogLimitTooHigh();
     error NameTaken();
     error EmptyName();
     /// @notice The launch still has a live claim on its name.
@@ -470,9 +506,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     /// @notice Owner-rotatable global default soft-cap, floored at
-    ///         `MIN_SOFT_CAP_PROD` to keep `p0` off the truncation cliff.
+    ///         `MIN_SOFT_CAP_PROD` to keep `p0` off the truncation cliff and
+    ///         capped at `MAX_DEFAULT_SOFT_CAP` to catch a wei/ether slip.
     function setDefaultSoftCap(uint256 newSoftCap) external onlyOwner {
         if (newSoftCap < MIN_SOFT_CAP_PROD) revert InvalidSoftCap();
+        if (newSoftCap > MAX_DEFAULT_SOFT_CAP) revert SoftCapTooHigh();
         defaultSoftCap = newSoftCap;
         emit DefaultSoftCapUpdated(newSoftCap);
     }
@@ -488,8 +526,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         entire launch entrance offline, with nothing in the signature
     ///         or the event to suggest it.  Pausing is the supported way to
     ///         stop taking on projects; see `pause()`.
+    ///
+    ///         Capped at `MAX_POG_ALLOCATION_LIMIT`, which catches a wei/ether
+    ///         slip and nothing subtler — read that constant before treating the
+    ///         ceiling as an anti-whale guarantee.
     function setMaxPogAllocationLimit(uint256 newLimit) external onlyOwner {
         if (newLimit == 0) revert InvalidPogLimit();
+        if (newLimit > MAX_POG_ALLOCATION_LIMIT) revert PogLimitTooHigh();
         maxPogAllocationLimit = newLimit;
         emit MaxPogAllocationLimitUpdated(newLimit);
     }

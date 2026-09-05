@@ -19,6 +19,10 @@ import {
   MIN_SOFT_CAP_PROD_LABEL,
   MAX_LAUNCH_FEE,
   MAX_LAUNCH_FEE_LABEL,
+  MAX_DEFAULT_SOFT_CAP,
+  MAX_DEFAULT_SOFT_CAP_LABEL,
+  MAX_POG_ALLOCATION_LIMIT,
+  MAX_POG_ALLOCATION_LIMIT_LABEL,
   MAX_COOLDOWN_SECONDS,
 } from '@/lib/contracts'
 import {
@@ -176,6 +180,7 @@ export function SoftCapPanel() {
   const tx = useTxAction({ action: 'set the default soft cap', onConfirmed: () => { void refetch() } })
   const parsed = parseEthInput(capInput)
   const belowFloor = parsed.ok && parsed.value < MIN_SOFT_CAP_PROD
+  const aboveCeiling = parsed.ok && parsed.value > MAX_DEFAULT_SOFT_CAP
 
   const gate = useActionGate({
     action: 'Set default cap',
@@ -197,13 +202,19 @@ export function SoftCapPanel() {
         label: '[min_soft_cap_violation]',
         reason: `The factory reverts InvalidSoftCap below ${MIN_SOFT_CAP_PROD_LABEL} ETH, because a smaller raise rounds p0 toward zero against the 3.78 M genesis LP supply.`,
       },
+      {
+        id: 'above-max-soft-cap',
+        active: aboveCeiling,
+        label: '[max_soft_cap_violation]',
+        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ETH). A raise that large is a wei/ether slip, not a decision — and unlike a fee that is too high, it fails silently: every project created afterwards opens a genesis round no depositor base can clear, so it ends in refunds rather than a revert anyone would notice.`,
+      },
     ),
   })
 
   return (
     <Section
       id="G1-B" title="DEFAULT SOFT CAP"
-      subtitle={`setDefaultSoftCap · frozen into every new hook's constructor · floor ${MIN_SOFT_CAP_PROD_LABEL} ETH`}
+      subtitle={`setDefaultSoftCap · frozen into every new hook's constructor · floor ${MIN_SOFT_CAP_PROD_LABEL} ETH · ceiling ${MAX_DEFAULT_SOFT_CAP_LABEL} ETH`}
     >
       <Readout
         label="LIVE CAP (NEXT LAUNCH)"
@@ -211,20 +222,25 @@ export function SoftCapPanel() {
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label={`NEW CAP · ETH ≥ ${MIN_SOFT_CAP_PROD_LABEL}`}
+        label={`NEW CAP · ETH · ${MIN_SOFT_CAP_PROD_LABEL} TO ${MAX_DEFAULT_SOFT_CAP_LABEL}`}
         value={capInput}
         onChange={setCapInput}
         placeholder="e.g. 10"
         inputMode="decimal"
         disabled={tx.isBusy}
-        errored={belowFloor}
-        fluo={parsed.ok && !belowFloor}
+        errored={belowFloor || aboveCeiling}
+        fluo={parsed.ok && !belowFloor && !aboveCeiling}
       />
-      <ScopeNote tone={belowFloor ? 'warn' : 'mute'}>
+      <ScopeNote tone={belowFloor || aboveCeiling ? 'warn' : 'mute'}>
         The 0.01 ETH floor is a price-truncation guard, not a business rule:
         p0 = lpEth × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
         below the floor rounds p0 toward zero. The contract reverts InvalidSoftCap
         below it, so this button stays inert rather than burning gas.
+        <br /><br />
+        The {MAX_DEFAULT_SOFT_CAP_LABEL} ETH ceiling catches the opposite slip and
+        is deliberately far above any real raise. It is not a view on how much a
+        project should ask for — a cap no depositor base can clear does not revert
+        anything, it quietly sentences every launch created afterwards to a refund.
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />
@@ -244,6 +260,7 @@ export function PogLimitPanel() {
   const tx = useTxAction({ action: 'update the PoG ceiling', onConfirmed: () => { void refetch() } })
   const parsed = parseEthInput(limitInput)
   const zero = parsed.ok && parsed.value === 0n
+  const aboveCeiling = parsed.ok && parsed.value > MAX_POG_ALLOCATION_LIMIT
 
   const gate = useActionGate({
     action: 'Update PoG ceiling',
@@ -265,6 +282,12 @@ export function PogLimitPanel() {
         label: '[invalid_pog_limit]',
         reason: 'Zero is rejected on-chain. This value is snapshotted into every new hook constructor, which requires a non-zero per-wallet cap, so a zero ceiling would make createLaunch revert for every creator. Use the circuit breaker in G3 to stop taking on projects.',
       },
+      {
+        id: 'above-max-pog-limit',
+        active: aboveCeiling,
+        label: '[max_pog_limit_violation]',
+        reason: `The factory reverts PogLimitTooHigh above MAX_POG_ALLOCATION_LIMIT (${MAX_POG_ALLOCATION_LIMIT_LABEL} ETH). This catches a wei/ether slip only — it is not the point at which one wallet stops being able to take a whole round, and no constant can be, because the soft cap moves separately.`,
+      },
     ),
   })
 
@@ -279,14 +302,14 @@ export function PogLimitPanel() {
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label="NEW CEILING · ETH · MUST BE NON-ZERO"
+        label={`NEW CEILING · ETH · NON-ZERO · MAX ${MAX_POG_ALLOCATION_LIMIT_LABEL}`}
         value={limitInput}
         onChange={setLimitInput}
         placeholder="e.g. 0.1"
         inputMode="decimal"
         disabled={tx.isBusy}
-        errored={zero}
-        fluo={parsed.ok && !zero}
+        errored={zero || aboveCeiling}
+        fluo={parsed.ok && !zero && !aboveCeiling}
       />
       <ScopeNote>
         Forward-looking only. Projects already deployed keep the per-wallet cap
@@ -302,6 +325,12 @@ export function PogLimitPanel() {
         <code>createLaunch</code> revert for every creator platform-wide. The
         factory now rejects it outright — use the circuit breaker in G3 to stop
         taking on new projects.
+        <br /><br />
+        The {MAX_POG_ALLOCATION_LIMIT_LABEL} ETH ceiling at the other end catches a
+        wei/ether slip and nothing subtler. It is deliberately not an anti-whale
+        bound: once this value reaches the soft cap, one wallet can fund an entire
+        genesis round, and that ratio cannot be enforced here because the soft cap
+        is a separate dial. Sizing it against the current cap stays your call.
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />

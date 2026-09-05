@@ -96,6 +96,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_DEFAULT_SOFT_CAP",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_HALT_DURATION",
     "inputs": [],
     "outputs": [
@@ -110,6 +123,19 @@ export const FACTORY_ABI = [
   {
     "type": "function",
     "name": "MAX_LAUNCH_FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_POG_ALLOCATION_LIMIT",
     "inputs": [],
     "outputs": [
       {
@@ -1687,6 +1713,11 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
+    "name": "PogLimitTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "QuotaExceeded",
     "inputs": []
   },
@@ -1703,6 +1734,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "SignatureTooLong",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SoftCapTooHigh",
     "inputs": []
   },
   {

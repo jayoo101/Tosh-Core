@@ -51,6 +51,7 @@ import {
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
   PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS,
   GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_LAUNCH_FEE, MAX_COOLDOWN_SECONDS,
+  MAX_DEFAULT_SOFT_CAP, MAX_POG_ALLOCATION_LIMIT,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
 } from '../src/lib/contracts'
 import {
@@ -199,6 +200,10 @@ const FIELDS: Field[] = [
     cost: 'the launch form accepts a soft cap the factory rejects, or blocks one it allows' },
   { sol: 'MAX_LAUNCH_FEE', file: FACTORY, ts: MAX_LAUNCH_FEE, where: 'contracts.MAX_LAUNCH_FEE',
     cost: 'the admin panel accepts a fee the factory reverts on with LaunchFeeTooHigh' },
+  { sol: 'MAX_DEFAULT_SOFT_CAP', file: FACTORY, ts: MAX_DEFAULT_SOFT_CAP, where: 'contracts.MAX_DEFAULT_SOFT_CAP',
+    cost: 'the admin panel accepts a soft cap the factory reverts on with SoftCapTooHigh' },
+  { sol: 'MAX_POG_ALLOCATION_LIMIT', file: FACTORY, ts: MAX_POG_ALLOCATION_LIMIT, where: 'contracts.MAX_POG_ALLOCATION_LIMIT',
+    cost: 'the admin panel accepts a wallet cap the factory reverts on with PogLimitTooHigh' },
   { sol: 'MAX_COOLDOWN', file: FACTORY, ts: BigInt(MAX_COOLDOWN_SECONDS), where: 'contracts.MAX_COOLDOWN_SECONDS',
     cost: 'the admin panel offers a cooldown the factory reverts on' },
   { sol: 'MAX_SIG_VALIDITY', file: FACTORY, ts: BigInt(SIG_VALIDITY_SECONDS), where: 'pogQuota.SIG_VALIDITY_SECONDS',

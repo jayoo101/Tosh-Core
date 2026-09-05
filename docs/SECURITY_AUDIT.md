@@ -1823,15 +1823,15 @@ issue: the value was passed to `fetchPogNonce`, making every request an
 `eth_call` to a caller-chosen address on the server's own RPC credentials. Both
 directions mutation-tested.
 
-*Unbounded `setDefaultSoftCap` / `setMaxPogAllocationLimit` — confirmed as
-written, not fixed, and deliberately so.* Both are floored and neither is
-capped: `setDefaultSoftCap` rejects below `MIN_SOFT_CAP_PROD`,
-`setMaxPogAllocationLimit` rejects only zero. Both are `onlyOwner`, and the
-owner is the 2-of-3 Safe, so this is not an unprivileged path. It is recorded
-rather than closed for two reasons. Contracts under `src/` are frozen for the
-engagement (§0), and a ceiling is precisely the kind of change that should not
-land between freezing the scope and handing over the commit hash. And the
-interesting part is not the missing bound in isolation but that
+*Unbounded `setDefaultSoftCap` / `setMaxPogAllocationLimit` — recorded here, then
+**closed in §5.15**; the reason given below did not survive the same day.* Both
+were floored and neither capped: `setDefaultSoftCap` rejects below
+`MIN_SOFT_CAP_PROD`, `setMaxPogAllocationLimit` rejects only zero. Both are
+`onlyOwner`, and the owner is the 2-of-3 Safe, so this is not an unprivileged
+path. It was recorded rather than closed for two reasons. Contracts under `src/`
+are frozen for the engagement (§0), and a ceiling is precisely the kind of change
+that should not land between freezing the scope and handing over the commit hash.
+And the interesting part is not the missing bound in isolation but that
 `maxPogAllocationLimit` is the *on-chain backstop on the off-chain oracle* — the
 last thing standing between a compromised or simply wrong signer and the token
 supply. It therefore compounds with PM-F9 above, and still does now that the
@@ -1842,8 +1842,14 @@ TypeScript constants. Raising the on-chain dial through this uncapped setter
 therefore loosens the backstop without anything off-chain noticing or objecting,
 which is the direction that matters — the dial can be widened silently but not
 narrowed silently, since narrowing it makes `registerPoG` revert loudly. The pair
-is worth an auditor's attention as one question rather than two. Flagged for the
-engagement; no code change.
+is worth an auditor's attention as one question rather than two.
+
+**Superseded.** The freeze argument above was true when written and false a few
+hours later: `setLaunchFee` got `MAX_LAUNCH_FEE` in the same file on the same day,
+which left three setters of one kind — one bounded, two not — behind a single
+shared explanation. §5.15 closes both and records what choosing the numbers turned
+up. The compounding with PM-F9 is unchanged and still the auditor's question; what
+is no longer true is that nothing bounds the dial.
 
 **Scope.** This sweep covered the off-chain surface only: API routes, RLS
 posture, the PoG signing path, and the factory/clone libraries. The
@@ -2609,6 +2615,70 @@ a blocked verdict left clickable — the failure where a panel shows a warning a
 arms anyway — and the reason blanked, which is the case where an operator is
 refused with no cause given, and telling them they typed wei into a field
 denominated in ETH is the entire point.
+
+---
+
+### 5.15 Eleventh sweep — the two setters §5.10 declined to bound
+
+`setDefaultSoftCap` and `setMaxPogAllocationLimit` now have ceilings, 2026-09-05.
+Both were on the "recorded, not changed" list, and the reason recorded there had
+stopped being true: `setLaunchFee` acquired `MAX_LAUNCH_FEE` the same day, in the
+same file, and the shared explanation — `src/` is frozen for the engagement — was
+then covering one bounded setter and two unbounded ones. PM-A1 has not started, so
+the freeze it appeals to has not happened yet. Either bound all three or say
+something true about the two; this is the first.
+
+**Picking the numbers is where the useful part was.** The obvious move was to copy
+`MAX_LAUNCH_FEE`'s shape — 100x the default, so 1000 ETH and 10 ETH — and it is
+wrong, which this repo can demonstrate about itself. `ToshV5Factory.t.sol`'s
+fixture raises the per-wallet limit to **1000 ETH** so the `registerPoG` tests can
+work in round numbers, `test_registerPoG_noSilentClamp` needs **300**,
+`ToshV5Guards.t.sol` sets 1000, and `batchA-R2-fresh.ps1` sets an **8000 ETH** soft
+cap against a local node. A 10-ETH ceiling does not merely fail one test, it
+reverts in `setUp` and takes the entire file down. So the bound cannot be a view on
+sizing at all; there is no comfortable range to be conservative within.
+
+What is left once sizing is off the table is exactly one class of mistake: **unit
+confusion**. `10 ether` typed as `10e18 ether` is eighteen orders of magnitude, and
+`MAX_DEFAULT_SOFT_CAP` = `MAX_POG_ALLOCATION_LIMIT` = **1 M ETH** sits far above
+any conceivable raise or wallet cap — roughly 1 % of all ETH in existence — while
+staying ~1e14 below that slip. `MAX_LAUNCH_FEE` keeps its tight 10 ETH because a
+fee above that cannot be a considered choice; the natspec now says why the three
+differ, so the next reader does not tidy them into agreement.
+
+**Two things the ceilings deliberately do not do**, both written into the natspec
+because a bound invites the wrong inference. A `maxPogAllocationLimit` under its
+ceiling is *not* evidence that PoG still limits whales: once the per-wallet cap
+reaches the soft cap, one wallet can fund an entire genesis round, and no constant
+can enforce that ratio, because `defaultSoftCap` moves independently and coupling
+the two would make the result depend on which setter the owner called first. And
+the soft-cap ceiling guards a failure that never reverts — a cap no depositor base
+can clear does not error, it quietly sentences every launch created afterwards to
+refunds, which is why a floor alone was not enough.
+
+8 Foundry tests and 9 component tests, and both halves say out loud that the
+suite's own 1000/300/8000 values still pass — the cheapest available evidence that
+a tidier bound was the wrong bound, placed where tightening it would fail.
+
+12 of 12 mutations caught, 6 on each side. On the contract: each ceiling deleted,
+each `>` made `>=` so the legal boundary is refused, and each constant tightened to
+the tidy value — where the PoG one is caught harder than by a test, since it breaks
+the fixture and every test in the file dies in `setUp`. On the UI: each blocker
+disarmed, each bound made exclusive, the mirrored constant tightened, and the
+existing zero blocker disarmed, because the risk in adding a second blocker to that
+dial is shadowing the first — and zero is the one that keeps `createLaunch` alive
+platform-wide.
+
+**The harness failed before the code did, again.** The first mutation run scored
+0/6, every mutation surviving, because `spawnSync` with `shell: true` concatenates
+argv without escaping and `--match-test 'a|b'` became a shell pipe — forge's output
+went to a command that does not exist, and the harness read an empty string as "no
+failures". Six clean bills of health from six runs that never happened. The check
+that catches it is now in the harness: a run must contain a `Suite result:` line
+and a nonzero tally before its silence is allowed to mean anything, which is the
+same lesson as §5.14's `verdictFor` and the doc-symbol harness that vouched for
+itself — a verification tool that cannot fail loudly is indistinguishable from the
+thing it was built to detect.
 
 ---
 
