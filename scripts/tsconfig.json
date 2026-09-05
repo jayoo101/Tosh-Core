@@ -9,5 +9,9 @@
     "skipLibCheck": true,
     "outDir": "dist"
   },
-  "include": ["*.ts", "../soat-frontend/src/app/lib/pogQuota.ts"]
+  "include": [
+    "*.ts",
+    "../soat-frontend/src/app/lib/pogQuota.ts",
+    "../soat-frontend/src/app/lib/gasHistory.ts"
+  ]
 }

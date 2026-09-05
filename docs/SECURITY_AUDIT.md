@@ -1633,21 +1633,67 @@ each defect fails a named test (4/4 caught), and the pair of guards on
 `RATE_LIMIT_EDGE` covers both directions so the fix cannot degenerate into
 "ignore those headers forever".
 
-**Open, and not a code fix.** The same review flagged that
-`scanGasHistoryForWallet` in `api/sign-allocation/route.ts` is `void
-userAddress; return MOCK_CHAIN_GAS` — a constant four-row table summing to
-0.033 ETH, so every address that clears the gates receives an identical
+**A product decision with an audit consequence — resolved 2026-09-05.** The same
+review flagged that `scanGasHistoryForWallet` in `api/sign-allocation/route.ts`
+was `void userAddress; return MOCK_CHAIN_GAS` — a constant four-row table summing
+to 0.033 ETH, so every address that cleared the gates received an identical
 attestation. At the seeded rate of 0.1 that is 0.0033 ETH, 3.30 % of the
 `MAX_ALLOC_ETH_WEI` ceiling; the ceiling is only reached if the rotatable rate
-is raised past 3.0303. The uniformity is the finding, not the magnitude.
-This is deliberate and documented at the call site as the seam for a real
-indexer, but it is a *product* decision with an audit consequence, and it
-appears nowhere in this dossier's trust model: §2.1 describes the PoG signer as
-attesting to gas history, and with the mock in place there is no history being
-attested. It must be resolved before mainnet in one of two ways — wire a real
-indexer, or state plainly in §2.3 and in user-facing copy that genesis
-allocation is open to all comers up to the global ceiling — and it is tracked as
-such rather than silently inherited.
+is raised past 3.0303. The uniformity was the finding, not the magnitude: §2.1
+describes the PoG signer as attesting to gas history, and with the mock in place
+there was no history being attested, so the trust model claimed a bound the code
+did not supply.
+
+The seam now holds a real scan. `app/lib/gasHistory.ts` sums the fees an address
+actually paid across Ethereum, Arbitrum, Optimism, Base and Robinhood 4663 via
+Blockscout, and `computeMaxAllocFromWei` bands the result between a 0.05 ETH
+floor (below which the allocation is zero) and a 1 ETH cap. **The floor is the
+part that matters to this dossier**: it is the first thing in the design that
+makes a second claim cost anything. A fresh address is free, but making one
+*eligible* takes 0.05 ETH of historical fees on a public chain, and history
+cannot be manufactured retroactively. That does not make the mechanism
+Sybil-proof — an attacker who has already spent gas across many addresses is
+credited for each — but it replaces "headcount is the only rationing" with a
+priced floor, which is a different threat model and a much duller one.
+
+Three residual limits, recorded rather than fixed, in decreasing order of
+interest to a reviewer:
+
+1. **Optimism and Base under-count.** Those two are read through Blockscout v1
+   `txlist`, which reports `gasUsed × gasPrice` and omits the OP-stack L1 data
+   fee. Heavy senders on those chains are credited less than they spent. The
+   direction is safe (nobody is over-credited) and the cap bounds the error's
+   effect on supply, so it is documented in `PRE_MAINNET_CHECKLIST.md` §6.4
+   rather than chased.
+2. **Robinhood 4663 depends on someone else's bot policy.** That Blockscout
+   instance sits behind Cloudflare, which answers Node's default `fetch` with a
+   403 challenge and a browser `User-Agent` without one. If the policy tightens,
+   the scan fails closed on that chain — the safe direction, but an availability
+   dependency on a third party that no contract change can remove.
+3. **Only outbound transactions count.** Blockscout's aggregate
+   `gas_usage_count` was rejected as the source because it also sums gas from
+   transactions an address merely *received*, which measures popularity rather
+   than spend and would have been trivially inflatable by anyone willing to send
+   an address dust.
+
+**The abuse surface the scan introduces, and what bounds it.** A scan reads five
+public hosts that charge nothing and owe us nothing, and it fails closed, so
+losing access to them is a denial of service on genesis allocation. Wallet auth
+does not bound this: it proves control of the address named, but keypairs are
+free, so every fresh address is a fresh cache key and therefore a real five-chain
+read, and a rented proxy pool multiplies the per-IP bucket by however many IPs
+were rented. `/api/pog-scan` therefore runs the scan as a job behind a 1-hour
+result cache, an in-flight join, a 240/hour global ceiling and 6/hour per
+address, with the last two charged only when a scan will really run so that
+polling and cache hits stay free. Ten tests; nine mutations including the
+ordering of the two ceilings and a `force` path that used to delete the cached
+result *before* consulting them, all caught.
+
+One residual trap was removed rather than documented: `totalGasEth()` still
+defaulted its argument to `MOCK_CHAIN_GAS`, so a caller who forgot to pass a scan
+result silently received the fixture — the original defect, still armed after the
+mock stopped being wired in. The default is gone; omission is now a compile
+error.
 
 **Triage of the Medium and Low items.** Three were reported for the paths that
 did run. Each was re-derived from source rather than accepted, and two of the
@@ -1701,9 +1747,16 @@ land between freezing the scope and handing over the commit hash. And the
 interesting part is not the missing bound in isolation but that
 `maxPogAllocationLimit` is the *on-chain backstop on the off-chain oracle* — the
 last thing standing between a compromised or simply wrong signer and the token
-supply. It therefore compounds with PM-F9 above, where that same oracle is
-currently a constant table, and the pair is worth an auditor's attention as one
-question rather than two. Flagged for the engagement; no code change.
+supply. It therefore compounds with PM-F9 above, and still does now that the
+oracle reads real chains rather than a constant table: the off-chain band
+(`POG_GAS_CAP_WEI` × the seeded rate = `MAX_ALLOC_ETH_WEI`) is checked for
+coherence at boot by `assertPogBandCoherent()`, but that check only sees the three
+TypeScript constants. Raising the on-chain dial through this uncapped setter
+therefore loosens the backstop without anything off-chain noticing or objecting,
+which is the direction that matters — the dial can be widened silently but not
+narrowed silently, since narrowing it makes `registerPoG` revert loudly. The pair
+is worth an auditor's attention as one question rather than two. Flagged for the
+engagement; no code change.
 
 **Scope.** This sweep covered the off-chain surface only: API routes, RLS
 posture, the PoG signing path, and the factory/clone libraries. The

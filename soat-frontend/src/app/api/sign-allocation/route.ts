@@ -57,11 +57,11 @@ import {
   isSupportedPogChain,
 } from '@/lib/contracts'
 import {
-  MOCK_CHAIN_GAS,
-  totalGasEth,
-  computeMaxAllocWei,
-  type ChainGasData,
+  POG_GAS_FLOOR_WEI,
+  computeMaxAllocFromWei,
+  isPogEligible,
 } from '@/app/lib/pogQuota'
+import { readScanJob, isFresh } from '@/app/lib/scanJobStore'
 import { getGasToSatoRate } from '@/app/lib/gasToSatoRate'
 import {
   applyCors,
@@ -137,24 +137,62 @@ const MAX_SIG_VALIDITY_SEC = 24 * 60 * 60
 const ATTESTATION_TTL_SEC: number = MAX_SIG_VALIDITY_SEC - 60 * 60
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROOF-OF-GAS MULTI-CHAIN SCANNER
+// PROOF-OF-GAS GAS HISTORY — read, not derived
 // ─────────────────────────────────────────────────────────────────────────────
-// Single swap-point for the future real indexer (Etherscan / Alchemy /
-// Covalent / Dune).  Today this resolves to the shared `MOCK_CHAIN_GAS` table.
+// This was `void userAddress; return MOCK_CHAIN_GAS` — a constant table, so
+// every wallet that cleared the auth gate was attested for the same amount and
+// the address it was issued for was thrown away unused. PM-F9 closed that.
 //
-// That table is only half of what `maxAlloc` depends on; the other half is the
-// exchange rate.  The two signers agree on `maxAlloc` only because BOTH now
-// read the live rate — this route via `getGasToSatoRate()`, the CLI via
-// `fetchGasToSatoRate(ADMIN_API_URL)`.  This comment used to claim
-// "byte-identical" while the route read the compile-time default, which made
-// the claim false from the first owner rotation onward.
+// The scan itself is NOT done here. It reads five chains and measured 10–23 s
+// against live hosts, which does not belong inside the request that signs, and
+// it is idempotent enough to cache for an hour. So `/api/pog-scan` owns the
+// work and this route reads its result.
 //
-// Wire a live indexer behind this seam — everything else in the pipeline
-// (rate fetch, computeMaxAllocWei, nonce sync, digest framing) is already
-// downstream and stays untouched.
-async function scanGasHistoryForWallet(userAddress: Address): Promise<ChainGasData[]> {
-  void userAddress
-  return MOCK_CHAIN_GAS
+// The consequence worth stating plainly: this endpoint can no longer produce an
+// allocation on its own. If there is no finished scan for the wallet, it refuses
+// rather than falling back to a default — a fallback here would be the mock
+// again, reintroduced as a failure mode instead of a stub, and it would fire
+// exactly when the indexer was down and nobody was watching.
+async function readScannedGas(userAddress: Address): Promise<
+  | { ok: true; totalWei: bigint; scannedAt: number; truncated: boolean }
+  | { ok: false; status: number; error: string }
+> {
+  let job
+  try {
+    job = await readScanJob(userAddress)
+  } catch (e) {
+    reportError(e, {
+      surface: 'api-route',
+      extra: { route: 'POST /api/sign-allocation', stage: 'readScanJob' },
+    })
+    return { ok: false, status: 503, error: 'Scan store unavailable — try again' }
+  }
+
+  if (!job || job.status === 'failed') {
+    return {
+      ok: false, status: 409,
+      error: 'No completed gas scan for this wallet. Run the scan first.',
+    }
+  }
+  if (job.status === 'running') {
+    return { ok: false, status: 409, error: 'Gas scan still running. Try again shortly.' }
+  }
+  if (!job.result) {
+    return { ok: false, status: 409, error: 'Gas scan result missing. Run the scan again.' }
+  }
+  // A result older than its TTL is refused rather than used. The window is an
+  // hour; anything past it is cheap to redo and the alternative is signing
+  // against history that may since have grown.
+  if (!isFresh(job)) {
+    return { ok: false, status: 409, error: 'Gas scan is stale. Run the scan again.' }
+  }
+
+  return {
+    ok: true,
+    totalWei: BigInt(job.result.totalWei),
+    scannedAt: job.result.scannedAt,
+    truncated: job.result.truncated,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -313,18 +351,49 @@ export async function POST(req: Request) {
   }
 
   // ── Proof-of-Gas allocation derivation ───────────────────────────────
-  // Pipeline: multi-chain gas scan → sum ETH spend → computeMaxAllocWei.
-  // Floors at MAX_ALLOC_ETH_WEI (0.1 ETH).  Reminder: the on-chain
+  // Pipeline: finished scan → floor check → rate → computeMaxAllocFromWei.
+  // Caps at MAX_ALLOC_ETH_WEI (0.1 ETH). Reminder: the on-chain
   // `factory.maxPogAllocationLimit` MUST be >= the resulting maxAlloc, or
-  // `registerPoG` will revert with `ExceedsGlobalPogLimit`.
-  const gasData     = await scanGasHistoryForWallet(userAddress as Address)
-  const gasEth      = totalGasEth(gasData)
+  // `registerPoG` will revert with `ExceedsGlobalPogLimit` — and that same dial
+  // is frozen into every launch as its `perWalletCap`, so it is not a knob that
+  // can be raised here alone. `assertPogBandCoherent()` in `pogQuota.ts` guards
+  // the relationship.
+  const scan = await readScannedGas(userAddress as Address)
+  if (!scan.ok) return corsify(req, clientError(scan.error, scan.status))
+
+  // The floor, enforced by refusing rather than by signing a small number.
+  //
+  // Signing zero would be worse than refusing: `registerPoG` would accept it,
+  // `pogQuota` would be set to 0, and `deposit` reverts `NoPogQuota` on a
+  // quota of zero — so the wallet would have spent gas to register, be told it
+  // succeeded, and then be turned away at the only door that matters, with an
+  // error naming a quota it just registered.
+  if (!isPogEligible(scan.totalWei)) {
+    return corsify(req, NextResponse.json({
+      error: 'Gas history below the minimum for an allocation.',
+      totalGasWei: scan.totalWei.toString(),
+      floorWei: POG_GAS_FLOOR_WEI.toString(),
+      eligible: false,
+    }, { status: 403 }))
+  }
+
   // The LIVE rate, not the compile-time default. This route used to read
   // `DEFAULT_GAS_TO_SATO_RATE` while `scripts/pogSigner.ts` read the rotated
   // value, so every owner rotation silently split the two signers apart — see
   // `app/lib/gasToSatoRate.ts`.
   const gasToSatoRate = await getGasToSatoRate()
-  const maxAlloc    = computeMaxAllocWei(gasEth, gasToSatoRate)
+  const maxAlloc      = computeMaxAllocFromWei(scan.totalWei, gasToSatoRate)
+
+  // Unreachable given the floor check above, and checked anyway: a zero here
+  // would mean the rate itself is misconfigured, and signing a zero allocation
+  // sends the user into the `NoPogQuota` trap described above.
+  if (maxAlloc === 0n) {
+    reportError(new Error('PoG allocation resolved to zero above the floor'), {
+      surface: 'api-route',
+      extra: { route: 'POST /api/sign-allocation', gasToSatoRate, totalGasWei: scan.totalWei.toString() },
+    })
+    return corsify(req, clientError('Allocation could not be sized — try again', 503))
+  }
 
   // ── GATE 2 · POG ATTESTATION DIGEST ──────────────────────────────────
   const deadline = BigInt(Math.floor(Date.now() / 1000) + ATTESTATION_TTL_SEC)
@@ -367,15 +436,16 @@ export async function POST(req: Request) {
     nonce:         onchainNonce.toString(),
     deadline:      deadline.toString(),
     issuer:        account.address,
-    gasEth,
+    totalGasWei:   scan.totalWei.toString(),
+    scannedAt:     scan.scannedAt,
     gasToSatoRate,
     maxAllocWei:   maxAlloc.toString(),
   })
 
   // ── Clean JSON envelope ──────────────────────────────────────────────
-  // Proof-of-Gas telemetry fields (`gasEth`, `gasToSatoRate`) are advisory
-  // metadata for the UI — the on-chain verifier consumes only `maxAlloc`,
-  // `nonce`, `deadline`, `signature`.
+  // Proof-of-Gas telemetry fields (`totalGasWei`, `gasToSatoRate`, `truncated`)
+  // are advisory metadata for the UI — the on-chain verifier consumes only
+  // `maxAlloc`, `nonce`, `deadline`, `signature`.
   return corsify(req, NextResponse.json({
     signature:     attestationSig,
     maxAlloc:      maxAlloc.toString(),
@@ -383,7 +453,11 @@ export async function POST(req: Request) {
     deadline:      deadline.toString(),
     issuer:        account.address,
     authDomain:    POG_SCAN_AUTH_DOMAIN,
-    gasEth,
+    totalGasWei:   scan.totalWei.toString(),
+    scannedAt:     scan.scannedAt,
+    /** The scan hit its page budget, so `totalGasWei` is a lower bound and the
+     *  allocation is correspondingly conservative. See `gasHistory.ts`. */
+    truncated:     scan.truncated,
     gasToSatoRate,
   }))
 }

@@ -626,7 +626,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
-| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either `scanGasHistoryForWallet` reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | ❌ `route.ts` does `void userAddress; return MOCK_CHAIN_GAS` — 0.0033 ETH for everyone at the seeded rate, see §6.4 |
+| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either the scan reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | ✅ `gasHistory.ts` sums outbound fees across five chains via Blockscout, banded by a 0.05 ETH floor and a 1 ETH cap; live scan green against real hosts. Residual limits recorded in §6.4 |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
@@ -1013,6 +1013,76 @@ Two ways to close it, and they are genuinely different products:
 Either is defensible. Shipping the mock while the docs describe the first option
 is not, and that is the state this row exists to prevent.
 
+#### Closed 2026-09-05 — the first option, with a band
+
+`soat-frontend/src/app/lib/gasHistory.ts` scans five chains and sums the fees an
+address actually paid. Blockscout is the source on all five, which was not a
+preference: Etherscan V2's single key covers 60-odd chains but excludes Optimism
+and Base on the free tier and does not index Robinhood Chain at any tier, so no
+amount of money buys the chain the token launches on. Paying for data was
+therefore never the question it looked like.
+
+What the scan counts, and what it does not:
+
+| Chain | Endpoint | Fee figure |
+|---|---|---|
+| Ethereum, Arbitrum | v1 `txlist` | `gasUsed × gasPrice`, which is the whole fee |
+| Optimism, Base | v1 `txlist` | L2 execution only — **the L1 data fee is not counted** |
+| Robinhood 4663 | v2 `addresses/{a}/transactions` | `fee.value`, L1 component included |
+
+The OP-stack omission understates heavy senders on two of five chains. It is the
+safe direction (nobody is over-credited) and it is bounded by the cap below, so
+it is recorded rather than fixed. Two other things are deliberate: only outbound
+transactions count, because Blockscout's aggregate `gas_usage_count` also sums
+gas from transactions an address merely *received* and so measures popularity
+rather than spend; and the Robinhood instance sits behind Cloudflare, which
+answers Node's default `fetch` with a 403 challenge and a browser `User-Agent`
+without one. That last is a fragile dependency on someone else's bot policy, and
+if it changes the scan fails closed on that chain.
+
+The band you asked for is `pogQuota.ts`:
+
+- **Floor `POG_GAS_FLOOR_WEI` = 0.05 ETH.** Below it, `computeMaxAllocFromWei`
+  returns zero — no allocation at all. This is the Sybil answer the flat mock did
+  not have: a fresh address costs nothing to make but 0.05 ETH of real historical
+  fees to make *eligible*, and that cost cannot be faked after the fact.
+- **Cap `POG_GAS_CAP_WEI` = 1 ETH.** History past it stops counting, so one very
+  old whale cannot take an outsized share.
+
+Cap, `MAX_ALLOC_ETH_WEI` and the on-chain `ToshFactory.maxPogAllocationLimit` are
+one decision written in three places, and `assertPogBandCoherent()` throws at
+boot if they stop agreeing — which is what keeps this from becoming another §2.5.
+
+**What bounds the cost.** A scan reads five hosts that charge nothing and owe us
+nothing, and it fails closed, so an IP ban is a denial of service on genesis
+allocation that we would be delivering to ourselves. Wallet auth does not help:
+keypairs are free, so each fresh address is a fresh cache key and a real
+five-chain read, and a proxy pool multiplies the per-IP bucket. So `/api/pog-scan`
+runs the scan as a job behind four gates — a 1-hour result cache, an in-flight
+join, a **240/hour global ceiling**, and **6/hour per address** — with the last
+two charged only when a scan will really run, so that polling and cache hits are
+free. Ten tests, nine mutations, all caught.
+
+One residual trap was removed rather than documented: `totalGasEth()` still
+defaulted its argument to `MOCK_CHAIN_GAS`, so a caller who forgot to pass a scan
+result silently got the fixture. The default is gone and omitting the argument is
+now a compile error.
+
+**The half that was nearly missed.** Moving the scan out of `sign-allocation`
+gave that route a new precondition — 409 until a finished scan is on file — and
+`PogScanButton.tsx` was still calling it directly. The backend was complete and
+live-verified while the only button that reaches it would have failed on every
+click, which is worse than the mock it replaced: the mock at least worked. The
+button now runs the scan first, polls on a budget derived from the server's own
+120 s lease rather than a guessed number, names which of the two waits the user
+is in, and reports an under-floor wallet with the figure it missed by instead of
+letting a bare 409 stand in for it.
+
+Not yet done: nobody has clicked it against a live deployment. `tsc`, `eslint`,
+the unit suite and `next build` all pass, and the scan underneath is verified
+against real hosts, but the assembled flow has not been exercised in a browser.
+That belongs with PM-C7, when the frontend is pointed at 4663.
+
 ---
 
 ## 7. Legacy number crosswalk
@@ -1047,8 +1117,8 @@ written by hand. See the note under the table.
 | C — Deploy & handoff | 7 | 0 | 1 | 0 | 1 |
 | D — Keys & secrets | 0 | 3 | 0 | 1 | 0 |
 | E — Observability & ops | 1 | 2 | 0 | 0 | 3 |
-| F — Frontend & platform | 1 | 0 | 0 | 0 | 8 |
-| **Total** | **12** | **6** | **1** | **1** | **17** |
+| F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
+| **Total** | **11** | **6** | **1** | **1** | **18** |
 
 The **N/A** column is new and holds exactly one row, PM-D2. It exists because
 the table had no column for a retired item, so closing D2 as not-applicable
@@ -1062,10 +1132,11 @@ in **Still open** against the gate row it repeats and fails if a row that is
 not ✅ is missing from that list. Eight mutations, all caught. This table can
 no longer disagree with the rows without CI saying so.
 
-Gate B is closed. Gate F was, until the 2026-09-04 sweep added PM-F9 — the
-genesis allocation is still computed from a constant table, and nothing in this
-file had ever asked about it. It reopens as one row rather than eight; the
-accounts-and-credentials group that was blocking F and half of E is done:
+Gates B and F are closed. F reopened for a day when the 2026-09-04 sweep added
+PM-F9 — the genesis allocation was computed from a constant table and nothing in
+this file had ever asked about it — and closed again on 2026-09-05 once the scan
+read real chains (§6.4). The accounts-and-credentials group that was blocking F
+and half of E is done:
 Upstash, Supabase (with `chain_id`), Sentry (both ingest routes and a real
 source-map upload), and the Vercel project serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
 half of the first incident drill are dated. What is still open is listed
@@ -1091,8 +1162,6 @@ below, in the order it actually blocks.
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
-| **PM-F9** | ❌ | Genesis allocation is computed from a constant table: `scanGasHistoryForWallet` discards the address and returns `MOCK_CHAIN_GAS`, so every eligible wallet is attested for the same 0.0033 ETH (3.30 % of the ceiling at the seeded rate) and nothing distinguishes one claimant from another. Added 2026-09-04 — the row did not exist, while §2.1 of the audit dossier already described the signer as attesting to real gas history. Close it by wiring an indexer or by saying plainly that the allocation is flat. See §6.4. |
-
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem. Gate C is the mainnet
 deploy and is blocked on a Safe (D4) for everything after the broadcast.

@@ -28,8 +28,43 @@ vi.mock('viem', async (importOriginal) => {
 vi.mock('@/app/lib/onchainNonce', () => ({ fetchPogNonce: async () => 0n }))
 vi.mock('@/lib/observability', () => ({ reportError: () => {} }))
 
+/**
+ * The route reads a finished scan rather than doing the work — PM-F9 moved the
+ * five-chain read into `/api/pog-scan`, because it measured 10–23 s and cannot
+ * sit inside the request that signs. So a signable request needs a fresh `done`
+ * job on file, and these tests supply one comfortably above the floor.
+ *
+ * Stubbed rather than exercised: what is under test here is the deadline and the
+ * contract address, and a real scan would make both depend on five live hosts.
+ */
+let scannedWei: bigint
+vi.mock('@/app/lib/scanJobStore', () => ({
+  readScanJob: async (address: string) => ({
+    status: 'done' as const,
+    address: address.toLowerCase(),
+    startedAt: Date.now(),
+    finishedAt: Date.now(),
+    result: {
+      chains: [{
+        chain: 'Ethereum', chainId: 1, weiSpent: scannedWei.toString(),
+        sentTxs: 42, truncated: false, stoppedAtCap: false, skipped: false,
+        execFeeOnly: false,
+      }],
+      totalWei: scannedWei.toString(),
+      truncated: false,
+      scannedAt: Date.now(),
+    },
+  }),
+  isFresh: () => true,
+  JOB_LEASE_MS: 120_000,
+  RESULT_TTL_MS: 60 * 60 * 1000,
+}))
+
 beforeEach(() => {
   authRecovers = true
+  // Above POG_GAS_FLOOR_WEI (0.05 ETH) and under the 1 ETH cap, so eligibility
+  // is not what any of these assertions is measuring.
+  scannedWei = 2n * 10n ** 17n // 0.2 ETH
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', FACTORY)
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('POG_SIGNER_PRIVATE_KEY', TEST_PK)

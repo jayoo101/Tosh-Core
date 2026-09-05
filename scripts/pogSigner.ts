@@ -18,13 +18,13 @@ import * as dotenv from 'dotenv'
 import * as path from 'path'
 
 import {
-  MOCK_CHAIN_GAS,
-  totalGasEth,
-  computeMaxAllocWei,
+  POG_GAS_FLOOR_WEI,
+  computeMaxAllocFromWei,
+  isPogEligible,
   computeDeadline,
   fetchGasToSatoRate,
-  type ChainGasData,
 } from '../soat-frontend/src/app/lib/pogQuota'
+import { scanGasHistory } from '../soat-frontend/src/app/lib/gasHistory'
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') })
 
@@ -57,23 +57,44 @@ export interface PoGSignatureBundle {
   nonce: number | bigint
   signature: string
   gasToSatoRate: number
-  totalGasEth: number
+  /** Total gas spend the allocation was derived from, in wei as a decimal
+   *  string. Was `totalGasEth: number`; a float cannot hold a wei figure near
+   *  the cap without losing its low digits, and this is the number the
+   *  attestation is about. */
+  totalGasWei: string
 }
 
 // ─── Step A: Multi-chain gas scan ────────────────────────────────────────────
 
 /**
- * Returns the canonical mock gas-history dataset.
- * Replace each entry with a real RPC / indexer call in production.
- * Kept thin (just async-shaped wrapper around the shared constant) so the
- * Next API and this CLI always agree on what gets signed.
+ * Reads the wallet's real gas history from the same module the API route uses.
+ *
+ * This used to log a constant table and return it. It now calls the live scan,
+ * because the reason this CLI and the route share `pogQuota.ts` at all is that
+ * they must sign the SAME allocation for the same wallet — and they cannot, if
+ * one of them is looking at five chains and the other at a hard-coded four rows.
+ *
+ * It calls `scanGasHistory` directly rather than going through `/api/pog-scan`
+ * on purpose: this is the break-glass signer, used when the web path is the
+ * thing that is broken, so depending on a web endpoint would defeat it. The
+ * cost is that it does not share the route's hourly cache and always re-reads
+ * the chains, which for a manual tool is the right trade.
  */
-async function scanMultiChainGas(userAddress: string): Promise<ChainGasData[]> {
+async function scanMultiChainGas(userAddress: string): Promise<bigint> {
   console.log(`[PoG] Scanning gas history for ${userAddress} …`)
-  MOCK_CHAIN_GAS.forEach(d => console.log(`  ${d.chain}: ${d.ethGasUsed} ETH`))
-  // No-op await so the function can be drop-in replaced with a real query later
-  await Promise.resolve()
-  return MOCK_CHAIN_GAS
+  const history = await scanGasHistory(userAddress)
+  for (const c of history.chains) {
+    console.log(
+      `  ${c.chain.padEnd(10)} ${ethers.formatEther(c.weiSpent).padStart(14)} ETH`
+      + `  sent=${c.sentTxs}${c.skipped ? '  (skipped: already at cap)' : ''}`
+      + `${c.truncated ? '  (TRUNCATED — lower bound)' : ''}`
+      + `${c.execFeeOnly && c.sentTxs > 0 ? '  (execution fees only)' : ''}`)
+  }
+  if (history.truncated) {
+    console.warn('[PoG] WARNING: page budget exhausted on at least one chain. '
+      + 'The total is a lower bound, so the allocation is conservative.')
+  }
+  return history.totalWei
 }
 
 // ─── Core: issuePoGSignature ──────────────────────────────────────────────────
@@ -90,12 +111,21 @@ export async function issuePoGSignature(
 ): Promise<PoGSignatureBundle> {
   const wallet = new ethers.Wallet(POG_SIGNER_PRIVATE_KEY)
 
-  const gasData     = await scanMultiChainGas(userAddress)
-  const gasEth      = totalGasEth(gasData)
+  const totalGasWei   = await scanMultiChainGas(userAddress)
   const gasToSatoRate = await fetchGasToSatoRate(ADMIN_API_URL)
 
-  const maxAlloc = computeMaxAllocWei(gasEth, gasToSatoRate)
-  console.log(`[PoG] totalGasEth=${gasEth} rate=${gasToSatoRate} -> maxAlloc=${ethers.formatEther(maxAlloc)} SATO`)
+  // The floor is refused here too, and for the same reason the route refuses it:
+  // a zero allocation registers successfully and then fails at `deposit` with
+  // `NoPogQuota`, so signing one would cost the wallet gas to be turned away.
+  if (!isPogEligible(totalGasWei)) {
+    throw new Error(
+      `[PoG] ${userAddress} has ${ethers.formatEther(totalGasWei)} ETH of gas history, `
+      + `below the ${ethers.formatEther(POG_GAS_FLOOR_WEI)} ETH minimum. Refusing to sign.`)
+  }
+
+  const maxAlloc = computeMaxAllocFromWei(totalGasWei, gasToSatoRate)
+  console.log(`[PoG] totalGas=${ethers.formatEther(totalGasWei)} ETH rate=${gasToSatoRate}`
+    + ` -> maxAlloc=${ethers.formatEther(maxAlloc)} ETH`)
 
   const deadline = computeDeadline()
 
@@ -128,7 +158,7 @@ export async function issuePoGSignature(
     nonce: currentNonce,
     signature,
     gasToSatoRate,
-    totalGasEth: gasEth,
+    totalGasWei: totalGasWei.toString(),
   }
 }
 
