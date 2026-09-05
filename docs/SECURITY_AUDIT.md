@@ -26,6 +26,15 @@ calendar slot. `PM-A1`, `PM-A2` and `PM-A3` in `docs/PRE_MAINNET_CHECKLIST.md`
 are retired as N/A rather than left open, because leaving them open would keep
 describing an intention that no longer exists.
 
+**The decision is absolute, including after an incident.** It is not a
+pre-mainnet cost decision that quietly reverses the first time funds are lost.
+`docs/INCIDENT_RESPONSE.md` §7 previously required paid hourly review of any
+code-level patch by the external auditor; that item is rewritten to an internal
+rule — mutate the regression test, have a second engineer who did not write the
+patch sign the post-mortem by name, and disclose in the public post-mortem that
+the fix had no external review. That section names itself the weakest step in
+its own list, which is accurate.
+
 **Nothing replaces the gate.** The previous version of this section said every
 row of an engagement board had to be ✅ before `script/DeployMainnet.s.sol` could
 run against a production RPC. That gate is removed and **not** substituted — no

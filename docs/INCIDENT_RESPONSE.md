@@ -31,7 +31,7 @@ that those switches are designed to support.
 | Sev | Definition | Examples | Target acknowledge | Target halt |
 |:---:|------------|----------|:-------------------:|:-----------:|
 | **P0** | Funds at risk *right now*, or active exploit in flight. | Verified reentrancy, signer key compromise, oracle compromise producing inflated quotas, malicious code in the frontend bundle. | 5 min | 15 min |
-| **P1** | Latent vulnerability with credible path to funds, but not yet weaponized. | Auditor reports a serious issue post-deploy, an admin private-key device is suspected stolen. | 30 min | 2 h |
+| **P1** | Latent vulnerability with credible path to funds, but not yet weaponized. | An unsolicited security researcher reports a serious issue post-deploy, an admin private-key device is suspected stolen. | 30 min | 2 h |
 | **P2** | Operational degradation, no funds at risk. | RPC outage, frontend down, individual launches stuck. | 2 h | n/a |
 | **P3** | Cosmetic / UX issue. | Wrong copy, broken link, missing image. | 1 business day | n/a |
 
@@ -247,8 +247,11 @@ Pause is the **safer** error. Bias toward pausing whenever you observe either:
    audit log (= the signer key has been duplicated).
 3. A `LaunchCreated` event from a transaction your monitoring couldn't trace
    back to a real `createLaunch` call (= storage corruption / impossible state).
-4. A credible report from a security researcher / auditor of a concrete attack
-   path on the deployed bytecode.
+4. A credible report from a security researcher of a concrete attack path on the
+   deployed bytecode. Note that this is now the *only* external channel through
+   which a code-level defect can reach us, and it is unsolicited and unpaid:
+   `SECURITY_AUDIT.md` §0 retired third-party audit and adopted no bug bounty in
+   its place. Treat such a report as valuable out of proportion to its source.
 
 If any of the above hold, **page the on-call commander and execute Step 1 below
 without further deliberation.** A false-positive pause costs honest users at
@@ -815,8 +818,32 @@ After **every** P0/P1 incident:
    chain of events.
 2. **Regression test** committed to `test/`. The test must FAIL on the buggy
    commit and PASS on the fix.
-3. **Audit re-engagement** if the root cause was code-level. The external
-   auditor should review the patch on a paid hourly basis, not gratis.
+3. **Internal patch review** if the root cause was code-level — **no external
+   reviewer, at any severity.** This item used to read "Audit re-engagement …
+   the external auditor should review the patch on a paid hourly basis". It
+   presupposed a first engagement that, as of 2026-09-06, will never happen:
+   `SECURITY_AUDIT.md` §0 retires third-party audit permanently, and that
+   decision was taken as absolute rather than pre-mainnet only. So there is
+   nobody to re-engage, and the replacement has to be worth something on its
+   own. Three requirements, in order of what they actually buy:
+
+   a. **Mutate the regression test from item 2.** Re-apply the original bug and
+      confirm the new test goes red. An emergency patch is written under time
+      pressure by the person who least wants to believe the bug is still
+      reachable, which is exactly the condition under which a test that cannot
+      fail gets committed. §5.14 through §5.18 of the dossier each caught a
+      verification tool that was silently not running, in no hurry at all.
+   b. **A second engineer who did not write the patch signs the post-mortem**,
+      by name and date. Recorded in the post-mortem itself so the absence of a
+      name is visible rather than inferred.
+   c. **State in the public post-mortem that the fix had no external review.**
+      Users are entitled to price that themselves.
+
+   **What this does not buy**, said plainly here so it is not rediscovered
+   mid-incident: the reviewer in (b) shares the codebase, the assumptions in
+   `SECURITY_AUDIT.md` §2.2 and — most likely — the blind spot that admitted the
+   bug. Item 3 is now the weakest step in this section. It is a deliberate
+   consequence of §0, not an oversight in this runbook.
 4. **Runbook update** — this document — capturing any new learning. Date the
    update at the top so future responders can see how the playbook evolved.
 
