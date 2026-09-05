@@ -1659,17 +1659,21 @@ priced floor, which is a different threat model and a much duller one.
 Three residual limits, recorded rather than fixed, in decreasing order of
 interest to a reviewer:
 
-1. **Optimism and Base under-count.** Those two are read through Blockscout v1
-   `txlist`, which reports `gasUsed × gasPrice` and omits the OP-stack L1 data
-   fee. Heavy senders on those chains are credited less than they spent. The
-   direction is safe (nobody is over-credited) and the cap bounds the error's
-   effect on supply, so it is documented in `PRE_MAINNET_CHECKLIST.md` §6.4
-   rather than chased.
-2. **Robinhood 4663 depends on someone else's bot policy.** That Blockscout
-   instance sits behind Cloudflare, which answers Node's default `fetch` with a
-   403 challenge and a browser `User-Agent` without one. If the policy tightens,
-   the scan fails closed on that chain — the safe direction, but an availability
-   dependency on a third party that no contract change can remove.
+1. **Optimism and Base under-count, by a measured amount.** Those two are read
+   through Blockscout v1 `txlist` when a sender is heavy enough to need it, and v1
+   reports `gasUsed × gasPrice`, omitting the OP-stack L1 data fee. Quantified
+   2026-09-05 against v2's authoritative `fee.value` over 50 transactions per
+   chain: Optimism 2.30 % low (49.09 % on its worst single transaction), Base
+   0.02 % low, and Ethereum, Arbitrum and Robinhood exact to the wei — the last two
+   because Nitro bills L1 cost through an inflated `gasUsed` rather than a separate
+   field. The direction is safe (nobody is over-credited), the cap bounds the
+   effect on supply, and light senders are unaffected because the one-page v2
+   probe prices them exactly.
+2. ~~**Robinhood 4663 depends on someone else's bot policy.**~~ **Closed
+   2026-09-05, and replaced by a different finding.** The Cloudflare `User-Agent`
+   workaround is gone: the scan now reads all five chains through the keyed PRO API
+   at `api.blockscout.com/{chainId}/…`, which serves 4663 with no override. What
+   replaced it is worse and was found by measurement, not reasoning — see below.
 3. **Only outbound transactions count.** Blockscout's aggregate
    `gas_usage_count` was rejected as the source because it also sums gas from
    transactions an address merely *received*, which measures popularity rather
@@ -1697,18 +1701,65 @@ return 429 on the tenth request — twice, reproducibly. Since every chain must
 succeed for a total to be a total, the real unkeyed ceiling is about ten wallets
 an hour. Two consequences matter to a reviewer. First, a defence sized by
 reasoning about someone else's capacity is not a defence, and the fix was to
-derive it from the tier in use (10 unkeyed, 40 keyed) so that we refuse with a
-503 that says when to return rather than absorbing a 429 that does not. Second,
-the retry loop was *amplifying* the condition it was meant to survive: a 429 was
-retried three times on a sub-second backoff against a budget that refills in
-forty minutes. It now reads `x-ratelimit-reset` and retries only a window about
-to turn over. Seven mutations, all caught, including both directions of that
-threshold and the case where a host sends no header at all.
+derive it from the tier in use so that we refuse with a 503 that says when to
+return rather than absorbing a 429 that does not. Second, the retry loop was
+*amplifying* the condition it was meant to survive: a 429 was retried three times
+on a sub-second backoff against a budget that refills in forty minutes. It now
+reads `x-ratelimit-reset` and retries only a window about to turn over. Seven
+mutations, all caught, including both directions of that threshold and the case
+where a host sends no header at all.
 
-`BLOCKSCOUT_API_KEY` is plumbed, escaped and asserted onto every request, but no
-key has been obtained, so "a key raises the limit" is documented on the vendor's
-authority and not on ours. Recorded in `PRE_MAINNET_CHECKLIST.md` §6.4 as
-procurement; PM-F9 is partial rather than closed because of it.
+**Then a key was obtained, and three things changed that a reviewer should know
+about.** The scan migrated onto the keyed PRO API, which is one host rather than
+five and needs no `User-Agent` spoofing, and where a 429 resets in 306 ms rather
+than forty minutes. Details and the measured URL shape are in
+`PRE_MAINNET_CHECKLIST.md` §6.4.1. The security-relevant parts:
+
+**(a) The scarce resource changed, so the defence had to.** The tier in use is
+bounded by credits per day (100,000, at ~20 a call) rather than requests per
+second, and a scan costs anywhere from 5 calls to 25 depending on whose wallet it
+is. A request-count ceiling cannot bound a cost that varies five-fold, so the
+hourly ceiling was demoted to burst control (120/hour) and the real budget is now
+enforced against `x-credits-remaining` as the host reports it, refusing new scans
+below a 2,000-credit reserve. The reserve is sized to let in-flight scans finish,
+because a scan killed halfway spends the credits and produces nothing. The gauge
+expires after an hour of quiet, which is the load-bearing part: a reading is only
+ever a floor, and without expiry an exhausted value recorded before the daily
+reset would refuse every claimant against a refilled budget, indefinitely. Unknown
+admits, zero refuses, and the two are never conflated. Nine route tests and eleven
+mutations, all caught, including both directions of that conflation.
+
+**(b) An unset key is now a loud failure rather than a quiet one.** Unkeyed, the
+PRO API answers 402 on every chain and a wrong key 401. `/api/pog-scan` refuses up
+front with a 503 naming the configuration, rather than starting a job that spends
+five requests to tell a claimant their gas history could not be read;
+`getJson` reports 401/402 as key faults instead of as "could not read Ethereum",
+which is the difference between paging someone to look at an environment variable
+and paging them to look at a chain.
+
+**(c) The fail-closed rule was inconsistent, and 4663 exposed it.** Within half an
+hour of a clean verification the Robinhood leg went to 1/12 availability while
+Ethereum stayed at 12/12 on the same key, *and* 4663's own instance was down
+simultaneously — so the fault is that chain's indexer and there is nothing to fail
+over to. Under the old rule that any unreadable chain fails the whole scan, roughly
+nine in ten genesis allocations would have failed. The rules did not agree with each
+other: a history longer than the request budget was allowed to yield a flagged
+lower bound, while an unreadable chain was fatal, though both are the same
+under-count. What differs is how much each can hide, and it is not uniform — an
+unreadable Ethereum can conceal 24 ETH, whereas a busy 4663 account's fifty latest
+transactions totalled 0.00403 ETH, 8 % of the eligibility floor and 0.4 % of the
+cap. So the policy is now per-chain: the four majors stay fatal, Robinhood degrades
+to a lower bound that sets `truncated` and is named in the API response so the UI
+can say which history is missing. **Adversarially this is sound in the direction
+that matters** — someone who could make 4663 appear unreadable would only reduce
+their own total, and there is no configuration of this that awards more. Nine
+mutations on the policy, all caught, including flipping any major chain to optional
+and reporting an unreadable chain as cap-skipped (which would imply the total was
+complete).
+
+With that, PM-F9 is closed. What is not closed and now sits on PM-C7: nobody has
+clicked the assembled two-phase flow on a real deployment, and the key has to be in
+Vercel Production before they can.
 
 One residual trap was removed rather than documented: `totalGasEth()` still
 defaulted its argument to `MOCK_CHAIN_GAS`, so a caller who forgot to pass a scan

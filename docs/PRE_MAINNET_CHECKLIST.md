@@ -626,7 +626,7 @@ is dormant rather than shadowing — it belongs to PM-D1.
 | **PM-F6** *(legacy `#10`)* | Testnet strings reviewed for a mainnet audience | `soat-frontend/scripts/checkChainCopy.mjs` green on chains 4663 / 46630 / 31337, wired into `frontend.yml` | ✅ |
 | **PM-F7** | Supabase production project provisioned with row-level security | Policies reviewed; anon key cannot write `projects`; rows scoped to a chain | ✅ project provisioned, 0001 and 0002 run, `npm run check:supabase` green on all seven checks, and the three vars set in Vercel Production — see §6.3 |
 | **PM-F8** | Launch flow shows an estimated gas cost before the creator signs | Launch UI renders an estimate for `createLaunch` | ✅ |
-| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either the scan reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | 🟡 `gasHistory.ts` sums outbound fees across five chains via Blockscout, banded by a 0.05 ETH floor and a 1 ETH cap; live scan green. Remaining: unkeyed Arbitrum and Base grant 10 requests per ~40 min, capping the product at ~10 wallets/hour. Needs a Blockscout API key — see §6.4 |
+| **PM-F9** | Genesis allocation is sized from something real, or the docs say it is not | Either the scan reads a live indexer, or §2.3 of the audit dossier and the user-facing copy state that every eligible address receives the same flat amount | ✅ `gasHistory.ts` sums outbound fees across five chains through the keyed Blockscout PRO API, banded by a 0.05 ETH floor and a 1 ETH cap; live scan green, and the deployer's Ethereum total still reproduces to the wei (`0.11395591` ETH) after the migration. Capacity ~1,000 wallets/day on the measured free tier, gated by an observed-credit reserve rather than a guessed request count. An unreadable Robinhood degrades to a flagged lower bound; the four majors still fail closed — see §6.4.1 and §6.4.2 |
 
 ### 6.1 PM-F3 / PM-F4 — a workflow file is not a workflow run
 
@@ -1140,56 +1140,136 @@ busy-but-not-rich wallets can make it two.
 That is not a launch-day capacity, and no constant here can make it one. Three
 consequences, all now recorded in code:
 
-1. **The 240/hour ceiling was fiction.** It is now `10` unkeyed and `40` with a
-   key — the latter from the free tier's 100k credits/day at a documented 20
-   credits per call, about 5,000 calls/day against a five-call light scan.
-   Self-limiting to what the dependency grants beats discovering it by refusal,
-   because our own 503 can say when to come back and someone else's 429 cannot.
+1. **The 240/hour ceiling was fiction.** Fixed twice: first to 10 unkeyed and 40
+   keyed, then — after the migration below — to a flat 120/hour, because request
+   count stopped being the scarce thing.
 2. **The retry loop was making it worse.** A 429 was retried on a 400/800/1200 ms
    backoff against a window that refills in forty minutes — three more requests
    from a budget with none left, aimed at a host that had just asked us to stop.
-   It now reads `x-ratelimit-reset` and only retries a window about to turn over,
-   naming `BLOCKSCOUT_API_KEY` in the error a human will read. Seven mutations,
-   all caught, including both directions of that threshold.
-3. **`BLOCKSCOUT_API_KEY` is plumbed but unset**, and the key itself has not been
-   obtained, so the claim that a key raises the limit is *documented and
-   untested*. What is tested is that the key reaches every request and is
-   URL-escaped rather than spliced in raw.
+   It now reads `x-ratelimit-reset` and only retries a window about to turn over.
+   Seven mutations, all caught, including both directions of that threshold.
+3. **The real fix was not a constant, it was moving off those hosts.** See below.
 
-**The decision this leaves open** is procurement, not engineering:
+#### 6.4.1 Migrated to the keyed PRO API — 2026-09-05
 
-- **Free key** (account at dev.blockscout.com, no card): 5 req/s, ~5,000
-  calls/day ⇒ roughly a thousand wallets a day. Enough for a modest launch.
-- **$49/mo**: 15 req/s, 100M credits/month ⇒ effectively unbounded for this use.
-- **Do neither**: ten wallets an hour, and the eleventh claimant of each hour
-  gets a 503 telling them to come back.
+A key was obtained and the migration done. Everything below is measured against
+it, not quoted from the pricing page.
 
-One thing worth noting for whoever picks: Robinhood Chain (4663) **is** in the
-Blockscout multichain registry, so moving to the keyed PRO API at
-`api.blockscout.com` with a `chain_id` parameter would also retire the Cloudflare
-`User-Agent` workaround and collapse five hosts and two API dialects into one.
-That is the only route by which limit #2 above stops being a dependency on
-someone else's bot policy.
+**The URL shape was guessed wrong twice before a key existed**, so it is worth
+stating plainly: the chain id is the **first path segment**.
 
-**Decided 2026-09-05: Builder tier ($49/mo) and migrate to the PRO API.** Both
-are blocked on the key itself, which is an account nobody has opened yet. What is
-not blocked is the question the migration hinges on, and it is a real one: 4663
-being *listed* in the chains registry was verified, but that the PRO API *serves*
-it — on the endpoints the scan needs, carrying an L1-inclusive `fee.value` — is
-still the vendor's word. `npm run check:blockscout` answers that in one run the
-moment a key exists, per chain, checking the response shape rather than the status
-code, and says explicitly what to do if 4663 turns out to be listed but not
-served: keep the per-instance path and the browser `User-Agent`, and spend the key
-on raising the other four. Exercised against a missing key (exit 2, pointing at
-`dev.blockscout.com`) and a bogus one (exit 1, per-chain `401`); the `401` rather
-than a `404` is mild evidence the routes are at least real.
+```
+v1   https://api.blockscout.com/{chainId}/api?module=account&action=txlist&…
+v2   https://api.blockscout.com/{chainId}/api/v2/addresses/{a}/transactions?…
+```
 
-Until then the code runs unkeyed at ten wallets an hour, which is correct
-behaviour for a state we should not launch in.
+It is *not* the `chain_id` query parameter the docs describe, and not
+`/v2/{chainId}/…`; both 404. `gasHistory.test.ts` asserts the shape so a tidy-up
+toward the documented form cannot quietly break all five chains.
 
-Until a key exists, PM-F9 is **partial**: the allocation is sized from something
-real, which is what the row asked, but the thing doing the sizing serves ten
-wallets an hour.
+**What the migration bought, all verified on all five chains:**
+
+| | Before (five public instances) | After (one keyed host) |
+|---|---|---|
+| Arbitrum / Base limit | 10 requests per ~40 min | 5 req/s |
+| 429 reset window | ~2,370,000 ms | **306 ms** — retrying is sane again |
+| Robinhood access | Cloudflare challenge, needed a spoofed browser `User-Agent` | no override needed; **workaround deleted** |
+| Robinhood dialect | pinned to v2, 20-page budget (v1 timed out) | same probe-first path as the rest |
+| Missing key | silent low limits | `402`, so it fails loudly |
+
+Robinhood joining the normal path rests on a measurement: `gasUsed * gasPrice`
+there equals v2's authoritative `fee.value` **to the wei** over 50 transactions,
+because Nitro bills L1 cost through an inflated `gasUsed` rather than a separate
+field. Re-measured per chain the same way:
+
+| Chain | v1 under-counts v2 by | Worst single tx |
+|---|---:|---:|
+| Ethereum | 0.0000 % | 0.00 % |
+| Arbitrum | 0.0000 % | 0.00 % |
+| Optimism | 2.3000 % | 49.09 % |
+| Base | 0.0200 % | 0.02 % |
+| Robinhood | 0.0000 % | 0.00 % |
+
+So only Optimism and Base under-count, and only for senders heavy enough to fall
+past the one-page v2 probe.
+
+**Capacity, and the tier we are actually on.** The key reports
+`x-ratelimit-limit: 5` and ~100,000 `x-credits-remaining`, which is the **free**
+tier, not the $49 Builder tier decided earlier:
+
+| | Measured |
+|---|---|
+| Rate | 5 req/s (Builder is 15) |
+| Credits | 100,000/day (Builder is 100M/month) |
+| v2 page | ~16.7 credits |
+| v1 page | ~15 credits — and `offset=10000` costs the same 20 as `offset=10` |
+| Capacity | ~5,000 calls/day ⇒ **~1,000 light or ~200 heavy wallets/day** |
+
+Page size being free is why `V1_PAGE_SIZE` is maxed. **Decided 2026-09-05: stay
+on the free tier for now, upgrade to Builder at mainnet.** ~1,000 wallets/day is
+enough to open with, and the gauge below degrades gracefully rather than going
+dark.
+
+**Credits per day, not requests per second, is now the binding constraint**, and a
+request-count ceiling cannot bound it because one scan costs between 5 calls and
+25 depending on whose wallet it is. So `/api/pog-scan` reads `x-credits-remaining`
+off every response, stores it, and refuses new scans below a 2,000-credit reserve
+— sized to let scans already in flight finish, since a scan killed halfway spends
+the credits and produces nothing. The gauge expires after an hour of quiet,
+deliberately: a reading is only ever a floor, and without expiry yesterday's
+exhausted value would refuse every claimant against a budget that had just reset.
+An unknown balance admits; zero refuses; the two are never conflated.
+
+`npm run check:blockscout` was rewritten around the verified URLs and now requires
+**both** dialects on **all five** chains, because v2 is the probe every chain
+starts with and v1 is the only way a heavy sender's history gets read at all —
+neither is a fallback for the other, and "either one works" would pass a key that
+silently breaks half the traffic.
+
+#### 6.4.2 4663's indexer is not reliable, and it used to gate every claim
+
+Measured the same afternoon, and the reason the failure policy changed. Within
+half an hour of a clean run, the Robinhood leg went from 200 to this:
+
+| Endpoint | Availability |
+|---|---|
+| PRO API, 4663, v2 | 1/12 |
+| PRO API, 4663, v1 | 2/12 |
+| PRO API, chain 1, v2 (same key) | **12/12** |
+| 4663's own instance, v2, browser UA | 0/8 (502) |
+| 4663's own instance, v2, no UA | 0/8 (403 — the Cloudflare challenge, still there) |
+
+Both access paths down at once places the fault in **Robinhood Chain's own
+indexer**, not in either route to it, so there is nothing to fail over to. Under
+the old rule — any unreadable chain fails the whole scan — roughly nine in ten
+genesis allocations would have failed, on a chain contributing a rounding error.
+
+That exposed an inconsistency in the failure rules: a history longer than the
+request budget was allowed to yield a flagged lower bound, while an unreadable
+chain was fatal, though both are the same error. The difference that matters is
+how much each can hide, and it is not uniform:
+
+- an unreadable **Ethereum** can hide 24 ETH (the heaviest wallet tested spent
+  that there alone);
+- an unreadable **Robinhood** hides almost nothing — a busy 4663 account's fifty
+  latest transactions cost **0.00403 ETH** total, which is 8 % of the 0.05 ETH
+  eligibility floor and 0.4 % of the 1 ETH cap.
+
+**Decided: the four majors stay fatal, Robinhood degrades to a flagged lower
+bound.** It sets `truncated`, so nothing downstream can present the total as
+complete, and the API names the unread chain so the UI says "Robinhood could not
+be read; retrying later may change this" instead of a vague "may be incomplete" —
+which is different advice, and it matters most in the one case where the
+under-count costs the user something: being told they are below the floor.
+
+Safe adversarially, which is the part worth checking: someone who could make 4663
+look unreadable would only reduce their own total. There is no version of this
+that awards more. Nine mutations on the policy, all caught, including flipping any
+major chain to optional and reporting an unreadable chain as cap-skipped.
+
+**PM-F9 is now ✅ on correctness and capacity.** What remains is not this row: the
+assembled flow has still never been clicked on a real deployment, which is carried
+with PM-C7, and the Builder upgrade is carried to mainnet.
 
 ---
 
@@ -1225,8 +1305,8 @@ written by hand. See the note under the table.
 | C — Deploy & handoff | 7 | 0 | 1 | 0 | 1 |
 | D — Keys & secrets | 0 | 3 | 0 | 1 | 0 |
 | E — Observability & ops | 1 | 2 | 0 | 0 | 3 |
-| F — Frontend & platform | 0 | 1 | 0 | 0 | 8 |
-| **Total** | **11** | **7** | **1** | **1** | **17** |
+| F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
+| **Total** | **11** | **6** | **1** | **1** | **18** |
 
 The **N/A** column is new and holds exactly one row, PM-D2. It exists because
 the table had no column for a retired item, so closing D2 as not-applicable
@@ -1240,13 +1320,17 @@ in **Still open** against the gate row it repeats and fails if a row that is
 not ✅ is missing from that list. Eight mutations, all caught. This table can
 no longer disagree with the rows without CI saying so.
 
-Gate B is closed. Gate F has one partial row: the 2026-09-04 sweep added PM-F9 —
-the genesis allocation was computed from a constant table and nothing in this file
-had ever asked about it — and 2026-09-05 replaced that with a real five-chain
-scan, then measured the free tier those chains are served on and found it grants
-about ten wallets an hour (§6.4). The correctness half is done; the throughput
-half is a free API key nobody has fetched. The accounts-and-credentials group
-that was blocking F and half of E is done:
+**Gates B and F are both closed.** F closed on 2026-09-05 with PM-F9, which is
+worth recording as a sequence because none of it was visible when the row was
+written: the 2026-09-04 sweep added the row at all — the genesis allocation was
+computed from a constant table and nothing in this file had ever asked about it —
+2026-09-05 replaced the table with a real five-chain scan, then measuring the free
+public instances showed they served about ten wallets an hour, then a key was
+obtained and the scan migrated onto the PRO API, and then 4663's indexer failed
+mid-verification and forced the failure policy to become per-chain (§6.4.1,
+§6.4.2). Each step was only findable by measuring the one before it.
+
+The accounts-and-credentials group that was blocking F and half of E is done:
 Upstash, Supabase (with `chain_id`), Sentry (both ingest routes and a real
 source-map upload), and the Vercel project serving `tosh-two.vercel.app`. The 46630 rehearsal (RH-F1) and the on-chain
 half of the first incident drill are dated. What is still open is listed
@@ -1262,7 +1346,7 @@ below, in the order it actually blocks.
 | **PM-C3** | ⏸ | Do not announce the factory until C2. |
 | **PM-C4** | ❌ | Explorer verification of the *mainnet* deploy. Testnet 46630 is already verified. |
 | **PM-C6** | ❌ | Initcode hash regenerated against the mainnet build, after C1. |
-| **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging currently reads 46630, which is correct until C1. Now also covers the status page's own `CHAIN` block, which lives in another repository and was previously outside every checklist item; `checkStatusPage.mjs` fails if C1 lands and the page stays on testnet. |
+| **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging currently reads 46630, which is correct until C1. Now also covers the status page's own `CHAIN` block, which lives in another repository and was previously outside every checklist item; `checkStatusPage.mjs` fails if C1 lands and the page stays on testnet. **Also inherited from PM-F9 when it closed:** the two-phase PoG flow (`/api/pog-scan` then `/api/sign-allocation`) is unit- and live-tested but no human has clicked it through on a real deployment, and `BLOCKSCOUT_API_KEY` has to be in Vercel Production before that click can work. |
 | **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. |
 | **PM-C9** | ❌ | The three deploy-side role addresses, distinct. Added 2026-09-04: C7 tracked the frontend env and nothing tracked this one, even though `PLATFORM_TREASURY` is immutable and collects 0.30 % of every buy forever. Decided that the 2-of-3 Safe serves as both owner and platform treasury; the two properties that decision depends on are now asserted in `ToshV5.t.sol` rather than only claimed in a comment. |
 | **PM-D1** | 🟡 | Storage is Vercel encrypted env, not KMS (§4.1). The key — and every other wallet that has been used — is replaced at C1. |
@@ -1272,7 +1356,6 @@ below, in the order it actually blocks.
 | **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). Remaining: a host and a delivery sink, both at C1. |
 | **PM-E4** | 🟡 | Safe signers named in §1 (Tom / Jack / Joe, each tied to a signature-proved owner address). Contact channels are still blank for every row, which is the half the criterion is about. |
 | **PM-E6** | ❌ | D1–D4 review triggers have no named watcher. Same constraint as E4. |
-| **PM-F9** | 🟡 | Allocation is sized from real multi-chain gas history, banded 0.05–1 ETH, live-verified. What is left is throughput, not correctness: unkeyed Arbitrum and Base grant ten requests per ~40-minute window and 429 on the tenth, so the whole product serves about ten wallets an hour. `BLOCKSCOUT_API_KEY` is plumbed and tested but unset, and obtaining it is procurement (free tier ⇒ ~1,000 wallets/day). See §6.4. |
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A is a procurement and calendar problem. Gate C is the mainnet
 deploy and is blocked on a Safe (D4) for everything after the broadcast.

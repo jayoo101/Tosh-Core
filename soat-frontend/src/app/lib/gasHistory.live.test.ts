@@ -34,7 +34,9 @@ function report(label: string, h: Awaited<ReturnType<typeof scanGasHistory>>) {
   for (const c of h.chains) {
     console.log(`  ${c.chain.padEnd(10)} ${eth(c.weiSpent).padStart(12)} ETH  sent=${String(c.sentTxs).padStart(5)}`
       + `${c.skipped ? ' [skipped: capped]' : ''}${c.stoppedAtCap && !c.skipped ? ' [hit cap]' : ''}`
-      + `${c.truncated ? ' [TRUNCATED]' : ''}${c.execFeeOnly ? ' [exec-fee only]' : ''}`)
+      + `${c.unavailable ? ' [UNREADABLE: counted as zero]' : ''}`
+      + `${c.truncated && !c.unavailable ? ' [TRUNCATED]' : ''}`
+      + `${c.execFeeOnly ? ' [exec-fee only]' : ''}`)
   }
   console.log(`  total=${eth(h.totalWei)} ETH  eligible=${isPogEligible(h.totalWei)}`
     + `  alloc=${eth(alloc)} ETH  truncated=${h.truncated}`)
@@ -67,7 +69,14 @@ describe.runIf(process.env.POG_LIVE_SCAN === '1')('live gas scan', () => {
     const ethereum = h.chains.find(c => c.chain === 'Ethereum')!
     expect(eth(ethereum.weiSpent)).toBe('0.11395591')
     expect(isPogEligible(h.totalWei)).toBe(true)
-    expect(h.truncated).toBe(false)
+
+    // Not `expect(h.truncated).toBe(false)`, which is what this said and which
+    // re-coupled the assertion to 4663's uptime — the exact dependency the
+    // per-chain failure policy exists to remove. An optional chain being
+    // unreadable legitimately sets `truncated`, and on 2026-09-05 that chain's
+    // indexer was answering 1 request in 12. What must stay false is truncation
+    // from a REQUEST BUDGET running out, which is a claim about our own paging.
+    expect(h.chains.filter(c => c.truncated && !c.unavailable)).toEqual([])
   }, 180_000)
 
   it('empty wallet: zero, not an error, and below the floor', async () => {

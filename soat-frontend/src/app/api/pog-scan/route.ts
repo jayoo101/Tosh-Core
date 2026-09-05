@@ -50,10 +50,13 @@ import {
   buildPoGScanAuthMessage,
   isSupportedPogChain,
 } from '@/lib/contracts'
-import { scanGasHistory, GasScanUnavailable, scanKeyPresent } from '@/app/lib/gasHistory'
+import {
+  scanGasHistory, GasScanUnavailable, scanKeyPresent, lastObservedCredits,
+} from '@/app/lib/gasHistory'
 import {
   readScanJob, startScanJob, finishScanJob, failScanJob,
   isFresh, JOB_LEASE_MS, RESULT_TTL_MS,
+  recordCreditBalance, readCreditBalance,
   type ScanJob,
 } from '@/app/lib/scanJobStore'
 import {
@@ -108,34 +111,47 @@ const RATE_LIMIT_OPTS = {
  */
 
 /**
- * Ceiling on scans started by anyone, per hour.
+ * Ceiling on scans started by anyone, per hour — burst control, not the budget.
  *
- * This was 240, reasoned from what five hosts "ought to absorb". Then the hosts
- * were asked. Unkeyed, Arbitrum and Base advertise `x-ratelimit-limit: 10` on a
- * window near forty minutes and return 429 on the tenth request — measured
- * twice, reproducibly, in `gasHistory.ts`'s table. Since every chain must
- * succeed for a total to be a total, the real unkeyed ceiling is about **ten
- * wallets an hour**, and 240 was not a budget but a fiction that would have
- * handed the eleventh claimant a failed scan and us a pile of 429s.
+ * The history: this was 240, reasoned from what five public instances "ought to
+ * absorb". Then they were asked, and unkeyed Arbitrum and Base turned out to
+ * grant ten requests per forty-minute window, capping the product at about ten
+ * wallets an hour. The fix was not a different constant, it was the migration to
+ * the keyed PRO API, where the rate limit is 5 req/s and a 429 resets in 306 ms.
  *
- * So the number now comes from the tier we are actually on:
+ * So requests per second are no longer the scarce thing; **credits per day are**.
+ * The measured tier gives 100,000/day at roughly 20 credits a call, and a scan
+ * costs between 5 calls (a one-page wallet) and 25 (a heavy sender that falls
+ * through to v1 on all five chains). A request-count ceiling cannot bound a cost
+ * that varies five-fold, so it is not asked to: `CREDIT_RESERVE` below does that,
+ * against the balance the host itself reports.
  *
- * - **No key** — 10/hour, matching the tightest host. Self-limiting to what the
- *   dependency grants is strictly better than discovering it by refusal, because
- *   our own 503 can say when to come back and a 429 from someone else cannot.
- * - **Keyed** — 40/hour. The free tier is 100k credits/day at a documented 20
- *   credits per call, about 5,000 calls/day, and a light scan is five calls:
- *   roughly a thousand scans a day, which is 40/hour sustained. Paid tiers raise
- *   this; see `gasHistory.ts`.
- *
- * Ten an hour is not a launch-day capacity, and no constant here can make it
- * one. That is a procurement question, recorded as such in
- * `PRE_MAINNET_CHECKLIST.md` §6.4 rather than papered over with a bigger number.
+ * This ceiling is left to do the one job it is good at — flattening a burst, so
+ * that a script cannot drain a day's credits in a minute before the gauge has
+ * been refreshed even once. 120/hour is far more than organic demand and spends
+ * at most ~17k credits an hour at the average cost, which the gauge then catches.
  */
-const GLOBAL_SCAN_LIMIT = {
-  capacity: scanKeyPresent() ? 40 : 10,
-  windowMs: 60 * 60 * 1000,
-} as const
+const GLOBAL_SCAN_LIMIT = { capacity: 120, windowMs: 60 * 60 * 1000 } as const
+
+/**
+ * Credits below which no new scan is started.
+ *
+ * Sized to the worst case rather than the average: one scan can cost 25 calls at
+ * ~20 credits, so 500. This leaves room for several of those to be in flight and
+ * still finish, because a scan killed halfway spends the credits and produces
+ * nothing — the one outcome worse than refusing it up front.
+ *
+ * Refusing here is strictly better than letting the scan start and fail: a 503
+ * from us can say "come back later", whereas the alternative is five 402s and a
+ * claimant told their gas history could not be read.
+ */
+const CREDIT_RESERVE = 2_000
+
+/** How long a caller is told to wait when the daily credit budget is what ran
+ *  out. The host does not publish when it resets, so this is a plain hour rather
+ *  than a computed instant — and the gauge's own TTL means a genuine reset is
+ *  noticed within the hour regardless. */
+const CREDIT_EXHAUSTED_RETRY_MS = 60 * 60 * 1000
 
 /** Ceiling on scans for one address, per hour.
  *
@@ -219,8 +235,14 @@ async function present(job: ScanJob) {
     scannedAt: result.scannedAt,
     fresh: isFresh(job),
     totalGasWei: totalWei.toString(),
-    /** True when the page budget ran out, so `totalGasWei` is a lower bound. */
+    /** True when `totalGasWei` is a lower bound rather than the figure — either
+     *  a page budget ran out or an optional chain could not be read. Which one is
+     *  in the per-chain breakdown. */
     truncated: result.truncated,
+    /** Chains counted as zero because they could not be read. Named rather than
+     *  merely counted, so the UI can tell a user which history is missing instead
+     *  of a vague "this may be incomplete". */
+    unavailableChains: result.chains.filter(c => c.unavailable).map(c => c.chain),
     eligible: isPogEligible(totalWei),
     maxAllocWei: computeMaxAllocFromWei(totalWei, rate).toString(),
     gasToSatoRate: rate,
@@ -231,6 +253,9 @@ async function present(job: ScanJob) {
       sentTxs: c.sentTxs,
       truncated: c.truncated,
       skipped: c.skipped,
+      /** Could not be read; counted as zero. Distinct from `skipped`, which means
+       *  the cap was already reached so looking could not change the answer. */
+      unavailable: c.unavailable ?? false,
       /** This chain's figure omits the OP-stack L1 data fee. See
        *  `gasHistory.ts`; it can only under-count, never over. */
       execFeeOnly: c.execFeeOnly,
@@ -245,6 +270,31 @@ async function present(job: ScanJob) {
  * path therefore has to write the job's outcome itself, or the lease in
  * `scanJobStore` is the only thing that eventually frees the user.
  */
+/**
+ * Persist whatever the scan learned about the credit balance.
+ *
+ * Runs on both the success and the failure path, and the failure path is the one
+ * that matters: a scan that died because the budget ran out is precisely the
+ * scan whose last response proves it, and dropping that reading would mean the
+ * next claimant rediscovers the same wall.
+ *
+ * Never allowed to throw. This is bookkeeping — losing it costs a degraded
+ * admission decision, whereas letting it escape `after()` would lose the job
+ * outcome that the client is waiting on.
+ */
+async function persistCreditReading(): Promise<void> {
+  const credits = lastObservedCredits()
+  if (credits === null) return
+  try {
+    await recordCreditBalance(credits)
+  } catch (e) {
+    reportError(e, {
+      surface: 'api-route',
+      extra: { route: 'POST /api/pog-scan', stage: 'recordCreditBalance' },
+    })
+  }
+}
+
 async function runScan(address: Address): Promise<void> {
   try {
     const history = await scanGasHistory(address)
@@ -257,6 +307,7 @@ async function runScan(address: Address): Promise<void> {
         truncated: c.truncated,
         stoppedAtCap: c.stoppedAtCap,
         skipped: c.skipped,
+        unavailable: c.unavailable,
         execFeeOnly: c.execFeeOnly,
       })),
       totalWei: history.totalWei.toString(),
@@ -290,6 +341,8 @@ async function runScan(address: Address): Promise<void> {
         extra: { route: 'POST /api/pog-scan', stage: 'failScanJob' },
       })
     }
+  } finally {
+    await persistCreditReading()
   }
 }
 
@@ -390,6 +443,58 @@ export async function POST(req: Request) {
       return corsify(req, NextResponse.json(await present(existing)))
     }
 
+    // Everything from here on is about to cause real upstream calls, and is
+    // therefore reached only after the two free paths above have been ruled out.
+
+    // Unkeyed, api.blockscout.com answers 402 on every chain, so a scan started
+    // now would burn a job slot, run five failing requests and tell the claimant
+    // their gas history could not be read. Saying so here instead keeps a
+    // configuration mistake from looking like an outage.
+    if (!scanKeyPresent()) {
+      reportError(new Error('BLOCKSCOUT_API_KEY is not configured; PoG scanning is offline'), {
+        surface: 'api-route',
+        extra: { route: 'POST /api/pog-scan', stage: 'scanKeyPresent' },
+      })
+      return corsify(req, clientError(
+        'Gas scanning is not configured on this deployment.', 503,
+      ))
+    }
+
+    // The daily credit budget, which is what this tier actually runs out of.
+    // Checked before the request-count budgets because it is the constraint that
+    // cannot be waited out inside the hour, and because a caller refused for it
+    // should not also lose one of their six per-address attempts.
+    //
+    // A null reading means nothing recent is known, and that admits — see the
+    // gauge's TTL note. An unknown budget must not read as an exhausted one, or
+    // the first claimant after a quiet hour would be refused on no evidence.
+    let credits: number | null = null
+    try {
+      credits = await readCreditBalance()
+    } catch (e) {
+      // A gauge we cannot read is not a reason to refuse; the request-count
+      // ceilings below still bound the damage.
+      reportError(e, {
+        surface: 'api-route',
+        extra: { route: 'POST /api/pog-scan', stage: 'readCreditBalance' },
+      })
+    }
+    if (credits !== null && credits < CREDIT_RESERVE) {
+      reportError(new Error('PoG scan credit budget near exhaustion'), {
+        surface: 'api-route',
+        extra: {
+          route: 'POST /api/pog-scan',
+          stage: 'creditReserve',
+          credits,
+          reserve: CREDIT_RESERVE,
+        },
+      })
+      return corsify(req, budgetError(
+        'Gas scanning has reached its daily limit. Try again later.',
+        503, CREDIT_EXHAUSTED_RETRY_MS,
+      ))
+    }
+
     // Charged here, not at the top of the handler, so that a cached read and a
     // joined in-flight scan are free: neither touches an upstream host, and
     // charging for them would let ordinary polling exhaust budgets whose whole
@@ -405,7 +510,7 @@ export async function POST(req: Request) {
       GLOBAL_SCAN_LIMIT.windowMs,
     )
     if (!globalBudget.ok) {
-      // Worth knowing about: at 240/hour this fires under abuse or under a load
+      // Worth knowing about: at 120/hour this fires under abuse or under a load
       // we mis-sized for, and both are things to find out from an alert rather
       // than from users reporting they cannot claim.
       reportError(new Error('PoG scan global hourly budget exhausted'), {

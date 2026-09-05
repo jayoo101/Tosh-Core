@@ -9,12 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * address is a fresh cache key and therefore a real five-chain read. The per-IP
  * bucket is the only other gate, and a proxy pool multiplies it. So the budgets
  * below are what stands between a rented botnet and an IP ban that would fail
- * every scan closed — which, since scanning gates genesis allocation, is a
+ * every scan closed 鈥?which, since scanning gates genesis allocation, is a
  * denial of service on the launch delivered by us to ourselves.
  *
  * These tests are about the route's wiring rather than the limiter's arithmetic
- * (`apiGuard.test.ts` covers that): which keys get charged, in what order, and —
- * the part that is easy to get backwards — which requests are free.
+ * (`apiGuard.test.ts` covers that): which keys get charged, in what order, and 鈥? * the part that is easy to get backwards 鈥?which requests are free.
  */
 
 const USER = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
@@ -36,9 +35,24 @@ vi.mock('next/server', async (importOriginal) => {
 })
 
 vi.mock('@/lib/observability', () => ({ reportError: () => {} }))
+
+/**
+ * Whether a Blockscout key is configured. Mocked rather than driven through
+ * `BLOCKSCOUT_API_KEY`, because the real `scanKeyPresent` latches the variable at
+ * module load and this file re-imports the route per test 鈥?so an env stub would
+ * be racing the module registry, and the failure would look like a routing bug.
+ * That the variable reaches the requests at all is `gasHistory.test.ts`'s job;
+ * this file is about what the route does with the answer.
+ */
+let keyPresent: boolean
 vi.mock('@/app/lib/gasHistory', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/app/lib/gasHistory')>()
-  return { ...actual, scanGasHistory: async () => { throw new Error('not in this test') } }
+  return {
+    ...actual,
+    scanGasHistory: async () => { throw new Error('not in this test') },
+    scanKeyPresent: () => keyPresent,
+    lastObservedCredits: () => null,
+  }
 })
 vi.mock('@/app/lib/gasToSatoRate', () => ({ getGasToSatoRate: async () => 0.1 }))
 
@@ -48,7 +62,7 @@ vi.mock('@/app/lib/apiGuard', async (importOriginal) => {
   return { ...actual, applyRateLimit: async () => null }
 })
 
-// ─── The store, as a plain map so the tests can see what survived ────────────
+// 鈹€鈹€鈹€ The store, as a plain map so the tests can see what survived 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 type Job = {
   status: 'running' | 'done' | 'failed'
@@ -61,6 +75,11 @@ type Job = {
 
 let store: Map<string, Job>
 let freshness: boolean
+
+/** The credit gauge, as a settable number. `null` is the "nothing recent is
+ *  known" reading, which must admit rather than refuse. */
+let creditBalance: number | null
+let creditGaugeThrows: boolean
 
 vi.mock('@/app/lib/scanJobStore', () => ({
   readScanJob: async (a: string) => store.get(a.toLowerCase()) ?? null,
@@ -75,9 +94,14 @@ vi.mock('@/app/lib/scanJobStore', () => ({
   isFresh: () => freshness,
   JOB_LEASE_MS: 120_000,
   RESULT_TTL_MS: 60 * 60 * 1000,
+  recordCreditBalance: async () => {},
+  readCreditBalance: async () => {
+    if (creditGaugeThrows) throw new Error('gauge unavailable')
+    return creditBalance
+  },
 }))
 
-// ─── The limiter, as a recorder the tests can make refuse ────────────────────
+// 鈹€鈹€鈹€ The limiter, as a recorder the tests can make refuse 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 let charged: string[]
 let refuse: Set<string>
@@ -126,6 +150,13 @@ beforeEach(() => {
   freshness = true
   charged = []
   refuse = new Set()
+  creditBalance = null
+  creditGaugeThrows = false
+  // Set explicitly rather than inherited from the environment. The route refuses
+  // outright without a key, so while this was read from `BLOCKSCOUT_API_KEY` the
+  // suite passed on a machine that happened to export one and would have failed
+  // in CI 鈥?the same class of bug as the key plumbing these tests exist to guard.
+  keyPresent = true
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', String(SUPPORTED_CHAIN))
 })
@@ -135,7 +166,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('POST /api/pog-scan — what bounds the upstream cost', () => {
+describe('POST /api/pog-scan 鈥?what bounds the upstream cost', () => {
   it('charges both budgets and starts a scan when there is nothing cached', async () => {
     const res = await post()
     expect(res.status).toBe(202)
@@ -174,7 +205,7 @@ describe('POST /api/pog-scan — what bounds the upstream cost', () => {
   it('serves a fresh cached result without charging anything', async () => {
     // The budgets exist to bound upstream reads. A cache hit performs none, and
     // charging for it would let ordinary client polling exhaust the ceiling that
-    // protects the dependency — the defence eating itself.
+    // protects the dependency 鈥?the defence eating itself.
     store.set(USER.toLowerCase(), doneJob())
     const res = await post()
     expect(res.status).toBe(200)
@@ -235,5 +266,90 @@ describe('POST /api/pog-scan — what bounds the upstream cost', () => {
     expect(res.status).toBe(401)
     expect(charged).toEqual([])
     expect(scheduled).toBe(0)
+  })
+})
+
+describe('POST /api/pog-scan 鈥?the two limits that are not request counts', () => {
+  it('refuses without an API key instead of starting five requests that all 402', async () => {
+    // api.blockscout.com answers 402 unkeyed, on every chain. Starting the scan
+    // anyway would spend a job slot and a budget charge to arrive at "your gas
+    // history could not be read", which points a claimant at the chains when the
+    // fault is an unset environment variable.
+    keyPresent = false
+    const res = await post()
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: /not configured/ })
+    expect(charged).toEqual([])
+    expect(scheduled).toBe(0)
+  })
+
+  it('still serves a cached result when the key is missing', async () => {
+    // The key gates upstream reads, and a cache hit performs none. Refusing here
+    // too would take the answer away from everyone who already has one, turning a
+    // configuration slip into a wider outage than it is.
+    keyPresent = false
+    store.set(USER.toLowerCase(), doneJob())
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(scheduled).toBe(0)
+  })
+
+  it('refuses when the credit gauge is below the reserve', async () => {
+    // This tier is bounded by credits per day, not requests per second, and one
+    // scan can cost 25 calls. Refusing at the reserve leaves room for scans
+    // already in flight to finish, because a scan killed halfway spends the
+    // credits and produces nothing.
+    creditBalance = 1_999
+    const res = await post()
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: /daily limit/ })
+    expect(charged).toEqual([])
+    expect(scheduled).toBe(0)
+  })
+
+  it('admits at exactly the reserve, so the boundary is not off by one', async () => {
+    creditBalance = 2_000
+    const res = await post()
+    expect(res.status).toBe(202)
+    expect(scheduled).toBe(1)
+  })
+
+  it('admits when the gauge knows nothing, rather than treating unknown as empty', async () => {
+    // The gauge expires after an hour of quiet so that yesterday's exhausted
+    // reading cannot refuse everyone on a budget that has since reset. That only
+    // works if a null reading admits.
+    creditBalance = null
+    const res = await post()
+    expect(res.status).toBe(202)
+    expect(scheduled).toBe(1)
+  })
+
+  it('does not treat a zero balance as unknown', async () => {
+    // The mirror of the test above, and the reason `readCreditBalance` returns
+    // `number | null` instead of a number defaulting to zero: conflating the two
+    // would break one direction or the other, and both are outages.
+    creditBalance = 0
+    const res = await post()
+    expect(res.status).toBe(503)
+    expect(scheduled).toBe(0)
+  })
+
+  it('proceeds when the gauge itself is unreachable', async () => {
+    // A gauge we cannot read is not evidence of exhaustion. The request-count
+    // ceilings still bound the damage, so failing open here loses a refinement
+    // rather than a defence.
+    creditGaugeThrows = true
+    const res = await post()
+    expect(res.status).toBe(202)
+    expect(charged).toEqual([GLOBAL_KEY, ADDRESS_KEY])
+    expect(scheduled).toBe(1)
+  })
+
+  it('checks credits before charging either request budget', async () => {
+    // A caller refused for a global shortage should not also lose one of their
+    // six per-address attempts to find that out.
+    creditBalance = 10
+    await post()
+    expect(charged).toEqual([])
   })
 })

@@ -22,6 +22,9 @@ interface ScanResult {
   totalGasWei?: string
   floorWei: string
   truncated?: boolean
+  /** Chains counted as zero because they could not be read. Named, so the reason
+   *  a total is a lower bound can be stated instead of hinted at. */
+  unavailableChains?: string[]
   error?: string
   retryAfterMs?: number
 }
@@ -132,18 +135,35 @@ export function PogScanButton({
       // slow path, it is a guaranteed failure.
       const scan = await runScan(userAddress, chainId, ts, auth.signature, setPhase)
 
+      const missing = scan.unavailableChains ?? []
+
       if (!scan.eligible) {
         // Said here rather than left to `sign-allocation`'s own refusal, so the
         // number the wallet failed to reach is visible next to the verdict.
+        //
+        // An unreadable chain is named in this message specifically, because being
+        // told "not eligible" is where an under-count costs the user something and
+        // where "try again later" is genuinely different advice from "you do not
+        // qualify".
         throw new Error(
           `Not eligible — ${fmt(BigInt(scan.totalGasWei))} ETH of historical gas `
-          + `across all chains, and the floor is ${fmt(BigInt(scan.floorWei))} ETH.`,
+          + `across all chains, and the floor is ${fmt(BigInt(scan.floorWei))} ETH.`
+          + (missing.length > 0
+            ? ` ${missing.join(' and ')} could not be read, so this total may be`
+              + ' slightly low — retrying later may change it.'
+            : ''),
         )
       }
       if (scan.truncated) {
         // Only ever an under-count, so it can lose a wallet allocation it had
-        // earned but never grant one it had not. Worth saying out loud.
-        toshToast.info('Some history was too large to page through; this is a lower bound.')
+        // earned but never grant one it had not. Worth saying out loud, and worth
+        // saying WHICH of the two causes it was: a history too long to page
+        // through is permanent, while an unreadable chain clears up.
+        toshToast.info(
+          missing.length > 0
+            ? `${missing.join(' and ')} could not be read; this total is a lower bound.`
+            : 'Some history was too large to page through; this is a lower bound.',
+        )
       }
 
       setPhase('signing')

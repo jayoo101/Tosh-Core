@@ -21,6 +21,29 @@
  * Chain runs its own Blockscout and `viem` already carries the `apiUrl`, so
  * Blockscout is the only provider covering all five with one request shape.
  *
+ * ONE HOST, NOT FIVE — THE PRO API
+ *
+ * This used to read five separate public instances: `eth.blockscout.com`,
+ * `arbitrum.…`, `optimism.…`, `base.…` and `robinhoodchain.…`. That worked and
+ * was not deployable, for two reasons measured rather than feared: unkeyed,
+ * Arbitrum and Base advertise `x-ratelimit-limit: 10` on a window near forty
+ * minutes, capping the whole product at about ten wallets an hour; and the
+ * Robinhood instance sits behind a Cloudflare challenge that a default Node
+ * `fetch` fails, so that leg only worked while we spoofed a browser
+ * `User-Agent` — a dependency on someone else's WAF configuration.
+ *
+ * The keyed PRO API replaces all five with `api.blockscout.com/{chainId}/…`,
+ * and both problems go with them. Verified against a live key, all five chains,
+ * 2026-09-05:
+ *
+ *   · every chain answers 200 on both dialects, Robinhood (4663) included;
+ *   · Robinhood needs no `User-Agent` override, so the WAF workaround is gone;
+ *   · a 429 from a burst past the rate limit resets in **306 ms**, not forty
+ *     minutes, which is what makes retrying it sane again (see
+ *     `RETRYABLE_RESET_MS`);
+ *   · unkeyed the host answers 402 and a bad key 401, so a missing key is a
+ *     loud deployment failure and never a quiet degradation.
+ *
  * WHICH ENDPOINT, PER CHAIN, AND WHY IT IS NOT UNIFORM
  *
  * Blockscout exposes two APIs with opposite trade-offs, and the split below was
@@ -72,17 +95,30 @@
  * receipt, and v1 omits it — no `l1Fee`, `l1GasUsed` or `l1GasPrice` on
  * Optimism, Base or Arbitrum, verified by dumping the row keys. So on Optimism
  * and Base this scan measures execution fees, which are less than the fee paid.
- * Measured shortfall against v2's authoritative `fee.value`:
  *
- *     Base, recent                0 %
- *     Base, 2024-03-05         0.59 %
- *     Optimism, 2022-01-07    70.83 %   ← pre-Bedrock, when L1 data was the bulk
+ * Re-measured per chain on the PRO API, 2026-09-05, by pulling one busy sender's
+ * transactions through both dialects and diffing `gasUsed * gasPrice` against
+ * v2's authoritative `fee.value` on the same hashes:
  *
- * The gap is real but it is old, and it is small in absolute terms next to L1:
- * one Ethereum transaction costs what a thousand L2 transactions cost, so
- * mainnet dominates this sum for essentially every wallet. It is also in the
- * only safe direction — see below. It is not corrected by a fudge factor,
- * because a made-up multiplier would be less honest than an acknowledged floor.
+ *     Ethereum      50 txs      0.0000 %   exact, to the wei
+ *     Arbitrum      50 txs      0.0000 %   exact — see below
+ *     Optimism      50 txs      2.3000 %   worst single transaction 49.09 %
+ *     Base          50 txs      0.0200 %   worst single transaction  0.02 %
+ *     Robinhood     50 txs      0.0000 %   exact — see below
+ *
+ * Arbitrum and Robinhood come out exact because both are Nitro, and Nitro bills
+ * the L1 data cost through an inflated `gasUsed` instead of a separate `l1Fee`
+ * field. So `gasUsed * gasPrice` is the whole fee there, which is what
+ * `execFeeIsWholeFee` records, and it is why Robinhood is safe to read through
+ * the v1 fallthrough rather than being pinned to v2.
+ *
+ * That leaves Optimism and Base as the only two that under-count, and only for
+ * senders heavy enough to fall through the v2 probe. The gap is small in
+ * absolute terms next to L1 — one Ethereum transaction costs what a thousand L2
+ * transactions cost, so mainnet dominates this sum for essentially every wallet
+ * — and it is in the only safe direction; see below. It is not corrected by a
+ * fudge factor, because a made-up multiplier would be less honest than an
+ * acknowledged floor.
  *
  * `gas_usage_count` WOULD BE ONE CALL AND IS STILL NOT USED
  *
@@ -97,14 +133,49 @@
  *
  * Each limit is chosen so that being wrong can only under-award:
  *
- *   · a chain that cannot be read fails the whole scan, because a partial sum
- *     is indistinguishable from a smaller wallet and the difference is money;
+ *   · a chain that cannot be read fails the whole scan IF it is `required` —
+ *     because a partial sum is indistinguishable from a smaller wallet and the
+ *     difference is money. See the next section for the one chain that is not;
  *   · a history longer than the request budget yields the total so far, which
  *     is a lower bound, flagged `truncated` so the caller can say so;
  *   · the OP-stack shortfall above subtracts, never adds;
  *   · a boundary block that appears in two windows is de-duplicated by hash,
  *     because `startblock` is inclusive and double-counting is the one error
  *     that would award too much.
+ *
+ * WHY ROBINHOOD IS NOT `required`, WHICH IS A DELIBERATE INCONSISTENCY
+ *
+ * The two rules above did not agree with each other. A history past the request
+ * budget was allowed to yield a flagged lower bound, while a chain that could not
+ * be read was fatal — yet both are the same error, an under-count, differing only
+ * in how much they can hide. That difference is the whole argument, and it is not
+ * uniform across the five:
+ *
+ *   · an unreadable Ethereum can hide 24 ETH — the heaviest wallet tested spent
+ *     that much there alone, and it is why four chains stay fatal;
+ *   · an unreadable Robinhood hides almost nothing. Measured 2026-09-05: a busy
+ *     4663 account's fifty most recent transactions cost 0.00403 ETH in total.
+ *     Against a 0.05 ETH eligibility floor that is 8 %, and against the 1 ETH cap
+ *     it is 0.4 %. Omitting it changes an outcome only for a claimant already
+ *     within a fraction of a percent of the floor, and then only downward.
+ *
+ * Set against that: while 4663 is fatal, its indexer's availability IS the
+ * availability of genesis allocation for everybody. That is not theoretical — it
+ * was measured going wrong. On 2026-09-05 the 4663 leg answered 1/12 requests
+ * while Ethereum answered 12/12 on the same key, and its own instance was down
+ * simultaneously (502 with the browser UA, 403 without), which places the fault in
+ * the chain's indexer rather than in either access path. Roughly nine in ten scans
+ * would have failed, on a chain contributing 0.4 % of a capped total.
+ *
+ * So the trade is: risk under-awarding by up to 8 % of the floor, in the safe
+ * direction and flagged as a lower bound, rather than blocking every claim
+ * whenever a four-month-old chain's explorer restarts. The flag matters — an
+ * unreadable chain sets `truncated`, so nothing downstream can present the figure
+ * as complete.
+ *
+ * This is also safe adversarially, which is the part worth checking: an attacker
+ * who could make 4663 look unreadable would only reduce their own total. There is
+ * no version of this that awards more.
  */
 
 import { POG_GAS_CAP_WEI } from './pogQuota'
@@ -117,14 +188,15 @@ export type ScanApi = 'v1' | 'v2'
 export interface GasScanChain {
   chain: string
   chainId: number
-  /** Blockscout instance root, no trailing slash. */
-  host: string
   api: ScanApi
   /**
-   * Whether this host rejects a default server-side `User-Agent`.
-   * Only Robinhood Chain does. See `BROWSER_UA`.
+   * Whether being unable to read this chain fails the whole scan.
+   *
+   * True for the four that can hide real money. False only for Robinhood, whose
+   * measured contribution is a fraction of a percent of the cap and whose
+   * indexer would otherwise gate every genesis allocation. See the header.
    */
-  needsBrowserUa?: boolean
+  required: boolean
   /**
    * True where `gasUsed * gasPrice` is the whole fee. False on OP-stack, where
    * it omits the L1 data fee. Recorded per chain so the shortfall is visible in
@@ -145,17 +217,34 @@ export interface GasScanChain {
  * no credit for using it.
  */
 export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
-  { chain: 'Ethereum', chainId: 1,     host: 'https://eth.blockscout.com',       api: 'v1', execFeeIsWholeFee: true  },
-  { chain: 'Arbitrum', chainId: 42161, host: 'https://arbitrum.blockscout.com',  api: 'v1', execFeeIsWholeFee: true  },
-  { chain: 'Optimism', chainId: 10,    host: 'https://optimism.blockscout.com',  api: 'v1', execFeeIsWholeFee: false },
-  { chain: 'Base',     chainId: 8453,  host: 'https://base.blockscout.com',      api: 'v1', execFeeIsWholeFee: false },
-  // v1 on this host times out; v2 answers in a few hundred ms, and total volume
-  // on a chain this young is a page or two.
-  {
-    chain: 'Robinhood', chainId: 4663, host: 'https://robinhoodchain.blockscout.com',
-    api: 'v2', needsBrowserUa: true, execFeeIsWholeFee: true,
-  },
+  { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true  },
+  { chain: 'Arbitrum',  chainId: 42161, api: 'v1', required: true,  execFeeIsWholeFee: true  },
+  { chain: 'Optimism',  chainId: 10,    api: 'v1', required: true,  execFeeIsWholeFee: false },
+  { chain: 'Base',      chainId: 8453,  api: 'v1', required: true,  execFeeIsWholeFee: false },
+  // Reads like the other four now. On its own instance v1 timed out, which is
+  // why this was pinned to `v2` and a 20-page budget; on the PRO API it answers
+  // a production-shaped `txlist` (offset 10,000, startblock 0) in 2.5 s, and
+  // `gasUsed * gasPrice` there matches v2's `fee.value` to the wei because Nitro
+  // has no separate L1 fee. So it takes the same probe-first path, which prices
+  // a young chain's one-page histories exactly and still has a way out if one
+  // grows.
+  //
+  // `required: false` is the one exception in this table, argued at length in the
+  // header. Short version: it can hide 0.4 % of a capped total, and while it was
+  // fatal its indexer's uptime was the uptime of genesis allocation.
+  { chain: 'Robinhood', chainId: 4663,  api: 'v1', required: false, execFeeIsWholeFee: true  },
 ]
+
+/**
+ * The one host, keyed. `{chainId}` is the first path segment — verified against
+ * a live key on all five chains rather than inferred from the docs, which
+ * describe a `chain_id` query parameter this deployment does not use.
+ */
+const PRO_API_ROOT = 'https://api.blockscout.com'
+
+function hostFor(chain: GasScanChain): string {
+  return `${PRO_API_ROOT}/${chain.chainId}`
+}
 
 // ─── Budgets ─────────────────────────────────────────────────────────────────
 
@@ -173,8 +262,10 @@ const V1_PAGE_SIZE = 10_000
  *  `truncated` rather than silently short. */
 const MAX_V1_WINDOWS = 4
 
-/** v2 pages of 50 for a chain read entirely through v2 (Robinhood). The
- *  probe-first path on the other four uses a budget of exactly one. */
+/** v2 pages of 50 for a chain configured `api: 'v2'`, which none now is — the
+ *  probe-first path spends exactly one page and falls through to v1. Kept
+ *  because `ScanApi` still permits `'v2'`, so a chain that loses its v1 route
+ *  has somewhere to go without a code change. */
 const MAX_V2_PAGES = 20
 
 /** Retries per request for a transient 429 or 5xx. Beyond this it is an outage,
@@ -182,77 +273,70 @@ const MAX_V2_PAGES = 20
 const MAX_RETRIES = 3
 
 /**
- * Robinhood Chain's Blockscout is behind Cloudflare and answers a default Node
- * `fetch` with a 403 challenge; a browser `User-Agent` gets a 200. Verified
- * both ways.
+ * The same headers for every chain, which is itself the change.
  *
- * This is recorded as a dependency, not offered as a solution. It is exactly as
- * durable as a Cloudflare configuration that is not ours, and when it tightens
- * the Robinhood leg fails closed — which, by the failure rule above, takes the
- * whole scan with it.
- *
- * THERE IS NO RPC FALLBACK, though this comment used to claim one. Counting the
- * chain from the RPC we already operate for the watcher sounds like the obvious
- * escape until the chain is measured: Robinhood is an Arbitrum Nitro rollup with
- * a 0.20 s block time, which put it at 54.8 M blocks 127 days after launch.
- * JSON-RPC has no `eth_getTransactionsByAddress` — that index is the thing an
- * explorer exists to maintain — so finding one wallet's sends means walking every
- * block: ~548,000 batched requests, for one wallet, on one chain. `trace_filter`
- * and `arbtrace_filter` are both absent from that node, so there is no shortcut,
- * and `eth_getLogs` cannot substitute because a plain ETH send emits no logs.
- *
- * The real fallback is the keyed PRO API at `api.blockscout.com`, which reaches
- * 4663 by `chain_id` and never touches this host. See `checkBlockscoutKey.mjs`.
+ * This was `headersFor(chain)` because the Robinhood instance sat behind a
+ * Cloudflare challenge that answered a default Node `fetch` with 403 and a
+ * spoofed browser `User-Agent` with 200. The PRO API does not serve that
+ * challenge — verified, a default `fetch` gets 200 on 4663 — so there is nothing
+ * left to vary and the per-chain indirection would only invite the workaround
+ * back.
  */
-const BROWSER_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-  + '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-
-function headersFor(chain: GasScanChain): Record<string, string> {
-  return chain.needsBrowserUa
-    ? { Accept: 'application/json', 'User-Agent': BROWSER_UA }
-    : { Accept: 'application/json' }
-}
+const REQUEST_HEADERS: Record<string, string> = { Accept: 'application/json' }
 
 /**
- * A free Blockscout key, and why the scan is not deployable without one.
+ * The PRO API key, without which this module cannot read anything at all.
  *
- * Measured 2026-09-05 against the unkeyed public instances, walking each host up
- * to its limit until it refused:
+ * Unkeyed, `api.blockscout.com` answers `402 {"error":"Proceed with API key or
+ * make a X402 payment to continue"}`, and a wrong key answers `401
+ * {"error":"Unauthorized"}`. Neither is a degraded mode — both fail every chain,
+ * and by the failure rule above a failed chain fails the whole scan. So an unset
+ * key is a deployment error, which is what `assertScanKeyPresent()` is for; it
+ * is read from the environment rather than required here only so the offline
+ * tests and the offline signer keep working without one.
  *
- * | Host | `x-ratelimit-limit` | Window | Effective |
- * |---|---|---|---|
- * | Ethereum, Optimism | 180 | ~60 s | 3 req/s |
- * | Arbitrum, Base | **10** | **~40 min** | **10 req/hour** |
+ * WHAT THE KEY ON THIS DEPLOYMENT ACTUALLY GRANTS, measured 2026-09-05 from the
+ * response headers rather than the pricing page:
  *
- * Both of the low ones returned `429 {"message":"Too many requests. Increase
- * limits now at https://dev.blockscout.com"}` on the tenth request, twice,
- * reproducibly. Since a scan needs at least one request per chain and every
- * chain must succeed for the total to be a total, **the unkeyed ceiling is about
- * ten wallets an hour** — set by the two tightest hosts, not by anything in this
- * codebase. The 240/hour budget in `/api/pog-scan` is not the binding constraint
- * and never was.
+ * | | Value |
+ * |---|---|
+ * | `x-ratelimit-limit` | 5 req/s |
+ * | Credit budget | 100,000/day (`x-credits-remaining` counts down) |
+ * | Cost, v2 page | ~16.7 credits |
+ * | Cost, v1 page | ~15 credits, and **the same 20 at `offset=10000` as at
+ *   `offset=10`** — page size is free, which is why `V1_PAGE_SIZE` is maxed |
+ * | 429 reset | 306 ms (a burst of 12 concurrent got 10×200, 2×429) |
  *
- * With a key (free at dev.blockscout.com: 5 req/s, 100k credits/day, and at the
- * documented 20 credits per call about 5,000 calls/day) the same ceiling is
- * roughly a thousand wallets a day. Paid tiers raise the rate, not the coverage.
- *
- * Unset is therefore a deployment error rather than a degraded mode, and
- * `assertScanKeyPresent()` exists so it fails at boot instead of at the tenth
- * claimant. Left optional here only so tests and the offline signer run without
- * one.
- *
- * NOT YET VERIFIED: that the per-instance hosts honour a key on the `apikey`
- * query parameter. It is what their own 429 points at and what the
- * Etherscan-compatible v1 route implies, but nobody has held a key against it.
- * The alternative, if they do not, is the PRO API at `api.blockscout.com` with a
- * `chain_id` parameter — which would also retire the Cloudflare `User-Agent`
- * workaround, since Robinhood Chain (4663) is in that registry.
+ * That is the FREE tier, not the $49 Builder tier: Builder is 15 req/s and 100M
+ * credits/month. At 20 credits a call the daily budget is about 5,000 calls, and
+ * since a light wallet is five (one v2 probe per chain) and a heavy one up to
+ * twenty-five, capacity is roughly **1,000 light or 200 heavy wallets a day**.
+ * The rate limit is not the binding constraint; the daily credit budget is,
+ * which is why `/api/pog-scan` gates on observed credits and not just on a
+ * request count.
  */
 const API_KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
 
 export function scanKeyPresent(): boolean {
   return API_KEY.length > 0
+}
+
+/**
+ * Fail loudly, at the caller's choosing, rather than 402 per chain per claimant.
+ *
+ * The header above promised this function existed and it did not, so an unkeyed
+ * deployment's first symptom would have been every claimant's scan failing with
+ * a chain-level error that named Ethereum instead of naming the missing key.
+ */
+export function assertScanKeyPresent(): void {
+  if (!API_KEY) {
+    throw new Error(
+      'BLOCKSCOUT_API_KEY is not set. The Proof-of-Gas scan reads '
+      + 'api.blockscout.com, which answers 402 without a key, so every chain — '
+      + 'and therefore every scan — would fail. Get one at dev.blockscout.com '
+      + 'and verify it with `npm run check:blockscout`.',
+    )
+  }
 }
 
 /** Append the key to a Blockscout URL, if we have one. */
@@ -279,6 +363,16 @@ export interface ChainSpend {
   /** Never looked, because the cap was already reached. Distinct from a real
    *  zero, so the breakdown never implies an absence it did not check. */
   skipped: boolean
+  /**
+   * Could not be read, and is not `required`, so the scan continued with this
+   * chain counted as zero.
+   *
+   * Kept separate from `skipped` because the two mean opposite things about the
+   * total: `skipped` is "already over the cap, looking cannot change the answer",
+   * whereas this is "the answer is unknown and assumed zero". Conflating them
+   * would let a UI present a lower bound as a complete figure.
+   */
+  unavailable: boolean
   /** This figure is execution fees only and excludes the OP-stack L1 data fee.
    *  Mirrors `execFeeIsWholeFee` into the result so a caller does not have to
    *  re-derive it from the chain table. */
@@ -289,8 +383,14 @@ export interface GasHistory {
   chains: ChainSpend[]
   /** Sum over chains, uncapped and unfloored. The figure shown to the user. */
   totalWei: bigint
-  /** Any chain's budget was exhausted below the cap, so `totalWei` is a lower
-   *  bound on the true figure. */
+  /**
+   * `totalWei` is a lower bound rather than the figure.
+   *
+   * Set by either of the two ways this can under-count: a chain's request budget
+   * ran out below the cap, or an optional chain could not be read at all. Both
+   * are the same claim to a caller — "at least this much" — so they set the same
+   * flag, and the per-chain breakdown says which.
+   */
   truncated: boolean
   /** Unix ms, so a caller can age a cached scan. */
   scannedAt: number
@@ -314,14 +414,39 @@ function sleep(ms: number): Promise<void> {
 /**
  * Longest `x-ratelimit-reset` still worth waiting out by retrying.
  *
- * Measured, not chosen: unkeyed Arbitrum and Base answer with
- * `x-ratelimit-limit: 10` and a reset around 2,370,000 ms — a ten-request budget
- * that refills in about forty minutes. Retrying that on a 400 ms backoff spends
- * three more of a budget that has none left and cannot recover inside the
- * request, so the retry was pure noise aimed at a host that had just asked us to
- * stop. Anything past this bound is reported as the exhaustion it is.
+ * Measured, not chosen. The unkeyed instances this module used to read answered
+ * with `x-ratelimit-limit: 10` and a reset around 2,370,000 ms — a ten-request
+ * budget refilling in about forty minutes — and retrying that on a 400 ms
+ * backoff spent three more attempts on a budget that had none left and could not
+ * recover inside the request. The bound exists to call that what it is instead
+ * of knocking again.
+ *
+ * On the PRO API the case it was written for no longer arises: a burst past
+ * 5 req/s comes back with a reset of **306 ms**, comfortably inside this bound,
+ * so those 429s are now retried and succeed. The bound stays because a credit
+ * budget exhausted for the day would also arrive as a 429, and that one must not
+ * be retried — it is the exhaustion `/api/pog-scan` needs to hear about.
  */
 const RETRYABLE_RESET_MS = 5_000
+
+/**
+ * Credits left on the key, as last reported by any successful call.
+ *
+ * `x-credits-remaining` is on every 200 from both dialects (absent only on a
+ * 404, verified), so a scan always leaves a fresh reading behind. It is kept
+ * module-level and read afterwards rather than threaded through every return
+ * type because the consumer is not the scan — it is the next request's admission
+ * decision, one process later, via Redis. See `/api/pog-scan`.
+ *
+ * Null means nothing has been observed yet this process, which is deliberately
+ * distinct from zero: an unknown budget must not read as an exhausted one, or a
+ * cold start would refuse every claimant.
+ */
+let lastCredits: number | null = null
+
+export function lastObservedCredits(): number | null {
+  return lastCredits
+}
 
 /** `x-ratelimit-reset` in ms, or null when the host does not say. All four
  *  Blockscout hosts that answered did say; the value is a plain countdown. */
@@ -332,27 +457,54 @@ function resetMsOf(res: Response): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
+/** Latch `x-credits-remaining` off any response that carries it. Monotonic
+ *  decrease is not assumed — the budget resets daily, and a reading that went up
+ *  is the reset, not a bug. */
+function noteCredits(res: Response): void {
+  const raw = res.headers.get('x-credits-remaining')
+  if (!raw) return
+  const n = Number(raw)
+  if (Number.isFinite(n) && n >= 0) lastCredits = n
+}
+
 async function getJson<T>(url: string, chain: GasScanChain): Promise<T> {
   let lastReason = 'unknown'
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) await sleep(400 * attempt)
     try {
       const res = await fetch(withKey(url), {
-        headers: headersFor(chain),
+        headers: REQUEST_HEADERS,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         cache: 'no-store',
       })
+      // Recorded before any status branch, so an exhaustion is still observable
+      // from the response that reported it.
+      noteCredits(res)
+
+      // A missing or rejected key. Retrying cannot fix either, and both would
+      // otherwise surface as "could not read Ethereum" — which sends whoever is
+      // on call to look at a chain instead of at an environment variable.
+      if (res.status === 401 || res.status === 402) {
+        throw new GasScanUnavailable(
+          chain.chain,
+          res.status === 402
+            ? 'BLOCKSCOUT_API_KEY is missing (api.blockscout.com answered 402)'
+            : 'BLOCKSCOUT_API_KEY was rejected (api.blockscout.com answered 401)',
+        )
+      }
       if (res.status === 429) {
         // Retry only a limit that is about to refill anyway. A long reset means
         // the budget is gone for this window, and the honest move is to say so
-        // rather than knock three more times.
+        // rather than knock three more times. On the PRO API the per-second
+        // limit resets in ~306 ms and lands in the retryable branch; a daily
+        // credit exhaustion does not, and must not.
         const resetMs = resetMsOf(res)
         if (resetMs !== null && resetMs > RETRYABLE_RESET_MS) {
           const limit = res.headers.get('x-ratelimit-limit') ?? '?'
           throw new GasScanUnavailable(
             chain.chain,
             `rate limited (${limit}/window, resets in ${Math.ceil(resetMs / 1000)}s)`
-            + '; set BLOCKSCOUT_API_KEY to raise it',
+            + '; raise the tier at dev.blockscout.com',
           )
         }
         lastReason = 'HTTP 429'
@@ -414,7 +566,7 @@ async function scanChainV1(
   let boundaryHashes = new Set<string>()
 
   for (let window = 0; window < MAX_V1_WINDOWS; window++) {
-    const url = `${chain.host}/api?module=account&action=txlist&address=${address}`
+    const url = `${hostFor(chain)}/api?module=account&action=txlist&address=${address}`
       + `&page=1&offset=${V1_PAGE_SIZE}&sort=asc&startblock=${startBlock}`
     const body = await getJson<V1Response>(url, chain)
 
@@ -455,7 +607,7 @@ async function scanChainV1(
 
   return {
     chain: chain.chain, chainId: chain.chainId,
-    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false,
+    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
     execFeeOnly: !chain.execFeeIsWholeFee,
   }
 }
@@ -516,7 +668,7 @@ async function scanChainV2(
       if (v !== null && v !== undefined) q.set(k, String(v))
     }
     const body = await getJson<V2Response>(
-      `${chain.host}/api/v2/addresses/${address}/transactions?${q}`, chain)
+      `${hostFor(chain)}/api/v2/addresses/${address}/transactions?${q}`, chain)
     const items = body.items ?? []
 
     for (const item of items) {
@@ -536,7 +688,7 @@ async function scanChainV2(
 
   return {
     chain: chain.chain, chainId: chain.chainId,
-    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false,
+    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
     // A total assembled from v2 is exact on every chain, including OP-stack,
     // because `fee.value` already contains the L1 data fee.
     execFeeOnly: false,
@@ -596,12 +748,31 @@ export async function scanGasHistory(address: string): Promise<GasHistory> {
       chains.push({
         chain: chain.chain, chainId: chain.chainId,
         weiSpent: 0n, sentTxs: 0, truncated: false,
-        stoppedAtCap: true, skipped: true,
+        stoppedAtCap: true, skipped: true, unavailable: false,
         execFeeOnly: !chain.execFeeIsWholeFee,
       })
       continue
     }
-    const spend = await scanChain(address, chain, totalWei)
+
+    let spend: ChainSpend
+    try {
+      spend = await scanChain(address, chain, totalWei)
+    } catch (e) {
+      // Only a read failure is survivable, and only on a chain marked optional.
+      // Anything else — a bug in here, a shape we cannot parse — must not be
+      // quietly turned into a zero, because that is how a defect becomes an
+      // allocation.
+      if (chain.required || !(e instanceof GasScanUnavailable)) throw e
+      spend = {
+        chain: chain.chain, chainId: chain.chainId,
+        weiSpent: 0n, sentTxs: 0,
+        // `truncated` as well as `unavailable`: this chain's figure is a lower
+        // bound, which is exactly what that flag means, and it is what carries
+        // the fact up into `GasHistory.truncated` without a second rule.
+        truncated: true, stoppedAtCap: false, skipped: false, unavailable: true,
+        execFeeOnly: !chain.execFeeIsWholeFee,
+      }
+    }
     chains.push(spend)
     totalWei += spend.weiSpent
   }

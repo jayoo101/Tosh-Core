@@ -42,6 +42,11 @@ export interface StoredChainSpend {
   truncated: boolean
   stoppedAtCap: boolean
   skipped: boolean
+  /** Read failed on an optional chain, so its figure is unknown and counted as
+   *  zero. Optional in the stored shape because results written before the
+   *  per-chain failure policy existed do not carry it, and a cached job must not
+   *  become unreadable because a field was added. */
+  unavailable?: boolean
   execFeeOnly: boolean
 }
 
@@ -97,6 +102,12 @@ interface JobBackend {
   get(key: string): Promise<ScanJob | null>
   set(key: string, job: ScanJob): Promise<void>
   del(key: string): Promise<void>
+  /** A small opaque scalar with its own TTL, for shared state that is not a job.
+   *  The only user is the credit gauge below; it lives here rather than in a
+   *  third store module because it needs exactly this backend selection and
+   *  nothing else. */
+  getScalar(key: string): Promise<string | null>
+  setScalar(key: string, value: string, ttlSec: number): Promise<void>
 }
 
 class MemoryJobBackend implements JobBackend {
@@ -121,6 +132,19 @@ class MemoryJobBackend implements JobBackend {
 
   async del(key: string): Promise<void> {
     this.jobs.delete(key)
+  }
+
+  private readonly scalars = new Map<string, { value: string; expiresAt: number }>()
+
+  async getScalar(key: string): Promise<string | null> {
+    const e = this.scalars.get(key)
+    if (!e) return null
+    if (Date.now() > e.expiresAt) { this.scalars.delete(key); return null }
+    return e.value
+  }
+
+  async setScalar(key: string, value: string, ttlSec: number): Promise<void> {
+    this.scalars.set(key, { value, expiresAt: Date.now() + ttlSec * 1000 })
   }
 }
 
@@ -170,6 +194,15 @@ class UpstashJobBackend implements JobBackend {
 
   async del(key: string): Promise<void> {
     await this.command(['DEL', key])
+  }
+
+  async getScalar(key: string): Promise<string | null> {
+    const raw = await this.command(['GET', key])
+    return typeof raw === 'string' && raw.length > 0 ? raw : null
+  }
+
+  async setScalar(key: string, value: string, ttlSec: number): Promise<void> {
+    await this.command(['SET', key, value, 'EX', ttlSec])
   }
 }
 
@@ -263,4 +296,45 @@ export async function failScanJob(address: string, error: string): Promise<void>
 /** Drop any stored job. Backs the refresh button. */
 export async function clearScanJob(address: string): Promise<void> {
   await backend.del(keyFor(address))
+}
+
+// ─── The credit gauge ────────────────────────────────────────────────────────
+
+/**
+ * How many PRO API credits the key had left, as last seen by a scan.
+ *
+ * The tier this deployment is on is bounded by credits per day, not requests per
+ * second: 100,000/day at roughly 20 credits a call, measured. A request-count
+ * ceiling cannot bound that on its own, because a scan costs between five calls
+ * (a one-page wallet) and twenty-five (a heavy sender on every chain) — a factor
+ * of five, decided by whoever happens to show up. So the actual balance is read
+ * off `x-credits-remaining` during a scan and left here for the next request to
+ * admit or refuse against.
+ *
+ * WHY THIS EXPIRES, WHICH IS THE WHOLE DESIGN
+ *
+ * The reading is only ever a floor: within a day the balance falls, so an old
+ * value is pessimistic. That is safe during traffic — every scan refreshes it —
+ * and unsafe across the daily reset, where yesterday's exhausted reading would
+ * refuse every claimant on a budget that had just been refilled. A short TTL
+ * makes silence expire into "unknown", and unknown admits. Under real traffic
+ * the value is never more than a scan old; after an hour of quiet, nothing has
+ * been draining the budget anyway.
+ */
+const CREDIT_GAUGE_TTL_SEC = 60 * 60
+
+const CREDIT_GAUGE_KEY = 'tosh:pogscan:credits'
+
+export async function recordCreditBalance(credits: number): Promise<void> {
+  if (!Number.isFinite(credits) || credits < 0) return
+  await backend.setScalar(CREDIT_GAUGE_KEY, String(Math.floor(credits)), CREDIT_GAUGE_TTL_SEC)
+}
+
+/** Null when nothing recent is known, which callers must treat as "proceed" —
+ *  see the TTL note above. Never conflate it with zero. */
+export async function readCreditBalance(): Promise<number | null> {
+  const raw = await backend.getScalar(CREDIT_GAUGE_KEY)
+  if (raw === null) return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : null
 }
