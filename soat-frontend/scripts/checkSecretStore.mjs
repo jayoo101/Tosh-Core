@@ -39,11 +39,19 @@
 import { spawnSync } from 'node:child_process'
 
 /**
- * `secret`  must exist in Vercel production as type "sensitive".
- * `config`  must exist in Vercel production; readable is fine and intended.
- * `ci`      must exist as a GitHub Actions secret.
- * `absent`  must exist in NEITHER store. Setting it changes behaviour, and the
- *           `why` says what it turns on.
+ * `secret`     must exist in Vercel production as type "sensitive".
+ * `config`     must exist in Vercel production; readable is fine and intended.
+ * `ci`         must exist as a GitHub Actions secret, and must NOT also exist as
+ *              a variable of the same name.
+ * `ci-config`  must exist as a GitHub Actions variable; readable is intended.
+ * `absent`     must exist in NO store. Setting it changes behaviour, and the
+ *              `why` says what it turns on.
+ *
+ * GitHub keeps secrets and variables in separate namespaces, and a workflow that
+ * reads `secrets.X` cannot tell that a plaintext `vars.X` exists beside it. Both
+ * namespaces are therefore read here: an unclassified variable is checked for
+ * the same reason an unclassified Vercel row is, and a name in both is a
+ * credential that has been quietly copied somewhere world-readable.
  */
 const INVENTORY = {
   // ── Credentials. A leak of any of these is an incident. ──────────────────
@@ -62,6 +70,13 @@ const INVENTORY = {
   SENTRY_AUTH_TOKEN: {
     tier: 'secret',
     why: 'org:ci scope — uploads source maps and cuts releases against the Sentry org.',
+  },
+  BLOCKSCOUT_API_KEY: {
+    tier: 'secret',
+    why: 'Reads the five-chain gas history every genesis allocation is sized from. It is a '
+       + 'credential twice over: the daily credit allowance is drainable, and the gas scan '
+       + 'fails closed, so whoever spends the budget blocks every claim — and on a paid tier '
+       + 'the overage is billed to us.',
   },
 
   // ── Configuration. Readable on purpose; none of it is a credential. ──────
@@ -84,8 +99,32 @@ const INVENTORY = {
     tier: 'ci',
     why: 'Fork suite reads it. Unset, those tests skip rather than fail, so its absence is silent.',
   },
+  MONITOR_RPC: {
+    tier: 'ci',
+    why: 'The endpoint the on-chain watcher reads. A secret rather than a variable only because '
+       + 'RPC URLs routinely carry the key in the path. Its absence is worse than silent before '
+       + 'C1 and loud after: watch.mjs falls back to the hardcoded testnet URL, which is the '
+       + 'right chain today and the wrong one the moment mainnet is what needs watching. The '
+       + 'WATCHER-03 chain-id check is what catches that, and only once the state file already '
+       + 'holds 4663 — so this row, not that check, is what says the secret must exist.',
+  },
+
+  // ── CI configuration. Plaintext to anyone with repo access, and meant to be.
+  //    Listed because "holds no credential" is a claim worth having reviewed,
+  //    and because these four are what decide WHICH chain is being watched. ──
+  MONITOR_FACTORY:             { tier: 'ci-config', why: 'Public factory address the watcher scans.' },
+  MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
+  MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },
+  MONITOR_EXPECTED_POG_SIGNER: { tier: 'ci-config', why: 'Public address of the PoG signer; the private half is POG_SIGNER_PRIVATE_KEY.' },
 
   // ── Deliberately unset. ──────────────────────────────────────────────────
+  MONITOR_KEEPER_ADDRESS: {
+    tier: 'absent',
+    why: 'Turns on the STATE-05 keeper gas-balance check. Unset is correct while no automated '
+       + 'keeper exists — the check would otherwise page about an empty address that is empty '
+       + 'because it does not exist. Set it only when something starts calling pokeBuyback() '
+       + 'on a schedule, which is the first wallet the protocol has that can fail by running dry.',
+  },
   ADMIN_SECRET: {
     tier: 'absent',
     why: 'Bearer-token fallback on POST /api/admin/config. Unset disables that path entirely and '
@@ -126,9 +165,11 @@ function readJson(command, what) {
 
 const vercel = readJson('vercel env ls production --json', 'the Vercel production environment')
 const github = readJson('gh secret list --json name', 'the GitHub Actions secrets')
+const ghVars = readJson('gh variable list --json name', 'the GitHub Actions variables')
 
 const live = new Map(vercel.envs.map(e => [e.key, e]))
 const ciLive = new Set(github.map(s => s.name))
+const ciVarLive = new Set(ghVars.map(v => v.name))
 
 const findings = []
 const lines = []
@@ -136,11 +177,13 @@ const lines = []
 for (const [name, spec] of Object.entries(INVENTORY)) {
   const inVercel = live.get(name)
   const inCi = ciLive.has(name)
+  const inCiVar = ciVarLive.has(name)
 
   if (spec.tier === 'absent') {
-    if (inVercel || inCi) {
-      const where = [inVercel && 'Vercel', inCi && 'GitHub'].filter(Boolean).join(' and ')
-      lines.push(`${ICON.bad} ${name} — must be unset, but it is set in ${where}`)
+    if (inVercel || inCi || inCiVar) {
+      const where = [inVercel && 'Vercel', inCi && 'a GitHub secret', inCiVar && 'a GitHub variable']
+        .filter(Boolean).join(' and ')
+      lines.push(`${ICON.bad} ${name} — must be unset, but it is set as ${where}`)
       findings.push(`${name} is set. ${spec.why}`)
     } else {
       lines.push(`${ICON.ok} ${name} — unset, as intended`)
@@ -149,10 +192,32 @@ for (const [name, spec] of Object.entries(INVENTORY)) {
   }
 
   if (spec.tier === 'ci') {
-    if (inCi) lines.push(`${ICON.ok} ${name} — GitHub Actions secret`)
-    else {
+    if (!inCi) {
       lines.push(`${ICON.bad} ${name} — missing from GitHub Actions`)
       findings.push(`${name} is not a GitHub secret. ${spec.why}`)
+    } else if (inCiVar) {
+      // Both namespaces hold this name. The workflow reads `secrets.` and so
+      // behaves identically, which is exactly why this needs saying out loud:
+      // the variable copy is plaintext to anyone with read access and nothing
+      // about the running system looks wrong.
+      lines.push(`${ICON.bad} ${name} — a GitHub secret, but also a plaintext variable of the same name`)
+      findings.push(
+        `${name} exists as both a secret and a variable. ${spec.why} `
+        + `The variable copy is readable by anyone with repository access. Delete it with `
+        + `gh variable delete ${name}, and treat the value as exposed and rotate it.`
+      )
+    } else {
+      lines.push(`${ICON.ok} ${name} — GitHub Actions secret`)
+    }
+    continue
+  }
+
+  if (spec.tier === 'ci-config') {
+    if (!inCiVar) {
+      lines.push(`${ICON.bad} ${name} — missing from GitHub Actions variables`)
+      findings.push(`${name} is not a GitHub variable. ${spec.why}`)
+    } else {
+      lines.push(`${ICON.ok} ${name} — GitHub Actions variable`)
     }
     continue
   }
@@ -195,6 +260,15 @@ const unclassifiedCi = [...ciLive].filter(k => !(k in INVENTORY))
 for (const name of unclassifiedCi) {
   lines.push(`${ICON.bad} ${name} — live in GitHub Actions but not classified in this inventory`)
   findings.push(`${name} is a GitHub secret and no one has recorded what it is. Add it to INVENTORY.`)
+}
+const unclassifiedCiVar = [...ciVarLive].filter(k => !(k in INVENTORY))
+for (const name of unclassifiedCiVar) {
+  lines.push(`${ICON.bad} ${name} — a GitHub Actions variable, not classified in this inventory`)
+  findings.push(
+    `${name} is a GitHub variable and no one has recorded what it is. A variable is plaintext `
+    + `to anyone with repository access, so the thing to establish is that it holds no `
+    + `credential. Add it to INVENTORY as ci-config, or as ci if it turns out to be one.`
+  )
 }
 
 console.log('\nCredential custody — Vercel production and GitHub Actions\n')
