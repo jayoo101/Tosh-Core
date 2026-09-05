@@ -327,6 +327,18 @@ first observation after the wrap underflows and reverts the TWAP path instead
 of reporting a wrong average. Worth an auditor confirming, since it is the
 difference between a dead oracle and a lying one.
 
+> **Corrected 2026-09-05 (§5.11).** "Fails loudly" is true of ONE consumer and
+> was written as though it were true of the path. `_safeReferencePrice` calls
+> `_twapSqrtPriceX96()` directly, so the wrap reverts and Phase-2 minting stops —
+> loud, as claimed. But `ToshLadderTreasury._buybackSqrtFloor:613-619` wraps the
+> same call in `try/catch` and returns `MIN_SQRT_PRICE + 1` — **unbounded** — from
+> the `catch`. On that path the wrap is exactly the lying oracle this paragraph
+> contrasts itself against: the anti-sandwich bound disappears and buybacks keep
+> filling. The horizon is 2106 and the severity is Informational, but the shape is
+> not: a reverting TWAP is a LOSS OF A SAFETY BOUND, and two separate consumers
+> treated it as benign. The second one, `STATE-07`, is a live defect and is fixed
+> in §5.11.
+
 Two singleton findings `forge lint` reports outside `src/` —
 `erc20-unchecked-transfer` and `divide-before-multiply` — are both in `test/`
 and neither is on a production path. The CI gate scopes itself to `src/` for
@@ -1834,7 +1846,124 @@ engagement; no code change.
 posture, the PoG signing path, and the factory/clone libraries. The
 `ToshLaunchpadHook` and `ToshLadderTreasury` reviews queued alongside it did not
 run, so §1.1's "largest attack surface in the system" remains covered only by
-§5.7's Slither pass and the test suite, not by this sweep.
+§5.7's Slither pass and the test suite, not by this sweep. **That gap is closed
+in §5.11.**
+
+---
+
+### 5.11 Seventh sweep — the surface §5.10 admitted it had skipped
+
+`ToshLaunchpadHook` (2,439 lines, 40 external/public members) and
+`ToshLadderTreasury` (710 lines, 18) read by hand, 2026-09-05. §5.10 recorded
+that this review had been queued and had not run; this is it.
+
+The sweep was directed rather than linear: the properties chosen were custody of
+genesis ETH, the phase state machine, the V4 callback surface, the transient
+mutex, and the buyback price bound. **One live defect was found, and it is not in
+`src/`** — it is in the check that holds a deliberately-accepted `src/` risk shut.
+
+#### The finding — `STATE-07` could be silenced by one failing call, and the silence did not page
+
+`_buybackSqrtFloor` reaches **unbounded** (`MIN_SQRT_PRICE + 1`) by two doors, and
+they are eight lines apart:
+
+```solidity
+try IToshHookTwap(address(key.hooks)).twapSqrtPriceX96() returns (uint160 twapSqrt) {
+    if (twapSqrt == 0) return unbounded;          // door 1 — watched
+    ...
+} catch {
+    return unbounded;                             // door 2 — not watched
+}
+```
+
+The contract's own natspec is emphatic that the unbounded fallback is held shut
+**off chain** — "an operational rule nobody checks is not a control. This is the
+check" — and names `STATE-07` as the control. `STATE-07` watched door 1 only.
+
+Two defects, one root:
+
+1. **The loop was fail-open across tokens.** Every read sat on a single outer
+   `try`, so one throw — a reverting hook, or a plain RPC hiccup on index 0 —
+   aborted the loop and left every LATER token unchecked. A twenty-token ladder
+   could be blinded nineteen-twentieths by one bad call, and the output named
+   neither the count nor which indices were skipped.
+
+2. **A revert is the same hazard as a zero, and was reported as neither.** Since
+   the `catch` returns unbounded exactly as the zero branch does, a hook whose
+   `twapSqrtPriceX96()` reverts has no anti-sandwich bound. That case fell into
+   the generic handler as `record('STATE-07', 'P1', false, …)` — **hardcoded
+   non-paging** — while the identical consequence via door 1 pages at P1. The
+   message read "ladder TWAP check failed", which a human parses as "the monitor
+   is unwell", not "a listed pool has no price bound right now".
+
+Together: the only control on a risk measured at **0.93 ETH forfeited per leg,
+repeatable per block** (`test_probeG3_immatureTwapLeavesTheBuybackUnbounded`,
+`pokeBuyback` has no cooldown) could be turned off by a single reverting call,
+without paging anyone.
+
+**Fixed** in `monitoring/watch.mjs`: per-token isolation, a reverting hook now
+pages with the same severity as a zero reading and says why the two are the same,
+an unresolvable entry names its index and count so a skipped token is never
+silent, and the generic handler is narrowed to the one case that really is a
+monitor fault — the token list itself being unreadable, where nothing downstream
+was checked.
+
+**Verified by 13 assertions** in `monitoring/state07.test.mjs`, which stubs a
+three-token ladder — one healthy hook, one that reverts, one reporting zero —
+because the ladder is empty on both live chains and the loop body never executes
+against a real one. Two of the thirteen are load-bearing: restored to its pre-fix
+structure, the script **never reports the zero-TWAP token sitting after the
+revert, and pages for nothing at all**, so the other eleven cannot pass
+vacuously.
+
+That test file is committed, which no other harness in this repository is. The
+reason is the same argument `alerts.json` makes for the check existing at all: an
+operational rule nobody checks is not a control, and a control nobody tests is
+not one either. It is an operator command rather than a CI gate — it runs the real
+script, which reaches an RPC for everything it does not stub.
+
+This also corrects §2.5, which recorded the 2106 `uint32` wrap as failing loudly.
+It does, on the mint path. On the buyback path the same `catch` swallows it. See
+the note there.
+
+#### Design claims that were checked and hold
+
+Recorded so the engagement does not spend hours re-deriving them, and so that a
+future change that breaks one is visible as a change to a claim:
+
+| Claim | Verdict |
+|---|---|
+| Treasury is a one-way valve — no `withdraw` / `sweep` / `rescue` / `delegatecall` | **Holds.** The only ETH exit is `settle{value: spent}` inside `_buyAndBurn`; the only token exit is `take(…, DEAD_ADDRESS, …)`. No path pays the owner. |
+| The transient mutex cannot read clear mid-leg | **Holds.** `_setPiggyback(true)` precedes the loop and `(false)` follows both the loop and the `currentCursor` write; `_buyAndBurn` is reachable only through `executeBuyAndBurn`, which is `onlySelf` and called only from inside that window. |
+| A stranger cannot open a second pool naming this hook | **Holds, and on one bit.** `beforeInitialize` reverts unless `sender == address(this)`, and it is only ever called because `BEFORE_INITIALIZE_FLAG (1 << 13)` is in the mask. Decoded: `0x20CC` = bits 13, 7, 6, 3, 2. **This matters because no callback validates the inbound `PoolKey` against `_key()`** — the tax skims in `_skimInputTax` / `_skimUnspecifiedInput` `take` against the `key` they were handed. The mask has already moved twice (`0x2200 → 0x20C8 → 0x20CC`), so the question is whether a third move could drop bit 13 quietly. It cannot: `test_hookMiner_requiredFlagsAre0x20CC` and `test_minedHookAddress_carriesV5FlagMask` assert against the **literal** `0x20CC`, not against `HookMiner.REQUIRED_FLAGS`, so editing the constant turns both red rather than mining a hook the tests then bless. |
+| `unlockCallback` cannot be driven by a third party | **Holds.** V4 delivers the callback only to the address that called `unlock`, and the hook's sole `unlock` call site is inside `launch()`. One action code exists; anything else reverts `UnknownAction`. |
+| `refund()` and `launch()` cannot both be open | **Holds, and this is why `refund()` does not decrement `totalEthDeposited`.** `softCapFailed` is `totalEthDeposited < softCap()` and `launch()` requires `>=`, so leaving the total frozen is what keeps the two mutually exclusive; decrementing it would let refunds walk the total below the cap and re-open the refund door on a launchable round. The zombie door uses strict `>` against `launch()`'s `<=` on the same instant, so they do not overlap either. |
+
+#### Reported by the sweep, already triaged elsewhere — not new
+
+Listed so they are not re-filed as findings: the unbounded buyback in a pool's
+first 1800 s (§2.3, ACCEPTED and held off chain — this sweep's contribution is
+that the control holding it now works), owner curation of buyback targets (§2.3,
+governance surface: the owner picks markets, never wallets), ETH stranded when
+the ladder is emptied (§2.4, the accepted cost of having no sweep), the quiet-pool
+TWAP returning `lastTick` (§5.2 #2, deliberate — over a window with no trade
+`lastTick` *is* the average, exactly), and same-block mint lockout griefing via a
+dust swap (the flip side of §5's finding 1, which made buyback swaps stamp the
+lockout on purpose; costs the griefer a swap per block and delays a mint by one
+block).
+
+One cosmetic defect not worth a code change under the freeze:
+`PiggybackExecuted` emits `perToken * count` regardless of whether a leg was
+skipped or partially filled, so it overstates ETH deployed. `BuybackBurned`
+carries the true figure. This matters only for off-chain accounting, and the two
+places that consume the event — `STATE-02` and `STATE-06` — use it as a *presence*
+signal rather than an amount, so neither is misled.
+
+**Scope of this sweep.** By hand, both contracts, focused on the five properties
+above. NOT covered: the tier pricing algebra (`tierPriceAt` over 4,000 rungs) as
+an economic model rather than as arithmetic, the exact-output tax path's
+interaction with third-party routers, and anything requiring a live adversarial
+fork. Those stay with the engagement.
 
 ---
 

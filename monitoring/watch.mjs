@@ -443,24 +443,69 @@ try {
 }
 
 // STATE-07 — the only automated check on a rule the contract does not enforce.
+//
+// Two properties of this loop are load-bearing, and neither was true when it was
+// written. Both come from the same place: `_buybackSqrtFloor` reaches UNBOUNDED
+// by two doors, and only one of them was being watched.
+//
+//   1. PER-TOKEN ISOLATION. Every read here was on the outer `try`, so one
+//      failing call — a reverting hook, or a plain RPC hiccup on token 0 —
+//      aborted the whole loop and left every LATER token unchecked. The alert
+//      that came out said "check failed", which reads as "the monitor is
+//      unwell", not "one or more listed pools may have no price bound right
+//      now". A twenty-token ladder could be blinded nineteen-twentieths by one
+//      bad call, and nothing in the output would say which tokens were skipped.
+//
+//   2. A REVERT IS THE SAME HAZARD AS A ZERO. `_buybackSqrtFloor` wraps this
+//      exact call in `try/catch` and returns `MIN_SQRT_PRICE + 1` — unbounded —
+//      from BOTH the `twapSqrt == 0` branch and the `catch`. So a hook whose
+//      `twapSqrtPriceX96()` reverts has no anti-sandwich bound, identically to
+//      one reporting 0. That case used to land in the generic error path below
+//      as a HARDCODED non-paging record, while the zero case pages at P1. The
+//      consequence is the same, so the page is the same.
+//
+// The generic handler is now reserved for the one failure that really is a
+// monitor fault rather than a finding: not being able to read the token list at
+// all, in which case nothing downstream was checked and the count is unknown.
 try {
   const count = Number(BigInt(await call(TREASURY, 'ladderTokenCount()')))
   for (let i = 0; i < count; i++) {
-    const token = asAddress(await call(TREASURY, 'ladderTokens(uint256)', word(i)))
-    const key = await call(TREASURY, 'getPoolKey(address)', word(BigInt(token)))
-    // PoolKey is (currency0, currency1, fee, tickSpacing, hooks) — hooks last.
-    const hook = asAddress(key.slice(2).slice(4 * 64, 5 * 64))
-    const twap = BigInt(await call(hook, 'twapSqrtPriceX96()'))
-    if (twap === 0n) {
+    try {
+      const token = asAddress(await call(TREASURY, 'ladderTokens(uint256)', word(i)))
+      const key = await call(TREASURY, 'getPoolKey(address)', word(BigInt(token)))
+      // PoolKey is (currency0, currency1, fee, tickSpacing, hooks) — hooks last.
+      const hook = asAddress(key.slice(2).slice(4 * 64, 5 * 64))
+      let twap
+      try {
+        twap = BigInt(await call(hook, 'twapSqrtPriceX96()'))
+      } catch (err) {
+        record('STATE-07', sev('STATE-07'), pages('STATE-07'),
+          `Ladder token ${token}: twapSqrtPriceX96() on hook ${hook} did not answer ` +
+          `(${err.message}). _buybackSqrtFloor catches that and falls back to UNBOUNDED, which ` +
+          `is the same absent bound as a zero reading — treat this exactly like the zero case, ` +
+          `and additionally ask why the hook stopped answering.`,
+          { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
+        continue
+      }
+      if (twap === 0n) {
+        record('STATE-07', sev('STATE-07'), pages('STATE-07'),
+          `Ladder token ${token} has twapSqrtPriceX96() == 0 on hook ${hook}: the buyback's ` +
+          `anti-sandwich bound is ABSENT, not loose. Remove it from the ladder until the TWAP matures.`,
+          { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
+      }
+    } catch (err) {
+      // Could not even resolve this entry to a hook. Name the index, because the
+      // whole point of this rewrite is that a skipped token is never silent.
       record('STATE-07', sev('STATE-07'), pages('STATE-07'),
-        `Ladder token ${token} has twapSqrtPriceX96() == 0 on hook ${hook}: the buyback's ` +
-        `anti-sandwich bound is ABSENT, not loose. Remove it from the ladder until the TWAP matures.`,
+        `Ladder token at index ${i} of ${count} could not be checked (${err.message}), so ` +
+        `whether its buyback bound exists is UNKNOWN. Every other index was still checked.`,
         { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
     }
   }
   if (count === 0) gap('STATE-07', 'no ladder tokens listed, so there is nothing to price-bound yet')
 } catch (err) {
-  record('STATE-07', 'P1', false, `ladder TWAP check failed: ${err.message}`)
+  record('STATE-07', 'P1', false,
+    `ladder token list could not be read (${err.message}), so NO token was checked this pass`)
 }
 
 // STATE-01 — refundable and unannounced. The gap LIFE-01 leaves (§2.2).

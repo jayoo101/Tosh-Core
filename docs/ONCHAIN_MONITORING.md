@@ -194,7 +194,7 @@ condition it watches for **emits no event**:
 | STATE-04 | P1 | 15 min | `factory.pogSigner()` | same reasoning applied to GOV-04 |
 | STATE-05 | P1 | daily | keeper gas balance, **only if one is configured** | inactive by default — nothing this protocol runs needs gas (§4.1) |
 | STATE-06 | P2 | hourly | reservoir armed ≥ 24h with no `PiggybackExecuted` | a gas-gated skip is deliberately not logged (§2.3) |
-| STATE-07 | P1 | 5 min | `twapSqrtPriceX96() != 0` on every listed ladder token | the buyback's price bound is *absent*, not loose, while that reads 0 |
+| STATE-07 | P1 | 5 min | `twapSqrtPriceX96()` **answers, and answers non-zero**, on every listed ladder token | the buyback's price bound is *absent*, not loose, while that reads 0 — **or while it reverts**, since `_buybackSqrtFloor`'s `catch` returns the same unbounded floor (§5.11) |
 
 STATE-06 is the only one that needs a window rather than a single reading, which
 is a real implementation constraint — see §7.
