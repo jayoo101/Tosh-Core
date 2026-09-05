@@ -2531,13 +2531,40 @@ workflow's `-z` test turns it into a loud failure instead of a silent pass. All
 eight checks pass, including the floor comparison itself at, below and above the
 line.
 
-#### Still open
+#### The three dial gates, and why they had no tests
 
-- The UI ceiling check has no test, and neither do `belowFloor` or `overMax`
-  before it — there are zero component tests in the frontend suite. The substance
-  is covered on both sides of it (Foundry for the bound, the guard for the mirror);
-  what is untested is the affordance. Recorded rather than papered over with a
-  source-text assertion that would only prove a string is present.
+The item left open above — the launch-fee ceiling untested in the UI, along with
+`belowFloor` and `overMax` before it — had a cause worth naming rather than an
+oversight: the frontend suite could not render a component at all. `vitest.config.mts`
+ran everything in Node with `include: ['src/**/*.test.ts']`, and there were zero
+`.tsx` tests and no DOM. "Untested affordance" was therefore not a gap in three
+files, it was a gap in the harness, and each new bounded dial would have inherited
+it.
+
+`FactoryDials.test.tsx` (10 tests) closes it, driving the panels through the real
+gate, the real `parseEthInput` and the real `Button`, with only wagmi replaced. The
+assertions are on what an operator would actually meet: what the one action button
+says, whether it is armed, and whether it carries the reason. Each dial is pinned at
+its boundary as well as past it — the launch-fee ceiling and `MAX_COOLDOWN` are
+inclusive and the soft-cap floor is a minimum, so the boundary value must stay legal
+or the UI and the contract disagree about what is allowed. `test_setLaunchFee_atBoundary`
+makes the same claim from the other side. Zero is still pinned as armed on the fee,
+since a ceiling must not quietly acquire a floor.
+
+The harness cost one dependency: `happy-dom`, 6 packages against roughly 40 for
+`jsdom`. No testing-library — React 19 exports `act` and `react-dom/client` was
+already a dependency, so a DOM was the only thing genuinely missing, and
+`src/testing/renderClient.tsx` is the rest. The DOM is requested per file by
+docblock, so the ~170 Node tests keep the environment they want; the config says why.
+This is the same reasoning `scripts/runTsGuard.mjs` applies to not adding a
+TypeScript runner.
+
+9 of 9 mutations caught: each of the three blockers deleted, each bound made
+exclusive so its boundary is refused, the fee acquiring a floor that rejects zero,
+a blocked verdict left clickable — the failure where a panel shows a warning and
+arms anyway — and the reason blanked, which is the case where an operator is
+refused with no cause given, and telling them they typed wei into a field
+denominated in ETH is the entire point.
 
 ---
 

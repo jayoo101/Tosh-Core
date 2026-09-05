@@ -173,10 +173,15 @@ jobs:
       # `pogQuota.test.ts` (10), plus 7 in `chain.test.ts` for the PoG chain
       # allowlist. Lower this in the same commit as any deliberate removal, and
       # say why.
+      #
+      # 169 -> 179 the same day: `FactoryDials.test.tsx`, the first component
+      # tests in this suite. The three bounded admin dials refuse a value the
+      # factory reverts on, and §5.14 had recorded all three as untested because
+      # nothing here could render a component at all.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=169
+          floor=179
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
