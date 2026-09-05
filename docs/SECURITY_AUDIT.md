@@ -2226,6 +2226,13 @@ with precise line ranges against a launch page that now exposes a single
 `handleLaunch`. Recorded here rather than allowlisted, because an allowlist entry
 would make it look handled. Repairing those sections is a product-spec job.
 
+> **Superseded by §5.18.** The reason given above — that the repair is a
+> product-spec job, and therefore not this sweep's — was never sized. It came to
+> nine stale references, not three, and four of them turned out to be the
+> document describing defects the code had already fixed. `PRD-v5.0.md` is now
+> gated and chapter 6 is rewritten. `ROBINHOOD_MIGRATION.md` stays outside, for
+> the different and better reason that its names are meant to read as history.
+
 #### Six hypotheses that died on contact
 
 Recorded because a dismissed hypothesis is the part of a clean sweep that has
