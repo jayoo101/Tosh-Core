@@ -1158,6 +1158,22 @@ Blockscout multichain registry, so moving to the keyed PRO API at
 That is the only route by which limit #2 above stops being a dependency on
 someone else's bot policy.
 
+**Decided 2026-09-05: Builder tier ($49/mo) and migrate to the PRO API.** Both
+are blocked on the key itself, which is an account nobody has opened yet. What is
+not blocked is the question the migration hinges on, and it is a real one: 4663
+being *listed* in the chains registry was verified, but that the PRO API *serves*
+it — on the endpoints the scan needs, carrying an L1-inclusive `fee.value` — is
+still the vendor's word. `npm run check:blockscout` answers that in one run the
+moment a key exists, per chain, checking the response shape rather than the status
+code, and says explicitly what to do if 4663 turns out to be listed but not
+served: keep the per-instance path and the browser `User-Agent`, and spend the key
+on raising the other four. Exercised against a missing key (exit 2, pointing at
+`dev.blockscout.com`) and a bogus one (exit 1, per-chain `401`); the `401` rather
+than a `404` is mild evidence the routes are at least real.
+
+Until then the code runs unkeyed at ten wallets an hour, which is correct
+behaviour for a state we should not launch in.
+
 Until a key exists, PM-F9 is **partial**: the allocation is sized from something
 real, which is what the row asked, but the thing doing the sizing serves ten
 wallets an hour.
