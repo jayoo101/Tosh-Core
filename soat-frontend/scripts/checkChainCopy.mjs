@@ -15,8 +15,9 @@
  * the only way to re-evaluate them.
  */
 
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, unlinkSync, readdirSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -61,6 +62,99 @@ writeFileSync(TMP, js, 'utf8')
 let failures = 0
 const fail = (chain, msg) => { failures++; console.log(`FAIL  ${chain.name} (${chain.id}) — ${msg}`) }
 
+/**
+ * Chain names the UI must never contain as a literal.
+ *
+ * Everything above evaluates `chain.ts`. That is necessary and it is not
+ * sufficient: a component can hard-code a chain name and the probe will never
+ * look at it. `app/layout.tsx` did exactly that — its `metadata.description`
+ * ended in "Currently staging on Base Sepolia testnet." and survived the entire
+ * Robinhood Chain migration, so every search result and link preview named a
+ * chain this build had not settled on for months. Page metadata is not one of
+ * the four surfaces this guard was written around, and nothing else was looking.
+ *
+ * Two rules, and the second is the one with teeth:
+ *
+ *   1. No abandoned chain may be named at all.
+ *   2. The CURRENT settlement chain may not be named outside `chain.ts` either.
+ *      Rule 1 alone only ever catches the last migration, and always one
+ *      migration too late; rule 2 makes the next one a build failure instead of
+ *      an archaeology exercise, because the only way to say the chain's name is
+ *      to derive it.
+ */
+const ABANDONED_CHAIN_NAMES = /base\s*sepolia|basescan|sepolia/i
+const LABEL_SOURCE = 'src/lib/chain.ts'
+
+/** Cheap text-level reject, so only candidate files pay for a parse. */
+const mightNameAChain = (text, mainnetLabel, isLabelSource) =>
+  ABANDONED_CHAIN_NAMES.test(text) || (!isLabelSource && Boolean(mainnetLabel) && text.includes(mainnetLabel))
+
+/**
+ * Literals only — string, template chunk, JSX text. Comments are deliberately
+ * out of scope: `chain.ts` and `serverRpc.test.ts` both discuss Base Sepolia at
+ * length in prose to explain what was changed and why, and a guard that could
+ * not tell that apart from user-facing copy would force those explanations to
+ * be deleted. So this walks the TypeScript AST rather than grepping the text.
+ */
+function scanLiterals(mainnetLabel) {
+  const files = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (/\.tsx?$/.test(entry)) files.push(p)
+    }
+  }
+  walk('src')
+
+  let hits = 0
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    const rel = file.split('\\').join('/')
+    const isLabelSource = rel.endsWith(LABEL_SOURCE)
+
+    if (!mightNameAChain(text, mainnetLabel, isLabelSource)) continue
+
+    const sf = ts.createSourceFile(
+      file, text, ts.ScriptTarget.ES2022, true,
+      /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    )
+
+    const visit = (node) => {
+      const literal =
+        ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ||
+        ts.isJsxText(node)
+
+      if (literal) {
+        const value = node.text
+        const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+        const where = `${rel}:${line + 1}`
+
+        if (ABANDONED_CHAIN_NAMES.test(value)) {
+          hits++
+          console.log(`FAIL  ${where} — names an abandoned chain in user-visible copy: ${JSON.stringify(value.trim().slice(0, 80))}`)
+        } else if (!isLabelSource && mainnetLabel && value.includes(mainnetLabel)) {
+          hits++
+          console.log(`FAIL  ${where} — hard-codes "${mainnetLabel}"; import it from ${LABEL_SOURCE} instead: ${JSON.stringify(value.trim().slice(0, 80))}`)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sf)
+  }
+
+  failures += hits
+  console.log(
+    hits === 0
+      ? `\n${files.length} source files scanned — no chain name is hard-coded outside ${LABEL_SOURCE}.`
+      : `\n${hits} hard-coded chain name(s) — see FAIL lines above.`,
+  )
+}
+
+let mainnetLabel = ''
+
 try {
   for (const chain of CHAINS) {
     const probe = `
@@ -85,6 +179,10 @@ try {
     for (const k of [...COPY_KEYS, ...HERO_KEYS]) {
       console.log(`  ${k.padEnd(28)} ${JSON.stringify(values[k])}`)
     }
+
+    // Same on every arm by construction; captured here so the literal scan
+    // below reads the label from the module rather than repeating it.
+    mainnetLabel = String(values.MAINNET_CHAIN_LABEL ?? '')
 
     if (values.IS_TESTNET === chain.mainnet) {
       fail(chain, `IS_TESTNET is ${values.IS_TESTNET}, expected ${!chain.mainnet}`)
@@ -150,9 +248,16 @@ try {
   unlinkSync(TMP)
 }
 
+if (!mainnetLabel) {
+  console.log('FAIL  could not read MAINNET_CHAIN_LABEL — the literal scan below would be vacuous')
+  failures++
+} else {
+  scanLiterals(mainnetLabel)
+}
+
 console.log(
   failures === 0
-    ? '\nEvery chain string reads correctly on every supported chain.'
+    ? '\nEvery chain string reads correctly on every supported chain, and none is hard-coded.'
     : `\n${failures} copy defect(s) — see FAIL lines above.`,
 )
 process.exit(failures === 0 ? 0 : 1)

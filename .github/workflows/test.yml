@@ -392,6 +392,21 @@ jobs:
       - name: Check the docs name only symbols that exist
         run: node scripts/checkDocSymbols.mjs
 
+      # The half `checkDocAnchors.js` declines above. Its header says a moved
+      # anchor cannot be judged mechanically because "only a human knows what it
+      # meant" — true in general, and false whenever the sentence names the
+      # function in backticks beside the number, because then the document has
+      # said what it meant. That subset turned out to be almost entirely broken:
+      # 22 of the 23 checkable citations pointed somewhere else, all of them at
+      # lines far above the truth, which is what never-regenerated numbers look
+      # like. `PRD-v5.0.md:874` sent a reader to a comment about price for the
+      # five functions carrying `nonReentrant`.
+      #
+      # It self-tests before reading any document, because two mutations of it
+      # survived by disabling its own semantic check.
+      - name: Check documentation line citations point where the prose says
+        run: node scripts/checkDocLineRefs.mjs
+
       # SECURITY_AUDIT §2.5 is the auditor's map of every narrowing cast in
       # `src/` and the bound each one rests on. It was hand-maintained, and by
       # 2026-09-04 it had rotted in the way that is hardest to notice: it

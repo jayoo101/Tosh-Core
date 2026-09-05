@@ -9,6 +9,7 @@ import { FactoryGuardClient } from '@/components/FactoryGuardClient'
 import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
+import { CHAIN_POSITIONING } from '@/lib/chain'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({
@@ -29,12 +30,18 @@ const geist = Geist({
   display:  'swap',
 })
 
+// The last clause is derived, not written. It used to read "Currently staging on
+// Base Sepolia testnet." and stayed that way through the whole Robinhood Chain
+// migration: `checkChainCopy.mjs` evaluates the chain constants on every chain,
+// but a literal in a component is invisible to it, and page metadata is not one
+// of the four surfaces that guard was built around. Search engines and link
+// previews were quoting the wrong chain for as long as the string sat here.
 export const metadata: Metadata = {
   title: 'TOSH // Cryptographic Console',
   description:
-    'Tosh Protocol v5.0 — Ethereum-native fair-launch terminal with Uniswap V4 hooks. '
+    'Tosh Protocol v5.0 — fair-launch terminal with Uniswap V4 hooks. '
   + 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '
-  + 'Currently staging on Base Sepolia testnet.',
+  + CHAIN_POSITIONING,
 }
 
 export default function RootLayout({

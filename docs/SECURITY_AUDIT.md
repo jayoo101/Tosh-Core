@@ -1199,7 +1199,7 @@ dependency does not. Review scope, by origin:
 | `lib/openzeppelin-contracts` | 27 |
 | `lib/forge-std` | 20 |
 | `lib/v4-periphery/src` | 1 |
-| solmate | 1 (`src/auth/Owned.sol`) |
+| solmate | 1 (`lib/solmate/src/auth/Owned.sol`) |
 
 The OpenZeppelin surface is the conventional one — `Ownable`/`Ownable2Step`,
 `AccessControl`, `ERC20` + `SafeERC20`, `Pausable`, `ReentrancyGuard`, `ECDSA`
@@ -1619,7 +1619,7 @@ byte for byte — so a hash with *k* hex letters had 2^k spellings, each a
 distinct key naming one transaction.
 
 What made that reachable rather than untidy is the signing side.
-`lib/projectAttestation.ts` lowercases the hash before building the message, so
+`soat-frontend/src/lib/projectAttestation.ts` lowercases the hash before building the message, so
 one genuine signature from the real creator validates against every casing of
 their own hash. An attacker who watched any creator publish once could replay
 that creator's own signature with the hash recased and own a second row for the
@@ -2749,6 +2749,188 @@ is most tempting to skip: reading `.env` instead would be *worse* than not runni
 because it holds testnet roles where `PLATFORM_TREASURY` and `POG_SIGNER_ADDRESS`
 are both the deployer, and it would have reported three confident failures about a
 file nobody is deploying.
+
+### 5.17 Thirteenth sweep — the modifier claims held; their citations did not
+
+Prompted by §8.12's own warning in `PRD-v5.0.md`: after a "pause covers `deposit`"
+claim was disproved by measurement, that document recorded that **every remaining
+"protected by modifier X" assertion without a test name beside it should be treated
+as unverified**, because a modifier list is the documentation most likely to rot
+quietly through a refactor. This sweep took it up.
+
+**The access control itself is sound, and the claims about it are accurate.** All
+95 externally reachable functions in `src/` were enumerated with the modifiers
+actually attached, and checked against the PRD's eleven assertions. `whenNotPaused`
+guards exactly `registerPoG` and `createLaunch` and nothing else, as claimed;
+`nonReentrant` covers exactly the five hook entry points and the two factory ones
+the PRD lists; `onlySelf`, `onlyHook`, `onlyClone` and `onlyPoolManager` are where
+they are said to be. Seven functions change state with no modifier, and each is
+either deliberately permissionless with a natspec reason (`releaseAbandonedName`,
+`pokeBuyback`) or carries an equivalent inline check — `hook.deposit` and
+`ToshToken.initialize` test `msg.sender != factory`, `changeProjectAdmin` tests
+`projectAdmin`, `treasury.unlockCallback` tests `poolManager`. Nothing was found
+open that should be closed.
+
+**Two of those seven were artefacts of the tool, and both are worth recording**
+because each is the shape of mistake that makes an audit worse than none. The first
+extraction used a hand-written list of known modifier names and printed anything
+else as "(none)" — so `ToshToken.mint`, which carries `onlyRole(MINTER_ROLE)`,
+rendered as an unprotected mint function. A whitelist cannot report a modifier it
+has not heard of; the fix was to take everything in the header that is not a
+language keyword. The second counted `interface` declarations as functions, which
+cannot carry modifiers at all. **A tool that reports a guarded function as
+unguarded does not merely waste a reviewer's afternoon — it raises the noise floor
+that a real missing modifier would have to be spotted against.**
+
+**What was actually broken was the pointers.** The docs cite source locations as
+`path/File.sol:120-134`; there are 108 such citations. Of the 23 that can be
+judged mechanically, **22 were wrong** — and all in the same direction, at lines
+far above the truth, which is the signature of numbers written against a much
+shorter version of the contracts and never regenerated. `PRD-v5.0.md:874` cited
+`ToshLaunchpadHook.sol:127` for the five functions carrying `nonReentrant`; they
+are at 1183–1421, and line 127 is a comment about price. `ToshFactory.sol:36`,
+`354` and `442` were offered for the inheritance, `createLaunch` and `deposit`;
+the real lines are 37, 657 and 740.
+
+**Two of them this engagement broke itself, hours earlier.** `PRD-v5.0.md:578`
+cited `ToshFactory.sol:92` for `defaultSoftCap` and `45-55` for the `p0`
+truncation floor. §5.15 inserted `MAX_LAUNCH_FEE` and `MAX_DEFAULT_SOFT_CAP` above
+both, so those two citations now landed inside the new natspec. The decay is not
+historical; it happens on any commit that adds a comment.
+
+**A guard for this already existed and had declined to look.**
+`scripts/checkDocAnchors.js` fails on a citation past end-of-file and *reports but
+tolerates* one that has merely moved, on the stated grounds that "only a human
+knows what it meant". That is true in general and false in the common case: when
+the sentence names the function in backticks beside the number, the document has
+already said what it meant. `scripts/checkDocLineRefs.mjs` decides that subset.
+The detail worth keeping is that the tolerated channel had been printing the
+defect all along — and the example its own header used to explain the SOFT
+category, whether `ToshFactory.sol:442` "still lands anywhere near `deposit`", was
+one of the broken citations. It did not.
+
+**The rule took three attempts, and the two rejected ones are the lesson.**
+Matching a citation only against the nearest name removed two false positives and
+took the coverage with it — 23 checkable citations became 6 of 108, close to
+decorative, and four of the cases it stopped checking were defects found minutes
+before. Accepting a line as soon as *any* one name was covered then let a mutation
+walk straight through: breaking `deposit`'s number left the build green, because
+the correct `createLaunch` citation beside it satisfied the line alone. **One
+accurate pointer masking a rotten neighbour is the exact failure the guard exists
+to remove, so it could not be the rule the guard used.** What survives: every name
+on the line must be covered by some citation, resolved against each cited file that
+defines it — which is what makes the strict rule usable, since `deposit` exists in
+both the factory and the hook.
+
+**7 of 8 mutations caught, and the eighth is why the self-test is there.** Two
+survivors on the first pass were mutations of the guard rather than the docs —
+deleting its exit code, and skipping its semantic loop — because nothing was
+checking the checker. It now runs the real logic over a synthetic line whose
+verdict is not in question before reading any document, and exits **2** if that
+line does not produce exactly one problem. That converts the disabled-loop
+mutation into a hard failure. The last survivor is `process.exit(1)` changed to
+`process.exit(0)`, which no guard can catch about itself; that one is the mutation
+harness's job, and it is recorded here rather than papered over.
+
+The 71 citations that name no function this guard knows are counted and printed on
+every run, not silently dropped — that number is the honest measure of what it
+still does not cover.
+
+---
+
+### 5.18 Fourteenth sweep — the document this guard refused to read
+
+§5.12 found three UI symbols named in `PRD-v5.0.md` that exist nowhere in
+`soat-frontend/`: `feeMode`, `handleDeposit`, `handleMineSalt`, each cited with a
+precise line range against a launch page that had replaced all three. It recorded
+them, allowlisted them so the dossier could quote them, and left the drift OPEN
+with a reason: gating a product spec is not worth it, because a stale name there
+is a spec nit rather than an unverifiable control.
+
+That reasoning had one testable claim in it — that fixing the chapter was a big
+job — and nobody had tested it. Adding `PRD-v5.0.md` to the guard's `DOCS` list
+costs **nine** stale references, not three. The other six were `ConnectGate`,
+`GenesisWindowSelect`, `RecentEventsTicker`, two window tests still cited under the
+constructor-era names the EIP-1167 clone refactor had replaced with
+`test_initializeToken_acceptsTheThreeAllowedWindows` and
+`test_initializeToken_rejectsUnlistedWindow`, and one name the document had
+abbreviated in a table to a dangling suffix — the same shape as the `EthNotTokens`
+entry above, but of `test_ladderCuration_rejectsUnlaunchedProjects`. Nine is a
+morning. Leaving the document ungated is what let three become nine.
+
+**What the nine turned out to be pointing at.** Only two were simple renames. The
+rest were load-bearing, and four of them ran the *opposite* way to the drift this
+sweep went looking for — the document describing a defect the code no longer has:
+
+| The document said | The code says |
+|---|---|
+| `constructor` compares the three duration constants | The comparison is in `initializeToken` — a clone runs no constructor. It is deliberately not in the factory: the value is read out of the clone's own bytecode, and checking the factory's argument would attest to what it *meant* to bake in, not to what the mined address commits to |
+| `resolvePhase` has three phases, and ⚠️8.6 is a live UI/chain mismatch | Four phases. `awaiting_launch` and `AwaitingLaunchPanel` exist precisely to close 8.6, plus a `zombie` check for the window past it. `phase.ts` records both halves of the original bug in its own comments |
+| A `ConnectGate` renders when no wallet is connected | No such gate. `isConnected` is passed into each panel and becomes one blocker among others. The only whole-page early returns are a missing hook binding and — load-bearing — an unsynced clock, because at `nowSec === 0` every deadline comparison reads as "still open" and an expired genesis resolves back to `'genesis'` |
+| A per-project `RecentEventsTicker` on `Deposited`/`TierMinted`/`Refunded`, with basescan links | No event feed in the project terminal at all. The only live feed is `TxFeedMarquee` on the directory home, on three *factory* events, with no explorer links — and the chain has been 4663 with Blockscout for months |
+| Salt invalidation on the factory's caps changing between mining and submitting is **not done**; the user just gets `InvalidHookSalt` | Done. `mineSalt` snapshots both caps into `saltCaps` and a `useEffect` clears the salt with a message when they move. The on-chain backstop and its test still exist; they are no longer the notification mechanism |
+| `hookInitcodeHash` takes six arguments including `adminAddr` | Five. The admin is mutable by design, applied at initialisation, and no longer moves the mined address — so the PRD's "Project Admin changed → salt invalid" row is now describing an invalidation that is real in the code but no longer *necessary* there |
+| Two `useTosh` comments contradict each other about slot A and slot B | They agree, and there is no `contribute` flow. What is worth recording instead is that `isSuccess` from `useWaitForTransactionReceipt` means the receipt arrived, not that `createLaunch` worked: a reverted launch once rendered as "Confirmed" |
+
+**A real string, found on the way out.** `app/layout.tsx` set
+`metadata.description` ending in the literal `'Currently staging on Base Sepolia
+testnet.'`, and it had survived the entire Robinhood Chain migration. Every search
+result and link preview named a chain this build has not settled on for months.
+
+`checkChainCopy.mjs` existed and did not catch it, for a reason worth stating: it
+evaluates the constants in `chain.ts` once per chain, which is the right shape for
+the bug it was built for and cannot see a literal typed into a component. Page
+metadata is also not one of the four surfaces it was written around. So the fix is
+two-part — the description now derives from `CHAIN_POSITIONING`, and the guard
+gained an AST literal scan over `src/`, which rejects:
+
+  1. any abandoned chain name (`base sepolia`, `basescan`, `sepolia`) in a string,
+     template chunk or JSX text; and
+  2. the **current** settlement chain's name anywhere outside `chain.ts`.
+
+Rule 2 is the one with teeth. Rule 1 alone only ever catches the previous
+migration, and always one migration too late; rule 2 makes the next one a build
+failure, because the only way left to say the chain's name is to derive it.
+Comments are deliberately out of scope — `chain.ts` and `serverRpc.test.ts` both
+discuss Base Sepolia at length to explain what changed, and a guard that could not
+tell prose from copy would force those explanations to be deleted. 120 files scan
+clean.
+
+**Mutations.** Ten, all as expected. On the doc gate: a real PRD symbol renamed to
+a near-miss, a cited Foundry test shortened by one word, `resolvePhase` renamed,
+`useActionGate` renamed — four caught. The fifth is the one that justifies the
+change rather than the code: with `PRD-v5.0.md` removed from `DOCS` again, the
+first mutation goes unnoticed, so the one-line edit to that array is load-bearing
+and not decoration. On the copy guard: the original Base Sepolia string put back
+(caught), the current chain name hard-coded in a component (caught), `basescan` in
+a literal (caught), a blanked `MAINNET_CHAIN_LABEL` — which would leave rule 2
+comparing every literal against `''` — failing loudly instead of reporting a clean
+sweep (caught). And one negative control: the same stale name in a *comment* stays
+legal, confirming the scan is not a false-positive machine.
+
+**What this sweep did not do.** The six names now sit in `ALLOW`, and an `ALLOW`
+entry is skipped *before* the search runs. If `feeMode` or `ConnectGate` came back
+into `soat-frontend/`, this guard would not say so, and the PRD would then be
+asserting the absence of something present. Nothing watches for that. The entries
+say so.
+
+Chapter 6's line citations were not re-verified. They are written as bare `` `:NNN-NNN` ``
+shorthand, which `checkDocLineRefs.mjs` cannot attribute to a file, so roughly
+forty of them are unchecked by anything. The passages this sweep rewrote cite by
+*name* instead, on that guard's own advice — names are checked and do not rot when
+a file grows — but the sections it did not touch still carry numbers nobody has
+confirmed.
+
+One class was measured and deliberately left ungated. Docs cite 381 backticked
+repository paths; 12 do not resolve against either the repo root or
+`soat-frontend/`. Every one was read. Two were ambiguous shorthand and are fixed
+(`lib/projectAttestation.ts`, and a solmate path relative to its submodule). The
+other ten are correct as written: eight name a file *because it was deleted* —
+which is the whole point of the sentence they sit in — one is a path inside
+Blockscout's verified-source layout rather than this repository, and one is the
+incident runbook recording a dead pointer it had already fixed. A guard here would
+need a ten-entry allowlist to defend against zero live defects, and would tax every
+future sentence of the form "X no longer exists". Recorded, not built.
 
 ---
 

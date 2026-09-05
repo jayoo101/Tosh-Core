@@ -47,24 +47,25 @@ const DOC_DIR = join(REPO, 'docs');
 //   the alerts mean. In all three, a name that resolves to nothing turns a
 //   claim into something no one can verify — which is what both findings were.
 //
-//   `PRD-v5.0.md` and `ROBINHOOD_MIGRATION.md` are deliberately NOT gated.
-//   They describe product behaviour and a migration that has already happened,
-//   and a stale name there is a spec nit, not an unverifiable control. They are
-//   not clean: this guard was run across them once and found three UI symbols
-//   that no longer exist anywhere in `soat-frontend/` —
+//   `PRD-v5.0.md` is now gated too, which it was not when this guard was
+//   written. The reasoning then was that a stale name in a product spec is a
+//   spec nit rather than an unverifiable control, so the drift this guard found
+//   in it — `feeMode`, `handleDeposit`, `handleMineSalt`, cited with precise
+//   line ranges against a launch page that had replaced all three — was left
+//   OPEN and the names were allowlisted so §5.12 could quote them.
 //
-//     `feeMode`, `handleDeposit`, `handleMineSalt`
+//   That deferral did not survive contact with the numbers. Gating the PRD
+//   turned out to cost nine stale references in total, not three: the other six
+//   were `ConnectGate`, `GenesisWindowSelect`, `RecentEventsTicker` and three
+//   test names carrying a `test_hook_ctor_` prefix that the EIP-1167 clone
+//   refactor had renamed. Nine is a morning's work, and leaving the document
+//   ungated is what let three become nine in the first place. Chapter 6 is
+//   rewritten against the code as it stands and the gate is now closed behind
+//   it — see SECURITY_AUDIT.md §5.18.
 //
-//   — cited in `PRD-v5.0.md` with precise line ranges (`:516-520`, `:484-505`)
-//   against a launch page that now exposes a single `handleLaunch`. Fixing those
-//   sections means rewriting product spec, which is a separate job from this
-//   sweep, so the drift is OPEN.
-//
-//   They do appear in ALLOW below, because §5.12 quotes them by name and this
-//   guard reads §5.12. That is a quoting concession, not a disposition: their
-//   reason strings say OPEN, and the day one of them starts resolving is the day
-//   to reread §5.12 rather than to delete the entry.
-const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md'];
+//   `ROBINHOOD_MIGRATION.md` stays ungated: it describes a migration that has
+//   already happened, so its names are meant to read as history.
+const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md', 'PRD-v5.0.md'];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for
@@ -126,13 +127,23 @@ const ALLOW = new Map([
   // checked normally wherever §5.11 and the PRD cite it; only the orphaned half
   // is skipped. So this entry does not blind the guard to the test going away.
   ['EthNotTokens', 'the §5.12 finding itself — the wrapped tail of test_buyTax_exactOutputSkimsEthNotTokens'],
-  // Named in §5.12 as UNFIXED drift in PRD-v5.0.md, which is outside this
-  // guard's gate. Allowlisted only because the dossier quotes them; the drift
-  // itself is open. If one of these starts resolving, the PRD may have been
-  // repaired — reread §5.12 before deleting the entry.
-  ['feeMode', 'OPEN PRD drift quoted in §5.12 — absent from soat-frontend/'],
-  ['handleDeposit', 'OPEN PRD drift quoted in §5.12 — absent from soat-frontend/'],
-  ['handleMineSalt', 'OPEN PRD drift quoted in §5.12 — absent from soat-frontend/'],
+  // These six are the PRD chapter-6 drift, and the reason strings changed shape
+  // when it was fixed (§5.16). They are no longer "quoted by a dossier while the
+  // spec stays wrong" — the spec now names each one to say, in place, that the
+  // thing does not exist and what replaced it. That is the same disposition as
+  // `_headers` above: asserted ABSENT, and the assertion is the content.
+  //
+  // The cost noted at the top of this block applies to all six: an ALLOW entry
+  // is skipped BEFORE the search runs, so if `feeMode` or `ConnectGate` came
+  // back into `soat-frontend/` this guard would not say so, and the PRD would
+  // then be asserting the absence of something present. Nothing here watches
+  // for that.
+  ['feeMode', 'asserted ABSENT — §6.4 names it to record that useActionGate replaced it'],
+  ['handleDeposit', 'asserted ABSENT — the §5.12 finding; §6.6.3 now documents submitDeposit'],
+  ['handleMineSalt', 'asserted ABSENT — §6.5 names it to record that mineSalt replaced it'],
+  ['ConnectGate', 'asserted ABSENT — §6.6.2 names it to record that no such gate exists'],
+  ['GenesisWindowSelect', 'asserted ABSENT — §6.4 names it to record the control is inline, not a component'],
+  ['RecentEventsTicker', 'asserted ABSENT — §6.6.4 names it to record the per-project ticker never existed'],
 ]);
 
 function fail(code, msg) {

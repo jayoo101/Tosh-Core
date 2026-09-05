@@ -56,8 +56,8 @@ export function useTosh() {
   const isConfirmedB = settledB && !revertedB
 
   // ── createLaunch (v3.4) ──────────────────────────────────────────────────
-  // Explicit gas cap bypasses eth_estimateGas so Base Sepolia RPCs can't
-  // surface a misleading "exceeds block gas limit" error on simulation revert.
+  // Explicit gas cap bypasses eth_estimateGas so an RPC can't surface a
+  // misleading "exceeds block gas limit" error on simulation revert.
   // Foundry reports ~3.7M for this call; 6M gives ample headroom.
   //
   // v3.4 wire-level changes:

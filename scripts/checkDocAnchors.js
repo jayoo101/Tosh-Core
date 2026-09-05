@@ -7,6 +7,15 @@
  * anchor now points at the wrong function (only a human knows what it meant),
  * but it can tell you the two things that are mechanically decidable:
  *
+ * UPDATE 2026-09-05: "only a human knows what it meant" is true in general and
+ * false in the common case — when the sentence names the function in backticks
+ * beside the number, the document has already said what it meant.
+ * `scripts/checkDocLineRefs.mjs` decides exactly that subset and fails on it.
+ * When it was first run, 22 of the 23 citations it could judge were wrong. The
+ * SOFT channel below had been printing that drift all along, and the example
+ * this header uses to explain SOFT — whether `ToshFactory.sol:442` "still lands
+ * anywhere near `deposit`" — was one of the broken ones. It did not.
+ *
  *   HARD  the file does not exist, or the line is past end-of-file. Always a
  *         defect, always worth failing a build over.
  *   SOFT  the enclosing symbol at that line, so a reviewer can eyeball whether
