@@ -19,6 +19,14 @@ on:
   # same reason watch.yml is: scheduled workflows queue on a shared pool and
   # `0 * * * *` is its worst minute. 05:23 UTC is off-peak for this pool and
   # nobody is waiting on the result, which is the whole point of moving it here.
+  #
+  # Daily costs ~1,420 billed minutes a month at the measured 47m14s per run,
+  # against the same private-repository allowance watch.yml draws ~720 from.
+  # Accepted 2026-09-06 with the number in hand, not by default. If that
+  # allowance ever binds, change THIS LINE rather than the depths below: the
+  # depths are what SECURITY_AUDIT.md §5.19 measured and argued for, and nobody
+  # is waiting on a nightly, so cadence is the cheap thing to give up. Weekly at
+  # the same depth is ~200 min/month.
   schedule:
     - cron: '23 5 * * *'
 

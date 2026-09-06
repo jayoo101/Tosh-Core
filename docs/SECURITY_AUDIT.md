@@ -3194,8 +3194,14 @@ invariant tests properly. **Sixth instance, same shape:** a factor measured unde
 one configuration, used to size another. Recorded here rather than left as a
 round number, because ~47 min nightly is ~1,420 billed minutes a month against
 the same private-repository allowance that `watch.yml` already draws ~720 from
-hourly, and that is a budget fact somebody has to decide about rather than
-discover.
+hourly.
+
+**That cost was accepted on 2026-09-06, daily cadence kept.** The alternatives
+were weekly at the same depth (~200 min/month), a trimmed nightly, or cron
+removed in favour of manual dispatch. Daily was chosen deliberately, so if the
+allowance later becomes a problem the first thing to reach for is the cadence in
+`soak.yml`, not the depth — the depth is what §5.19 measured and the cadence is
+what nobody is waiting on.
 
 Also worth noting from that run, against the second retraction above: the
 counters **varied** between invariants there — launches 2, 3, 3 — where the local
