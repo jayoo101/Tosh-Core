@@ -3410,12 +3410,39 @@ row switches the expected verdict without simulating anything.
 
 Both fixed; 6/6 after.
 
-**One finding retracted during the sweep.** `gasHistory.live.test.ts` failed once
-inside `npm run verify` with a timeout on *Ethereum*, which looked like a second
-symptom. It was not: four `checkBlockscoutKey.mjs` runs were competing for the
-same free-tier 5 req/s key at the time. Run alone the test passes in 42 s, and
-CI was green throughout. Noted because the instinct to file it alongside the
-4663 failure was strong and wrong.
+**Then it became a provider-wide outage, which settled the question.** The
+sequence over roughly an hour, all measured:
+
+| Time | State |
+|---|---|
+| start | 4663 v2 → HTTP 500; other four chains 200 on both dialects |
+| +40 min | 4663 v1 → HTTP 500 as well; other four still fine |
+| +60 min | **all five chains** → HTTP 521 and timeouts; credits header absent |
+
+HTTP 521 is Cloudflare for "origin is down", and rate limiting answers 429, so
+this is `api.blockscout.com` failing rather than the free-tier key being
+exhausted. That also disposes of an intermediate theory worth recording because
+it was held for a while and was wrong: `gasHistory.live.test.ts` failed
+repeatedly on *Ethereum* mid-sweep, and the obvious suspect was self-inflicted
+load — several `checkBlockscoutKey.mjs` runs competing for the same 5 req/s key.
+Run alone the test had passed in 42 s, and CI was green on the same commit, both
+of which fit that theory. The 521s do not. It was the provider degrading the
+whole time.
+
+**The severity split got validated live, in both directions,** which no
+mutation could have arranged: with only 4663 down the fixed guard exits 0 with
+the bounded-degradation warning, and once Ethereum and the other required chains
+went with it the same guard exits 1 and says no allocation can be issued at all.
+
+**What this leaves as a standing risk, and it is not a code defect.** Genesis
+allocation depends entirely on one external host. When a `required` chain cannot
+be read the scan aborts, which is the correct direction — never over-award — but
+it means genesis claiming is offline for the duration of someone else's outage.
+There is no second provider to fall back to and that is already argued in
+`gasHistory.ts`: Etherscan V2's free tier refuses Optimism and Base and does not
+index 4663 at any price, and neither do Alchemy or GoldRush. So the exposure is
+accepted rather than solved, and it is worth knowing before launch day that a
+Blockscout outage postpones genesis rather than corrupting it.
 
 ---
 
