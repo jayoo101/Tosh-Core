@@ -3237,6 +3237,78 @@ entirely. Nothing in CI would notice if a future handler change made every run
 revert into its `catch` blocks except the five deterministic `test_handler*`
 tests, which is what they are for and which the soak did not improve.
 
+### 5.20 Sixteenth sweep — the pre-broadcast gate told you to fund the wrong wallet
+
+Found by doing something mundane: creating `.env.production` ahead of deploy day
+instead of on it. Two of its six roles are already decided and independently
+verifiable — `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`, both the 2-of-3 Safe —
+and there was no reason for them to be pasted for the first time under the time
+pressure of an irreversible broadcast. Filling those two and leaving the other
+two as `REPLACE_ME` is what exposed the defect.
+
+**What `preflightMainnet.mjs` claimed.** Its header says reading `.env` instead
+"would be worse than not running: it holds testnet roles where
+`PLATFORM_TREASURY` and `POG_SIGNER_ADDRESS` are both the deployer, so this
+would report three real failures about a file that is not the one being
+deployed." A second passage says the example's `0xREPLACE_ME_*` values mean "a
+half-filled file reads as a set of missing vars rather than as wrong ones."
+
+**What it did.** `loadRoleEnv` reads `.env.production` first, skips `REPLACE_ME`
+— and then **falls back to `.env`** for anything still unset. That fallback is
+correct for the PM-D4 scripts it was written for and wrong here. So a
+half-filled file does not read as missing vars; the gaps silently become testnet
+values. The run reported:
+
+```
+PRIVATE_KEY            (set)                                        ← .env
+POG_SIGNER_ADDRESS     0x73db078fa94607893270079AC8F5c7492aB480cd    ← .env
+deployer               0x73db078fa94607893270079AC8F5c7492aB480cd
+✗ 2 check(s) failed.  fix: Fund 0x73db078f… with at least 0.010119 ETH more
+```
+
+Both failures describe `.env`. The script announced them as findings about the
+file the deploy sources.
+
+**Why this one is worse than a wrong message.** The remediation text is a *money
+instruction*, and `0x73db078f…` is the testnet deployer that §4.1 of the
+checklist forbids reusing on mainnet. An operator following the gate on deploy
+day would send real ETH to a wallet that must never sign a mainnet transaction.
+And the protection the header describes existed only inside the
+`!existsSync('.env.production')` branch — it lapsed at the exact moment you did
+what that branch instructs, which is to create the file.
+
+**The fix** is check 0b: every one of the six roles must have come from
+`.env.production`, and anything resolved from `.env` makes the script exit 2
+(cannot run) naming the variable and its source. The header's false half is
+withdrawn in place rather than deleted.
+
+**Mutation tested, 7 assertions, all as expected** — including two positive
+controls, because a gate that rejects everything is indistinguishable from one
+that works:
+
+| | Scenario | Expected |
+|---|---|---|
+| P1 | fully-filled `.env.production` | passes 0b, reaches the on-chain checks |
+| P2 | same | the funding line names the filled deployer, not `0x73db078f…` |
+| B1 | half-filled | exit 2, names the two strayed vars |
+| B2 | half-filled | emits no `Fund 0x73db078f…` line at all |
+| M1 | gate deleted | the original bug returns — exit 1, funds the testnet wallet |
+| M2 | `.env` accepted as a source | stops catching |
+| M3 | comparison inverted | rejects a correct file, which P1 proves is not real behaviour |
+
+**The same error was in the checklist.** `PRE_MAINNET_CHECKLIST.md` §3's note
+read "the deployer is short of gas … Fund it to at least 2x the measured cost",
+with `0x73db078f…` named two sentences earlier — the identical instruction, in
+prose, in the document an operator reads first. Rewritten: the mainnet deployer
+does not exist yet, so it is not underfunded, it is absent; and the cost was
+re-measured the same day at 0.4009 gwei, giving ~0.005845 ETH and ~0.0117 ETH at
+the 2x margin.
+
+**What this does not fix.** The gate makes the script refuse a half-filled file;
+it does nothing about the two roles themselves, which cannot be filled from a
+keyboard — both are new EOAs that do not exist, and the PoG signer's private key
+must never be written to a laptop file at all (§4.1).
+
 ---
 
 ## 6. Findings

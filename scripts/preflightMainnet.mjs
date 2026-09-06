@@ -84,9 +84,14 @@ function cannotRun(why) {
 // ── 0. The file the deploy sources ───────────────────────────────────────────
 //
 // `.env.production` is gitignored and does not exist until deploy day, which is
-// exactly why it is unverified: the example file carries `0xREPLACE_ME_*` and
+// exactly why it is unverified.
+//
+// This comment used to continue: "the example file carries `0xREPLACE_ME_*` and
 // `loadRoleEnv` skips those, so a half-filled file reads as a set of missing
-// vars rather than as wrong ones.
+// vars rather than as wrong ones." Half true, and the false half mattered.
+// `loadRoleEnv` does skip REPLACE_ME — and then falls back to `.env`, so the
+// var is not missing, it is testnet. Check 0b below is what actually makes the
+// sentence true.
 const ENV_PROD = path.join(REPO, '.env.production')
 if (!fs.existsSync(ENV_PROD)) {
   cannotRun(
@@ -109,6 +114,39 @@ if (roleEnv.missing.length) {
     `${roleEnv.missing.length} role var(s) still unset or left as a REPLACE_ME placeholder: `
     + `${roleEnv.missing.join(', ')}.\n`
     + '            Every check below depends on these, so none of them ran.',
+  )
+}
+
+// ── 0b. Every role must have come from .env.production, not from .env ────────
+//
+// Closing a hole this script's own header claimed was already closed. That
+// header says a half-filled file "reads as a set of missing vars rather than as
+// wrong ones", and it is not so: `loadRoleEnv` reads .env.production FIRST and
+// then falls back to .env for anything still unset, which is correct for the
+// PM-D4 scripts it was written for and wrong here. So a .env.production with
+// PRIVATE_KEY and POG_SIGNER_ADDRESS still on REPLACE_ME does not stop this
+// script — it silently substitutes the TESTNET deployer for both and then
+// reports, in the imperative, two failures about a file nobody is deploying.
+//
+// The reason that is worth an explicit gate rather than a note: the remediation
+// text is a money instruction. Check 6 prints "Fund 0x73db078f… with at least
+// N ETH", and 0x73db078f… is the testnet deployer that §4.1 forbids reusing on
+// mainnet. An operator following this script on deploy day would send real ETH
+// to a wallet that must never sign a mainnet transaction.
+//
+// Note also that the existing protection lived only in the `!existsSync` branch
+// above — it lapsed the moment the file was created, which is the very thing
+// that branch tells you to do.
+const strayed = ROLES.filter(k => roleEnv.source[k] !== '.env.production')
+if (strayed.length) {
+  cannotRun(
+    `${strayed.length} role var(s) did not come from .env.production: `
+    + `${strayed.map(k => `${k} (${roleEnv.source[k]})`).join(', ')}.\n`
+    + '            This script checks the file the deploy sources. A role resolved\n'
+    + '            from .env is a TESTNET value, and every check below would then\n'
+    + '            describe the wrong wallet — including the funding check, whose\n'
+    + '            fix line names an address to send real ETH to.\n'
+    + '            Fill these in .env.production itself and re-run.',
   )
 }
 

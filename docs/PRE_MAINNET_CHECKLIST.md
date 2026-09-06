@@ -275,20 +275,34 @@ Ordered. Each step's output feeds the next.
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
 | **PM-C9** | Deploy-side role addresses decided and distinct: `PROD_OWNER_SAFE`, `PLATFORM_TREASURY`, `POG_SIGNER_ADDRESS` | `verifyOwnerSafe.mjs` green; `DeployMainnet.s.sol`'s `requireDistinctRoles` passes | ❌ **added 2026-09-04, because `PLATFORM_TREASURY` had no checklist row at all.** C7 covers the *frontend* env; nothing covered the *deploy* env, and one of its values can never be changed. `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool, forever, and is immutable — baked into the factory *and* into the hook implementation's `platformFeeRecipient`, so rotating it means redeploying the factory and migrating every pool. The deploy script asserts only that it is non-zero and differs from the deployer and the PoG signer, so a personal EOA passes and is then permanent. **Decided:** the 2-of-3 owner Safe serves as both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`. Two properties of that choice which a comment had claimed and no test had checked are now asserted in `ToshV5.t.sol`: a recipient dearer than a `transfer()` stipend is still payable — a 1.4.1 Safe cost 29,944 gas to pay on 46630, and it works **only** because v4-core sends native value with `call(gas(), …)` — and a recipient that *reverts* does brick every buy on every pool. Note that `.env` today points all three roles at the deployer, which would fail all three assertions |
 
-> **PM-C1 cannot currently be broadcast: the deployer is short of gas.**
-> Measured 2026-09-05. `0x73db078f…` holds **0.001627 ETH** on 4663. The 46630
-> rehearsal broadcast is on disk with receipts, and it totals **14,580,627 gas**
-> — 7,950,106 of that the factory alone, 5,085,484 `HookDeployLib`, 1,494,539 the
-> treasury, plus the `setFactory` wiring. At the 0.38 gwei this chain was quoting,
-> that is **~0.0056 ETH**, so the deployer covers **29 %** of its own deploy.
+> **PM-C1 cannot currently be broadcast: the mainnet deployer does not exist yet.**
+> Restated 2026-09-06, because the previous wording of this note was a hazard in
+> its own right. It read "the deployer is short of gas", named `0x73db078f…`,
+> and ended "Fund it to at least 2x the measured cost". `0x73db078f…` is the
+> **testnet** deployer, and §4.1 forbids reusing it on mainnet — so following
+> this note on deploy day meant sending real ETH to a wallet that must never
+> sign a mainnet transaction. It is not underfunded. It is the wrong wallet, and
+> the right one has not been created.
+>
+> The cost itself is measured, and re-measured 2026-09-06. The 46630 rehearsal
+> broadcast is on disk with receipts totalling **14,580,627 gas** — 7,950,106 of
+> that the factory alone, 5,085,484 `HookDeployLib`, 1,494,539 the treasury, plus
+> the `setFactory` wiring. At the **0.4009 gwei** the chain quoted on 2026-09-06
+> that is **~0.005845 ETH**, so the requirement is **~0.0117 ETH** at the 2x
+> margin. (2026-09-05 read 0.38 gwei and ~0.0056 ETH; the difference is gas
+> price, not scope.)
+>
+> So the action is **fund the new deployer EOA once it exists**, not top up an
+> old one. `0x73db078f…` holds 0.001627 ETH and that number is now only useful as
+> a reminder of which address this is not.
 >
 > This is recoverable — it is only funding — but it is the one item on this list
 > that fails *during* the irreversible step rather than before it. A broadcast
 > that runs out part-way leaves `HookDeployLib` and the treasury live and the
 > factory absent, or the factory live and unowned, which is the half-deployed
-> state PM-C2's warning is about with nobody to hand it to. Fund it to at least
-> 2x the measured cost before the run: the figure above is a single gas-price
-> sample and the script re-prices it live rather than trusting this row.
+> state PM-C2's warning is about with nobody to hand it to. The figures above are
+> single gas-price samples and the script re-prices live rather than trusting
+> this row.
 >
 > `preflightMainnet.mjs` checks this by summing the rehearsal receipts and
 > pricing them at the live gas price, rather than against a threshold someone
