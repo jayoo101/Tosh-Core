@@ -111,8 +111,17 @@ runs = 256
 # pool, a listed ladder token and 1 ETH of accumulated tax before any ETH can
 # leave, which is several actions deep past launch.
 #
-# depth 100 -> 250 on 2026-09-06, from the soak in SECURITY_AUDIT.md §5.19.
-# Measured on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one sample per
+# depth stays 100 HERE, and the deeper setting lives in `.github/workflows/
+# soak.yml` instead. It was raised to 250 on 2026-09-06 and moved back out the
+# same day, for a reason worth keeping: CI runs this suite twice, plain and
+# --isolate, so depth 250 took CI from 7m27s to 13m12s — nearly double, on every
+# push, in a private repository where Actions minutes are billed. The depth
+# evidence below is real and the knee is genuinely 250; what it does not justify
+# is paying for it per push rather than per day.
+#
+# Everything from here to the end of this block is the measurement, kept because
+# it is the argument for what soak.yml runs. From SECURITY_AUDIT.md §5.19,
+# measured on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one sample per
 # depth, reading afterInvariant()'s counters:
 #
 #   depth  100    250    500   1000      wall (64 runs)
@@ -137,15 +146,15 @@ runs = 256
 # invariant and the suite runs nine plus five unit tests, so it saturates the
 # available cores differently.
 #
-# The number that actually matters is CI, which runs the whole suite TWICE
+# The number that actually mattered is CI, which runs the whole suite TWICE
 # (plain and --isolate) on a slower runner: 7m27s at depth 100 -> 13m12s at
-# depth 250, measured across consecutive pushes. Nearly double. If that is not
-# worth paying on every push, the deep setting belongs on the scheduled
-# workflow rather than here — see SECURITY_AUDIT.md §5.19.
+# depth 250, measured across consecutive pushes. That measurement is what sent
+# the deep setting to soak.yml and left this line at 100. The local delta was
+# 31.7s and would have made the change look free.
 # ---------------------------------------------------------------------------
 [profile.default.invariant]
 runs = 128
-depth = 250
+depth = 100
 fail_on_revert = false
 call_override = false
 shrink_run_limit = 2000

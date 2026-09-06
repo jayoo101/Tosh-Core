@@ -1,0 +1,131 @@
+# The deep search that `foundry.toml` deliberately does not carry.
+#
+# Read SECURITY_AUDIT.md §5.19 first. The short version: the invariant depth knee
+# is 250, raising `foundry.toml` to 250 took `test.yml` from 7m27s to 13m12s
+# because it runs the suite twice, and this repository is private so Actions
+# minutes are billed. So `test.yml` keeps depth 100 for the fast signal on every
+# push, and the deeper search runs here once a day instead.
+#
+# What this is NOT: a replacement for `test.yml`. It runs the same predicates,
+# harder. Two orders of magnitude more search cannot find a property nobody
+# wrote, which is the sentence §0.1 spends a page on.
+
+name: Soak
+
+permissions: {}
+
+on:
+  # Daily, and offset from both the hour and the busy top-of-hour slot for the
+  # same reason watch.yml is: scheduled workflows queue on a shared pool and
+  # `0 * * * *` is its worst minute. 05:23 UTC is off-peak for this pool and
+  # nobody is waiting on the result, which is the whole point of moving it here.
+  schedule:
+    - cron: '23 5 * * *'
+
+  # The one-off in §5.19 was 512 x 2500 and took 46 min locally. Do not put that
+  # on the cron: at the ~5.4x local-to-CI factor measured for this work it is
+  # several hours of billed time per night. It is reachable here on demand
+  # instead, which is what these inputs are for.
+  workflow_dispatch:
+    inputs:
+      invariant_runs:
+        description: 'FOUNDRY_INVARIANT_RUNS (nightly default 256)'
+        type: string
+      invariant_depth:
+        description: 'FOUNDRY_INVARIANT_DEPTH (nightly default 1000)'
+        type: string
+      fuzz_runs:
+        description: 'FOUNDRY_FUZZ_RUNS (nightly default 100000)'
+        type: string
+
+# A soak has no state and nothing downstream, so a second one starting is only
+# ever waste. Cancelled rather than queued, the opposite of watch.yml, because
+# there is no checkpoint here for a cancelled run to leave unscanned.
+concurrency:
+  group: soak
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    name: Deep invariant and fuzz search
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      # Pinned to match test.yml. A soak that runs a different toolchain than
+      # the gate it supplements is comparing two things at once.
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 1.7.1
+
+      - name: Build
+        run: forge build
+
+      # Invariants and fuzz are split into two steps on purpose: they fail for
+      # different reasons and cost very differently, and a single combined step
+      # hides which one blew the timeout.
+      #
+      # `runs` is raised as well as `depth`. Depth decides how far into the state
+      # machine one sequence gets; runs decides how many sequences are tried.
+      # §5.19's coverage correction came from reading one run's counters as if
+      # they described the suite, and more runs is the only thing that makes the
+      # sampled counters below worth anything at all.
+      - name: Invariants (deep)
+        env:
+          FOUNDRY_INVARIANT_RUNS: ${{ inputs.invariant_runs || '256' }}
+          FOUNDRY_INVARIANT_DEPTH: ${{ inputs.invariant_depth || '1000' }}
+          # Shrinking a real counterexample is worth paying for here in a way it
+          # is not on the push path: this run is the only place a deep sequence
+          # is found, and an unshrunk 1000-call sequence is not a bug report.
+          FOUNDRY_INVARIANT_SHRINK_RUN_LIMIT: '5000'
+        run: |
+          set -euo pipefail
+          echo "runs=$FOUNDRY_INVARIANT_RUNS depth=$FOUNDRY_INVARIANT_DEPTH"
+          echo "(test.yml runs the same suite at 128 x 100)"
+          forge test --match-contract ToshV5InvariantsTest -vv \
+            | tee "$RUNNER_TEMP/invariants.log"
+
+      - name: Fuzz properties (deep)
+        env:
+          FOUNDRY_FUZZ_RUNS: ${{ inputs.fuzz_runs || '100000' }}
+        run: |
+          set -euo pipefail
+          echo "runs=$FOUNDRY_FUZZ_RUNS per property (test.yml runs 256)"
+          forge test --match-test testFuzz_ \
+            | tee "$RUNNER_TEMP/fuzz.log"
+
+      # The counters are the only evidence for whether a run was vacuous, and
+      # §5.19 is a record of how badly they can be misread: `afterInvariant()`
+      # logs the LAST run only, one sample out of `runs`. They are surfaced here
+      # because a green soak whose handler reverted into every `catch` block is
+      # indistinguishable from a green soak that worked — but they are labelled,
+      # so nobody repeats the three retracted conclusions in §5.19.
+      - name: Summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo '### Soak'
+            echo
+            echo "Invariants: runs=${{ inputs.invariant_runs || '256' }} depth=${{ inputs.invariant_depth || '1000' }} · fuzz: ${{ inputs.fuzz_runs || '100000' }}/property"
+            echo
+            echo '```'
+            grep -E '^\[(PASS|FAIL)|tests? passed|Suite result' "$RUNNER_TEMP/invariants.log" "$RUNNER_TEMP/fuzz.log" 2>/dev/null || echo 'no result lines captured'
+            echo '```'
+            echo
+            echo '#### afterInvariant() counters — ONE sample each, not suite coverage'
+            echo
+            echo 'These log the last run only. Do not read a zero as "never reached";'
+            echo 'see SECURITY_AUDIT.md §5.19, which retracts three conclusions drawn'
+            echo 'from exactly that mistake.'
+            echo
+            echo '```'
+            grep -E '^  (hooks|ok |ladder )' "$RUNNER_TEMP/invariants.log" 2>/dev/null | head -40 || echo 'no counters captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

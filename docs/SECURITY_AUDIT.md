@@ -117,7 +117,7 @@ re-assigned here or is recorded as abandoned in as many words.
 
 | Deferred | Where it was parked | Now |
 |---|---|---|
-| Fuzz depth above 256 runs; invariant soak past depth 100 | §4, "ask for a higher run count during audit" | **Reassigned to us and done 2026-09-06 — §5.19.** It needed machine time, not a vendor. Invariants at 512 × 2500 (100× CI, 1.28 M calls each) and fuzz at 500,000 runs per property (1,953× CI): no violations. Its real output was correcting how this suite's coverage counters are read, and raising the CI depth to 250. |
+| Fuzz depth above 256 runs; invariant soak past depth 100 | §4, "ask for a higher run count during audit" | **Reassigned to us and done 2026-09-06 — §5.19.** It needed machine time, not a vendor. Invariants at 512 × 2500 (100× CI, 1.28 M calls each) and fuzz at 500,000 runs per property (1,953× CI): no violations. Its real output was correcting how this suite's coverage counters are read. Now recurring daily as `.github/workflows/soak.yml`, so this row is closed rather than merely done once. |
 | Anything requiring a live adversarial fork | §5.11, "staying with the engagement" | **Abandoned.** No internal substitute is planned. The 8 fork tests in §4 exercise the live V4 singleton on happy and router paths, not an adversary. |
 | The 6 assumptions in §2.2, challenged by someone who did not write them | §2.2, its whole purpose | **Abandoned, and this is the largest single loss.** Restated in §2.2 so a reader does not take the list for a reviewed list. |
 | Whether the PoG-quota compounding in PM-F9 is exploitable in composition | §5.10, "still the auditor's question" | **Abandoned as an external question.** The bound is derived internally and tested; nobody will attack it. |
@@ -799,8 +799,8 @@ and the tip is all an unpinned fork asks for.
   invariant hunting. A higher run count and a long invariant soak
   (`FOUNDRY_INVARIANT_RUNS`) at a depth well past 100 were going to be asked of
   an auditor; per §0.4 that became ours to run, and **it was run on 2026-09-06 —
-  see §5.19.** Nothing failed. The CI depth was raised 100 → 250 as a result,
-  which is the only lasting change it produced.
+  see §5.19.** Nothing failed. It is now a daily job,
+  `.github/workflows/soak.yml`, rather than a one-off or a per-push cost.
 - Swap coverage in the invariant handler is real, and **how thin it is per run
   depends entirely on depth**, which is measured in §5.19 rather than sampled
   once here. A buyback is several actions deep past launch (fund → launch → list
@@ -3159,16 +3159,29 @@ cycle inside its 100 calls" — consistent with the 5 / 1 / 1 measured here at
 depth 100, and misleading as a characterisation, since the same invariant reaches
 75 buys and 38 sells at depth 1000. Corrected in place.
 
-**The one lasting change: CI invariant depth 100 → 250.** Chosen from measurement
-rather than from taste. Across depths 100 / 250 / 500 / 1000 on one invariant at
-runs=64, buys went 5 → 25 → 35 → 75 while deposits went 10 → 13 → 8 → 5. Depth
-250 is the knee — the last value that improves post-launch composition without
-costing genesis composition, because past it a run spends proportionally more of
-its calls after the genesis windows have expired. **Depth trades genesis coverage
-for post-launch coverage rather than adding coverage.** That is why CI carries 250
-and not the soak's 2500, and it is the part of this sweep most likely to be
-forgotten: raising depth further would look like more rigour and would quietly
-buy less genesis exercise.
+**The depth knee is 250, and it is measured.** Across depths 100 / 250 / 500 /
+1000 on one invariant at runs=64, buys went 5 → 25 → 35 → 75 while deposits went
+10 → 13 → 8 → 5. Depth 250 is the last value that improves post-launch
+composition without costing genesis composition, because past it a run spends
+proportionally more of its calls after the genesis windows have expired. **Depth
+trades genesis coverage for post-launch coverage rather than adding coverage** —
+which is the part most likely to be forgotten, since raising depth further looks
+like more rigour while quietly buying less genesis exercise.
+
+**Where the deep setting ended up: not in `foundry.toml`.** It was raised to 250
+there and moved back out the same day. Depth 250 is right on the evidence and
+wrong on the invoice: `test.yml` runs the whole suite twice, so it went from
+7 m 27 s to 13 m 12 s on every push, in a private repository where Actions minutes
+are billed. So `foundry.toml` keeps depth 100 for the fast per-push signal, and
+`.github/workflows/soak.yml` runs the deeper search once a day at
+`runs = 256, depth = 1000` with fuzz at 100,000 per property, sized to a budget
+rather than to ambition. The 512 × 2500 configuration this sweep actually ran is
+reachable from that workflow's manual inputs; it is not on the cron, because at
+the local-to-CI factor measured here it is hours of billed time per night.
+
+The soak workflow's summary prints the `afterInvariant()` counters with a label
+saying they are one sample each and pointing at this section, so the next reader
+does not repeat the three retractions above.
 
 Cost, measured on the whole contract at the real `runs = 128` instead of
 extrapolated from the runs=64 probe: **7.8 s → 39.5 s** locally, about 5×. The
