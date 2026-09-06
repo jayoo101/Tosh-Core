@@ -3358,6 +3358,65 @@ EOAs that do not exist (deployer, PoG signer), ~0.0117 ETH of real funding, a
 contact channel per signer, and a named watcher for the D1–D4 triggers. Eleven
 of the fourteen open rows are downstream of the broadcast itself.
 
+### 5.22 Eighteenth sweep — a live outage, and a guard stricter than its code
+
+A full pre-mainnet scan on 2026-09-06 found one real external failure and one
+guard that reported it wrongly.
+
+**Chain 4663's Blockscout v2 endpoint is returning HTTP 500.** Reproduced five
+times over about forty minutes, including a run with nothing else touching the
+key: the other four chains answer 200 on both dialects in the same run, credits
+sat at 98,240 and the rate limit was never reached, so this is neither quota nor
+contention. It is specific to the chain the launchpad settles on, and the key
+was recorded on 2026-09-05 as "verified on all five chains before it was
+stored" — so this is a regression on the provider's side, one day later.
+
+**It is not a launch blocker, and the reason is a decision made the day before.**
+`GAS_SCAN_CHAINS` marks Robinhood `required: false` — the single exception in
+that table — so `scanGasHistory` catches the failure, records the chain as zero
+with `unavailable: true`, and completes. Every affected claimant is under-awarded
+and none over-. The measured size of the under-count is 0.00403 ETH for a busy
+4663 account's fifty most recent transactions: 8 % of the 0.05 ETH eligibility
+floor, 0.4 % of the 1 ETH cap. The argument recorded for that flag was that
+"while 4663 was fatal, its indexer's uptime WAS the uptime of genesis
+allocation." That is no longer a hypothetical.
+
+**What was wrong was the guard.** `checkBlockscoutKey.mjs` carried a hand-written
+table that said it "mirrors `GAS_SCAN_CHAINS`" and omitted `required` entirely —
+two independent declarations of one table with nothing comparing them, which is
+the drift shape §2.5 and `checkContractConstants.ts` exist for. It concluded
+"This key is NOT usable by the scan as written" and exited 1, on a chain the
+scanner deliberately survives. A guard stricter than the code it guards is not
+extra safety; here it would have read as "PoG is down" during a 0.4 % degradation.
+
+Fixed the way `preflightMainnet.mjs` handles the mirrored `POOL_MANAGER`:
+parsed, not retyped. The script now reads `required` and `execFeeIsWholeFee`
+from `gasHistory.ts`, exits 2 on any disagreement between the two tables or if
+the table cannot be found at all, and splits its verdict — a required chain
+failing is fatal, an optional one is a warning with the measured impact spelled
+out.
+
+**Mutation tested, 6 assertions. Two survived the first run, and both were real.**
+The live outage served as the fault injector: flipping `required` on that one
+row switches the expected verdict without simulating anything.
+
+- **M1 survived** because `results.push()` never carried `required`, so
+  `broken.filter(r => r.required)` was empty on every row and *no* chain could
+  ever be fatal. That was a bug introduced by this very fix, and nothing in the
+  passing baseline would have shown it.
+- **M4 survived** because the table regex lacked `\b` and matched
+  `GAS_SCAN_CHAINS_RENAMED` as happily as `GAS_SCAN_CHAINS` — a rename would
+  have been parsed rather than reported.
+
+Both fixed; 6/6 after.
+
+**One finding retracted during the sweep.** `gasHistory.live.test.ts` failed once
+inside `npm run verify` with a timeout on *Ethereum*, which looked like a second
+symptom. It was not: four `checkBlockscoutKey.mjs` runs were competing for the
+same free-tier 5 req/s key at the time. Run alone the test passes in 42 s, and
+CI was green throughout. Noted because the instinct to file it alongside the
+4663 failure was strong and wrong.
+
 ---
 
 ## 6. Findings

@@ -44,6 +44,9 @@
  * Exit codes:  0 key is usable on all five chains · 1 it is not · 2 no key given
  */
 
+import fs from 'node:fs'
+import path from 'node:path'
+
 const KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
 const PRO = 'https://api.blockscout.com'
 
@@ -62,6 +65,70 @@ const CHAINS = [
   { name: 'Base',      chainId: 8453,  execFeeIsWholeFee: false },
   { name: 'Robinhood', chainId: 4663,  execFeeIsWholeFee: true  },
 ]
+
+// ── `required`, parsed rather than retyped ───────────────────────────────────
+//
+// The table above said it "mirrors GAS_SCAN_CHAINS" and did so by hand, which
+// is two independent declarations of one table with nothing comparing them —
+// and it had already drifted. `gasHistory.ts` gained `required` on 2026-09-05,
+// marking Robinhood as the one chain whose unavailability is NOT fatal, and
+// this file never learned about it. The cost was not theoretical: on 2026-09-06
+// chain 4663's v2 endpoint began answering HTTP 500, and this script reported
+// "This key is NOT usable by the scan as written" for a condition the scanner
+// deliberately survives by counting that chain as zero.
+//
+// So the flag is read from the source of truth. A mismatch here is drift and is
+// reported as such, because a guard that quietly re-derives a stale copy is the
+// thing that produced the wrong verdict in the first place.
+const GAS_HISTORY_TS = path.join(
+  import.meta.dirname, '..', 'soat-frontend', 'src', 'app', 'lib', 'gasHistory.ts')
+
+function requiredByChainId() {
+  const src = fs.readFileSync(GAS_HISTORY_TS, 'utf8')
+  // `\b` matters: without it this happily matches `GAS_SCAN_CHAINS_ANYTHING`,
+  // so a rename would be parsed rather than reported. The mutation harness
+  // found that too.
+  const table = src.match(/GAS_SCAN_CHAINS\b[^=]*=\s*\[([\s\S]*?)\n\]/)?.[1]
+  if (!table) throw new Error(`could not find GAS_SCAN_CHAINS in ${GAS_HISTORY_TS}`)
+  const out = new Map()
+  for (const m of table.matchAll(
+    /chainId:\s*(\d+)[^}]*?required:\s*(true|false)[^}]*?execFeeIsWholeFee:\s*(true|false)/g)) {
+    out.set(Number(m[1]), { required: m[2] === 'true', execFeeIsWholeFee: m[3] === 'true' })
+  }
+  return out
+}
+
+let SOURCE
+try {
+  SOURCE = requiredByChainId()
+} catch (e) {
+  console.error(`[checkBlockscoutKey] cannot read the scanner's chain table: ${e.message}`)
+  console.error('  Without it this script cannot tell a fatal chain from an optional one,')
+  console.error('  and guessing is what it is being fixed for. Exit 2 — not a pass.')
+  process.exit(2)
+}
+
+const drift = []
+for (const c of CHAINS) {
+  const src = SOURCE.get(c.chainId)
+  if (!src) { drift.push(`${c.name} (${c.chainId}) is not in GAS_SCAN_CHAINS`); continue }
+  if (src.execFeeIsWholeFee !== c.execFeeIsWholeFee) {
+    drift.push(`${c.name}: execFeeIsWholeFee is ${c.execFeeIsWholeFee} here, `
+      + `${src.execFeeIsWholeFee} in gasHistory.ts`)
+  }
+  c.required = src.required
+}
+for (const [chainId] of SOURCE) {
+  if (!CHAINS.some(c => c.chainId === chainId)) {
+    drift.push(`GAS_SCAN_CHAINS has chain ${chainId} and this script does not probe it`)
+  }
+}
+if (drift.length) {
+  console.error('[checkBlockscoutKey] this script and gasHistory.ts disagree:\n')
+  for (const d of drift) console.error(`  · ${d}`)
+  console.error('\n  That disagreement is the defect, whichever side is wrong. Exit 2.')
+  process.exit(2)
+}
 
 /** An address with history on several chains, so a 200 with an empty result can
  *  be told from a 200 that proves nothing. Overridable: this one will not stay
@@ -186,7 +253,11 @@ for (const chain of CHAINS) {
   // that silently breaks half the traffic — see the header.
   const usable = v1.ok && v2.ok
 
-  results.push({ chain: chain.name, chainId: chain.chainId, usable, v1, v2 })
+  // `required` travels with the result, or the verdict below reads undefined on
+  // every row and silently treats every chain as optional. That was the state
+  // this line was in when the mutation harness first ran it: M1 marked Robinhood
+  // required and the run still exited 0.
+  results.push({ chain: chain.name, chainId: chain.chainId, required: chain.required, usable, v1, v2 })
 
   console.log(`${usable ? 'ok  ' : 'FAIL'} ${chain.name.padEnd(10)} (${String(chain.chainId).padStart(5)})`)
   console.log(`       v1 ${v1.ok ? 'ok ' : 'NO '} ${v1.detail}`)
@@ -216,15 +287,49 @@ if (broken.length === 0) {
   process.exit(0)
 }
 
-console.log('This key is NOT usable by the scan as written.')
-console.log('')
+// Severity follows `required` in gasHistory.ts, not the count of broken chains.
+//
+// This block used to end "Every chain must succeed for a total to be a total",
+// and that stopped being true when Robinhood was marked `required: false` on
+// 2026-09-05. `scanGasHistory` catches `GasScanUnavailable` on an optional
+// chain, records it as `unavailable: true` with a zero, and carries on; only a
+// required chain aborts the scan. A guard stricter than the code it guards is
+// not extra safety, it is a false alarm on the one chain the design already
+// decided to survive — and it raised exactly that alarm the day after the flag
+// was introduced.
+const fatal = broken.filter(r => r.required)
+const degraded = broken.filter(r => !r.required)
+
 for (const r of broken) {
-  console.log(`  ${r.chain} (${r.chainId})`)
+  console.log(`  ${r.chain} (${r.chainId})${r.required ? '' : '  [optional]'}`)
   if (!r.v2.ok) console.log(`    v2 failed: ${r.v2.detail}`)
   if (!r.v1.ok) console.log(`    v1 failed: ${r.v1.detail}`)
 }
 console.log('')
-console.log('  Every chain must succeed for a total to be a total, so the scan fails')
-console.log('  closed on any of these rather than reporting a smaller wallet. Fix the')
-console.log('  key or the tier before deploying; do not ship a partial scan.')
-process.exit(1)
+
+if (fatal.length) {
+  console.log('This key is NOT usable by the scan as written.')
+  console.log('')
+  console.log(`  ${fatal.map(r => r.chain).join(', ')} ${fatal.length === 1 ? 'is' : 'are'} `
+    + 'required. A required chain that cannot be read aborts the whole')
+  console.log('  scan rather than reporting a smaller wallet, so no allocation can be')
+  console.log('  issued at all while this stands. Fix the key or the tier before')
+  console.log('  deploying; do not ship a partial scan.')
+  process.exit(1)
+}
+
+// Optional-only. Degraded, and the degradation is bounded and downward.
+console.log(`WARN — ${degraded.map(r => r.chain).join(', ')} unreadable, but not required.`)
+console.log('')
+console.log('  The scan will complete. That chain is counted as zero and flagged')
+console.log('  `unavailable`, so every affected claimant is under-awarded, never over-.')
+console.log('  Measured 2026-09-05: a busy 4663 account\'s fifty most recent transactions')
+console.log('  came to 0.00403 ETH — 8 % of the 0.05 ETH eligibility floor, 0.4 % of the')
+console.log('  1 ETH cap. So this changes an outcome only for a claimant sitting within')
+console.log('  a fraction of a percent of the floor.')
+console.log('')
+console.log('  Exit 0 deliberately: this is the failure mode gasHistory.ts chose when it')
+console.log('  set `required: false`, on the argument that while 4663 was fatal its')
+console.log('  indexer\'s uptime WAS the uptime of genesis allocation. Blocking a deploy')
+console.log('  on it would reinstate exactly the coupling that decision removed.')
+process.exit(0)
