@@ -51,6 +51,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
+    # Required, and its absence is not a quiet failure mode. `permissions: {}` at
+    # the top of this file grants NOTHING, so a job without this block cannot even
+    # read the repository — and `actions/checkout` reports that 403 as
+    # "repository 'https://github.com/<owner>/<repo>/' not found", which reads
+    # like a typo in the URL rather than a missing scope. The first dispatch of
+    # this workflow failed exactly that way. Read-only on purpose: unlike
+    # watch.yml there is no checkpoint branch to push.
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v5
         with:
