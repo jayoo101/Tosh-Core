@@ -185,10 +185,14 @@ These need no deploy and no key. They are the only rows on the open list that
 could close today:
 
 - **PM-D4 / PM-E4** — `INCIDENT_RESPONSE.md` §1 names the three signers (Tom,
-  Jack, Joe) as addresses. It needs contact channels. One unreachable signer
-  turns 2-of-3 into 2-of-2, and §8.2 measured the mechanical signing path at
-  5 s against a 60-second budget — so the budget is almost entirely the time to
-  reach a human.
-- **PM-D4's third Q1 criterion** — re-run the §8.2 drill on 46630 with one of
-  the new signers taking part.
+  Jack, Joe), each bound to an address they signature-proved. What is blank is a
+  **contact channel** for any of them. One unreachable signer turns 2-of-3 into
+  2-of-2, and §8.2 measured the mechanical signing path at 5 s against a
+  60-second budget — so nearly the whole budget is the time to reach a human.
 - **PM-E6** — name a watcher for the D1–D4 review triggers.
+
+**Q1's third criterion is not on this list, and an earlier draft of this file
+put it there.** §8.3 closed it on 2026-09-04: Joe and Tom signed all four
+payloads on 46630. `verifyOwnerSafe.mjs` went on printing "the only one still
+unmet" for two days afterwards and was corrected in the same commit as this
+line — worth knowing, because §0 of this runbook tells you to run that script.

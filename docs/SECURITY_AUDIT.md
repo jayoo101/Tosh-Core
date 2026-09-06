@@ -3309,6 +3309,55 @@ it does nothing about the two roles themselves, which cannot be filled from a
 keyboard — both are new EOAs that do not exist, and the PoG signer's private key
 must never be written to a laptop file at all (§4.1).
 
+### 5.21 Seventeenth sweep — two tools that were confidently out of date
+
+Same exercise as §5.20, continued: work through what can be closed without a
+key, real ETH or another person. Very little could, and what the attempt found
+instead was two more places where a tool's own prose sends you somewhere wrong.
+
+**`verifyOwnerSafe.mjs` had been stale for two days.** Its closing block asked
+you to "fill `INCIDENT_RESPONSE.md` §1 with all three signers, and re-run the
+§8.2 Q1 drill on 46630 with one of the new signers taking part — that is the
+third Q1 criterion, and the only one still unmet." Both halves were false by
+2026-09-04. §1 names Tom, Jack and Joe against the addresses they
+signature-proved, and §8.3 closed the third criterion the same day, with Joe and
+Tom signing all four payloads. Meanwhile the thing that *is* open — a contact
+channel for any of the three, which is what PM-D4 and PM-E4 both reduce to —
+went unmentioned.
+
+The reason this is worth a section rather than a one-line fix: `C1_RUNBOOK.md`
+§0 tells you to run that script on deploy day. It would have sent you to
+organise a drill that is already done, silently, while the real gap stayed
+invisible. That is the same failure shape as §5.20's `Fund 0x73db078f…` — a tool
+whose *verdict* is correct and whose *instructions* are not — and it is now the
+third instance in two days. The first draft of `C1_RUNBOOK.md` §8 inherited the
+same stale claim by copying it, which is how these propagate.
+
+**Two operational documents were never gated.** `check:doc-symbols` covered four
+documents. `PRE_MAINNET_CHECKLIST.md` — the launch gate, which names roughly
+forty scripts and contracts in its evidence column — was not one of them, nor
+was `SIGNER_BRIEF.md`, which is what a Safe signer reads before signing. Four
+less operational documents were gated while those two were not, and no argument
+had ever been made for the split; it was simply the set that existed when the
+guard was written.
+
+Both are now gated, along with `C1_RUNBOOK.md` from the day it was written. The
+guard covers **7 documents and 654 identifiers**. Adding the two cost three
+`ALLOW` entries — `eth_getTransactionsByAddress`, `trace_filter` and
+`arbtrace_filter`, all JSON-RPC method names that §7 of the checklist cites
+precisely to record that the Robinhood node does not serve them, the same
+category as the existing `master` entry. It found **no drift**, which is the
+good outcome and not evidence the exercise was unnecessary.
+
+Each newly gated document was then verified to be *read* rather than merely
+listed, by planting a symbol that exists nowhere and confirming the guard fails
+— the check that `DOCS` membership actually reaches the scanner.
+
+**What still cannot be done without you**, and this is the honest total: two
+EOAs that do not exist (deployer, PoG signer), ~0.0117 ETH of real funding, a
+contact channel per signer, and a named watcher for the D1–D4 triggers. Eleven
+of the fourteen open rows are downstream of the broadcast itself.
+
 ---
 
 ## 6. Findings

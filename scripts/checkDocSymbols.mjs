@@ -69,7 +69,23 @@ const DOC_DIR = join(REPO, 'docs');
 //   rather than read, once, against real money — a script name that has drifted
 //   is discovered at the broadcast. It was added the day it was written, before
 //   it had a chance to rot.
-const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md', 'PRD-v5.0.md', 'C1_RUNBOOK.md'];
+//
+//   `PRE_MAINNET_CHECKLIST.md` and `SIGNER_BRIEF.md` were added 2026-09-06, and
+//   the reason they were not here already does not survive inspection: the
+//   checklist is the launch gate and names ~40 scripts and contracts in its
+//   evidence column, and the brief is what a Safe signer reads before signing.
+//   Both were ungated while four less operational documents were not. Adding
+//   them cost three ALLOW entries and found no drift — which is the good
+//   outcome, not a reason it was not worth doing.
+const DOCS = [
+  'SECURITY_AUDIT.md',
+  'INCIDENT_RESPONSE.md',
+  'ONCHAIN_MONITORING.md',
+  'PRD-v5.0.md',
+  'C1_RUNBOOK.md',
+  'PRE_MAINNET_CHECKLIST.md',
+  'SIGNER_BRIEF.md',
+];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for
@@ -117,6 +133,21 @@ const ALLOW = new Map([
   ['_headers', 'asserted ABSENT — §5.1 proves no Cloudflare/Netlify edge config exists'],
   ['webSocket', 'asserted ABSENT — §5.1 proves no viem webSocket() transport is used'],
   ['master', 'a git branch name in the submodule pin table, not a code symbol'],
+  // Three JSON-RPC method names, same category as `master`: they are names on
+  // someone else's node, not symbols in this tree, so "found nowhere" is the
+  // expected result rather than drift. PRE_MAINNET_CHECKLIST.md §7 names them
+  // precisely to record that the Robinhood node does NOT serve them, which is
+  // why counting one wallet's sends there would mean walking 54.8 M blocks.
+  //
+  // The ALLOW cost documented below is unusually low for these three. It bites
+  // when a skipped name comes back into `src/` unnoticed — but the claim here is
+  // about what the node serves, not about what this repo calls, so our tree
+  // gaining a `trace_filter` string would not falsify the prose. Contrast
+  // `eth_getLogs` in the same paragraph, which is deliberately NOT allowlisted:
+  // it resolves in the tree on its own and is checked normally.
+  ['eth_getTransactionsByAddress', 'a JSON-RPC method the node does not serve — §7 names it to record its absence'],
+  ['trace_filter', 'a JSON-RPC method absent from the Robinhood node — §7 names it to record that'],
+  ['arbtrace_filter', 'the Nitro-flavoured spelling, absent from the same node — §7'],
   // A dossier that records a stale-name finding has to be able to print the
   // stale name. Both appear in §5.12 for exactly that reason. Note what an ALLOW
   // entry costs: the name is skipped BEFORE the search runs, so this guard would
