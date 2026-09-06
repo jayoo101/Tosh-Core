@@ -3183,6 +3183,26 @@ The soak workflow's summary prints the `afterInvariant()` counters with a label
 saying they are one sample each and pointing at this section, so the next reader
 does not repeat the three retractions above.
 
+**What the nightly actually costs, measured on its first dispatch:** 47 m 14 s of
+billed time — build 171 s, invariants 1,787 s, fuzz 819 s. It passed, at 256,000
+calls per invariant.
+
+That was estimated beforehand at about 21 minutes, from the 5.4× local-to-CI
+factor the depth change implied. The real factor on the invariant step is ~11.5×,
+because the runner has a couple of cores where a workstation parallelises nine
+invariant tests properly. **Sixth instance, same shape:** a factor measured under
+one configuration, used to size another. Recorded here rather than left as a
+round number, because ~47 min nightly is ~1,420 billed minutes a month against
+the same private-repository allowance that `watch.yml` already draws ~720 from
+hourly, and that is a budget fact somebody has to decide about rather than
+discover.
+
+Also worth noting from that run, against the second retraction above: the
+counters **varied** between invariants there — launches 2, 3, 3 — where the local
+512 × 2500 soak had them identical across all nine. Whatever makes them agree, it
+is a property of a configuration and not of the suite, which is the whole reason
+they cannot be read as coverage.
+
 Cost, measured on the whole contract at the real `runs = 128` instead of
 extrapolated from the runs=64 probe: **7.8 s → 39.5 s** locally, about 5×. The
 probe implied 2×, because it timed one invariant where the suite runs nine plus

@@ -23,9 +23,17 @@ on:
     - cron: '23 5 * * *'
 
   # The one-off in §5.19 was 512 x 2500 and took 46 min locally. Do not put that
-  # on the cron: at the ~5.4x local-to-CI factor measured for this work it is
-  # several hours of billed time per night. It is reachable here on demand
+  # on the cron. Measured, not extrapolated: the nightly defaults below cost
+  # 47m14s of billed time per run (build 171s, invariants 1787s, fuzz 819s), and
+  # the one-off is 5x their invariant work. It is reachable here on demand
   # instead, which is what these inputs are for.
+  #
+  # That 47 min was itself estimated at ~21 min beforehand, from a local-to-CI
+  # factor of 5.4x measured on a different configuration. The real factor for the
+  # invariant step is ~11.5x, because this runner has a couple of cores where a
+  # workstation parallelises nine invariant tests properly. Sizing anything here
+  # from a local timing will under-count by about half — §5.19 lists this as the
+  # sixth instance of that same mistake in one exercise.
   workflow_dispatch:
     inputs:
       invariant_runs:
