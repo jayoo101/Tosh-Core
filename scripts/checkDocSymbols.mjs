@@ -65,7 +65,11 @@ const DOC_DIR = join(REPO, 'docs');
 //
 //   `ROBINHOOD_MIGRATION.md` stays ungated: it describes a migration that has
 //   already happened, so its names are meant to read as history.
-const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md', 'PRD-v5.0.md'];
+//   `C1_RUNBOOK.md` is gated because it is the one document that gets executed
+//   rather than read, once, against real money — a script name that has drifted
+//   is discovered at the broadcast. It was added the day it was written, before
+//   it had a chance to rot.
+const DOCS = ['SECURITY_AUDIT.md', 'INCIDENT_RESPONSE.md', 'ONCHAIN_MONITORING.md', 'PRD-v5.0.md', 'C1_RUNBOOK.md'];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for

@@ -263,6 +263,12 @@ evidence that the build uses it.
 
 Ordered. Each step's output feeds the next.
 
+> **On the day, follow `C1_RUNBOOK.md`, not this section.** This one argues what
+> and why; the runbook is the order of operations with a verification after each
+> step, and it carries the two corrections that came out of dry-running it on
+> 2026-09-06 — the preflight's `Fund 0x73db078f…` line (`SECURITY_AUDIT.md`
+> §5.20) and the missing `set -a` in the documented deploy command.
+
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
 | **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/4663/` exists; `preflightMainnet.mjs` green | ❌ mainnet. The 46630 rehearsal (RH-F1) is complete — launch, claim, buy, shelf mint, and a TWAP-matured `addLadderToken`, `ROBINHOOD_MIGRATION.md` §F.8. **A pre-broadcast gate exists as of 2026-09-05: `scripts/preflightMainnet.mjs`, which checks the file the deploy actually sources.** It found that **the deployer cannot currently pay for this broadcast** — see the note below |

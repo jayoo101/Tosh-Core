@@ -43,7 +43,17 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
 //
-//  Deploy command (after `source .env.production`):
+//  Deploy command. Note `set -a` — it is not decoration.
+//
+//  `source .env.production` alone sets SHELL variables, and this script reads
+//  the ENVIRONMENT via vm.envUint/vm.envAddress, so the values would not reach
+//  it. What would reach it is `.env`, which forge auto-loads and which holds
+//  testnet roles: TARGET_CHAIN_ID=46630, PLATFORM_TREASURY and
+//  POG_SIGNER_ADDRESS both the deployer, and no PROD_OWNER_SAFE at all. That
+//  last one makes it fail loudly rather than deploy wrongly — vm.envAddress
+//  reverts on a missing var — but it fails on deploy day, at the broadcast.
+//
+//    set -a && source .env.production && set +a
 //    forge script script/DeployMainnet.s.sol:DeployMainnetScript \
 //      --rpc-url $TARGET_RPC \
 //      --broadcast \
