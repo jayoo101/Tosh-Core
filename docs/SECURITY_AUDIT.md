@@ -3998,6 +3998,66 @@ best-effort, silent after 60 idle days, and an issue at 03:00 is
 detected rather than reported. PM-E2 stays 🟡 for that reason, not
 because the re-point has not happened.
 
+**The skipped window will not be swept.** Decided 2026-09-08, and
+written here because the decision is invisible in the code and will
+otherwise look like the cutover pass ate 900,000 blocks by accident.
+That pass advanced `lastBlock` to 57,492,252 while every `eth_getLogs`
+was rate-limited. The window it skipped, 56,592,252–57,492,252, holds
+the seven governance logs named above: factory
+`0xBa9d2E86281b988225Eca383C375215912fb20B9` emitted
+`OwnershipTransferStarted` and `OwnershipTransferred`; treasury
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` emitted
+`OwnershipTransferStarted`, `OwnershipTransferred`, and `FactorySet`.
+Those map to GOV-01, GOV-02, GOV-03, GOV-06, GOV-07 — all P0.
+
+They will not be filed. They are the deployment and ownership handoff
+we performed ourselves — PM-C1 and PM-C2 — and they are already
+recorded in this dossier (§5.25, §5.26, and the PM-C rows they closed)
+in more detail than an alert would carry. A non-dry re-scan of that
+window would open five P0 issues describing actions taken on purpose.
+That is precisely how a P0 label stops meaning anything, and §6 of
+`ONCHAIN_MONITORING.md` already says so about a different mechanism:
+the noise budget exists to keep the P0s unmuted, and spending it on a
+firehose of expected events is how they get muted. So the watcher's
+observed history on mainnet begins at block 57,492,253. That is a
+stated limitation, not an oversight.
+
+**What was done instead.** The transport and paging fix was verified
+without filing anything, by a `dry` `workflow_dispatch` of the same
+job over a window that contains those seven events (run 34200408580,
+`--since 150000`):
+
+```
+[watch] chain 4663 · blocks 57,368,530-57,518,530 · 7 log(s) · 0 hook(s) known · 7 finding(s), 7 paging
+```
+
+Seven logs where the broken pass saw zero, and zero WATCHER-02
+entries. Same CI environment that failed before, so this is a real
+verification and not a local-only one.
+
+**Issue hygiene.** All seven open `watcher`-labelled GitHub issues
+were closed on 2026-09-08. #20–#25 were artefacts of the 46630
+rehearsal, each naming the testnet factory
+`0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA`. GitHub issue #26 was the
+WATCHER-03 cutover notice, closed because its own stated condition was
+met: the following pass (run 34200284533) resumed from the checkpoint
+at 57,492,253, scanned 25,382 blocks, and exited 0.
+
+**An address-less `LaunchCreated` that is not ours.** Investigated and
+recorded so nobody re-investigates. `probeRpc.mjs`'s address-less
+survey of `LaunchCreated` reports one hit on mainnet. It comes from
+`0x78936d83771eacaf03a2f78553428f91dd66f5d9`, which is not a
+`ToshFactory`: 18,635 bytes of runtime against `ToshFactory`'s 10,789,
+`paused()` reverts, and `owner()` returns
+`0x35ce119999b7e4da1d34812de64f70ff4d44ea23`, an address unrelated to
+this project. It is an unrelated contract on the chain that happens to
+share the `LaunchCreated(uint256,address,address,address,string,string)`
+signature — exactly the noise the address-less scope was documented to
+expect (`ONCHAIN_MONITORING.md` §2.1). LIFE-03 is factory-scoped, so
+`watch.mjs` correctly ignores it. Verified alongside it: both of our
+factories have emitted `LaunchCreated` zero times and both hold a zero
+balance, so nothing is stranded in the paused orphan.
+
 **The sweep count is now the sixth consecutive commit to update it by
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth. This is the sixth. Still not built.
@@ -4115,4 +4175,7 @@ been failing CI for: the page now names 4663, the vote rule recognises
 the canonical Blockscout hostname, and `alerts.json` placeholders are
 filled. §5.28 records the first mainnet watcher pass: 0 logs over a
 window that held seven P0 governance events, because the 4663 RPC
-rate-limits a tight `eth_getLogs` loop and WATCHER-02 did not page.*
+rate-limits a tight `eth_getLogs` loop and WATCHER-02 did not page.
+The skipped window is left unswept on purpose — those seven logs are
+the PM-C1/C2 handoff already in §§5.25–5.26 — so observed history on
+4663 begins at block 57,492,253.*

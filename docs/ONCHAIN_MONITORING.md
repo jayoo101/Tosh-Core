@@ -16,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | 🟡 **re-pointed at mainnet 4663.** The first pass was blind — §7.1. Remaining: the sink is GitHub Issues, which is a monitor and not a pager (§7.3) |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **re-pointed at mainnet 4663.** Observed history begins at block 57,492,253 — §7.1. Remaining: the sink is GitHub Issues, which is a monitor and not a pager (§7.3) |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -49,6 +49,10 @@ So any hook-level alert must be scoped one of two ways:
    filter) — simplest, and what `scope: "any-address"` means in
    `monitoring/alerts.json`. Costs some noise from unrelated contracts that
    happen to share a signature; acceptable for the four hook alerts here.
+   On 4663 that noise is already visible: an address-less `LaunchCreated`
+   survey hits `0x78936d83771eacaf03a2f78553428f91dd66f5d9`, which is not a
+   `ToshFactory`. LIFE-03 is factory-scoped and ignores it
+   (`SECURITY_AUDIT.md` §5.28).
 2. **By a self-updating watch list** — subscribe to `LaunchCreated`, take the
    indexed `hook` field, add it to the monitored set.
 
@@ -332,6 +336,18 @@ mainnet pass (workflow run 34196807435) reported `0 log(s)` over
 56,592,252–57,492,252 and went green. Independently the same window held
 seven logs mapping to GOV-01/02/03/06/07, all P0.
 
+The cutover pass nevertheless wrote `lastBlock` to 57,492,252 — WATCHER-04
+did not exist yet, so a blind-but-WATCHER-03 run consumed the window.
+**That gap will not be swept.** The seven events are the PM-C1 deploy and
+the PM-C2 ownership handoff, already recorded in `SECURITY_AUDIT.md`
+§§5.25–5.26; a non-dry re-scan would file five P0 issues for actions taken
+on purpose, which is how a P0 label stops meaning anything (§6). The
+watcher's observed history on mainnet therefore begins at block
+57,492,253. That is a stated limitation, not an oversight. The transport
+fix was verified the same day by a `dry` dispatch (run 34200408580,
+`--since 150000`) that saw those seven logs and zero WATCHER-02 entries,
+in the same CI environment that had reported none.
+
 So the implementation is still `monitoring/watch.mjs`: one pass, resumable
 from a state file, then exit. What §7.1 previously treated as "the raw node
 has both capabilities, a vendor is optional" remains true for *what* the
@@ -449,11 +465,13 @@ quiet is equally consistent with the check having broken.
 
 **Cost, measured rather than assumed.** A 900k-block mainnet pass on
 2026-09-08 took 16.8 s wall-clock with the 250 ms floor (7 logs, 7
-findings, 0 WATCHER-02). GitHub bills a whole minute per run, so cadence
-converts directly into spend: hourly ≈720 min/month, every 30 minutes
-≈1,440, every 15 ≈2,880. This is a private repository, so those come out
-of the same allowance `test.yml` (4.4 min per push) and `frontend.yml`
-(2.4 min) draw on.
+findings, 0 WATCHER-02). The same-day `dry` CI dispatch (run 34200408580,
+`--since 150000`) is the verification that those seven logs, and zero
+WATCHER-02 entries, appear in the environment that had been blind. GitHub
+bills a whole minute per run, so cadence converts directly into spend:
+hourly ≈720 min/month, every 30 minutes ≈1,440, every 15 ≈2,880. This is
+a private repository, so those come out of the same allowance `test.yml`
+(4.4 min per push) and `frontend.yml` (2.4 min) draw on.
 
 **Hourly, at `:07`, decided 2026-09-04.** A budget decision, and cheap to make
 because the thing being given up was not real: the platform never guaranteed the
@@ -484,7 +502,9 @@ probably the thing to change.
       seven P0 governance events, because the public RPC 429s a tight
       `eth_getLogs` loop and WATCHER-02 did not page. Transport, paging, and
       the probe are fixed (§7.1); the schedule now points at the chain that
-      holds the money.
+      holds the money. The skipped window is left unswept: those seven logs
+      are the PM-C1/C2 handoff, and observed history on 4663 begins at
+      57,492,253.
 - [x] A checkpoint that survives the cutover. `lastBlock` recorded no chain, so
       re-pointing at mainnet would have made `from` a testnet height above the
       mainnet head, and the "no new blocks" branch would have exited 0 on every
@@ -493,7 +513,11 @@ probably the thing to change.
       also one that is simply ahead of the head, since the file already on disk
       has no chain id to compare. A pass that then scans nothing must not
       consume the window either: WATCHER-04 pages and leaves `lastBlock`
-      unmoved, so the next pass retries rather than skipping the P0s.
+      unmoved, so the next pass retries rather than skipping the P0s. The
+      cutover pass had already consumed 56,592,252–57,492,252 before that
+      rule existed. Observed history on 4663 therefore starts at 57,492,253;
+      the following pass (run 34200284533) resumed there, scanned 25,382
+      blocks, and exited 0. The skipped window will not be re-opened — §7.1.
 - [ ] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce
