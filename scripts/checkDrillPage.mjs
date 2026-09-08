@@ -67,14 +67,22 @@ if (LOCAL) {
   if (res.status === 404) {
     console.log(`[checkDrillPage] no drill page at ${PAGE_URL} — nothing to guard.`)
     console.log('[checkDrillPage] this is the expected state between drills.')
-    process.exit(0)
-  }
-  if (!res.ok) {
+    // Do not `process.exit` after `fetch`. On Windows, undici's keep-alive
+    // socket is still open, and tearing it down that way is a stack buffer
+    // overrun (0xC0000409, exit -1073740791). CI is Linux so it never saw
+    // this; a local scan on this machine did. Leave the event loop to drain.
+    process.exitCode = 0
+  } else if (!res.ok) {
     console.error(`[checkDrillPage] FAIL — ${PAGE_URL} returned ${res.status}`)
-    process.exit(1)
+    process.exitCode = 1
+  } else {
+    html = await res.text()
   }
-  html = await res.text()
 }
+
+if (html == null) {
+  // 404 or fetch error: the rest of this file has nothing to check.
+} else {
 
 // ── 1. Nothing is read from the URL ─────────────────────────────────────────
 //
@@ -231,10 +239,11 @@ if (last) {
 if (problems.length) {
   console.error(`\n[checkDrillPage] FAIL — ${problems.length} problem(s):\n`)
   problems.forEach((p, i) => console.error(`  ${i + 1}. ${p}\n`))
-  process.exit(1)
+  process.exitCode = 1
 }
 
 console.log(`[checkDrillPage] OK — ${LOCAL ? 'local page' : PAGE_URL}`)
 console.log(`[checkDrillPage] Safe ${safe} on ${net.chainId}: ${version}, ${threshold}-of-${lower.length}, nonce ${liveNonce}`)
 console.log(`[checkDrillPage] owners are exactly ${Object.values(OWNERS).join(', ')} — the operator is not among them`)
 console.log('[checkDrillPage] all 4 payload hashes match the Safe\'s own getTransactionHash(), and the loop returns ownership')
+}

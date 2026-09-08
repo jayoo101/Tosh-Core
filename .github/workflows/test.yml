@@ -139,10 +139,15 @@ jobs:
       # to be deleted together. The frontend floor in `frontend.yml` was raised
       # to 188 in the same commit; this one was missed, which is the argument
       # for reading both numbers off a run rather than off the diff.
+      #
+      # 362 -> 363 on 2026-09-06: `test_handlerCanReachMintShelf`. The retail
+      # buy (`mintBondingCurve`) had no invariant action; the UI never talks to
+      # the V4 router, so the shelf's price gates and same-block lockout were
+      # composed against nothing.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=362
+          floor=363
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
@@ -385,6 +390,14 @@ jobs:
       # other people's summaries.
       - name: Check the checklist summary matches its own rows
         run: node scripts/checkChecklistCounts.mjs
+
+      # SECURITY_AUDIT §4's per-file table is the same artefact as the
+      # checklist §8 counts, one document over: a summary maintained by hand
+      # next to the thing it summarises. It had drifted 28 low and never
+      # summed to its own header. The CI floor already tracks the total; this
+      # tracks the per-file numbers a reader treats as coverage.
+      - name: Check the §4 test table matches forge --list
+        run: node scripts/checkTestTable.mjs
 
       # The §5.12 sweep found SECURITY_AUDIT §1.2 scoping in a function called
       # `_verifyPoGSignature` that has never existed — the PoG signature check

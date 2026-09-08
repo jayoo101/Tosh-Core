@@ -145,6 +145,7 @@ contract ToshInvariantHandler is Test {
     uint256 public okSwapBuy;
     uint256 public okSwapSell;
     uint256 public okPokeBuyback;
+    uint256 public okMintShelf;
 
     /// @dev Kept because a swallowed revert in a `fail_on_revert = false` suite
     ///      is otherwise unrecoverable: the run reports a pass and there is no
@@ -153,6 +154,7 @@ contract ToshInvariantHandler is Test {
     bytes public lastRegisterRevert;
     bytes public lastSwapRevert;
     bytes public lastListRevert;
+    bytes public lastMintRevert;
 
     constructor(
         ToshFactory _factory,
@@ -574,6 +576,47 @@ contract ToshInvariantHandler is Test {
         }
 
         _syncAfterSwap(ladderBefore, burnedBefore);
+    }
+
+    /// @notice The retail buy. The UI never talks to the V4 router; it calls
+    ///         `mintBondingCurve`. Left out of the handler, the shelf's price
+    ///         gates, same-block lockout and halt were composed against nothing
+    ///         — unit and attack suites only, which is the gap §4 names.
+    ///
+    /// @dev    Quote first, then pay exactly that. A successful `quoteMint` is
+    ///         a mint the contract will accept in the next block at exactly
+    ///         this price (`ToshLaunchpadHook` says so). Same-block after a
+    ///         swap, a halt, or a ceiling breach all revert for real and land
+    ///         in `lastMintRevert` — those are the sequences this action exists
+    ///         to put next to the owner switches.
+    ///
+    ///         Does not touch the treasury-outflow ghosts. A shelf mint *feeds*
+    ///         the reservoir (the 1 % platform cut) and never drains it, so
+    ///         `_syncAfterSwap` would treat an inflow as "nothing left" and
+    ///         leave the floor behind the new balance — which is correct, and
+    ///         also not worth a special case.
+    function mintShelf(uint256 actorSeed, uint256 hookSeed, uint256 tokenAmount) external {
+        ToshLaunchpadHook hook = _hookInPhase(hookSeed, 3);
+        if (!hook.launched()) return;
+
+        tokenAmount = bound(tokenAmount, 1e16, 1_000e18);
+        address who = _actor(actorSeed);
+
+        uint256 cost;
+        try hook.quoteMint(tokenAmount) returns (uint256 quoted) {
+            cost = quoted;
+        } catch (bytes memory reason) {
+            lastMintRevert = reason;
+            return;
+        }
+        if (cost == 0 || who.balance < cost) return;
+
+        vm.prank(who);
+        try hook.mintBondingCurve{value: cost}(tokenAmount) {
+            ++okMintShelf;
+        } catch (bytes memory reason) {
+            lastMintRevert = reason;
+        }
     }
 
     /// @notice Deploy the reservoir with no swap to ride — the treasury's second
@@ -998,7 +1041,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // numbered version invited exactly one mistake — reusing an index and
         // silently deleting whatever action was there — and made every weight
         // change a renumbering exercise.
-        bytes4[] memory selectors = new bytes4[](35);
+        bytes4[] memory selectors = new bytes4[](37);
         uint256 n;
 
         // Genesis phase. Everything else in the state machine is downstream of
@@ -1044,6 +1087,12 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         selectors[n++] = ToshInvariantHandler.swapBuy.selector;
         selectors[n++] = ToshInvariantHandler.swapBuy.selector;
         selectors[n++] = ToshInvariantHandler.swapSell.selector;
+
+        // The retail path. Weighted at two so a halt / same-block / ceiling
+        // sequence can sit next to a successful mint inside one run, which is
+        // the composition unit tests cannot make.
+        selectors[n++] = ToshInvariantHandler.mintShelf.selector;
+        selectors[n++] = ToshInvariantHandler.mintShelf.selector;
 
         // The treasury's other egress. Weighted at two because it is the only
         // action that can drain the reservoir with no swap in the call, so it is
@@ -1345,6 +1394,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         console2.log("ok warps         ", handler.okWarp());
         console2.log("ok swap buys     ", handler.okSwapBuy());
         console2.log("ok swap sells    ", handler.okSwapSell());
+        console2.log("ok shelf mints   ", handler.okMintShelf());
         console2.log("ok pokes         ", handler.okPokeBuyback());
         console2.log("ladder listings  ", ladder.ladderTokenCount());
         console2.log("ladder balance   ", address(ladder).balance);
@@ -1353,6 +1403,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         console2.logBytes(handler.lastRegisterRevert());
         console2.logBytes(handler.lastSwapRevert());
         console2.logBytes(handler.lastListRevert());
+        console2.logBytes(handler.lastMintRevert());
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1555,5 +1606,35 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // invariant could go green because the treasury stopped buying.
         assertGt(handler.ghostLockoutAudits(), auditsBefore, "the poke's swap was never audited for the lockout stamp");
         assertEq(handler.ghostSwapWithoutStamp(), 0, "the poke's swap left the mint lockout open");
+    }
+
+    /// @notice The retail buy is reachable, so the same-block lockout and the
+    ///         price ceiling are composed against a path the fuzzer can take
+    ///         rather than only against sequences a unit test authored.
+    function test_handlerCanReachMintShelf() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 5 ether, 0);
+        }
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        assertTrue(h2.launched(), "precondition: the round must launch");
+
+        // Shelf 0 is priced above `1.05 × p0`, so a mint against the launch
+        // mark reverts `TierPriceAboveCeiling`. A buy lifts the reference
+        // (and stamps the lockout); the next block is when a mint is legal.
+        // That pairing — swap then mint, same-block illegal, next-block
+        // legal — is the composition this action exists to put in the mix.
+        handler.swapBuy(0, 2, 0.5 ether);
+        assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
+        handler.warpShort(1 minutes);
+
+        IERC20 token = IERC20(address(h2.projectToken()));
+        address alice = handler.actors(0);
+        uint256 heldBefore = token.balanceOf(alice);
+
+        handler.mintShelf(0, 2, 1e18);
+        assertEq(handler.okMintShelf(), 1, "handler could not land a shelf mint");
+        assertGt(token.balanceOf(alice), heldBefore, "shelf mint paid no tokens");
     }
 }

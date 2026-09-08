@@ -122,7 +122,7 @@ re-assigned here or is recorded as abandoned in as many words.
 | The 6 assumptions in §2.2, challenged by someone who did not write them | §2.2, its whole purpose | **Abandoned, and this is the largest single loss.** Restated in §2.2 so a reader does not take the list for a reviewed list. |
 | Whether the PoG-quota compounding in PM-F9 is exploitable in composition | §5.10, "still the auditor's question" | **Abandoned as an external question.** The bound is derived internally and tested; nobody will attack it. |
 | The tier ladder as an economic model — is a 2,000× span over 4,000 rungs the right shape? | §5.11 | **Unchanged.** This was never an audit deliverable; it is a question about markets, and it was mis-parked. |
-| §4's per-file test table, hand-maintained | Nowhere — found while rewriting §4 today | **Recorded, not fixed.** It had drifted 28 low and never summed to its header. A guard would be cheap; the CI floor already reads the true total, so the table is documentation rather than a control. |
+| §4's per-file test table, hand-maintained | Nowhere — found while rewriting §4 today | **Fixed 2026-09-06.** `scripts/checkTestTable.mjs` recounts from `forge test --list` and fails if a row, the 355/8/363 header arithmetic, or a file the table does not name has drifted. The CI floor still owns the total; this owns the per-file numbers that sat next to it rotting. |
 
 **And one premise, now void everywhere.** Three places in §5 decline a code
 change because "`src/` is frozen for the engagement". That freeze had exactly
@@ -519,25 +519,24 @@ it here:
 
 ## 4. Test coverage
 
-`forge test` — **354 passing**, and again under `forge test --isolate`, which
+`forge test` — **355 passing**, and again under `forge test --isolate`, which
 bills each call the way a real transaction would rather than letting storage
 touched in setup stay warm for the rest of the test. Both runs are CI gates.
 
 A further **8 fork tests** run only when `ROBINHOOD_RPC` is set and report as
-SKIPPED otherwise, so the passing count is 354 or 362 depending on whether the
-runner has an endpoint. They are listed below but excluded from the 354
+SKIPPED otherwise, so the passing count is 355 or 363 depending on whether the
+runner has an endpoint. They are listed below but excluded from the 355
 deliberately: a number that changes with a credential is not a number. The CI
 floor is immune to that distinction because it reads forge's `(N total tests)`,
-which counts a skipped test — so the gate is 362 either way, measured rather
+which counts a skipped test — so the gate is 363 either way, measured rather
 than assumed in `.github/workflows/test.yml`.
 
-> **Every number below was re-measured from `forge test --list` on 2026-09-06,
-> and none of them survived.** The table had drifted 28 tests low while §5.10
-> through §5.15 landed, and it had never summed to its own header: the rows
-> totalled 326 against a stated 327. Both defects are the exact shape §5.7 and
-> §2.5 were each caught with — a total that reconciles against nothing. This
-> table is still hand-maintained and still has no guard, which is recorded in
-> §0.4 rather than fixed.
+> **Every number below is re-measured by `scripts/checkTestTable.mjs` against
+> `forge test --list`, on every push.** The table had drifted 28 tests low while
+> §5.10 through §5.15 landed, and it had never summed to its own header: the
+> rows totalled 326 against a stated 327. Both defects are the exact shape §5.7
+> and §2.5 were each caught with — a total that reconciles against nothing. The
+> guard that was recorded as unfixed in §0.4 is that script.
 
 | File | Tests | Focus |
 |------|------:|-------|
@@ -546,7 +545,7 @@ than assumed in `.github/workflows/test.yml`.
 | `test/ToshV5Guards.t.sol` | 72 | Access control and phase guards across every external entry point. |
 | `test/ToshHookClone.t.sol` | 18 | EIP-1167 clone layout, immutable-arg round-trip, per-clone isolation, salt mining, deployment gas. |
 | `test/ToshV5Attack.t.sol` | 17 | The §2.3 surfaces, adversarially. |
-| `test/ToshV5Invariants.t.sol` | 14 | **Stateful invariants** for §2.2 items 1, 2 and 5. See below. |
+| `test/ToshV5Invariants.t.sol` | 15 | **Stateful invariants** for §2.2 items 1, 2 and 5. See below. |
 | `test/ToshV5Abi.t.sol` | 8 | Drift between the contracts and everything that binds to them by name rather than by type: 3 pin `abis.ts` to the Foundry artifacts, 5 pin the duck-typed cross-contract interfaces to the implementations that answer them (§5.7). |
 | `test/DeployMainnet.t.sol` | 8 | Deploy script, including the forced Safe ownership handoff and the distinct-role refusals. |
 | `test/ToshV5ArbSys.t.sol` | 7 | `_blockNumber()` on an Arbitrum Orbit chain: that the hook stamps the **L2** height rather than `block.number`'s L1 one, and that it still falls back correctly where `ArbSys` is absent. Two contracts, with and without the precompile etched. |
@@ -559,7 +558,8 @@ than assumed in `.github/workflows/test.yml`.
 Every other file above asserts a property under a call sequence *its author
 chose*. `test/ToshV5Invariants.t.sol` asserts properties under sequences nobody
 chose: a handler exposes deposits, refunds, launches, claims, project creation,
-**real V4 swaps in both directions**, ladder curation, two scales of time travel
+**real V4 swaps in both directions**, the retail shelf mint (`mintBondingCurve`),
+ladder curation, two scales of time travel
 and **every owner-only switch** (`pause`, `haltLadderMinting`, `setBlacklist`,
 `setPogSigner`, `setLaunchFee`, `setDefaultSoftCap`,
 `setMaxPogAllocationLimit`), and the fuzzer composes them in arbitrary order.
@@ -812,9 +812,12 @@ and the tip is all an unpinned fork asks for.
   > from `afterInvariant()`, which logs the **last run only** — one sample out of
   > `runs` — so it was a sample presented as a property of the suite. §5.19
   > describes how far wrong that reading can go.
-- The shelf ladder (`mintBondingCurve`) has no invariant action. Its price gates
-  are covered by the unit and attack suites only, so the tier-boundary and
-  same-block-lockout logic is not composed against arbitrary sequences.
+- The shelf ladder (`mintBondingCurve`) now has an invariant action
+  (`mintShelf`, 2026-09-06). The UI never talks to the V4 router; this is the
+  retail buy. Its price gates, same-block lockout and halt are composed against
+  the same owner switches the rest of the handler already holds. Reachability
+  is pinned by `test_handlerCanReachMintShelf` so a swallowed `catch` cannot
+  hide an action that never lands.
 - Fork coverage exists but is **narrow by design**. `test/ToshV5Fork.t.sol` runs
   the launch lifecycle and a buy against the Uniswap V4 singleton actually
   deployed at `0x8366a39CC670B4001A1121B8F6A443A643e40951` on Robinhood Chain,
