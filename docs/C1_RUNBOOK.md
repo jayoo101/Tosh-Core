@@ -6,8 +6,10 @@ checklist argues about *what* and *why*, and on the day you need *in what order,
 and how do I know the last step worked*.
 
 Every command below was checked against this repository and this machine on
-2026-09-06. Where a documented instruction was wrong, it is corrected here and
-in the source it came from — see §6.
+2026-09-06. The key-generation steps were checked again on 2026-09-08, after
+the instruction in §1 was found to name the wrong residue. Where a documented
+instruction was wrong, it is corrected here and in the source it came from —
+see §6.
 
 ---
 
@@ -17,33 +19,52 @@ in the source it came from — see §6.
 |---|---|
 | Owner Safe | `0x2953957774482efA660921df85A1E7634ccfe27A` — 1.4.1, 2-of-3, owner set matches `safe-owners.json`, indexed by the transaction service as `1.4.1+L2`, accepts plain ETH at ~27,674 gas. Re-verify with `node scripts/verifyOwnerSafe.mjs <addr>` |
 | `.env.production` | Exists. `PLATFORM_TREASURY` and `PROD_OWNER_SAFE` filled with the Safe above; `TARGET_CHAIN_ID`, `V4_POOL_MANAGER`, both RPC lines carried from the template |
-| Still `REPLACE_ME` | `PRIVATE_KEY`, `POG_SIGNER_ADDRESS` — steps 1 and 2 |
+| Still `REPLACE_ME` | `PRIVATE_KEY`, `POG_SIGNER_ADDRESS` — steps 1 and 2. There is a third, `LADDER_TREASURY_ADDRESS`; neither `preflightMainnet.mjs` nor `DeployMainnet.s.sol` reads it. It is filled after C1 with the `TREASURY_ADDRESS` the broadcast logs, and the frontend consumes the same value as `NEXT_PUBLIC_TREASURY_ADDRESS` as part of PM-C7. Not yours today. |
 | C1 cost | 14,580,627 gas (re-summed from the 46630 rehearsal receipts). At 0.4009 gwei that is **~0.005845 ETH**; fund to **~0.0117 ETH** for the 2x margin |
 | Deployer balance | There is no mainnet deployer yet. `0x73db078f…` is the **testnet** deployer and §4.1 forbids reusing it — do not fund it |
 
 ## 1. Generate the deployer EOA
 
-```bash
-cast wallet new
+Do this in a terminal the editor does not manage: a PowerShell or Windows
+Terminal window opened from the Start menu, not Cursor's integrated terminal.
+`cast` on this machine is 1.7.1 and is on PATH.
+
+```powershell
+cd C:\Users\Administrator\Desktop\Tosh-Core_Workspace\Tosh-Core
+$out  = cast wallet new
+$addr = ($out | Select-String 'Address:').ToString().Split()[-1]
+$key  = ($out | Select-String 'Private key:').ToString().Split()[-1]
+(Get-Content .env.production) -replace '^PRIVATE_KEY=.*', "PRIVATE_KEY=$key" | Set-Content .env.production
+Write-Host "deployer address: $addr"
+Remove-Variable key
 ```
 
-Prints an address and a private key. Put the **private key** in
-`.env.production` as `PRIVATE_KEY=0x…` and keep the address — step 3 funds it.
+The snippet writes the key straight into `.env.production` and echoes only the
+address. The key is never displayed.
 
-This one does have to live in a local file: `DeployMainnet.s.sol:87` reads it
-with `vm.envUint("PRIVATE_KEY")`, so an encrypted keystore (`cast wallet new
-<path>`) does not fit this script. That is acceptable for this role and only
-this role — the deployer is a temporary identity that holds ~0.012 ETH, signs
-once, and is powerless the moment the Safe accepts in step 6. The PoG key in
-step 2 is the opposite case.
+This one does have to live in a local file: `script/DeployMainnet.s.sol:97`
+reads it with `vm.envUint("PRIVATE_KEY")`, so an encrypted keystore
+(`cast wallet new <path>`) does not fit this script. That is acceptable for this
+role and only this role — the deployer is a temporary identity that signs once
+and is powerless the moment the Safe accepts in step 6. The PoG key in step 2 is
+the opposite case.
 
-The key is printed to the terminal, not typed, so it does not enter PowerShell's
-PSReadLine history. It is in the scrollback buffer. Close that window when done.
+Fund it with only the ~0.0117 ETH step 3 names, and no more. The key lives in a
+local file by necessity, so the balance is the exposure. A previous run put
+0.12 ETH on it, roughly ten times the requirement.
 
-**Verify by reading, not by deriving.** `cast wallet new` prints the address next
-to the key, so no derivation is needed — check by eye that it is not
-`0x73db078f…`. Resist the obvious `cast wallet address --private-key <key>`: it
-puts a live mainnet key on a command line, and command lines are what shell
+The key is printed by `cast`, not typed, so it does not enter PowerShell's
+PSReadLine history. That half is true. It was the wrong thing to be reassured
+by. The residue that matters on this machine is not the scrollback of a window
+you can close: Cursor continuously persists the output of every terminal it
+manages into plaintext files at `.cursor/projects/<slug>/terminals/*.txt`.
+Closing the window does not remove that file, and the same capture puts the
+output into the agent conversation. Generate both EOAs outside that capture.
+
+**Verify by reading, not by deriving.** The snippet echoes the address and not
+the key, so no derivation is needed — check by eye that the echoed address is
+not `0x73db078f…`. Resist the obvious `cast wallet address --private-key <key>`:
+it puts a live mainnet key on a command line, and command lines are what shell
 history records.
 
 The machine check comes in step 4. `preflightMainnet.mjs` derives the deployer
@@ -53,9 +74,21 @@ signer, the Safe and the treasury — the same four assertions
 
 ## 2. Generate the PoG signer EOA
 
-```bash
-cast wallet new
+Same unmanaged window as step 1. Same rule: the key is never displayed.
+
+```powershell
+$out  = cast wallet new
+$addr = ($out | Select-String 'Address:').ToString().Split()[-1]
+$key  = ($out | Select-String 'Private key:').ToString().Split()[-1]
+(Get-Content .env.production) -replace '^POG_SIGNER_ADDRESS=.*', "POG_SIGNER_ADDRESS=$addr" | Set-Content .env.production
+$key | Set-Clipboard
+Write-Host "pog signer address: $addr"
+Remove-Variable key
 ```
+
+The snippet writes the address into `.env.production` and puts the key on the
+clipboard for the Vercel paste. After pasting into Vercel, clear the clipboard
+with Set-Clipboard -Value ' '.
 
 Different rules from step 1, and the difference is the point:
 
@@ -78,12 +111,15 @@ is why step 4 exists.
 
 ## 3. Fund the deployer
 
-Send at least **0.0117 ETH** to the step-1 address on chain **4663**.
+Send at least **0.0117 ETH** to the step-1 address on chain **4663**, and no
+more. A previous run put 0.120292 ETH on a deployer whose key then leaked —
+roughly ten times this figure, all of which had to be swept. The key lives in
+`.env.production` by necessity, so the balance is the exposure.
 
 Not a round number someone liked: it is 2x `14,580,627 gas × 0.4009 gwei`
 measured on 2026-09-06. Gas price moves, and step 4 re-prices it live rather than
 trusting this line. The 2x is margin for a price move between the check and the
-broadcast, not padding.
+broadcast, not padding, and not a reason to fund 0.12 ETH.
 
 A broadcast that runs out part-way leaves `HookDeployLib` and the treasury live
 and the factory absent, or the factory live and unowned. That is the one failure
@@ -147,6 +183,32 @@ That last absence is the accident that saves it — `vm.envAddress` reverts on a
 missing variable, so the run dies instead of deploying a real fee-taking factory
 with testnet roles. Fail-closed by omission is not a control, so the header is
 corrected rather than left to luck.
+
+The next wrong instruction was the paragraph in §1 that said the key is printed,
+not typed, so it does not enter PSReadLine history, and that closing the window
+is enough because the residue is the scrollback buffer. The first half is true.
+The second names the wrong residue, and a warning that is precise about the
+wrong threat reads as reassurance — the same shape as `preflightMainnet.mjs`
+check 0b in `SECURITY_AUDIT.md` §5.20 and as `checkBlockscoutKey.mjs` in §5.22:
+a control that was confident about a model of the world that had drifted.
+
+Cursor persists every managed terminal's output to
+`.cursor/projects/<slug>/terminals/*.txt`. Closing the window does not delete
+that file. An operator who followed §1 and §2 verbatim in the Cursor integrated
+terminal on 2026-09-08 ran `cast wallet new` twice; both keypairs landed in
+plaintext in that capture and in the agent transcript. Both EOAs are burned:
+deployer `0xf9D360fC5AC1045d79054a850b05F646939c3366` (funded with 0.120292 ETH
+on 4663 before the exposure was noticed, then swept) and PoG signer
+`0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a` (held 0). `.env.production` was
+untouched — all three `REPLACE_ME` lines still intact — so the blast radius
+stopped at two keypairs and the sweep gas.
+
+The git history already called the `set -a` omission "the second wrong
+instruction in it". This is the third, in a file that exists to prevent exactly
+this. The procedure in §1 and §2 now generates both EOAs in a terminal the
+editor does not manage, writes the deployer key straight into `.env.production`
+without echoing it, and puts the PoG key on the clipboard for the Vercel paste
+rather than on the screen.
 
 ## 7. After the broadcast
 

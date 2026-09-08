@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, fourteen
+> has actually had, all of it internal: the scope, the assumptions, nineteen
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 14 (§5.1–§5.18) |
+| Numbered review sweeps of `src/` and the settings surface | 19 (§5.1–§5.23) |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
@@ -859,7 +859,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into fourteen numbered sweeps:
+which is why §5.2 onward grew from a checklist into nineteen numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3447,6 +3447,51 @@ index 4663 at any price, and neither do Alchemy or GoldRush. So the exposure is
 accepted rather than solved, and it is worth knowing before launch day that a
 Blockscout outage postpones genesis rather than corrupting it.
 
+### 5.23 Nineteenth sweep — the runbook named the wrong residue
+
+A paragraph in `C1_RUNBOOK.md` §1 said the key is printed, not typed, so it does
+not enter PowerShell's PSReadLine history; it is in the scrollback buffer; close
+that window when done. We wrote that. The first clause is true. The rest is a
+warning that is precise about the wrong threat, and therefore reads as
+reassurance.
+
+**What the paragraph concluded wrongly.** Command history is not the exposure on
+this machine. Cursor persists the output of every terminal it manages into
+plaintext files at `.cursor/projects/<slug>/terminals/*.txt`. Closing the window
+does not remove that file, and the same capture is in the agent conversation.
+The inventory of where output lands omitted the editor.
+
+**What following it cost, measured 2026-09-08.** An operator ran
+`cast wallet new` twice in the Cursor integrated terminal, verbatim from §1
+and §2. Both keypairs landed in that capture and in the transcript. Per
+`PRE_MAINNET_CHECKLIST.md` §4.1 and the runbook's own §7 item 7, both EOAs are
+burned and cannot be used on mainnet:
+
+- deployer `0xf9D360fC5AC1045d79054a850b05F646939c3366` — funded with
+  **0.120292 ETH** on chain 4663 at nonce 0; swept after the exposure. Now
+  nonce 1, **0.000086 ETH** dust. The funds did not come from any of the three
+  Safe signers (their balances were unchanged).
+- PoG signer `0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a` — held 0.
+
+`.env.production` was untouched: all three `REPLACE_ME` lines still intact. The
+blast radius stopped at two keypairs and the sweep gas.
+
+**The same shape as §5.20 and §5.22.** A control confident about a model of the
+world that had drifted. Advice about where a secret does *not* go is only as
+good as its inventory of where output lands.
+
+**The fix** is in the runbook, not in code. Both EOAs are generated in a terminal
+the editor does not manage. The deployer snippet writes the key straight into
+`.env.production` and echoes only the address; the PoG snippet puts the key on
+the clipboard for the Vercel paste and then clears it. The key is never
+displayed. The deployer is funded with only the ~0.0117 ETH it needs: its key
+must live in a local file (`script/DeployMainnet.s.sol:97` reads it via
+`vm.envUint`), so the balance is the exposure. The previous run put roughly ten
+times that on it.
+
+This is the third wrong instruction in `C1_RUNBOOK.md`. The git history already
+called the `set -a` omission the second.
+
 ---
 
 ## 6. Findings
@@ -3456,7 +3501,7 @@ Blockscout outage postpones genesis rather than corrupting it.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.18 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.23 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3510,7 +3555,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.18 for the numbered ones.
+§5.8 through §5.23 for the numbered ones.
 
 ---
 
@@ -3541,10 +3586,11 @@ than from a sign-off date. Before deployment there is no such constraint (§0.4)
 
 ---
 
-*Last updated: 2026-09-06 — reframed from an external-audit package to the
+*Last updated: 2026-09-08 — reframed from an external-audit package to the
 internal review record it actually is, after the decision in §0 not to engage a
 third-party auditor. §6 retains only its severity ladder and §7 is retired;
 both explain why in place. §§0.4 and 0.5 are new and are the parts to read
 first: 0.4 lists the work that lost its owner when the engagement was cancelled,
 and 0.5 says how to read the twenty-odd sentences in §§1–5 that still address an
-auditor.*
+auditor. §5.23 records the 2026-09-08 runbook instruction that named the wrong
+residue and put two keys into the editor's terminal capture.*
