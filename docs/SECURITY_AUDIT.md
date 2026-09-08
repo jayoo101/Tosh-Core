@@ -3744,15 +3744,24 @@ page turns that origin into a Safe-transaction phishing site.
 Repurposing it would have meant defeating a guard written specifically
 to prevent that. The correct path was `app.safe.global`.
 
-**Safe infrastructure on 4663 is now verified as a UI path, not only as
-singletons.** Safe's official config service lists chain 4663 as
+**Safe infrastructure on 4663 is listed and indexed, not verified as a
+way to build a call.** Safe's official config service lists chain 4663 as
 Robinhood Chain, shortName robinhood, `l2: true`, transaction service
 `https://api.safe.global/tx-service/robinhood`. The Safe is indexed
 there as version 1.4.1+L2, threshold 2, 3 owners. Therefore
 `https://app.safe.global/home?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A`
-works directly. `INCIDENT_RESPONSE.md` §2 Step 1 already assumed the
-`app.safe.global` path; that assumption is now verified rather than
-hoped for. It is load-bearing for the P0 pause runbook.
+works directly. Those facts are still true. What they do not
+establish — and what this sitting inferred from them — is that the UI
+offers an entry point for constructing an arbitrary call. This
+paragraph previously headed that inference as "verified as a UI path"
+and closed *"that assumption is now verified rather than hoped for"*.
+Indexing and a working home URL do not verify it. The recheck is
+§5.29: Transaction Builder is not in chain 4663's Apps registry, the
+paste-the-ABI flow is reachable only by a direct appUrl, and the
+original heading was the overclaim. It remains load-bearing for the
+P0 pause runbook that the Safe is indexed and that the home URL
+opens; the construction entry is the URL §5.29 records, not a menu on
+that home page.
 
 **`VerifyDeployment.s.sol` was run against the live factory with the
 optional strict cross-checks active** (`EXPECTED_OWNER`,
@@ -4093,7 +4102,9 @@ would be a different, worse fact.
 hypothetical."* §5.26, the day PM-C2 landed, restated it as *"Safe
 infrastructure on 4663 is now verified as a UI path, not only as
 singletons"* and *"that assumption is now verified rather than hoped
-for."* Both conclusions were drawn from three true facts: the Safe
+for."* Those sentences are now corrected in place in §5.26, matching
+§1.1; the quote is the original wording. Both conclusions were drawn
+from three true facts: the Safe
 contracts are at their canonical addresses, chain 4663 is in Safe's
 supported-chain list, and the transaction service answers. None of
 those facts establish that the UI offers an entry point for
@@ -4298,4 +4309,4 @@ pause path in `INCIDENT_RESPONSE.md` named a Transaction Builder this
 chain's Apps registry does not list; the working entry is a direct
 appUrl, verified 2026-09-08 against the real Safe, and the 2026-09-04
 inference that contracts-plus-tx-service implied a working paste-the-ABI
-UI is corrected in §1.1.*
+UI is corrected in §1.1 and in place in this file's §5.26.*
