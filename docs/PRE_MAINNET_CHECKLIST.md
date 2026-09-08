@@ -272,9 +272,10 @@ Ordered. Each step's output feeds the next.
 
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
-| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/DeployMainnet.s.sol/4663/run-latest.json`; factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`; blocks 57400516–57400521 | ✅ **2026-09-08, chain 4663.** Five transactions, all `status=0x1`. 9,353,658 gas, 0.0026585890501 ETH. Mutually wired; ownership staged (`owner()` still the deployer `0x4E41CEa950cF40FA59774B409988D6F9F399E690`, `pendingOwner()` the Safe). The 46630 rehearsal (RH-F1) remains the behavioural proof — launch, claim, buy, shelf mint, TWAP-matured `addLadderToken`. See the note below and `C1_RUNBOOK.md` §0 |
-| **PM-C2** | Gnosis Safe has called `acceptOwnership()` on **both** factory and ladder treasury | `VerifyDeployment.s.sol` passes with `EXPECTED_OWNER=<safe>` | ❌ **ownership is staged, not accepted.** Live on both contracts: `owner()` is still the deployer `0x4E41CE…`, `pendingOwner()` is the Safe `0x29539577…`. This is the step that closes the single-key window; the signers are working it in parallel with this writing and it is **not** marked done from a seat that cannot see the accept. Mechanism rehearsed end to end on 46630, 2026-09-04 (`INCIDENT_RESPONSE.md` §8.2): 106,308 gas, 3.92 s, two signatures, after which the deployer's own `pause()` reverted `OwnableUnauthorizedAccount`. `Ownable2Step` is what made trying it safe |
-| **PM-C3** | **Factory address not announced publicly until PM-C2 is done** | — | ⏸ gated on C2. The addresses are known (C1) and must not be announced while the deployer key still owns the factory |
+| **PM-C1** | `DeployMainnet.s.sol` run against the production RPC | `broadcast/DeployMainnet.s.sol/4663/run-latest.json`; factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`; blocks 57400516–57400521 | ✅ **2026-09-08, chain 4663.** Five transactions, all `status=0x1`. 9,353,658 gas, 0.0026585890501 ETH. Mutually wired. Ownership was staged in this broadcast (`owner()` the deployer, `pendingOwner()` the Safe) and has since been accepted — see PM-C2. The 46630 rehearsal (RH-F1) remains the behavioural proof — launch, claim, buy, shelf mint, TWAP-matured `addLadderToken`. See the note below and `C1_RUNBOOK.md` §0 |
+| **PM-C2** | Gnosis Safe has called `acceptOwnership()` on **both** factory and ladder treasury | `VerifyDeployment.s.sol` passes with `EXPECTED_OWNER=<safe>`; on-chain tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb` | ✅ **2026-09-08, chain 4663, block 57455937.** Single batched Safe transaction via MultiSendCallOnly v1.4.1 at `0x9641d764fc13c8B624c04430C7356C1C7C8102e2`, operation = 1 (DELEGATECALL), Safe nonce 0. `safeTxHash` `0x13602041beeb67d02fb828c79502839a0f2a65a663c43d1d0646bd4c8ec17ea1`. Status success, gasUsed 106151, submitted by signer `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB`. Result: `ToshFactory` `0xBa9d2E86281b988225Eca383C375215912fb20B9` and `ToshLadderTreasury` `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` both now have `owner()` = Safe `0x2953957774482efA660921df85A1E7634ccfe27A` and `pendingOwner()` = zero. Safe nonce is now 1. `VerifyDeployment.s.sol` passed with `EXPECTED_OWNER`, `EXPECTED_POG_SIGNER` and `EXPECTED_PLATFORM_TREASURY` all set. The single-key window is closed. Mechanism was rehearsed on 46630, 2026-09-04 (`INCIDENT_RESPONSE.md` §8.2). See `SECURITY_AUDIT.md` §5.26 |
+| **PM-C3** | **Factory address not announced publicly until PM-C2 is done** | — | ❌ unblocked. C2 has closed, so the factory address may now be announced. It has not been. Announcing it while the deployer still owned the factory was the failure this row existed to prevent; that window is gone |
+| **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ the 4663 addresses exist; Blockscout verification of *this* deploy is not confirmed. Testnet 46630 is already verified. `--verify` was in the broadcast command; confirm the source is actually public at `0xBa9d2E86…` and `0x99aD248d…` |
 | **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ the 4663 addresses exist; Blockscout verification of *this* deploy is not confirmed. Testnet 46630 is already verified. `--verify` was in the broadcast command; confirm the source is actually public at `0xBa9d2E86…` and `0x99aD248d…` |
 | **PM-C5** | `forge build --sizes` — every contract under the 24 KB EIP-170 limit | Build output | ✅ see §3.1 |
 | **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ❌ unblocked. C1 has landed; `.env.production` still has `HOOK_CREATION_CODEHASH=0x` and `LIVE_INITCODE_HASH=0x`. Nothing errors if this is skipped: the launch page reads `factory.hookInitcodeHash(...)` from chain and works either way. The published number is just quietly wrong |
@@ -312,13 +313,13 @@ Ordered. Each step's output feeds the next.
 > a green preflight is no longer this row's evidence.
 >
 > A second, earlier deployment exists on chain and has no artefact in this
-> repository. See `SECURITY_AUDIT.md` §5.25.
+> repository. See `SECURITY_AUDIT.md` §5.25. Its factory was paused the same
+> day; see §5.26.
 
-> **PM-C2 is the one people skip, and it is the live state right now.**
-> `script/DeployMainnet.s.sol:134` says it in its own output: until the Safe
-> accepts, the deployer EOA still owns the factory. That is what is on chain
-> today. A launchpad announced in that state has a single private key standing
-> between users and every kill switch. C2 is the step that closes the window.
+> **PM-C2 closed on 2026-09-08.** The Safe accepted ownership of both
+> contracts in one batched transaction (`0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`).
+> `owner()` is the Safe, `pendingOwner()` is zero, on both. The deployer EOA
+> no longer controls either canonical contract. See `SECURITY_AUDIT.md` §5.26.
 >
 > **PM-C6 is the one that fails silently.** The committed initcode hash is a
 > published figure anyone can check a deployment against, and it is only true
@@ -520,7 +521,7 @@ prints that state and flags it if Preview ever stops being empty.
 | ID | Item | Evidence of done | Status |
 |---|---|---|---|
 | **PM-E1** *(legacy `#26`, frontend half)* | Frontend error monitoring wired | `@sentry/nextjs` installed; `instrumentation*.ts`, `observability.ts`, error boundaries and API routes report | ✅ |
-| **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (24 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **The host and the sink now exist** (`.github/workflows/watch.yml` + `monitoring/report.mjs`, §7.3); remaining is the mainnet re-point and a real pager — §8 of that doc is the done-list. | 🟡 scheduled and delivering, on testnet. There is **no vendor**: `monitoring/probeRpc.mjs` measured both §7 capabilities on the chain's own RPC, so `monitoring/watch.mjs` consumes the catalogue directly (§7.1). Rehearsed over 900k blocks of 46630: 11 of 24 alerts matched real history, hook coverage worked by both §2.1 methods against an address it was never given, and STATE-05's "finding" turned out to be the check's own false premise, which is how PM-D2 got closed (§4.1). Four checks were driven to fire, STATE-06 on both sides of its 24 h window (§7.2). **Since 2026-09-04 it runs hourly at `:07`** with a durable checkpoint on an orphan branch, and files paging findings as GitHub Issues, deduplicated so a persistent condition produces one issue rather than one per cycle. Driven end to end: a 900k sweep filed 11 issues, an identical re-sweep suppressed all 11, and a resumed pass advanced the checkpoint. Building it surfaced the C1 cutover bug — the checkpoint recorded no chain id, so re-pointing at mainnet would have left `from` above the mainnet head and exited "no new blocks" green, every cycle, forever (now WATCHER-03). Two things keep this at 🟡: it watches **46630, not mainnet** (repository variables, changed at C1), and GitHub Issues is a monitor rather than a pager — best-effort cron, auto-disabled after 60 idle days, and nobody is woken by an issue. §7.3 states that plainly rather than letting the green tick imply otherwise |
+| **PM-E2** *(legacy `#26`, on-chain half)* | **On-chain alerting on contract events and state** | Spec + config-as-code: `docs/ONCHAIN_MONITORING.md`, `monitoring/alerts.json` (24 alerts, 7 state checks), CI-guarded by `scripts/verifyAlertTopics.js`. **The host and the sink now exist** (`.github/workflows/watch.yml` + `monitoring/report.mjs`, §7.3); remaining is the mainnet re-point and a real pager — §8 of that doc is the done-list. | 🟡 scheduled and delivering, on testnet. There is **no vendor**: `monitoring/probeRpc.mjs` measured both §7 capabilities on the chain's own RPC, so `monitoring/watch.mjs` consumes the catalogue directly (§7.1). Rehearsed over 900k blocks of 46630: 11 of 24 alerts matched real history, hook coverage worked by both §2.1 methods against an address it was never given, and STATE-05's "finding" turned out to be the check's own false premise, which is how PM-D2 got closed (§4.1). Four checks were driven to fire, STATE-06 on both sides of its 24 h window (§7.2). **Since 2026-09-04 it runs hourly at `:07`** with a durable checkpoint on an orphan branch, and files paging findings as GitHub Issues, deduplicated so a persistent condition produces one issue rather than one per cycle. Driven end to end: a 900k sweep filed 11 issues, an identical re-sweep suppressed all 11, and a resumed pass advanced the checkpoint. Building it surfaced the C1 cutover bug — the checkpoint recorded no chain id, so re-pointing at mainnet would have left `from` above the mainnet head and exited "no new blocks" green, every cycle, forever (now WATCHER-03). C1 has landed, so repointing `MONITOR_*` at mainnet 4663 is unblocked rather than gated. Two things keep this at 🟡: it still watches **46630, not mainnet** (repository variables, the C1-time change is now due), and GitHub Issues is a monitor rather than a pager — best-effort cron, auto-disabled after 60 idle days, and nobody is woken by an issue. §7.3 states that plainly rather than letting the green tick imply otherwise |
 | **PM-E3** | Sentry DSNs populated for production | `NEXT_PUBLIC_SENTRY_DSN` set; a test event lands in the right project | ✅ DSN + org + project + `org:ci` token in Vercel Production. Event `09496d0b8e…` confirmed in `tosh-production` under `environment=production`, and verified on **both** routes an error can take — direct ingest and the `/monitoring` tunnel a browser actually uses. Source maps upload for real: release `5e9d92ba…` attached to `tosh-production`, 121 of 122 chunks paired with a map and a debug id, bundle `af8399aa…`. §5.1 |
 | **PM-E4** | On-call roster placeholders replaced | `INCIDENT_RESPONSE.md` §1 names the channel; handles live in the offline vault, not in this repository | ✅ 2026-09-08. §1 has no placeholders. Tom, Jack and Joe are named against the addresses they signature-proved, each reachable on Encrypted Signal / Telegram with the handle kept in the offline 1Password / Vault. Incident commander and Comms lead are both the Deployer / Primary Operator — the same person, not Tom or Jack or Joe. Legal is N/A (Decentralized protocol / Founder-led at launch). What the criterion asked for is the placeholders gone and the channel named. Nobody has been paged at 03:00 to prove the channel works, and no guard here can see the vault. |
 | **PM-E5** | First incident drill run and dated | `INCIDENT_RESPONSE.md` §8 drill log | ✅ **Q1's three criteria all met, 2026-09-04.** §8.3 closed the third line that §8.1 and §8.2 both failed: Tom and Joe — two of the three real mainnet Safe owners, neither of them the operator — signed `acceptOwnership` / `pause` / `unpause` / `transferOwnership` back through drill Safe `0x853D416A…` on 46630, whose owner set matches the mainnet Safe and **does not include the deployer**. Pause window 602 blocks ≈ 1 min 56 s (bar is 30 min). Status page `paused` banner fetched live 15.7 s after push. Deployer's own `unpause()` reverted `OwnableUnauthorizedAccount` while the Safe held the brake. Factory restored: owner is the deployer, `paused()` is false, `/drill/` taken down. Twitter / Discord / `#status` remain unopened accounts — they are Step 4 amplification, not this row's criterion. The remaining limitation is honest: the signers were expecting the request, so this timed a round-trip to a waiting person, not a 03:00 wake-up |
@@ -1375,11 +1376,11 @@ written by hand. See the note under the table.
 |---|---:|---:|---:|---:|---:|
 | A — Security review | 0 | 0 | 0 | 3 | 2 |
 | B — Chain decisions | 0 | 0 | 0 | 0 | 4 |
-| C — Deploy & handoff | 5 | 0 | 1 | 0 | 3 |
+| C — Deploy & handoff | 5 | 0 | 0 | 0 | 4 |
 | D — Keys & secrets | 0 | 2 | 0 | 1 | 1 |
 | E — Observability & ops | 0 | 1 | 0 | 0 | 5 |
 | F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **5** | **3** | **1** | **4** | **24** |
+| **Total** | **5** | **3** | **0** | **4** | **25** |
 
 The **N/A** column holds four rows: PM-D2, and PM-A1 through PM-A3 as of
 2026-09-06. It was added for D2 alone, because the table had no column for a
@@ -1389,7 +1390,7 @@ Three days later it absorbed the entire audit gate, which is a good argument for
 having built it: the decision in `SECURITY_AUDIT.md` §0 moved three items out of
 *Open* at once, and without this column that would have read as three items
 quietly completed. **N/A is not Done.** A1–A3 are counted here precisely so the
-24 in the Done column cannot be read as covering them. That is the smallest possible version of
+25 in the Done column cannot be read as covering them. That is the smallest possible version of
 the failure this document keeps finding elsewhere: a summary maintained
 separately from the thing it summarises, agreeing with it only for as long as
 someone remembers both. The counts are now derived from the gate tables by
@@ -1419,8 +1420,7 @@ below, in the order it actually blocks.
 | ID | Status | Why it is still open |
 |---|---|---|
 | **PM-A1, A2, A3** | ⬜ | Retired 2026-09-06: no third-party audit, permanently. Listed here because **N/A is not Done** — nothing further will happen on these rows, and `SECURITY_AUDIT.md` §0.1 states what that leaves uncovered. A4 no longer waits on A1 and has closed. |
-| **PM-C2** | ❌ | Safe `acceptOwnership` on factory and treasury. Ownership is staged: `owner()` is the deployer, `pendingOwner()` is the Safe, on both. This is the step that closes the single-key window. In progress with the signers; not marked done from this seat. Mechanism rehearsed on 46630, 2026-09-04 (§8.2). |
-| **PM-C3** | ⏸ | Do not announce the factory until C2. The addresses exist; announcing them while the deployer key still owns the factory is the failure this row exists to prevent. |
+| **PM-C3** | ❌ | Do not announce the factory until C2. C2 has closed, so the address may now be announced. It has not been. |
 | **PM-C4** | ❌ | Explorer verification of the *mainnet* deploy at `0xBa9d2E86…` / `0x99aD248d…`. Testnet 46630 is already verified. |
 | **PM-C6** | ❌ | Initcode hash regenerated against the mainnet build. C1 has landed; `.env.production` still has the `0x` placeholders. |
 | **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging still reads 46630, which is now wrong. `checkStatusPage.mjs` is an **armed alarm**, not a broken guard: it started failing the moment `broadcast/*/4663/` appeared, because the status page still names the testnet factory `0x2E690A91…`. **Also inherited from PM-F9:** the two-phase PoG flow is unit- and live-tested but no human has clicked it through on this deployment. |
@@ -1428,22 +1428,25 @@ below, in the order it actually blocks.
 | **PM-D1** | 🟡 | On-chain half done (`factory.pogSigner()` is the new key). Remaining: private key in Vercel Production only, no laptop copy (§4.1). |
 | **PM-D2** | ⬜ | Not applicable. The PoG signer never sends a transaction, so there is no gas to pre-fund (`ONCHAIN_MONITORING.md` §4.1). |
 | **PM-D3** | 🟡 | Tiers and stores verified by `npm run check:secrets` (§4.2); no CI job needs the Supabase key. C1 has landed; the row still waits on the rotation that clears the remaining laptop copies (runbook §7 item 7). |
-| **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). C1 has supplied the addresses; remaining is the re-point at 4663 and a pager rather than GitHub Issues. |
+| **PM-E2** | 🟡 | Watcher built and rehearsed on 46630; no vendor needed (§7.1). C1 has landed, so the re-point at 4663 is unblocked. Remaining is that re-point and a pager rather than GitHub Issues. |
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A used to be a procurement and calendar problem and is now neither —
 it was retired rather than solved (§1), which removes the last item on this list
-that money could have bought. Gate C's broadcast has landed; what remains there
-is the handoff (C2 — the single-key window), verification, the initcode hash,
-the frontend and status-page cutover, and the first ladder listing. Gate D's
+that money could have bought. Gate C's broadcast has landed and the ownership
+handoff with it (C2 — the single-key window is closed). What remains there
+is verification, the initcode hash, the announcement, the frontend and
+status-page cutover, and the first ladder listing. Gate D's
 remaining rows are the rotation that clears laptop copies now that C1 has made
 the new keys real. Gate E has no red row left — E4 and E6 closed 2026-09-08 as a
-policy naming, not as a 03:00 page-out.
+policy naming, not as a 03:00 page-out. E2's re-point at 4663 was blocked on C1
+and is now unblocked.
 
 That leaves a list on which **every single remaining item is procedural or
 operational**, and not one of them is a second opinion on the contracts. Worth
 noticing before reading the count as reassuring: 5 open and 3 partial is a
-smaller number than it was, produced by C1 landing and by C9 closing with it —
+smaller number than it was, produced by C1 landing, by C2 closing the
+single-key window, and by C9 closing with C1 —
 the PoG signer address was `REPLACE_ME` in this file and is `0x0E496Bd5…` in
 `.env.production` and on chain.
 
@@ -1451,8 +1454,9 @@ What is left that is purely engineering:
 
 - **PM-E2, delivery half** — the host and the sink now exist and were driven end
   to end (`ONCHAIN_MONITORING.md` §7.3). What is left is not code either: the
-  schedule watches testnet, C1 has now supplied the mainnet addresses, and a P0 lands
-  in an issue rather than on a phone. The second half is still a channel that
+  schedule still watches testnet. C1 has landed, so the re-point at 4663 is
+  unblocked. A P0 still lands in an issue rather than on a phone. The second
+  half is still a channel that
   pushes — §1 now names Encrypted Signal / Telegram for the signers, but the
   watcher does not drive it.
 - ~~The public status page~~ — **done**, at

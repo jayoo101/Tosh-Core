@@ -2,10 +2,12 @@
 
 **The broadcast ran on 2026-09-08.** This file was written as the order of
 operations for a deploy that had not happened; it is now the record of the one
-that has, plus the post-broadcast sequence that is still live. The procedure in
+that has, plus the post-broadcast sequence. PM-C2 — the Safe accepting
+ownership of both contracts — completed the same day. The procedure in
 §§1–6 is kept because it is how the run actually went — §5's `set -a` is why
 forge saw `.env.production` rather than `.env` — and §7 is the live checklist
-as of the moment this paragraph was written.
+as of the moment this paragraph was written, with C2 closed. §9 is the
+closing note so this file does not read as if it stops mid-handoff.
 
 The checklist argues about *what* and *why*; on the day you needed *in what
 order, and how do I know the last step worked*. That split still holds: Gate C
@@ -27,11 +29,11 @@ see §6.
 | Canonical treasury | `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` — 6,035 bytes runtime. Mutually wired: `factory.ladderTreasury()` and `treasury.factory()` return each other |
 | Blocks | 57400516–57400521. Five transactions, all `status=0x1`. Artefact: `broadcast/DeployMainnet.s.sol/4663/run-latest.json` |
 | Owner Safe | `0x2953957774482efA660921df85A1E7634ccfe27A` — 1.4.1, 2-of-3, owner set matches `safe-owners.json`, indexed by the transaction service as `1.4.1+L2`, accepts plain ETH at ~27,674 gas. Re-verify with `node scripts/verifyOwnerSafe.mjs <addr>` |
-| Ownership | **Mid-handoff.** On both contracts `owner()` is still the deployer EOA `0x4E41CEa950cF40FA59774B409988D6F9F399E690` and `pendingOwner()` is the Safe. PM-C2 — the Safe calling `acceptOwnership()` on both — is the step that closes the single-key window. It is in progress with the signers and is **not** marked done from this seat |
+| Ownership | **Handoff complete.** On both contracts `owner()` is the Safe `0x2953957774482efA660921df85A1E7634ccfe27A` and `pendingOwner()` is the zero address. PM-C2 closed in tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`, block 57455937. The deployer EOA no longer controls either canonical contract. See §9 and `SECURITY_AUDIT.md` §5.26 |
 | `.env.production` | `FACTORY_ADDRESS`, `LADDER_TREASURY_ADDRESS` and `DEPLOY_BLOCK=57400516` filled with the canonical values. `HOOK_CREATION_CODEHASH` and `LIVE_INITCODE_HASH` are still `0x` — that is PM-C6, not filled from this sitting |
 | C1 cost | **9,353,658 gas.** Receipts paid 0.28205 gwei on the treasury create and 0.28461 gwei on the other four, totalling **0.0026585890501 ETH**. This file predicted 14,580,627 gas re-summed from the 46630 rehearsal — 56% high. The ~0.0117 ETH 2x funding guidance that came from it was therefore conservative in the right direction |
 | Deployer | `0x4E41CEa950cF40FA59774B409988D6F9F399E690`, nonce 11. `0x73db078f…` remains the **testnet** deployer and §4.1 forbids reusing it |
-| Orphan pair | A complete earlier deployment exists on chain and has no `run-*.json` in this repository. Factory `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF`, treasury `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4`. See `SECURITY_AUDIT.md` §5.25. Disposition is an operator decision; anything that needs the deployer key must happen before PM-D1/D3 rotates and destroys it |
+| Orphan pair | A complete earlier deployment exists on chain and has no `run-*.json` in this repository. Factory `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF`, treasury `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4`. The orphan factory was paused by the deployer in tx `0x1cb660941cbaef807c6575d2512eaaa7d3b395751dc4f093d05006bde6f04404`; `paused()` is `true` and `createLaunch` is dead. Both orphans still have `owner()` = deployer and `pendingOwner()` = the Safe, which is deliberate: the Safe can accept them after the deployer key is burned. See `SECURITY_AUDIT.md` §5.25 and §5.26 |
 
 ## 1. Generate the deployer EOA
 
@@ -225,19 +227,26 @@ rather than on the screen.
 
 ## 7. After the broadcast
 
-In order. Each is a checklist row. This is the live list: C1 is done, C2 is
-not. `checkStatusPage.mjs` is already failing, on purpose — that is PM-C7
+In order. Each is a checklist row. This is the live list: C1 and C2 are done.
+`checkStatusPage.mjs` is already failing, on purpose — that is PM-C7
 armed by the `broadcast/*/4663/` artefact, not a broken guard.
 
-1. **PM-C2** — the Safe signers call `acceptOwnership()` on **both** the factory
-   and the ladder treasury. Until they do, the deployer EOA still owns
-   everything and a launchpad announced in that state has one private key
-   standing between users and every kill switch. Live as of this writing:
-   `owner()` is the deployer, `pendingOwner()` is the Safe, on both contracts.
-   The signers are working this in parallel with the documentation; **do not
-   mark it done from a seat that cannot see the accept.** Rehearsed end to end
-   on 46630 (`INCIDENT_RESPONSE.md` §8.2): 106,308 gas, 3.92 s, two signatures.
-   Verify with `VerifyDeployment.s.sol` and `EXPECTED_OWNER=<safe>`.
+1. **PM-C2** — **done, 2026-09-08.** The Safe called `acceptOwnership()` on
+   both the factory and the ladder treasury in one batched transaction,
+   tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`.
+   `owner()` is the Safe, `pendingOwner()` is zero, on both. The deployer
+   EOA no longer controls either canonical contract. Re-verify with:
+
+   ```bash
+   forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript \
+     --rpc-url "$TARGET_RPC" \
+     --sig 'run()' \
+     -vvv
+   ```
+
+   `FACTORY_ADDRESS` and `EXPECTED_OWNER` in the environment. The contract
+   declares both `run()` and `run(address)`, so omitting `--sig` fails with
+   "Multiple functions with the same name 'run' found in the ABI".
 2. **PM-C3** — only now may the factory address be announced.
 3. **PM-C4** — explorer verification. `--verify` in step 5 should have done it;
    confirm the source is actually public at the address.
@@ -257,7 +266,7 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    copies and re-run `npm run check:secrets` — from `soat-frontend/`, which is
    where that script is defined.
 8. **PM-E2** — repoint `MONITOR_*` at 4663 and give `watch.yml` its delivery
-   sink.
+   sink. C1 has landed, so this is unblocked.
 
 ## 8. Not blocked by any of the above
 
@@ -276,3 +285,17 @@ unmet" for two days afterwards and was corrected in the same commit as this
 line — worth knowing, because §0 of this runbook tells you to run that script.
 The same script later printed a remaining-for-D4/E4 nag after those rows had
 also closed; that line is gone too.
+
+---
+
+## 9. Closing — PM-C2 landed
+
+The ownership handoff this file treated as the live next step completed the
+same day as the broadcast, 2026-09-08. Canonical factory
+`0xBa9d2E86281b988225Eca383C375215912fb20B9` and treasury
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` both now have `owner()` = Safe
+`0x2953957774482efA660921df85A1E7634ccfe27A` and `pendingOwner()` = zero.
+On-chain tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`,
+block 57455937. The single-key window is closed. The procedure in §§1–6 is
+how the deploy actually went; §7 remains the post-broadcast list, with C2
+ticked. See `SECURITY_AUDIT.md` §5.26.

@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-one
+> has actually had, all of it internal: the scope, the assumptions, twenty-two
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,8 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 21 (§5.1–§5.25) |
+| Numbered review sweeps of `src/` and the settings surface | 22 (§5.1–§5.26) |
+| Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26. `keccak256` of this tree's `ToshLaunchpadHook` creation bytecode equals on-chain `HOOK_CREATION_CODEHASH`. The script that prints that constant still does not perform the comparison. |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
@@ -553,6 +554,11 @@ than assumed in `.github/workflows/test.yml`.
 | `test/ToshV5LpMathVectors.t.sol` | 4 | Fixed vectors for the V4 liquidity math, checked against independently computed expectations. |
 | `test/ToshV5Fork.t.sol` | 8 | **Live chain 4663**, skipped without `ROBINHOOD_RPC`. Lifecycle against the deployed V4 singleton; a buy through the deployed UniversalRouter; the router's calldata layout pinned against the chain. See §4.2. |
 
+The table is tests. One check that is not a test, and that this table therefore
+cannot carry: whether the deployed hook implementation's `HOOK_CREATION_CODEHASH`
+matches `keccak256` of this tree's creation bytecode. That comparison was run
+by hand on 2026-09-08 and recorded in §5.26. Nothing in CI repeats it.
+
 ### 4.1 Stateful invariant suite
 
 Every other file above asserts a property under a call sequence *its author
@@ -859,7 +865,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-one numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-two numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3677,6 +3683,141 @@ not know it had.
 hand.** §5.24 already said a guard for this count is warranted, after the
 second lockstep update in two commits. This is the third. Still not built.
 
+### 5.26 Twenty-second sweep — the single-key window closed, and the orphan paused
+
+PM-C2 executed on 2026-09-08. The canonical pair on chain 4663 now has
+`owner()` = Safe `0x2953957774482efA660921df85A1E7634ccfe27A` and
+`pendingOwner()` = the zero address, on both contracts. The deployer EOA
+`0x4E41CEa950cF40FA59774B409988D6F9F399E690` no longer controls either.
+The single-key window §5.25 recorded as mid-handoff is closed.
+
+**How it was sent.** One batched Safe transaction, not two. MultiSendCallOnly
+v1.4.1 at `0x9641d764fc13c8B624c04430C7356C1C7C8102e2`, operation = 1
+(DELEGATECALL), Safe nonce 0. `safeTxHash`
+`0x13602041beeb67d02fb828c79502839a0f2a65a663c43d1d0646bd4c8ec17ea1`.
+On-chain tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`,
+block 57455937, status success, gasUsed 106151, submitted by signer
+`0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB`. Safe nonce is now 1.
+
+Approving a DELEGATECALL from a Safe is the highest-risk operation type
+available, so the target's identity was established independently rather
+than assumed from a well-known-address list. MultiSendCallOnly at that
+address was confirmed to be the canonical Safe deployment by comparing
+its runtime codehash across chains:
+`0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939`,
+410 bytes, byte-identical on Ethereum mainnet, Arbitrum One and Base. The
+three candidate `safeTxHash` values were read from the Safe's own
+`getTransactionHash()` and independently recomputed locally via EIP-712;
+all matched. The batch was dry-run through the Safe's own simulateAndRevert,
+which delegatecalls the target and reverts with `(success, returndata)`;
+the inner success flag came back `true` before any signature was collected.
+
+**The orphan factory is paused.** Option 1 of the three §5.25 listed, taken
+while the deployer key still held it. Orphan `ToshFactory`
+`0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF` was paused by the deployer
+EOA in tx `0x1cb660941cbaef807c6575d2512eaaa7d3b395751dc4f093d05006bde6f04404`,
+block 57435481, status success, gasUsed 30198. `paused()` now returns
+`true`. `createLaunch` on the orphan is dead.
+
+Both orphans still have `owner()` = deployer and `pendingOwner()` = the
+Safe. That is deliberate and safe: the pending assignment is already on
+chain, so the Safe can accept them at any future time even after the
+deployer key is burned. The orphan `ToshLadderTreasury`
+`0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4` has no Pausable at all.
+Pausing its factory closes `createLaunch` and therefore any new hook
+that could call `autoPiggybackBuyback`. The treasury's remaining live
+paths are `onlyOwner` (still the deployer on this pair) and
+permissionless `pokeBuyback`, which spends a reservoir on listed tokens
+and is inert without either.
+
+**The Q1 drill page is not reusable for this.** Investigated and recorded
+so nobody re-investigates. Three independent reasons. The page never
+lived in this repository; it was `jayoo101/tosh-status` `/drill/index.html`
+and was taken down on 2026-09-04 (commit `4fb65314`, "Q1 drill closed").
+`scripts/checkDrillPage.mjs` is designed to pass silently on 404, which
+is why CI stayed green. It is hardcoded to testnet 46630, the drill Safe,
+and a single testnet factory, in a fixed four-step pause/unpause loop.
+And `checkDrillPage.mjs` actively forbids pointing it at production: it
+asserts the page's Safe is not the mainnet Safe, and asserts the page
+reads nothing from the URL, on the stated grounds that a parameterisable
+page turns that origin into a Safe-transaction phishing site.
+Repurposing it would have meant defeating a guard written specifically
+to prevent that. The correct path was `app.safe.global`.
+
+**Safe infrastructure on 4663 is now verified as a UI path, not only as
+singletons.** Safe's official config service lists chain 4663 as
+Robinhood Chain, shortName robinhood, `l2: true`, transaction service
+`https://api.safe.global/tx-service/robinhood`. The Safe is indexed
+there as version 1.4.1+L2, threshold 2, 3 owners. Therefore
+`https://app.safe.global/home?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A`
+works directly. `INCIDENT_RESPONSE.md` §2 Step 1 already assumed the
+`app.safe.global` path; that assumption is now verified rather than
+hoped for. It is load-bearing for the P0 pause runbook.
+
+**`VerifyDeployment.s.sol` was run against the live factory with the
+optional strict cross-checks active** (`EXPECTED_OWNER`,
+`EXPECTED_POG_SIGNER`, `EXPECTED_PLATFORM_TREASURY` all set). It passed:
+
+```
+Factory                 : 0xBa9d2E86281b988225Eca383C375215912fb20B9
+Chain ID                : 4663
+Owner                   : 0x2953957774482efA660921df85A1E7634ccfe27A
+V4 PoolManager          : 0x8366a39CC670B4001A1121B8F6A443A643e40951
+PoG signer              : 0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b
+Platform Treasury       : 0x2953957774482efA660921df85A1E7634ccfe27A
+Hook implementation     : 0x3Ef9373aaeD8abc9FbcD1B8435f858344fF7BfAd
+Ladder Treasury         : 0x99aD248dD15498957B864Fd79917F0E103Aa78F7
+Launch fee (wei)        : 100000000000000000
+Default soft cap (wei)  : 10000000000000000000
+Max PoG alloc (wei)     : 100000000000000000
+Cooldown duration (sec) : 86400
+Paused?                 : false
+initcodeHash (live)     : 0x3a706af1817f0f630ccde8389a67d0bffd6a4744f5e4e0dc6e914bb8bd0e91ef
+HOOK_CREATION_CODEHASH  : 0xc43a20c91d0f3164cdeb07d8786c61184c105825a9edec30a8df949f41b4d139
+```
+
+**Source-to-chain fingerprint, done by hand, never before performed.**
+`HOOK_CREATION_CODEHASH` exists so off-chain tooling can prove the
+deployed implementation was built from audited source
+(`HookDeployLib.creationCodeHash`, stored on the factory at
+construction). Nothing in this repository had ever actually performed
+that comparison. It has now been done: `keccak256` of the local build's
+`out/ToshLaunchpadHook.sol/ToshLaunchpadHook.json` bytecode.object
+(21,734 bytes, no unlinked library placeholders) equals the on-chain
+`0xc43a20c91d0f3164cdeb07d8786c61184c105825a9edec30a8df949f41b4d139`.
+The deployed hook implementation is provably built from the current
+source tree.
+
+**Two defects in the script that produced that output, one of which is
+the reason the fingerprint had to be done by hand.**
+
+**Defect A.** The usage block in the file's header said that if
+`FACTORY_ADDRESS` is in the env you can "just" run the script without
+`--sig`. That command fails with `Error: Multiple functions with the
+same name 'run' found in the ABI`, because the contract declares both
+`run()` and `run(address)`. The working invocation needs `--sig 'run()'`.
+The header is corrected in this commit. Comment only; the signatures
+are unchanged.
+
+**Defect B.** The summary block prints `initcodeHash (live)` and
+`HOOK_CREATION_CODEHASH` on adjacent lines and never compares them.
+They are not supposed to be equal: `getLiveHookInitcodeHash()` returns
+the clone initcode hash built from sentinel values, while
+`HOOK_CREATION_CODEHASH` is the implementation's creation-code
+fingerprint. Printing two similar-looking hashes side by side with no
+annotation invites an operator to conclude the deployment is broken.
+A one-line note is now logged under them. The adjacency is the defect;
+comparing them would be a different, wrong check.
+
+**What this sweep did not do, and it is the constant's entire stated
+purpose.** The script still has no check that the on-chain
+`HOOK_CREATION_CODEHASH` matches the local build. The comparison above
+was performed manually. Not implemented here.
+
+**The sweep count is now the fourth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 said it was the third
+and still not built. This is the fourth. Still not built.
+
 ---
 
 ## 6. Findings
@@ -3686,7 +3827,7 @@ second lockstep update in two commits. This is the third. Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.25 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.26 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3740,7 +3881,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.25 for the numbered ones.
+§5.8 through §5.26 for the numbered ones.
 
 ---
 
@@ -3782,4 +3923,7 @@ residue and put two keys into the editor's terminal capture. §5.24 records the
 ETH-accept probe that blamed the Safe for an empty sender and told the operator
 not to use it as PLATFORM_TREASURY. §5.25 records the orphan factory found on
 chain 4663 after C1: a complete earlier deployment with no artefact in this
-repository, `paused()` false, `createLaunch` open.*
+repository, `paused()` false, `createLaunch` open. §5.26 records the same-day
+close of that finding: the orphan factory paused, PM-C2 accepted on both
+canonical contracts, and the source-to-chain fingerprint of the hook
+implementation.*

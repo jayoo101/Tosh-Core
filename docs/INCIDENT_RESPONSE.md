@@ -176,10 +176,10 @@ first time two signatures are needed inside sixty seconds, and by then the
 threshold is effectively 2-of-2. Re-verify with `verifyOwnerSafe.mjs`, which
 also checks the properties this paragraph asserts rather than trusting it.
 
-> **This Safe is not yet the owner of anything.** `transferOwnership` happens
-> inside the C1 broadcast and the Safe must then call `acceptOwnership` — see
-> PM-C2. Until it does, the deployer EOA still holds every `onlyOwner`
-> function.
+> **This Safe now owns the canonical factory and treasury.** `acceptOwnership`
+> completed 2026-09-08 in tx `0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`
+> (PM-C2). Until that transaction, the deployer EOA still held every `onlyOwner`
+> function. See `SECURITY_AUDIT.md` §5.26.
 
 **The chain can carry a Safe — verified, not assumed.** Robinhood Chain is a
 custom Orbit chain, and everything above plus PM-C2 and Q1 rests on a Safe
@@ -231,10 +231,10 @@ reporting `+L2`.
 > D2 trigger ① names as voiding the no-timelock decision. It exists to prove
 > the mechanism and should be treated as disposable.
 
-**Status: the Safe exists; it does not yet own the factory.** 2-of-3 and the
-three owners are recorded in §1. D2 trigger ③ asks for the *actual* N and
-threshold to be recorded here once ownership transfer completes (PM-C2); that
-edit waits on a deployed factory, not on a missing Safe.
+**Status: the Safe exists and owns the factory and treasury.** 2-of-3 and the
+three owners are recorded in §1. D2 trigger ③ asked for the *actual* N and
+threshold to be recorded here once ownership transfer completed (PM-C2):
+N = 3, threshold = 2, SafeL2 1.4.1, as deployed.
 
 ---
 
@@ -269,6 +269,10 @@ deployer EOA — that is the path the first drill used (§8.1).
 **Mainnet (Gnosis Safe path):**
 
 1. Open the Safe app at `app.safe.global` for the protocol owner Safe.
+   The path is verified on this chain: Safe's official config lists 4663 as
+   Robinhood Chain, shortName robinhood, and
+   `https://app.safe.global/home?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A`
+   opens the indexed 1.4.1+L2, 2-of-3 Safe directly.
 2. New Transaction → Contract Interaction.
 3. Address: `<FACTORY_ADDRESS>` — the value of `NEXT_PUBLIC_FACTORY_ADDRESS`
    on the live deployment, read by `soat-frontend/src/lib/contracts.ts`. There

@@ -36,9 +36,14 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //        --sig 'run(address)' $FACTORY_ADDRESS \
 //        -vvv
 //
-//  Or, if FACTORY_ADDRESS is in the env, just:
+//  Or, if FACTORY_ADDRESS is in the env. The contract declares both `run()`
+//  and `run(address)`, so forge cannot pick an entry point from the ABI
+//  alone and needs `--sig`. Without it the command fails with
+//  "Multiple functions with the same name 'run' found in the ABI":
 //      forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript \
-//        --rpc-url $TARGET_RPC -vvv
+//        --rpc-url $TARGET_RPC \
+//        --sig 'run()' \
+//        -vvv
 //////////////////////////////////////////////////////////////////////////*/
 
 contract VerifyDeploymentScript is Script {
@@ -145,8 +150,16 @@ contract VerifyDeploymentScript is Script {
         console2.log("Max PoG alloc (wei)     :", factory.maxPogAllocationLimit());
         console2.log("Cooldown duration (sec) :", factory.cooldownDuration());
         console2.log("Paused?                 : false");
+        // Adjacent on purpose, and they are not supposed to match.
+        // `getLiveHookInitcodeHash()` is the clone initcode hash built from
+        // sentinel values; `HOOK_CREATION_CODEHASH` is the implementation's
+        // creation-code fingerprint. An operator who treats the two as a
+        // pair will conclude the deployment is broken. The script does not
+        // compare them, and does not check the on-chain CODEHASH against
+        // the local build either — that comparison is still manual.
         console2.log("initcodeHash (live)     :", vm.toString(h1));
         console2.log("HOOK_CREATION_CODEHASH  :", vm.toString(factory.HOOK_CREATION_CODEHASH()));
+        console2.log("  (not comparable: live = clone initcode, CODEHASH = implementation)");
         console2.log("------------------------------------------------------------");
         console2.log("Recommended next steps:");
         console2.log("  1. If owner is the deployer EOA, call transferOwnership(safe)");
