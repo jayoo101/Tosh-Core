@@ -1,9 +1,9 @@
 {
-  "lastBlock": 57586801,
+  "lastBlock": 57760793,
   "hooks": [],
   "armedSince": null,
   "lastPiggybackBlock": null,
-  "lastRun": "2026-09-08T09:34:23.399Z",
+  "lastRun": "2026-09-08T14:27:02.937Z",
   "chainId": 4663,
   "treasuryBalance": "0"
 }
