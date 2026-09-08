@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-four
+> has actually had, all of it internal: the scope, the assumptions, twenty-five
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,9 +85,9 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 24 (§5.1–§5.28) |
+| Numbered review sweeps of `src/` and the settings surface | 25 (§5.1–§5.29) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26. `keccak256` of this tree's `ToshLaunchpadHook` creation bytecode equals on-chain `HOOK_CREATION_CODEHASH`. The script that prints that constant still does not perform the comparison. |
-| Foundry tests | 362, with a CI floor equal to the suite |
+| Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
 | Narrowing casts disposed of by the bound each rests on | 19, gated in CI |
@@ -865,7 +865,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-four numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-five numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -4062,6 +4062,121 @@ balance, so nothing is stranded in the paused orphan.
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth. This is the sixth. Still not built.
 
+### 5.29 Twenty-fifth sweep — the 60-second path opened an app this chain does not list
+
+The question originally asked was whether the Safe could drive
+`soat-frontend`'s admin page, so that a signer would not have to leave
+the app they already have open in order to pause. The answer is no.
+Looking produced a larger problem: the incident playbook's 60-second
+path named a menu this chain does not offer.
+
+**Finding A — the connector idea is dead on this chain.** Safe's config
+API `https://safe-client.safe.global/v1/chains/4663` returns features:
+`BRIDGE`, `EIP1559`, `MULTI_CHAIN_SAFE_ADD_NETWORK`,
+`MULTI_CHAIN_SAFE_CREATION`, `NATIVE_SWAPS`, `NATIVE_SWAPS_FEE_ENABLED`,
+`PORTFOLIO_ENDPOINT`, `POSITIONS`. It does not include `SAFE_APPS`,
+`NATIVE_WALLETCONNECT`, `EIP1271`, or `TX_SIMULATION`. Chain 1 and
+chain 8453 both list `SAFE_APPS`, `NATIVE_WALLETCONNECT` and `EIP1271`.
+Therefore neither a wagmi `safe()` Safe-App connector nor a
+WalletConnect connector can let the Safe drive the admin page. Recorded
+so nobody proposes it again in six months.
+
+The corollary: on mainnet the admin page is a read-only console for
+everyone, including the three signers. That is tolerable **because**
+the Transaction Builder path in Finding B exists. The two findings are
+linked — a read-only admin page with no working pause construction
+would be a different, worse fact.
+
+**Finding B — the playbook's 60-second path had an untested link.**
+`INCIDENT_RESPONSE.md` §1.1, recorded 2026-09-04, concluded *"So
+`app.safe.global` is usable and §2 Step 1's paste-the-ABI flow is not
+hypothetical."* §5.26, the day PM-C2 landed, restated it as *"Safe
+infrastructure on 4663 is now verified as a UI path, not only as
+singletons"* and *"that assumption is now verified rather than hoped
+for."* Both conclusions were drawn from three true facts: the Safe
+contracts are at their canonical addresses, chain 4663 is in Safe's
+supported-chain list, and the transaction service answers. None of
+those facts establish that the UI offers an entry point for
+constructing an arbitrary call. That was the untested link, and it is
+the link a responder actually depends on at 03:00.
+
+The 46630 rehearsal did not cover it. §1.1's throwaway Safe and §8.2's
+2-of-3 both drove `execTransaction` from a script
+(`scripts/drillSafe.mjs`). They proved the contracts will execute an
+arbitrary call. They never opened `app.safe.global`'s app surface. This
+is the same class of defect as §5.28's blind pass reported success: a
+green check measuring something adjacent to the thing that matters.
+
+**What was actually verified**, 2026-09-08, against the real Safe
+`0x2953957774482efA660921df85A1E7634ccfe27A` on chain 4663.
+
+The working path is the direct URL
+
+`https://app.safe.global/apps/open?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A&appUrl=https%3A%2F%2Fapps-portal.safe.global%2Ftx-builder`
+
+A Disclaimer / Warning modal appears, stating the application is not in
+the default Safe Apps list and naming the source origin
+`https://apps-portal.safe.global`. After Continue, the full Transaction
+Builder UI loads: a "New Transaction" panel with an address field, an
+ABI textarea, and a Custom data toggle that accepts raw `to` / `value`
+/ `data` with no ABI at all. The Safe header rendered `0x2953…e27A` and
+`2/3`. Observed without connecting a wallet — connecting is only needed
+to propose.
+
+The Apps list at
+`https://app.safe.global/apps?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A`
+does render, and lists exactly those two registry apps. Searching it
+for "Transaction Builder" returns, verbatim: *"No Safe Apps found
+matching Transaction Builder. Connect to dApps that haven't yet been
+integrated with the Safe{Wallet} using WalletConnect."* The
+`NATIVE_WALLETCONNECT` feature is absent, so that suggested fallback
+does not exist either. The home-page **New transaction** button is
+disabled until a wallet is connected, so a responder cannot even
+enumerate its options first. There is a "My custom apps" tab with an
+"Add custom Safe App" button, which is how the URL above gets
+registered once, ahead of time.
+
+`https://safe-client.safe.global/v1/chains/4663/safe-apps` returns
+exactly those two apps. Chain 8453 returns 29, including Transaction
+Builder. So the app is not in chain 4663's registry; the direct appUrl
+is the way in.
+
+**Why we can assert the path works end to end and not merely renders.**
+PM-C2 (§5.26) landed as a MultiSendCallOnly v1.4.1 batch at
+`0x9641d764fc13c8B624c04430C7356C1C7C8102e2` with `operation` = 1
+(DELEGATECALL), Safe nonce 0, on-chain tx
+`0x002ad51544aa6b7377d689bf30f4822e45278a882887bf1fa6f363a95ed4b3eb`.
+That is the transaction shape Transaction Builder emits. The app is
+not merely drawing a form; it has already produced a real, executed
+governance transaction on this chain.
+
+**What was fixed.** `INCIDENT_RESPONSE.md` §2 Step 1 no longer says
+"New Transaction → Contract Interaction". It opens at the direct URL,
+names the Disclaimer modal as expected, puts Custom data (`pause()` =
+`0x8456cb59`) ahead of the ABI paste under time pressure, and tells
+every signer to register the custom app on their own machine now.
+§1.1's 2026-09-04 inference is corrected in place; the contracts, the
+supported-chain listing and the transaction services stay on the
+record. §2b's mainnet halt line pointed at the same missing menu and
+is pointed at the same URL.
+
+**Standing action.** Each of the three signers registers Transaction
+Builder via My custom apps → Add custom Safe App, on the machine they
+will actually have at 03:00. A bookmark on one laptop is not an
+operational control.
+
+**What this sweep did not do.** Nobody has clicked Create Batch → Send
+Batch through this UI on 4663 with a wallet connected *as a drill*.
+The evidence is a production transaction of the right shape, not a
+rehearsal. The natural place to close that is the Q1 drill in
+`INCIDENT_RESPONSE.md` §8. A mainnet Q1 would now be a `pause()` /
+`unpause()` on a live factory, which is a decision, not a formality.
+
+**The sweep count is now the seventh consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth, §5.27 the fifth, §5.28 the sixth. This is the seventh.
+Still not built.
+
 ---
 
 ## 6. Findings
@@ -4071,7 +4186,7 @@ the fourth, §5.27 the fifth. This is the sixth. Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.28 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.29 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -4125,7 +4240,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.28 for the numbered ones.
+§5.8 through §5.29 for the numbered ones.
 
 ---
 
@@ -4178,4 +4293,9 @@ window that held seven P0 governance events, because the 4663 RPC
 rate-limits a tight `eth_getLogs` loop and WATCHER-02 did not page.
 The skipped window is left unswept on purpose — those seven logs are
 the PM-C1/C2 handoff already in §§5.25–5.26 — so observed history on
-4663 begins at block 57,492,253.*
+4663 begins at block 57,492,253. §5.29 records that the 60-second
+pause path in `INCIDENT_RESPONSE.md` named a Transaction Builder this
+chain's Apps registry does not list; the working entry is a direct
+appUrl, verified 2026-09-08 against the real Safe, and the 2026-09-04
+inference that contracts-plus-tx-service implied a working paste-the-ABI
+UI is corrected in §1.1.*

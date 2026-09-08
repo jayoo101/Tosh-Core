@@ -188,9 +188,17 @@ the 1.3.0 and 1.4.1 singletons, proxy factories and MultiSend are deployed at
 their canonical addresses on **both** 4663 and 46630, both chains are in
 Safe's official supported list, and both transaction services answer
 (`api.safe.global/tx-service/robinhood` and `…/robinhood-testnet`, version
-6.10.1). So `app.safe.global` is usable and §2 Step 1's paste-the-ABI flow is
-not hypothetical. Had any of that been missing, PM-D4 would have been a
-contract problem rather than a recruiting one, and the timelock question in
+6.10.1). Those facts are still true. What they do not establish — and what
+that sitting inferred from them — is that the UI offers an entry point for
+constructing an arbitrary call. Rechecked 2026-09-08: chain 4663's Safe Apps
+registry carries exactly two apps (Morpho and 1inch.com) and does not include
+Transaction Builder; the config API lists neither `SAFE_APPS` nor
+`NATIVE_WALLETCONNECT`. The paste-the-ABI flow in §2 Step 1 is reachable
+only by opening Transaction Builder at a direct appUrl, not by looking for
+it in the Apps list. That is now the written path; `SECURITY_AUDIT.md`
+§5.29 is the sitting that found the gap. Had the singletons or the
+transaction service been missing, PM-D4 would have been a contract problem
+rather than a recruiting one, and the timelock question in
 `PRD-v5.0.md` §11 D2 would have reopened immediately.
 
 **Rehearsed on 46630, 2026-09-04.** Verifying the singletons exist is weaker
@@ -203,10 +211,14 @@ throwaway Safe:
 | Indexed by the service | `version=1.4.1+L2`, threshold and owner both as deployed — this is the read `app.safe.global` does, so the UI will see a real Safe |
 | Contract call through it | `execTransaction` → factory `paused()`, `isExecuted=true isSuccessful=true`, tx [`0xec6766e2…`](https://explorer.testnet.chain.robinhood.com/tx/0xec6766e2abcaccf72c7487cf30609f3002ae216b0e05fb0310f01b562c8d3826), Safe nonce 0 → 1 |
 
-The third row is the one that matters: it is the same path §2 Step 1 uses — an
-arbitrary contract call with ABI-encoded calldata — proven on this chain rather
-than assumed from other deployments. `paused()` was chosen because it is a view
-function, so the rehearsal changed no state and touched no ownership.
+The third row is the one that matters for the *contracts*: an arbitrary call
+with ABI-encoded calldata, driven through `execTransaction` from a script,
+proven on this chain rather than assumed from other deployments. It is not
+the path §2 Step 1 uses. §2 Step 1 is a human in `app.safe.global`
+constructing that call; this rehearsal never opened that surface, and
+treating it as coverage of the playbook is the inference §5.29 records as
+unsupported. `paused()` was chosen because it is a view function, so the
+rehearsal changed no state and touched no ownership.
 
 **Then the real path, later the same day — §8.2.** Choosing a view function
 kept that first run harmless and also kept it short of the thing Step 1
@@ -268,30 +280,76 @@ deployer EOA — that is the path the first drill used (§8.1).
 
 **Mainnet (Gnosis Safe path):**
 
-1. Open the Safe app at `app.safe.global` for the protocol owner Safe.
-   The path is verified on this chain: Safe's official config lists 4663 as
-   Robinhood Chain, shortName robinhood, and
-   `https://app.safe.global/home?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A`
-   opens the indexed 1.4.1+L2, 2-of-3 Safe directly.
-2. New Transaction → Contract Interaction.
-3. Address: `<FACTORY_ADDRESS>` — the value of `NEXT_PUBLIC_FACTORY_ADDRESS`
-   on the live deployment, read by `soat-frontend/src/lib/contracts.ts`. There
-   is no `factoryDeployments.ts`; a previous version of this step named a file
-   that does not exist, which a responder at 3am would have lost minutes to.
-4. ABI: paste `ToshFactory` ABI; pick `pause()`; no args.
+> **Do this once, now, not at 03:00 — every signer, on their own machine.**
+> Open the Safe, go to Apps → **My custom apps** → **Add custom Safe App**,
+> and register `https://apps-portal.safe.global/tx-builder` as Transaction
+> Builder. A bookmark on one laptop is not an operational control; a
+> custom-app entry on each signer's machine is, because the incident path
+> then becomes one click. This is preparation, not improvisation. If you
+> are reading this during an incident and it is not already registered,
+> skip the Apps list entirely and use the direct URL in step 1 —
+> searching for "Transaction Builder" on this chain is a dead end, and it
+> will spend the 60-second budget.
+
+1. Open Transaction Builder at this URL. Copy it verbatim; do not reconstruct
+   it from memory, and do not start from the Safe home page looking for a
+   button:
+   `https://app.safe.global/apps/open?safe=robinhood:0x2953957774482efA660921df85A1E7634ccfe27A&appUrl=https%3A%2F%2Fapps-portal.safe.global%2Ftx-builder`
+
+   **Do not look for Transaction Builder in the Apps list or the search
+   box. It is not there on chain 4663.** The Apps section exists and
+   renders, and it lists exactly two apps (Morpho and 1inch.com). Searching
+   it returns, verbatim: *"No Safe Apps found matching Transaction Builder.
+   Connect to dApps that haven't yet been integrated with the Safe{Wallet}
+   using WalletConnect."* That empty state is expected, not a broken Safe
+   and not a reason to start improvising. The WalletConnect fallback the
+   empty state suggests also does not exist on this chain. If you are on
+   that screen, you have taken the wrong turn — paste the URL above.
+
+2. A Disclaimer / Warning modal will appear, stating the application is
+   not in the default Safe Apps list and naming the source origin
+   `https://apps-portal.safe.global`. **That modal is expected, not a
+   sign of a phishing page.** Verify the origin, then Continue. After
+   Continue the full Transaction Builder loads: a "New Transaction" panel
+   with an address field, an ABI textarea, and a Custom data toggle. The
+   Safe header should show `0x2953…e27A` and `2/3`. Connecting a wallet
+   is needed only to propose; the builder itself loads without one. The
+   home-page **New transaction** button does not: it is disabled until a
+   wallet is connected, which is another reason not to start there.
+
+3. **Under time pressure, skip the ABI.** Flip Custom data. Fill:
+   - `to` = `0xBa9d2E86281b988225Eca383C375215912fb20B9` (the live
+     factory; same value as `NEXT_PUBLIC_FACTORY_ADDRESS`, read by
+     `soat-frontend/src/lib/contracts.ts`. There is no
+     `factoryDeployments.ts`; a previous version of this step named a
+     file that does not exist, which a responder at 3am would have lost
+     minutes to.)
+   - `value` = `0`
+   - `data` = `0x8456cb59` (`pause()`. `unpause()` is `0x3f4ba83a` —
+     you will need that in Step 6, not now.)
+
+   This is faster than pasting an ABI and is the better choice at 03:00.
+
+4. If you have the ABI to hand and prefer it: Address = the factory
+   above; paste the `ToshFactory` ABI; pick `pause()`; no args. Same
+   transaction either way.
+
 5. Submit. **Two signers must sign within 60 seconds.** The Safe is configured
    2-of-N for a reason — that is the lower bound of what you can ship.
 
    Measured on 46630 through a real 2-of-3 (§8.2): building the transaction,
    collecting both signatures and getting it confirmed took **5 seconds**.
    So essentially the whole 60-second budget is available for reaching the
-   second human, and none of it is owed to the tooling. Do not spend it
-   deliberating — §2's decision list is the deliberation, and it already
-   happened.
+   second human, and none of it is owed to the signing path. The
+   construction path is a different budget item: it is why the URL above
+   is a bookmark and not a search. Do not spend either deliberating —
+   §2's decision list is the deliberation, and it already happened.
+
 6. Confirm on-chain: `cast call $FACTORY_ADDRESS "paused()(bool)" --rpc-url $RPC`
    must return `true`. The explorer is
-   `https://explorer.testnet.chain.robinhood.com` on the rehearsal chain and
-   whatever the mainnet cutover names; it is not Etherscan.
+   `https://robinhoodchain.blockscout.com` on mainnet and
+   `https://explorer.testnet.chain.robinhood.com` on the rehearsal chain;
+   it is not Etherscan.
 
 **Testnet (deployer EOA path):**
 
@@ -439,8 +497,9 @@ While paused, the engineering team:
 
 ### Step 6 — Resume
 
-`unpause()` follows the same Gnosis Safe path as `pause()`. **Do not unpause
-until all four of the following hold:**
+`unpause()` follows the same Gnosis Safe path as `pause()`: the Step 1 URL,
+then Custom data with the same `to` and `value` = 0 and `data` =
+`0x3f4ba83a`. **Do not unpause until all four of the following hold:**
 
 - [ ] Fix is merged to `main` and on the deployed factory (or the bug is
       operational and the underlying cause is removed).
@@ -516,8 +575,12 @@ cast call $FACTORY_ADDRESS "ladderMintingHalted(address)(bool)" $HOOK_ADDRESS \
   --rpc-url $TARGET_RPC
 ```
 
-**Mainnet:** Gnosis Safe → Contract Interaction → `haltLadderMinting`, same
-2-of-N signing bar as `pause()`.
+**Mainnet:** the same Transaction Builder URL as §2 Step 1 — not Contract
+Interaction, which this chain does not offer. Paste the `ToshFactory` ABI
+and pick `haltLadderMinting`. Custom data of the selector alone
+(`0x3f8bb543`) is not enough: the call takes an address and a duration, so
+you need the ABI (or fully encoded calldata). Same 2-of-N signing bar as
+`pause()`.
 
 ### Step 3 — Communicate, in this order
 
@@ -1351,9 +1414,14 @@ on one. The refusal half is proven; the noticing half is open.
 
 ---
 
-*Last updated: 2026-09-03 (first drill, §8.1: pause/unpause on 46630, deposit
-confirmed ungated, three stale pointers in Step 1 and §6a corrected.)*
+*Last updated: 2026-09-08 (§2 Step 1: Transaction Builder is not in the
+4663 Apps registry; the pause path is a direct appUrl and Custom data
+`0x8456cb59`. The 2026-09-04 inference that contracts-plus-tx-service
+implied a working paste-the-ABI UI is corrected in §1.1; the sitting is
+`SECURITY_AUDIT.md` §5.29.)*
 
-*Previously: 2026-08-25 — ladder halt playbook §2b; corrected the pause
-boundary (`deposit` is NOT paused); owner-compromise section covers rolling
+*Previously: 2026-09-03 (first drill, §8.1: pause/unpause on 46630, deposit
+confirmed ungated, three stale pointers in Step 1 and §6a corrected).
+2026-08-25 — ladder halt playbook §2b; corrected the pause boundary
+(`deposit` is NOT paused); owner-compromise section covers rolling
 halts.*
