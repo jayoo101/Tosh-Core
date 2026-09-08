@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-seven
+> has actually had, all of it internal: the scope, the assumptions, twenty-eight
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 27 (§5.1–§5.31) |
+| Numbered review sweeps of `src/` and the settings surface | 28 (§5.1–§5.32) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26 by hand, automated in §5.30. `RecomputeInitcodeHash.s.sol` asserts `keccak256(type(ToshLaunchpadHook).creationCode)` against on-chain `HOOK_CREATION_CODEHASH` and reverts on mismatch. On-demand against a live RPC, deliberately not a CI gate (§5.28). |
 | Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -869,7 +869,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-seven numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-eight numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3481,13 +3481,43 @@ and §2. Both keypairs landed in that capture and in the transcript. Per
 burned and cannot be used on mainnet:
 
 - deployer `0xf9D360fC5AC1045d79054a850b05F646939c3366` — funded with
-  **0.120292 ETH** on chain 4663 at nonce 0; swept after the exposure. Now
-  nonce 1, **0.000086 ETH** dust. The funds did not come from any of the three
-  Safe signers (their balances were unchanged).
+  **0.120292 ETH** on chain 4663 at nonce 0; swept after the exposure. After
+  that sweep: nonce 1, **0.000086 ETH** dust. The funds did not come from any
+  of the three Safe signers (their balances were unchanged).
 - PoG signer `0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a` — held 0.
 
 `.env.production` was untouched: all three `REPLACE_ME` lines still intact. The
 blast radius stopped at two keypairs and the sweep gas.
+
+**2026-09-08 update — the dust figure is no longer true.** Current balance is
+**0.108286 ETH**, nonce 1. While distributing funding the same day, the
+operator sent 0.1082 ETH **back into** this burned address.
+
+| Time (UTC) | From → To | Value |
+|---|---|---|
+| 03:38:10 | `0x31909A77434e499F3e302293A43050fc4D67D827` → PoG signer `0x0E496Bd5…` | 0.12 ETH |
+| 03:54:14 | PoG signer → mainnet deployer `0x4E41CEa9…` | 0.0117 ETH |
+| 03:54:49 | PoG signer → **`0xf9D360fC…`** | 0.1082 ETH |
+
+Transaction hashes: the second is
+`0x430d85415307a30ebae96f9e6a9d13a734bb1d5658f4c46dfc052d08adcd1a2d`,
+the third is
+`0x1493863c816eb15018fd36bee7ce9e0ab1086f70e06b775b9cb073f1e22bc7b8`.
+
+The operator described the third as sending "the remainder to another wallet".
+The destination was this burned address, whose private key is plaintext in
+terminal capture `9.txt`. The funds are recoverable by anyone who reads that
+file. Sweeping them is an **open operator action, not done**.
+
+A burned address stays a live attractor for as long as it remains in anybody's
+address book or paste buffer. This sweep treated burning as terminal; it is
+not, because the address outlives the decision.
+
+All three transactions are type-2 with gas limit **25200** (= 21000 × 1.2,
+which is `cast`'s default 20% buffer) and `maxPriorityFeePerGas` = **0**. That
+is `cast`'s signature rather than a browser wallet's, which established the
+key had been used from a CLI and therefore that shell history, not a wallet
+vault, was where to look. That scan is §5.32.
 
 **The same shape as §5.20 and §5.22.** A control confident about a model of the
 world that had drifted. Advice about where a secret does *not* go is only as
@@ -3726,7 +3756,9 @@ block 57435481, status success, gasUsed 30198. `paused()` now returns
 Both orphans still have `owner()` = deployer and `pendingOwner()` = the
 Safe. That is deliberate and safe: the pending assignment is already on
 chain, so the Safe can accept them at any future time even after the
-deployer key is burned. The orphan `ToshLadderTreasury`
+deployer key is burned. §5.31 originally declined that path; the same
+section now reverses it. The accept-then-renounce batch is built and
+verified, **not executed** (Safe nonce still 1). The orphan `ToshLadderTreasury`
 `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4` has no Pausable at all.
 Pausing its factory closes `createLaunch` and therefore any new hook
 that could call `autoPiggybackBuyback`. The treasury's remaining live
@@ -4187,6 +4219,11 @@ rehearsal. The natural place to close that is the Q1 drill in
 `INCIDENT_RESPONSE.md` §8. A mainnet Q1 would now be a `pause()` /
 `unpause()` on a live factory, which is a decision, not a formality.
 
+The drill transaction is now built, verified, and pending signature —
+the orphan accept-then-renounce batch recorded in §5.31. It has not
+been executed. Safe nonce is still 1, which is the proof. This is not
+the drill completing.
+
 **The sweep count is now the seventh consecutive commit to update it by
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth. This is the seventh.
@@ -4304,9 +4341,13 @@ values and was deleted immediately after the run.
 
 **What the derivation proved in the other direction.** The mainnet PoG
 signing key (`0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b`, matching
-`factory.pogSigner()`) is not on the laptop. PM-D1's custody rule held
-for the key that matters. What is on the laptop is the burned
-predecessor.
+`factory.pogSigner()`) was not in this corpus. PM-D1's custody rule
+held — **for the corpus this sweep searched.** That corpus was terminal
+captures and agent transcripts. It omitted shell history. §5.32 found
+the live key there, in plaintext. The irony is exact: this sweep
+diagnosed `checkSecretStore.mjs` as a check that measured something
+adjacent to the thing that mattered, and its own scan then committed
+the same error.
 
 **What the two leaked credentials can do.**
 
@@ -4355,14 +4396,17 @@ assignment is the entire signal; values are never printed and never
 compared. If no such file is present — CI, because `.env.local` is
 gitignored — the check reports that local copies were not evaluated,
 rather than treating an empty scan as a pass. On this machine the
-check is red, which is correct: cleanup has not happened yet. There
+check is now green (27/27), which is the cleanup of the copies this
+sweep found. It is not a clean custody surface: §5.32 is an open
+custody defect on a different variable, on the same machine,
+dispositioned as accepted rather than fixed. There
 is no bypass flag. The failure names the variable, the file, and that
 the fix is deletion plus rotation, not deletion alone.
 
-**The deployer key.** The operator has decided to destroy the mainnet
-deployer key `0x4E41CEa950cF40FA59774B409988D6F9F399E690` — delete it
-from `.env.production`, keep no copy, and abandon its 0.005017 ETH
-residue rather than spend a transaction sweeping it.
+**The deployer key.** The operator has destroyed the mainnet
+deployer key `0x4E41CEa950cF40FA59774B409988D6F9F399E690` — deleted it
+from `.env.production`, kept no copy, and abandoned its residue rather
+than spend a transaction sweeping it. Confirmed 2026-09-08.
 
 Verified on chain 2026-09-08: that address has no authority over the
 canonical contracts (`ToshFactory`
@@ -4380,21 +4424,196 @@ orphan factory permanently paused and the orphan treasury permanently
 inert — whereas transferring the orphans to the Safe would have
 handed the Safe an `unpause()` it has no use for, and keeping the
 key in cold storage preserves a single-key liability for contracts
-we never want touched again. §5.26 already recorded that both
-orphans have `pendingOwner()` = the Safe, so the Safe could still
-`acceptOwnership` after the key is gone; the decision includes not
-taking that path. What destroying the key does make irreversible is
-the single-key unpause. The orphan pause itself is §5.26. Decided;
-execution is in the operator's hands; not confirmed complete.
+we never want touched again. What destroying the key made irreversible
+is the single-key unpause. The orphan pause itself is §5.26. Done.
 
-**What this sweep did not do.** It did not rotate the two leaked
-credentials. It did not delete the laptop copies. It did not destroy
-the deployer key. Those are operator steps, started, not confirmed.
+**The orphan-disposition reversal.** An earlier paragraph of this
+sweep recorded that both orphans have `pendingOwner()` = the Safe, so
+the Safe could still `acceptOwnership` after the key is gone, and
+that **the decision includes not taking that path.** That is reversed.
+The operator had separately chosen to have the deployer call
+`renounceOwnership()` on both orphans *before* destroying the key.
+The key was destroyed without those two transactions being sent (the
+deployer's on-chain nonce confirms it: 12, and no such calls exist).
+So the orphans are stranded with a dead owner.
+
+Verified on chain 2026-09-08:
+
+- orphan `ToshFactory` `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF`:
+  `owner()` = `0x4e41cea9…` (destroyed key), `pendingOwner()` = Safe
+  `0x2953957774482efa660921df85a1e7634ccfe27a`
+- orphan `ToshLadderTreasury` `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4`:
+  identical
+
+The remedy now chosen is precisely the path this sweep said would not
+be taken: the Safe performs `acceptOwnership()` then immediately
+`renounceOwnership()` on each orphan, atomically in one MultiSend
+batch. That is still the correct end state. It produces exactly what
+renounce-then-destroy would have produced (`owner()` zero,
+`pendingOwner` cleared, the orphan factory permanently unpausable by
+anyone), and it no longer depends on a key that no longer exists. The
+Safe holds ownership only inside a single atomic transaction.
+
+The batch, built and verified 2026-09-08:
+
+| Field | Value |
+|---|---|
+| Safe | `0x2953957774482efA660921df85A1E7634ccfe27A` (v1.4.1, 2-of-3) |
+| Safe nonce | 1 |
+| to | `0x9641d764fc13c8B624c04430C7356C1C7C8102e2` MultiSendCallOnly |
+| operation | 1 (DELEGATECALL) |
+| value, safeTxGas, baseGas, gasPrice | all 0 |
+| gasToken, refundReceiver | zero address |
+| `safeTxHash` | `0xffe2da614a1cadfbe531d238b3db9f46ba9580a8fb31f777d8245a8d5d56e14d` |
+
+Four inner calls, in order: orphan factory `acceptOwnership()`
+`0x79ba5097`; orphan factory `renounceOwnership()` `0x715018a6`;
+orphan treasury `acceptOwnership()`; orphan treasury
+`renounceOwnership()`.
+
+The `safeTxHash` was computed by the Safe's own `getTransactionHash()`
+via `eth_call` rather than assembled locally, and reproduced
+independently. A simulateAndRevert dry run of the delegatecall
+returns success = 1, returndatasize = 0 — all four inner calls
+pass.
+
+**Status: built and verified, NOT EXECUTED.** The Safe's nonce is
+still 1, which is the proof it has not landed.
+
+**What this sweep's operator actions became.** Confirmed complete on
+2026-09-08:
+
+- Supabase service_role key rotated in the console, Vercel Production
+  updated, local `.env.local` deleted.
+- Upstash Redis token rotated in the console, Vercel Production
+  updated, local `.env.local` deleted.
+- Local `POG_SIGNER_PRIVATE_KEY` (the burned testnet one) cleaned up.
+- Deployer `PRIVATE_KEY` destroyed from `.env.production`.
+- `npm run check:secrets` reports 27/27 green.
+
+That is not a clean custody surface. §5.32 is an open custody defect
+on a different variable, on the same machine, dispositioned as
+accepted rather than fixed.
 
 **The sweep count is now the ninth consecutive commit to update it by
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh,
 §5.30 the eighth. This is the ninth. Still not built.
+
+### 5.32 Twenty-eighth sweep — the generation flow was hardened and the verification step was not
+
+The operator explained that the mainnet PoG signer
+`0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b` had on-chain nonce 2
+because they had used it to forward ETH to the deployer and move the
+remainder onward. Sending a transaction requires the private key to be
+loaded into something that can sign it. That is by definition a copy
+outside Vercel Production, which is where PM-D1 says it is the only
+place the key may exist.
+
+**What triggered the re-check.** A nonce of 2 on the live signer is
+not a custody question that can wait. PM-D1's rule is binary: the key
+is in Vercel Production, or it has been copied. Nonce 2 is the second
+half.
+
+**The scan.** A throwaway diagnostic extracted every 64-hex string
+from 208 files (all Cursor terminal captures under
+`.cursor/projects/<slug>/terminals/` plus all agent transcripts),
+derived the secp256k1 address for each of the 134 distinct
+candidates, and compared them against a watchlist of 8 addresses. It
+printed only which watched addresses matched, never a value, and was
+deleted immediately after the run. 131 of the 134 candidates are
+"valid" private keys in the arithmetic sense — any 64-hex below the
+curve order is — so the count is meaningless and only watchlist hits
+matter.
+
+| Address | Result |
+|---|---|
+| `0x0E496Bd5…` mainnet PoG signer | clean |
+| `0x4E41CEa9…` mainnet deployer | clean |
+| the three Safe owners | clean |
+| `0xf9D360fC…` and `0xE7c1bCbC…` (§5.23's burned pair) | present in terminal capture `9.txt` — already known and dispositioned |
+| `0x73db078f…` (testnet, §5.31) | present in 5 files — already known |
+
+No new exposure in that corpus. This independently confirms §5.31's
+conclusion — **for the corpus §5.31 searched.**
+
+**The corpus was incomplete.** Shell history files are not
+Cursor-managed and no sweep had ever scanned them. A second scan
+covered `%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt`
+and `~/.bash_history`. The entire history corpus contained exactly
+one 64-hex literal, and it derives to
+`0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b` — the live mainnet PoG
+signing key, in plaintext, on disk.
+
+**The leak path, and why it is the exact inverse of §5.23.** The
+offending line was `cast wallet address` with the key as a literal
+argument. The runbook's generation flow — which is §5.23's own fix —
+worked exactly as designed: the key was never displayed, it went
+clipboard → Vercel. The break came afterwards, when the operator
+pasted the key into that command to confirm which address it derived
+to.
+
+§5.23 concluded, correctly at the time, that "command history is not
+the exposure on this machine" and that the editor's terminal capture
+was. Its fix moved key generation out of the editor into an external
+PowerShell. That fix is what made the sentence stop being true: once
+generation left the editor, PSReadLine became the exposure. §5.20 and
+§5.22 are the shape "a control confident about a model of the world
+that had drifted"; this one is narrower and worse — a control that
+named the right threat, and then relocated the asset into the threat
+it had just excluded. §5.23 inventoried where output lands. Nothing
+inventoried where input is typed.
+
+**What the key can do.** Verified on chain: canonical `ToshFactory`
+`0xBa9d2E86281b988225Eca383C375215912fb20B9` has `pogSigner()` =
+`0x0e496bd5…`, `paused()` = **false**, `maxPogAllocationLimit()` =
+**0.1 ether**. Holding the key means being able to sign `registerPoG`
+attestations granting any wallet up to 0.1 ETH of quota. The
+canonical factory has **zero** launches, so quota currently buys
+nothing. It becomes real value the moment PM-C3 announces the
+address or PM-C8 lists a token.
+
+The contract anticipated this precisely. The docstring on `pause`
+(`src/ToshFactory.sol:404-410`) is the brake written for this event.
+It says `registerPoG` stays gated because it "mints new spending
+budget against an oracle signature, which is the one thing that
+needs a faster brake than `setPogSigner` if the signer key leaks."
+
+**Disposition — accepted deviation, not a fix.** The operator decided
+on 2026-09-08 **not to rotate**. The reasoning, recorded honestly, and
+the counter-argument, which is the stronger one:
+
+- For: exploitable value is currently zero; rotation costs a Safe
+  transaction plus a Vercel update and a redeploy.
+- Against: deleting the line does not un-leak the value. Volume
+  Shadow Copies, backups, file-recovery tooling and anything that
+  synced that file may still hold it. **This repository's own
+  precedent, set in §5.23 and reaffirmed in §5.31, is that a key
+  which reaches a plaintext capture is burned rather than reasoned
+  about. That precedent is not being followed here.**
+
+**The hard gate.** Rotation must happen before PM-C3 (announce the
+factory address) or PM-C8 (list a token). Until either lands the leak
+has no exploitable value; after either, it does. This is a blocking
+precondition, not a recommendation.
+
+**What was actually done.** The single offending history line was
+removed programmatically — the line, not the file, so the operator's
+other 363 lines of history survive (364 → 363). A re-scan of the
+rewritten file confirms 0 occurrences of the key. No value was
+printed at any point. The scrub script was deleted after the run.
+
+**The runbook gap.** The generation snippets in `C1_RUNBOOK.md` §§1–2
+echo the address and warn against putting the key on a command line.
+They never showed a way to derive an address without typing the
+literal, which is what made pasting it the natural thing to do. That
+omission is corrected in the same sitting as this sweep.
+
+**The sweep count is now the tenth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh,
+§5.30 the eighth, §5.31 the ninth. This is the tenth. Still not
+built.
 
 ---
 
@@ -4405,7 +4624,7 @@ the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh,
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.31 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.32 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -4459,7 +4678,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.31 for the numbered ones.
+§5.8 through §5.32 for the numbered ones.
 
 ---
 
@@ -4529,5 +4748,10 @@ key and the Upstash REST token were the live production project, not
 burned testnet artefacts; that `check:secrets` was green throughout
 because it never asked whether a copy existed; and the decision to
 destroy the mainnet deployer key rather than sweep it or hand the
-orphans to the Safe. Rotation and destruction are decided, not
-confirmed complete.*
+orphans to the Safe. Rotation of those two credentials, deletion of
+the laptop copies, and destruction of the deployer key are confirmed
+complete; the orphan accept-then-renounce batch is built and
+verified, not executed. §5.32 records that the live mainnet PoG
+signing key reached PowerShell history in plaintext, that the
+disposition is accepted-deviation rather than rotation, and that
+rotation is a blocking precondition for PM-C3 and PM-C8.*

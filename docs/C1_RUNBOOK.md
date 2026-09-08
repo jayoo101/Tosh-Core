@@ -33,7 +33,7 @@ see §6.
 | `.env.production` | `FACTORY_ADDRESS`, `LADDER_TREASURY_ADDRESS` and `DEPLOY_BLOCK=57400516` filled with the canonical values. `HOOK_CREATION_CODEHASH` and `LIVE_INITCODE_HASH` are still `0x` — that is PM-C6, not filled from this sitting |
 | C1 cost | **9,353,658 gas.** Receipts paid 0.28205 gwei on the treasury create and 0.28461 gwei on the other four, totalling **0.0026585890501 ETH**. This file predicted 14,580,627 gas re-summed from the 46630 rehearsal — 56% high. The ~0.0117 ETH 2x funding guidance that came from it was therefore conservative in the right direction |
 | Deployer | `0x4E41CEa950cF40FA59774B409988D6F9F399E690`, nonce 11. `0x73db078f…` remains the **testnet** deployer and §4.1 forbids reusing it |
-| Orphan pair | A complete earlier deployment exists on chain and has no `run-*.json` in this repository. Factory `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF`, treasury `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4`. The orphan factory was paused by the deployer in tx `0x1cb660941cbaef807c6575d2512eaaa7d3b395751dc4f093d05006bde6f04404`; `paused()` is `true` and `createLaunch` is dead. Both orphans still have `owner()` = deployer and `pendingOwner()` = the Safe. The operator has decided (2026-09-08) to destroy the deployer key without the Safe accepting, leaving the paused factory and inert treasury with no single key that can change them; execution is not confirmed complete. See `SECURITY_AUDIT.md` §5.25, §5.26 and §5.31 |
+| Orphan pair | A complete earlier deployment exists on chain and has no `run-*.json` in this repository. Factory `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF`, treasury `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4`. The orphan factory was paused by the deployer in tx `0x1cb660941cbaef807c6575d2512eaaa7d3b395751dc4f093d05006bde6f04404`; `paused()` is `true` and `createLaunch` is dead. Both orphans still have `owner()` = the destroyed deployer key and `pendingOwner()` = the Safe. The deployer-renounce-then-destroy path was intended and not sent (deployer nonce 12). The remedy now chosen is a Safe accept-then-renounce MultiSend; built and verified 2026-09-08, **not executed** (Safe nonce still 1). See `SECURITY_AUDIT.md` §5.25, §5.26 and §5.31 |
 
 ## 1. Generate the deployer EOA
 
@@ -75,9 +75,12 @@ output into the agent conversation. Generate both EOAs outside that capture.
 
 **Verify by reading, not by deriving.** The snippet echoes the address and not
 the key, so no derivation is needed — check by eye that the echoed address is
-not `0x73db078f…`. Resist the obvious `cast wallet address --private-key <key>`:
+not `0x73db078f…`. If you still need to derive, read the key from the file or
+an environment variable; never pass it as a literal argument. See the note
+after step 2. Resist the obvious `cast wallet address --private-key <key>`:
 it puts a live mainnet key on a command line, and command lines are what shell
-history records.
+history records. That is exactly how the live PoG key leaked (`SECURITY_AUDIT.md`
+§5.32).
 
 The machine check comes in step 4. `preflightMainnet.mjs` derives the deployer
 from `PRIVATE_KEY` in `.env.production` and asserts it differs from the PoG
@@ -120,6 +123,30 @@ getting `InvalidSignature` after launch.
 **This key must not be the deployer.** `requireDistinctRoles` reverts
 mid-broadcast on a collision, and `.env` today has exactly that collision, which
 is why step 4 exists.
+
+**Confirming an address without putting the key on a command line.**
+The snippets above echo the address. That is the check. If you still
+need to derive — because the clipboard might have been overwritten, or
+because you are looking at a key that is already in a file — read it
+from the file or from an environment variable. Do not paste the hex
+as an argument.
+
+```powershell
+# deployer: already in .env.production
+cast wallet address --private-key ((Select-String -Path .env.production -Pattern '^PRIVATE_KEY=').Line -replace '^PRIVATE_KEY=','')
+
+# a key that is only on the clipboard — still do not type it
+$env:TMP_KEY = Get-Clipboard
+cast wallet address --private-key $env:TMP_KEY
+Remove-Item Env:TMP_KEY
+```
+
+PSReadLine can suppress matching lines with
+`Set-PSReadLineOption -AddToHistoryHandler`. That is per-profile and
+easy to lose. The durable fix is not typing the literal at all.
+`cast wallet address` with a 64-hex argument is what put the live
+mainnet PoG key into ConsoleHost_history.txt (`SECURITY_AUDIT.md`
+§5.32).
 
 ## 3. Fund the deployer
 
@@ -213,7 +240,9 @@ that file. An operator who followed §1 and §2 verbatim in the Cursor integrate
 terminal on 2026-09-08 ran `cast wallet new` twice; both keypairs landed in
 plaintext in that capture and in the agent transcript. Both EOAs are burned:
 deployer `0xf9D360fC5AC1045d79054a850b05F646939c3366` (funded with 0.120292 ETH
-on 4663 before the exposure was noticed, then swept) and PoG signer
+on 4663 before the exposure was noticed, then swept; **0.108286 ETH was sent
+back into this address on 2026-09-08** and has not been re-swept — see
+`SECURITY_AUDIT.md` §5.23) and PoG signer
 `0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a` (held 0). `.env.production` was
 untouched — all three `REPLACE_ME` lines still intact — so the blast radius
 stopped at two keypairs and the sweep gas.
@@ -247,7 +276,10 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    `FACTORY_ADDRESS` and `EXPECTED_OWNER` in the environment. The contract
    declares both `run()` and `run(address)`, so omitting `--sig` fails with
    "Multiple functions with the same name 'run' found in the ABI".
-2. **PM-C3** — only now may the factory address be announced.
+2. **PM-C3** — do not announce the factory address until the live PoG
+   signer is rotated. C2 has closed; that was the original gate. The
+   leaked signer key (`SECURITY_AUDIT.md` §5.32) is now a second,
+   blocking one.
 3. **PM-C4** — explorer verification. `--verify` in step 5 should have done it;
    confirm the source is actually public at the address.
 4. **PM-C6** — regenerate the hook initcode hash against the **mainnet** build
@@ -260,11 +292,13 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    and live-tested and no human has ever clicked it on a real deploy.
 6. **PM-C8** — `treasury.addLadderToken`, but **poll for TWAP maturity, do not
    compute it**. The first testnet sitting listed 52 s after launch; see
-   `PRE_MAINNET_CHECKLIST.md` §3.2.
-7. **PM-D1 / PM-D3** — the rotation is now real: every key and wallet used on
-   testnet, in this repo, or in a chat is burned. Clear the remaining laptop
-   copies and re-run `npm run check:secrets` — from `soat-frontend/`, which is
-   where that script is defined.
+   `PRE_MAINNET_CHECKLIST.md` §3.2. Do not list until the live PoG signer
+   is rotated (`SECURITY_AUDIT.md` §5.32).
+7. **PM-D1 / PM-D3** — D3's laptop copies are rotated and deleted;
+   `npm run check:secrets` (from `soat-frontend/`, where that script is
+   defined) is 27/27 green. D1 is not: the live PoG signing key reached
+   PowerShell history and was not rotated. Rotation is a blocking
+   precondition for C3 and C8.
 8. **PM-E2** — repoint `MONITOR_*` at 4663 and give `watch.yml` its delivery
    sink. C1 has landed, so this is unblocked.
 
