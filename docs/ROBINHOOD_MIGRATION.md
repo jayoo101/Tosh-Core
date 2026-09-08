@@ -4,8 +4,9 @@
 **Status:** executed on testnet **46630**; mainnet **4663** deployed 2026-09-08
 (PM-C1). Canonical factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`,
 treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, blocks 57400516–57400521.
-Ownership is mid-handoff (PM-C2). Blockscout verification (the other half of
-RH-F3) and `RecomputeInitcodeHash` (RH-F4 / PM-C6) are still open. This file is
+Ownership handoff is complete (PM-C2): both contracts are owned by the 2-of-3
+Safe. Blockscout verification (the other half of RH-F3) and
+`RecomputeInitcodeHash` (RH-F4 / PM-C6) are still open. This file is
 the plan and the evidence behind the chain migration; `PRE_MAINNET_CHECKLIST.md`
 remains the authority for everything that is not chain-specific.
 **Target:** Robinhood Chain testnet **46630** first, mainnet **4663** after.

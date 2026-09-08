@@ -187,8 +187,22 @@ if (html) {
   } else {
     const field = k => active[1].match(new RegExp(`${k}:\\s*'([^']*)'`))?.[1] ?? ''
     const chain = { name: field('name'), rpc: field('rpc'), explorer: field('explorer') }
-    // Each field votes testnet or mainnet by its own text.
-    const vote = s => (/testnet|46630/i.test(s) ? 'testnet' : /mainnet|4663\b/.test(s) ? 'mainnet' : '?')
+    // Each field votes testnet or mainnet by its own text. Testnet is
+    // matched first so a string that somehow names both still votes
+    // testnet — a half-finished cutover that still carries a rehearsal
+    // marker is the cheaper mistake to catch.
+    //
+    // `robinhoodchain.blockscout.com` is special-cased because it is the
+    // canonical mainnet explorer and contains neither `mainnet` nor `4663`.
+    // The vanity alias `explorer.mainnet.chain.robinhood.com` would have
+    // voted mainnet on the substring, and was rejected: a GET of
+    // `/address/<factory>` against it returns 200 and lands on the
+    // explorer's front page — the path is dropped. Address links on the
+    // status page would then send users to the homepage of the right
+    // chain, looking like a working explorer while showing them nothing
+    // about the contract. The hostname is therefore recognised, rather
+    // than the URL being swapped for the one that happens to match.
+    const vote = s => (/testnet|46630/i.test(s) ? 'testnet' : /mainnet|4663\b|robinhoodchain\.blockscout\.com/.test(s) ? 'mainnet' : '?')
     const votes = Object.fromEntries(Object.entries(chain).map(([k, v]) => [k, vote(v)]))
     const distinct = [...new Set(Object.values(votes))]
     if (distinct.length !== 1 || distinct[0] === '?') {

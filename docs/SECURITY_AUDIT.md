@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-two
+> has actually had, all of it internal: the scope, the assumptions, twenty-three
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 22 (§5.1–§5.26) |
+| Numbered review sweeps of `src/` and the settings surface | 23 (§5.1–§5.27) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26. `keccak256` of this tree's `ToshLaunchpadHook` creation bytecode equals on-chain `HOOK_CREATION_CODEHASH`. The script that prints that constant still does not perform the comparison. |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -865,7 +865,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-two numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-three numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3818,6 +3818,68 @@ was performed manually. Not implemented here.
 hand.** §5.24 said a guard is warranted; §5.25 said it was the third
 and still not built. This is the fourth. Still not built.
 
+### 5.27 Twenty-third sweep — the status page was still reading the rehearsal chain
+
+PM-C1 deployed the 4663 factory. The public status page in
+`jayoo101/tosh-status` kept naming testnet 46630. `checkStatusPage.mjs`
+check 6 is the alarm that exists for exactly that: once
+`broadcast/*/4663/` appears, a page that still votes testnet is
+reporting the `paused()` state of a contract that is not holding user
+funds, and it looks healthy while doing so. CI went red. That is the
+guard working as designed, not a broken check.
+
+**The page is now pointed at mainnet.** Active `CHAIN` block: name
+`Robinhood mainnet · 4663`, RPC `https://rpc.mainnet.chain.robinhood.com`,
+explorer `https://robinhoodchain.blockscout.com`, factory
+`0xBa9d2E86281b988225Eca383C375215912fb20B9`. The testnet block sits
+commented beneath it, the same shape the mainnet placeholders used to
+have, so a revert is one edit. `STATUS` / `DETAIL` / `UPDATED`, the
+`COPY` object (whose `paused:` wording is byte-compared against
+`INCIDENT_RESPONSE.md` Step 4), the `data: '0x5c975abb'` eth_call, and
+the `MANUAL_INTERACTION.md` link were not touched. `/sign/` already
+named 4663.
+
+**A second defect in the same guard, which the cutover would have
+tripped even after a correct swap.** Check 5 votes each of `name`,
+`rpc`, `explorer` as testnet / mainnet / unknown via
+`/testnet|46630/i` then `/mainnet|4663\b/`, and fails if the three
+do not agree or any is unknown. The canonical mainnet explorer
+`robinhoodchain.blockscout.com` contains neither `mainnet` nor `4663`,
+so it voted unknown. The vanity alias
+`explorer.mainnet.chain.robinhood.com` would have voted mainnet on the
+substring, and was rejected: a GET of `/address/<factory>` against it
+returns 200 and lands on `https://robinhoodchain.blockscout.com/` —
+the `/address/…` path is dropped. Every address link on the status
+page would then send a responder to the explorer's front page.
+`foundry.toml`, `ROBINHOOD_MIGRATION.md`, `C1_RUNBOOK.md` and
+`INCIDENT_RESPONSE.md` already treat the Blockscout hostname as
+canonical. The vote rule now recognises that exact hostname as
+mainnet. Testnet is still matched first, so
+`explorer.testnet.chain.robinhood.com` still wins on `testnet` even if
+a string somehow contains both. The testnet Blockscout is a different
+host entirely.
+
+**`monitoring/alerts.json` placeholders filled** with the same three
+mainnet addresses: factory `0xBa9d2E86…`, ladder treasury
+`0x99aD248d…`, owner Safe `0x29539577…`. `chainId` was already 4663.
+This is documentation, not runtime config: `monitoring/watch.mjs`
+reads `alerts.json` for alert specs and state-check ids, and takes
+factory / treasury / owner / signer from `MONITOR_*` (or
+`NEXT_PUBLIC_*`) environment variables. Filling the placeholders does
+not change what the watcher calls.
+
+**What this sweep did not do.** The frontend half of PM-C7 —
+`soat-frontend` and `.env.production` still pointing at 46630 — is
+still open. The live status page stays red against check 6 until
+`tosh-status` is pushed; that is expected, and the guard is not
+weakened to paper over it. `ROBINHOOD_MIGRATION.md`'s header still
+said "Ownership is mid-handoff (PM-C2)" after C2 closed; that sentence
+is corrected in this commit rather than recorded as known drift.
+
+**The sweep count is now the fifth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth. This is the fifth. Still not built.
+
 ---
 
 ## 6. Findings
@@ -3827,7 +3889,7 @@ and still not built. This is the fourth. Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.26 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.27 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3881,7 +3943,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.26 for the numbered ones.
+§5.8 through §5.27 for the numbered ones.
 
 ---
 
@@ -3926,4 +3988,7 @@ chain 4663 after C1: a complete earlier deployment with no artefact in this
 repository, `paused()` false, `createLaunch` open. §5.26 records the same-day
 close of that finding: the orphan factory paused, PM-C2 accepted on both
 canonical contracts, and the source-to-chain fingerprint of the hook
-implementation.*
+implementation. §5.27 records the status-page cutover the armed guard had
+been failing CI for: the page now names 4663, the vote rule recognises
+the canonical Blockscout hostname, and `alerts.json` placeholders are
+filled.*

@@ -279,7 +279,7 @@ Ordered. Each step's output feeds the next.
 | **PM-C4** | Contracts verified on the block explorer | Public verified source at the deployed address | ❌ the 4663 addresses exist; Blockscout verification of *this* deploy is not confirmed. Testnet 46630 is already verified. `--verify` was in the broadcast command; confirm the source is actually public at `0xBa9d2E86…` and `0x99aD248d…` |
 | **PM-C5** | `forge build --sizes` — every contract under the 24 KB EIP-170 limit | Build output | ✅ see §3.1 |
 | **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ❌ unblocked. C1 has landed; `.env.production` still has `HOOK_CREATION_CODEHASH=0x` and `LIVE_INITCODE_HASH=0x`. Nothing errors if this is skipped: the launch page reads `factory.hookInitcodeHash(...)` from chain and works either way. The published number is just quietly wrong |
-| **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` — **and the status page's `CHAIN` block repointed** | Deployed frontend reads the right factory; `checkStatusPage.mjs` green | ❌ **the guard is armed, not broken.** `broadcast/*/4663/` exists, so `checkStatusPage.mjs` now fails on purpose: the status page still names the testnet factory `0x2E690A91…`. Staging (`tosh-two.vercel.app`) still reads 46630, which was the right factory until C1 and is the wrong factory now. **The status page half was added 2026-09-04:** the page hardcodes its own chain, RPC, explorer and factory in a *different* repository, so repointing the frontend here would leave the page reading a testnet contract's `paused()` and presenting it as production truth. See `INCIDENT_RESPONSE.md` §8.2 |
+| **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` — **and the status page's `CHAIN` block repointed** | Deployed frontend reads the right factory; `checkStatusPage.mjs` green | ❌ **status-page half done, frontend half still open.** The public page in `jayoo101/tosh-status` now names Robinhood mainnet 4663, factory `0xBa9d2E86…`, explorer `robinhoodchain.blockscout.com`. `checkStatusPage.mjs` is green against that local file; it stays red against the live page until that repository is pushed, which is expected. Staging (`tosh-two.vercel.app`) and `.env.production` still read 46630. The status-page half was added 2026-09-04 because C7 had never covered it — the page hardcodes its own chain in a different repository — and this sitting closed that half. The remaining evidence is the deployed frontend reading the 4663 factory. See `SECURITY_AUDIT.md` §5.27 |
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet, now unblocked. No token has been listed on the 4663 treasury. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
 | **PM-C9** | Deploy-side role addresses decided and distinct: `PROD_OWNER_SAFE`, `PLATFORM_TREASURY`, `POG_SIGNER_ADDRESS` | `verifyOwnerSafe.mjs` green; `DeployMainnet.s.sol`'s `requireDistinctRoles` passes | ✅ **all three filled and used in the 2026-09-08 broadcast.** The 2-of-3 Safe is both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`; `POG_SIGNER_ADDRESS` is `0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b`, matching `factory.pogSigner()`. `requireDistinctRoles` passed — the broadcast reverts otherwise. **Added 2026-09-04, because `PLATFORM_TREASURY` had no checklist row at all.** C7 covers the *frontend* env; this row covered the *deploy* env, and one of its values can never be changed. `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool, forever, and is immutable — baked into the factory *and* into the hook implementation's `platformFeeRecipient`, so rotating it means redeploying the factory and migrating every pool. The deploy script asserts only that it is non-zero and differs from the deployer and the PoG signer, so a personal EOA passes and is then permanent. **Decided:** the 2-of-3 owner Safe serves as both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`. Two properties of that choice which a comment had claimed and no test had checked are now asserted in `ToshV5.t.sol`: a recipient dearer than a `transfer()` stipend is still payable — a 1.4.1 Safe cost 29,944 gas to pay on 46630, and it works **only** because v4-core sends native value with `call(gas(), …)` — and a recipient that *reverts* does brick every buy on every pool. Note that `.env` today still points all three roles at the testnet deployer, which would fail all three assertions and is not what C1 used |
 
@@ -1423,7 +1423,7 @@ below, in the order it actually blocks.
 | **PM-C3** | ❌ | Do not announce the factory until C2. C2 has closed, so the address may now be announced. It has not been. |
 | **PM-C4** | ❌ | Explorer verification of the *mainnet* deploy at `0xBa9d2E86…` / `0x99aD248d…`. Testnet 46630 is already verified. |
 | **PM-C6** | ❌ | Initcode hash regenerated against the mainnet build. C1 has landed; `.env.production` still has the `0x` placeholders. |
-| **PM-C7** | ❌ | Frontend pointed at the 4663 factory. Staging still reads 46630, which is now wrong. `checkStatusPage.mjs` is an **armed alarm**, not a broken guard: it started failing the moment `broadcast/*/4663/` appeared, because the status page still names the testnet factory `0x2E690A91…`. **Also inherited from PM-F9:** the two-phase PoG flow is unit- and live-tested but no human has clicked it through on this deployment. |
+| **PM-C7** | ❌ | Status-page half done (`jayoo101/tosh-status` names 4663). Frontend half still open: staging and `.env.production` still read 46630. `checkStatusPage.mjs` against the live page stays red until the sibling repository is pushed; that is expected, not a reason to weaken the guard. **Also inherited from PM-F9:** the two-phase PoG flow is unit- and live-tested but no human has clicked it through on this deployment. |
 | **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. Unblocked; nothing listed yet. |
 | **PM-D1** | 🟡 | On-chain half done (`factory.pogSigner()` is the new key). Remaining: private key in Vercel Production only, no laptop copy (§4.1). |
 | **PM-D2** | ⬜ | Not applicable. The PoG signer never sends a transaction, so there is no gas to pre-fund (`ONCHAIN_MONITORING.md` §4.1). |
@@ -1435,8 +1435,9 @@ code. Gate A used to be a procurement and calendar problem and is now neither �
 it was retired rather than solved (§1), which removes the last item on this list
 that money could have bought. Gate C's broadcast has landed and the ownership
 handoff with it (C2 — the single-key window is closed). What remains there
-is verification, the initcode hash, the announcement, the frontend and
-status-page cutover, and the first ladder listing. Gate D's
+is verification, the initcode hash, the announcement, the frontend
+cutover (the status-page half of C7 is done; the `soat-frontend` /
+`.env.production` half is not), and the first ladder listing. Gate D's
 remaining rows are the rotation that clears laptop copies now that C1 has made
 the new keys real. Gate E has no red row left — E4 and E6 closed 2026-09-08 as a
 policy naming, not as a 03:00 page-out. E2's re-point at 4663 was blocked on C1
@@ -1477,9 +1478,11 @@ What is left that is purely engineering:
   that in CI — it fetches the deployed page and fails if the paused wording no
   longer matches Step 4 verbatim, if the page stops calling `paused()`, or if
   the guide §6b hands to users stops resolving. Five mutations, all caught.
-  As of C1 that guard is **armed**: `broadcast/*/4663/` exists and the page
-  still names the testnet factory, so the check fails on purpose. That is
-  PM-C7, not a regression.
+  As of this sitting the page in `jayoo101/tosh-status` names the 4663
+  factory. `checkStatusPage.mjs` is green against that local file and stays
+  red against the live page until that repository is pushed — expected, not
+  a reason to weaken the guard. The remaining half of PM-C7 is the
+  frontend.
 
   One of them caught a hole in the guard itself: the chain-read check
   originally asked whether the page *contained* the `paused()` selector, and a

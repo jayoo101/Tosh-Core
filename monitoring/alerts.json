@@ -54,9 +54,9 @@
   "chainId": 4663,
 
   "addresses": {
-    "factory": "<NEXT_PUBLIC_FACTORY_ADDRESS after PM-C1>",
-    "ladderTreasury": "<treasury address after PM-C1>",
-    "gnosisSafe": "<owner Safe after PM-C2>",
+    "factory": "0xBa9d2E86281b988225Eca383C375215912fb20B9",
+    "ladderTreasury": "0x99aD248dD15498957B864Fd79917F0E103Aa78F7",
+    "gnosisSafe": "0x2953957774482efA660921df85A1E7634ccfe27A",
     "$comment": [
       "Hook addresses are deliberately absent. There is one hook per project, each at",
       "a CREATE2 address mined to carry the 0x20CC flag mask, so the set is unbounded",
