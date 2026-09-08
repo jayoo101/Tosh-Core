@@ -5,7 +5,7 @@
 **Machine-readable config:** `monitoring/alerts.json`
 **Watcher:** `monitoring/watch.mjs` · **capability probe:** `monitoring/probeRpc.mjs`
 **Drift guard:** `scripts/verifyAlertTopics.js` (runs in CI)
-**Last updated:** 2026-09-04
+**Last updated:** 2026-09-08
 
 ---
 
@@ -16,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | 🟡 **scheduled and delivering on testnet 46630** (§7.3). Two things keep it from ✅: it is pointed at testnet until C1, and its sink is GitHub Issues, which is a monitor and not a pager |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **scheduled and delivering on testnet 46630** (§7.3). C1 has landed (factory `0xBa9d2E86…` on 4663); two things keep this from ✅: the schedule has not been re-pointed at mainnet, and its sink is GitHub Issues, which is a monitor and not a pager |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -455,9 +455,9 @@ probably the thing to change.
       only one needing a window rather than a reading (§7). STATE-01/03/04/05/07
       were run against the live testnet and 02/03/04/06 were each driven to fire
       (§7.2); `.github/workflows/watch.yml` now runs the lot on a schedule with
-      a durable checkpoint (§7.3). **Scheduled against 46630. It must be
-      re-pointed at 4663 at C1** — change the `MONITOR_*` repository variables
-      and the `MONITOR_RPC` secret, nothing in the code.
+      a durable checkpoint (§7.3). **Scheduled against 46630. C1 has supplied
+      the 4663 addresses; it must now be re-pointed** — change the `MONITOR_*`
+      repository variables and the `MONITOR_RPC` secret, nothing in the code.
 - [x] A checkpoint that survives the cutover. `lastBlock` recorded no chain, so
       re-pointing at mainnet would have made `from` a testnet height above the
       mainnet head, and the "no new blocks" branch would have exited 0 on every

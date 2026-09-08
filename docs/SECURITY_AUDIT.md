@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty
+> has actually had, all of it internal: the scope, the assumptions, twenty-one
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 20 (§5.1–§5.24) |
+| Numbered review sweeps of `src/` and the settings surface | 21 (§5.1–§5.25) |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
@@ -859,7 +859,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-one numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3605,6 +3605,78 @@ hand-updated in lockstep. This document has repeatedly said a total that
 reconciles against nothing is a defect, and this count is now demonstrably
 one. A guard is warranted. Not built in this sweep.
 
+### 5.25 Twenty-first sweep — a complete mainnet factory with no artefact
+
+PM-C1 broadcast on 2026-09-08. The canonical pair is on chain 4663 at blocks
+57400516–57400521:
+
+- `ToshFactory` `0xBa9d2E86281b988225Eca383C375215912fb20B9` (10,789 bytes)
+- `ToshLadderTreasury` `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` (6,035 bytes)
+
+Five transactions, all `status=0x1`, 9,353,658 gas, 0.0026585890501 ETH.
+Ownership is mid-handoff: `owner()` on both is still the deployer
+`0x4E41CEa950cF40FA59774B409988D6F9F399E690`, `pendingOwner()` is the Safe
+`0x2953957774482efA660921df85A1E7634ccfe27A`. That is PM-C2, in progress,
+not closed from this seat.
+
+**How the second deployment was found.** The deployer's nonce is 11.
+`broadcast/DeployMainnet.s.sol/4663/run-latest.json` accounts for five
+transactions (nonces 6–10). Computing CREATE addresses for nonces 0–10 and
+checking each for code found a complete parallel pair from an earlier run:
+
+- Orphan `ToshFactory` `0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF` — nonce 2, 10,789 bytes
+- Orphan `ToshLadderTreasury` `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4` — nonce 1, 6,035 bytes
+
+Verified live against `https://rpc.mainnet.chain.robinhood.com` on 2026-09-08.
+
+**What is live.** The orphan pair is self-consistent and fully wired: the
+orphan treasury's `factory()` returns the orphan factory, and the orphan
+factory's `ladderTreasury()` returns the orphan treasury. It is not a
+half-deployment. `pogSigner()` is the same `0x0E496Bd5…` as the canonical
+factory. `owner()` is the deployer and `pendingOwner()` is the same Safe —
+the earlier run reached its ownership staging too. `paused()` is **false**.
+`createLaunch` (`ToshFactory.sol:676`) is `external payable whenNotPaused
+nonReentrant` with no access control; `registerPoG` is likewise
+`whenNotPaused` and not `onlyOwner`. The orphan factory is a live, open,
+unmonitored launchpad on mainnet.
+
+**What is not in this repository.** `broadcast/DeployMainnet.s.sol/4663/`
+contains only `run-latest.json`, which is the second run. The first
+deployment exists on chain and nowhere in this tree. Foundry's
+`transactions[]` hashes in the surviving artefact are also permuted relative
+to `receipts[]` (metadata follows nonce order; hashes follow receipt order);
+receipts and live `cast tx` agree with each other.
+
+**What is not a risk.** PoG signatures cannot be replayed onto the orphan
+factory. `registerPoG` at `ToshFactory.sol:601` builds the digest as
+`keccak256(abi.encode(msg.sender, maxAlloc, nonce, deadline, address(this), block.chainid))`,
+so a signature issued for the canonical factory recovers to the wrong hash
+on the orphan and reverts `InvalidSignature`. Chain id is the same (4663);
+`address(this)` is what binds the signature to one factory.
+
+**Disposition is an operator decision, not this sweep's.** The options in
+front of the operator:
+
+1. Pause the orphan factory now with the deployer key, while they still hold
+   it. One `onlyOwner` `pause()` call. Closes `createLaunch` and
+   `registerPoG`.
+2. Leave it, and treat `pendingOwner` as a standing option for the Safe.
+3. Have the Safe accept ownership of the orphan and pause it.
+
+The hard constraint: anything that requires the deployer key must happen
+**before PM-D1/D3 rotates and destroys it**. After that, only the Safe route
+remains. This sweep records the finding and the constraint. It does not
+assert which option was chosen.
+
+This is a finding, not a policy note. The last two sweeps were a wrong
+residue in a runbook and a sender-funds error reported as a property of the
+Safe. This one is an unmonitored mainnet launchpad that the repository did
+not know it had.
+
+**The sweep count is now the third consecutive commit to update it by
+hand.** §5.24 already said a guard for this count is warranted, after the
+second lockstep update in two commits. This is the third. Still not built.
+
 ---
 
 ## 6. Findings
@@ -3614,7 +3686,7 @@ one. A guard is warranted. Not built in this sweep.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.24 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.25 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3668,7 +3740,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.24 for the numbered ones.
+§5.8 through §5.25 for the numbered ones.
 
 ---
 
@@ -3708,4 +3780,6 @@ and 0.5 says how to read the twenty-odd sentences in §§1–5 that still addres
 auditor. §5.23 records the 2026-09-08 runbook instruction that named the wrong
 residue and put two keys into the editor's terminal capture. §5.24 records the
 ETH-accept probe that blamed the Safe for an empty sender and told the operator
-not to use it as PLATFORM_TREASURY.*
+not to use it as PLATFORM_TREASURY. §5.25 records the orphan factory found on
+chain 4663 after C1: a complete earlier deployment with no artefact in this
+repository, `paused()` false, `createLaunch` open.*

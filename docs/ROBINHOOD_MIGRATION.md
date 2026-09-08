@@ -1,15 +1,15 @@
 # Tosh Protocol — Robinhood Chain migration
 
 **Version:** v5.0
-**Status:** executed on testnet **46630**; mainnet **4663** not yet deployed.
-Gates RH-A through RH-F2 are closed, including the full create → genesis →
-launch → buy → mint rehearsal (§F.6) and the piggyback gas measurement that was
-the last open contract item (§F.7). What remains is RH-F3/F4, the mainnet
-cutover, which is gated behind the audit rather than behind anything here. This
-file is the plan and the evidence behind it; `PRE_MAINNET_CHECKLIST.md` remains
-the authority for everything that is not chain-specific.
+**Status:** executed on testnet **46630**; mainnet **4663** deployed 2026-09-08
+(PM-C1). Canonical factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`,
+treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, blocks 57400516–57400521.
+Ownership is mid-handoff (PM-C2). Blockscout verification (the other half of
+RH-F3) and `RecomputeInitcodeHash` (RH-F4 / PM-C6) are still open. This file is
+the plan and the evidence behind the chain migration; `PRE_MAINNET_CHECKLIST.md`
+remains the authority for everything that is not chain-specific.
 **Target:** Robinhood Chain testnet **46630** first, mainnet **4663** after.
-**Last updated:** 2026-08-27
+**Last updated:** 2026-09-08
 
 ---
 
@@ -403,8 +403,8 @@ gate.
 | **RH-F0b** | Contracts deployed and Blockscout-verified on 46630 | 🔁 was ✅ §F.2 — **superseded**, see below |
 | **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | ✅ re-run end to end on the redeployed contracts, §F.8. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2 |
 | **RH-F2** | Lockout behaviour observed live under real 100 ms blocks | ✅ re-confirmed on the redeploy: `lastSwapBlock` = 112,342,060, which is both an L2 height and exactly the block `launch()` mined in. Re-armed to 112,348,233 by the phase 3 swap. §F.8 |
-| **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | Addresses recorded |
-| **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | `.env.production` populated |
+| **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | ✅ deploy half 2026-09-08: factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json`. Blockscout verification is PM-C4, not confirmed from this sitting |
+| **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | 🟡 `FACTORY_ADDRESS` and `DEPLOY_BLOCK=57400516` filled; `LIVE_INITCODE_HASH` still `0x` (PM-C6) |
 
 **RH-F0b and RH-F1 were reset on 2026-09-03**, and the first version of this
 note gave the wrong reason. It said the old factory could no longer be mined
