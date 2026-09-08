@@ -83,6 +83,18 @@ const INVENTORY = {
   NEXT_PUBLIC_FACTORY_ADDRESS:       { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
+  NEXT_PUBLIC_RPC_URL: {
+    tier: 'config',
+    why: 'Universal RPC override, shipped in the client bundle because of the NEXT_PUBLIC_ prefix. '
+       + 'Today it is the bare public endpoint https://rpc.mainnet.chain.robinhood.com and holds '
+       + 'no credential. providers.tsx names this the premium leg ("Alchemy / Infura / drpc") and '
+       + '.env.production.example tells production to point it at a dedicated provider; those '
+       + 'providers embed the API key in the URL path. Swapping this for a keyed URL therefore '
+       + 'ships a credential to every browser while this row stays config and the guard stays '
+       + 'green. There is no conditional tier — the prefix makes a secret impossible, and this '
+       + 'check never reads the value. A paid endpoint belongs off NEXT_PUBLIC_*, the way '
+       + 'MONITOR_RPC is a GitHub secret for the same reason.',
+  },
   NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: { tier: 'config', why: 'Public RPC endpoint, no credential in the URL.' },
   NEXT_PUBLIC_SUPABASE_URL:          { tier: 'config', why: 'Public project URL.' },
   NEXT_PUBLIC_SUPABASE_ANON_KEY:     { tier: 'config', why: 'Anon key is public by design; RLS is what protects the rows.' },
