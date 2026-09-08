@@ -59,9 +59,59 @@ reportRoleEnv(ROLES, roleEnv)
 const provider = new ethers.JsonRpcProvider(RPC)
 const net = await provider.getNetwork()
 const problems = []
+const unknowns = []
 const notes = roleEnv.missing.map(k =>
   `${k} was unset, so the collision check against that role did not run. `
   + 'DeployMainnet.s.sol asserts it at C1 regardless.')
+
+/** Sender cannot pay for gas * price + value. That is a property of `from`,
+ *  never of the recipient — which is the whole reason this helper exists. */
+function isSenderFundsError(err) {
+  if (ethers.isError(err, 'INSUFFICIENT_FUNDS')) return true
+  const rpc = err?.info?.error
+  const msg = String(rpc?.message || '')
+  return Number(rpc?.code) === -32000
+    && /insufficient funds/i.test(msg)
+    && !/revert/i.test(msg)
+}
+
+function isRecipientRevert(err) {
+  return ethers.isError(err, 'CALL_EXCEPTION')
+}
+
+function isOverrideUnsupported(err) {
+  const msg = [err?.shortMessage, err?.message, err?.info?.error?.message]
+    .filter(Boolean).join(' ')
+  return /invalid arguments|too many arguments|optional args|not (supported|available)|unknown method/i.test(msg)
+    && !/execution reverted|insufficient funds/i.test(msg)
+}
+
+/** 100 ETH — enough for 1 wei plus intrinsic gas at any price this chain has shown. */
+const SYNTHETIC_BALANCE = '0x56bc75e2d63100000'
+
+async function estimatePlainEth(to, from) {
+  const tx = { to, value: 1n, from }
+  try {
+    return { gas: await provider.estimateGas(tx) }
+  } catch (err) {
+    if (!isSenderFundsError(err)) {
+      return isRecipientRevert(err) ? { reject: err } : { indeterminate: err }
+    }
+    try {
+      const gasHex = await provider.send('eth_estimateGas', [
+        { from, to, value: '0x1' },
+        'latest',
+        { [from.toLowerCase()]: { balance: SYNTHETIC_BALANCE } },
+      ])
+      return { gas: BigInt(gasHex), synthetic: true }
+    } catch (overrideErr) {
+      if (isRecipientRevert(overrideErr) && !isOverrideUnsupported(overrideErr)) {
+        return { reject: overrideErr }
+      }
+      return { indeterminate: err, overrideErr }
+    }
+  }
+}
 
 if (net.chainId !== MAINNET_ID) {
   console.error(`✗ connected to chain ${net.chainId}, expected ${MAINNET_ID}.`)
@@ -183,24 +233,59 @@ for (const [name, addr] of roles) {
 // the Safe. We are safe only because v4-core sends with `call(gas(), ...)` and
 // forwards everything. That is a real dependency on a vendored library, so it
 // is worth restating wherever this address is checked.
-try {
-  const gas = await provider.estimateGas({
-    to: ethers.getAddress(safeAddr),
-    value: 1n,
-    from: roles[0]?.[1] ?? owners[0],
-  })
-  console.log(`\n  plain ETH   accepted, ~${gas} gas — well over the 2300 a bare transfer()`)
-  console.log('              would forward. v4-core uses call(gas(), …), so this is fine;')
+//
+// The probe sender is the deployer EOA when PRIVATE_KEY is set, otherwise
+// owners[0]. That is deliberate: shopping for a funded `from` would make this
+// pass on whichever machine happened to have a rich owner and leave the next
+// caller — whose deployer is empty and whose owners are too — with the same
+// misdiagnosis this used to print. An empty sender is not a property of the
+// Safe. State-override the sender's balance if the node honours it (Robinhood
+// mainnet nitro does, third argument of eth_estimateGas); otherwise report
+// indeterminate rather than either a pass or "Do NOT use it as PLATFORM_TREASURY".
+const probeFrom = roles[0]?.[1] ?? owners[0]
+const probeTo = ethers.getAddress(safeAddr)
+const ethProbe = await estimatePlainEth(probeTo, probeFrom)
+if (ethProbe.gas != null) {
+  const how = ethProbe.synthetic
+    ? ` — probe sender ${probeFrom} holds too little to pay for 1 wei; measured with an eth_estimateGas state override`
+    : ''
+  console.log(`\n  plain ETH   accepted, ~${ethProbe.gas} gas${how}`)
+  console.log('              well over the 2300 a bare transfer() would forward.')
+  console.log('              v4-core uses call(gas(), …), so this is fine;')
   console.log('              it is fine BECAUSE of that, not by margin.')
-  if (gas > 100000n) {
-    problems.push(`receiving ETH costs ${gas} gas, which is high enough to be worth `
+  if (ethProbe.synthetic) {
+    notes.push(`the ETH-accept probe funded ${probeFrom} synthetically; its on-chain `
+      + 'balance could not pay for 1 wei plus gas. The gas figure is the recipient\'s. '
+      + 'The empty sender is not a reason to rotate PLATFORM_TREASURY.')
+  }
+  if (ethProbe.gas > 100000n) {
+    problems.push(`receiving ETH costs ${ethProbe.gas} gas, which is high enough to be worth `
       + 'understanding before making this the permanent fee recipient.')
   }
-} catch (err) {
+} else if (ethProbe.reject) {
   problems.push('a plain ETH transfer to this address does not even estimate '
-    + `(${err.message}). As PLATFORM_TREASURY it would revert every buy on every pool, `
+    + `(${ethProbe.reject.message}). As PLATFORM_TREASURY it would revert every buy on every pool, `
     + 'and the address is immutable once the factory is deployed. Do NOT use it as '
     + 'PLATFORM_TREASURY.')
+} else {
+  const err = ethProbe.indeterminate
+  const extra = ethProbe.overrideErr
+    ? ` State override retry: ${ethProbe.overrideErr.message}.`
+    : ''
+  if (err && isSenderFundsError(err)) {
+    unknowns.push('could not determine whether this address accepts plain ETH: the probe sender '
+      + `${probeFrom} cannot fund the estimate (${err.message}).`
+      + extra
+      + ' This is not a finding that the Safe rejects ETH, and not a reason to rotate '
+      + 'PLATFORM_TREASURY. Re-run once the sender can pay for 1 wei plus gas, or against an RPC '
+      + 'that honours eth_estimateGas state overrides.')
+  } else {
+    unknowns.push('could not determine whether this address accepts plain ETH '
+      + `(${err?.message ?? 'unknown'}).`
+      + extra
+      + ' This is not a finding that the Safe rejects ETH, and not a reason to rotate '
+      + 'PLATFORM_TREASURY.')
+  }
 }
 
 // ── Verdict ───────────────────────────────────────────────────────────────────
@@ -209,7 +294,16 @@ for (const n of notes) console.log('  ⚠ ' + n)
 if (problems.length) {
   console.error('\n✗ NOT ready to put in .env.production:\n')
   for (const p of problems) console.error('  · ' + p)
+  if (unknowns.length) {
+    console.error('\n  also could not determine (not a finding that the Safe is unfit):\n')
+    for (const u of unknowns) console.error('  · ' + u)
+  }
   process.exit(1)
+}
+if (unknowns.length) {
+  console.error('\n✗ could not finish the check. This is not a pass, and not a finding that the Safe is unfit:\n')
+  for (const u of unknowns) console.error('  · ' + u)
+  process.exit(2)
 }
 
 console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, accepts ETH.')

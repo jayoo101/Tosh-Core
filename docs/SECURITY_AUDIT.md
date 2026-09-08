@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, nineteen
+> has actually had, all of it internal: the scope, the assumptions, twenty
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 19 (§5.1–§5.23) |
+| Numbered review sweeps of `src/` and the settings surface | 20 (§5.1–§5.24) |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
@@ -859,7 +859,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into nineteen numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3492,6 +3492,116 @@ times that on it.
 This is the third wrong instruction in `C1_RUNBOOK.md`. The git history already
 called the `set -a` omission the second.
 
+### 5.24 Twentieth sweep — a sender error reported as an irreversible property of the recipient
+
+`scripts/verifyOwnerSafe.mjs` section 7 probes whether the owner Safe accepts
+plain ETH, because that address is also `PLATFORM_TREASURY`: 0.30 % of every
+buy on every pool, forever, immutable once the factory is deployed. A recipient
+that reverts on receive bricks every buy, via v4-core's `NativeTransferFailed`.
+The probe used `estimateGas` of 1 wei `from` the deployer EOA (or `owners[0]`
+if that key is unset) and treated **every** estimate failure as a property of
+the Safe: "Do NOT use it as PLATFORM_TREASURY".
+
+**What it concluded wrongly.** The failure it was looking at was the sender's.
+ethers v6 surfaces `code === 'INSUFFICIENT_FUNDS'` on that error; the node
+returns JSON-RPC `-32000` with `have 0 want 1` naming the sender. A brand-new
+deployer holds 0, so the node rejects the estimate before it ever evaluates the
+recipient. The same family as §5.20 (priced the funding gap against the testnet
+deployer), §5.22 (a guard stricter than the scanner it guards) and §5.23 (the
+runbook named the wrong residue): a control confident about a model of the
+world that had drifted. Here, an error on the sender, reported as a property of
+the recipient, about a setting that cannot be rotated.
+
+**Measured on chain 4663 against `https://rpc.mainnet.chain.robinhood.com`,
+2026-09-08.** The node identifies as `nitro/v3.11.4-rc.3`. Two facts that were
+true when the defect was found, and one that had already moved by the time the
+fix ran:
+
+- From a 0 ETH sender (`0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a`, the
+  burned PoG EOA of §5.23) to the Safe: `INSUFFICIENT_FUNDS`,
+  `have 0 want 1`. This is the defect's input.
+- From Joe (`0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6`, 0.089 ETH) to the
+  Safe: **27674 gas**. Matches `C1_RUNBOOK.md` §0.
+- The live deployer `0x4E41CEa950cF40FA59774B409988D6F9F399E690` now holds
+  **0.0117 ETH**, the runbook amount. Direct `estimateGas` from it already
+  returns 27674–27675. The brief's "unfunded deployer" was true when measured
+  and is not true now; the live path is a pass even without the override
+  recovery. The constructed 0 ETH sender is what the classification is tested
+  against.
+
+**(a) State overrides on `eth_estimateGas`.** Honoured. Three-argument form
+`[tx, 'latest', { [from]: { balance: 100 ETH } }]` from the 0 ETH sender to
+the Safe returns **0x6c1a (27674)**. The same override to PoolManager
+`0x8366a39CC670B4001A1121B8F6A443A643e40951` returns `CALL_EXCEPTION` /
+`execution reverted` — the override funds the sender and still measures the
+recipient. Two-argument form `[tx, overrides]` is rejected (`invalid
+arguments; neither block nor hash specified`). An override that sets the
+balance to `0x0` still returns `INSUFFICIENT_FUNDS`, so the node is not
+ignoring the third parameter. ethers v6's `provider.estimateGas` has no
+overrides path; the retry is raw `provider.send('eth_estimateGas', …)`.
+
+**(b) Sender choice.** Kept as `roles[0]?.[1] ?? owners[0]` — deployer when
+`PRIVATE_KEY` is set. Shopping for a funded `from` would pass on this machine
+(Tom, `owners[0]`, holds 0.005 ETH; Joe, owner 3, holds 0.089) and leave the
+next caller, whose deployer is empty and whose owners are too, with the same
+misdiagnosis. The failure is not silent: a synthetic-balance hit prints that
+the sender could not pay, and that this is not a reason to rotate
+`PLATFORM_TREASURY`. If the node will not honour overrides, the check reports
+indeterminate (exit 2), not a pass and not "Do NOT use it".
+
+**The three states.** Accepts ETH (report the gas, as before). Rejects ETH
+(today's fatal wording, kept, because it is right when it is right). Cannot
+be determined (exit 2). Exit 2 follows `preflightMainnet.mjs`'s table: a guard
+that cannot run must not be mistaken for one that found nothing, and must not
+be mistaken for one that found a problem. `preflightMainnet.mjs` now treats
+that exit as `cannotRun` when it is the only finding, and as a distinct
+"could not determine" failure — never "rejected" — when other checks have
+already failed.
+
+**Mutation tested, 8 assertions. One survived the first run.**
+
+| | Scenario | Expected |
+|---|---|---|
+| P1 | live funded deployer, healthy Safe | ~27674 gas, exit 0 |
+| M1 | 0 ETH sender, healthy Safe, overrides on | 27674 gas, synthetic note, **not** "Do NOT use" |
+| M2 | 0 ETH sender, overrides deleted | exit 2, "could not determine", **not** "Do NOT use" |
+| M3 | `to` = PoolManager (code, rejects plain ETH) | exit 1, "Do NOT use it as PLATFORM_TREASURY" |
+| M4 | `gas > 1n` (the 100000n branch, tripped by 27674) | exit 1, high-gas warning |
+| M5 | original catch-all restored, 0 ETH sender | "Do NOT use" returns — the test can fail |
+| M6 | `isSenderFundsError` always false, 0 ETH sender | override recovery does not run |
+| M7 | `isRecipientRevert` always false, PoolManager | fatal wording lost |
+
+P1, M1–M5 as expected. M6 fell through to exit 2 rather than the original
+"Do NOT use", so the misdiagnosis does not come back if the structured
+classifier is gutted; the override recovery does. M7 **survived**: a real
+reject becomes exit 2 (indeterminate) instead of the fatal wording. It still
+does not pass, and it still does not tell anyone to rotate the treasury.
+That is the fail-safe default this fix chose — unknown errors must not mint
+irreversible advice — and not the §5.22 M1 class, where nothing could be
+fatal *and* the output looked like a finding. Left as is; tightening it
+reintroduces the catch-all.
+
+M8 (`process.exit(2)` → `process.exit(0)` on the unknowns block) produced a
+clean-looking pass with the "could not finish" text still printed. Killed by
+reading the exit code, which is the same discipline `C1_RUNBOOK.md` §4
+already requires of preflight.
+
+The cascade, against a real exit 2: preflight prints `CANNOT RUN` and exits
+2, not `verifyOwnerSafe.mjs rejected PROD_OWNER_SAFE`.
+
+**What this does not fix, and what the brief had already moved on.** Live
+preflight is now `✓ clear for C1`. Check 6 prices C1 at ~0.00413 ETH and the
+deployer holds 0.0117, over 2×. The instruction to expect that check to fail
+was right when the deployer was empty and is not right now. Section 7 no
+longer claims the Safe is unusable; it never should have.
+
+**The sweep count itself is now the same shape of defect.** Updating "19
+(§5.1–§5.23)" / "nineteen numbered sweeps" / the §6 and §7 range references
+is the second time in two commits these four-to-six sites have had to be
+hand-updated in lockstep. This document has repeatedly said a total that
+reconciles against nothing is a defect, and this count is now demonstrably
+one. A guard is warranted. Not built in this sweep.
+
 ---
 
 ## 6. Findings
@@ -3501,7 +3611,7 @@ called the `set -a` omission the second.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.23 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.24 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3555,7 +3665,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.23 for the numbered ones.
+§5.8 through §5.24 for the numbered ones.
 
 ---
 
@@ -3593,4 +3703,6 @@ both explain why in place. §§0.4 and 0.5 are new and are the parts to read
 first: 0.4 lists the work that lost its owner when the engagement was cancelled,
 and 0.5 says how to read the twenty-odd sentences in §§1–5 that still address an
 auditor. §5.23 records the 2026-09-08 runbook instruction that named the wrong
-residue and put two keys into the editor's terminal capture.*
+residue and put two keys into the editor's terminal capture. §5.24 records the
+ETH-accept probe that blamed the Safe for an empty sender and told the operator
+not to use it as PLATFORM_TREASURY.*

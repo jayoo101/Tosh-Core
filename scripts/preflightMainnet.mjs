@@ -394,6 +394,28 @@ const subOut = (sub.stdout || '') + (sub.stderr || '')
 console.log(subOut.split(/\r?\n/).map(l => (l ? '   │ ' + l : '   │')).join('\n'))
 if (sub.status === null) {
   notes.push(`verifyOwnerSafe.mjs did not run to completion (${sub.error?.message ?? 'unknown'}).`)
+} else if (sub.status === 2) {
+  // Exit 2 is "could not determine", not "the Safe is unfit". Flattening it into
+  // "rejected" is the same misdiagnosis verifyOwnerSafe.mjs itself was just
+  // fixed for: an error on the probe, reported as a property of the recipient.
+  const why = 'It exited 2 — a guard that cannot run, not a finding that the Safe is unfit. '
+    + 'Its output is printed above.'
+  const fix = 'Resolve whatever blocked it (typically an unfunded probe sender on an RPC that '
+    + 'will not honour eth_estimateGas state overrides) and re-run. Do not rotate '
+    + 'PLATFORM_TREASURY on this basis.'
+  if (failures.length) {
+    fail(
+      'verifyOwnerSafe.mjs could not determine a required property of PROD_OWNER_SAFE',
+      why,
+      fix,
+    )
+  } else {
+    cannotRun(
+      'verifyOwnerSafe.mjs could not determine a required property of PROD_OWNER_SAFE (exit 2).\n'
+      + '            A guard that cannot run must not be mistaken for one that found nothing,\n'
+      + '            and must not be mistaken for one that found a problem. Output is printed above.',
+    )
+  }
 } else if (sub.status !== 0) {
   fail(
     'verifyOwnerSafe.mjs rejected PROD_OWNER_SAFE',
