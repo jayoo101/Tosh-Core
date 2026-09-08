@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-five
+> has actually had, all of it internal: the scope, the assumptions, twenty-six
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,8 +85,8 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 25 (§5.1–§5.29) |
-| Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26. `keccak256` of this tree's `ToshLaunchpadHook` creation bytecode equals on-chain `HOOK_CREATION_CODEHASH`. The script that prints that constant still does not perform the comparison. |
+| Numbered review sweeps of `src/` and the settings surface | 26 (§5.1–§5.30) |
+| Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26 by hand, automated in §5.30. `RecomputeInitcodeHash.s.sol` asserts `keccak256(type(ToshLaunchpadHook).creationCode)` against on-chain `HOOK_CREATION_CODEHASH` and reverts on mismatch. On-demand against a live RPC, deliberately not a CI gate (§5.28). |
 | Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
 | Slither findings triaged and dispositioned | 71 (1H / 24M / 27L / 19I) across 66 contracts, re-checked on every push |
@@ -556,8 +556,12 @@ than assumed in `.github/workflows/test.yml`.
 
 The table is tests. One check that is not a test, and that this table therefore
 cannot carry: whether the deployed hook implementation's `HOOK_CREATION_CODEHASH`
-matches `keccak256` of this tree's creation bytecode. That comparison was run
-by hand on 2026-09-08 and recorded in §5.26. Nothing in CI repeats it.
+matches `keccak256` of this tree's creation bytecode. That comparison now lives
+in `script/RecomputeInitcodeHash.s.sol`, which asserts like-with-like against
+a live RPC and reverts on mismatch. It is on-demand, not CI: the 4663 public
+endpoint rate-limits a tight request loop (§5.28), and putting a live probe
+on every push is how the watcher reported success while blind. First automated
+run 2026-09-08, recorded in §5.30; the original hand check is §5.26.
 
 ### 4.1 Stateful invariant suite
 
@@ -865,7 +869,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-five numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-six numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -4188,6 +4192,86 @@ hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth. This is the seventh.
 Still not built.
 
+### 5.30 Twenty-sixth sweep — the published hashes were live, and the comparison was still a human
+
+PM-C6 closed on 2026-09-08. `RecomputeInitcodeHash.s.sol` was run against
+the live factory `0xBa9d2E86281b988225Eca383C375215912fb20B9` on chain
+4663, block 57592077, with `--sig 'run(address)'` — the contract declares
+both `run()` and `run(address)`, so forge cannot pick an entry point
+without it. The two hashes it prints match the values read independently
+with `cast` the same day, and the local creation bytecode matches the
+on-chain constant:
+
+```
+Factory                 : 0xBa9d2E86281b988225Eca383C375215912fb20B9
+Chain ID                : 4663
+Block                   : 57592077
+HOOK_CREATION_CODEHASH  : 0xc43a20c91d0f3164cdeb07d8786c61184c105825a9edec30a8df949f41b4d139
+local creationCode hash : 0xc43a20c91d0f3164cdeb07d8786c61184c105825a9edec30a8df949f41b4d139
+  MATCH -- keccak256(type(ToshLaunchpadHook).creationCode)
+  equals on-chain HOOK_CREATION_CODEHASH.
+  This is the implementation creation-code fingerprint.
+getLiveHookInitcodeHash : 0x3a706af1817f0f630ccde8389a67d0bffd6a4744f5e4e0dc6e914bb8bd0e91ef
+  clone initcode hash with sentinel constructor values.
+  Different measurement from HOOK_CREATION_CODEHASH;
+  they MUST differ. Not compared, not a mismatch.
+Wired V4 PoolManager    : 0x8366a39CC670B4001A1121B8F6A443A643e40951
+Wired PoG signer        : 0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b
+Wired Platform Treasury : 0x2953957774482efA660921df85A1E7634ccfe27A
+Wired Ladder Treasury   : 0x99aD248dD15498957B864Fd79917F0E103Aa78F7
+Launch Fee (wei)        : 100000000000000000
+Default Soft Cap (wei)  : 10000000000000000000
+Per-wallet cap (wei)    : 100000000000000000
+```
+
+`extractAbis.js` produced no diff.
+
+The output is committed here rather than as a new file under `broadcast/`.
+`RecomputeInitcodeHash` does not broadcast, so there is no
+`run-latest.json` to hang it on; the sibling `VerifyDeployment` snapshot
+already lives in §5.26 as a dated block, and this is the same kind of
+evidence.
+
+**The comparison §5.26 did by hand is now in the script that prints the
+constant.** `keccak256(type(ToshLaunchpadHook).creationCode)` is asserted
+against on-chain `HOOK_CREATION_CODEHASH` and reverts
+`HookCreationCodehashMismatch` on disagreement. That is the method §5.26
+used: the artifact's `bytecode.object` is that creation code. The sitting
+that recorded the fingerprint also recorded that the script still did not
+perform it.
+
+It does not compare `HOOK_CREATION_CODEHASH` to `getLiveHookInitcodeHash()`.
+Those measure different things and are supposed to differ — clone initcode
+with sentinel constructor values versus the implementation's creation-code
+fingerprint. §5.26 Defect B was the adjacency inviting that misreading;
+comparing them would be a different, wrong check. The script now labels
+each line with which measurement it is, and the only assertion is
+like-with-like.
+
+**Not a CI gate, on purpose.** The script needs a live RPC. The 4663
+public endpoint rate-limits a tight request loop (§5.28), and putting a
+live probe on every push is how the watcher reported success while
+blind. On-demand, when a deployment needs a fingerprint.
+
+**A stale pointer of a class this file already tracks.** The script told
+the operator, in the header and on the JSON drop-in line, to paste the
+output into `soat-frontend/src/app/lib/factoryDeployments.ts`. That file
+does not exist. `INCIDENT_RESPONSE.md` §2 Step 1 had the identical name
+and was corrected once; its Step 3 now carries the note that a previous
+version named a file a responder at 3am would have lost minutes to. The
+same wrong filename survived here. Both sites now say there is no file
+to paste into: the launch page reads `factory.hookInitcodeHash(...)`
+from chain, and the JSON is the published record.
+
+**What this sweep did not do.** It did not write the two hashes into
+`.env.production`. That file is gitignored and holds a live private key;
+the operator pastes them. The launch page does not need the copy.
+
+**The sweep count is now the eighth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh. This
+is the eighth. Still not built.
+
 ---
 
 ## 6. Findings
@@ -4197,7 +4281,7 @@ Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.29 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.30 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -4251,7 +4335,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.29 for the numbered ones.
+§5.8 through §5.30 for the numbered ones.
 
 ---
 
@@ -4309,4 +4393,10 @@ pause path in `INCIDENT_RESPONSE.md` named a Transaction Builder this
 chain's Apps registry does not list; the working entry is a direct
 appUrl, verified 2026-09-08 against the real Safe, and the 2026-09-04
 inference that contracts-plus-tx-service implied a working paste-the-ABI
-UI is corrected in §1.1 and in place in this file's §5.26.*
+UI is corrected in §1.1 and in place in this file's §5.26. §5.30 records
+the close of PM-C6: `RecomputeInitcodeHash.s.sol` run against the live
+factory, the source-to-chain fingerprint now asserted in that script
+rather than by hand, and a recurrence of the `factoryDeployments.ts`
+pointer `INCIDENT_RESPONSE.md` §2 Step 1 already had to correct once.
+The comparison is on-demand against a live RPC, not a CI gate, because
+the 4663 endpoint is the one §5.28 rate-limited the watcher on.*

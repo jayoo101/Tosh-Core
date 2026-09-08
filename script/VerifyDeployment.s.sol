@@ -155,8 +155,9 @@ contract VerifyDeploymentScript is Script {
         // sentinel values; `HOOK_CREATION_CODEHASH` is the implementation's
         // creation-code fingerprint. An operator who treats the two as a
         // pair will conclude the deployment is broken. The script does not
-        // compare them, and does not check the on-chain CODEHASH against
-        // the local build either — that comparison is still manual.
+        // compare them. The on-chain CODEHASH vs local-build comparison is
+        // `script/RecomputeInitcodeHash.s.sol`, which asserts like-with-like
+        // and is on-demand against a live RPC, not a CI gate.
         console2.log("initcodeHash (live)     :", vm.toString(h1));
         console2.log("HOOK_CREATION_CODEHASH  :", vm.toString(factory.HOOK_CREATION_CODEHASH()));
         console2.log("  (not comparable: live = clone initcode, CODEHASH = implementation)");
