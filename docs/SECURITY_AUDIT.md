@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-six
+> has actually had, all of it internal: the scope, the assumptions, twenty-seven
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 26 (§5.1–§5.30) |
+| Numbered review sweeps of `src/` and the settings surface | 27 (§5.1–§5.31) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26 by hand, automated in §5.30. `RecomputeInitcodeHash.s.sol` asserts `keccak256(type(ToshLaunchpadHook).creationCode)` against on-chain `HOOK_CREATION_CODEHASH` and reverts on mismatch. On-demand against a live RPC, deliberately not a CI gate (§5.28). |
 | Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -869,7 +869,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-six numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-seven numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -4272,6 +4272,130 @@ hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh. This
 is the eighth. Still not built.
 
+### 5.31 Twenty-seventh sweep — the custody check never looked for a copy
+
+Closing PM-D1 / PM-D3 assumed the remaining laptop copies in
+`soat-frontend/.env.local` were testnet-era values already treated as
+burned by `PRE_MAINNET_CHECKLIST.md` §4.1. That is true of one of the
+three. It is not true of the other two.
+
+**The assumption that was wrong.** Supabase projects and Upstash
+databases are not chain-scoped. There is no testnet copy versus mainnet
+copy; they are just projects. The operator confirmed on 2026-09-08 that
+Vercel Production points at the same Supabase project
+(jurgikqkyqlasayfvvzx) and the same Upstash database
+(literate-lynx-73342) as `soat-frontend/.env.local`. Those laptop
+copies were never burned testnet artefacts. They are the live
+production credentials.
+
+**The scan.** A throwaway diagnostic read the literal values out of
+`soat-frontend/.env.local` and searched every terminal capture and
+agent transcript under the Cursor project directory — 207 files,
+37.5 MB — reporting only whether each literal appeared. It printed no
+values and was deleted immediately after the run.
+
+| Credential | Result |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | literal value present in agent transcript `82ef4787-…jsonl` |
+| `UPSTASH_REDIS_REST_TOKEN` | literal value present in the same transcript |
+| `POG_SIGNER_PRIVATE_KEY` | present in 5 files including terminal capture `968879.txt` — derives to `0x73db078fa94607893270079AC8F5c7492aB480cd`, the testnet-era address already on §5.23's burned list. Known, already-dispositioned, not a new exposure |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | present, and irrelevant — public by design, RLS is the control |
+| `BLOCKSCOUT_API_KEY` | not set locally, skipped |
+
+**What the derivation proved in the other direction.** The mainnet PoG
+signing key (`0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b`, matching
+`factory.pogSigner()`) is not on the laptop. PM-D1's custody rule held
+for the key that matters. What is on the laptop is the burned
+predecessor.
+
+**What the two leaked credentials can do.**
+
+`SUPABASE_SERVICE_ROLE_KEY` bypasses row-level security entirely on the
+production project. Anyone holding it can rewrite any project's name,
+logo and outbound links — a live phishing vector on the production
+site. `soat-frontend/.env.production.example` already says this in the
+block that defines the variable.
+
+`UPSTASH_REDIS_REST_TOKEN` is not only the rate-limit counter store.
+The same two Upstash variables also back the live Proof-of-Gas
+exchange rate (`soat-frontend/.env.production.example`, the paragraph
+immediately after those variables): without a shared store an
+owner-signed rate rotation lands on whichever instance served the
+POST, and every other instance keeps signing allocations at the old
+rate. Holding the token means being able to write that shared rate.
+The rate is the multiplier `sign-allocation` applies to a wallet's
+scanned gas when it computes `maxAlloc`, so whoever holds the token
+can set how much allocation every wallet can be signed for.
+
+**Severity.** These are local files on the operator's machine. There
+was no public disclosure and no on-chain consequence. What is true is
+that two live production credentials left the secret store and sat in
+plaintext in files that are routinely read by tooling and by AI
+agents — including by an agent that was explicitly instructed to
+consult that transcript. This repository's own precedent, set in
+§5.23, is that a key which reaches a terminal capture or a transcript
+is burned rather than reasoned about. The same standard applies here.
+
+**The structural defect.** `npm run check:secrets`
+(`soat-frontend/scripts/checkSecretStore.mjs`) verifies that every
+credential is in the right store at the right tier. It has never
+verified the absence of a copy anywhere else. It was green throughout
+this entire episode and would have stayed green indefinitely. PM-D3's
+evidence column even claims "no secret in any committed `.env*`" —
+true, and it measures committed files, while the exposure was in an
+uncommitted one. That is the same shape as §5.28 (a check that
+measured something adjacent to the thing that mattered) and §5.29
+(an inference drawn from true but insufficient facts).
+
+**The guard.** The same script now asserts that every `secret`-tier
+name in `INVENTORY` is absent or empty in the local dotenv files
+under `soat-frontend/` (`.env`, `.env.local`, and other `.env*`
+siblings, excluding `*.example` templates). Presence of a non-empty
+assignment is the entire signal; values are never printed and never
+compared. If no such file is present — CI, because `.env.local` is
+gitignored — the check reports that local copies were not evaluated,
+rather than treating an empty scan as a pass. On this machine the
+check is red, which is correct: cleanup has not happened yet. There
+is no bypass flag. The failure names the variable, the file, and that
+the fix is deletion plus rotation, not deletion alone.
+
+**The deployer key.** The operator has decided to destroy the mainnet
+deployer key `0x4E41CEa950cF40FA59774B409988D6F9F399E690` — delete it
+from `.env.production`, keep no copy, and abandon its 0.005017 ETH
+residue rather than spend a transaction sweeping it.
+
+Verified on chain 2026-09-08: that address has no authority over the
+canonical contracts (`ToshFactory`
+`0xBa9d2E86281b988225Eca383C375215912fb20B9` and `ToshLadderTreasury`
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` are both `owner()` =
+Safe `0x2953957774482efA660921df85A1E7634ccfe27A`). It is still the
+`owner()` of both orphans: the orphan `ToshFactory`
+`0x96a2A0f43225184d4C47A47Ed8d919233f5c1aBF` (paused, balance 0) and
+the orphan `ToshLadderTreasury`
+`0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4` (balance 0, no listed
+tokens, no Pausable at all). Deployer nonce is 12.
+
+Destroying the key is the stronger outcome, not a loss. It leaves the
+orphan factory permanently paused and the orphan treasury permanently
+inert — whereas transferring the orphans to the Safe would have
+handed the Safe an `unpause()` it has no use for, and keeping the
+key in cold storage preserves a single-key liability for contracts
+we never want touched again. §5.26 already recorded that both
+orphans have `pendingOwner()` = the Safe, so the Safe could still
+`acceptOwnership` after the key is gone; the decision includes not
+taking that path. What destroying the key does make irreversible is
+the single-key unpause. The orphan pause itself is §5.26. Decided;
+execution is in the operator's hands; not confirmed complete.
+
+**What this sweep did not do.** It did not rotate the two leaked
+credentials. It did not delete the laptop copies. It did not destroy
+the deployer key. Those are operator steps, started, not confirmed.
+
+**The sweep count is now the ninth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh,
+§5.30 the eighth. This is the ninth. Still not built.
+
 ---
 
 ## 6. Findings
@@ -4281,7 +4405,7 @@ is the eighth. Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.30 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.31 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -4335,7 +4459,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.30 for the numbered ones.
+§5.8 through §5.31 for the numbered ones.
 
 ---
 
@@ -4399,4 +4523,11 @@ factory, the source-to-chain fingerprint now asserted in that script
 rather than by hand, and a recurrence of the `factoryDeployments.ts`
 pointer `INCIDENT_RESPONSE.md` §2 Step 1 already had to correct once.
 The comparison is on-demand against a live RPC, not a CI gate, because
-the 4663 endpoint is the one §5.28 rate-limited the watcher on.*
+the 4663 endpoint is the one §5.28 rate-limited the watcher on. §5.31
+records that the remaining laptop copies of the Supabase service-role
+key and the Upstash REST token were the live production project, not
+burned testnet artefacts; that `check:secrets` was green throughout
+because it never asked whether a copy existed; and the decision to
+destroy the mainnet deployer key rather than sweep it or hand the
+orphans to the Safe. Rotation and destruction are decided, not
+confirmed complete.*

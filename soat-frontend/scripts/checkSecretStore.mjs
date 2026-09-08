@@ -30,6 +30,17 @@
  * inventory is exhaustive and closed: anything live that is not classified here
  * is a finding, and anything classified `absent` must stay absent.
  *
+ * ── Local copies, added after the 2026-09-08 exposure ───────────────────────
+ *
+ * Store-and-tier is necessary and not sufficient. A credential can be in
+ * Vercel as Sensitive and also sit in `.env.local`, and this check was green
+ * throughout that state because it never asked about the laptop. Secret-tier
+ * names must now be absent or empty in the local dotenv files under this
+ * package. Presence of a non-empty assignment is the entire signal: values
+ * are never read for comparison and never printed. If no such file is
+ * present — the CI case, because `.env.local` is gitignored — that absence
+ * is reported as not-evaluated, not as a pass.
+ *
  * ── Not a CI gate ───────────────────────────────────────────────────────────
  *
  * It needs an authenticated `vercel` and `gh`, which CI deliberately does not
@@ -37,6 +48,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const FRONTEND_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /**
  * `secret`     must exist in Vercel production as type "sensitive".
@@ -283,6 +299,65 @@ for (const name of unclassifiedCiVar) {
   )
 }
 
+// Local dotenv copies. Store-and-tier cannot see a laptop file. Secret-tier
+// names must be absent or empty in every `.env*` sibling of this package
+// except `*.example` templates (committed placeholders, empty by design).
+// The assigned value is discarded unread: a non-empty right-hand side is
+// the whole finding. Vercel Sensitive values cannot be read back anyway,
+// so there is nothing to compare against.
+const localEnvFiles = (() => {
+  try {
+    return readdirSync(FRONTEND_ROOT)
+      .filter((n) => n.startsWith('.env') && !n.toLowerCase().includes('example'))
+      .sort()
+  } catch {
+    return []
+  }
+})()
+
+/**
+ * True when `name` has a non-empty assignment. The right-hand side is
+ * forgotten immediately; it is never returned, logged, or compared to a
+ * known secret.
+ */
+function hasNonEmptyAssignment(text, name) {
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const body = line.startsWith('export ') ? line.slice(7).trimStart() : line
+    const eq = body.indexOf('=')
+    if (eq <= 0) continue
+    if (body.slice(0, eq).trim() !== name) continue
+    let rhs = body.slice(eq + 1).trim()
+    const quoted = /^(["'])([\s\S]*)\1$/.exec(rhs)
+    if (quoted) rhs = quoted[2]
+    else rhs = rhs.replace(/\s+#.*$/, '').trim()
+    const nonempty = rhs.length > 0
+    rhs = ''
+    if (nonempty) return true
+  }
+  return false
+}
+
+const secretNames = Object.entries(INVENTORY)
+  .filter(([, spec]) => spec.tier === 'secret')
+  .map(([name]) => name)
+
+if (localEnvFiles.length > 0) {
+  for (const file of localEnvFiles) {
+    const text = readFileSync(join(FRONTEND_ROOT, file), 'utf8')
+    for (const name of secretNames) {
+      if (!hasNonEmptyAssignment(text, name)) continue
+      lines.push(
+        `${ICON.bad} ${name} — non-empty assignment in ${file}; delete it and rotate, not delete only`,
+      )
+      findings.push(
+        `${name} has a non-empty assignment in ${file}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`,
+      )
+    }
+  }
+}
+
 console.log('\nCredential custody — Vercel production and GitHub Actions\n')
 for (const l of lines.sort()) console.log(l)
 
@@ -302,8 +377,23 @@ if (previewCount > 0) {
   console.log('\nnote  Preview and Development hold nothing, so preview builds fail closed rather than\n      booting against production data.')
 }
 
+if (localEnvFiles.length === 0) {
+  console.log(
+    '\nnote  No local dotenv file was present under this package (.env, .env.local, and other\n'
+    + '      .env* siblings, excluding *.example), so absence of laptop copies was not evaluated.\n'
+    + '      That is expected in CI, where .env.local is gitignored; it is not a pass of this check.',
+  )
+} else {
+  console.log(
+    `\nnote  Local dotenv scanned: ${localEnvFiles.join(', ')}. Secret-tier names must be absent or empty.`,
+  )
+}
+
 if (findings.length === 0) {
-  console.log(`\n${Object.keys(INVENTORY).length} credentials checked · every one in the right store at the right tier\n`)
+  const localBit = localEnvFiles.length === 0
+    ? ''
+    : ', and no secret-tier assignment in local dotenv'
+  console.log(`\n${Object.keys(INVENTORY).length} credentials checked · every one in the right store at the right tier${localBit}\n`)
   process.exit(0)
 }
 
