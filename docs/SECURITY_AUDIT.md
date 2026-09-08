@@ -7,7 +7,7 @@
 `docs/PRD-v5.0.md`
 
 > **What this document is.** The record of every security review this protocol
-> has actually had, all of it internal: the scope, the assumptions, twenty-three
+> has actually had, all of it internal: the scope, the assumptions, twenty-four
 > numbered sweeps of `src/` and its settings, the static-analysis triage, and
 > the disposition of everything each sweep found.
 >
@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 23 (§5.1–§5.27) |
+| Numbered review sweeps of `src/` and the settings surface | 24 (§5.1–§5.28) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26. `keccak256` of this tree's `ToshLaunchpadHook` creation bytecode equals on-chain `HOOK_CREATION_CODEHASH`. The script that prints that constant still does not perform the comparison. |
 | Foundry tests | 362, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -865,7 +865,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-three numbered sweeps:
+which is why §5.2 onward grew from a checklist into twenty-four numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -3880,6 +3880,128 @@ is corrected in this commit rather than recorded as known drift.
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth. This is the fifth. Still not built.
 
+### 5.28 Twenty-fourth sweep — the mainnet watcher went blind and reported success
+
+PM-E2's configuration cutover is done. GitHub repository variables
+`MONITOR_FACTORY` / `MONITOR_TREASURY` / `MONITOR_EXPECTED_OWNER` /
+`MONITOR_EXPECTED_POG_SIGNER` and the secret `MONITOR_RPC` point at
+chain 4663. A `workflow_dispatch` of `.github/workflows/watch.yml`
+(run 34196807435) then produced:
+
+```
+[watch] chain 4663 · blocks 56,592,252-57,492,252 · 0 log(s) · 0 hook(s) known · 28 finding(s), 1 paging
+watcher exited 1 (28 finding(s))
+```
+
+Zero logs. The scan window contained seven. Verified independently
+with `eth_getLogs`: factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`
+had three logs at 57,400,521 and 57,455,937 (`OwnershipTransferStarted`,
+`OwnershipTransferred`); treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`
+had four across 57,400,516–57,455,937, including `FactorySet`. Those
+are GOV-01, GOV-02, GOV-03, GOV-06, GOV-07 — all P0.
+
+Running `monitoring/watch.mjs` locally against mainnet named the
+cause: every `eth_getLogs` after the first handful returned JSON-RPC
+`Too Many Requests` (code 429) and was recorded as WATCHER-02,
+`page: false`, "these alerts were NOT checked this pass."
+
+**The limiter is on the 4663 public endpoint and was not on 46630.**
+Measured 2026-09-08 against `https://rpc.mainnet.chain.robinhood.com`:
+
+- Tight sequential loop of identical `eth_getLogs`, no delay: requests
+  1–6 succeed, request #7 returns a JSON-RPC body error `Too Many
+  Requests` (code 429). It is not an HTTP 429. Detection that looks at
+  `res.status` misses it.
+- The same loop with 250 ms between calls: 0 failures in 24.
+- Concurrent calls via `Promise.all`: fail immediately.
+- Window width is not the constraint. A 1,000,000-block `eth_getLogs`
+  is accepted, address-scoped and address-less — the number §7.1
+  measured on testnet and treated as an endpoint capability.
+
+That is why the 900k-block rehearsal on 46630 gave false confidence.
+The testnet node accepted a tight loop. The code path that trips the
+mainnet limiter is "one `eth_getLogs` per topic0, back to back", which
+is exactly the event loop in `watch.mjs`. A capability probe that only
+asks "will this node answer a million-block filter" cannot see a rate
+limit that needs seven identical calls to appear.
+
+Three defects, the second of which is the dangerous one.
+
+**Defect 1 — no throttle, no retry.** `rpc()` was a single `fetch`. A
+rate-limited call became WATCHER-02 and those alerts were skipped for
+the pass. Fixed in `monitoring/rpc.mjs`, shared by the watcher and the
+probe: one in-flight request, 250 ms minimum interval (the interval
+that measured 0/24 on this endpoint, this date), and four retries with
+exponential backoff (500 ms × 2^attempt) on a JSON-RPC 429 / "Too Many
+Requests". Bounded, so a dead endpoint still throws. Other errors are
+not retried. A hardcoded sleep with no provenance is what someone
+deletes later; the numbers live in the file header next to the
+measurement.
+
+**Defect 2 — a blind pass reports as a normal pass.** WATCHER-02 was
+`page: false`. Non-paging findings are never filed as issues; they
+only print. Run 34196807435 filed exactly one issue (WATCHER-03, the
+expected cutover notice) and the job went green, while every P0
+governance alert in the window went unchecked. Same failure shape
+WATCHER-03 was written to stop — a monitor that scanned nothing,
+produced a finding that does not page, and left the scheduler looking
+at a healthy run.
+
+The rule, chosen against §6's noise budget rather than as "page on any
+RPC hiccup":
+
+- Retry absorbs a transient 429. That is Defect 1. WATCHER-02 is after
+  those retries are exhausted.
+- If the skipped topic's alerts include any P0, WATCHER-02 pages. An
+  unchecked P0 is an outage of the monitor.
+- P1/P2-only topics that fail still record WATCHER-02 and still do not
+  page. A PARAM-02 miss every cycle would spend the budget that exists
+  to keep the P0s unmuted.
+- A pass that completed zero log queries is WATCHER-04, which always
+  pages: zero logs after a total skip is a blind monitor, not a quiet
+  chain. One finding, not one per topic.
+- Neither WATCHER-04 nor a P0-blinding WATCHER-02 advances
+  `lastBlock`. The cutover pass wrote `lastBlock = head` after scanning
+  nothing and made the window unrecoverable from the resume path.
+
+The workflow's `::error::The watcher could not run. It scanned nothing
+this pass` did not fire. It is wired to exit code 2, which is "you
+configured me wrong" (no factory address, unparseable state file).
+This run exited 1 because WATCHER-03 paged, and the next line of the
+same step says "1 is something paged, which means the watcher worked"
+and deliberately does not fail the job. That is not a wiring typo in
+the `if [ "$code" -eq 2 ]` sense — it did what it was written to do —
+and it is why a blind-but-WATCHER-03 pass was green. WATCHER-04 now
+emits the same `::error::` and fails the scan step; filing still runs
+(`always()`, except exit 2) so the issue is not lost to the red X.
+
+**Defect 3 — `probeRpc.mjs` was testnet-shaped and crashed on
+mainnet.** It ignored the `MONITOR_*` convention `watch.mjs` uses:
+RPC from `argv[2]` / `ROBINHOOD_TESTNET_RPC` / the testnet URL, and
+factory/treasury from `NEXT_PUBLIC_*` or hardcoded testnet addresses
+`0x2E690A91…` / `0x3Fd38489…`. Invoked with `MONITOR_RPC` pointed at
+mainnet it silently probed testnet and reported the testnet deployer
+as owner, plus "0 of 24 alerts have matching history". It did print
+`note  alerts.json targets chain 4663; this endpoint is 46630`, which
+is the only reason this was caught. Invoked correctly against mainnet
+it crashed with an unhandled `Too Many Requests (code 429)` from a
+`Promise.all` of two `eth_getBlockByNumber`s. It now honours
+`MONITOR_RPC` / `MONITOR_FACTORY` / `MONITOR_TREASURY` (`argv[2]` still
+wins for the URL), refuses those testnet address fallbacks when the
+endpoint's chain does not match `alerts.json`, prints the mismatch as
+a banner on both stdout and stderr, and uses the same transport as
+the watcher.
+
+**What this sweep did not do.** It did not turn GitHub Issues into a
+pager. §7.3 of `ONCHAIN_MONITORING.md` still holds: this host is
+best-effort, silent after 60 idle days, and an issue at 03:00 is
+detected rather than reported. PM-E2 stays 🟡 for that reason, not
+because the re-point has not happened.
+
+**The sweep count is now the sixth consecutive commit to update it by
+hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
+the fourth, §5.27 the fifth. This is the sixth. Still not built.
+
 ---
 
 ## 6. Findings
@@ -3889,7 +4011,7 @@ the fourth. This is the fifth. Still not built.
 > every §5 sweep triages against, and §0.3 points here.**
 >
 > Internal findings are **not** collected here. They live where they were found,
-> in the sweep that found them — §5.2 through §5.27 — each with its fix commit,
+> in the sweep that found them — §5.2 through §5.28 — each with its fix commit,
 > its regression test, and its mutation counts. Moving them into a register
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
@@ -3943,7 +4065,7 @@ regression test that pins it and the mutation run that proves the test can fail.
 A second copy would drift from the first; §5.18 is what that costs.
 
 Internal fixes are found by their sweep: §5.2 and §5.3 for the first two passes,
-§5.8 through §5.27 for the numbered ones.
+§5.8 through §5.28 for the numbered ones.
 
 ---
 
@@ -3991,4 +4113,6 @@ canonical contracts, and the source-to-chain fingerprint of the hook
 implementation. §5.27 records the status-page cutover the armed guard had
 been failing CI for: the page now names 4663, the vote rule recognises
 the canonical Blockscout hostname, and `alerts.json` placeholders are
-filled.*
+filled. §5.28 records the first mainnet watcher pass: 0 logs over a
+window that held seven P0 governance events, because the 4663 RPC
+rate-limits a tight `eth_getLogs` loop and WATCHER-02 did not page.*

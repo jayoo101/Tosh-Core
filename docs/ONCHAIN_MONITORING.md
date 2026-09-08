@@ -16,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | 🟡 **scheduled and delivering on testnet 46630** (§7.3). C1 has landed (factory `0xBa9d2E86…` on 4663); two things keep this from ✅: the schedule has not been re-pointed at mainnet, and its sink is GitHub Issues, which is a monitor and not a pager |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **re-pointed at mainnet 4663.** The first pass was blind — §7.1. Remaining: the sink is GitHub Issues, which is a monitor and not a pager (§7.3) |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -315,29 +315,51 @@ cycle. Track the last `PiggybackExecuted` block alongside the balance.
 ### 7.1 There is no provider, because the chain's own RPC has both capabilities
 
 `monitoring/probeRpc.mjs` measures the two requirements above against an
-endpoint. Run against the 46630 testnet node it reports:
+endpoint. Window width, measured on the 46630 testnet node and
+**re-measured 2026-09-08 against `https://rpc.mainnet.chain.robinhood.com`**:
 
-| Capability | Result |
-|---|---|
-| Address-less `topic0` filter (§2.1) | accepted over a 1,000,000-block span |
-| `eth_call` for view polling (§7) | `owner()`, `pendingOwner()`, `pogSigner()` all answer |
-| Block time | ~0.2 s, so one max-span call reaches back ~59 h |
+| Capability | 46630 (rehearsal) | 4663 (mainnet, 2026-09-08) |
+|---|---|---|
+| Address-less `topic0` filter (§2.1) | accepted over 1,000,000 blocks | accepted over 1,000,000 blocks, address-scoped and address-less |
+| `eth_call` for view polling (§7) | `owner()`, `pendingOwner()`, `pogSigner()` all answer | same |
+| Block time | ~0.2 s, so one max-span call reaches back ~59 h | 0.102 s (probed 2026-09-08), ~28.3 h per 1M |
+| Request *rate* | a tight `eth_getLogs` loop is accepted | **does not transfer.** Requests 1–6 succeed; #7 returns JSON-RPC `Too Many Requests` (code 429) on HTTP 200. 250 ms between calls: 0/24 failures. `Promise.all`: fails immediately |
 
-Both capabilities present on the raw node makes a vendor a convenience rather
-than a dependency, and the convenience is worth less here than it looks:
-OpenZeppelin Defender can watch a custom Orbit chain only as a *Private
-Network*, which is a paid tier, and the scheduled-view-polling half — the one
-§7 warns is most often missing — is exactly what all seven `stateChecks` need.
-Paying to acquire a capability the free endpoint already has, in exchange for
-the one it is least likely to provide, is a bad trade.
+Window width is not the constraint that moved. A 900k-block rehearsal on
+46630 could not have seen this: that node accepted the loop the watcher
+actually runs (one `eth_getLogs` per topic0, back to back). The first
+mainnet pass (workflow run 34196807435) reported `0 log(s)` over
+56,592,252–57,492,252 and went green. Independently the same window held
+seven logs mapping to GOV-01/02/03/06/07, all P0.
 
-So the implementation is `monitoring/watch.mjs`: one pass, resumable from a
-state file, then exit. The scheduler is deliberately somebody else's problem,
-which also makes the thing testable — the command a cron runs is the command a
-human runs to see what it would say. Findings go to stdout as JSON lines and
-the exit code is non-zero when any of them pages, so a scheduler can react
-without parsing. Delivery is not wired: a pager attached to a monitor that
-mis-detects is worse than no pager, and detection had to be right first.
+So the implementation is still `monitoring/watch.mjs`: one pass, resumable
+from a state file, then exit. What §7.1 previously treated as "the raw node
+has both capabilities, a vendor is optional" remains true for *what* the
+node will answer and false for *how fast*. Transport lives in
+`monitoring/rpc.mjs` and is shared with the probe:
+
+- Pace: one in-flight request, 250 ms since the previous start. Measured
+  against the mainnet endpoint on 2026-09-08; a hardcoded sleep with no
+  provenance is the thing someone deletes later, which is why the numbers
+  sit next to the measurement.
+- Retry: a JSON-RPC 429 / `Too Many Requests` is retried four times with
+  exponential backoff (500 ms × 2^attempt). Detection inspects the JSON-RPC
+  *body* (`error.code` / `error.message`), not `res.status`. Bounded, so a
+  dead endpoint still throws.
+- Concurrent callers queue rather than stampede. The probe used to
+  `Promise.all` two `eth_getBlockByNumber`s and crash.
+
+Findings still go to stdout as JSON lines and the exit code is non-zero
+when any of them pages. Delivery is GitHub Issues (`report.mjs`), which
+is a monitor and not a pager — §7.3.
+
+A failed `eth_getLogs` after those retries is WATCHER-02. If the skipped
+topic includes any P0, that pages. A pass that completed zero log queries
+is WATCHER-04, which always pages, and does not advance `lastBlock`.
+P1/P2-only skips do not page: §6's noise budget is spent by exactly that
+kind of every-cycle repetition, and the P0s are what get muted along with
+it. Retry is what absorbs a transient 429; paging is what remains after
+retry is exhausted.
 
 ### 7.2 What the testnet rehearsal established
 
@@ -425,11 +447,13 @@ quiet is equally consistent with the check having broken.
 > piece as the contact column in `INCIDENT_RESPONSE.md` §1. Until then the
 > honest claim is: **the protocol will notice, and will write it down.**
 
-**Cost, measured rather than assumed.** Each pass takes 19–30 s of wall time and
-GitHub bills a whole minute per run, so cadence converts directly into spend:
-hourly ≈720 min/month, every 30 minutes ≈1,440, every 15 ≈2,880. This is a
-private repository, so those come out of the same allowance `test.yml` (4.4 min
-per push) and `frontend.yml` (2.4 min) draw on.
+**Cost, measured rather than assumed.** A 900k-block mainnet pass on
+2026-09-08 took 16.8 s wall-clock with the 250 ms floor (7 logs, 7
+findings, 0 WATCHER-02). GitHub bills a whole minute per run, so cadence
+converts directly into spend: hourly ≈720 min/month, every 30 minutes
+≈1,440, every 15 ≈2,880. This is a private repository, so those come out
+of the same allowance `test.yml` (4.4 min per push) and `frontend.yml`
+(2.4 min) draw on.
 
 **Hourly, at `:07`, decided 2026-09-04.** A budget decision, and cheap to make
 because the thing being given up was not real: the platform never guaranteed the
@@ -455,22 +479,28 @@ probably the thing to change.
       only one needing a window rather than a reading (§7). STATE-01/03/04/05/07
       were run against the live testnet and 02/03/04/06 were each driven to fire
       (§7.2); `.github/workflows/watch.yml` now runs the lot on a schedule with
-      a durable checkpoint (§7.3). **Scheduled against 46630. C1 has supplied
-      the 4663 addresses; it must now be re-pointed** — change the `MONITOR_*`
-      repository variables and the `MONITOR_RPC` secret, nothing in the code.
+      a durable checkpoint (§7.3). **Re-pointed at 4663.** The first mainnet
+      pass (workflow run 34196807435) was blind: 0 logs in a window that held
+      seven P0 governance events, because the public RPC 429s a tight
+      `eth_getLogs` loop and WATCHER-02 did not page. Transport, paging, and
+      the probe are fixed (§7.1); the schedule now points at the chain that
+      holds the money.
 - [x] A checkpoint that survives the cutover. `lastBlock` recorded no chain, so
       re-pointing at mainnet would have made `from` a testnet height above the
       mainnet head, and the "no new blocks" branch would have exited 0 on every
       cycle — a green run monitoring nothing, starting the day real money went
       live. WATCHER-03 now discards a checkpoint whose chain id differs, and
       also one that is simply ahead of the head, since the file already on disk
-      has no chain id to compare.
+      has no chain id to compare. A pass that then scans nothing must not
+      consume the window either: WATCHER-04 pages and leaves `lastBlock`
+      unmoved, so the next pass retries rather than skipping the P0s.
 - [ ] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce
       (PM-C8 / `SECURITY_AUDIT.md` §2.3). Listing a token before this is
-      scheduled means running that window unobserved. Scheduled on testnet; this
-      box closes when the same schedule points at 4663.
+      scheduled means running that window unobserved. The schedule now points
+      at 4663; this box closes when the first `addLadderToken` lands and
+      STATE-07 is observed to poll it, not from the re-point alone.
 - [ ] P0 routes to a pager that has been tested with a synthetic event.
       **Deliberately still open.** Delivery exists and was tested with real
       findings, but it delivers to GitHub Issues, and §7.3 sets out why that is

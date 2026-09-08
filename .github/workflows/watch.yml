@@ -160,24 +160,50 @@ jobs:
             exit 1
           fi
 
-          # 1 is "something paged", which means the watcher worked. Deliberately
-          # NOT a job failure: the alert is the issue it files, and a red X on
-          # every real incident teaches people that red means nothing.
+          # 1 is "something paged", which usually means the watcher worked.
+          # Deliberately NOT a job failure in that case: the alert is the issue
+          # it files, and a red X on every real incident teaches people that
+          # red means nothing.
+          #
+          # Exception: WATCHER-04. That is "started, scanned nothing" — the
+          # same claim as exit 2, reached by a different door. Workflow run
+          # 34196807435 (2026-09-08 mainnet cutover) is why this branch exists.
+          # Every eth_getLogs 429'd; WATCHER-02 was page:false; the one paging
+          # finding was WATCHER-03 (the expected cutover notice); this step
+          # printed "watcher exited 1" and stayed green. The ::error:: above
+          # did not fire because the process exited 1, not 2. Independently
+          # the same window held seven P0 governance logs. A fully blind pass
+          # must be red here AND still file the finding (see the next step's
+          # `always()`), so the issue tracker and the Actions X both fire.
           echo "watcher exited $code ($(wc -l < "$RUNNER_TEMP/findings.jsonl") finding(s))"
+          if grep -q '"id":"WATCHER-04"' "$RUNNER_TEMP/findings.jsonl" 2>/dev/null; then
+            echo "::error::The watcher could not run. It scanned nothing this pass — this is not a quiet chain, it is a blind monitor."
+            exit 1
+          fi
 
-      # `success() &&` is load-bearing. Any explicit `if:` REPLACES the implicit
-      # success() check, so `if: inputs.dry != true` alone would run delivery
-      # after the scan step had already failed — filing issues from a findings
-      # file the watcher never finished writing.
+      # `always()` is load-bearing in the other direction from the usual
+      # `success()` guard. Exit 2 (could not start) must not file: there is
+      # nothing to file. WATCHER-04 (started, scanned nothing) MUST file —
+      # that is the page — even though the scan step is now red. `success()`
+      # alone is why run 34196807435 could have stayed silent on a WATCHER-04
+      # if we had only turned the job red. Cancelled runs and dry runs still
+      # skip. A crash before `code=` is written is treated as not-2, and
+      # report.mjs is a no-op on an empty file.
       - name: File findings as issues
-        if: ${{ success() && inputs.dry != true }}
+        if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node monitoring/report.mjs "$RUNNER_TEMP/findings.jsonl"
 
+      # Same `always()` as filing: a WATCHER-04 pass does not advance
+      # lastBlock (watch.mjs keeps the previous checkpoint) but does rewrite
+      # lastRun. Persisting that is how the next pass retries the same
+      # window. `success()` would skip the write and leave the runner-temp
+      # copy to die with the job, which is a different way to lose the
+      # window if a previous persist had already moved lastBlock.
       - name: Persist the block checkpoint
-        if: ${{ success() && inputs.dry != true }}
+        if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

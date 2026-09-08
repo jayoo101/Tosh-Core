@@ -15,6 +15,21 @@
  * itself: the first draft of this file used a fabricated LaunchCreated topic,
  * matched 1,706 unrelated logs, and looked like a successful result.
  *
+ * Addresses follow the same `MONITOR_*` convention as `watch.mjs`. The first
+ * mainnet cutover run of this probe ignored that, fell back to hardcoded
+ * testnet factory/treasury addresses, and reported `factory.owner() =
+ * 0x73db078f…` (the testnet deployer) plus "0 of 24 alerts have matching
+ * history" against a mainnet RPC. The chain-mismatch note was the only reason
+ * that was caught — it stays, and it is louder now. Hardcoded testnet
+ * addresses are never used when the endpoint's chain id does not match
+ * `alerts.json`.
+ *
+ * Transport is `rpc.mjs`, the same paced+retried client the watcher uses.
+ * A `Promise.all` of `eth_getBlockByNumber` against
+ * `https://rpc.mainnet.chain.robinhood.com` (measured 2026-09-08) threw
+ * unhandled `Too Many Requests (code 429)` and crashed the probe. Concurrent
+ * callers now queue; rate-limited bodies retry.
+ *
  * Run:  node monitoring/probeRpc.mjs [rpcUrl]
  */
 
@@ -22,28 +37,21 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { createRpc } from './rpc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
 
+// argv[2] wins, then the watcher's MONITOR_RPC, then the old testnet names.
+// The testnet URL remains the last-resort default so a bare `node
+// monitoring/probeRpc.mjs` still does something; the chain-mismatch banner
+// below is what stops that something being mistaken for a mainnet result.
 const RPC = process.argv[2]
+  || process.env.MONITOR_RPC
   || process.env.ROBINHOOD_TESTNET_RPC
   || 'https://rpc.testnet.chain.robinhood.com'
 
-const FACTORY = process.env.NEXT_PUBLIC_FACTORY_ADDRESS || '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA'
-const TREASURY = process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '0x3Fd38489e4B3F021324354Fb5A014Cc904D66C20'
-
-let seq = 0
-async function rpc(method, params = []) {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: ++seq, method, params }),
-  })
-  const body = await res.json()
-  if (body.error) throw new Error(`${body.error.message} (code ${body.error.code})`)
-  return body.result
-}
+const rpc = createRpc(RPC)
 
 const hex = n => '0x' + n.toString(16)
 
@@ -53,9 +61,43 @@ const chainId = Number(await rpc('eth_chainId'))
 const head = Number(await rpc('eth_blockNumber'))
 console.log(`  chain ${chainId} · head ${head.toLocaleString()}`)
 
-if (chainId !== config.chainId) {
-  console.log(`  note  alerts.json targets chain ${config.chainId}; this endpoint is ${chainId}.`)
-  console.log(`        Address-scoped results below mean nothing until those match.`)
+const chainMatches = chainId === config.chainId
+if (!chainMatches) {
+  const banner = [
+    '',
+    '  ********************************************************************************',
+    `  WARNING  alerts.json targets chain ${config.chainId}; this endpoint is ${chainId}.`,
+    '           Address-scoped results below mean nothing until those match.',
+    '           Hardcoded testnet factory/treasury fallbacks are NOT applied on a',
+    '           mismatched chain — that is how a MONITOR_RPC pointed at mainnet',
+    '           still probed 0x2E690A91… / 0x3Fd38489… and reported the testnet',
+    '           deployer as owner.',
+    '  ********************************************************************************',
+    '',
+  ].join('\n')
+  console.log(banner)
+  console.error(banner)
+}
+
+const envFactory = process.env.MONITOR_FACTORY || process.env.NEXT_PUBLIC_FACTORY_ADDRESS || ''
+const envTreasury = process.env.MONITOR_TREASURY || process.env.NEXT_PUBLIC_TREASURY_ADDRESS || ''
+const catalogFactory = config.addresses?.factory || ''
+const catalogTreasury = config.addresses?.ladderTreasury || ''
+
+let FACTORY = envFactory
+let TREASURY = envTreasury
+if (!FACTORY && chainMatches && catalogFactory) FACTORY = catalogFactory
+if (!TREASURY && chainMatches && catalogTreasury) TREASURY = catalogTreasury
+
+// Hardcoded 46630 addresses used to live here as the last-resort default.
+// They are why `MONITOR_RPC` pointed at mainnet still probed
+// 0x2E690A91… / 0x3Fd38489… and reported the testnet deployer as owner.
+// They are not applied on a mismatched chain, and alerts.json is 4663, so
+// they are not applied at all. Address-scoped rows skip instead.
+
+if (!FACTORY || !TREASURY) {
+  console.log(`  no factory/treasury address: set MONITOR_FACTORY / MONITOR_TREASURY`)
+  console.log(`  (or NEXT_PUBLIC_*) — address-scoped rows below will be skipped.\n`)
 }
 
 // ── Capability 1: how wide a window will the node answer? ───────────────────
@@ -71,6 +113,13 @@ async function widestSpan(filter) {
       }])
       return { span, count: logs.length }
     } catch (err) {
+      // "too many" used to match Too Many Requests and shrink the window.
+      // Window width is not the constraint on mainnet (1,000,000-block
+      // getLogs is accepted); rate is. A 429 after rpc.mjs retries is an
+      // endpoint problem, not a span problem.
+      if (err.rateLimited || /too many requests/i.test(err.message)) {
+        return { error: err.message }
+      }
       if (/range|limit|too many|exceed|large|result set/i.test(err.message)) continue
       return { error: err.message }
     }
@@ -88,16 +137,20 @@ if (anyAddr.error) {
   console.log(`  accepted over ${anyAddr.span.toLocaleString()} blocks · ${anyAddr.count} log(s)`)
 }
 
-const scoped = await widestSpan({ address: FACTORY })
-console.log(`\n  Address-scoped filter on the factory`)
-console.log(`  ${scoped.error ? `REFUSED — ${scoped.error}` : `accepted over ${scoped.span.toLocaleString()} blocks · ${scoped.count} log(s)`}`)
+if (FACTORY) {
+  const scoped = await widestSpan({ address: FACTORY })
+  console.log(`\n  Address-scoped filter on the factory`)
+  console.log(`  ${scoped.error ? `REFUSED — ${scoped.error}` : `accepted over ${scoped.span.toLocaleString()} blocks · ${scoped.count} log(s)`}`)
+} else {
+  console.log(`\n  Address-scoped filter on the factory`)
+  console.log(`  skipped — no factory address for this chain`)
+}
 
 // Block time sets how far behind a watcher drifts between polls. This is an
 // Orbit chain, so a "15 minute" cadence is thousands of blocks, not dozens.
-const [bNow, bThen] = await Promise.all([
-  rpc('eth_getBlockByNumber', [hex(head), false]),
-  rpc('eth_getBlockByNumber', [hex(Math.max(0, head - 1000)), false]),
-])
+// Sequential on purpose: Promise.all against the mainnet endpoint 429s.
+const bNow = await rpc('eth_getBlockByNumber', [hex(head), false])
+const bThen = await rpc('eth_getBlockByNumber', [hex(Math.max(0, head - 1000)), false])
 const secPerBlock = (Number(bNow.timestamp) - Number(bThen.timestamp)) / 1000
 console.log(`\n  Block time ${secPerBlock.toFixed(3)} s · ~${Math.round(60 / (secPerBlock || 1)).toLocaleString()} blocks/min`)
 if (!anyAddr.error) {
@@ -148,15 +201,23 @@ console.log(`\n  eth_call — the §7 capability providers most often lack`)
 // The real selector is 0x436fee2b and the function was there all along.
 const selector = sig => execFileSync('cast', ['sig', sig], { encoding: 'utf8' }).trim()
 
-for (const label of ['owner()', 'pendingOwner()', 'pogSigner()']) {
-  try {
-    const out = await rpc('eth_call', [{ to: FACTORY, data: selector(label) }, 'latest'])
-    const addr = out && out.length >= 66 ? '0x' + out.slice(26, 66) : out
-    console.log(`  ${`factory.${label}`.padEnd(26)}${addr}`)
-  } catch (err) {
-    console.log(`  ${`factory.${label}`.padEnd(26)}ERROR ${err.message.slice(0, 50)}`)
+if (FACTORY) {
+  for (const label of ['owner()', 'pendingOwner()', 'pogSigner()']) {
+    try {
+      const out = await rpc('eth_call', [{ to: FACTORY, data: selector(label) }, 'latest'])
+      const addr = out && out.length >= 66 ? '0x' + out.slice(26, 66) : out
+      console.log(`  ${`factory.${label}`.padEnd(26)}${addr}`)
+    } catch (err) {
+      console.log(`  ${`factory.${label}`.padEnd(26)}ERROR ${err.message.slice(0, 50)}`)
+    }
   }
+} else {
+  console.log(`  factory view calls skipped — no factory address for this chain`)
 }
-const bal = await rpc('eth_getBalance', [TREASURY, 'latest'])
-console.log(`  ${'treasury balance'.padEnd(26)}${(Number(BigInt(bal)) / 1e18).toFixed(6)} ETH`)
+if (TREASURY) {
+  const bal = await rpc('eth_getBalance', [TREASURY, 'latest'])
+  console.log(`  ${'treasury balance'.padEnd(26)}${(Number(BigInt(bal)) / 1e18).toFixed(6)} ETH`)
+} else {
+  console.log(`  treasury balance skipped — no treasury address for this chain`)
+}
 console.log('')

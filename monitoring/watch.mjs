@@ -43,6 +43,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { createRpc } from './rpc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
@@ -76,18 +77,13 @@ if (!FACTORY || !TREASURY) {
 }
 
 // ── RPC ──────────────────────────────────────────────────────────────────────
+//
+// Pacing and retry live in rpc.mjs, not here. The 46630 rehearsal could not
+// have caught the mainnet limiter: that node accepted a tight loop, this one
+// 429s on the seventh identical eth_getLogs. See the header of rpc.mjs for
+// the measurement (250 ms / 4 retries / JSON-RPC body error, 2026-09-08).
 
-let seq = 0
-async function rpc(method, params = []) {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: ++seq, method, params }),
-  })
-  const body = await res.json()
-  if (body.error) throw new Error(`${method}: ${body.error.message}`)
-  return body.result
-}
+const rpc = createRpc(RPC)
 
 const hex = n => '0x' + BigInt(n).toString(16)
 const asAddress = word => '0x' + String(word).slice(-40).toLowerCase()
@@ -222,9 +218,14 @@ if (staleChain || impossible) {
 }
 state.chainId = chainId
 
-// A window wider than the node will answer gets split. 1M was measured as
-// acceptable on this endpoint; staying under it keeps one pass to one call per
-// topic even after a long outage.
+// A window wider than the node will answer gets split. 1,000,000 blocks was
+// accepted on the 46630 testnet node and, re-measured 2026-09-08 against
+// https://rpc.mainnet.chain.robinhood.com, on mainnet too — address-scoped and
+// address-less. Window width is not the constraint that moved; request *rate*
+// is. Staying under 1M still keeps one pass to one call per topic after a long
+// outage; the 250 ms floor in rpc.mjs is what stops the limiter eating those
+// calls. A hardcoded sleep with no provenance is the thing someone deletes
+// later, which is why the numbers live next to the measurement, not here.
 const MAX_SPAN = Number(process.env.MONITOR_MAX_SPAN || 900_000)
 
 let from
@@ -263,6 +264,8 @@ for (const a of [...anyAddress, ...scoped]) {
 const LAUNCH_CREATED = CONFIG.alerts.find(a => a.event.startsWith('LaunchCreated'))
 
 let logsSeen = 0
+let logQueriesAttempted = 0
+let logQueriesSucceeded = 0
 for (const [topic0, alerts] of byTopic) {
   const wantsAnyAddress = alerts.some(a => a.scope === 'any-address')
   const addresses = wantsAnyAddress
@@ -274,14 +277,46 @@ for (const [topic0, alerts] of byTopic) {
     if (address) filter.address = address
 
     let logs
+    logQueriesAttempted++
     try {
       logs = await rpc('eth_getLogs', [filter])
     } catch (err) {
-      record('WATCHER-02', 'P1', false,
+      /* WATCHER-02 used to be page: false for every failed getLogs.
+       *
+       * That is the same failure shape WATCHER-03 was written to stop: a
+       * monitor that scanned nothing, reported a finding that does not page,
+       * and left the job green. The 2026-09-08 mainnet cutover (workflow run
+       * 34196807435) did exactly this. Every eth_getLogs 429'd, each landing
+       * as a non-paging WATCHER-02; the one paging finding was WATCHER-03,
+       * the expected cutover notice; report.mjs filed that one issue and the
+       * Actions run went green. Independently, the same window contained
+       * seven logs mapping to GOV-01/02/03/06/07 — all P0. Nobody was told.
+       *
+       * The rule, chosen against §6's noise budget rather than as "page on
+       * any RPC hiccup":
+       *
+       *   - Retry is what absorbs a transient 429. That lives in rpc.mjs.
+       *     This branch is after those retries are exhausted.
+       *   - If the skipped topic's alerts include any P0, this pages. An
+       *     unchecked P0 is an outage of the monitor, not a gap to print.
+       *   - P1/P2-only topics that fail still record WATCHER-02, still do
+       *     not page. A PARAM-02 miss every cycle would spend the budget
+       *     that exists to keep the P0s unmuted.
+       *   - A pass that completed zero log queries is WATCHER-04 below,
+       *     which always pages: zero logs after a total skip is a blind
+       *     monitor, not a quiet chain. One finding, not one per topic, so
+       *     a fully wedged endpoint does not also storm the issue tracker.
+       */
+      const affected = address
+        ? alerts.filter(a => a.scope === 'any-address' || addressFor[a.contract] === address)
+        : alerts
+      const blindsP0 = affected.some(a => a.severity === 'P0')
+      record('WATCHER-02', 'P1', blindsP0,
         `eth_getLogs failed for topic ${topic0}: ${err.message}. These alerts were NOT checked this pass.`,
-        { alerts: alerts.map(a => a.id) })
+        { alerts: affected.map(a => a.id) })
       continue
     }
+    logQueriesSucceeded++
     logsSeen += logs.length
 
     for (const log of logs) {
@@ -318,6 +353,31 @@ for (const [topic0, alerts] of byTopic) {
 }
 
 state.hooks = state.hooks.filter(isHookAddress)
+
+/* WATCHER-04 — a pass that completed zero log queries is a blind monitor.
+ *
+ * WATCHER-02 pages per skipped P0 topic, which is the right grain when some
+ * queries succeed: those alerts were checked, these were not. When none
+ * succeed, listing one WATCHER-02 per topic would storm the issue tracker
+ * with the same outage (§6: the firehose that gets muted, taking the P0s
+ * with it). One paging finding for the whole pass is the same claim
+ * WATCHER-03 makes about a stale checkpoint: the monitor did not watch.
+ *
+ * The workflow's `::error::` is wired to this id as well as to exit 2.
+ * Run 34196807435 did not trip that annotation because the watcher still
+ * produced findings and exited 1 (WATCHER-03 paged). Exit 2 is "could not
+ * even start"; this is "started, scanned nothing". Both are a blind
+ * monitor. Neither is a quiet chain.
+ *
+ * Transient 429s never reach here — rpc.mjs retries them. This fires after
+ * those retries are exhausted, so it is not the noise budget talking.
+ */
+if (logQueriesAttempted > 0 && logQueriesSucceeded === 0) {
+  record('WATCHER-04', 'P1', true,
+    `Every eth_getLogs query failed this pass (${logQueriesAttempted} attempted, 0 succeeded). ` +
+    `Zero logs is not a quiet chain — the monitor was blind. The checkpoint has not been ` +
+    `advanced, so the next pass retries this window rather than skipping it.`)
+}
 
 // ── 2. State checks ──────────────────────────────────────────────────────────
 
@@ -525,7 +585,20 @@ for (const hook of state.hooks) {
 
 // ── Report ───────────────────────────────────────────────────────────────────
 
-state.lastBlock = head
+/* A blind or P0-blinding pass must not consume the window. The 2026-09-08
+ * cutover pass wrote lastBlock = head after scanning nothing, persisted it,
+ * and made the seven P0 governance logs in that 900k-block window
+ * unrecoverable from the resume path — `--since` is the only way back, and
+ * nobody who saw a green run would think to use it.
+ *
+ * Duplicate findings on a retry are the same trade WATCHER-03 already
+ * accepted: a duplicate is dismissed in seconds, a skipped window is not
+ * read at all. P1/P2-only skips still advance: stalling the checkpoint on
+ * PARAM-02 would spend the noise budget the other way, by re-firing every
+ * healthy event forever. */
+const fullyBlind = logQueriesAttempted > 0 && logQueriesSucceeded === 0
+const blindedP0 = findings.some(f => f.id === 'WATCHER-02' && f.page)
+if (!fullyBlind && !blindedP0) state.lastBlock = head
 state.lastRun = new Date().toISOString()
 if (treasuryBalance != null) state.treasuryBalance = treasuryBalance.toString()
 if (!DRY) writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
