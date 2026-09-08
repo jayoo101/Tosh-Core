@@ -1,11 +1,12 @@
 # Being a Tosh Protocol Safe signer — what is actually being asked
 
-*Written to be handed to a candidate as-is. Last updated 2026-09-04.*
+*Written to be handed to a candidate as-is. Last updated 2026-09-08.*
 
-This exists because PM-D4 is blocked on finding two people, and "help me run a
-multisig" is not a question anyone can answer. Below is the whole obligation,
-the whole power the key carries, and the parts that are genuinely unattractive.
-If you read it and say no, that is a useful answer and costs nothing.
+This was written because PM-D4 was blocked on finding two people, and "help me
+run a multisig" is not a question anyone can answer. Below is the whole
+obligation, the whole power the key carries, and the parts that are genuinely
+unattractive. If you read it and say no, that is a useful answer and costs
+nothing.
 
 ---
 
@@ -121,18 +122,21 @@ now is more useful than discovering it during one.
    `getOwners()` and `getThreshold()` read as expected.
 3. You sign one harmless test transaction, so the first real signature is not
    also the first time the path is exercised.
-4. Your contact details go into `INCIDENT_RESPONSE.md` §1, which is the roster
-   an on-call commander reads at 3am (PM-E4).
+4. Your contact channel is Encrypted Signal / Telegram. The handle is recorded
+   in the operator's offline vault, not in `INCIDENT_RESPONSE.md` §1 — that
+   roster names the channel and does not hold personal numbers, emails or IDs.
 
 ## Where this sits
 
-This document is the missing input to **PM-D4**. Once three reachable signers
-exist, the Safe is created, ownership of the factory and treasury moves to it
+This document was the recruiting input to **PM-D4**, which closed once three
+reachable signers existed, the Safe was built, and §1 named the channel (handles
+in the offline vault, not in this repository). Ownership of the factory and
+treasury still moves to the Safe
 (**PM-C2** — mechanism already rehearsed end to end on the test network), and
 the factory address can be announced publicly (**PM-C3**, which is deliberately
 gated behind that transfer, so nobody is handed a contract whose original
 deployer can still control it).
 
-Until then the brake is a single key held by one person, which is exactly the
+Until C2 the brake is a single key held by one person, which is exactly the
 arrangement `PRD-v5.0.md` §11 D2 names as voiding its own decision to ship
 without a timelock.

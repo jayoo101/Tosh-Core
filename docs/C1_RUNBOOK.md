@@ -243,18 +243,18 @@ In order. Each is a checklist row.
 
 ## 8. Not blocked by any of the above
 
-These need no deploy and no key. They are the only rows on the open list that
-could close today:
-
-- **PM-D4 / PM-E4** — `INCIDENT_RESPONSE.md` §1 names the three signers (Tom,
-  Jack, Joe), each bound to an address they signature-proved. What is blank is a
-  **contact channel** for any of them. One unreachable signer turns 2-of-3 into
-  2-of-2, and §8.2 measured the mechanical signing path at 5 s against a
-  60-second budget — so nearly the whole budget is the time to reach a human.
-- **PM-E6** — name a watcher for the D1–D4 review triggers.
+There is nothing left on this list. PM-D4, PM-E4 and PM-E6 were the rows that
+needed no deploy and no key; they closed 2026-09-08. `INCIDENT_RESPONSE.md` §1
+names Encrypted Signal / Telegram for Tom, Jack and Joe, with handles in the
+offline vault; Incident commander and Comms lead are the Deployer / Primary
+Operator; Legal is N/A at launch; the D1–D4 review triggers are watched by the
+same person. That is a policy closure: the placeholders are gone and the
+channel is named. Nobody has been paged at 03:00 to prove the channel works.
 
 **Q1's third criterion is not on this list, and an earlier draft of this file
 put it there.** §8.3 closed it on 2026-09-04: Joe and Tom signed all four
 payloads on 46630. `verifyOwnerSafe.mjs` went on printing "the only one still
 unmet" for two days afterwards and was corrected in the same commit as this
 line — worth knowing, because §0 of this runbook tells you to run that script.
+The same script later printed a remaining-for-D4/E4 nag after those rows had
+also closed; that line is gone too.

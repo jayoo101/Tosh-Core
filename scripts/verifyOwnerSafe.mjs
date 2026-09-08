@@ -310,18 +310,14 @@ console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, a
 console.log('\n  Safe to set BOTH of these in .env.production:')
 console.log(`    PROD_OWNER_SAFE=${ethers.getAddress(safeAddr)}`)
 console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)
-// Both sentences this block used to print went stale on 2026-09-04 and stayed
-// that way. It asked you to "fill INCIDENT_RESPONSE.md §1 with all three
-// signers" — already done, §1 names Tom, Jack and Joe against their
-// signature-proved addresses — and to "re-run the §8.2 Q1 drill … that is the
-// third Q1 criterion, and the only one still unmet", which §8.3 closed the same
-// day: Joe and Tom signed all four payloads on 46630.
-//
-// Left alone it would have cost real time. C1_RUNBOOK.md §0 has you run this
-// script on deploy day, where it would have sent you to organise a drill that
-// is already done while saying nothing about the gap that is actually open.
-console.log('\n  Remaining for D4 / E4: a contact channel for each signer.')
-console.log('  §1 names them and §8.3 met Q1\'s third criterion on 2026-09-04, so')
-console.log('  the drill is done. What is still blank is how you wake two of the')
-console.log('  three at 03:00 — §8.2 timed the mechanical path at 5 s against a')
-console.log('  60-second budget, so nearly all of that budget is the human hop.')
+// This closing block has gone stale twice. First it asked you to fill §1 with
+// the three signers and to re-run the §8.2 Q1 drill as "the only one still
+// unmet" — both already done on 2026-09-04 (§1 names Tom, Jack and Joe;
+// §8.3 had Joe and Tom sign all four payloads). Then (e118e91) it printed a
+// remaining-for-D4/E4 nag: "a contact channel for each signer" / "how you wake
+// two of the three at 03:00". That closed 2026-09-08: §1 names Encrypted
+// Signal / Telegram and points at the offline vault; there are no placeholders.
+// C1_RUNBOOK.md §0 has you run this script on deploy day. A remaining-line for
+// a closed row is the same failure as the drill nag: it would send you to
+// organise work that is already done. Handles in the vault are an operator
+// obligation this script cannot see, and it does not pretend to.

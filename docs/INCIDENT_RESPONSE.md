@@ -42,9 +42,9 @@ P2/P3 are handled in-band by ordinary engineering rotation.
 
 ## 1. On-call roster & contacts
 
-> Replace the remaining placeholders **before** mainnet launch. Keep this
-> section deliberately short — the contact lookup belongs in 1Password / your
-> team's pager system, not in this repo.
+> Keep this section deliberately short — the contact lookup belongs in the
+> offline vault, not in this repo. No personal phone number, private email or
+> messaging handle is recorded here.
 
 The three Safe signers are identified as of 2026-09-04. Each address below is
 one of the three owners of `0x2953957774482efA660921df85A1E7634ccfe27A` (§1.1),
@@ -52,32 +52,37 @@ and each proved control of it by signature before the Safe was created.
 
 | Role | Primary | Address | Reachable on |
 |------|---------|---------|--------------|
-| Incident commander | `@<oncall-1>` | — | `<not yet filled>` |
-| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | direct, out of band — see below |
-| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | direct, out of band — see below |
-| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | direct, out of band — see below |
-| Comms lead | `@<comms>` | — | `<not yet filled>` |
-| Legal | `@<legal>` | — | `<not yet filled>` |
+| Incident commander | Deployer / Primary Operator | — | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Comms lead | Deployer / Primary Operator | — | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Legal | N/A (Decentralized protocol / Founder-led at launch) | — | — |
 
-**Contact routing, decided 2026-09-04.** The three signers are in continuous
-direct contact with the operator, so no pager rotation, escalation tree or
-shared contact vault is being set up, and no phone numbers are recorded here.
-That is a deliberate choice, not an unfinished row — recorded so that a later
-reader, or an auditor, does not read the absence as an oversight and re-open it.
+**Contact routing, restated 2026-09-08.** The channel is Encrypted Signal /
+Telegram. The handle for each of Tom, Jack and Joe is looked up in the
+operator's offline 1Password / Vault — not in this repository, and not in any
+shared contact store this repo can see. Incident commander and Comms lead are
+the same person as each other and as the PM-E6 watcher: the Deployer / Primary
+Operator. Legal is not a role at launch.
 
-The choice is reasonable at this size and it is worth being precise about what
-it rests on, because the number it protects is small. §8.2 timed the mechanical
-Safe path at 5 s against the 60-second bar, so ~55 s of that budget is the human
-hop and nothing else. The assumption is therefore that any two of Tom, Jack and
-Joe can be reached and can sign inside roughly a minute, at any hour. If that
-stops being true — someone travels, changes number, or goes quiet for a stretch
-— the gap does not announce itself, and the first evidence of it arrives during
-an incident. Revisit this row then, not after.
+Closing PM-D4 and PM-E4 on the strength of that column means the placeholders
+are gone and the channel is named, which is what the criterion asked for. It
+does not mean anyone has been paged at 03:00 to prove the channel works. The
+closure rests on the vault entry existing and staying current. That is an
+operator obligation; no guard in this repository can verify it.
 
-Also worth stating plainly: with one signer unreachable a 2-of-3 Safe behaves as
-a 2-of-2, where the remaining two must *both* respond. `docs/PRD-v5.0.md` §11 D2
-declines a timelock specifically because a 2/N Safe exists to play that role, so
-signer reachability is what that decision is resting on.
+The substance of the 2026-09-04 argument still holds, and the reason is the
+same number. §8.2 timed the mechanical Safe path at 5 s against a 60-second
+budget, so nearly the whole budget is the human hop. With one signer
+unreachable a 2-of-3 behaves as a 2-of-2, where the remaining two must *both*
+respond. `docs/PRD-v5.0.md` §11 D2 declines a timelock specifically because a
+2/N Safe exists to play that role, so signer reachability is what that
+decision is resting on. No pager rotation or escalation tree is being set up
+on top of this: the three signers are in continuous direct contact with the
+operator. If that stops being true — someone travels, changes number, or goes
+quiet for a stretch — the gap does not announce itself, and the first evidence
+of it arrives during an incident. Revisit this row then, not after.
 
 All three signers hold gas on 4663 (0.005 / 0.005 / 0.089 ETH as of
 2026-09-04), so any one of them can be the account that actually submits
@@ -226,12 +231,10 @@ reporting `+L2`.
 > D2 trigger ① names as voiding the no-timelock decision. It exists to prove
 > the mechanism and should be treated as disposable.
 
-**Status: decided, not yet executed.** The real Safe does not exist yet
-(PM-D4), so
-nothing above is on chain. This section records the intent so the premise is
-auditable rather than remembered; D2 trigger ③ asks for the *actual* N and
-threshold to be recorded here once ownership transfer completes (PM-C2), and
-that is a separate edit against a deployed address.
+**Status: the Safe exists; it does not yet own the factory.** 2-of-3 and the
+three owners are recorded in §1. D2 trigger ③ asks for the *actual* N and
+threshold to be recorded here once ownership transfer completes (PM-C2); that
+edit waits on a deployed factory, not on a missing Safe.
 
 ---
 
@@ -399,7 +402,8 @@ spent here should come before step 1.
 4. **`#status`, internal** — "Factory paused at block N. Cause: `<one-line>`.
    Updates every 15 min." *Deliberately last, and pointless before there is a
    second responder.* Its real function is a timestamped record of what was
-   known when, and until PM-D4 and PM-E4 put someone else on the other end,
+   known when. Incident commander and Comms lead are the same person (Deployer
+   / Primary Operator), so there is still no second responder on this end;
    the page's `UPDATED` stamp and the post-mortem already serve that. Create
    it when the second person arrives, not before.
 

@@ -3324,9 +3324,10 @@ you to "fill `INCIDENT_RESPONSE.md` §1 with all three signers, and re-run the
 third Q1 criterion, and the only one still unmet." Both halves were false by
 2026-09-04. §1 names Tom, Jack and Joe against the addresses they
 signature-proved, and §8.3 closed the third criterion the same day, with Joe and
-Tom signing all four payloads. Meanwhile the thing that *is* open — a contact
-channel for any of the three, which is what PM-D4 and PM-E4 both reduce to —
-went unmentioned.
+Tom signing all four payloads. Meanwhile the thing that *was* open — a contact
+channel for any of the three, which is what PM-D4 and PM-E4 both reduced to —
+went unmentioned. That column closed 2026-09-08: the channel is named, the
+handles live in the offline vault, and this document does not record them.
 
 The reason this is worth a section rather than a one-line fix: `C1_RUNBOOK.md`
 §0 tells you to run that script on deploy day. It would have sent you to
@@ -3357,9 +3358,11 @@ listed, by planting a symbol that exists nowhere and confirming the guard fails
 — the check that `DOCS` membership actually reaches the scanner.
 
 **What still cannot be done without you**, and this is the honest total: two
-EOAs that do not exist (deployer, PoG signer), ~0.0117 ETH of real funding, a
-contact channel per signer, and a named watcher for the D1–D4 triggers. Eleven
-of the fourteen open rows are downstream of the broadcast itself.
+EOAs that do not exist (deployer, PoG signer) and ~0.0117 ETH of real funding.
+The contact channel and the D1–D4 watcher were named 2026-09-08; they are
+operator obligations (handles in the offline vault) and not something this
+repository can see. Every remaining open row is the broadcast itself, or
+downstream of it.
 
 ### 5.22 Eighteenth sweep — a live outage, and a guard stricter than its code
 
