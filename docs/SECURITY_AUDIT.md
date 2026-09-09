@@ -3509,6 +3509,16 @@ The destination was this burned address, whose private key is plaintext in
 terminal capture `9.txt`. The funds are recoverable by anyone who reads that
 file. Sweeping them is an **open operator action, not done**.
 
+> **2026-09-09 — swept, and it stayed recoverable for about 29 hours.** Balance
+> is now 0.000002 ETH, so the value is out. Worth stating what the window was
+> rather than only that it closed: the funds sat at an address whose key is in a
+> file on disk from 03:54 on 2026-09-08 until the sweep, and nothing would have
+> announced a competing withdrawal — the watcher has no alert on this address,
+> because it is not a protocol contract and there was never a reason for it to
+> hold value. Being unmonitored is the part worth keeping in mind; the loss
+> would have been noticed by checking a balance, which is to say eventually.
+> The address stays burned and must never be funded again.
+
 A burned address stays a live attractor for as long as it remains in anybody's
 address book or paste buffer. This sweep treated burning as terminal; it is
 not, because the address outlives the decision.
@@ -4597,6 +4607,52 @@ factory address) or PM-C8 (list a token). Until either lands the leak
 has no exploitable value; after either, it does. This is a blocking
 precondition, not a recommendation.
 
+> **Reversed on 2026-09-09 — rotation is happening.** The deviation
+> above survived exactly as long as the gate did. The operator moved to
+> lift PM-C3 and PM-C8 while keeping the key, which is the one
+> combination the gate exists to prevent: it is not two independent
+> decisions but the conversion event itself, and the leak stops being
+> worthless at the moment the pair is applied together. Put that way,
+> the "against" bullet this document had already recorded as the
+> stronger argument is the one that carried, and the operator chose to
+> rotate.
+>
+> Worth noting what the earlier decision was working from, because it
+> was not wrong about cost. It was taken while the Safe path was
+> unexercised. It has since executed at nonce 0, a second batch is
+> signed and waiting at nonce 1, and `setPogSigner` is a single
+> `onlyOwner` call needing no contract redeploy — so the signing round
+> that rotation requires is one the signers were assembling anyway.
+>
+> **And a rotation is five actions, not one, which is the part that
+> invites a half-finished job.** Three are obvious: the new key into
+> Vercel Production, a frontend redeploy, and `setPogSigner` from the
+> Safe. Two are not, and both were found by reading rather than by any
+> check:
+>
+> - `POG_PRIVATE_KEY` is a second legal name for the same key
+>   (`loadOracleAccount` reads `POG_SIGNER_PRIVATE_KEY ?? POG_PRIVATE_KEY`),
+>   and it was **not in the custody inventory**. Setting the primary and
+>   leaving the superseded key in the alias would have left the leaked
+>   value live in a store while `check:secrets` printed every row green,
+>   which is §5.31's failure repeated on a different name. Now
+>   classified `absent` and currently reporting unset, so the gap is
+>   closed ahead of the rotation rather than after it.
+> - `MONITOR_EXPECTED_POG_SIGNER` is what `STATE-04` compares
+>   `factory.pogSigner()` against (`monitoring/watch.mjs:410-416`). It
+>   still holds the leaked address, so a rotation that skips it makes
+>   the watcher page correctly about the operator's own action — and,
+>   worse in the long run, a stale expectation is what would let a
+>   rotation nobody authorised go unremarked.
+>
+> The generation procedure given for the new key drops the step that
+> caused this incident rather than making it safer: address and private
+> key are taken from a single `cast wallet new`, the address printed and
+> the key sent straight to the clipboard, so the pairing holds by
+> construction and there is never a reason to run `cast wallet address`
+> on a literal. PSReadLine records input, not output, so no command in
+> the sequence carries the key.
+
 **What was actually done.** The single offending history line was
 removed programmatically — the line, not the file, so the operator's
 other 363 lines of history survive (364 → 363). A re-scan of the
@@ -4789,3 +4845,19 @@ verified, not executed. §5.32 records that the live mainnet PoG
 signing key reached PowerShell history in plaintext, that the
 disposition is accepted-deviation rather than rotation, and that
 rotation is a blocking precondition for PM-C3 and PM-C8.*
+
+*2026-09-09 — four operator reports checked against chain state rather
+than accepted. The 0.108286 ETH is swept and `0xf9D360fC…` is empty;
+the production frontend is coherent at chain 4663, closing PM-C7 after
+a first deploy that carried mainnet addresses under a 46630 chain id;
+and the accepted deviation on the PoG key is **reversed** — lifting
+PM-C3 and PM-C8 while keeping the key is the conversion event the gate
+exists to prevent, so rotation is in progress, in five parts, two of
+them outside the contract. One report did not survive the check: the
+orphan freeze batch has both signatures but has not been executed, and
+Safe `nonce()` of 1 with both orphans still owned by the dead deployer
+is the evidence. Signing is not executing. The deploy-time freeze is
+also now in force for the first time, stranding four known-wrong
+comments in `src/`; they are listed under "Obligations at deploy time"
+in §8 rather than as a sweep, because finding them was doc work and
+not a review pass.*
