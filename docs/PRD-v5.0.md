@@ -1,302 +1,302 @@
-# Tosh Fair Launchpad v5.0 —— 产品需求文档（PRD）
+# Tosh Fair Launchpad v5.0 — Product Requirements Document (PRD)
 
-> **文档性质**：本文档是**反向提取**的产品需求文档。它不是设计蓝图，而是对 `Tosh-Core` 仓库当前代码的逐行反推结果，目的是让产品负责人能够逐条核对"实现是否符合设想"。
+> **What this document is.** A **reverse-extracted** product requirements document. It is not a design blueprint; it is what falls out of reading the current code in the `Tosh-Core` repository line by line, written so that a product owner can check, claim by claim, whether "the implementation matches what was intended".
 >
-> **取证方式**：主体是纯静态阅读；后续的修订轮次（含 §8.26–8.31 红队、§8.32–8.34 gas 复查）则是跑过 `forge build` / `forge test` 的，其中的 gas 数字全部来自 `forge test --isolate --gas-report` 实测而非估算。所有常量与函数名都标注了来源文件；**早期的行号引用大多已经腐烂**，因为克隆重构与存储打包移动了大量代码——以符号名为准，不要以行号为准。
+> **How this was evidenced.** The bulk of it is pure static reading; the later revision passes (including the §8.26–8.31 red-team work and the §8.32–8.34 gas re-check) were run against `forge build` / `forge test`, and every gas number in them comes from an actual `forge test --isolate --gas-report` measurement rather than an estimate. Every constant and function name carries its source file; **most of the early line-number citations have already rotted**, because the clone refactor and storage packing moved a great deal of code around — trust the symbol names, not the line numbers.
 >
-> **标注约定**：
-> - **⚠️ 需确认** —— 代码里客观存在，但可能与产品直觉不符的地方。全部条目在第 8 章汇总。
-> - **代码中未找到依据** —— 我无法在代码里找到支撑的内容，不做编造。
+> **Annotation conventions:**
+> - **⚠️ Needs confirmation** — something that objectively exists in the code but may not match product intuition. Every entry is collected in chapter 8.
+> - **No basis found in the code** — something I could not find support for in the code, and will not invent.
 >
-> **审阅范围**：`src/`（4 个核心合约 + 3 个库）、`script/`（5 个部署脚本）、`test/`（10 个测试文件，其中 `ToshV5*.t.sol` 是 v5.0 的验收套件）、`soat-frontend/`（Next.js dApp）。
+> **Scope reviewed:** `src/` (4 core contracts + 3 libraries), `script/` (5 deployment scripts), `test/` (10 test files, of which `ToshV5*.t.sol` is the v5.0 acceptance suite), `soat-frontend/` (the Next.js dApp).
 >
-> 上面这三个数字曾分别写作 2 个库、14 个测试文件——库漏掉了 EIP-1167 克隆重构新增的 `ToshCloneLib.sol`，测试文件数则是套件合并成 `ToshV5*` 家族之前的旧值。这类计数在文档里天然会腐烂，且腐烂时不报错。
+> The three numbers above were once written as 2 libraries and 14 test files — the library count missed `ToshCloneLib.sol`, which the EIP-1167 clone refactor added, and the test-file count is the old value from before the suites were merged into the `ToshV5*` family. Counts like these rot naturally in a document, and they rot without raising an error.
 
 ---
 
-## 目录
+## Table of contents
 
-1. [产品概述与定位](#1-产品概述与定位)
-2. [系统架构与角色定义](#2-系统架构与角色定义)
-3. [代币经济与资产流模型](#3-代币经济与资产流模型)
-4. [产品全生命周期与业务流程](#4-产品全生命周期与业务流程)
-5. [安全与反操纵机制](#5-安全与反操纵机制)
-6. [前端与用户交互规格](#6-前端与用户交互规格)
-7. [附录：常量、事件、错误码总表](#7-附录常量事件错误码总表)
-8. [⚠️ 需确认条目汇总](#8-需确认条目汇总)
+1. [Product overview and positioning](#1-product-overview-and-positioning)
+2. [System architecture and role definitions](#2-system-architecture-and-role-definitions)
+3. [Token economics and the asset-flow model](#3-token-economics-and-the-asset-flow-model)
+4. [Product lifecycle and business flows](#4-product-lifecycle-and-business-flows)
+5. [Security and anti-manipulation mechanisms](#5-security-and-anti-manipulation-mechanisms)
+6. [Frontend and user-interaction specification](#6-frontend-and-user-interaction-specification)
+7. [Appendix: constants, events and error codes](#7-appendix-constants-events-and-error-codes)
+8. [Closed items](#8-closed-items)
 
 ---
 
-## 1. 产品概述与定位
+## 1. Product overview and positioning
 
-### 1.1 一句话定义
+### 1.1 In one sentence
 
-Tosh Fair Launchpad v5.0 是一个**100% ETH 原生**的公平发射平台，每个项目在 **Uniswap V4** 上以一个专属 Hook 合约作为发射引擎，把「创世募集 → 建池开盘 → 二级市场 + 离散阶梯增发」三个阶段全部搬到链上，并用**平台级回购销毁飞轮**把交易摩擦转化为通缩动力。
+Tosh Fair Launchpad v5.0 is a **100% ETH-native** fair-launch platform. Each project gets its own dedicated Hook contract on **Uniswap V4** as its launch engine, which puts all three phases — "genesis raise → pool creation and launch → secondary market plus discrete ladder issuance" — on chain, and converts trading friction into deflationary pressure through a **platform-wide buy-and-burn flywheel**.
 
-### 1.2 解决什么问题
+### 1.2 What problem it solves
 
-代码注释把设计动因写得很直接（`src/ToshLaunchpadHook.sol:41-125`、`src/ToshFactory.sol:20-35`）。归纳成产品语言：
+The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.sol:41-125`, `src/ToshFactory.sol:20-35`). Restated in product terms:
 
-| # | 常见 launchpad 的问题 | v5.0 的处理 | 代码依据 |
+| # | Problem with the usual launchpad | What v5.0 does | Code reference |
 |---|---|---|---|
-| 1 | 需要先买平台币（SATO 之类）才能参与，制造了额外的准入摩擦和平台币庄家风险 | 全链路 ETH 原生：发射费、创世出资、货架铸造、回购弹药、退款，全部是原生 ETH。工厂甚至不再存储 SATO 地址 | `src/ToshFactory.sol:59-62`；`src/ToshLaunchpadHook.sol:43-46` |
-| 2 | 项目方持有大额预挖，区块浏览器上一个地址占 100% 供应，社区不敢进 | 按需铸造（on-demand mint）。开盘时只铸 8.4M 创世块，其余 12.6M 随货架成交逐笔铸出 | `src/ToshToken.sol:44-60`、`mint` @ `src/ToshToken.sol:168-174` |
-| 3 | 项目方可以从低价曲线铸币砸回底池，抽干创世 ETH | 三重价格门控：同区块铸造禁令 + `min(spot, TWAP)` 参考价 + 105% 天花板。开盘那个区块 Phase-2 **完全关闭**——由 `launch()` 主动盖上 `lastSwapBlock` 强制，而非依赖边界算术（见 §8.26） | `ToshLaunchpadHook.launch()` / `mintBondingCurve`；测试 `test_ladderOpensLockedAtLaunch` + `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` |
-| 4 | 创世参与者开盘就被套（开盘价 ≤ 出资成本） | 55/45 的创世供应切分在数学上制造出**恰好 10%** 的开盘账面溢价，货架 0 再叠 5%，合计 15.5% | `GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`；测试 `test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol` |
-| 5 | 底池被永久锁死，散户不敢也不能做 LP，池子费收给了无人能领的仓位 | v5.0 从地址掩码里**移除** `BEFORE_REMOVE_LIQUIDITY`（0x22CC → 0x20CC），散户 LP 自由进出；创世仓位靠"归属权 + 无移除代码路径"结构性锁定 | `src/ToshLaunchpadHook.sol:129-136`、`1642-1667`（`beforeRemoveLiquidity`）；测试 `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
-| 6 | 通缩靠链下机器人 harvest，有 MEV 风险和运维成本 | 顺风车（piggyback）回购：Tosh 池交易的 `afterSwap` 在**有 gas 余量时**顺手买入一份并销毁到 `0xdead`；每次一条腿，投放额 `max(1 ETH, 余额 10%)` 除以 `BATCH_SIZE` 分仓。无链下组件——但也不再保证交易一定会带上回购，兵底是无许可的 `pokeBuyback()`（见 §4.9、8.32） | `afterSwap` @ `src/ToshLaunchpadHook.sol`；`autoPiggybackBuyback` / `pokeBuyback` @ `src/ToshLadderTreasury.sol` |
-| 7 | 平台金库可以被 owner 提走 | 国库是**单向阀**：无 `withdraw` / `sweep` / `rescue` / `delegatecall`，唯一出金路径 `_buyAndBurn` 的收款地址硬编码为 `0xdead` | `src/ToshLadderTreasury.sol:129`、`522-567` |
+| 1 | You have to buy the platform token (SATO or similar) before you can take part, which adds a barrier to entry and exposes everyone to whoever is running the platform token | ETH-native end to end: launch fees, genesis deposits, shelf mints, buyback ammunition, refunds — all native ETH. The factory does not even store SATO's address any more | `src/ToshFactory.sol:59-62`; `src/ToshLaunchpadHook.sol:43-46` |
+| 2 | The team holds a large pre-mine, a block explorer shows one address holding 100% of supply, and the community will not go near it | On-demand minting. Launch mints only the 8.4M genesis block; the remaining 12.6M is minted trade by trade as the shelves sell | `src/ToshToken.sol:44-60`, `mint` @ `src/ToshToken.sol:168-174` |
+| 3 | The team can mint from the cheap end of the curve and dump back into the pool, draining the genesis ETH | Three layers of price gating: a same-block minting ban, a `min(spot, TWAP)` reference price, and a 105% ceiling. Phase 2 is **shut entirely** for the launch block — enforced by `launch()` stamping `lastSwapBlock` itself rather than by boundary arithmetic (see §8.26) | `ToshLaunchpadHook.launch()` / `mintBondingCurve`; tests `test_ladderOpensLockedAtLaunch` + `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` |
+| 4 | Genesis participants are underwater the moment the pool opens (opening price ≤ what they paid) | The 55/45 split of genesis supply produces, arithmetically, **exactly 10%** of paper premium at launch; shelf 0 stacks another 5% on top, for 15.5% combined | `GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`; test `test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol` |
+| 5 | The pool is locked forever, retail neither dares nor is able to LP, and pool fees accrue to a position nobody can claim | v5.0 **removes** `BEFORE_REMOVE_LIQUIDITY` from the address mask (0x22CC → 0x20CC), so retail LPs come and go freely; the genesis position is locked structurally, by "ownership plus the absence of any code path that removes" | `src/ToshLaunchpadHook.sol:129-136`, `1642-1667` (`beforeRemoveLiquidity`); test `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
+| 6 | Deflation depends on an off-chain bot harvesting, which carries MEV risk and running costs | Piggyback buybacks: the `afterSwap` of a trade on a Tosh pool buys a slice and burns it to `0xdead` on its way out, **when there is gas to spare**; one leg per trade, with `max(1 ETH, 10% of balance)` divided by `BATCH_SIZE` to spread the spend. No off-chain component — but also no guarantee any longer that a trade will carry a buyback with it; the backstop is the permissionless `pokeBuyback()` (see §4.9, 8.32) | `afterSwap` @ `src/ToshLaunchpadHook.sol`; `autoPiggybackBuyback` / `pokeBuyback` @ `src/ToshLadderTreasury.sol` |
+| 7 | The platform treasury can be drained by the owner | The treasury is a **one-way valve**: no `withdraw` / `sweep` / `rescue` / `delegatecall`, and the recipient on its only outbound path, `_buyAndBurn`, is hard-coded to `0xdead` | `src/ToshLadderTreasury.sol:129`, `522-567` |
 
-### 1.3 目标用户
+### 1.3 Target users
 
-| 用户 | 诉求 | 产品提供的东西 |
+| User | What they want | What the product gives them |
 |---|---|---|
-| **项目创作者（creator）** | 用最小成本开一个有真实底池、有可信规则的代币 | 0.1 ETH 发射费；三档创世时长可选；99% 货架收入归 `projectAdmin`；规则在部署时冻结进 immutable |
-| **创世储户** | 早期低价 + 确定的下行保护 | 结构性 10% 开盘溢价；软顶未达成 / 7 天僵尸窗口超时可 100% 无罚退款 |
-| **二级交易者** | 有深度、无隐藏抽水的池子 | 全区间创世流动性永久锁定；总摩擦 **1.30%**（0.30% 给 LP + 1.00% 协议税，其中 0.70% 回购销毁、0.30% 平台收入） |
-| **散户 LP** | 赚池子费而不被锁仓 | 0.30% 池子费由 V4 原生结算；随时可撤；UI 提供极简全区间面板 |
-| **推荐人** | 拉新分佣 | 全平台终身绑定，被推荐人**每一次**创世出资的 10% 都归推荐人（⚠️ 见 8.3：官方 UI 目前不传推荐人） |
-| **平台 owner** | 平台可运营但不可作恶 | 可调发射费 / 软顶 / 额度 / 冷却 / 黑名单 / 暂停 / 回购策展；但**不能**动任何一分资金 |
+| **Project creator (creator)** | To launch a token with a real pool and credible rules at minimum cost | A 0.1 ETH launch fee; three genesis durations to choose from; 99% of shelf revenue to `projectAdmin`; the rules frozen into immutables at deployment |
+| **Genesis depositors** | An early low price plus definite downside protection | A structural 10% launch premium; a 100% penalty-free refund if the soft cap is missed or the 7-day zombie window times out |
+| **Secondary-market traders** | A pool with depth and no hidden rake | Full-range genesis liquidity locked permanently; total friction of **1.30%** (0.30% to LPs + 1.00% protocol tax, of which 0.70% is buy-and-burn and 0.30% platform revenue) |
+| **Retail LPs** | To earn pool fees without being locked in | The 0.30% pool fee is settled natively by V4; withdraw whenever you like; the UI ships a minimal full-range panel |
+| **Referrers** | A cut for bringing people in | A platform-wide lifetime binding: 10% of **every** genesis deposit the referee ever makes goes to the referrer (⚠️ see 8.3: the official UI does not currently pass a referrer) |
+| **Platform owner** | A platform that can be operated but cannot misbehave | Can tune the launch fee / soft cap / quotas / cooldown / blacklist / pause / buyback curation; **cannot** move a single wei of anyone's money |
 
-### 1.4 与常见 launchpad 的差异总结
+### 1.4 How this differs from the usual launchpad, in summary
 
-- **不是 bonding-curve-only**：v5.0 有**真实的 Uniswap V4 池子**（Phase 1 结束就建池），阶梯货架（Phase 2）是**平行于池子**的一级增发渠道，且被池子的价格反向门控。这与 pump.fun 类"曲线内交易，毕业后才建池"是完全不同的结构。
-- **不是 tan(z) 连续曲线**：v4.x 的泰勒展开切线曲线被删除，换成 4000 档**离散定价货架**（`TIER_COUNT = 4000`，每档 3,150 枚，档间 +0.19025%，全程跨度 2000×），价格用快速幂闭式求值而非累乘，避免 4000 次截断漂移（`src/ToshLaunchpadHook.sol`）。
-- **卖压直接销毁**：卖出侧 **1.0%** 的代币在 `beforeSwap` 里就被 `take` 到 `0xdead`，不进储备、不需要回购换手，**也不分给平台**（`_skimInputTax` @ `src/ToshLaunchpadHook.sol`）。
-- **平台收入的绝大部分不是利润，但不再是全部**：发射费、货架 1% 切片、孤儿推荐佣金三条管道**仍然 100% 汇入** `ToshLadderTreasury`，只能用于回购销毁；买入侧 1.0% ETH 税则**按 70/30 拆分**——70 bps 进 `ToshLadderTreasury`（与拆分前完全一致），30 bps 作为平台维护收入进 `platformTreasury`（`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`、`src/ToshLadderTreasury.sol:23-29`）。
+- **Not bonding-curve-only.** v5.0 has a **real Uniswap V4 pool** — created the moment Phase 1 ends — and the ladder shelf (Phase 2) is a primary issuance channel running **in parallel with the pool**, gated in reverse by the pool's own price. That is a structurally different thing from the pump.fun pattern of "trade inside the curve, create the pool only on graduation".
+- **Not a continuous tan(z) curve.** v4.x's Taylor-expanded tangent curve is deleted and replaced by 4000 **discretely priced shelves** (`TIER_COUNT = 4000`, 3,150 tokens per tier, +0.19025% between tiers, spanning 2000× end to end). The price is evaluated in closed form by fast exponentiation rather than by repeated multiplication, which avoids 4000 rounds of truncation drift (`src/ToshLaunchpadHook.sol`).
+- **Sell pressure is burned outright.** On the sell side, **1.0%** of the tokens are `take`n straight to `0xdead` inside `beforeSwap` — they never enter the reservoir, need no buyback round trip, and **are not shared with the platform** (`_skimInputTax` @ `src/ToshLaunchpadHook.sol`).
+- **Most of the platform's income is not profit, but it is no longer all of it.** Three pipes — launch fees, the 1% shelf slice, and orphaned referral commission — **still flow 100%** into `ToshLadderTreasury`, where the only permitted use is buy-and-burn. The 1.0% ETH tax on the buy side, however, is **split 70/30**: 70 bps to `ToshLadderTreasury` (exactly as much as before the split) and 30 bps to `platformTreasury` as platform maintenance revenue (`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`, `src/ToshLadderTreasury.sol:23-29`).
 
-  > **这一行以前写的是「四条管道全部汇入 `ToshLadderTreasury`，只能用于回购销毁」，那句话现在是假的。** 它是整个设计的承重信任声明，所以这里不做技术性措辞回避：平台现在从每一笔买单里抽走 30 bps 的 ETH 作为自己的收入，这笔钱不进回购、不销毁、归平台支配。回购引擎拿到的绝对数额没有变（还是买入量的 70 bps），变的是交易者的总摩擦从 1.00% 涨到 1.30%——多出来的 30 bps 是新增的，不是从回购里挪的。完整的决策与代价见 §2.2.5.1。
+  > **This line used to read "all four pipes flow into `ToshLadderTreasury`, where the only permitted use is buy-and-burn", and that sentence is now false.** It is the load-bearing trust claim of the entire design, so it gets no careful wording here: the platform now takes 30 bps of ETH out of every buy as its own revenue, and that money is not bought back, not burned, and is the platform's to spend. The absolute amount reaching the buyback engine has not changed (still 70 bps of the buy); what changed is that a trader's total friction went from 1.00% to 1.30% — the extra 30 bps is new, not moved out of the buyback. The full decision and what it costs are in §2.2.5.1.
 
 ---
 
-## 2. 系统架构与角色定义
+## 2. System architecture and role definitions
 
-### 2.1 四个合约的职责边界
+### 2.1 Where each of the four contracts' responsibilities end
 
 ```
-                        ┌─────────────────────────────────────────┐
-                        │           平台单例（每链一份）            │
-                        └─────────────────────────────────────────┘
+                             ┌────────────────────────────────────────────┐
+                             │    Platform singletons (one per chain)     │
+                             └────────────────────────────────────────────┘
 
-   ┌──────────────────────────┐   setFactory(一次性)   ┌───────────────────────────────┐
-   │      ToshFactory         │──────────────────────▶│    ToshLadderTreasury         │
-   │  Ownable2Step + Pausable │                       │      Ownable2Step             │
-   │  + ReentrancyGuard       │◀──registeredHooks()───│  （单向阀 / 回购执行器）        │
-   │                          │◀──tokenToHook()───────│                               │
-   │ · createLaunch (CREATE2) │                       │ · receive() 收四条管道的 ETH   │
-   │ · registerPoG (签名配额)  │   launchFee(0.1 ETH)   │ · addLadderToken 策展(owner)   │
-   │ · deposit 创世网关        │──────────────────────▶│ · autoPiggybackBuyback(onlyHook)│
-   │ · globalReferrers 推荐图  │                       │ · pokeBuyback() 无许可          │
-   │ · 黑名单 / 冷却 / 暂停    │                       │ · unlockCallback → _runPiggyback│
-   │                          │                       │ · _buyAndBurn → 0xdead         │
-   │                          │                       │ · piggybackActive() 瞬态锁      │
-   └──────────┬───────────────┘                       └───────────┬───────────────────┘
-              │ CREATE2 克隆（EIP-1167，121 字节）                   │ swap/settle/take
-              │ + initializeToken                                  │（借帧或自开 unlock）
-              ▼                                                    ▼
-   ┌──────────────────────────────────────────────────┐   ┌──────────────────────┐
-   │            ToshLaunchpadHook（每项目一份）         │──▶│  Uniswap V4          │
-   │            IHooks + IUnlockCallback              │◀──│  PoolManager         │
-   │                                                  │   │  （ETH / TOKEN 池）   │
-   │  Phase 1 · deposit / refund / launch             │   └──────────────────────┘
-   │  Phase 2 · mintBondingCurve / quoteMint          │            ▲
-   │            claimGenesis / claimReferralReward    │            │ 0.30% 池子费
-   │  Hook 回调 · beforeInitialize / beforeSwap        │            │ 归 LP（含散户）
-   │             afterSwap / beforeRemoveLiquidity     │            │
-   │  Hook 本地 TWAP 预言机（V4 core 不带观测缓冲）      │            │
-   └──────────┬───────────────────────────────────────┘            │
-              │ mint()（唯一 MINTER_ROLE）                          │
-              ▼                                                    │
-   ┌──────────────────────────────────────────────────┐            │
-   │            ToshToken（每项目一份）                 │────────────┘
-   │            ERC20 + AccessControl                 │
-   │  MAX_SUPPLY = 21,000,000e18（mint 时硬校验）       │
-   │  DEFAULT_ADMIN_ROLE 永久空缺 → 无人能改角色         │
-   └──────────────────────────────────────────────────┘
+   ┌──────────────────────────────────┐   setFactory (one-shot)   ┌────────────────────────────────────┐
+   │           ToshFactory            │──────────────────────────▶│         ToshLadderTreasury         │
+   │  Ownable2Step + Pausable         │                           │            Ownable2Step            │
+   │  + ReentrancyGuard               │◀──registeredHooks()───────│  (one-way valve / buyback engine)  │
+   │                                  │◀──tokenToHook()───────────│                                    │
+   │ · createLaunch (CREATE2)         │                           │ · receive() — ETH from four pipes  │
+   │ · registerPoG (signed quota)     │    launchFee(0.1 ETH)     │ · addLadderToken curation (owner)  │
+   │ · deposit — genesis gateway      │──────────────────────────▶│ · autoPiggybackBuyback(onlyHook)   │
+   │ · globalReferrers referral graph │                           │ · pokeBuyback() permissionless     │
+   │ · blacklist / cooldown / pause   │                           │ · unlockCallback → _runPiggyback   │
+   │                                  │                           │ · _buyAndBurn → 0xdead             │
+   │                                  │                           │ · piggybackActive() transient lock │
+   └──────────┬───────────────────────┘                           └─────────────┬──────────────────────┘
+              │ CREATE2 clone (EIP-1167, 121 bytes)                             │ swap/settle/take
+              │ + initializeToken                                               │ (borrowed frame, or its own unlock)
+              ▼                                                                 ▼
+   ┌─────────────────────────────────────────────────────────────┐   ┌──────────────────────┐
+   │            ToshLaunchpadHook (one per project)              │──▶│  Uniswap V4          │
+   │            IHooks + IUnlockCallback                         │◀──│  PoolManager         │
+   │                                                             │   │  (ETH / TOKEN pool)  │
+   │  Phase 1 · deposit / refund / launch                        │   └──────────────────────┘
+   │  Phase 2 · mintBondingCurve / quoteMint                     │              ▲
+   │            claimGenesis / claimReferralReward               │              │ 0.30% pool fee
+   │  Hook callbacks · beforeInitialize / beforeSwap             │              │ to LPs (retail included)
+   │                   afterSwap / beforeRemoveLiquidity         │              │
+   │  Hook-local TWAP oracle (V4 core has no observation buffer) │              │
+   └──────────┬──────────────────────────────────────────────────┘              │
+              │ mint() (sole MINTER_ROLE)                                       │
+              ▼                                                                 │
+   ┌─────────────────────────────────────────────────────────────┐              │
+   │            ToshToken (one per project)                      │──────────────┘
+   │            ERC20 + AccessControl                            │
+   │  MAX_SUPPLY = 21,000,000e18 (hard-checked on every mint)    │
+   │  DEFAULT_ADMIN_ROLE never granted → nobody can change roles │
+   └─────────────────────────────────────────────────────────────┘
 
-   辅助库（无状态）：
-   · src/libraries/HookDeployLib.sol —— 被工厂 DELEGATECALL，隔离 hook creationCode
-     以让工厂留在 EIP-170 的 24KB 之内；提供 deployHook / computeInitcodeHash
-   · src/libraries/HookMiner.sol     —— CREATE2 地址预测 + V4 掩码校验（REQUIRED_FLAGS = 0x20CC）
+   Helper libraries (stateless):
+   · src/libraries/HookDeployLib.sol — DELEGATECALLed by the factory; isolates the hook creationCode
+     so the factory stays inside EIP-170's 24KB; provides deployHook / computeInitcodeHash
+   · src/libraries/HookMiner.sol     — CREATE2 address prediction + V4 mask check (REQUIRED_FLAGS = 0x20CC)
 ```
 
-**关键调用关系（按时间顺序）**
+**Key call relationships (in chronological order)**
 
-| 序 | 调用方 → 被调方 | 函数 | 说明 | 行号 |
+| # | Caller → callee | Function | Notes | Line |
 |---|---|---|---|---|
-| 1 | 部署者 → Treasury | `constructor` | 必须先于工厂部署（工厂把它当 immutable 构造参数） | `script/Deploy.s.sol:51` |
-| 2 | 部署者 → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | 同时算出 `HOOK_CREATION_CODEHASH`，并 DELEGATECALL `HookDeployLib.deployImplementation` 把 `platformTreasury` 一并烧进 hook 实现的 `platformFeeRecipient` immutable。**两个地址同源、同为 immutable，且都没有 setter** —— 这是防止「工厂读到新地址、swap 仍付旧地址」的唯一结构性保证 | `src/ToshFactory.sol` |
-| 3 | owner → Treasury | `setFactory` | **一次性**，闭环。未闭环则所有回购静默失效 | `src/ToshLadderTreasury.sol` |
-| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2 部署 hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol` |
-| 5 | 储户 → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | 资格校验全在工厂，记账全在 hook | `src/ToshFactory.sol` → `src/ToshLaunchpadHook.sol` |
-| 6 | creator → Hook → PoolManager | `launch()` → `initialize` + `unlock` → `unlockCallback` → `modifyLiquidity` | 建池 + 注入全区间创世流动性 | `launch` / `_addInitialLiquidity` @ `src/ToshLaunchpadHook.sol` |
-| 7 | 任意交易者 → PoolManager → Hook | `beforeSwap` / `afterSwap` | 抽税 + 写预言机 + 顺风车 poke | `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
-| 8 | Hook → Treasury | `autoPiggybackBuyback{gas: avail - TAIL_RESERVE}()`（`try/catch` 包裹，且 `gasleft() >= PIGGYBACK_MIN_GAS` 才发起） | 故障隔离 + gas 隔离：国库炸了不能让交易炸，回购贵了也不能让交易 OOG（8.32） | `afterSwap` @ `src/ToshLaunchpadHook.sol` |
-| 8b | **任意地址 → Treasury** | `pokeBuyback()` → `poolManager.unlock("")` → `unlockCallback` | 无许可活性兵底。第 8 步的 gas 门控意味着交易不再保证清空储备，这是唯一不依赖 swap 的出口 | `pokeBuyback` @ `src/ToshLadderTreasury.sol` |
-| 9 | Treasury → PoolManager | `swap` / `sync` / `settle` / `take` | 顺风车路径**不调 `unlock`**（已在别人帧内）；`pokeBuyback` 路径**自己开帧**，因为没有 swap 可借 | `_buyAndBurn` @ `src/ToshLadderTreasury.sol` |
-| 10 | Treasury → Factory | `registeredHooks` / `tokenToHook` | 认证 poke 来源；校验策展代币来源 | `onlyHook` / `addLadderToken` @ `src/ToshLadderTreasury.sol` |
-| 11 | Treasury → Hook | `getPoolKey()` / `launched()` | 回购场地从 hook 反查，**不由 owner 提供**；`launched()` 是存储打包后判断项目是否已开盘的唯一可靠依据 | `addLadderToken` @ `src/ToshLadderTreasury.sol` |
+| 1 | Deployer → Treasury | `constructor` | Must be deployed before the factory (which takes it as an immutable constructor argument) | `script/Deploy.s.sol:51` |
+| 2 | Deployer → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | Also computes `HOOK_CREATION_CODEHASH`, and DELEGATECALLs `HookDeployLib.deployImplementation` to burn `platformTreasury` into the hook implementation's `platformFeeRecipient` immutable at the same time. **The two addresses come from one source, both are immutable, and neither has a setter** — this is the only structural guarantee against "the factory reads the new address while swaps keep paying the old one" | `src/ToshFactory.sol` |
+| 3 | owner → Treasury | `setFactory` | **One-shot**; closes the loop. Leave the loop open and every buyback silently does nothing | `src/ToshLadderTreasury.sol` |
+| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2-deploys the hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol` |
+| 5 | Depositor → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | Eligibility checks all live in the factory, bookkeeping all lives in the hook | `src/ToshFactory.sol` → `src/ToshLaunchpadHook.sol` |
+| 6 | creator → Hook → PoolManager | `launch()` → `initialize` + `unlock` → `unlockCallback` → `modifyLiquidity` | Pool creation plus the injection of full-range genesis liquidity | `launch` / `_addInitialLiquidity` @ `src/ToshLaunchpadHook.sol` |
+| 7 | Any trader → PoolManager → Hook | `beforeSwap` / `afterSwap` | Skim the tax, write the oracle, poke the piggyback | `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 8 | Hook → Treasury | `autoPiggybackBuyback{gas: avail - TAIL_RESERVE}()` (wrapped in `try/catch`, and only attempted when `gasleft() >= PIGGYBACK_MIN_GAS`) | Fault isolation plus gas isolation: a treasury that blows up must not blow up the trade, and an expensive buyback must not push the trade out of gas (8.32) | `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| 8b | **Any address → Treasury** | `pokeBuyback()` → `poolManager.unlock("")` → `unlockCallback` | The permissionless liveness backstop. The gas gate in step 8 means trades no longer guarantee that the reservoir gets drained, and this is the only outlet that does not depend on a swap | `pokeBuyback` @ `src/ToshLadderTreasury.sol` |
+| 9 | Treasury → PoolManager | `swap` / `sync` / `settle` / `take` | The piggyback path **does not call `unlock`** (it is already inside someone else's frame); the `pokeBuyback` path **opens its own frame**, because there is no swap to borrow | `_buyAndBurn` @ `src/ToshLadderTreasury.sol` |
+| 10 | Treasury → Factory | `registeredHooks` / `tokenToHook` | Authenticate where a poke came from; validate the provenance of a curated token | `onlyHook` / `addLadderToken` @ `src/ToshLadderTreasury.sol` |
+| 11 | Treasury → Hook | `getPoolKey()` / `launched()` | The venue for a buyback is looked up from the hook, **not supplied by the owner**; after storage packing, `launched()` is the only reliable way to tell whether a project has launched | `addLadderToken` @ `src/ToshLadderTreasury.sol` |
 
-### 2.2 角色权限清单
+### 2.2 Role permission inventory
 
-#### 2.2.1 平台 owner（`ToshFactory` + `ToshLadderTreasury`，Ownable2Step）
+#### 2.2.1 Platform owner (`ToshFactory` + `ToshLadderTreasury`, Ownable2Step)
 
-| 能做 | 函数 | 约束 | 行号 |
+| Can do | Function | Constraint | Line |
 |---|---|---|---|
-| 暂停 / 恢复工厂 | `pause` / `unpause` | **只影响 `createLaunch` 与 `registerPoG` 两个入口**。`deposit` 没有 `whenNotPaused`——已开启的创世轮次照常收款（⚠️ 8.12） | `src/ToshFactory.sol` |
-| 停售 / 恢复阶梯 | `haltLadderMinting` / `resumeLadderMinting` | **唯一能触及已开盘项目的刹车**，且只触及 `mintBondingCurve`。单次 `≤ MAX_HALT_DURATION = 7 days` 且自动失效（`HaltDurationTooLong`）；`hook == address(0)` 停全部，否则只停该项目。不影响 swap / LP / `claimGenesis` / `claimReferralReward` / `refund`——**能让买家损失机会，不能让任何人损失余额**。见 §11 D3 | `src/ToshFactory.sol` `haltLadderMinting` |
-| 轮换 PoG 签名者 | `setPogSigner` | 非零 | `src/ToshFactory.sol` |
-| ~~轮换 `platformTreasury`~~ | ~~`setPlatformTreasury`~~ | **已删除**。该地址现在收每笔买单 30 bps 的 ETH，可变的费流目标正是审计项 M-2；因此改为 `immutable`，轮换需重新部署工厂（见 §2.2.5） | — |
-| 调整发射费 | `setLaunchFee` | 允许为 0；受调用方 `expectedFee` 滑点保护 | `src/ToshFactory.sol` |
-| 调整冷却期 | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`；为 0 时 PoG 额度退化为终身预算（⚠️ 8.25） | `src/ToshFactory.sol` |
-| 调整默认软顶 | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`，防 `p0` 截断为 0 | `src/ToshFactory.sol` |
-| 调整每钱包上限 | `setMaxPogAllocationLimit` | **必须非零**（`InvalidPogLimit`）；只影响之后创建的项目。该值会快照进每个新 hook 的构造函数，而构造函数要求 `_perWalletCap > 0`，所以归零会让全站 `createLaunch` 以 `DeployFailed` 报废——停止接项目请用 `pause()`（见 §8.27） | `src/ToshFactory.sol` `setMaxPogAllocationLimit` |
-| 批量拉黑 / 解禁 | `setBlacklist` / `liftBlacklist` | 每批 ≤ 200；`banDuration == type(uint256).max` 为永久 | `src/ToshFactory.sol` |
-| 策展回购阶梯 | `addLadderToken` / `removeLadderToken` | 代币必须经本平台 `tokenToHook` 注册且已开盘 | `src/ToshLadderTreasury.sol` |
-| 绑定国库↔工厂 | `setFactory` | 一次性，不可重指 | `src/ToshLadderTreasury.sol` |
+| Pause / resume the factory | `pause` / `unpause` | **Affects only two entry points, `createLaunch` and `registerPoG`.** `deposit` has no `whenNotPaused` — a genesis round already under way keeps taking money (⚠️ 8.12) | `src/ToshFactory.sol` |
+| Halt / resume the ladder | `haltLadderMinting` / `resumeLadderMinting` | **The only brake that reaches a launched project**, and it reaches nothing but `mintBondingCurve`. Each halt is `≤ MAX_HALT_DURATION = 7 days` and expires on its own (`HaltDurationTooLong`); `hook == address(0)` halts everything, otherwise only that project. It does not affect swaps / LP / `claimGenesis` / `claimReferralReward` / `refund` — **it can cost a buyer an opportunity, it cannot cost anyone a balance**. See §11 D3 | `src/ToshFactory.sol` `haltLadderMinting` |
+| Rotate the PoG signer | `setPogSigner` | Non-zero | `src/ToshFactory.sol` |
+| ~~Rotate `platformTreasury`~~ | ~~`setPlatformTreasury`~~ | **Deleted.** That address now receives 30 bps of ETH from every buy, and a mutable fee-flow target is precisely audit finding M-2; so it became `immutable`, and rotating it means redeploying the factory (see §2.2.5) | — |
+| Adjust the launch fee | `setLaunchFee` | Zero is allowed; protected by the caller's `expectedFee` slippage check | `src/ToshFactory.sol` |
+| Adjust the cooldown | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`; at 0 the PoG quota degenerates into a lifetime budget (⚠️ 8.25) | `src/ToshFactory.sol` |
+| Adjust the default soft cap | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`, to keep `p0` from truncating to 0 | `src/ToshFactory.sol` |
+| Adjust the per-wallet cap | `setMaxPogAllocationLimit` | **Must be non-zero** (`InvalidPogLimit`); affects only projects created afterwards. The value is snapshotted into every new hook's constructor, and that constructor requires `_perWalletCap > 0`, so zeroing it wrecks `createLaunch` platform-wide with `DeployFailed` — to stop accepting projects, use `pause()` (see §8.27) | `src/ToshFactory.sol` `setMaxPogAllocationLimit` |
+| Blacklist / unblacklist in bulk | `setBlacklist` / `liftBlacklist` | ≤ 200 per batch; `banDuration == type(uint256).max` means permanent | `src/ToshFactory.sol` |
+| Curate the buyback ladder | `addLadderToken` / `removeLadderToken` | The token must be registered with this platform's `tokenToHook` and already launched | `src/ToshLadderTreasury.sol` |
+| Bind treasury ↔ factory | `setFactory` | One-shot, cannot be re-pointed | `src/ToshLadderTreasury.sol` |
 
-| **不能做** | 原因 |
+| **Cannot do** | Why |
 |---|---|
-| 从国库取走任何 ETH | 国库无 `withdraw`/`sweep`/`rescue`/`delegatecall`；唯一出金 `_buyAndBurn` 收款方硬编码 `0xdead`（`src/ToshLadderTreasury.sol:522-567`）。测试 `test_ladderTreasury_hasNoWithdrawPath` @ `test/ToshV5.t.sol` |
-| 把回购资金导向自己控盘的池子 | `addLadderToken` 只收本平台已开盘代币，池子 key 从 hook 反查（`src/ToshLadderTreasury.sol`）。测试 `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol` |
-| 改动已开盘项目的经济参数 | `softCap` / `perWalletCap` / `genesisDuration` 都是 hook 的 immutable，创建时快照（`src/ToshLaunchpadHook.sol`）。测试 `test_setDefaultSoftCap_doesNotAffectExistingHooks` @ `test/ToshV5Factory.t.sol` |
-| 改 `ToshToken` 的角色 | `DEFAULT_ADMIN_ROLE` 从未授予任何人，`grantRole`/`revokeRole` 永久不可用（`constructor` / `initialize` @ `src/ToshToken.sol`） |
-| **阻止**某一次回购 | `autoPiggybackBuyback` 只接受注册 hook 调用（`onlyHook`），owner 直接调会 revert `OnlyHook`；而 `pokeBuyback()` 无许可，owner 拦不住任何人触发。测试 `test_autoPiggybackBuyback_rejectsNonHookCallers` @ `test/ToshV5.t.sol` |
-| 暂停已开盘项目的**交易**（swap / LP / 领取 / 退款） | 无任何开关可达（⚠️ 8.12） |
+| Take any ETH out of the treasury | The treasury has no `withdraw`/`sweep`/`rescue`/`delegatecall`; the only outbound path, `_buyAndBurn`, has `0xdead` hard-coded as its recipient (`src/ToshLadderTreasury.sol:522-567`). Test `test_ladderTreasury_hasNoWithdrawPath` @ `test/ToshV5.t.sol` |
+| Point buyback money at a pool they control | `addLadderToken` accepts only launched tokens from this platform, and the pool key is looked up from the hook (`src/ToshLadderTreasury.sol`). Test `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol` |
+| Change the economic parameters of a launched project | `softCap` / `perWalletCap` / `genesisDuration` are all hook immutables, snapshotted at creation (`src/ToshLaunchpadHook.sol`). Test `test_setDefaultSoftCap_doesNotAffectExistingHooks` @ `test/ToshV5Factory.t.sol` |
+| Change `ToshToken`'s roles | `DEFAULT_ADMIN_ROLE` was never granted to anyone, so `grantRole`/`revokeRole` are permanently unusable (`constructor` / `initialize` @ `src/ToshToken.sol`) |
+| **Block** any particular buyback | `autoPiggybackBuyback` accepts calls only from registered hooks (`onlyHook`), and the owner calling it directly reverts with `OnlyHook`; `pokeBuyback()` is permissionless, so the owner cannot stop anyone from triggering it. Test `test_autoPiggybackBuyback_rejectsNonHookCallers` @ `test/ToshV5.t.sol` |
+| Pause **trading** on a launched project (swaps / LP / claims / refunds) | No switch reaches it (⚠️ 8.12) |
 
-#### 2.2.2 项目创作者（creator）
+#### 2.2.2 Project creator (creator)
 
-- **是**：`createLaunch` 的 `msg.sender`，被写入 hook 的 `creator` immutable（`src/ToshLaunchpadHook.sol`）。
-- **唯一专属权限**：调用 `launch()` 开盘（`src/ToshLaunchpadHook.sol`，`OnlyCreator`）。
-- **不能**：改 `projectAdmin`（那是 `projectAdmin` 自己的权限）、不能提前开盘（必须 `block.timestamp >= genesisDeadline`，⚠️ 8.7）、不能退款给自己、不能移除创世流动性。
-- 参与 CREATE2 盐派生：`finalSalt = keccak256(abi.encode(msg.sender, hookSalt))`（`createLaunch` @ `src/ToshFactory.sol`），所以**盐是创作者绑定的**，别人挖到的盐在你身上无效。
+- **Is:** the `msg.sender` of `createLaunch`, written into the hook's `creator` immutable (`src/ToshLaunchpadHook.sol`).
+- **Sole exclusive power:** calling `launch()` to open the pool (`src/ToshLaunchpadHook.sol`, `OnlyCreator`).
+- **Cannot:** change `projectAdmin` (that is `projectAdmin`'s own power), launch early (`block.timestamp >= genesisDeadline` is required, ⚠️ 8.7), refund themselves, or remove genesis liquidity.
+- Takes part in deriving the CREATE2 salt: `finalSalt = keccak256(abi.encode(msg.sender, hookSalt))` (`createLaunch` @ `src/ToshFactory.sol`), so **the salt is bound to the creator** — a salt somebody else mined is worthless to you.
 
-#### 2.2.3 项目管理员（projectAdmin）
+#### 2.2.3 Project admin (projectAdmin)
 
-| 能做 | 函数 | 行号 |
+| Can do | Function | Line |
 |---|---|---|
-| 领取 Phase-2 货架收入的 99% | 被动接收（`mintBondingCurve` 内 `_sendEth`） | `src/ToshLaunchpadHook.sol` |
-| 把角色移交给新钱包 / 多签 | `changeProjectAdmin(newAdmin)` | `src/ToshLaunchpadHook.sol` |
+| Claim 99% of Phase-2 shelf revenue | Received passively (`_sendEth` inside `mintBondingCurve`) | `src/ToshLaunchpadHook.sol` |
+| Hand the role to a new wallet / multisig | `changeProjectAdmin(newAdmin)` | `src/ToshLaunchpadHook.sol` |
 
-- **不能**：铸造代币（唯一 `MINTER_ROLE` 是 hook 自己）、动创世 ETH、动创世 LP、开盘。
-- 是 hook 里**唯一可变的**资金收款地址（其他都是 immutable）。
+- **Cannot:** mint tokens (the sole `MINTER_ROLE` is the hook itself), touch genesis ETH, touch the genesis LP, or launch.
+- Is the **only mutable** payout address in the hook (every other one is immutable).
 
-#### 2.2.4 项目金库（projectTreasury）
+#### 2.2.4 Project treasury (projectTreasury)
 
-- 构造参数、`require` 非零、写入 immutable（`constructor` / `projectTreasury` @ `src/ToshLaunchpadHook.sol`）。
-- **⚠️ 8.1：合约里没有任何一处向 `projectTreasury` 转账或读取它。** 它的全部作用是（a）作为 CREATE2 initcode 元组的一员从而影响 hook 地址，（b）作为链上可读的"项目多签"元数据。前端把它硬绑为创作者的连接钱包并设为只读（`soat-frontend/src/app/launch/page.tsx:468`、`622-629`）。
+- A constructor argument, `require`d non-zero, written into an immutable (`constructor` / `projectTreasury` @ `src/ToshLaunchpadHook.sol`).
+- **⚠️ 8.1: nowhere in the contracts does anything transfer to `projectTreasury`, or even read it.** Its entire function is (a) to be one member of the CREATE2 initcode tuple and therefore to influence the hook address, and (b) to serve as on-chain-readable "project multisig" metadata. The frontend hard-binds it to the creator's connected wallet and renders it read-only (`soat-frontend/src/app/launch/page.tsx:468`, `622-629`).
 
-#### 2.2.5 平台金库（platformTreasury）
+#### 2.2.5 Platform treasury (platformTreasury)
 
-- 工厂的 **immutable** 构造参数（`platformTreasury` @ `src/ToshFactory.sol`），**没有 setter**。
-- **收每笔买单 ETH input 的 0.30%**（`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`），这是平台唯一一笔不承诺回购销毁的收入。**⚠️ 8.2 由此闭环**——这个地址曾经确实不在任何资金路径上，那句话现在已经不成立。
-- 发射费、Phase-2 的 1% 货架切片、孤儿推荐佣金**仍然全部**走 `ladderTreasury`，一分不进这里。
-- **卖出侧不分给它。** 卖单的 input 是项目自己的代币，1.0% 全额销毁——理由见 §2.2.5.1。
-- 同一个地址在 hook 实现里另有一份 immutable 拷贝 `platformFeeRecipient`（由 `HookDeployLib.deployImplementation` 从同一个构造参数烧入）。**实际付钱的是 hook 那一份，工厂那一份只是可读记录**；两者必须相等，`script/VerifyDeployment.s.sol` 与 `test_platformTreasury_matchesHookPlatformFeeRecipient` 各钉一次。
-- **必须无条件收 ETH。** hook 用 `poolManager.take` 原生转账支付它，且这条路径**没有做故障隔离**（不像 `autoPiggybackBuyback` 有 `try/catch`）：一个会 revert 的 `receive()` 不是少收一笔手续费，而是**让全平台每一个池子的每一笔买单都失败**。多签（Safe）可以，带条件逻辑的 `receive()` 不行。
-- 它仍然兼任 `getLiveHookInitcodeHash` 的哨兵填充地址（`src/ToshFactory.sol`），但那已不再是它存在的理由。
+- An **immutable** constructor argument of the factory (`platformTreasury` @ `src/ToshFactory.sol`), with **no setter**.
+- **Receives 0.30% of the ETH input of every buy** (`PLATFORM_SWAP_FEE_BPS` @ `src/ToshLaunchpadHook.sol`), which is the platform's only income not promised to buy-and-burn. **⚠️ 8.2 closes as a result** — this address genuinely used to sit on no money path at all, and that statement no longer holds.
+- Launch fees, the Phase-2 1% shelf slice, and orphaned referral commission **still go entirely** through `ladderTreasury`; not a wei of them lands here.
+- **The sell side gives it nothing.** A sell's input is the project's own token, and the full 1.0% is burned — the reasoning is in §2.2.5.1.
+- The same address has a second immutable copy inside the hook implementation, `platformFeeRecipient` (burned in by `HookDeployLib.deployImplementation` from the same constructor argument). **The hook's copy is the one that actually gets paid; the factory's copy is only a readable record.** The two must be equal, and `script/VerifyDeployment.s.sol` and `test_platformTreasury_matchesHookPlatformFeeRecipient` each pin that once.
+- **It must accept ETH unconditionally.** The hook pays it by native transfer via `poolManager.take`, and that path has **no fault isolation** (unlike `autoPiggybackBuyback`, which has its `try/catch`): a `receive()` that reverts does not mean one missed fee, it means **every buy in every pool on the platform fails**. A multisig (Safe) is fine; a `receive()` with conditional logic in it is not.
+- It still doubles as the sentinel filler address in `getLiveHookInitcodeHash` (`src/ToshFactory.sol`), but that is no longer the reason it exists.
 
-##### 2.2.5.1 决策记录：买入侧税率 0.70% → 1.00%，并按 70/30 拆分
+##### 2.2.5.1 Decision record: the buy-side tax goes 0.70% → 1.00% and splits 70/30
 
-**改了什么。** `TAX_BPS` 从 70 提到 100。`POOL_FEE` 不动，仍是 0.30% 且仍然全额归第三方 LP。买单（ETH 为 input）的 1.00% 拆成两笔 `take`：70 bps 进 `ladderTreasury`，30 bps 进 `platformFeeRecipient`。卖单（代币为 input）的 1.00% **不拆**，全额销毁到 `0xdead`。
+**What changed.** `TAX_BPS` went from 70 to 100. `POOL_FEE` is untouched, still 0.30% and still entirely to third-party LPs. The 1.00% on a buy (ETH as input) is split into two `take`s: 70 bps to `ladderTreasury`, 30 bps to `platformFeeRecipient`. The 1.00% on a sell (the token as input) is **not** split and burns in full to `0xdead`.
 
-**代价，说清楚。** 交易者的总摩擦从 **1.00% 涨到 1.30%**。这是真实的用户成本上升，不是会计口径调整。回购引擎拿到的钱没有减少（还是买入量的 70 bps，`TRIGGER_STEP` 的触发量仍然是约 143 ETH 买入量），涨的那 30 bps 完全是新增在交易者账单上的。§1.4 那条「平台收入不是利润」的承诺因此**部分失效**，本文档已在该处直接改写而非用措辞绕过。
+**The cost, stated plainly.** A trader's total friction rises from **1.00% to 1.30%**. That is a real increase in user cost, not a change of accounting convention. The buyback engine's take has not shrunk (still 70 bps of the buy, and `TRIGGER_STEP` still fires at roughly 143 ETH of buy volume); the extra 30 bps is added to the trader's bill outright. The §1.4 promise that "platform income is not profit" is therefore **partly void**, and this document has rewritten that line directly rather than talking its way around it.
 
-**为什么卖出侧不拆。** 卖单的 input 是项目自己的代币。按比例分给平台，等于让平台持续积累每一个项目的、不流通的代币仓位——而平台本应对这些项目保持中立，且最终只能把它们砸回各自的池子才能变现。全额销毁则同时保住两件事：卖出侧仍然是纯通缩的，平台账上只有 ETH。
+**Why the sell side is not split.** A sell's input is the project's own token. Handing the platform a proportional cut would have it steadily accumulating an illiquid position in every single project — projects it is supposed to stay neutral about, and positions it could ultimately only realise by dumping them back into their own pools. Burning the whole thing keeps two things at once: the sell side stays purely deflationary, and the platform's books hold nothing but ETH.
 
-**为什么收款地址做成 immutable。** 这个字段在 v4.x 是可变的，并且收费，那正是审计项 **M-2**（工厂 owner 可以重定向活跃费流）。v5.0 把所有平台收入改道 `ladderTreasury`，M-2 是靠**掐掉入金**关掉的。现在入金回来了，所以这次改为掐掉**可变性**：`setPlatformTreasury` 删除，字段改 `immutable`。另有一层理由是防发散——hook 实现在构造时把同一个地址烧成自己的 `platformFeeRecipient`，如果工厂那一份可变，运维就能把工厂改掉、读回新值、而每一笔 swap 仍在付旧地址，链上没有任何东西会反驳他。**一个地址，设一次，两处一致。**
+**Why the payout address is immutable.** In v4.x this field was mutable and it collected fees, which is exactly audit finding **M-2** (the factory owner can redirect a live fee stream). v5.0 rerouted all platform income to `ladderTreasury`, and M-2 was closed by **cutting off the inflow**. The inflow is back, so this time what gets cut off is the **mutability**: `setPlatformTreasury` is deleted and the field is `immutable`. There is a second reason, which is to prevent divergence — the hook implementation burns the same address into its own `platformFeeRecipient` at construction, and if the factory's copy were mutable, an operator could change the factory, read back the new value, and have every swap still paying the old address, with nothing on chain to contradict them. **One address, set once, agreeing in both places.**
 
-**没有改的。** exact-input / exact-out 的基数不对称仍然保留（exact-output 的实际税率是 100/1.01 = 99.0 bps）。这个缺口随税率上升从 0.5 bps 扩大到 1 bps，仍在不值得多做一次除法的范围内——理由写在 `TAX_BPS` 的 natspec 里。
+**What did not change.** The base asymmetry between exact-input and exact-out is still there (exact-output's effective rate is 100/1.01 = 99.0 bps). That gap widened from 0.5 bps to 1 bps as the rate rose, and it remains inside the range where it is not worth an extra division — the reasoning is in `TAX_BPS`'s natspec.
 
-#### 2.2.6 创世储户
+#### 2.2.6 Genesis depositor
 
-| 能做 | 何时 | 函数 | 行号 |
+| Can do | When | Function | Line |
 |---|---|---|---|
-| 出资 | 创世窗口内、有 PoG 额度、未拉黑、未冷却、未超每钱包上限 | `factory.deposit{value}(hook, referrer)` | `src/ToshFactory.sol` |
-| 100% 退款 | 软顶未达成，或超 7 天僵尸窗口 | `hook.refund()` | `src/ToshLaunchpadHook.sol` |
-| 按出资比例认领 4,620,000 枚中的份额 | 开盘后，一次性 | `hook.claimGenesis()` | `src/ToshLaunchpadHook.sol` |
+| Deposit | Inside the genesis window, with PoG quota, not blacklisted, not in cooldown, not over the per-wallet cap | `factory.deposit{value}(hook, referrer)` | `src/ToshFactory.sol` |
+| Refund in full | The soft cap was missed, or the 7-day zombie window has passed | `hook.refund()` | `src/ToshLaunchpadHook.sol` |
+| Claim a pro-rata share of the 4,620,000 tokens | After launch, once | `hook.claimGenesis()` | `src/ToshLaunchpadHook.sol` |
 
-- **不能**：多次认领（`genesisShareClaimed` 布尔位）、退款后再认领（`refund` 要求 `!launched`，两条路径互斥）、在开盘后退款。
+- **Cannot:** claim twice (the `genesisShareClaimed` boolean), claim after refunding (`refund` requires `!launched`, so the two paths are mutually exclusive), or refund after launch.
 
-#### 2.2.7 二级交易者
+#### 2.2.7 Secondary-market trader
 
-- 在 V4 池子上正常 swap。每笔付 **1.30%** 摩擦：0.30% `POOL_FEE` 归 LP（V4 原生结算），1.00% `TAX_BPS` 归协议（`POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol`）。协议那 1.00% 的去向按方向不同：**买单**拆成 0.70% 回购储备 + 0.30% 平台收入；**卖单**全额 1.00% 销毁，不拆（`PLATFORM_SWAP_FEE_BPS`，见 §2.2.5.1）。
-- 无白名单、无额度、无冷却、无黑名单——池子层面完全开放（黑名单只作用于 `factory.deposit`）。
+- Swaps on the V4 pool like anyone else. Each swap pays **1.30%** in friction: 0.30% `POOL_FEE` to LPs (settled natively by V4), and 1.00% `TAX_BPS` to the protocol (`POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol`). Where the protocol's 1.00% goes depends on direction: a **buy** splits it into 0.70% for the buyback reservoir plus 0.30% of platform revenue; a **sell** burns the whole 1.00% and splits nothing (`PLATFORM_SWAP_FEE_BPS`, see §2.2.5.1).
+- No whitelist, no quota, no cooldown, no blacklist — the pool layer is wide open (the blacklist only bites on `factory.deposit`).
 
-#### 2.2.8 推荐人
+#### 2.2.8 Referrer
 
-- 绑定关系写在工厂的 `globalReferrers`，**全平台、终身、只写一次**（`ToshFactory.globalReferrers` / `_recordReferral`）。
-- **四条**静默拒绝路径（不 revert，避免链接失效造成拒绝服务；被拒的绑定不等于被拒的出资，佣金落进 `orphanReferral` 变回购燃料）：已绑定 / 推荐人为零地址 / 自我推荐 / **推荐人自身没有 PoG 额度**（`ToshFactory._recordReferral`）。
-- 最后一条是 v5.0 后期补的反女巫措施。`referrer != user` 只有一个地址的深度，换个自己的小号就能把每笔出资的 10% 拿回来，而那个小号原本不需要额度、不需要出资、不需要任何历史。要求 `pogQuota[referrer] > 0` **挡不住**铁了心的女巫（链上做不到），它做的是把判断挪到唯一能判断的地方——PoG 预言机：每个小号得先过一次和出资人相同的认证，签名方可以在链下定价、限流或拒签。这是一道成本，不是一堵墙（见 §8.28）。测试 `test_probeJ_referralSelfFarmViaSecondWallet`。
-- 佣金 = 被推荐人每次创世出资的 10%，在 `deposit` 时即计入 `referralAccrued`，开盘后可提（`deposit` / `claimReferralReward` @ `src/ToshLaunchpadHook.sol`）。
-- **失败的创世不欠推荐人任何东西**：退款返 100%，佣金只在 `launch()` 时才真正兑现，`referralAccrued` 单纯变成永不可领（`refund` @ `src/ToshLaunchpadHook.sol`）。
+- The binding lives in the factory's `globalReferrers`: **platform-wide, for life, written exactly once** (`ToshFactory.globalReferrers` / `_recordReferral`).
+- **Four** silent-rejection paths (they do not revert, so a dead link cannot become a denial of service; and a rejected binding is not a rejected deposit — the commission falls into `orphanReferral` and becomes buyback fuel): already bound / referrer is the zero address / self-referral / **the referrer has no PoG quota of their own** (`ToshFactory._recordReferral`).
+- The last of those is an anti-sybil measure added late in v5.0. `referrer != user` is only one address deep: a second wallet of your own gets you back 10% of every deposit, and that wallet originally needed no quota, no deposit, and no history at all. Requiring `pogQuota[referrer] > 0` **does not stop** a determined sybil (nothing on chain can); what it does is move the judgement to the only place capable of making it — the PoG oracle: every alt has to clear the same attestation a depositor does, and the signer can price it, rate-limit it, or refuse to sign off chain. This is a cost, not a wall (see §8.28). Test `test_probeJ_referralSelfFarmViaSecondWallet`.
+- Commission = 10% of each genesis deposit the referee makes, credited to `referralAccrued` at `deposit` time and withdrawable after launch (`deposit` / `claimReferralReward` @ `src/ToshLaunchpadHook.sol`).
+- **A failed genesis owes the referrer nothing:** refunds return 100%, commission is only ever really honoured at `launch()`, and `referralAccrued` simply becomes permanently unclaimable (`refund` @ `src/ToshLaunchpadHook.sol`).
 
-#### 2.2.9 散户 LP
+#### 2.2.9 Retail LP
 
-- 用**自己的**（或所经由的 router/posm 的）V4 仓位，自由 `modifyLiquidity` 增减（`beforeRemoveLiquidity` @ `src/ToshLaunchpadHook.sol`）。
-- 赚 0.30% 池子费，由 V4 原生计入仓位，Tosh 无分配代码。
-- **不能**碰创世仓位：V4 把仓位按 `msg.sender` 归属，创世仓位归 hook，而 hook 的 `unlockCallback` 只认 `ACTION_ADD_LIQUIDITY`（`unlockCallback` @ `src/ToshLaunchpadHook.sol`）。测试 `test_genesisLiquidityIsPermanentlyLocked` @ `test/ToshV5.t.sol`。
+- Uses **their own** V4 position (or that of the router/posm they went through) and is free to `modifyLiquidity` up or down (`beforeRemoveLiquidity` @ `src/ToshLaunchpadHook.sol`).
+- Earns the 0.30% pool fee, credited to the position natively by V4; Tosh has no distribution code.
+- **Cannot** touch the genesis position: V4 keys positions to `msg.sender`, the genesis position belongs to the hook, and the hook's `unlockCallback` only ever recognises `ACTION_ADD_LIQUIDITY` (`unlockCallback` @ `src/ToshLaunchpadHook.sol`). Test `test_genesisLiquidityIsPermanentlyLocked` @ `test/ToshV5.t.sol`.
 
 ---
 
-## 3. 代币经济与资产流模型
+## 3. Token economics and the asset-flow model
 
-### 3.1 供应切分
+### 3.1 Supply split
 
-| 层级 | 常量 | 数量 | 占 21M | 用途 | 行号 |
+| Layer | Constant | Amount | Share of 21M | Purpose | Line |
 |---|---|---|---|---|---|
-| 硬顶 | `ToshToken.MAX_SUPPLY` | 21,000,000e18 | 100% | `mint` 时逐笔校验 | `src/ToshToken.sol` |
-| 创世块 | `GENESIS_SUPPLY` | 8,400,000e18 | 40% | 开盘时一次性铸给 hook | `src/ToshLaunchpadHook.sol` |
-| ├ 认领侧 | `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 | 22%（创世块的 **55%**） | 储户按出资比例认领 | `src/ToshLaunchpadHook.sol` |
-| └ 底池侧 | `GENESIS_LP_SUPPLY` | 3,780,000e18 | 18%（创世块的 **45%**） | 全区间注入底池并永久锁定 | `src/ToshLaunchpadHook.sol` |
-| Phase-2 阶梯 | `BONDING_MAX = TIER_COUNT × TIER_SIZE` | 12,600,000e18 | 60% | 4000 档 × 3,150 枚 | `src/ToshLaunchpadHook.sol` |
+| Hard cap | `ToshToken.MAX_SUPPLY` | 21,000,000e18 | 100% | checked on every `mint` | `src/ToshToken.sol` |
+| Genesis block | `GENESIS_SUPPLY` | 8,400,000e18 | 40% | minted to the hook in a single call at launch | `src/ToshLaunchpadHook.sol` |
+| ├ Claim side | `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 | 22% (**55%** of the genesis block) | claimed by depositors pro rata to what they put in | `src/ToshLaunchpadHook.sol` |
+| └ Pool side | `GENESIS_LP_SUPPLY` | 3,780,000e18 | 18% (**45%** of the genesis block) | injected full-range into the pool and locked permanently | `src/ToshLaunchpadHook.sol` |
+| Phase-2 ladder | `BONDING_MAX = TIER_COUNT × TIER_SIZE` | 12,600,000e18 | 60% | 4000 tiers × 3,150 tokens | `src/ToshLaunchpadHook.sol` |
 
-算术闭合：8,400,000 + 12,600,000 = 21,000,000，精确等于硬顶。测试 `test_supplyPartitioning` @ `test/ToshV5Guards.t.sol`。
+The arithmetic closes: 8,400,000 + 12,600,000 = 21,000,000, exactly the hard cap. Test `test_supplyPartitioning` @ `test/ToshV5Guards.t.sol`.
 
-**40 / 60 而不是 20 / 80，是压制早期通胀的主控旋钮。** 等量货架在市价 `R×` 时释放 `log(R)/log(SPAN)` **比例**的 Phase-2，这个比例只取决于跨度，与 Phase-2 有多大无关。所以要减少上涨途中砸向市场的**绝对枚数**，唯一办法就是把 Phase-2 本身做小，把差额交给创世块——那部分供应在开盘时就已定价、已流通，不构成新增卖压。三代配置在 2× 这个点上的对比：
+**40 / 60 instead of 20 / 80 is the master knob for suppressing early inflation.** Equal-sized shelves release a `log(R)/log(SPAN)` **fraction** of Phase-2 at a market price of `R×`, and that fraction depends only on the span, not on how large Phase-2 is. So the only way to reduce the **absolute number of tokens** thrown at the market on the way up is to shrink Phase-2 itself and hand the difference to the genesis block — that supply is already priced and already circulating at launch, and constitutes no new sell pressure. Three generations of configuration, compared at the 2× point:
 
-| 配置 | 2× 时放出 | 占 `GENESIS_SUPPLY` |
+| Configuration | Released at 2× | Share of `GENESIS_SUPPLY` |
 |---|---|---|
-| 20/80 + 1000× 跨度 | 1,688,400 | 40.2% |
-| 20/80 + 2000× 跨度 | 1,533,000 | 36.5% |
-| **40/60 + 2000× 跨度（当前）** | **1,149,750** | **13.7%** |
+| 20/80 + 1000× span | 1,688,400 | 40.2% |
+| 20/80 + 2000× span | 1,533,000 | 36.5% |
+| **40/60 + 2000× span (current)** | **1,149,750** | **13.7%** |
 
-**⚠️ 注意这个分母。** `GENESIS_SUPPLY` 是 8.4M，但其中 **3.78M 永久封在创世 LP 仓位里**——hook 持有该仓位且没有任何移除流动性的代码路径——那是存在但永不交易的供应。上表的百分比适合横向比较三种**配置**，不适合回答"市场要吃下多少"。换成真正的可交易盘：
+**⚠️ Mind that denominator.** `GENESIS_SUPPLY` is 8.4M, but **3.78M of it is sealed permanently inside the genesis LP position** — the hook holds that position and has no code path that removes liquidity — supply that exists but never trades. The percentages above are good for comparing the three **configurations** against each other; they are not an answer to "how much does the market have to swallow". Against the genuinely tradable float:
 
-| 2× 时的分母 | 枚数 | 占比 |
+| Denominator at 2× | Tokens | Share |
 |---|---|---|
-| `GENESIS_SUPPLY`（8.4M，含锁定 LP） | 1,149,750 | 13.7% |
-| 认领盘 4.62M —— 真正会交易的那部分 | 1,149,750 | **24.9%** |
-| 释放后总流通盘（4.62M + 1.15M） | 1,149,750 | **19.9%** |
+| `GENESIS_SUPPLY` (8.4M, locked LP included) | 1,149,750 | 13.7% |
+| The 4.62M claim float — the part that actually trades | 1,149,750 | **24.9%** |
+| Total float after release (4.62M + 1.15M) | 1,149,750 | **19.9%** |
 
-所以 40/60 相对 20/80 是真实的改进（36.5% → 13.7% 是同口径比较），但市价翻倍时市场仍要吸收**约五分之一到四分之一的活跃流通盘**。若 ~10% 流通盘是硬目标，跨度或切分还得继续动（见 §11 待决策 D1）。
+So 40/60 is a real improvement on 20/80 (36.5% → 13.7% is a like-for-like comparison), but at twice the launch price the market still has to absorb **roughly a fifth to a quarter of the active float**. If ~10% of float is a hard target, the span or the split has to move again (see §11, open decision D1).
 
-由 `test_earlyReleaseSchedule_isSetByTheSupplySplit` @ `test/ToshV5.t.sol` 钉住：2× 精确解锁 365 档 = 1,149,750 枚，**三个口径同时断言**，动任何一个旋钮都必须重新说明另外两个——一个改善了头条数字却恶化了流通盘数字的改动会在这里失败而不是上线。
+Pinned by `test_earlyReleaseSchedule_isSetByTheSupplySplit` @ `test/ToshV5.t.sol`: 2× unlocks exactly 365 tiers = 1,149,750 tokens, **asserted against all three denominators at once**, so touching any one knob forces a fresh account of the other two — a change that improves the headline number while making the float number worse fails here rather than shipping.
 
-10% 开盘溢价**不受影响**：它由 55 : 45 这个**比例**对上 10% 推荐佣金决定（`(0.9 / 3.78) × 4.62 = 1.10`），与创世块的绝对大小无关。
+The 10% opening premium is **unaffected**: it is set by the **ratio** 55 : 45 against the 10% referral commission (`(0.9 / 3.78) × 4.62 = 1.10`), and is independent of the absolute size of the genesis block.
 
-> **⚠️ 8.16**：`ToshToken` 的注释仍说 Phase-2 "asymptotic to BONDING_MAX … converges to (but never reaches) MAX_SUPPLY"。那是 v4.0 切线曲线的性质。v5.0 的离散阶梯 **4000 × 3,150 = 12.6M 精确可清空**，所以总供应是**可以真正到达** 21M 的。（注释已随本次改动一并修正。）
+> **⚠️ 8.16**: `ToshToken`'s comment still said Phase-2 was "asymptotic to BONDING_MAX … converges to (but never reaches) MAX_SUPPLY". That is a property of the v4.0 tangent curve. v5.0's discrete ladder is **4000 × 3,150 = 12.6M, exactly clearable**, so total supply **can genuinely reach** 21M. (The comment was corrected as part of this change.)
 
-### 3.2 资金流：创世募集 → 底池
+### 3.2 Funds flow: genesis raise → the pool
 
 ```
-  储户出资总额  R  =  totalEthDeposition
+  Total depositor contributions  R  =  totalEthDeposition
         │
-        ├─── 10%（REFERRAL_BPS = 1000）在 deposit 时逐笔切出
-        │      ├── 有推荐人 → referralAccrued[referrer] += 10%（开盘后可提）
-        │      └── 无推荐人 → orphanReferral += 10%
-        │                        └── launch() 时全额转入 ladderTreasury（回购弹药）
+        ├─── 10% (REFERRAL_BPS = 1000) carved off every deposit in deposit
+        │      ├── with referrer  → referralAccrued[referrer] += 10% (claimable after launch)
+        │      └── no referrer    → orphanReferral += 10%
+        │                           └── forwarded in full to ladderTreasury at launch() (buyback ammunition)
         │
         └─── 90%  =  lpEth  =  R − (totalReferralReserved + orphanReferral)
                  │
-                 └── 与 GENESIS_LP_SUPPLY (3.78M) 一起全区间注入 V4 底池，永久锁定
+                 └── injected full-range into the V4 pool with GENESIS_LP_SUPPLY (3.78M), locked permanently
 ```
 
-代码位置：切佣 `deposit`；`lpEth` 计算与孤儿佣金转出 `launch`；建池注入 `_addInitialLiquidity`——均在 `src/ToshLaunchpadHook.sol`。测试 `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` @ `test/ToshV5.t.sol`。
+Where the code lives: the commission is carved in `deposit`; `lpEth` is computed and the orphaned commission transferred out in `launch`; pool creation injects in `_addInitialLiquidity` — all in `src/ToshLaunchpadHook.sol`. Test `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` @ `test/ToshV5.t.sol`.
 
-**关键点**：无论有没有推荐人，从底池的角度看**永远只有 90% 进池**。这是让 10% 溢价成为结构性常量（而不是随推荐率浮动）的前提。
+**The key point**: referrer or no referrer, from the pool's point of view **only ever 90% goes in**. That is the precondition for the 10% premium being a structural constant rather than something that floats with the referral rate.
 
-### 3.3 定价：p0、shelfP0 与 10% 溢价的来源
+### 3.3 Pricing: p0, shelfP0, and where the 10% premium comes from
 
 ```
 p0      = lpEth × 1e18 / GENESIS_LP_SUPPLY            // launch() @ src/ToshLaunchpadHook.sol
@@ -305,50 +305,50 @@ shelfP0 = p0 × SHELF_PREMIUM_BPS / 10000
         = p0 × 1.05                                    // launch() @ src/ToshLaunchpadHook.sol
 ```
 
-**10% 溢价的数学推导**（合约注释里已给出，`GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`）：
+**The arithmetic behind the 10% premium** (already given in the contract comments, `GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`):
 
 ```
-储户成本基准   P_raise = R / GENESIS_CLAIM_SUPPLY = R / 4,620,000
-底池开盘价     p0      = 0.9R / GENESIS_LP_SUPPLY  = 0.9R / 3,780,000
+Depositor cost basis   P_raise = R / GENESIS_CLAIM_SUPPLY = R / 4,620,000
+Pool opening price     p0      = 0.9R / GENESIS_LP_SUPPLY  = 0.9R / 3,780,000
 
-p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
+p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   (exact)
 ```
 
-也就是：**55/45 的切分 + 10% 推荐率，三者共同决定了这个 1.10**。动任何一个，溢价就变。测试用 `assertApproxEqRel(…, 1e12)` 把这个**关系**（而非硬编码价格）钉住，并同时校验 `shelfP0 = 1.155 × 成本基准`（`test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol`）。
+That is: **the 55/45 split plus the 10% referral rate — those three numbers together determine this 1.10**. Move any one of them and the premium moves. The test pins the **relationship** rather than a hard-coded price, using `assertApproxEqRel(…, 1e12)`, and checks alongside it that `shelfP0 = 1.155 × cost basis` (`test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol`).
 
-**为什么货架要再高 5%**（`SHELF_PREMIUM_BPS` / `PRICE_CEILING_BPS` @ `src/ToshLaunchpadHook.sol`）：
+**Why the shelf sits another 5% higher** (`SHELF_PREMIUM_BPS` / `PRICE_CEILING_BPS` @ `src/ToshLaunchpadHook.sol`):
 
-- `SHELF_PREMIUM_BPS` 被**故意设成等于** `PRICE_CEILING_BPS`（都是 10500）。于是门控条件 `shelfP0 · STEP^i ≤ REF × 1.05` 里的 1.05 两边对消，坍缩成：
+- `SHELF_PREMIUM_BPS` is **deliberately set equal to** `PRICE_CEILING_BPS` (both 10500). The 1.05 on each side of the gating condition `shelfP0 · STEP^i ≤ REF × 1.05` therefore cancels, and the condition collapses to:
 
   ```
-  货架 i 解锁  ⟺  REF ≥ p0 · STEP^i
-  （REF = 窗口成熟后的 min(spot, TWAP)；未成熟时为 min(spot, p0)）
+  shelf i unlocks  ⟺  REF ≥ p0 · STEP^i
+  (REF = min(spot, TWAP) once the window has matured; min(spot, p0) before that)
   ```
 
-- 三个后果：
-  1. **开盘瞬间 Phase-2 完全关闭**。开盘时 `spot == p0` 精确落在边界上（`tierPriceAt(0) = 1.05·p0 > 1.05·p0` 不成立，但等号成立时 `≤` 通过——实测 `maxMintable() == 0`，见 `test_ladderOpensLockedAtLaunch` @ `test/ToshV5.t.sol`）。若货架与池子齐平，开盘那一刻货架 0..14（126,000 枚）就是可铸的。
-  2. **铸币砸盘在整条阶梯上都亏钱**，因为买家永远比市价高付 5%（测试 `test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`，断言亏损 > 成本的 5%）。
-  3. 叠加创世溢价后货架 0 = 储户成本 × 1.155，Phase-2 增发永不砸穿创世储户的成本线。
+- Three consequences:
+  1. **Phase-2 is shut completely the instant the pool opens**. At launch `spot == p0` lands exactly on the boundary (`tierPriceAt(0) = 1.05·p0 > 1.05·p0` does not hold, but with equality the `≤` passes — measured, `maxMintable() == 0`, see `test_ladderOpensLockedAtLaunch` @ `test/ToshV5.t.sol`). Were the shelf level with the pool, shelves 0..14 (126,000 tokens) would be mintable the moment it opened.
+  2. **Mint-and-dump loses money along the whole ladder**, because the buyer always pays 5% over market (test `test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`, which asserts a loss > 5% of cost).
+  3. Stacked on the genesis premium, shelf 0 = depositor cost × 1.155, so Phase-2 issuance never cuts below the genesis depositors' cost line.
 
-  > **⚠️ 8.9**：这个"对消"意味着货架实际是**紧贴市价**解锁，而不是"必须高于市价 5% 才解锁"。名义上的 5% 是铸造溢价（相对同一时点市价），不是解锁缓冲。它保护的是"铸了立刻砸"的即时套利，**不保护**"市价先涨、低档货架变成深度价内"的滞后套利（见 5.6）。
+  > **⚠️ 8.9**: That "cancellation" means shelves in fact unlock **flush with the market price**, not "only once the price is 5% above market". The nominal 5% is a minting premium (against the market price at the same instant), not an unlock buffer. It protects against the instantaneous arbitrage of "mint, then dump immediately"; it does **not** protect against the lagged arbitrage of "the price runs up first and the low shelves become deep in the money" (see 5.6).
 
-### 3.4 阶梯几何
+### 3.4 Ladder geometry
 
-| 参数 | 值 | 含义 | 行号 |
+| Parameter | Value | Meaning | Line |
 |---|---|---|---|
-| `TIER_COUNT` | 4000 | 档数 | `src/ToshLaunchpadHook.sol` |
-| `TIER_SIZE` | 3,150e18 | 每档配额（4000 × 3,150 = 12.6M） | `src/ToshLaunchpadHook.sol` |
-| `TIER_STEP_E18` | `1_001_902_508_266_805_824` | 步进（1e18 定点） | `src/ToshLaunchpadHook.sol` |
-| 每档涨幅 | +0.19025% | `STEP − 1` | 同上 |
-| 全程跨度 | ≈ 2000× | `STEP^3999 ≈ 2000` | `src/ToshLaunchpadHook.sol` |
-| 求值方式 | `tierPriceAt(i) = mulDiv(shelfP0, STEP^i, 1e18)`，快速幂 O(log i) | 顶档约 12 组 `mulDiv`，而非 3999 次累乘 | `src/ToshLaunchpadHook.sol` |
-| 单次跨档上限 | `MAX_TIERS_PER_TX = 32` | **gas 上限，非安全上限**；按 `ln(1.05)/ln(STEP) ≈ 25.7` 定档，让 105% 天花板而不是腿数成为绑定约束 | `src/ToshLaunchpadHook.sol` |
+| `TIER_COUNT` | 4000 | number of tiers | `src/ToshLaunchpadHook.sol` |
+| `TIER_SIZE` | 3,150e18 | quota per tier (4000 × 3,150 = 12.6M) | `src/ToshLaunchpadHook.sol` |
+| `TIER_STEP_E18` | `1_001_902_508_266_805_824` | step (1e18 fixed point) | `src/ToshLaunchpadHook.sol` |
+| Rise per tier | +0.19025% | `STEP − 1` | same as above |
+| Span end to end | ≈ 2000× | `STEP^3999 ≈ 2000` | `src/ToshLaunchpadHook.sol` |
+| How it is evaluated | `tierPriceAt(i) = mulDiv(shelfP0, STEP^i, 1e18)`, exponentiation by squaring, O(log i) | about 12 `mulDiv` pairs at the top tier, rather than 3999 successive multiplications | `src/ToshLaunchpadHook.sol` |
+| Tiers crossable per transaction | `MAX_TIERS_PER_TX = 32` | **a gas limit, not a safety limit**; sized against `ln(1.05)/ln(STEP) ≈ 25.7` so that the 105% ceiling, and not the leg count, is the binding constraint | `src/ToshLaunchpadHook.sol` |
 
-**跨度为什么是 2000× 而不是 1000×**：等量货架的放量是 `log(R)/log(SPAN)`——市价到 `SPAN^x` 才解锁 `x` **比例**的阶梯。跨度是唯一一个不动供应切分就能压低早期通胀的旋钮，但它被对数压得很平：分母从 `ln 1000 = 6.91` 变成 `ln 2000 = 7.60`，只买到约 9% 的改善。真正的重活由 40 / 60 供应切分承担（见 3.1），跨度只是在其上再修一刀。
+**Why the span is 2000× and not 1000×**: release under equal-sized shelves goes as `log(R)/log(SPAN)` — the market has to reach `SPAN^x` before an `x` **fraction** of the ladder unlocks. The span is the only knob that lowers early inflation without touching the supply split, but the logarithm flattens it: the denominator goes from `ln 1000 = 6.91` to `ln 2000 = 7.60`, which buys about a 9% improvement. The real work is done by the 40 / 60 supply split (see 3.1); the span merely shaves one more cut off the top.
 
-当前配置（4000 档 × 3,150 枚，2000× 跨度）的放量时间表：
+The release schedule under the current configuration (4000 tiers × 3,150 tokens, 2000× span):
 
-| 市价 | 解锁档 | 放出枚数 | 占创世 8.4M | 占阶梯 12.6M | **占认领盘 4.62M** |
+| Market price | Tiers unlocked | Tokens released | Share of the 8.4M genesis | Share of the 12.6M ladder | **Share of the 4.62M claim float** |
 |---|---|---|---|---|---|
 | 1.2× | 96 | 302,400 | 3.6% | 2.4% | 6.5% |
 | 1.5× | 214 | 674,100 | 8.0% | 5.4% | 14.6% |
@@ -359,77 +359,77 @@ p0 / P_raise = (0.9 / 1.89) × 2.31 = 1.10   （精确）
 | 100× | 2425 | 7,638,750 | 90.9% | 60.6% | 165.3% |
 | 2000× | 4000 | 12,600,000 | 150.0% | 100.0% | 272.7% |
 
-最后一列是唯一回答"谁来接盘"的口径：另外两列的分母都含有不交易的供应（8.4M 里锁着 3.78M 的 LP；12.6M 是尚未铸出的阶梯本身）。
+The last column is the only one that answers "who is going to buy this": the denominators of the other two both contain supply that does not trade (3.78M of the 8.4M is locked in the LP; the 12.6M is the not-yet-minted ladder itself).
 
-**要把早期放量再压一个数量级，跨度这个旋钮做不到**——剩下的手段是让每档配额随价格几何增长（`size(i) ∝ SIZE_STEP^i`，2× 时可压到创世盘的个位数百分比）。该方案会让低价区单笔可买量降到当前的 1/4 左右，评估后暂未采纳。
+**The span knob cannot squeeze early release down by another order of magnitude** — what is left is to make the per-tier quota grow geometrically with price (`size(i) ∝ SIZE_STEP^i`, which at 2× could push it to a single-digit percentage of the genesis float). That design would cut what a single order can buy in the low-price region to roughly 1/4 of today's, and after evaluation it has not been adopted for now.
 
-**为什么步进与档数耦合**：注释明确说明 `STEP = 1000^(1/1999)`，两者必须一起改。且跨度不能任意拉高——`1.2^1999 ≈ 1e158` 会在阶梯清空前就溢出 `uint256`（`TIER_STEP_E18` @ `src/ToshLaunchpadHook.sol`）。
+**Why the step and the tier count are coupled**: the comment states it outright, `STEP = 1000^(1/1999)`, and the two must change together. Nor can the span be pulled arbitrarily high — `1.2^1999 ≈ 1e158` would overflow `uint256` before the ladder emptied (`TIER_STEP_E18` @ `src/ToshLaunchpadHook.sol`).
 
-**为什么价格不落盘**：4000 档物化成 storage 结构体要花掉数百万 gas；而"缓存当前价 + 累乘推进"经过 4000 次截断会与闭式解漂移。所以 `tierPriceAt()` 是铸造热路径、`quoteMint`、以及所有 view 的**唯一价格来源**（`tierPriceAt` @ `src/ToshLaunchpadHook.sol`）。`getTiers()` 分页 view 也逐档重算而不是向前走序列，理由是"显示价与成交价差 1 wei 就是一张客服工单"（`getTiers` @ `src/ToshLaunchpadHook.sol`）。
+**Why prices are not stored**: materialising 4000 tiers as storage structs would burn millions of gas, and "cache the current price, advance by multiplication" drifts away from the closed form after 4000 truncating steps. So `tierPriceAt()` is the **single source of price** for the mint hot path, for `quoteMint`, and for every view (`tierPriceAt` @ `src/ToshLaunchpadHook.sol`). The paginated `getTiers()` view also recomputes tier by tier rather than walking the sequence forward, on the grounds that "a 1 wei gap between the displayed price and the executed price is a support ticket" (`getTiers` @ `src/ToshLaunchpadHook.sol`).
 
-### 3.5 费率总表
+### 3.5 Full fee schedule
 
-| 费用 | 常量 | 值 | 来源侧 | 去向 | 行号 |
+| Fee | Constant | Value | Charged on | Destination | Line |
 |---|---|---|---|---|---|
-| 发射费 | `ToshFactory.launchFee` | 0.1 ETH（默认，owner 可调，可为 0） | creator | `ladderTreasury`（回购弹药） | `launchFee` / `createLaunch` @ `src/ToshFactory.sol` |
-| 推荐佣金 | `REFERRAL_BPS` | 10%（1000 bps） | 每笔创世出资 | 推荐人；无推荐人→`ladderTreasury` | `REFERRAL_BPS` / `deposit` @ `src/ToshLaunchpadHook.sol` |
-| Phase-2 平台切片 | `PLATFORM_TAX_BPS` | **1%**（100 bps） | 货架成交额 | `ladderTreasury` | `PLATFORM_TAX_BPS` / `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
-| Phase-2 项目切片 | 余额 | **99%** | 货架成交额 | `projectAdmin` | `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
-| 交易税（协议） | `TAX_BPS` | **1.00%**（100 bps） | 每笔 swap 的 **input**（按买/卖方向，不按 specified 币种） | 买单 ETH→拆分（见下两行）；卖单代币→`0xdead`（**不拆，全额**） | `TAX_BPS` / `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
-| └ 回购储备份额 | `TAX_BPS - PLATFORM_SWAP_FEE_BPS` | **0.70%**（70 bps） | 买单的 ETH input | `ladderTreasury`（回购销毁） | `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
-| └ **平台维护切片** | `PLATFORM_SWAP_FEE_BPS` | **0.30%**（30 bps） | 买单的 ETH input（**仅买单**） | `platformFeeRecipient` = `ToshFactory.platformTreasury`，**平台收入，不销毁** | `PLATFORM_SWAP_FEE_BPS` / `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
-| 池子费（LP） | `POOL_FEE` | **0.30%**（3000，V4 单位） | 每笔 swap | LP（V4 原生结算，Tosh 无代码） | `POOL_FEE` @ `src/ToshLaunchpadHook.sol` |
-| **交易者总摩擦** | — | **1.30%** | — | 0.30 给 LP + 0.70 回购 + 0.30 平台 | `POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol` |
+| Launch fee | `ToshFactory.launchFee` | 0.1 ETH (default, owner-adjustable, may be 0) | creator | `ladderTreasury` (buyback ammunition) | `launchFee` / `createLaunch` @ `src/ToshFactory.sol` |
+| Referral commission | `REFERRAL_BPS` | 10% (1000 bps) | every genesis deposit | the referrer; no referrer → `ladderTreasury` | `REFERRAL_BPS` / `deposit` @ `src/ToshLaunchpadHook.sol` |
+| Phase-2 platform cut | `PLATFORM_TAX_BPS` | **1%** (100 bps) | shelf proceeds | `ladderTreasury` | `PLATFORM_TAX_BPS` / `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
+| Phase-2 project cut | the remainder | **99%** | shelf proceeds | `projectAdmin` | `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
+| Swap tax (protocol) | `TAX_BPS` | **1.00%** (100 bps) | the **input** of every swap (by buy/sell direction, not by the specified currency) | buys, ETH → split (see the next two rows); sells, tokens → `0xdead` (**not split, the full amount**) | `TAX_BPS` / `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
+| └ Buyback reservoir share | `TAX_BPS - PLATFORM_SWAP_FEE_BPS` | **0.70%** (70 bps) | a buy's ETH input | `ladderTreasury` (buy-and-burn) | `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
+| └ **Platform maintenance cut** | `PLATFORM_SWAP_FEE_BPS` | **0.30%** (30 bps) | a buy's ETH input (**buys only**) | `platformFeeRecipient` = `ToshFactory.platformTreasury`, **platform revenue, not burned** | `PLATFORM_SWAP_FEE_BPS` / `_skimInputTax` @ `src/ToshLaunchpadHook.sol` |
+| Pool fee (LP) | `POOL_FEE` | **0.30%** (3000, in V4 units) | every swap | LPs (settled natively by V4, no Tosh code) | `POOL_FEE` @ `src/ToshLaunchpadHook.sol` |
+| **Total trader friction** | — | **1.30%** | — | 0.30 to LPs + 0.70 to buyback + 0.30 to the platform | `POOL_FEE` / `TAX_BPS` @ `src/ToshLaunchpadHook.sol` |
 
-> 两笔 `take` 必须**恰好**加总为 `tax`：两个调用点都向 V4 申报了 `tax` 这一个 hook delta，少取则 swap 以 `CurrencyNotSettled` 回滚，多取则动用未被授信的资金。所以回购份额写成 `tax - platformCut` 而**不是**自己再乘一次 70/10000——同一基数的两次独立向下取整不保证加总回第三个。舍入产生的尘埃因此恒定偏向回购、永不偏向平台（`_skimInputTax` 的注释里有 110 wei 的算例；`testFuzz_buyTax_splitAlwaysConservesTheCreditedTax` 钉住这条不变量）。
+> The two `take` calls must sum to **exactly** `tax`: both call sites declare a single hook delta of `tax` to V4, so taking less reverts the swap with `CurrencyNotSettled`, and taking more draws on funds the hook was never credited. Which is why the buyback share is written `tax - platformCut` and **not** as its own second multiplication by 70/10000 — two independent floor divisions of the same base are not guaranteed to sum back to a third. The dust that rounding produces therefore always favours the buyback and never the platform (`_skimInputTax`'s comment works through a 110 wei example; `testFuzz_buyTax_splitAlwaysConservesTheCreditedTax` pins this invariant).
 
-**v4.x → v5.0 的摩擦重分配**：v4.x 收 1% 池子费 + 1% 税 = 2%，而池子费那一半是死重（唯一 LP 是永久锁定的创世仓位，没人能领）。v5.0 把总摩擦砍到 1.00%，并让池子费真正有了领取人（`src/ToshLaunchpadHook.sol:73-84`）。随后平台维护切片把总摩擦抬到 **1.30%**——仍低于 v4.x 的 2%，但比 v5.0 初版高 30 bps，这是一次真实的用户成本上升，决策与理由见 §2.2.5.1。
+**How friction was redistributed from v4.x to v5.0**: v4.x charged a 1% pool fee + a 1% tax = 2%, and the pool-fee half was dead weight — the only LP was the permanently locked genesis position, and nobody could collect from it. v5.0 cut total friction to 1.00% and gave the pool fee a genuine claimant (`src/ToshLaunchpadHook.sol:73-84`). The platform maintenance cut then lifted total friction to **1.30%** — still below v4.x's 2%, but 30 bps above the first v5.0 revision. This is a real increase in user cost; the decision and the reasoning are in §2.2.5.1.
 
-**交易税按买卖方向抽 input，不按 specified 侧币种。** exact-input 在 `beforeSwap` 结算；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码含 `AFTER_SWAP_RETURNS_DELTA`）。
+**The swap tax skims the input by buy/sell direction, not by the currency on the specified side.** Exact-input settles in `beforeSwap`; exact-output settles in `afterSwap`, topping up the delta against the unspecified input (the mask includes `AFTER_SWAP_RETURNS_DELTA`).
 
-| 交易形态 | `amountSpecified` | `zeroForOne` | 抽哪一侧 | 去向 | 回调 |
+| Trade shape | `amountSpecified` | `zeroForOne` | Which side is skimmed | Destination | Callback |
 |---|---|---|---|---|---|
-| 买（exact-input） | 负 | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `beforeSwap` |
-| 卖（exact-input） | 负 | false | 代币 input | 100 bps→`0xdead`（不拆） | `beforeSwap` |
-| 买（exact-output） | 正 | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `afterSwap` |
-| 卖（exact-output） | 正 | false | 代币 input | 100 bps→`0xdead`（不拆） | `afterSwap` |
+| Buy (exact-input) | negative | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `beforeSwap` |
+| Sell (exact-input) | negative | false | token input | 100 bps→`0xdead` (not split) | `beforeSwap` |
+| Buy (exact-output) | positive | true | ETH input | 70 bps→`ladderTreasury` + 30 bps→`platformFeeRecipient` | `afterSwap` |
+| Sell (exact-output) | positive | false | token input | 100 bps→`0xdead` (not split) | `afterSwap` |
 
-这样聚合器把买单全部构造成 "N tokens out" 也无法让国库收 0 ETH。测试：`test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform`、`test_sellTax_burnsTheFullOnePercentOfTokensInPlace`、`test_buyTax_exactOutputSkimsEthNotTokens`、`test_sellTax_exactOutputBurnsTokensNotEth`、`testFuzz_buyTax_splitAlwaysConservesTheCreditedTax`、`test_platformSwapFeePaid_firesOnBuysAndNeverOnSells`。
+So an aggregator that builds every buy as "N tokens out" still cannot leave the treasury with 0 ETH. Tests: `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform`, `test_sellTax_burnsTheFullOnePercentOfTokensInPlace`, `test_buyTax_exactOutputSkimsEthNotTokens`, `test_sellTax_exactOutputBurnsTokensNotEth`, `testFuzz_buyTax_splitAlwaysConservesTheCreditedTax`, `test_platformSwapFeePaid_firesOnBuysAndNeverOnSells`.
 
-### 3.6 国库的四条进水管
+### 3.6 The treasury's four inbound pipes
 
-`src/ToshLadderTreasury.sol:23-29` 明确列出：
+`src/ToshLadderTreasury.sol:23-29` lists them explicitly:
 
-1. 每个 Tosh 池买入侧 ETH 税的 **70 bps 份额**（税本身是 1.00%，另外 30 bps 是平台切片，**不进这里**——见 §2.2.5.1）；
-2. `ToshFactory` 的**项目发射费**；
-3. **孤儿推荐佣金**（无推荐人的出资的 10%）；
-4. 每笔货架铸造的 **1% 平台切片**。
+1. the **70 bps share** of the buy-side ETH tax from every Tosh pool (the tax itself is 1.00%; the other 30 bps is the platform cut and **does not come here** — see §2.2.5.1);
+2. **project launch fees** from `ToshFactory`;
+3. **orphaned referral commission** (the 10% of deposits that arrived with no referrer);
+4. the **1% platform cut** of every shelf mint.
 
-卖出侧的税**永远不到这里**——那些代币被 hook 就地销毁，不需要任何储备（`src/ToshLadderTreasury.sol:28-29`）。
+The sell-side tax **never reaches here** — those tokens are burned in place by the hook and need no reservoir at all (`src/ToshLadderTreasury.sol:28-29`).
 
 ---
 
-## 4. 产品全生命周期与业务流程
+## 4. Product lifecycle and business flows
 
-### 4.1 状态机总览
+### 4.1 State Machine Overview
 
-| 状态 | 判据（链上） | 可用操作 | 转出条件 |
+| State | Test (on-chain) | Available operations | Exit condition |
 |---|---|---|---|
-| **S0 未创建** | — | `createLaunch` | 部署成功 |
-| **S1 创世募集中** | `!launched && block.timestamp < genesisDeadline` | `deposit` | 到达 `genesisDeadline` |
-| **S2 待开盘** | `!launched && ts ≥ genesisDeadline && total ≥ softCap && ts ≤ deadline+7d` | `launch()`（creator） | `launch()` 成功 → S4；超 7 天 → S3b |
-| **S3a 创世失败** | `!launched && ts > genesisDeadline && total < softCap` | `refund()` | 终态 |
-| **S3b 僵尸超时** | `!launched && ts > genesisDeadline + LAUNCH_WINDOW(7d)` | `refund()` | 终态（`launch()` 此后 revert `LaunchWindowExpired`） |
-| **S4 已开盘 / 阶梯运行** | `launched == true` | `claimGenesis` / `claimReferralReward` / `mintBondingCurve` / 池子 swap / 散户 LP | `currentTierIndex == TIER_COUNT` → S5 |
-| **S5 阶梯耗尽** | `currentTierIndex >= TIER_COUNT` | 池子 swap / 散户 LP（`mintBondingCurve` revert `LadderExhausted`） | 终态 |
+| **S0 Not created** | — | `createLaunch` | deployment succeeds |
+| **S1 Genesis raise open** | `!launched && block.timestamp < genesisDeadline` | `deposit` | `genesisDeadline` reached |
+| **S2 Awaiting launch** | `!launched && ts ≥ genesisDeadline && total ≥ softCap && ts ≤ deadline+7d` | `launch()` (creator) | `launch()` succeeds → S4; past 7 days → S3b |
+| **S3a Genesis failed** | `!launched && ts > genesisDeadline && total < softCap` | `refund()` | terminal |
+| **S3b Zombie timeout** | `!launched && ts > genesisDeadline + LAUNCH_WINDOW(7d)` | `refund()` | terminal (`launch()` reverts `LaunchWindowExpired` from here on) |
+| **S4 Launched / ladder running** | `launched == true` | `claimGenesis` / `claimReferralReward` / `mintBondingCurve` / pool swaps / retail LP | `currentTierIndex == TIER_COUNT` → S5 |
+| **S5 Ladder exhausted** | `currentTierIndex >= TIER_COUNT` | pool swaps / retail LP (`mintBondingCurve` reverts `LadderExhausted`) | terminal |
 
-判据代码：`canRefund()`、`launch()` 的前置检查、`refund()` 的前置检查——三者均在 `src/ToshLaunchpadHook.sol`。
+The code behind these tests: `canRefund()`, the preconditions in `launch()`, and the preconditions in `refund()` — all three in `src/ToshLaunchpadHook.sol`.
 
-> **⚠️ 8.13**：`refundEnabled` / `zombieRefundEnabled` 两个状态位在 `refund()` 里被懒惰置位并发事件（`src/ToshLaunchpadHook.sol`），但**从未被任何地方读作门控条件**。真正的门控是每次调用时重算 `softCapFailed || zombieExpired`。它们是纯事件标记位。
+> **⚠️ 8.13**: the two status bits `refundEnabled` / `zombieRefundEnabled` are set lazily inside `refund()` and carry an event (`src/ToshLaunchpadHook.sol`), but they are **never read as a gating condition anywhere**. The real gate is `softCapFailed || zombieExpired`, recomputed on every call. They are pure event marker bits.
 
-### 4.2 创建发射 —— `createLaunch`
+### 4.2 Creating a launch — `createLaunch`
 
-**签名**（`src/ToshFactory.sol`）：
+**Signature** (`src/ToshFactory.sol`):
 
 ```solidity
 function createLaunch(
@@ -443,281 +443,281 @@ function createLaunch(
 ) external payable whenNotPaused nonReentrant returns (address token, address hook)
 ```
 
-**执行顺序**：
+**Execution order**:
 
-| 步 | 动作 | 失败错误 | 行号 |
+| Step | Action | Failure error | Line |
 |---|---|---|---|
-| 1 | `projectTreasury != 0`、`projectAdmin != 0` | `"zero treasury"` / `InvalidAdmin` | 355-356 |
-| 2 | 费用滑点保护：`launchFee > expectedFee` 则拒绝 | `FeeChanged` | 358-359 |
+| 1 | `projectTreasury != 0`, `projectAdmin != 0` | `"zero treasury"` / `InvalidAdmin` | 355-356 |
+| 2 | Fee slippage guard: reject if `launchFee > expectedFee` | `FeeChanged` | 358-359 |
 | 3 | `msg.value >= fee` | `InsufficientLaunchFee` | 360 |
-| 4 | 名称/符号非空 | `EmptyName` | 363 |
-| 5 | **(name, symbol) 元组未被占用**：`nameKey = keccak256(abi.encode(name, symbol))` | `NameTaken` | 364-365 |
-| 6 | 派生创作者绑定盐 `finalSalt = keccak256(abi.encode(msg.sender, hookSalt))` | — | 367 |
-| 7 | **冻结两个平台旋钮**进 initcode：`launchSoftCap = defaultSoftCap`、`launchWalletCap = maxPogAllocationLimit` | — | 371-372 |
-| 8 | 算 initcode hash（**9 参元组**）并预测地址 | — | 374-385 |
-| 9 | **掩码校验**：`HookMiner.isValidHookAddress(predicted)`，要求低 14 位含 `0x20CC` | `InvalidHookSalt` | 386 |
-| 10 | `HookDeployLib.deployHook`（CREATE2，delegatecall 到库，部署者是工厂） | `DeployFailed` | 388-400 |
-| 11 | `new ToshToken(name, symbol, factory)` → `token.initialize(hook)`（授 `MINTER_ROLE`）→ `hook.initializeToken(token)` | — | 402-404 |
-| 12 | 登记：`registeredHooks[hook] = true`、`tokenToHook[token] = hook`、`nameTaken[nameKey] = true` | — | 406-408 |
-| 13 | 入册 + 发 `LaunchCreated` | — | 410-413 |
-| 14 | 发射费转 `ladderTreasury`，多付部分退还 `msg.sender` | `EthTransferFailed` | 416-421 |
+| 4 | Name/symbol non-empty | `EmptyName` | 363 |
+| 5 | **The (name, symbol) tuple is not already taken**: `nameKey = keccak256(abi.encode(name, symbol))` | `NameTaken` | 364-365 |
+| 6 | Derive the creator-bound salt `finalSalt = keccak256(abi.encode(msg.sender, hookSalt))` | — | 367 |
+| 7 | **Freeze the two platform dials** into the initcode: `launchSoftCap = defaultSoftCap`, `launchWalletCap = maxPogAllocationLimit` | — | 371-372 |
+| 8 | Compute the initcode hash (**9-field tuple**) and predict the address | — | 374-385 |
+| 9 | **Mask check**: `HookMiner.isValidHookAddress(predicted)`, requiring the low 14 bits to carry `0x20CC` | `InvalidHookSalt` | 386 |
+| 10 | `HookDeployLib.deployHook` (CREATE2, delegatecall into the library, so the deployer is the factory) | `DeployFailed` | 388-400 |
+| 11 | `new ToshToken(name, symbol, factory)` → `token.initialize(hook)` (grants `MINTER_ROLE`) → `hook.initializeToken(token)` | — | 402-404 |
+| 12 | Register: `registeredHooks[hook] = true`, `tokenToHook[token] = hook`, `nameTaken[nameKey] = true` | — | 406-408 |
+| 13 | Append to the registry + emit `LaunchCreated` | — | 410-413 |
+| 14 | Launch fee forwarded to `ladderTreasury`; any overpayment refunded to `msg.sender` | `EthTransferFailed` | 416-421 |
 
-**9 参构造元组**（`deployHook` @ `src/libraries/HookDeployLib.sol`，顺序固定）：
+**The 9-field constructor tuple** (`deployHook` @ `src/libraries/HookDeployLib.sol`, order is fixed):
 
 ```
 1. poolManager      (address)   Uniswap V4 PoolManager
-2. factoryAddr      (address)   = address(this)（delegatecall 语境下即工厂）
-3. projectTreasury  (address)   项目多签元数据
+2. factoryAddr      (address)   = address(this) (the factory, under delegatecall)
+3. projectTreasury  (address)   project multisig, metadata only
 4. creator          (address)   = msg.sender
-5. projectAdmin     (address)   99% 货架收入收款方
-6. ladderTreasury   (address)   平台回购储备
-7. softCap          (uint256)   本项目软顶（快照）
-8. perWalletCap     (uint256)   本项目每钱包上限（快照）
-9. genesisDuration  (uint256)   创世窗口长度（3h / 24h / 72h 之一）
+5. projectAdmin     (address)   recipient of 99% of shelf revenue
+6. ladderTreasury   (address)   platform buyback reserve
+7. softCap          (uint256)   this project's soft cap (snapshot)
+8. perWalletCap     (uint256)   this project's per-wallet cap (snapshot)
+9. genesisDuration  (uint256)   genesis window length (one of 3h / 24h / 72h)
 ```
 
-**这 9 个参数全部进 initcode hash**，所以任何一项变化都会让已挖的盐失效。前端为此做了三处缓存失效（见 6.4）。`HookDeployLib` 的注释直接点名：v5.0 删了 `satoToken`、加了 `ladderTreasury` + `perWalletCap`，`genesisDuration` 让它凑到 9 个字段，**所有链下盐矿机必须重新生成**（`src/libraries/HookDeployLib.sol`）。
+**All nine of these parameters go into the initcode hash**, so a change to any one of them invalidates every salt already mined. The front end handles this with three separate cache invalidations (see 6.4). `HookDeployLib`'s comment names it outright: v5.0 dropped `satoToken` and added `ladderTreasury` + `perWalletCap`, with `genesisDuration` bringing it to nine fields, so **every off-chain salt miner has to regenerate** (`src/libraries/HookDeployLib.sol`).
 
-**CREATE2 掩码 `0x20CC`**（`src/libraries/HookMiner.sol`）：
+**The CREATE2 mask `0x20CC`** (`src/libraries/HookMiner.sol`):
 
-| 位 | 值 | 标志 | 用途 |
+| Bit | Value | Flag | Purpose |
 |---|---|---|---|
-| 13 | `0x2000` | `BEFORE_INITIALIZE` | 建池抢跑防御（只允许 hook 自己的 `launch()` 建池） |
-| 7 | `0x0080` | `BEFORE_SWAP` | exact-input 税 |
-| 6 | `0x0040` | `AFTER_SWAP` | 写预言机 + 顺风车 poke + exact-output 税 |
-| 3 | `0x0008` | `BEFORE_SWAP_RETURNS_DELTA` | 抽 specified（= input） |
-| 2 | `0x0004` | `AFTER_SWAP_RETURNS_DELTA` | 抽 unspecified（= input，exact-output） |
-| — | 合计 `0x20CC` | | |
+| 13 | `0x2000` | `BEFORE_INITIALIZE` | pool-creation front-running defence (only the hook's own `launch()` may create the pool) |
+| 7 | `0x0080` | `BEFORE_SWAP` | exact-input tax |
+| 6 | `0x0040` | `AFTER_SWAP` | oracle write + piggyback poke + exact-output tax |
+| 3 | `0x0008` | `BEFORE_SWAP_RETURNS_DELTA` | skim the specified amount (= input) |
+| 2 | `0x0004` | `AFTER_SWAP_RETURNS_DELTA` | skim the unspecified amount (= input, exact-output) |
+| — | total `0x20CC` | | |
 
-**故意不设**：`BEFORE_REMOVE_LIQUIDITY`（bit 9），让散户 LP 自由撤出。
+**Deliberately unset**: `BEFORE_REMOVE_LIQUIDITY` (bit 9), so retail LPs can withdraw freely.
 
-⚠ 掩码从 `0x2200` → `0x20C8` → `0x20CC`。Solidity 矿机和 TS 矿机必须一致，否则 `createLaunch` revert `InvalidHookSalt`。
+⚠ The mask went `0x2200` → `0x20C8` → `0x20CC`. The Solidity miner and the TS miner must agree, or `createLaunch` reverts `InvalidHookSalt`.
 
-### 4.3 Phase 1 —— 创世募集
+### 4.3 Phase 1 — the genesis raise
 
-#### 4.3.1 三档创世时长
+#### 4.3.1 Three genesis durations
 
-| 常量 | 值 | 前端标签 | 定位话术（前端） | 行号 |
+| Constant | Value | Front-end label | Positioning copy (front end) | Line |
 |---|---|---|---|---|
 | `DURATION_FAST` | 3 hours | "3 Hours / Fast" | "Momentum play — hits the cap fast or fails fast." | `src/ToshLaunchpadHook.sol` |
 | `DURATION_STANDARD` | 24 hours | "24 Hours / Standard" | "Covers every timezone once. The default." | `src/ToshLaunchpadHook.sol` |
 | `DURATION_SLOW` | 72 hours | "72 Hours / Slow" | "Maximum reach for a wider raise." | `src/ToshLaunchpadHook.sol` |
 
-前端常量镜像 + 文案：`soat-frontend/src/app/lib/hookMiner.ts:41-43`、`soat-frontend/src/app/launch/page.tsx:104-108`。默认值 `GENESIS_DURATION_STANDARD`（`soat-frontend/src/app/launch/page.tsx:411`）。
+Front-end constant mirror + copy: `soat-frontend/src/app/lib/hookMiner.ts:41-43`, `soat-frontend/src/app/launch/page.tsx:104-108`. The default is `GENESIS_DURATION_STANDARD` (`soat-frontend/src/app/launch/page.tsx:411`).
 
-**为什么是封闭集合而不是自由 `uint256`**（`DURATION_FAST` / `DURATION_STANDARD` / `DURATION_SLOW` @ `src/ToshLaunchpadHook.sol`）：时长是不可变参数，烤进克隆自身的字节码，因此也是 initcode hash 与挖出地址的一部分。开放区间会让创作者能针对 1 秒窗口（没人来得及存，创世立刻失败，退款即刻打开）或 100 年窗口（存款被锁死且无退款路径）挖盐。三档粗粒度既保留市场意义，也堵住两个退化端。
+**Why a closed set rather than a free `uint256`** (`DURATION_FAST` / `DURATION_STANDARD` / `DURATION_SLOW` @ `src/ToshLaunchpadHook.sol`): the duration is an immutable parameter, baked into the clone's own bytecode, and therefore also part of the initcode hash and of the mined address. An open range would let a creator mine a salt against a 1-second window (nobody has time to deposit, genesis fails immediately, refunds open at once) or a 100-year window (deposits locked in with no refund path). Three coarse tiers keep the choice commercially meaningful while closing both degenerate ends.
 
-**校验位置在 EIP-1167 克隆重构后变了**，且理由值得记住。克隆不跑构造函数，所以这段检查搬进了一次性初始化器 `initializeToken` @ `src/ToshLaunchpadHook.sol`：读 `genesisDuration()`，逐一比对三个常量，否则 revert `InvalidDuration`。它**故意不放在工厂里**——注释写明，这个值是从克隆自己的字节码里读出来的，而校验工厂的入参只能证明工厂*打算*烤进什么，不能证明那个挖出来的地址实际承诺了什么。时长落在三档之外，意味着这把盐是针对本合约不会兑现的配置挖的，于是在它能收下第一笔存款之前就被拒绝。
+**The EIP-1167 clone refactor moved where this is checked**, and the reason is worth remembering. A clone runs no constructor, so the check moved into the one-shot initialiser `initializeToken` @ `src/ToshLaunchpadHook.sol`: read `genesisDuration()`, compare it against each of the three constants, and revert `InvalidDuration` otherwise. It is **deliberately not in the factory** — the comment says so explicitly: the value is read out of the clone's own bytecode, whereas validating the factory's argument would only prove what the factory *intended* to bake in, never what the mined address actually committed to. A duration outside the three tiers means the salt was mined against a configuration this contract will not honour, so it is rejected before it can take its first deposit.
 
-测试：`test_initializeToken_acceptsTheThreeAllowedWindows` 与 `test_initializeToken_rejectsUnlistedWindow` @ `test/ToshV5Guards.t.sol`，`test_createLaunch_rejectsSaltMinedForAnotherWindow` @ `test/ToshV5Factory.t.sol`。
+Tests: `test_initializeToken_acceptsTheThreeAllowedWindows` and `test_initializeToken_rejectsUnlistedWindow` @ `test/ToshV5Guards.t.sol`, `test_createLaunch_rejectsSaltMinedForAnotherWindow` @ `test/ToshV5Factory.t.sol`.
 
-#### 4.3.2 PoG（Proof-of-Gas / Goodwill）配额与签名注册
+#### 4.3.2 PoG (Proof-of-Gas / Goodwill) quota and signature registration
 
-> 注：合约注释里 `registerPoG` 被称为 "Proof-of-Gas"（`registerPoG` @ `src/ToshFactory.sol`），与前端和 README 一致；"Proof of Goodwill" 这个叫法只出现在本文档里，`src/` 中并不存在。
+> Note: the contract comments call `registerPoG` "Proof-of-Gas" (`registerPoG` @ `src/ToshFactory.sol`), consistent with the front end and the README; the name "Proof of Goodwill" appears only in this document and exists nowhere in `src/`.
 
-**签名摘要**（`registerPoG` @ `src/ToshFactory.sol`），六元组防重放：
+**Signature digest** (`registerPoG` @ `src/ToshFactory.sol`), a six-field tuple for replay protection:
 
 ```
 digest = toEthSignedMessageHash(keccak256(abi.encode(
-    msg.sender,      // 绑定钱包
-    maxAlloc,        // 授予的额度（ETH-wei）
-    nonce,           // 递增，防重放
-    deadline,        // 过期时间
-    address(this),   // 绑定工厂
-    block.chainid    // 绑定链
+    msg.sender,      // binds the wallet
+    maxAlloc,        // quota granted (ETH-wei)
+    nonce,           // increments, anti-replay
+    deadline,        // expiry
+    address(this),   // binds the factory
+    block.chainid    // binds the chain
 )))
 require(digest.recover(signature) == pogSigner)
 ```
 
-**校验顺序**（`registerPoG` @ `src/ToshFactory.sol`）：
+**Check order** (`registerPoG` @ `src/ToshFactory.sol`):
 
-| 检查 | 错误 | 说明 |
+| Check | Error | Notes |
 |---|---|---|
-| `deadline ≤ now + MAX_SIG_VALIDITY(24h)` | `SignatureTooLong` | 防长效签名 |
+| `deadline ≤ now + MAX_SIG_VALIDITY(24h)` | `SignatureTooLong` | blocks long-lived signatures |
 | `now ≤ deadline` | `SignatureExpired` | |
-| `nonce == pogNonces[sender]` | `NonceConflict` | 严格顺序，不能跳号 |
-| `maxAlloc ≤ maxPogAllocationLimit` | `ExceedsGlobalPogLimit` | **不静默截断**，直接拒（测试 `test_registerPoG_noSilentClamp` @ `test/ToshV5Factory.t.sol`） |
-| 签名恢复 == `pogSigner` | `InvalidSignature` | |
+| `nonce == pogNonces[sender]` | `NonceConflict` | strict ordering, no skipping |
+| `maxAlloc ≤ maxPogAllocationLimit` | `ExceedsGlobalPogLimit` | **no silent clamp** — rejected outright (test `test_registerPoG_noSilentClamp` @ `test/ToshV5Factory.t.sol`) |
+| signature recovers to `pogSigner` | `InvalidSignature` | |
 
-**额度只上调不下调**：`if (maxAlloc > pogQuota[sender]) pogQuota[sender] = maxAlloc;`（`registerPoG` @ `src/ToshFactory.sol`）。⚠️ **8.10**：owner 事后调低 `maxPogAllocationLimit` **不会**回收已注册的额度。
+**Quota ratchets up, never down**: `if (maxAlloc > pogQuota[sender]) pogQuota[sender] = maxAlloc;` (`registerPoG` @ `src/ToshFactory.sol`). ⚠️ **8.10**: an owner who later lowers `maxPogAllocationLimit` **does not** claw back quota already registered.
 
-⚠️ **8.11**：`registerPoG` 有 `whenNotPaused` 但**没有黑名单检查**。被拉黑的钱包仍可注册/提升 PoG 额度（只是 `deposit` 会被 `IsBlacklisted` 拦住）。
+⚠️ **8.11**: `registerPoG` carries `whenNotPaused` but **no blacklist check**. A blacklisted wallet can still register or raise its PoG quota (only `deposit` is stopped, by `IsBlacklisted`).
 
-**配额窗口机制**（`quotaWindowEnd` / `quotaSpent` / `_rollQuotaWindow` @ `src/ToshFactory.sol`）：
+**How the quota window works** (`quotaWindowEnd` / `quotaSpent` / `_rollQuotaWindow` @ `src/ToshFactory.sol`):
 
-- PoG 额度是**冷却期预算**，不是终身预算：一个钱包在每个 `cooldownDuration` 窗口内可花掉最多 `pogQuota`，窗口过期后归零重开。
-- **退款不返还窗口额度**——刻意的：撤资就该失去这一轮的名额，否则「存入-退款」循环能无限复用一个钱包的额度（`quotaSpent` @ `src/ToshFactory.sol`）。测试 `test_pogQuota_isNotRestoredByRefund` @ `test/ToshV5.t.sol`。
-- ⚠️ **8.25**：`cooldownDuration == 0` 时 `_rollQuotaWindow` 直接返回 `quotaSpent`，额度退化成**终身预算**（`src/ToshFactory.sol:909-921`）。冷却期长度与额度窗口长度是同一个旋钮，存在耦合。
+- PoG quota is a **per-cooldown budget**, not a lifetime one: a wallet may spend at most `pogQuota` within each `cooldownDuration` window, and once the window lapses it zeroes out and reopens.
+- **A refund does not restore window quota** — deliberately: pulling your money out ought to cost you your slot for the round, or a deposit-then-refund loop could recycle one wallet's quota indefinitely (`quotaSpent` @ `src/ToshFactory.sol`). Test `test_pogQuota_isNotRestoredByRefund` @ `test/ToshV5.t.sol`.
+- ⚠️ **8.25**: with `cooldownDuration == 0`, `_rollQuotaWindow` returns `quotaSpent` immediately and the quota degenerates into a **lifetime budget** (`src/ToshFactory.sol:909-921`). The cooldown length and the quota-window length are the same dial, so the two are coupled.
 
-#### 4.3.3 出资 `deposit`
+#### 4.3.3 Depositing — `deposit`
 
-**工厂侧关卡**（`src/ToshFactory.sol:442-468`，顺序即执行顺序）：
+**Factory-side gates** (`src/ToshFactory.sol:442-468`; the listed order is the execution order):
 
-| # | 检查 | 错误 |
+| # | Check | Error |
 |---|---|---|
 | 1 | `msg.value != 0` | `ZeroAmount` |
 | 2 | `registeredHooks[hook]` | `HookNotRegistered` |
-| 3 | 未在黑名单期内 | `IsBlacklisted` |
+| 3 | Not inside a blacklist period | `IsBlacklisted` |
 | 4 | `pogQuota[sender] != 0` | `NoPogQuota` |
-| 5 | 该 (钱包, hook) 冷却期已过 | `CooldownActive` |
-| 6 | 滚动窗口后 `alreadyIn + amount ≤ pogQuota` | `QuotaExceeded` |
-| 7 | 置新冷却期（若 `cooldownDuration > 0`） | — |
-| 8 | **先绑推荐关系，再读回**，让首次出资者自己的链接在这一笔就生效 | — |
-| 9 | 记账 `quotaSpent` / `totalGenesisDeposited`，转发 ETH 给 hook | — |
+| 5 | The (wallet, hook) cooldown has elapsed | `CooldownActive` |
+| 6 | After rolling the window, `alreadyIn + amount ≤ pogQuota` | `QuotaExceeded` |
+| 7 | Set the new cooldown (if `cooldownDuration > 0`) | — |
+| 8 | **Bind the referral before reading it back**, so a first-time depositor's own link takes effect on this very deposit | — |
+| 9 | Book `quotaSpent` / `totalGenesisDeposited`, forward the ETH to the hook | — |
 
-**Hook 侧关卡**（`src/ToshLaunchpadHook.sol:624-654`）：
+**Hook-side gates** (`src/ToshLaunchpadHook.sol:624-654`):
 
-| # | 检查 | 错误 |
+| # | Check | Error |
 |---|---|---|
 | 1 | `msg.sender == factory` | `OnlyFactory` |
 | 2 | `tokenInitialized` | `NotInitialized` |
 | 3 | `block.timestamp < genesisDeadline` | `GenesisExpired` |
 | 4 | `msg.value != 0` | `ZeroAmount` |
-| 5 | **每钱包上限**：`ethDeposited[user] + amount ≤ perWalletCap` | `PerWalletCapExceeded` |
+| 5 | **Per-wallet cap**: `ethDeposited[user] + amount ≤ perWalletCap` | `PerWalletCapExceeded` |
 
-**双层额度的分工**（`src/ToshFactory.sol:430-436`）：
-- `pogQuota` 是**跨项目的平台级预算**，按窗口刷新。
-- `perWalletCap` 是**单项目的上限**，对照**创建时的快照**执行，让平台事后调旋钮无法改变正在募集中的项目的条款（`src/ToshLaunchpadHook.sol:692-694`）。测试 `test_perWalletCap_isSnapshottedAtProjectCreation` @ `test/ToshV5.t.sol`。
+**How the two quota layers divide the work** (`src/ToshFactory.sol:430-436`):
+- `pogQuota` is a **platform-level budget across projects**, refilled per window.
+- `perWalletCap` is a **single-project ceiling**, enforced against the **snapshot taken at creation**, so that a later turn of the platform's dials cannot change the terms of a raise already in flight (`src/ToshLaunchpadHook.sol:692-694`). Test `test_perWalletCap_isSnapshottedAtProjectCreation` @ `test/ToshV5.t.sol`.
 
-**软顶** = hook 的 `softCap` immutable，从 `factory.defaultSoftCap` 快照（默认 10 ETH，`src/ToshFactory.sol:217`），下限 `MIN_SOFT_CAP_PROD = 0.01 ether`。这个下限存在的唯一原因是防 `p0` 截断：`GENESIS_LP_SUPPLY = 3.78e24`，一旦 `lpEth < 3,780,000` wei，`p0` 就整除为 0，整条阶梯坍缩成免费铸造区（`src/ToshFactory.sol:102-109`）。纵深防御：`launch()` 里还有 `require(p0 > 0)`（`src/ToshLaunchpadHook.sol:679-681`）。
+**The soft cap** is the hook's `softCap` immutable, snapshotted from `factory.defaultSoftCap` (10 ETH by default, `src/ToshFactory.sol:217`), with a floor of `MIN_SOFT_CAP_PROD = 0.01 ether`. That floor exists for exactly one reason — to prevent `p0` from truncating: `GENESIS_LP_SUPPLY = 3.78e24`, so the moment `lpEth < 3,780,000` wei, `p0` divides to 0 and the entire ladder collapses into a free-mint zone (`src/ToshFactory.sol:102-109`). Defence in depth: `launch()` also carries `require(p0 > 0)` (`src/ToshLaunchpadHook.sol:679-681`).
 
-**没有硬顶**：代码里**未找到**任何超募拒绝逻辑。达成软顶后仍可继续出资到窗口结束，只受 `perWalletCap` 与 PoG 额度约束。
+**There is no hard cap**: **no basis was found in the code** for any over-subscription rejection. Deposits can keep coming after the soft cap is met, right through to the end of the window, bounded only by `perWalletCap` and the PoG quota.
 
-### 4.4 开盘 —— `launch()`
+### 4.4 Launch — `launch()`
 
-**四道前置**（`src/ToshLaunchpadHook.sol:704-710`）：
+**Four preconditions** (`src/ToshLaunchpadHook.sol:704-710`):
 
-| 检查 | 错误 |
+| Check | Error |
 |---|---|
 | `msg.sender == creator` | `OnlyCreator` |
 | `block.timestamp >= genesisDeadline` | `GenesisActive` |
 | `!launched` | `AlreadyLaunched` |
-| `totalEthDeposited >= softCap`（且 `!= 0`） | `SoftCapNotMet` / `ZeroAmount` |
+| `totalEthDeposited >= softCap` (and `!= 0`) | `SoftCapNotMet` / `ZeroAmount` |
 | `block.timestamp <= genesisDeadline + LAUNCH_WINDOW(7d)` | `LaunchWindowExpired` |
 
-> **⚠️ 8.7**：即使提前超额达成软顶，creator 也**必须等满整个创世窗口**（3/24/72 小时）才能开盘。与"达成软顶即可开盘"的产品直觉不符，也与前端的相位判定（软顶达成即切"bonding"面板）不一致（⚠️ 8.6）。
+> **⚠️ 8.7**: even if the soft cap is met and overshot early, the creator **must still wait out the entire genesis window** (3/24/72 hours) before launching. This runs against the product intuition that "soft cap met means launchable", and it is inconsistent with the front end's phase logic, which switches to the "bonding" panel the moment the soft cap is met (⚠️ 8.6).
 
-**六步执行**（`src/ToshLaunchpadHook.sol:712-765`）：
+**Six-step execution** (`src/ToshLaunchpadHook.sol:712-765`):
 
 ```
-1. launched = true                                          // 重入前置
+1. launched = true                                          // set before any reentrancy
 2. commissionPool = totalReferralReserved + orphanReferral
-   lpEth = totalEthDeposited − commissionPool               // 即 90% × R
+   lpEth = totalEthDeposited − commissionPool               // i.e. 90% × R
    require(lpEth > 0)
 3. p0 = lpEth × 1e18 / GENESIS_LP_SUPPLY   require(p0 > 0)
    shelfP0 = p0 × 10500 / 10000
 4. projectToken.mint(address(this), GENESIS_SUPPLY)          // 8.4M
-5. 建池：currency0 = address(0)（ETH，永远排第一）
-        currency1 = projectToken
-        fee = POOL_FEE(3000), tickSpacing = 200, hooks = this
-   sqrtPriceX96 = _toSqrtPriceX96(lpEth, GENESIS_LP_SUPPLY)  // 整数开方
-   poolManager.initialize(key, sqrtPriceX96)                 // 触发 beforeInitialize，只允许自己
+5. pool creation: currency0 = address(0) (ETH, always first)
+                  currency1 = projectToken
+                  fee = POOL_FEE(3000), tickSpacing = 200, hooks = this
+   sqrtPriceX96 = _toSqrtPriceX96(lpEth, GENESIS_LP_SUPPLY)  // integer square root
+   poolManager.initialize(key, sqrtPriceX96)                 // fires beforeInitialize, self only
    poolManager.unlock(ACTION_ADD_LIQUIDITY) → unlockCallback
      → modifyLiquidity(tickLower=-887200, tickUpper=+887200, +liquidity, salt=0)
-     → currency0 欠款用 msg.value settle；currency1 欠款用 safeTransfer + settle
-6. 播种预言机：lastTick = getTickAtSqrtPrice(sqrtPriceX96)
-              lastObservationTs = _prevCheckpointTs = _curCheckpointTs = now
-7. orphanReferral 全额转 ladderTreasury，清零，发 OrphanReferralForwarded
+     → currency0 debt settled with msg.value; currency1 debt via safeTransfer + settle
+6. seed the oracle: lastTick = getTickAtSqrtPrice(sqrtPriceX96)
+                    lastObservationTs = _prevCheckpointTs = _curCheckpointTs = now
+7. forward all of orphanReferral to ladderTreasury, zero it, emit OrphanReferralForwarded
 8. emit Launched(totalEth, lpEth, liquidity, sqrtPriceX96, p0)
 ```
 
-**创世流动性为何不需要回调就锁死**（`src/ToshLaunchpadHook.sol` 的 `beforeRemoveLiquidity` 注释，与 `unlockCallback` 的实现）：V4 把每个仓位按调用 `modifyLiquidity` 的地址归属（`Pool.ModifyLiquidityParams.owner = msg.sender`）。创世仓位归 hook，而 hook 的 `unlockCallback` 只识别 `ACTION_ADD_LIQUIDITY`、且 delta 严格为正。任何人（包括 creator、包括 owner）都无法寻址那个仓位。所以锁是**结构性**的，而不是靠一个会 revert 的回调，`BEFORE_REMOVE_LIQUIDITY` 因此从掩码里删除而不是软化成条件 revert。
+**Why the genesis liquidity is locked without needing a callback** (the `beforeRemoveLiquidity` comment in `src/ToshLaunchpadHook.sol`, together with what `unlockCallback` actually does): V4 attributes every position to the address that called `modifyLiquidity` (`Pool.ModifyLiquidityParams.owner = msg.sender`). The genesis position belongs to the hook, and the hook's `unlockCallback` recognises only `ACTION_ADD_LIQUIDITY`, and only with a strictly positive delta. Nobody — not the creator, not the owner — can address that position. The lock is therefore **structural**, rather than resting on a callback that reverts, which is why `BEFORE_REMOVE_LIQUIDITY` was deleted from the mask instead of being softened into a conditional revert.
 
-**`platformTreasury` 快照被删除**（`src/ToshLaunchpadHook.sol:714-718`）：v4.x 在这里快照 `platformTreasury` 以防工厂 owner 事后改动重定向 Phase-2 费流（M-2 修复）。v5.0 不需要**在这里**快照——Phase-2 的 1% 切片流向 `ladderTreasury`，那是 immutable 构造参数，这条路径上的重定向向量在字节码层面就不存在。
+**The `platformTreasury` snapshot is gone** (`src/ToshLaunchpadHook.sol:714-718`): v4.x snapshotted `platformTreasury` here so that a later change by the factory owner could not redirect the Phase-2 fee flow (the M-2 fix). v5.0 needs no snapshot **here** — the Phase-2 1% slice goes to `ladderTreasury`, which is an immutable constructor argument, so the redirection vector on this path does not exist at the bytecode level.
 
-> **M-2 的现状（已更新）**：`platformTreasury` 后来重新回到了资金路径上——它收每笔买单 30 bps 的 ETH（`PLATFORM_SWAP_FEE_BPS`）。这**重新打开了 M-2 描述的那个面**，所以这次拿掉的不是入金而是**可变性**：`setPlatformTreasury` 已删除，工厂的字段改为 `immutable`，同一个地址在构造时烧进 hook 实现的 `platformFeeRecipient`。换句话说，M-2 现在是靠「地址不可改」关闭的，而不是靠「地址收不到钱」关闭的。逐项快照因此仍然多余——不是因为没有费流，而是因为源头本身已经不可变。见 §2.2.5.1。
+> **Where M-2 stands now (updated)**: `platformTreasury` has since returned to the money path — it takes 30 bps of the ETH on every buy (`PLATFORM_SWAP_FEE_BPS`). That **reopens the surface M-2 described**, so what was removed this time is not the inflow but the **mutability**: `setPlatformTreasury` is deleted, the factory's field is now `immutable`, and the same address is burned into the hook implementation's `platformFeeRecipient` at construction. Put differently, M-2 is now held closed by "the address cannot change" rather than by "the address receives nothing". The per-launch snapshot is consequently still redundant — not because there is no fee flow, but because the source itself is already immutable. See §2.2.5.1.
 
-> **⚠️ 8.14**：建池时 `getLiquidityForAmounts` 取两侧的最小值（`src/ToshLaunchpadHook.sol:2006-2012`），所以实际消耗的 ETH 与代币都 ≤ 输入量，余尘留在 hook 里。同理，`claimGenesis` 的整除余尘（`allocation = CLAIM_SUPPLY × dep / total`，`src/ToshLaunchpadHook.sol:1341-1353`）也会有极小残余永久留在 hook 中。合约**没有任何清扫路径**。这与国库"单向阀"是同一取舍，但 hook 侧没有被文档化。
+> **⚠️ 8.14**: at pool creation `getLiquidityForAmounts` takes the minimum of the two sides (`src/ToshLaunchpadHook.sol:2006-2012`), so both the ETH and the tokens actually consumed are ≤ the amounts offered, and the dust stays in the hook. Likewise, the truncation dust in `claimGenesis` (`allocation = CLAIM_SUPPLY × dep / total`, `src/ToshLaunchpadHook.sol:1341-1353`) leaves a minute residue in the hook permanently. The contract has **no sweep path whatsoever**. This is the same trade-off as the treasury's "one-way valve", except that on the hook side it was never documented.
 
-### 4.5 失败路径 —— `refund()`
+### 4.5 The failure path — `refund()`
 
-**双门**（`src/ToshLaunchpadHook.sol:657-693`）：
+**Two gates** (`src/ToshLaunchpadHook.sol:657-693`):
 
-| 门 | 判据 | 事件 |
+| Gate | Test | Event |
 |---|---|---|
-| 软顶未达成 | `ts > genesisDeadline && totalEthDeposited < softCap` | `GenesisFailed(totalEthRaised)`（首次触发时） |
-| 僵尸窗口超时 | `ts > genesisDeadline + LAUNCH_WINDOW(7 days)` | `ZombieRefund(totalEthRaised)`（首次触发时） |
+| Soft cap not met | `ts > genesisDeadline && totalEthDeposited < softCap` | `GenesisFailed(totalEthRaised)` (on the first trigger) |
+| Zombie window lapsed | `ts > genesisDeadline + LAUNCH_WINDOW(7 days)` | `ZombieRefund(totalEthRaised)` (on the first trigger) |
 
-第二道门的产品含义：即使软顶达成，只要 creator 在 7 天内不开盘，储户就能全额撤回。这堵住了"募到钱就人间蒸发"的路。
+What the second gate means as a product: even with the soft cap met, if the creator does not launch within 7 days, depositors can withdraw in full. It closes off the "raise the money and vanish" route.
 
-**退款金额 = 100% 的 `ethDeposited[msg.sender]`**（`src/ToshLaunchpadHook.sol:1227-1252`）。10% 的佣金切分只在 `launch()` 时才真正兑现，所以失败的创世不欠推荐人任何东西，`referralAccrued` 只是单纯变成永不可领（`claimReferralReward` 要求 `launched`，`src/ToshLaunchpadHook.sol:1362-1373`）。
+**The refund is 100% of `ethDeposited[msg.sender]`** (`src/ToshLaunchpadHook.sol:1227-1252`). The 10% commission carve is only realised at `launch()`, so a failed genesis owes referrers nothing and `referralAccrued` simply becomes permanently unclaimable (`claimReferralReward` requires `launched`, `src/ToshLaunchpadHook.sol:1362-1373`).
 
-**CEI 顺序**：先 `ethDeposited[msg.sender] = 0`（EFFECTS），再置事件标记位，最后 `_sendEth`（INTERACTIONS），外层还有 `nonReentrant`（`src/ToshLaunchpadHook.sol:1227-1252`、`2207-2210`）。
+**CEI order**: `ethDeposited[msg.sender] = 0` first (EFFECTS), then the event marker bits, then `_sendEth` last (INTERACTIONS), with `nonReentrant` wrapped around the whole thing (`src/ToshLaunchpadHook.sol:1227-1252`, `2207-2210`).
 
-**暂停不影响退款**：测试 `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` 明确固化了这一点（⚠️ 8.12 的另一面：这是好事，但也说明暂停覆盖面很窄）。
+**A pause does not affect refunds**: the test `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` pins this down explicitly (the other face of ⚠️ 8.12: this is a good thing, but it also shows how narrow the pause's reach is).
 
-### 4.6 Phase 2 —— 阶梯铸造
+### 4.6 Phase 2 — ladder minting
 
 #### 4.6.1 `mintBondingCurve(uint256 tokenAmount) payable returns (uint256 ethCharged)`
 
-**执行流**（`src/ToshLaunchpadHook.sol:847-926`）：
+**Execution flow** (`src/ToshLaunchpadHook.sol:847-926`):
 
 ```
-前置：initialized · nonReentrant · launched · tokenAmount != 0
+Preconditions: initialized · nonReentrant · launched · tokenAmount != 0
 
-门 1（同区块锁）：block.number <= lastSwapBlock  →  revert SameBlockMintForbidden
-                                                     // line 858
+Gate 1 (same-block lock): block.number <= lastSwapBlock  →  revert SameBlockMintForbidden
+                                                            // line 858
 tierIndex = currentTierIndex
 tierIndex >= TIER_COUNT  →  revert LadderExhausted    // line 861
 
-门 2+3（参考价与天花板，循环外提，因为任何一腿都动不了它）：
+Gates 2+3 (reference price and ceiling, hoisted out of the loop, since no leg can move them):
     ceiling = _safeReferencePrice() × 10500 / 10000    // line 865
 
-循环（每腿一档）：
+Loop (one leg per tier):
     tierIndex >= TIER_COUNT      →  revert ExceedsTierRemaining   // line 873
     ++legs > MAX_TIERS_PER_TX(32) →  revert SpanTooManyShelves     // line 874
     tierPrice = tierPriceAt(tierIndex)
     tierPrice > ceiling          →  revert TierPriceAboveCeiling   // line 877
     room  = TIER_SIZE − sold
     take  = min(tokenAmount − filled, room)
-    legCost = tierPrice × take / 1e18       // 每腿向下取整，最坏 1 wei/腿 有利于买家
+    legCost = tierPrice × take / 1e18       // floored per leg, worst case 1 wei/leg in the buyer's favour
     emit TierMinted(buyer, tierIndex, tierPrice, take, legCost)
-    档位售罄 → sold=0, ++tierIndex, emit TierAdvanced
+    tier sells out → sold=0, ++tierIndex, emit TierAdvanced
 
-支付校验：cost == 0 → ZeroAmount；msg.value < cost → InsufficientPayment
+Payment check: cost == 0 → ZeroAmount; msg.value < cost → InsufficientPayment
 
-EFFECTS：_ladderState = { tierIndex, tierSold, minted + tokenAmount }  // 单槽一次 SSTORE
+EFFECTS: _ladderState = { tierIndex, tierSold, minted + tokenAmount }  // one SSTORE, one slot
 
-INTERACTIONS：
+INTERACTIONS:
     platformCut = cost × 1% → ladderTreasury      // line 914-917
     projectCut  = cost − platformCut → projectAdmin // line 918
     projectToken.mint(msg.sender, tokenAmount)      // line 920
-    change = msg.value − cost → 退还 msg.sender     // line 922-923
+    change = msg.value − cost → back to msg.sender  // line 922-923
 ```
 
-**为什么允许跨档**（`src/ToshLaunchpadHook.sol:831-841`）：货架铸造从代币合约直接发行、ETH 直接路由给 `projectAdmin`/`ladderTreasury`，**从不触碰池子**，所以它动不了 `spot`；TWAP 也只是过去成交的函数。因此反尖峰参考价在整次调用中是**常量**，逐腿复检天花板与"只对最高档检查一次"完全等价。跨 N 档一次成交与同区块内 N 次单档成交达到**同一终态、同一总价**，所以拆分从来不是安全属性，只是买家多付的 gas 税。测试 `test_tierMint_spanIsEquivalentToSequentialShelfBuys` @ `test/ToshV5.t.sol` 把这条不变量钉住。
+**Why spanning tiers is allowed** (`src/ToshLaunchpadHook.sol:831-841`): a shelf mint issues straight from the token contract and routes the ETH directly to `projectAdmin`/`ladderTreasury`, **never touching the pool**, so it cannot move `spot`; and the TWAP is only a function of past fills. The anti-spike reference price is therefore **constant** for the whole call, which makes re-checking the ceiling on every leg exactly equivalent to checking it once against the highest tier. Sweeping N tiers in one fill reaches the **same end state at the same total price** as N single-tier fills in the same block, so splitting was never a safety property — only a gas tax the buyer pays. The test `test_tierMint_spanIsEquivalentToSequentialShelfBuys` @ `test/ToshV5.t.sol` nails this invariant down.
 
-**`MAX_TIERS_PER_TX = 32` 是 gas 上限，不是安全上限**：撞到这个上限的买家在**同一个区块内**再发一笔就能到达完全相同的终态。它存在只是防止一次调用循环上百次（每腿都要重算 `tierPriceAt`，O(log i)）而 out-of-gas。取 32 而不是原来的 16，是因为市价追平游标时 105% 天花板一次放行 `ln(1.05)/ln(STEP) ≈ 25.7` 档——16 会让腿数先于天花板绑定，逼每个正常买家白付第二笔交易的 gas。测试 `test_tierMint_legCapBindsWhenMarketRunsAhead` @ `test/ToshV5.t.sol` 显式验证了"拆成两笔达到被拒绝的那个状态"。
+**`MAX_TIERS_PER_TX = 32` is a gas bound, not a safety bound**: a buyer who hits it reaches the identical end state by sending a second transaction **in the same block**. It exists purely to stop a single call from looping hundreds of times (every leg recomputes `tierPriceAt`, O(log i)) and running out of gas. It is 32 rather than the original 16 because, once the market has caught up with the cursor, the 105% ceiling clears `ln(1.05)/ln(STEP) ≈ 25.7` tiers at once — at 16 the leg count would bind before the ceiling did, making every ordinary buyer pay a second transaction's gas for nothing. The test `test_tierMint_legCapBindsWhenMarketRunsAhead` @ `test/ToshV5.t.sol` verifies explicitly that "splitting into two transactions reaches the state that was rejected".
 
 #### 4.6.2 `quoteMint(uint256) view returns (uint256 ethCost)`
 
-镜像 `mintBondingCurve` 的**每一道检查和每一腿算术**（`src/ToshLaunchpadHook.sol:1531-1569`、`1421-1519`）。设计意图写得很清楚：一次成功的报价，就是合约在下一个区块会以**完全相同价格**接受的一次铸造。代码重复是刻意的——共享 helper 要么得分配逐腿数组、要么得走两遍来发事件。`testFuzz_QuoteMatchesMintAcrossSpans` 把两个循环钉在一起（注释 `931-937`；测试文件在 `test/ToshV5Fuzz.t.sol`）。
+Mirrors **every check and every leg of arithmetic** in `mintBondingCurve` (`src/ToshLaunchpadHook.sol:1531-1569`, `1421-1519`). The design intent is stated plainly: a successful quote is a mint the contract will accept in the next block at **exactly the same price**. The duplication is deliberate — a shared helper would have to either allocate a per-leg array or walk the loop twice in order to emit the events. `testFuzz_QuoteMatchesMintAcrossSpans` pins the two loops to each other (comment at `931-937`; the test file is `test/ToshV5Fuzz.t.sol`).
 
-注意：`quoteMint` 是 `view` 但**会 revert**（`LadderExhausted` / `ExceedsTierRemaining` / `SpanTooManyShelves` / `TierPriceAboveCeiling` / `ZeroAmount`）。前端必须处理 revert 而不是把它当成返回 0。
+Note: `quoteMint` is `view` but **does revert** (`LadderExhausted` / `ExceedsTierRemaining` / `SpanTooManyShelves` / `TierPriceAboveCeiling` / `ZeroAmount`). The front end has to handle the revert rather than read it as a zero return.
 
 #### 4.6.3 `maxMintable() view returns (uint256)`
 
-把买家能撞到的**所有数量限制**折叠成一个数（`src/ToshLaunchpadHook.sol:976-1000`）：当前档剩余 + 后续所有仍在 105% 天花板下的档 + 阶梯末端 + `MAX_TIERS_PER_TX`。门关着时返回 0。UI 的 "max" 按钮据此定档，而不是猜 `TIER_SIZE`。测试 `test_maxMintable_isTheExactAcceptedBoundary` @ `test/ToshV5.t.sol` 断言"多一个 wei-token 就 revert"。
+Folds **every quantity limit** a buyer can hit into a single number (`src/ToshLaunchpadHook.sol:976-1000`): what remains on the current tier, plus every following tier still under the 105% ceiling, plus the end of the ladder, plus `MAX_TIERS_PER_TX`. Returns 0 while the gate is shut. The UI's "max" button is sized from this rather than from a guess at `TIER_SIZE`. The test `test_maxMintable_isTheExactAcceptedBoundary` @ `test/ToshV5.t.sol` asserts that "one more wei-token reverts".
 
-#### 4.6.4 视图接口一览
+#### 4.6.4 View interfaces at a glance
 
-| 函数 | 返回 | 行号 |
+| Function | Returns | Line |
 |---|---|---|
-| `tierPriceAt(i)` | 档 i 的价格（ETH-wei/整枚），`i >= TIER_COUNT` 返回 0 | `1401-1404` |
+| `tierPriceAt(i)` | price of tier i (ETH-wei per whole token); returns 0 for `i >= TIER_COUNT` | `1401-1404` |
 | `getTier(i)` | `Tier{price, totalAmount, soldAmount}` | `1424-1435` |
-| `getTiers(start, count)` | 分页窗口（4000 档 = 12,000 字，无法一次返回） | `1444-1466` |
-| `tierCount()` / `tierRemaining()` / `bondingRemaining()` / `currentBondingPrice()` | 计数与当前价 | `1468-1487` |
-| `tierStatus()` | `(tierIndex, tierPrice, remaining, spotPrice, twapPrice, ceiling, unlocked)` —— **UI 渲染价格门的全部所需** | `1497-1520` |
-| `getPoolKey()` / `hasClaimed(user)` / `claimableReferral(referrer)` | 池 key / 认领位 / 可提佣金 | `1522-1533` |
-| `satoDeposited(user)` / `totalSatoDeposited()` | **v4.x 兼容 shim**，分别别名 `ethDeposited` / `totalEthDeposited` | `1535-1546` |
+| `getTiers(start, count)` | a paged window (4000 tiers = 12,000 words, impossible to return in one call) | `1444-1466` |
+| `tierCount()` / `tierRemaining()` / `bondingRemaining()` / `currentBondingPrice()` | counts and the current price | `1468-1487` |
+| `tierStatus()` | `(tierIndex, tierPrice, remaining, spotPrice, twapPrice, ceiling, unlocked)` — **everything the UI needs to render the price gate** | `1497-1520` |
+| `getPoolKey()` / `hasClaimed(user)` / `claimableReferral(referrer)` | pool key / claim flag / claimable commission | `1522-1533` |
+| `satoDeposited(user)` / `totalSatoDeposited()` | **v4.x compatibility shims**, aliasing `ethDeposited` / `totalEthDeposited` respectively | `1535-1546` |
 
-> **⚠️ 8.15**：`phase2Minted` 是独立累加器（`phase2Minted += tokenAmount`），与 `currentTierIndex`/`currentTierSold` 是两套账。正常路径下二者一致，但 `ExceedsTierRemaining` 的错误注释说"读 `bondingRemaining()` 并缩小订单"（`src/ToshLaunchpadHook.sol:942`、`789-807`），而实际触发条件是 `tierIndex >= TIER_COUNT`（阶梯档位耗尽）。错误提示指向的 view 与真实触发条件不是同一个量。
+> **⚠️ 8.15**: `phase2Minted` is an independent accumulator (`phase2Minted += tokenAmount`), a second set of books alongside `currentTierIndex`/`currentTierSold`. On the normal path the two agree, but the comment on the `ExceedsTierRemaining` error says to "read `bondingRemaining()` and shrink the order" (`src/ToshLaunchpadHook.sol:942`, `789-807`), whereas the actual trigger condition is `tierIndex >= TIER_COUNT` (the ladder's tiers are exhausted). The view the error points at is not the same quantity as the condition that fired it.
 
-### 4.7 创世份额认领 —— `claimGenesis()`
+### 4.7 Claiming the genesis share — `claimGenesis()`
 
-`src/ToshLaunchpadHook.sol:769-781`：
+`src/ToshLaunchpadHook.sol:769-781`:
 
-| 检查 | 错误 |
+| Check | Error |
 |---|---|
 | `launched` | `NotLaunched` |
 | `!genesisShareClaimed[sender]` | `AlreadyClaimed` |
@@ -727,119 +727,119 @@ INTERACTIONS：
 allocation = GENESIS_CLAIM_SUPPLY × ethDeposited[sender] / totalEthDeposited
 ```
 
-注意分母是**含 10% 佣金的总募集额** `R`，这正是让储户成本基准等于 `R / 4,620,000` 的定义（与 3.3 的推导一致）。`nonReentrant` + 先置 `genesisShareClaimed` 再 `safeTransfer`。
+Note that the denominator is `R`, the **total raise including the 10% commission** — which is precisely the definition that puts a depositor's cost basis at `R / 4,620,000` (consistent with the derivation in 3.3). `nonReentrant`, and `genesisShareClaimed` is set before the `safeTransfer`.
 
-### 4.8 推荐佣金提取 —— `claimReferralReward()`
+### 4.8 Withdrawing referral commission — `claimReferralReward()`
 
-`src/ToshLaunchpadHook.sol:783-801`：
+`src/ToshLaunchpadHook.sol:783-801`:
 
-| 检查 | 错误 |
+| Check | Error |
 |---|---|
 | `launched` | `NotLaunched` |
 | `referralAccrued[sender] != 0` | `NoReferralReward` |
 
-**刻意不做时间解锁**（`src/ToshLaunchpadHook.sol:785-789`）：金额本身已经与每个被推荐人真实带入的资金成正比，而一个已开盘的项目没有任何机制能把它收回。
+**Deliberately not time-vested** (`src/ToshLaunchpadHook.sol:785-789`): the amount is already proportional to the funds each referee genuinely brought in, and a launched project has no mechanism to claw it back.
 
-### 4.9 平台国库顺风车回购 —— `autoPiggybackBuyback()` 与 `pokeBuyback()`
+### 4.9 Platform-treasury piggyback buyback — `autoPiggybackBuyback()` and `pokeBuyback()`
 
-**两条触发链路，共用一个 `_runPiggyback()`**：
+**Two trigger paths, one shared `_runPiggyback()`**:
 
-1. **顺风车（受 gas 门控）**：Tosh 池的一笔 swap → hook 的 `afterSwap` → 在 `ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP` **且** `gasleft() >= PIGGYBACK_MIN_GAS`（230,000）时，`try ... autoPiggybackBuyback{gas: gasleft() - PIGGYBACK_TAIL_RESERVE}()`。
-2. **无许可直捅**：任何地址 → `treasury.pokeBuyback()` → `poolManager.unlock("")` → `unlockCallback` → `_runPiggyback()`。
+1. **Piggyback (gas-gated)**: a swap on a Tosh pool → the hook's `afterSwap` → when `ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP` **and** `gasleft() >= PIGGYBACK_MIN_GAS` (230,000), `try ... autoPiggybackBuyback{gas: gasleft() - PIGGYBACK_TAIL_RESERVE}()`.
+2. **Permissionless direct poke**: any address → `treasury.pokeBuyback()` → `poolManager.unlock("")` → `unlockCallback` → `_runPiggyback()`.
 
-**为什么必须有 gas 门控**：买入税是在 `beforeSwap` 里 `take` 进国库的,所以一笔交易可以**开始时未武装、到 `afterSwap` 时已武装**。这意味着被收费跑回购的那笔交易,恰恰是把储备推过阈值的那一笔——而它的钱包是按未武装的池子估的 gas。不是"倒霉窗口里签的交易",而是**每个周期确定性地都有一笔**。实测一条腿约 125k,门控之后的收尾约 70k,估算里两者都没有。
+**Why the gas gate has to exist**: the buy tax is `take`n into the treasury inside `beforeSwap`, so one trade can be **unarmed when it starts and armed by the time it reaches `afterSwap`**. That means the trade charged for running the buyback is precisely the one that pushed the reserve past the threshold — and its wallet estimated gas against an unarmed pool. This is not "a transaction signed inside an unlucky window", it is **deterministically one trade per cycle**. Measured, a leg is about 125k and the post-gate tail about 70k, and neither is in the estimate.
 
-`try/catch` 救不了它:子调用耗尽 gas 后,63/64 规则只给外层留六十四分之一,不够走完 `afterSwap` 加 V4 关帧。所以门控做两件事——**余量不足就跳过**,并且**用 `{gas: avail - PIGGYBACK_TAIL_RESERVE}` 物理扣下收尾的份额**,让一条腿再贵也吃不到它。
+`try/catch` cannot save it: once the sub-call has exhausted its gas, the 63/64 rule leaves the outer frame one sixty-fourth, which is not enough to finish `afterSwap` plus closing the V4 frame. So the gate does two things — **skip when the headroom is short**, and **physically withhold the tail's share with `{gas: avail - PIGGYBACK_TAIL_RESERVE}`**, so that however expensive a leg gets it cannot eat into it.
 
-代价是活性:交易不再保证能清空储备。`pokeBuyback()` 是兵底,故意对所有人开放,因为设成 owner-only 就等于把这里刚去掉的活性依赖又请回来。它不给调用者转任何 ETH,也不做任何选择——场所来自 hook,大小来自余额,顺序来自轮转游标,价格受同一条 TWAP 下限约束。唯一能决定的是**时机**,而游标让这件事没什么可图。
+The cost is liveness: trading no longer guarantees that the reserve gets drained. `pokeBuyback()` is the backstop, deliberately open to everyone, because gating it on the owner would be inviting back the very liveness dependency just removed. It transfers no ETH to the caller and chooses nothing — the venue comes from the hook, the size from the balance, the order from the round-robin cursor, and the price is bounded by the same TWAP floor. The only thing it can decide is **when**, and the cursor makes that uninteresting.
 
-**跳过的 poke 不发任何事件**。跳过是常态,记日志要让每个交易者掏钱。所以这个盲区只能靠余额轮询发现,见 `monitoring/alerts.json` 的 `STATE-06`。
+**A skipped poke emits no event at all.** Skipping is the normal case, and logging it would charge every trader for the privilege. So this blind spot can only be found by polling the balance — see `STATE-06` in `monitoring/alerts.json`.
 
-**故障隔离的理由写得很细**（`src/ToshLaunchpadHook.sol:1145-1153`）：回购是这笔交易替平台做的**顺手之举**，绝不是交易本身的前置条件。没有 `try/catch` 的话，一个不认识我们的国库（`setFactory` 未接线，或者第二个工厂部署的 hook 永远无法通过一次性绑定注册）会在**每一笔**交易上 revert `onlyHook`，那会把创世流动性永久困死在合约里且无任何恢复路径。被吞掉的 revert 也会回滚该帧的 V4 deltas 和瞬态标记位，所以交易在干净账目上继续。失败时发 `PiggybackPokeFailed(treasury)`——**持续出现这个事件意味着国库不再认识这个 hook**。
+**The fault-isolation reasoning is spelled out in detail** (`src/ToshLaunchpadHook.sol:1145-1153`): the buyback is something this trade does for the platform **on the way past**, never a precondition of the trade itself. Without the `try/catch`, a treasury that does not recognise us (`setFactory` never wired up, or a hook deployed by a second factory that can never pass the one-shot binding registration) would revert `onlyHook` on **every single** trade, which would strand the genesis liquidity in the contract permanently with no recovery path whatsoever. A swallowed revert also rolls back that frame's V4 deltas and transient marker bits, so the trade continues on clean books. On failure it emits `PiggybackPokeFailed(treasury)` — **persistent emissions of this event mean the treasury no longer recognises this hook**.
 
-**国库侧执行**（`_runPiggyback()`，两条入口共用）：
+**Treasury-side execution** (`_runPiggyback()`, shared by both entry points):
 
-| 步 | 动作 | 说明 |
+| Step | Action | Notes |
 |---|---|---|
-| 0 | 入口鉴权 | `autoPiggybackBuyback` 是 `onlyHook`（否则 `OnlyHook`）并额外要求 `poolManager.isUnlocked()`；`pokeBuyback` 无鉴权,但自己开 unlock 帧,且未武装时 revert `NotArmed` 而非静默返回 |
-| 1 | `piggybackActive()` 已置位 → **静默 return** | 嵌套 Tosh 池 poke 我们时保持被动 |
-| 2 | `spend = _nextSpendAmount()`，为 0 → return | `max(TRIGGER_STEP, balance × SPEND_BPS/10000)`，即 `max(1 ETH, 余额 10%)` |
-| 3 | `ladderTokens.length == 0` → return | 无策展标的 |
-| 4 | `count = min(total, LEGS_PER_POKE)` | **`LEGS_PER_POKE = 1`**：每次 poke 只跑一条腿 |
-| 5 | `perToken = spend / BATCH_SIZE` | **`BATCH_SIZE = 3` 现在只是分仓除数,不再是每次的腿数** |
-| 6 | 置瞬态标记 `_setPiggyback(true)` | EIP-1153 `tstore` |
-| 7 | 轮转 `count` 次：`try this.executeBuyAndBurn(token, perToken) catch { emit BuybackSkipped }` | 逐腿故障隔离；外部自调用让 revert 完整回滚该腿的 V4 deltas，ETH 留在储备里等下一轮 |
-| 8 | `currentCursor = (cursor + count) % total` | 轮转推进 |
-| 9 | `_setPiggyback(false)`；`emit PiggybackExecuted(perToken*count, count, newCursor)` | 现在 `count` 恒为 1，所以事件频率是原来的三倍，同样的 ETH |
+| 0 | Entry-point authorisation | `autoPiggybackBuyback` is `onlyHook` (else `OnlyHook`) and additionally requires `poolManager.isUnlocked()`; `pokeBuyback` has no authorisation but opens its own unlock frame, and reverts `NotArmed` instead of returning silently when unarmed |
+| 1 | `piggybackActive()` already set → **silent return** | stay passive when a nested Tosh pool pokes us |
+| 2 | `spend = _nextSpendAmount()`, 0 → return | `max(TRIGGER_STEP, balance × SPEND_BPS/10000)`, i.e. `max(1 ETH, 10% of the balance)` |
+| 3 | `ladderTokens.length == 0` → return | nothing curated |
+| 4 | `count = min(total, LEGS_PER_POKE)` | **`LEGS_PER_POKE = 1`**: one leg per poke |
+| 5 | `perToken = spend / BATCH_SIZE` | **`BATCH_SIZE = 3` is now only the spend divisor, no longer the legs per poke** |
+| 6 | Set the transient marker `_setPiggyback(true)` | EIP-1153 `tstore` |
+| 7 | Rotate `count` times: `try this.executeBuyAndBurn(token, perToken) catch { emit BuybackSkipped }` | per-leg fault isolation; the external self-call lets a revert roll that leg's V4 deltas back completely, leaving the ETH in the reserve for the next cycle |
+| 8 | `currentCursor = (cursor + count) % total` | advance the rotation |
+| 9 | `_setPiggyback(false)`; `emit PiggybackExecuted(perToken*count, count, newCursor)` | `count` is now always 1, so the event fires three times as often for the same ETH |
 
-**第 4、5 步为什么是两个独立的数**：原来它们是同一个数,一次 poke 跑三条腿,等于让一个买家替平台付三笔 V4 swap(实测每条约 125k)。峰值 578,809 gas 摆在一个按 217k 估算的人面前。
+**Why steps 4 and 5 are two separate numbers**: they used to be one number — three legs per poke, which amounted to making one buyer pay for three V4 swaps on the platform's behalf (about 125k each, measured). A 578,809 gas peak put in front of somebody who estimated 217k.
 
-拆开之后每次只跑一条,但 `perToken` 仍除以 `BATCH_SIZE`,所以**每个池子拿到的 ETH 一分没少**,三笔交易覆盖同样的三个池子。峰值降到 362,884。
+Split apart, each poke runs a single leg, but `perToken` is still divided by `BATCH_SIZE`, so **not a wei less ETH reaches each pool** — three transactions cover the same three pools. The peak drops to 362,884.
 
-分仓除数保持 3 是这件事免费的前提:如果改成除以 1,同样的周期会把三倍的 ETH 灌进单个创世池,在那种薄度上多出的滑点会买到更少的币来烧——用执行质量换 gas,不划算。
+Keeping the divisor at 3 is the premise on which this is free: divide by 1 instead and the same cycle pours three times the ETH into a single genesis pool, where at that thinness the extra slippage buys fewer tokens to burn — trading execution quality for gas, which is not worth it.
 
-**单腿 `_buyAndBurn`**（`src/ToshLadderTreasury.sol` 的 `_buyAndBurn`）：
+**A single leg — `_buyAndBurn`** (`_buyAndBurn` in `src/ToshLadderTreasury.sol`):
 
 ```
 swap(key, { zeroForOne: true,                            // ETH(currency0) → token(currency1)
-            amountSpecified: -int256(ethIn),             // 负数 = exact input
-            sqrtPriceLimitX96: _buybackSqrtFloor(key) }) // TWAP 锚定的价格下限
-sync(native) ; settle{value: spent}()                    // 只付池子真正吃掉的那部分
-take(currency1, DEAD_ADDRESS, bought)                    // 代币直送 0xdead
+            amountSpecified: -int256(ethIn),             // negative = exact input
+            sqrtPriceLimitX96: _buybackSqrtFloor(key) }) // TWAP-anchored price floor
+sync(native) ; settle{value: spent}()                    // pay only what the pool actually took
+take(currency1, DEAD_ADDRESS, bought)                    // tokens straight to 0xdead
 emit BuybackBurned(token, spent, bought)
 ```
 
-**滑点下限的由来——一次被推翻的推理**（`src/ToshLadderTreasury.sol` 的 `_buyAndBurn` 与 `_buybackSqrtFloor` 注释）：早先的修订确实传 `MIN_SQRT_PRICE + 1`（等于不设限），理由是"产出被销毁，不利价格只是少烧一些币，没有受害者、也没有可提取的 MEV"。**这条推理漏掉了谁在付账**：三明治攻击者可以抢在顺风车之前买入，让这条腿在被抬高的价格上成交，再把币卖回自己刚刚制造出来的接盘盘口。没有任何用户被偷，但储备的 ETH 买到更少的币去烧，差额进了攻击者的口袋——**税收本来要交付的通缩被抽走了**。受害者不是某个交易对手，而是销毁本身。
+**Where the slippage floor came from — a piece of reasoning that got overturned** (the `_buyAndBurn` and `_buybackSqrtFloor` comments in `src/ToshLadderTreasury.sol`): an earlier revision did indeed pass `MIN_SQRT_PRICE + 1` (i.e. no bound at all), on the grounds that "the output is burned, so an unfavourable price merely burns fewer tokens — no victim, and no extractable MEV". **That reasoning misses who is paying**: a sandwicher can buy ahead of the piggyback, let this leg fill at the inflated price, and then sell the tokens back into the bid it has just manufactured. Nothing is stolen from any user, but the reserve's ETH buys fewer tokens to burn and the difference lands in the attacker's pocket — **the deflation the tax was collected to deliver is skimmed away**. The victim is not some counterparty; it is the burn itself.
 
-所以现在每条腿都带下限：`_buybackSqrtFloor` = `hook.twapSqrtPriceX96() × (1 - MAX_BUYBACK_SQRT_DEVIATION_BPS / 10000)`，即 **0.9 × TWAP 的 sqrt 价**（`MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000`）。
+So every leg now carries a floor: `_buybackSqrtFloor` = `hook.twapSqrtPriceX96() × (1 - MAX_BUYBACK_SQRT_DEVIATION_BPS / 10000)`, i.e. **0.9 × the TWAP's sqrt price** (`MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000`).
 
-- **锚 TWAP 而不是 slot0**：spot 正是三明治要位移的那个量，spot 相对的下限会跟着攻击一起移动，什么都限制不住。对着 TWAP，抢跑把价格拉过下限之后，这条腿只能部分成交或直接落进 `BuybackSkipped`，攻击者手里剩下一批没有出口的存货。
-- **必须 `settle` 池子实际吃掉的 `spent`，而不是报出的 `ethIn`**：下限一旦生效就是部分成交，照 `ethIn` 付款会让合约留下一笔无人认领的 credit，撞上 unlock 帧的 all-deltas-zero 检查，把那个碰巧触发了顺风车的无辜交易者的 swap 整笔 revert。没花掉的部分留在储备里等下一轮。
-- **TWAP 缺席时回落到无下限**：hook 还没有 TWAP（开盘后第一个窗口，`twapSqrtPriceX96()` 返回 0）或根本不应答这个接口时，`_buybackSqrtFloor` 返回 `MIN_SQRT_PRICE + 1`。拒绝买入是更坏的失败——储备会在任何 hook 早于这个接口的池子上永久停摆。
+- **Anchored to the TWAP rather than slot0**: spot is the very quantity a sandwich displaces, so a spot-relative floor moves along with the attack and constrains nothing. Against the TWAP, once a front-run has dragged the price past the floor, this leg can only fill partially or falls straight into `BuybackSkipped`, leaving the attacker holding inventory with no exit.
+- **It must `settle` the `spent` the pool actually took, not the `ethIn` it offered**: a binding floor means a partial fill, and paying against `ethIn` would leave the contract holding an unclaimed credit, which hits the unlock frame's all-deltas-zero check and reverts the entire swap of the innocent trader who happened to trigger the piggyback. Whatever goes unspent stays in the reserve for the next cycle.
+- **With the TWAP absent it falls back to unbounded**: when the hook has no TWAP yet (the first window after launch, `twapSqrtPriceX96()` returns 0) or does not answer this interface at all, `_buybackSqrtFloor` returns `MIN_SQRT_PRICE + 1`. Refusing to buy is the worse failure — the reserve would stall permanently on any pool whose hook predates this interface.
 
-**这是"设上限"，不是"消除"**：0.9 作用在 sqrt 价上，折算到 ETH-per-token 等于允许池子在腿停止成交之前坐到 TWAP 上方约 23%。`test_probeG_sandwichThePiggyback` @ `test/ToshV5Attack.t.sol` 是一个**测量**探针（记录 edge，不做断言），并且点明可抽取的规模随储备线性增长：`spend = max(1 ETH, 10% 储备)`，只挂一个代币时这笔钱全部落进同一个池子。`docs/SECURITY_AUDIT.md` 相应地把这一项记作"`MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000` 限制可执行偏差"，而不是记作已关闭。
+**This is a "bound", not an "elimination"**: the 0.9 applies to the sqrt price, which converted to ETH-per-token means the pool is allowed to sit roughly 23% above the TWAP before the leg stops filling. `test_probeG_sandwichThePiggyback` @ `test/ToshV5Attack.t.sol` is a **measurement** probe (it records the edge, it asserts nothing), and it makes the point that the extractable size grows linearly with the reserve: `spend = max(1 ETH, 10% of the reserve)`, and with only one token listed that whole cheque lands in the same pool. `docs/SECURITY_AUDIT.md` accordingly records this item as "`MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000` bounds the executable deviation" rather than as closed.
 
-**和链下 harvest 机器人的关系**：能删掉机器人靠的不是"没有滑点下限"，而是顺风车这条路径**绝不 revert**——每条腿都包在 `try/catch` 里，失败就 `emit BuybackSkipped` 把 ETH 留给下一轮。正因为有这层故障隔离，补上下限才是免费的：违反下限的腿被跳过，而不会把无辜交易者的 swap 一起带走。
+**How this relates to the off-chain harvest bot**: what allowed the bot to be deleted was not "there is no slippage floor" but that the piggyback path **never reverts** — every leg is wrapped in `try/catch`, and a failure just does `emit BuybackSkipped` and leaves the ETH for the next cycle. It is precisely because that fault isolation exists that adding the floor is free: a leg that violates the floor is skipped rather than taking an innocent trader's swap down with it.
 
-**关键行为**：`_runPiggyback` **绝不因"未就绪"而 revert**——顺风车入口坐在普通用户 swap 的热路径上，在这里 revert 会让池子不可交易。所有前置条件都是早返回。`pokeBuyback` 是唯一的例外,它会 revert `NotArmed`:那不是任何人的热路径,调用者有权知道这次调用什么都没做。
+**Key behaviour**: `_runPiggyback` **never reverts on a "not ready" condition** — the piggyback entry point sits in the hot path of ordinary user swaps, and a revert here would make the pool untradeable. Every precondition is an early return. `pokeBuyback` is the sole exception: it reverts `NotArmed`, because that is nobody's hot path and the caller has a right to know the call did nothing.
 >
-> **⚠️ 8.22**：`addLadderToken` 的来源校验解决的是"钱花到哪个池子"，**不解决"哪些项目享受回购"**。owner 仍可只挂自己/关联方的项目，或用 `removeLadderToken` 把某项目永久排除在轮转之外。这是策展权限本身的信任边界。
+> **⚠️ 8.22**: the provenance check in `addLadderToken` settles "which pool the money is spent in"; it **does not settle "which projects enjoy the buyback"**. The owner can still list only their own or affiliated projects, or use `removeLadderToken` to exclude a project from the rotation permanently. That is the trust boundary of the curation power itself.
 
-**策展校验**（`src/ToshLadderTreasury.sol:200-226`）：
+**Curation checks** (`src/ToshLadderTreasury.sol:200-226`):
 
-| 检查 | 错误 |
+| Check | Error |
 |---|---|
 | `token != 0` | `ZeroAddress` |
-| 未重复挂牌 | `TokenAlreadyListed` |
+| Not already listed | `TokenAlreadyListed` |
 | `factory != 0` | `FactoryNotSet` |
-| `factory.tokenToHook(token) != 0` —— **本平台发射的代币** | `TokenNotLaunchedHere` |
-| `key.currency0.isAddressZero()` —— ETH 必须是 currency0 | `InvalidPoolKey` |
+| `factory.tokenToHook(token) != 0` — **a token launched on this platform** | `TokenNotLaunchedHere` |
+| `key.currency0.isAddressZero()` — ETH must be currency0 | `InvalidPoolKey` |
 | `key.currency1 == token` | `InvalidPoolKey` |
 | `key.hooks == hook` | `InvalidPoolKey` |
 
-未开盘的 hook 没有 pool key（零 key），会在 `currency1` 那一臂失败（测试 `test_ladderCuration_rejectsUnlaunchedProjects` @ `test/ToshV5.t.sol`，期望 `InvalidPoolKey`）。
+A hook that has not launched has no pool key (the key is all zeros) and so fails on the `currency1` arm (test `test_ladderCuration_rejectsUnlaunchedProjects` @ `test/ToshV5.t.sol`, expecting `InvalidPoolKey`).
 
-**`removeLadderToken`** 用 swap-and-pop 保持数组紧凑，会打乱轮转顺序——注释说这是可接受的：游标只需要在范围内且长期公平，不需要跨摘牌稳定（`src/ToshLadderTreasury.sol:361-383`）。
+**`removeLadderToken`** uses swap-and-pop to keep the array compact, which scrambles the rotation order — the comment calls that acceptable: the cursor only has to stay in range and be fair over the long run, not stay stable across a delisting (`src/ToshLadderTreasury.sol:361-383`).
 
 ---
 
-## 5. 安全与反操纵机制
+## 5. Security and anti-manipulation mechanisms
 
-### 5.1 三重价格门控
+### 5.1 The triple price gate
 
-| 门 | 机制 | 挡什么 | 行号 |
+| Gate | Mechanism | What it stops | Line |
 |---|---|---|---|
-| **1. 同区块铸造禁令** | 任何本池 swap 在 `afterSwap` 里写 `lastSwapBlock = block.number`；**`launch()` 也会主动盖上这个戳**；`mintBondingCurve` 若 `block.number <= lastSwapBlock` 直接 revert `SameBlockMintForbidden` | 闪电贷拉盘 → 同区块铸造 → 平仓。价格门在闪电贷解开前根本看不到那个价格。`launch()` 盖戳则让开盘区块对所有募资额确定性关闭（§8.26） | `afterSwap` / `launch` / `mintBondingCurve` |
-| **2. `min(spot, 慢速腿)` 参考价** | `_safeReferencePrice()`：TWAP 窗口成熟后取 `min(spot, TWAP)`；窗口未满 `TWAP_WINDOW`（含 `twap == 0`）时取 `min(spot, p0)`，不盲信短窗 stub | 把 spot 往上拉不动参考价；开盘后头 30 分钟的两步脉冲最多顶开货架 0，不能满档扫空 | `_safeReferencePrice` |
-| **3. 105% 天花板** | 档价必须 `≤ 1.05 × 参考价` | 档位只在二级市场**真实、持久**涨上来之后才解锁。阶梯被真实需求**拉上去**，而不是被发行方**推上去** | `PRICE_CEILING_BPS` / `mintBondingCurve` |
+| **1. Same-block mint ban** | Any swap on this pool writes `lastSwapBlock = block.number` in `afterSwap`; **`launch()` stamps it too**; `mintBondingCurve` reverts `SameBlockMintForbidden` outright when `block.number <= lastSwapBlock` | Flash-loan pump, mint in the same block, unwind. The price gate never sees that price before the flash loan closes. The `launch()` stamp closes the launch block deterministically at every raise size (§8.26) | `afterSwap` / `launch` / `mintBondingCurve` |
+| **2. `min(spot, slow leg)` reference price** | `_safeReferencePrice()`: once the TWAP window has matured it takes `min(spot, TWAP)`; while the window is short of `TWAP_WINDOW` (including `twap == 0`) it takes `min(spot, p0)` rather than trusting a short-window stub | Pumping spot does not move the reference price; a two-block pump in the first 30 minutes after launch opens shelf 0 at most, and cannot clear a full run of tiers | `_safeReferencePrice` |
+| **3. The 105% ceiling** | A tier's price must be `≤ 1.05 × reference price` | A tier unlocks only after the secondary market has **genuinely and durably** risen. The ladder is **pulled up** by real demand, not **pushed up** by the issuer | `PRICE_CEILING_BPS` / `mintBondingCurve` |
 
-`maxMintable()` 同样受门 1 约束（`block.number <= lastSwapBlock` 时返回 0），因为它的语义是"此刻能买多少"，UI 的 max 按钮直接取它——报出一个下一笔调用必然拒绝的数量只会变成一笔失败交易。`quoteMint` 则**有意**不加这条：报价是对下个区块成交单价的承诺，而同区块锁与单价无关。
+`maxMintable()` is bound by gate 1 as well (it returns 0 while `block.number <= lastSwapBlock`), because what it means is "how much can be bought right now" and the UI's max button reads it directly — offering a size the very next call is certain to reject only produces a failed transaction. `quoteMint` **deliberately** leaves the check out: a quote is a promise about the unit price a mint will pay in the next block, and the same-block lock says nothing about unit price.
 
-测试覆盖：`test_tierMintAntiSpikeAndCeiling` @ `test/ToshV5.t.sol`（门 1 + 门 3 端到端）；`test_tierMint_twapDefeatsASingleBlockPump`（成熟窗口下单区块拉盘被 TWAP 挡住）；`test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump`（开盘窗口 `min(spot, p0)` 挡住两步脉冲）；`test_ladderOpensLockedAtLaunch_acrossRaiseSizes`（开盘锁对 1–10 ETH 每个募资额都成立）。
+Test coverage: `test_tierMintAntiSpikeAndCeiling` @ `test/ToshV5.t.sol` (gates 1 and 3, end to end); `test_tierMint_twapDefeatsASingleBlockPump` (a single-block pump under a matured window is stopped by the TWAP); `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` (`min(spot, p0)` in the launch window stops a two-block pump); `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` (the launch lock holds at every raise size from 1–10 ETH).
 
-**Hook 本地 TWAP 预言机**（`src/ToshLaunchpadHook.sol:418-430`、`1268-1328`）：
+**Hook-local TWAP oracle** (`src/ToshLaunchpadHook.sol:418-430`, `1268-1328`):
 
-Uniswap V4 core **不带**观测缓冲（V3 有），所以 hook 自己在每次 `afterSwap` 里累加 `tick × elapsed`：
+Uniswap V4 core ships **no** observation buffer (V3 had one), so the hook accumulates `tick × elapsed` itself on every `afterSwap`:
 
 ```
 _writeObservation():
@@ -848,208 +848,208 @@ _writeObservation():
         tickCumulative += lastTick × elapsed
         lastObservationTs = now
         if now − _curCheckpointTs >= TWAP_WINDOW(1800s):
-            _prev ← _cur ; _cur ← (now, tickCumulative)   // 滚动检查点
+            _prev ← _cur ; _cur ← (now, tickCumulative)   // roll the checkpoint
     lastTick = poolManager.getSlot0(poolId).tick
 
 _getTWAPPrice():
     span = now − _prevCheckpointTs ;  span < TWAP_WINDOW → return 0
     cumNow = tickCumulative + lastTick × (now − lastObservationTs)
     avgTick = (cumNow − _prevCheckpointCumulative) / span
-    // 向负无穷取整，对齐 Uniswap V3 OracleLibrary，避免截断导致 TWAP 上偏
+    // Round toward negative infinity, matching Uniswap V3's OracleLibrary, so truncation never biases the TWAP upward
     if delta < 0 && delta % span != 0: avgTick--
-    clamp 到 [MIN_TICK, MAX_TICK]
+    clamp to [MIN_TICK, MAX_TICK]
     return _sqrtPriceToEthPerToken(getSqrtPriceAtTick(avgTick))
 ```
 
-**只保两个滚动检查点而不是完整环形缓冲**，把每笔成交的成本压到"每窗口一次冷 SSTORE"而不是"每笔一次"（`src/ToshLaunchpadHook.sol:1277-1280`）。
+**Keeping two rolling checkpoints rather than a full ring buffer** holds the per-swap cost at "one cold SSTORE per window" instead of "one on every trade" (`src/ToshLaunchpadHook.sol:1277-1280`).
 
-> **⚠️ 8.20**：代价是**实测窗口在 [1800, 3600) 秒之间漂移**（`TWAP_WINDOW` natspec）。`_getTWAPPrice()` 在 `span < TWAP_WINDOW` 时返回 0；短非零窗口（开盘后几秒）不是 TWAP，也不再被当成 TWAP 对外报出。`_safeReferencePrice` 在同样条件下取 `min(spot, p0)`，而不是盲信 spot / stub。开盘后头 30 分钟的两步脉冲因此无法把天花板推开。测试 `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump`。
+> **⚠️ 8.20**: the price of that is **a realised window that floats between [1800, 3600) seconds** (`TWAP_WINDOW` natspec). `_getTWAPPrice()` returns 0 while `span < TWAP_WINDOW`; a short non-zero window (the first few seconds after launch) is not a TWAP, and is no longer reported as one. `_safeReferencePrice` takes `min(spot, p0)` under the same condition instead of trusting spot or the stub. A two-block pump in the first 30 minutes after launch therefore cannot push the ceiling open. Test `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump`.
 >
-> **⚠️ 8.29（TWAP 深度就是这个常数）**：检查点的滚动由"第一笔落在 `_cur` 之后 ≥ `TWAP_WINDOW` 的 swap"触发，而**任何人都能提供那笔 swap**。把价格顶住一个窗口再用灰尘 swap 一戳，均价就会收敛到被操纵的价位——旧的 600s 参数下实测约 10 分钟就能让 TWAP 贴到操纵 spot 的 0.001% 以内并打开满档。两检查点结构下这没有结构性解法：**深度就等于 `TWAP_WINDOW`**。所以这个常数是一个**价格**而不是一个保证，取 1800s 是把攻击者的持仓成本翻三倍，同时仍让真实上涨的市场能在一小时内打开自己的阶梯。要更深就得改成完整环形缓冲（一次不小的重写，且把成本推回"每笔一次 SSTORE"）。测试 `test_probeB_twapReanchorSpeed` 把这个行为钉住，任何重新调参都必须重述它买到了什么。
+> **⚠️ 8.29 (the TWAP's depth is this constant)**: the checkpoint rolls on "the first swap landing >= `TWAP_WINDOW` after `_cur`", and **anyone may supply that swap**. Hold the price for one window, poke with a dust swap, and the average converges on the manipulated level — measured at the old 600s setting, roughly 10 minutes was enough to bring the TWAP within 0.001% of the manipulated spot and open the full run of tiers. With two checkpoints there is no structural fix: **the depth simply is `TWAP_WINDOW`**. So the constant is a **price**, not a guarantee; 1800s triples the hold an attacker has to fund while still letting an honestly rallying market open its own ladder within the hour. Going deeper means a full ring buffer (a substantial rewrite, and it pushes the cost back to "one SSTORE per trade"). `test_probeB_twapReanchorSpeed` pins this behaviour down, and any retuning has to restate what it bought.
 >
-> **⚠️ 8.30（TWAP 的两个消费方口径已对齐）**：`twapSqrtPriceX96()` 曾经只要 `span > 0` 就返回读数，也就是开盘一秒后返回一个"一秒均价"。`_safeReferencePrice` 从不信它（未成熟就用 `p0` 封顶），但国库的 `_buybackSqrtFloor` 信——而后者把 0 当作"还没有参考价，本轮无界成交"的既定回退。于是那个不成熟的桩**比它本该拿到的回退更糟**：把反三明治地板锚在一笔 swap 就能设定的数上。现在未满窗口一律返回 0，两个消费方对"TWAP 何时存在"达成一致。
+> **⚠️ 8.30 (the TWAP's two consumers now agree)**: `twapSqrtPriceX96()` used to return a reading whenever `span > 0` — a "one-second average" one second after launch. `_safeReferencePrice` never trusted it (it caps against `p0` until the window matures), but the treasury's `_buybackSqrtFloor` did, and that function treats 0 as its designed fallback: "no reference yet, fill this cycle unbounded". So the immature stub was **strictly worse than the fallback it should have got** — it anchored the anti-sandwich floor to a number a single swap could set. An unmatured window now returns 0 unconditionally, and both consumers agree on when a TWAP exists.
 
-**价格换算**（`src/ToshLaunchpadHook.sol:1330-1341`）：ETH 是 currency0，`sqrtPriceX96 = sqrt(token/ETH) × 2^96`，所以 `ethPerToken = 2^192 / sqrtPriceX96²`。分两步 `mulDiv` 求值，因为 tick 范围顶端 `sqrtPriceX96²` 会溢出 uint256。
+**Price conversion** (`src/ToshLaunchpadHook.sol:1330-1341`): ETH is currency0, `sqrtPriceX96 = sqrt(token/ETH) × 2^96`, so `ethPerToken = 2^192 / sqrtPriceX96²`. Evaluated as two `mulDiv` steps, because `sqrtPriceX96²` overflows uint256 at the top of the tick range.
 
-### 5.2 EIP-1153 瞬态存储重入锁与顺风车递归抑制
+### 5.2 EIP-1153 transient-storage reentrancy lock, and piggyback recursion suppression
 
-**两层锁**：
+**Two layers of lock**:
 
-1. **OpenZeppelin `ReentrancyGuard`（持久存储）**：hook 继承 `ReentrancyGuard`（`src/ToshLaunchpadHook.sol:145`、`1223-1519`），`nonReentrant` 覆盖 `refund` / `launch` / `claimGenesis` / `claimReferralReward` / `mintBondingCurve`。工厂也继承并覆盖 `createLaunch` / `deposit`（`src/ToshFactory.sol:37`、`657-717`、`740-766`）。
+1. **OpenZeppelin `ReentrancyGuard` (persistent storage)**: the hook inherits `ReentrancyGuard` (`src/ToshLaunchpadHook.sol:145`, `1223-1519`), and `nonReentrant` covers `refund` / `launch` / `claimGenesis` / `claimReferralReward` / `mintBondingCurve`. The factory inherits it too and covers `createLaunch` / `deposit` (`src/ToshFactory.sol:37`, `657-717`, `740-766`).
 
-2. **EIP-1153 瞬态标记位（`tstore`/`tload`）**：国库在槽位 `0x546f73685069676779626163b1000001` 上放递归守卫（`src/ToshLadderTreasury.sol:79-85`、`359-363`、`385-389`）。用瞬态存储的理由是"这个标记只在当前交易内有意义"。
+2. **EIP-1153 transient flag (`tstore`/`tload`)**: the treasury parks a recursion guard in slot `0x546f73685069676779626163b1000001` (`src/ToshLadderTreasury.sol:79-85`, `359-363`, `385-389`). The reason for transient storage is that "the flag is only meaningful within the current transaction".
 
-**递归抑制的必要性**（`src/ToshLadderTreasury.sol:160-166`）：一次顺风车会穿过**其他** Tosh 池买入，那些池的 hook 否则会对这笔回购抽税并**再触发一次嵌套顺风车**。所以 hook 在 `beforeSwap` 和 `afterSwap` 的第一行都读 `piggybackActive()`，为真时**完全被动**（`src/ToshLaunchpadHook.sol:1720`、`1774`）：
+**Why recursion suppression is necessary** (`src/ToshLadderTreasury.sol:160-166`): a piggyback buys through **other** Tosh pools, and those pools' hooks would otherwise tax the buyback and **re-trigger a nested piggyback**. So the hook reads `piggybackActive()` early in both `beforeSwap` and `afterSwap`, and goes **fully passive** while it is set (`src/ToshLaunchpadHook.sol:1720`, `1774`):
 
 ```solidity
-if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预言机，不 poke */ }
+if (sender == ladderTreasury || _piggybackActive()) { /* zero delta, no tax, no poke */ }
 ```
 
-`sender == ladderTreasury` 是第一层（国库自己发起的 swap 直接豁免），`_piggybackActive()` 是第二层（跨 hook 的递归）。测试 `test_piggyback_isolatesAFaultyLadderLeg` @ `test/ToshV5.t.sol` 验证一条坏腿不会砸掉无辜交易者的 swap。
+`sender == ladderTreasury` is the first layer (swaps the treasury initiates itself are exempt outright); `_piggybackActive()` is the second (recursion across hooks). `test_piggyback_isolatesAFaultyLadderLeg` @ `test/ToshV5.t.sol` verifies that one broken leg cannot take down an innocent trader's swap.
 
-### 5.3 CREATE2 掩码保证 hook 权限位
+### 5.3 The CREATE2 mask guarantees the hook's permission bits
 
-见 4.2 的掩码表。要点：
+See the mask table in 4.2. The essentials:
 
-- V4 的 `PoolManager` 用地址低 14 位决定调哪些回调。掩码 `0x20CC` 是能让这个 hook 的五个活跃权限位被真正调用的组合（四个回调 + `AFTER_SWAP_RETURNS_DELTA`）。
-- `isValidHookAddress` 除了检查 `REQUIRED_FLAGS`，还复核 V4 自己的一致性规则（return-delta 位必须有对应的 action 位）（`src/libraries/HookMiner.sol:79-90`）。
-- 工厂在部署**之前**就用预测地址跑这个校验，不通过就 revert `InvalidHookSalt`，避免部署一个 V4 永远不会调用的 hook（`src/ToshFactory.sol:385-386`）。
-- 测试 `test_minedHookAddress_carriesV5FlagMask` @ `test/ToshV5.t.sol`、`test_hookMiner_requiredFlagsAre0x20CC` @ `test/ToshV5Guards.t.sol:215-219`。
+- V4's `PoolManager` uses the low 14 bits of the address to decide which callbacks to invoke. The mask `0x20CC` is the combination that gets this hook's five active permission bits actually called (four callbacks + `AFTER_SWAP_RETURNS_DELTA`).
+- Beyond checking `REQUIRED_FLAGS`, `isValidHookAddress` re-checks V4's own consistency rule (a return-delta bit must have its matching action bit) (`src/libraries/HookMiner.sol:79-90`).
+- The factory runs this check against the predicted address **before** deploying and reverts `InvalidHookSalt` if it fails, so it never deploys a hook V4 would never call (`src/ToshFactory.sol:385-386`).
+- Tests `test_minedHookAddress_carriesV5FlagMask` @ `test/ToshV5.t.sol` and `test_hookMiner_requiredFlagsAre0x20CC` @ `test/ToshV5Guards.t.sol:215-219`.
 
-**建池抢跑防御**：`beforeInitialize` 要求 `sender == address(this)`，否则 revert `UnauthorizedInitialization`（`src/ToshLaunchpadHook.sol` 的 `beforeInitialize`）。也就是说这个池子**只能**从 hook 自己的 `launch()` 里创建，外人无法抢先用别的初始价格建起同一个池。测试 `test_beforeInitialize_revertsForExternalSender` @ `test/ToshV5Guards.t.sol`。
+**Pool-creation front-running defence**: `beforeInitialize` requires `sender == address(this)` and otherwise reverts `UnauthorizedInitialization` (`beforeInitialize` in `src/ToshLaunchpadHook.sol`). The pool can therefore **only** be created from inside the hook's own `launch()`; an outsider cannot get in first and stand this pool up at a different opening price. Test `test_beforeInitialize_revertsForExternalSender` @ `test/ToshV5Guards.t.sol`.
 
-### 5.4 创世流动性永久锁定 与 散户 LP 的隔离
+### 5.4 Permanently locked genesis liquidity, and isolation from retail LPs
 
-已在 4.4 详述。补充要点：
+Covered in detail in 4.4. Additional points:
 
-- **锁的来源不是回调**，是"V4 按 `msg.sender` 归属仓位 + hook 无移除代码路径"。`beforeRemoveLiquidity` 现在只是个 pass-through，V4 甚至不会调它（掩码里没设那一位）（`src/ToshLaunchpadHook.sol` 的 `beforeRemoveLiquidity`）。
-- 散户 LP 走**自己的**仓位 key，加/撤都不动创世仓位。测试 `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` 分别断言了加仓后、撤仓后创世流动性都不变。
-- `TICK_SPACING = 200` 是为了让 `TICK_LOWER/UPPER = ∓887200` 保持对齐、创世区间不变。代价是散户 LP 只能在约 2% 的网格上放区间边界——注释承认这"粗糙但对刚发射的代币可用"（`src/ToshLaunchpadHook.sol:304-308`）。
+- **The lock does not come from a callback.** It comes from "V4 attributes positions by `msg.sender`, and the hook has no removal code path". `beforeRemoveLiquidity` is now nothing but a pass-through, and V4 does not even call it (that bit is not set in the mask) (`beforeRemoveLiquidity` in `src/ToshLaunchpadHook.sol`).
+- Retail LPs use **their own** position key; adding and withdrawing never touch the genesis position. `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` asserts separately that genesis liquidity is unchanged after the add and after the withdrawal.
+- `TICK_SPACING = 200` exists to keep `TICK_LOWER/UPPER = ∓887200` aligned and the genesis range unchanged. The cost is that retail LPs can only place range bounds on a grid of roughly 2% — the comment concedes this is "coarse but workable for a freshly launched token" (`src/ToshLaunchpadHook.sol:304-308`).
 
-### 5.5 国库单向阀设计
+### 5.5 The treasury's one-way valve
 
-`src/ToshLadderTreasury.sol:37-51` 给出了**可 grep 的审计清单**（该文件必须零匹配）：
+`src/ToshLadderTreasury.sol:37-51` sets out a **greppable audit checklist** (which must produce zero matches in that file):
 
 ```
-· function withdraw    —— 设计上缺席
-· function sweep       —— 设计上缺席
-· function rescue      —— 设计上缺席
-· delegatecall         —— 设计上缺席
-· .transfer( / .call{value  在 _buyAndBurn 之外 —— 设计上缺席
+· function withdraw    — absent by design
+· function sweep       — absent by design
+· function rescue      — absent by design
+· delegatecall         — absent by design
+· .transfer( / .call{value  outside _buyAndBurn — absent by design
 ```
 
-唯一移动 ETH 出去的代码路径是 `_buyAndBurn`，其产出币种的收款地址硬编码为 `DEAD_ADDRESS`。owner 的权限被限制在"策展哪些代币坐在阶梯上"。
+The only code path that moves ETH out is `_buyAndBurn`, whose output currency is hard-wired to `DEAD_ADDRESS`. The owner's power is confined to "curating which tokens sit on the ladder".
 
-`executeBuyAndBurn` 之所以是 `external`，纯粹是为了让 `_runPiggyback`（顺风车与 `pokeBuyback` 两条入口共用）能用 `try/catch` 做逐腿故障隔离；`onlySelf` 修饰器保证除了合约自己没人能调。测试 `test_executeBuyAndBurn_isNotCallableExternally` @ `test/ToshV5.t.sol`。
+`executeBuyAndBurn` is `external` purely so that `_runPiggyback` (shared by the piggyback and `pokeBuyback` entry points) can use `try/catch` for per-leg fault isolation; the `onlySelf` modifier guarantees nobody but the contract itself can call it. Test `test_executeBuyAndBurn_isNotCallableExternally` @ `test/ToshV5.t.sol`.
 
-### 5.6 已知性质一：货架套利窗口（经产品决策明确接受）
+### 5.6 Known property one: the shelf-arbitrage window (explicitly accepted as a product decision)
 
-> **这一节如实记录现状，不宣称"已解决"。**
+> **This section records the situation as it stands; it does not claim it is "solved".**
 
-**机制**：105% 门控是**天花板，不是地板**。它只拒绝价格**高于** `min(spot, TWAP) × 1.05` 的货架，对价格**低于**参考价的货架**一句话都没说**。因此：
+**Mechanism**: the 105% gate is a **ceiling, not a floor**. It refuses only shelves priced **above** `min(spot, TWAP) × 1.05`, and says **nothing at all** about shelves priced **below** the reference. Therefore:
 
-- 市场自然上涨后，低档货架（`tierPriceAt(0)`、`tierPriceAt(1)`…）处于**深度价内**。
-- 游标每卖掉 3,150 枚才前进 0.190%，而**一笔 swap 可以把价格推高任意幅度**。阶梯追不上市价。
-- 于是任何人——**不限于项目方**——都可以扫掉这批价内货架，砸回池子获利。
+- After the market has risen on its own, the low shelves (`tierPriceAt(0)`, `tierPriceAt(1)`…) sit **deep in the money**.
+- The cursor advances 0.190% per 3,150 tokens sold, while **a single swap can push the price up by any amount**. The ladder cannot keep up with the market.
+- So anyone — **not just the project** — can sweep those in-the-money shelves and dump them back into the pool at a profit.
 
-**代码里的对应断言**（`test/ToshV5.t.sol`，测试名 `test_sweepIsProfitableOnceTheMarketHasRunAhead`）：
+**The corresponding assertion in the code** (`test/ToshV5.t.sol`, test name `test_sweepIsProfitableOnceTheMarketHasRunAhead`):
 
-测试的 natspec 把这件事说得毫不掩饰，原文要点：
+The test's natspec says so without flinching; the substance of the original:
 
 > "The 105% gate is a ceiling, not a floor. It refuses shelves priced ABOVE `min(spot, TWAP)` and says nothing about shelves priced below, so appreciation leaves the low shelves in the money. That spread is the entire incentive to sweep, and sweeping is how the ladder tracks a market that has moved: the cursor advances 0.190% per 3,150 tokens while a single swap can move price by any amount.
 >
 > The cost is real and is borne by holders — the sweeper's exit drains pool ETH and pushes price back toward the cursor, which caps how far a rally can durably run. **This is an accepted trade, not an oversight.** If it is ever revisited, the fix is a floor on the charged unit price (`max(tierPriceAt(i), min(spot, TWAP))`), which needs no change to the shelf ledger."
 
-测试用 `FreeRider` 合约（持有并花自己的 ETH，避免 `vm.prank` 造成的收支不对账，见 `test_sweepIsProfitableOnceTheMarketHasRunAhead` @ `test/ToshV5.t.sol`）实际跑通了这个套利，断言 `address(rider).balance > before`，并用 `assertLt(profit, cost * 2)` 把量级钉住（防止未来的定价改动**悄悄扩大**这个窗口）。
+The test runs the arbitrage for real through a `FreeRider` contract (which holds and spends its own ETH, avoiding the accounting mismatch `vm.prank` introduces — see `test_sweepIsProfitableOnceTheMarketHasRunAhead` @ `test/ToshV5.t.sol`), asserts `address(rider).balance > before`, and pins the magnitude with `assertLt(profit, cost * 2)` (so a future pricing change cannot **quietly widen** the window).
 
-**实测数据（来自产品方的测量运行）**：
+**Measured figures (from the product side's measurement run)**:
 
-| 场景 | 扫货成本 | 净利 | 回报率 | 特权 |
+| Scenario | Sweep cost | Net profit | Return | Privilege |
 |---|---|---|---|---|
-| 市场先投入 0.5 ETH 拉盘，外部套利者扫货并砸回池子 | 0.0689 ETH | 0.0683 ETH | ≈ **+99%** | **无任何特权** |
-| 同样操作，但由项目方执行（享有 99% 货架返佣） | 0.0689 ETH | 0.1366 ETH | ≈ **+198%** | 仅 `projectAdmin` 的返佣 |
+| Market pumps first with 0.5 ETH; an outside arbitrageur sweeps and dumps back into the pool | 0.0689 ETH | 0.0683 ETH | ≈ **+99%** | **None whatsoever** |
+| The same operation, run by the project (which earns the 99% shelf rebate) | 0.0689 ETH | 0.1366 ETH | ≈ **+198%** | Only `projectAdmin`'s rebate |
 
-> **这三个具体数字在代码中未找到依据。** 仓库里只有定性断言（`assertGt(balance, before)`）和量级边界（`profit < cost × 2`）；`test_sweepIsProfitableOnceTheMarketHasRunAhead` 用的是 `_openLadder(hook, 0.5 ether)` 这个 0.5 ETH 拉盘规模（`test/ToshV5.t.sol`），与上表的实验设置一致，但精确的成本/利润数值是一次测量运行的结果，不是签入仓库的断言。如需回归保护，建议把这三个数字（或它们的比值下限）固化成断言。
+> **No basis found in the code for these three specific numbers.** The repository holds only a qualitative assertion (`assertGt(balance, before)`) and a magnitude bound (`profit < cost × 2`); `test_sweepIsProfitableOnceTheMarketHasRunAhead` uses `_openLadder(hook, 0.5 ether)`, the same 0.5 ETH pump size (`test/ToshV5.t.sol`) as the table's setup, but the exact cost and profit values are the output of one measurement run, not an assertion checked into the repository. If regression protection is wanted, freeze these three numbers — or a lower bound on their ratios — into assertions.
 
-**产品决策口径（如实转述）**：
+**The product decision, reported faithfully**:
 
-1. 这是**经明确接受**的机制，不是疏漏。
-2. 它是**货架追踪市价的动力来源**——没有这个价差，游标永远追不上一个已经跑起来的市场。
-3. 代价是**给币价加了一个软顶**：套利者的退出会抽走池子 ETH 并把价格压回游标附近，限制了一轮涨势能持续走多远。
-4. 成本由 **LP 与二级持有人**承担。
-5. 项目方因享有 99% 货架返佣，做同样操作的回报约为外部套利者的两倍。返佣不改变套利是否成立，只放大项目方的收益。
-6. **若未来要收窄**：方案是给成交单价加市价地板 `max(tierPriceAt(i), min(spot, TWAP))`。这只改单腿的计价，**不需要改动货架账本**（`currentTierIndex` / `currentTierSold` / `phase2Minted` 的语义不变）。
+1. This is a mechanism that was **explicitly accepted**, not an oversight.
+2. It is **what drives the shelves to track the market price** — without that spread the cursor would never catch a market that has already run.
+3. The cost is **a soft cap on the token price**: the arbitrageur's exit drains pool ETH and pushes the price back toward the cursor, limiting how far a rally can durably run.
+4. That cost is borne by **LPs and secondary-market holders**.
+5. Because the project earns the 99% shelf rebate, the same operation returns roughly twice what it does for an outside arbitrageur. The rebate does not change whether the arbitrage works, it only magnifies the project's take.
+6. **If it is ever to be narrowed**: the fix is a market floor on the charged unit price, `max(tierPriceAt(i), min(spot, TWAP))`. That changes only how a single leg is priced and **needs no change to the shelf ledger** (the semantics of `currentTierIndex` / `currentTierSold` / `phase2Minted` are untouched).
 
-**对比：什么时候扫货是亏钱的**（`test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`）：当市场**没有**跑在阶梯前面时，扫货必亏。理由是结构性的：货架铸造不触碰池子，所以拖不动 spot 跟上来；买家至少按 1.05× 市价付款，然后必须用自己的规模把同一个市场**往下砸**才能卖出，这还没算 1.30% 的往返摩擦。断言是"亏损必须 > 成本的 1/20"（实质性亏损，不是边际亏损）。
+**The contrast: when sweeping loses money** (`test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`). When the market has **not** run ahead of the ladder, a sweep must lose. The reason is structural: shelf minting never touches the pool, so it cannot drag spot up behind it; the buyer pays at least 1.05× the market price and then has to push that same market **down** with their own size in order to sell, and that is before the 1.30% of round-trip friction. The assertion is "the loss must be > 1/20 of the cost" (a substantive loss, not a marginal one).
 
-**两个测试合起来才是完整的产品陈述**：即时铸造砸盘永远亏；滞后套利（市场先涨）稳定赚。前者是安全属性，后者是设计代价。
+**Only the two tests together are the full product statement**: mint-and-dump on the spot always loses; lagged arbitrage (where the market rises first) reliably pays. The first is a security property, the second is a cost of the design.
 
-### 5.7 已知性质二：国库策展的信任边界
+### 5.7 Known property two: the trust boundary around treasury curation
 
-**现状（已修复的部分）**：`addLadderToken` 现已**强制校验代币来源**——必须是本平台 `tokenToHook` 注册且**已开盘**的项目，且回购池子的 `PoolKey` **从 hook 反查而非由 owner 提供**（`src/ToshLadderTreasury.sol:318-355`）。
+**Where it stands (the part that is fixed)**: `addLadderToken` now **enforces provenance on the token** — it must be a project registered in this platform's `tokenToHook` and **already launched** — and the buyback pool's `PoolKey` is **read back from the hook rather than supplied by the owner** (`src/ToshLadderTreasury.sol:318-355`).
 
-**被关掉的攻击路径**（注释原文见 `src/ToshLadderTreasury.sol` 的 `addLadderToken` 注释）：早期版本允许 owner 连同代币一起传入任意 `PoolKey`，只校验币种排序。这**静默地击穿了单向阀**：owner 可以铸一个一文不值的 ERC-20，把它配在一个只有自己提供流动性的无 hook 池里，挂上阶梯，然后让每一次 1 ETH 回购都结算进自己的仓位——**一次触发抽走一点**，而链上只会看到普普通通的 `BuybackBurned` 事件。
+**The attack path that was closed** (for the original comment, see the `addLadderToken` notes in `src/ToshLadderTreasury.sol`): earlier versions let the owner pass an arbitrary `PoolKey` alongside the token, validating only currency ordering. That **silently punched through the one-way valve**: the owner could mint a worthless ERC-20, pair it in a hookless pool where they were the only liquidity provider, list it on the ladder, and have every 1 ETH buyback settle into their own position — **skimming a little on each trigger**, while the chain showed nothing but perfectly ordinary `BuybackBurned` events.
 
-**现在有两个事实让场地不可伪造**：
-1. `tokenToHook` 证明这个代币是本平台发射的；
-2. `PoolKey` 从那个 hook 读回，所以 ETH 只能花在 hook 自己巡查的那个深度创世池里。
+**Two facts now make the venue unforgeable**:
+1. `tokenToHook` proves the token was launched by this platform;
+2. the `PoolKey` is read back from that hook, so the ETH can only be spent in the deep genesis pool that hook itself polices.
 
-两者都依赖 `factory`，**这正是它的绑定必须一次性的原因**——一个可重指的工厂会把这两个问题的答案交回 owner 手里（`src/ToshLadderTreasury.sol:193-196`）。
+Both rest on `factory`, **which is exactly why its binding has to be one-shot** — a re-pointable factory would hand the answers to both of those questions back to the owner (`src/ToshLadderTreasury.sol:193-196`).
 
-测试：`test_ladderCuration_rejectsForeignTokens` @ `test/ToshV5.t.sol`；`test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol`（这个测试的 natspec 特意说明"探测有没有 `withdraw` 选择器证明不了什么，真正的抽资路线是重定向支出方向"）。
+Tests: `test_ladderCuration_rejectsForeignTokens` @ `test/ToshV5.t.sol`; `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` @ `test/ToshV5.t.sol` (whose natspec goes out of its way to note that "probing for a `withdraw` selector proves nothing; the real extraction route is redirecting where the spend goes").
 
-**仍然存在的信任边界（⚠️ 8.22）**：来源校验解决的是**"钱花到哪个池子"**，不解决**"哪些项目享受回购"**。owner 依然可以：
-- 只挂自己或关联方的项目；
-- 用 `removeLadderToken` 把某个项目永久排除在轮转之外；
-- 通过挂牌顺序影响 `currentCursor` 的轮转序列（`removeLadderToken` 的 swap-and-pop 会打乱顺序，注释承认这一点）。
+**The trust boundary that remains (⚠️ 8.22)**: provenance checking answers **"which pool the money is spent in"**, not **"which projects get the buybacks"**. The owner can still:
+- list only their own projects or those of affiliates;
+- use `removeLadderToken` to exclude a project from the rotation permanently;
+- influence `currentCursor`'s rotation order through listing order (the swap-and-pop in `removeLadderToken` scrambles the order, as the comment concedes).
 
-这是**策展权限本身**的边界，不是可以靠代码消掉的东西。要收窄只能靠治理（把 owner 换成多签/DAO，`script/DeployMainnet.s.sol:97-102` 已经强制 `PROD_OWNER_SAFE != deployer` 并做两步移交）。
+This is the boundary of the **curation power itself**, not something code can remove. Narrowing it is a governance job (replace the owner with a multisig or DAO; `script/DeployMainnet.s.sol:97-102` already enforces `PROD_OWNER_SAFE != deployer` and does a two-step handover).
 
-### 5.8 其他安全设计
+### 5.8 Other security design
 
-| 机制 | 说明 | 行号 |
+| Mechanism | Notes | Line |
 |---|---|---|
-| `ToshToken` 无 `DEFAULT_ADMIN_ROLE` | 构造时不授予任何角色，`initialize` 只授 `MINTER_ROLE` 给 hook。结果：**没有任何地址能调 `grantRole`/`revokeRole`**，唯一剩下的变更是 hook 对自己 `renounceRole` | `src/ToshToken.sol:74`、`151-164` |
-| 硬顶在 mint 时逐笔校验 | `totalSupply() + amount > MAX_SUPPLY` → `MaxSupplyExceeded` | `src/ToshToken.sol:111-114` |
-| **没有** kill-switch（有意为之） | 曾有 `renounceMinterRole()` 并被当作紧急逃生口写进文档，实际上只有 `MINTER_ROLE` 能调、而该角色只属于 hook、hook 又没有任何调用它的代码路径——在已部署系统上无人可达。其测试之所以过，是因为伪造了 hook 作为 caller。与其留一个并不存在的安全控制，不如删掉：供应量由 `mint` 里的 `MAX_SUPPLY` 逐笔封顶，不需要任何人介入 | `ToshToken.mint`（文件末尾注释记录了删除理由） |
-| `Ownable2Step` | 工厂与国库都用两步移交，Safe 必须主动 `acceptOwnership` | `src/ToshFactory.sol:36`；`src/ToshLadderTreasury.sol:62` |
-| 发射费滑点保护 | `expectedFee` 参数防 owner 抢跑抬费 | `src/ToshFactory.sol:339-341`、`358-359` |
-| 名称抢注防御 | `(name, symbol)` 元组一次性占用 | `src/ToshFactory.sol:143`、`364-365`、`408` |
-| 创作者绑定盐 | `finalSalt = keccak256(abi.encode(creator, rawSalt))`，别人的盐在你身上无效 | `src/ToshFactory.sol` 的 `createLaunch` |
-| `SafeCast.toInt128(tax)` | 交回 V4 flash accounting 的唯一数值做了检查转换，静默截断会错报抽税额 | `src/ToshLaunchpadHook.sol:1118-1120` |
-| TWAP 向负无穷取整 | 对齐 Uniswap V3 `OracleLibrary`，保证 TWAP 不被截断上偏 | `src/ToshLaunchpadHook.sol` 的 `_twapSqrtPriceX96` |
-| 部署后不变量巡检脚本 | `VerifyDeployment.s.sol` 断言 6 类不变量，包括 `treasury.factory() == factory`（未接线会静默关掉本次部署的所有回购） | `script/VerifyDeployment.s.sol:55-109` |
-> **⚠️ 8.12**：`Pausable` 只覆盖工厂的**两个**入口——`createLaunch` 与 `registerPoG`。
+| `ToshToken` has no `DEFAULT_ADMIN_ROLE` | The constructor grants no role at all, and `initialize` grants only `MINTER_ROLE` to the hook. The result: **no address can call `grantRole`/`revokeRole`**, and the only change left is the hook calling `renounceRole` on itself | `src/ToshToken.sol:74`, `151-164` |
+| Hard cap checked on every mint | `totalSupply() + amount > MAX_SUPPLY` → `MaxSupplyExceeded` | `src/ToshToken.sol:111-114` |
+| **No** kill-switch (deliberately) | There used to be a `renounceMinterRole()`, written into the docs as an emergency escape hatch. In fact only `MINTER_ROLE` could call it, that role belonged solely to the hook, and the hook had no code path that called it — unreachable by anyone on a deployed system. Its test passed only because it forged the hook as the caller. Better deleted than kept as a safety control that does not exist: supply is capped mint by mint by `MAX_SUPPLY` inside `mint`, and nobody has to intervene | `ToshToken.mint` (the comment at the end of the file records why it was deleted) |
+| `Ownable2Step` | Both the factory and the treasury use a two-step handover; the Safe has to call `acceptOwnership` itself | `src/ToshFactory.sol:36`; `src/ToshLadderTreasury.sol:62` |
+| Launch-fee slippage protection | The `expectedFee` parameter stops the owner front-running a fee increase | `src/ToshFactory.sol:339-341`, `358-359` |
+| Name-squatting defence | The `(name, symbol)` tuple is claimed once and for all | `src/ToshFactory.sol:143`, `364-365`, `408` |
+| Creator-bound salt | `finalSalt = keccak256(abi.encode(creator, rawSalt))` — somebody else's salt is worthless in your hands | `createLaunch` in `src/ToshFactory.sol` |
+| `SafeCast.toInt128(tax)` | The one value handed back to V4's flash accounting gets a checked cast; a silent truncation would misreport the tax taken | `src/ToshLaunchpadHook.sol:1118-1120` |
+| TWAP rounds toward negative infinity | Matches Uniswap V3's `OracleLibrary`, so truncation never biases the TWAP upward | `_twapSqrtPriceX96` in `src/ToshLaunchpadHook.sol` |
+| Post-deployment invariant sweep script | `VerifyDeployment.s.sol` asserts 6 classes of invariant, including `treasury.factory() == factory` (left unwired, it silently switches off every buyback in that deployment) | `script/VerifyDeployment.s.sol:55-109` |
+> **⚠️ 8.12**: `Pausable` covers only **two** entry points on the factory — `createLaunch` and `registerPoG`.
 >
-> **`deposit` 不在其中。** 它只有 `nonReentrant`，没有 `whenNotPaused`（`src/ToshFactory.sol` `deposit`），所以**暂停期间一个已开启的创世轮次仍然照常收款**。这是刻意的，与退款不被暂停是同一条原则：平台已经开门收钱的轮次，不能被一个 owner 开关中途掐断。测试 `test_pause_doesNotBlockDepositIntoALiveRound` 与 `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` 两面都钉住了。
+> **`deposit` is not one of them.** It carries `nonReentrant` only, not `whenNotPaused` (`deposit` in `src/ToshFactory.sol`), so **a genesis round that is already open keeps taking money during a pause**. That is deliberate, and it is the same principle that keeps refunds unpausable: a round the platform has already opened its doors to collect on must not be cut off midway by an owner's switch. `test_pause_doesNotBlockDepositIntoALiveRound` and `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` pin both sides of it.
 >
-> 本条此前长期误写为「三个入口，含 `deposit`」，事故手册 §2 Step 2 也照抄了这个错误。**这类错误的代价是在事故中做出错误判断**——响应者以为按下暂停就止住了入金，实际没有。已于 v5.0 红队复查后一并修正。
+> This entry long read, wrongly, as "three entry points, including `deposit`", and §2 Step 2 of the incident runbook copied the error straight across. **The cost of an error like this is a wrong call during an incident** — the responder believes hitting pause has stopped deposits coming in, and it has not. Corrected along with the rest after the v5.0 red-team review.
 >
-> **hook 侧的 `launch` / `mintBondingCurve` / `claimGenesis` / `claimReferralReward` / `refund`，以及池子上的所有 swap 和 LP 操作，都不受 `pause()` 影响。**
+> **On the hook side, `launch` / `mintBondingCurve` / `claimGenesis` / `claimReferralReward` / `refund`, along with every swap and LP operation on the pool, are unaffected by `pause()`.**
 >
-> **已被 D3 部分修订**：`pause()` 的覆盖面没有变，但平台现在另有一个独立刹车 `haltLadderMinting`，能停掉已开盘项目的**阶梯铸造**（且仅此一项）。它会在 7 天内自动失效、可按项目分域、且不触及任何用户余额路径。因此「没有任何协议级熔断开关」这句话已不再成立，准确的表述是：**平台能停售阶梯，不能停交易、不能停领取、不能停退款**。见 §11 D3。
+> **Partly superseded by D3**: `pause()`'s coverage is unchanged, but the platform now has a separate brake, `haltLadderMinting`, which can stop **ladder minting** on an already-launched project, and nothing else. It expires automatically within 7 days, can be scoped per project, and touches no user-balance path. So "there is no protocol-level circuit breaker at all" no longer holds. The accurate statement is: **the platform can stop selling the ladder; it cannot stop trading, cannot stop claims, cannot stop refunds**. See §11 D3.
 
 ---
 
-## 6. 前端与用户交互规格
+## 6. Frontend and user-interaction specification
 
-技术栈：Next.js（App Router）+ wagmi v2 + viem。目标链由 `NEXT_PUBLIC_CHAIN_ID` 决定，支持三条：**Robinhood Chain (4663)** 为结算主网、**Robinhood Chain testnet (46630)** 为公测、**Foundry (31337)** 为本地 devnet。链名与"是否临时环境"一律派生（见 6.3），不在组件里写字面量。本章此前写的"目标链：Base Sepolia (84532)，主网标称 Ethereum"已整体作废。
+Stack: Next.js (App Router) + wagmi v2 + viem. The target chain is decided by `NEXT_PUBLIC_CHAIN_ID`, and three are supported: **Robinhood Chain (4663)** as the settlement mainnet, **Robinhood Chain testnet (46630)** for public staging, and **Foundry (31337)** as the local devnet. Chain names and "is this a throwaway environment" are derived without exception (see 6.3); components never carry the literals. What this chapter previously said — "target chain: Base Sepolia (84532), mainnet nominally Ethereum" — is void in its entirety.
 
-### 6.1 页面与组件清单
+### 6.1 Page and component inventory
 
-| 路径 | 角色 | 说明 |
+| Path | Role | Notes |
 |---|---|---|
-| `soat-frontend/src/app/page.tsx` | 首页 | 极薄，转发到目录首页 |
-| `soat-frontend/src/app/launch/page.tsx` | **发射台**（Genesis Console） | 34KB。表单 + 创世时长三档 + 客户端挖盐 + Immutable Pact 侧栏 |
-| `soat-frontend/src/app/projects/page.tsx` | 项目列表 | 现在只是一个 `redirect()`；目录/雷达视图已搬到 `soat-frontend/src/components/directory/`（`AgentDirectoryHome.tsx` 等） |
-| `soat-frontend/src/app/projects/[address]/page.tsx` | 项目详情 | 装载 `ProjectTerminal` |
-| `soat-frontend/src/components/ProjectTerminal/` | **项目终端**（规范实现，已拆成目录） | `index.tsx` 是相位状态机与批量读取；每个面板一个文件（`GenesisPanel`、`BondingPanel`、`LiquidityPanel`、`RefundPanel`、`AwaitingLaunchPanel`、`GenesisClaimPanel`、`ReferralPanel`、`QuotaLedger`、`HeroStats`、`ShelfLadder`、`PogScanButton`），加 `phase.ts` / `format.ts` / `pogAuthCache.ts` |
-| `soat-frontend/src/app/admin/page.tsx` | Owner Command Center（51KB） | 软顶/发射费/额度/冷却/黑名单/签名者，全部走工厂的 owner 函数 |
-| `soat-frontend/src/components/UserDrawer.tsx` | 个人主权控制台 | PoG 额度、冷却矩阵、已参与资产 + `claimGenesis` 入口 |
-| `soat-frontend/src/components/NetworkGuard.tsx` + `NetworkGuardClient.tsx` | 网络守卫 | 见 6.3 |
-| `soat-frontend/src/app/api/pog/*`、`sign-allocation`、`admin/config`、`projects` | 服务端路由 | PoG 签名（服务端持私钥）、目录同步、管理配置 |
+| `soat-frontend/src/app/page.tsx` | Home | Extremely thin; forwards to the directory home |
+| `soat-frontend/src/app/launch/page.tsx` | **Launchpad** (Genesis Console) | 34KB. Form + three genesis-duration tiers + client-side salt mining + Immutable Pact sidebar |
+| `soat-frontend/src/app/projects/page.tsx` | Project list | Now nothing but a `redirect()`; the directory/radar view has moved to `soat-frontend/src/components/directory/` (`AgentDirectoryHome.tsx` and friends) |
+| `soat-frontend/src/app/projects/[address]/page.tsx` | Project detail | Mounts `ProjectTerminal` |
+| `soat-frontend/src/components/ProjectTerminal/` | **Project terminal** (the canonical implementation, now split into a directory) | `index.tsx` holds the phase state machine and the batched reads; one file per panel (`GenesisPanel`, `BondingPanel`, `LiquidityPanel`, `RefundPanel`, `AwaitingLaunchPanel`, `GenesisClaimPanel`, `ReferralPanel`, `QuotaLedger`, `HeroStats`, `ShelfLadder`, `PogScanButton`), plus `phase.ts` / `format.ts` / `pogAuthCache.ts` |
+| `soat-frontend/src/app/admin/page.tsx` | Owner Command Center (51KB) | Soft cap / launch fee / quota / cooldown / blacklist / signers, all through the factory's owner functions |
+| `soat-frontend/src/components/UserDrawer.tsx` | Personal sovereignty console | PoG quota, cooldown matrix, assets already participated in, plus the `claimGenesis` entry point |
+| `soat-frontend/src/components/NetworkGuard.tsx` + `NetworkGuardClient.tsx` | Network guard | See 6.3 |
+| `soat-frontend/src/app/api/pog/*`, `sign-allocation`, `admin/config`, `projects` | Server routes | PoG signing (the server holds the private key), directory sync, admin config |
 
-**共享层**：
+**Shared layer**:
 
-| 文件 | 职责 |
+| File | Responsibility |
 |---|---|
-| `soat-frontend/src/lib/contracts.ts` | **唯一真源**：地址、链 ID、以及从 Solidity 镜像过来的常量护栏。此前存在的 `src/app/lib/contracts.ts` re-export shim 已删除 |
-| `soat-frontend/src/app/lib/abis.ts` | FACTORY/HOOK/ERC20 ABI。此前存在的第二份 `src/abis/index.ts`（同内容）已删除，现在只有这一份 |
-| `soat-frontend/src/app/lib/hookMiner.ts` | TS 版 CREATE2 矿机（Solidity `HookMiner` 的镜像） |
-| `soat-frontend/src/lib/v4Math.ts` | LP 面板需要的 V4 定点数学切片 |
-| `soat-frontend/src/lib/lpActions.ts` | posm action payload 编码 |
-| `soat-frontend/src/lib/useLpPosition.ts` | 散户 LP 数据层（仓位发现） |
-| `soat-frontend/src/app/lib/useTosh.ts` | `createLaunch` / `registerPoG` 的 wagmi 封装（双 slot 隔离） |
-| `soat-frontend/src/components/ui/actionGate.tsx` | 全站写操作按钮的统一门禁：`useActionGate`（钱包／网络／忙碌／权限／业务拦截项，逐级短路）、`revertOrder`、`ActionButton`。取代了各页面各自手写的 CTA 状态机 |
-| `soat-frontend/src/components/ui/useTxAction.ts` | `useTxAction`：单笔写交易的发送与生命周期。取代了此前的 `src/app/lib/useContractActions.ts`（deposit / claim / refund / mint 四合一封装，已删除） |
+| `soat-frontend/src/lib/contracts.ts` | **The single source of truth**: addresses, chain ID, and the constant guardrails mirrored over from Solidity. The `src/app/lib/contracts.ts` re-export shim that used to sit alongside it has been deleted |
+| `soat-frontend/src/app/lib/abis.ts` | FACTORY/HOOK/ERC20 ABIs. The second copy that used to exist at `src/abis/index.ts` (identical content) has been deleted; this is now the only one |
+| `soat-frontend/src/app/lib/hookMiner.ts` | The CREATE2 miner in TypeScript (a mirror of Solidity's `HookMiner`) |
+| `soat-frontend/src/lib/v4Math.ts` | The slice of V4 fixed-point math the LP panel needs |
+| `soat-frontend/src/lib/lpActions.ts` | posm action payload encoding |
+| `soat-frontend/src/lib/useLpPosition.ts` | Retail LP data layer (position discovery) |
+| `soat-frontend/src/app/lib/useTosh.ts` | wagmi wrappers for `createLaunch` / `registerPoG` (two isolated slots) |
+| `soat-frontend/src/components/ui/actionGate.tsx` | The one gate in front of every write button in the app: `useActionGate` (wallet / network / busy / permission / business blockers, short-circuiting in that order), `revertOrder`, `ActionButton`. Replaces the CTA state machine each page used to hand-roll |
+| `soat-frontend/src/components/ui/useTxAction.ts` | `useTxAction`: dispatch and lifecycle for a single write transaction. Replaces the former `src/app/lib/useContractActions.ts` (a four-in-one wrapper over deposit / claim / refund / mint, deleted) |
 
-### 6.2 从 Solidity 镜像的常量护栏
+### 6.2 Constant guardrails mirrored from Solidity
 
-`soat-frontend/src/lib/contracts.ts` 的文件头（`:10-12`）说明了这些常量的**用途**：UI 必须本地遵守这些审计悬崖，好让钱包弹窗**永远不会为一笔注定失败的交易打开**。
+The file header of `soat-frontend/src/lib/contracts.ts` (`:10-12`) says what these constants are **for**: they are audit-cliff guards the UI MUST honour locally, so that the wallet popup **never opens for an obviously doomed transaction**.
 
-| 常量 | 值 | 镜像自 | 行号 |
+| Constant | Value | Mirrored from | Line |
 |---|---|---|---|
-| `MIN_SOFT_CAP_PROD` | `10n ** 16n`（0.01 ETH） | `Factory.MIN_SOFT_CAP_PROD` | `:114` |
+| `MIN_SOFT_CAP_PROD` | `10n ** 16n` (0.01 ETH) | `Factory.MIN_SOFT_CAP_PROD` | `:114` |
 | `GENESIS_SUPPLY` | 8,400,000e18 | `Hook.GENESIS_SUPPLY` | `:117` |
 | `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 | `Hook.GENESIS_CLAIM_SUPPLY` | `:117` |
 | `GENESIS_LP_SUPPLY` | 3,780,000e18 | `Hook.GENESIS_LP_SUPPLY` | `:117` |
@@ -1057,103 +1057,103 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
 | `TIER_COUNT` | 4000 | `Hook.TIER_COUNT` |
 | `TIER_SIZE` | 3,150e18 | `Hook.TIER_SIZE` |
 | `PRICE_CEILING_BPS` | 10,500 | `Hook.PRICE_CEILING_BPS` | `:125` |
-| `MAX_TIERS_PER_TX` | 32（注释要求"优先读链上 `maxMintable()`"） | `Hook.MAX_TIERS_PER_TX` | `:128-133` |
+| `MAX_TIERS_PER_TX` | 32 (the comment insists on "read the on-chain `maxMintable()` first") | `Hook.MAX_TIERS_PER_TX` | `:128-133` |
 | `TIER_STEP_E18` / `LADDER_SPAN` | `1_001_902_508_266_805_824` / 2000 | `Hook.TIER_STEP_E18` | `:149-155` |
 | `TICK_LOWER` / `TICK_UPPER` | ∓887,200 | `Hook.TICK_LOWER/UPPER` | `:63-64` |
 | `POOL_FEE` / `TICK_SPACING` | 3000 / 200 | `Hook.POOL_FEE/TICK_SPACING` | `:65-66` |
-| `ADMIN_BATCH_MAX` | 200 | `Factory.setBlacklist` 的 `require` | `:135` |
+| `ADMIN_BATCH_MAX` | 200 | the `require` in `Factory.setBlacklist` | `:135` |
 | `REQUIRED_FLAGS` | `0x20CC` | `HookMiner.REQUIRED_FLAGS` | `hookMiner.ts:6` |
-| `GENESIS_DURATION_*` | 10,800 / 86,400 / 259,200 秒 | `Hook.DURATION_*` | `hookMiner.ts:41-43` |
+| `GENESIS_DURATION_*` | 10,800 / 86,400 / 259,200 seconds | `Hook.DURATION_*` | `hookMiner.ts:41-43` |
 
-**硬编码的链上地址**（`soat-frontend/src/lib/contracts.ts:41-60`）：
+**Hard-coded on-chain addresses** (`soat-frontend/src/lib/contracts.ts:41-60`):
 
-| 常量 | 地址 | 备注 |
+| Constant | Address | Remarks |
 |---|---|---|
-| `POOL_MANAGER` | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | **故意不绑环境变量**——错的 PoolManager 会静默地把每个 hook 都 CREATE2 算错 |
-| `POSITION_MANAGER` | `0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80` | 注释警告：早先的 Base Sepolia posm `0xda4910cd…` 是针对**错的** PoolManager 部署的，对它的所有流动性调用都会 revert |
-| `PERMIT2` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | 全链同址 |
-| `STATE_VIEW` | `0x571291b572ed32ce6751a2cb2486ebee8defb9b4` | 只读 `getSlot0` / `getLiquidity`，让 LP 面板按真实 `sqrtPriceX96` 定量 |
+| `POOL_MANAGER` | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | **Deliberately not env-bound** — a wrong PoolManager silently mis-CREATE2s every single hook |
+| `POSITION_MANAGER` | `0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80` | The comment warns that the earlier Base Sepolia posm `0xda4910cd…` was deployed against the **wrong** PoolManager, so every liquidity call into it reverts |
+| `PERMIT2` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | Same address on every chain |
+| `STATE_VIEW` | `0x571291b572ed32ce6751a2cb2486ebee8defb9b4` | Read-only `getSlot0` / `getLiquidity`, so the LP panel can size amounts against the real `sqrtPriceX96` |
 
-只有 `FACTORY_ADDRESS`（必需，缺失时启动即抛错，`:31-35`）和 `LADDER_TREASURY_ADDRESS`（可选）来自环境变量。
+Only `FACTORY_ADDRESS` (required; a missing value throws at boot, `:31-35`) and `LADDER_TREASURY_ADDRESS` (optional) come from the environment.
 
-> **⚠️ 8.24（已大幅收窄）**：`NetworkGuard` 那一半不再成立——它现在读 `TARGET_CHAIN_ID`，链 ID 与所有链名文案都由 `NEXT_PUBLIC_CHAIN_ID` 驱动。四个地址里也只剩 `POOL_MANAGER` 是刻意硬编码的（注释写明：错的会静默 mis-CREATE2，所以不给它留环境变量口子）；`POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` 都走 `envAddress(...)`，未设时回落到 Robinhood 上的地址。**准确的表述是：换链只需改环境变量，换 PoolManager 才需要改代码。**
+> **⚠️ 8.24 (substantially narrowed)**: the `NetworkGuard` half no longer holds — it reads `TARGET_CHAIN_ID` now, and the chain ID together with every piece of chain-name copy is driven by `NEXT_PUBLIC_CHAIN_ID`. Of the four addresses, only `POOL_MANAGER` is hard-coded on purpose (the comment spells out why: a wrong one silently mis-CREATE2s, so it gets no environment-variable escape hatch); `POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` all go through `envAddress(...)` and fall back to the Robinhood addresses when unset. **The accurate statement is: switching chains is an environment change, and only switching PoolManager is a code change.**
 
-### 6.3 钱包连接与网络守卫 `NetworkGuard`
+### 6.3 Wallet connection and the `NetworkGuard` network guard
 
-`soat-frontend/src/components/NetworkGuard.tsx` 的 `NetworkGuard()`：
+`NetworkGuard()` in `soat-frontend/src/components/NetworkGuard.tsx`:
 
-- SSR/CSR 挂载守卫（`mounted` 状态），避免水合不匹配。
-- 渲染条件：`mounted && isConnected && chainId !== TARGET_CHAIN_ID`。未连接或已在正确链上时**返回 null**（不占位）。
-- 展示一条琥珀色横幅：`Wrong network — Tosh settles on {MAINNET_CHAIN_LABEL}` + 仅在 `IS_TESTNET` 时追加的 `; staging runs on {ACTIVE_CHAIN_LABEL}` + `. Switch to continue.`，配一个 `switchChainAsync({ chainId: TARGET_CHAIN_ID })` 按钮，失败静默 `.catch(() => {})`。那个条件追加是必要的：主网构建下两个标签同值，无条件拼接会读成 "settles on Robinhood Chain; staging runs on Robinhood Chain"。
-- 发射台页面另有自己的守卫层：`useActionGate` 在 `isWrongNetwork` 时把主 CTA 换成 `Switch to {ACTIVE_CHAIN_LABEL}`，且 `handleLaunch` 在发交易前仍会主动 `switchChainAsync` 并等 300ms。
+- An SSR/CSR mount guard (`mounted` state) to avoid a hydration mismatch.
+- Render condition: `mounted && isConnected && chainId !== TARGET_CHAIN_ID`. When disconnected, or already on the right chain, it **returns null** — it does not hold space.
+- It shows an amber strip: `Wrong network — Tosh settles on {MAINNET_CHAIN_LABEL}` + `; staging runs on {ACTIVE_CHAIN_LABEL}` appended only when `IS_TESTNET` + `. Switch to continue.`, with a `switchChainAsync({ chainId: TARGET_CHAIN_ID })` button whose failure is swallowed by `.catch(() => {})`. That conditional append is necessary: on a mainnet build both labels hold the same value, so appending unconditionally would read "settles on Robinhood Chain; staging runs on Robinhood Chain".
+- The launchpad page carries a guard layer of its own on top: when `isWrongNetwork`, `useActionGate` swaps the primary CTA for `Switch to {ACTIVE_CHAIN_LABEL}`, and `handleLaunch` still calls `switchChainAsync` itself and waits 300ms before broadcasting.
 
-**链名一律派生，不写字面量。** 这些文案都出自 `soat-frontend/src/lib/chain.ts`（`MAINNET_CHAIN_LABEL` / `ACTIVE_CHAIN_LABEL` / `IS_TESTNET` / `CHAIN_BYLINE` / `CHAIN_STATUS_BADGE` / `CHAIN_POSITIONING` / `CHAIN_STAGING_NOTE`），由 `soat-frontend/scripts/checkChainCopy.mjs` 在三条链（4663 / 46630 / 31337）上各评估一遍——只看当前所在链是查不出问题的，因为错的文案只在你没运行的那条链上出现。该守卫另有一遍 AST 字面量扫描：`src/` 下任何字符串／模板／JSX 文本都不得出现已弃用的链名（`base sepolia`、`basescan`、`sepolia`），也不得在 `chain.ts` 之外硬编码当前结算链名。注释不在扫描范围内，好让这类历史说明能继续写下来。
-- 所有写操作都绑定目标链，让 wagmi 在错链时直接拒绝而不是发到错的链上。**绑定点已经从各个调用点收拢到一处**：`useTxAction`（`soat-frontend/src/components/ui/useTxAction.ts`）在 `send` / `sendAsync` 里统一注入 `chainId: TARGET_CHAIN_ID`，并且**故意不把 `chainId` 放进 `TxRequest` 类型**——调用方既不可能忘记，也不可能覆盖。ProjectTerminal 与 admin 的每个面板都走这条路径；`useTosh.ts` 里的 `createLaunch` / `registerPoG` 两个 slot 仍在各自的 `writeContract` 里自带 `chainId: TARGET_CHAIN_ID`。
+**Chain names are derived without exception, never written as literals.** All of this copy comes out of `soat-frontend/src/lib/chain.ts` (`MAINNET_CHAIN_LABEL` / `ACTIVE_CHAIN_LABEL` / `IS_TESTNET` / `CHAIN_BYLINE` / `CHAIN_STATUS_BADGE` / `CHAIN_POSITIONING` / `CHAIN_STAGING_NOTE`), and `soat-frontend/scripts/checkChainCopy.mjs` evaluates the whole set once per chain on all three (4663 / 46630 / 31337) — looking only at the chain you are currently on finds nothing, because the wrong copy only ever appears on the chain you are not running. The same guard makes a second pass as an AST literal scan: no string, template or JSX text under `src/` may contain a retired chain name (`base sepolia`, `basescan`, `sepolia`), nor hard-code the name of the current settlement chain outside `chain.ts`. Comments are out of scope, so that historical notes like this one can go on being written.
+- Every write is bound to the target chain, so wagmi refuses outright on the wrong chain rather than broadcasting to it. **The binding point has been pulled in from the individual call sites to a single place**: `useTxAction` (`soat-frontend/src/components/ui/useTxAction.ts`) injects `chainId: TARGET_CHAIN_ID` uniformly inside `send` / `sendAsync`, and **deliberately keeps `chainId` out of the `TxRequest` type** — a caller can neither forget it nor override it. Every panel in ProjectTerminal and in admin goes through this path; the two slots in `useTosh.ts`, `createLaunch` and `registerPoG`, still carry `chainId: TARGET_CHAIN_ID` in their own `writeContract` calls.
 
-### 6.4 发射台表单（`/launch`）
+### 6.4 The launchpad form (`/launch`)
 
-**表单字段**（`soat-frontend/src/app/launch/page.tsx`）：
+**Form fields** (`soat-frontend/src/app/launch/page.tsx`):
 
-| 字段 | 状态 | 说明 | 行号 |
+| Field | State | Notes | Line |
 |---|---|---|---|
-| Agent Name | 可编辑 | 必填 | `:609-614` |
-| Ticker (Symbol) | 可编辑，自动大写 | 必填 | `:615-621` |
-| Project Treasury | **只读、自动锁定为连接钱包** | `treasury = address`（`:468`） | `:622-629` |
-| Project Admin | 可编辑，默认填连接钱包 | 校验 `isAddress`；与钱包不同时给琥珀色提示 | `:630-652` |
-| **Genesis Window** | 三档 Segmented Control | 见下 | `:653-661` |
-| Manifesto / Image URL / Website / Twitter / Telegram | 可选，仅链下目录用 | 走 `POST /api/projects` | `:665-679` |
-| Acknowledgement 勾选框 | 必须勾选才能提交 | 复述发射费、软顶、冷却、退款 | `:696-714` |
+| Agent Name | Editable | Required | `:609-614` |
+| Ticker (Symbol) | Editable, auto-uppercased | Required | `:615-621` |
+| Project Treasury | **Read-only, locked to the connected wallet** | `treasury = address` (`:468`) | `:622-629` |
+| Project Admin | Editable, prefilled with the connected wallet | Validated with `isAddress`; an amber hint when it differs from the wallet | `:630-652` |
+| **Genesis Window** | Three-tier segmented control | See below | `:653-661` |
+| Manifesto / Image URL / Website / Twitter / Telegram | Optional, off-chain directory only | Goes through `POST /api/projects` | `:665-679` |
+| Acknowledgement checkbox | Must be ticked before the form can be submitted | Restates the launch fee, soft cap, cooldown and refund | `:696-714` |
 
-**创世时长三档 Segmented Control**——它**不是**一个抽出来的组件（此前本节写的 `GenesisWindowSelect` 不存在），而是 `soat-frontend/src/app/launch/page.tsx` 里内联的一段 `role="radiogroup" aria-label="Genesis window"`，选中逻辑在 `pickWindow`：
+**The three-tier genesis-duration segmented control** — it is **not** an extracted component (the `GenesisWindowSelect` this section used to name does not exist); it is an inline block of `role="radiogroup" aria-label="Genesis window"` inside `soat-frontend/src/app/launch/page.tsx`, with the selection logic in `pickWindow`:
 
-- `role="radiogroup"` + 三个 `role="radio"` 按钮，`aria-checked` 正确设置（无障碍到位）。
-- 标签上方写死 `"immutable once deployed"`。
-- 每档下方显示定位话术（见 4.3.1 表格）。
-- 默认 `GENESIS_DURATION_STANDARD`（24h）。
+- `role="radiogroup"` plus three `role="radio"` buttons, with `aria-checked` set correctly (accessibility is in place).
+- `"immutable once deployed"` is hard-coded above the label.
+- Each tier shows its positioning line underneath (see the table in 4.3.1).
+- Defaults to `GENESIS_DURATION_STANDARD` (24h).
 
-**Immutable Pact 侧栏**（`:194-230`、`:472-481`）——右栏粘性面板，列出 8 条"初始化即同意的不可变规则"：发射费 / 创世软顶 / 每钱包上限 / 曲线类型（"2 000-shelf ladder"）/ 创世窗口 / 退款机制 / 部署网络 / 目标主网。底部还有一段琥珀色说明："若创世失败（软顶未达成）或 7 天发射窗口过期而曲线未激活，储户可调 `refund()` 全额取回 ETH，无罚。"
+**The Immutable Pact sidebar** (`:194-230`, `:472-481`) — a sticky panel in the right column listing 8 "immutable rules you consent to by initialising": launch fee / genesis soft cap / per-wallet cap / curve type ("2 000-shelf ladder") / genesis window / refund mechanism / deployment network / target mainnet. Below them sits an amber note: "if genesis fails (soft cap not met), or the 7-day launch window expires with the curve never activated, depositors can call `refund()` to take their ETH back in full, with no penalty."
 
-**主 CTA 不再是本页自己的状态机。** 此前本节描述的 `LaunchCTA` 与它的 `feeMode`（`'loading' | 'insufficient' | 'broadcasting' | 'confirmed' | 'launch'`）都已不存在；发射按钮和全站其他写操作按钮一样，由共享的 `useActionGate` / `revertOrder` / `ActionButton` @ `soat-frontend/src/components/ui/actionGate.tsx` 驱动。
+**The primary CTA is no longer this page's own state machine.** The `LaunchCTA` this section used to describe, and its `feeMode` (`'loading' | 'insufficient' | 'broadcasting' | 'confirmed' | 'launch'`), are both gone; the deploy button is driven by the shared `useActionGate` / `revertOrder` / `ActionButton` @ `soat-frontend/src/components/ui/actionGate.tsx`, exactly like every other write button in the app.
 
-`useActionGate` 先处理所有页面共有的前置状态，按此优先级短路：
+`useActionGate` handles the preconditions common to every page first, short-circuiting in this order of priority:
 
-| 顺序 | 条件 | `kind` | 按钮 |
+| Order | Condition | `kind` | Button |
 |---|---|---|---|
-| 1 | `!hydrated` | `connect` | `Connect Wallet`（禁用） |
-| 2 | `requiresWallet && !isConnected` | `connect` | `Connect Wallet` / `Connecting…`，可点即发起连接 |
-| 3 | `requiresNetwork && isWrongNetwork` | `switch` | `Switch to {ACTIVE_CHAIN_LABEL}`，可点即切链 |
+| 1 | `!hydrated` | `connect` | `Connect Wallet` (disabled) |
+| 2 | `requiresWallet && !isConnected` | `connect` | `Connect Wallet` / `Connecting…`, clickable to start connecting |
+| 3 | `requiresNetwork && isWrongNetwork` | `switch` | `Switch to {ACTIVE_CHAIN_LABEL}`, clickable to switch chains |
 | 4 | `busy` | `busy` | `Awaiting signature…` / `Confirming…` |
-| 5 | 环境权限门未放行 | `blocked` | `[read_only]` 等（`ambient-gate`） |
-| 6 | `blockersInRevertOrder` 首个命中者 | `blocked` | 见下表 |
-| 7 | 全通过 | `ready` | `Deploy — {fee} ETH` |
+| 5 | The ambient permission gate has not cleared | `blocked` | `[read_only]` and the like (`ambient-gate`) |
+| 6 | First hit in `blockersInRevertOrder` | `blocked` | See the table below |
+| 7 | Everything clear | `ready` | `Deploy — {fee} ETH` |
 
-第 1 条**刻意在 hydration 前给出确定值**，让服务端标记与客户端首帧一致——它取代了此前每个界面各自携带的 `mounted` 标志。第 3 条的标签走 `ACTIVE_CHAIN_LABEL`，所以旧文案 "Switch to Base Sepolia" 既是硬编码也是错的链。
+Row 1 **deliberately produces a determinate value before hydration**, so the server markup matches the client's first frame — it replaces the `mounted` flag each surface used to carry for itself. Row 3's label reads from `ACTIVE_CHAIN_LABEL`, which is why the old copy "Switch to Base Sepolia" was both a hard-coded literal and the wrong chain.
 
-**本页自己的拦截项**（`blockersInRevertOrder`）：
+**This page's own blockers** (`blockersInRevertOrder`):
 
-| `id` | 锁定标签 | 触发条件 |
+| `id` | Locked label | Trigger |
 |---|---|---|
-| `identity` | `Name the token first` | 名称/代号/合法 admin 未齐——它们在部署那一刻被固定进代币 |
-| `dials-unread` | `Reading the terms…` | 发射费、最小募资额、单钱包上限尚未读到 |
-| `dials-unreachable` | `Factory unreachable` | 工厂在目标链上没有应答；对未知费用签名要么失败要么超付 |
-| `ack` | `Acknowledge the pact` | 未勾选 |
-| `insufficient-fee` | `Need {X} ETH` | 余额不足**发射费加上当前费率下的预估 gas** |
-| `mining` | `Finding your pool address…` | 正在浏览器里挖盐 |
-| `confirmed` | `Launch confirmed` | 已上链，目录挂牌在后台跑 |
+| `identity` | `Name the token first` | Name / ticker / a valid admin are not all present — they are frozen into the token the moment it deploys |
+| `dials-unread` | `Reading the terms…` | The launch fee, the minimum raise and the per-wallet cap have not been read yet |
+| `dials-unreachable` | `Factory unreachable` | The factory does not answer on the target chain; signing against an unknown fee either fails or overpays |
+| `ack` | `Acknowledge the pact` | Not ticked |
+| `insufficient-fee` | `Need {X} ETH` | Balance short of **the launch fee plus estimated gas at the current fee rate** |
+| `mining` | `Finding your pool address…` | Salt mining is running in the browser |
+| `confirmed` | `Launch confirmed` | Already on chain; the directory listing is running in the background |
 
-注意 `insufficient-fee` 与旧 `feeMode` 的实质差别：它算的是 `发射费 + createGas`，而旧版只比 `ethBalance < launchFeeWei`——刚够付费但付不起 gas 的钱包会被旧逻辑放过去，然后在钱包里失败。
+Note the substantive difference between `insufficient-fee` and the old `feeMode`: it computes `launch fee + createGas`, whereas the old version only compared `ethBalance < launchFeeWei` — a wallet with exactly enough for the fee but nothing left for gas sailed through the old logic and then failed in the wallet.
 
-**提交后**：解析 receipt 里的 `LaunchCreated` 事件取 `token`/`hook`；解析失败则回退到 `launchCount()` + `launches(count-1)` 读最后一条。链下目录同步现在**要一个签名**：`buildProjectAttestationMessage`（绑定 `chainId` 与 `txHash`）经 `signMessageAsync` 签出，随 `POST /api/projects` 一并提交。拒签只损失挂牌、不影响发射——代币无论如何已在链上，且 `rememberProject` 已把它写进本浏览器缓存，跳转仍会落在一个有内容的页面上。状态条显示 `Syncing… / ✓ Directory synced / Directory sync deferred`。
+**After submission**: it parses the `LaunchCreated` event out of the receipt to get `token`/`hook`; if that parse fails it falls back to `launchCount()` + `launches(count-1)` to read the last entry. Off-chain directory sync now **requires a signature**: `buildProjectAttestationMessage` (which binds `chainId` and `txHash`) is signed through `signMessageAsync` and submitted along with `POST /api/projects`. Refusing to sign costs the listing only, not the launch — the token is on chain regardless, and `rememberProject` has already written it into this browser's cache, so the redirect still lands on a page with something on it. The status strip shows `Syncing… / ✓ Directory synced / Directory sync deferred`.
 
-### 6.5 客户端挖盐流程与缓存失效条件
+### 6.5 Client-side salt mining and cache-invalidation conditions
 
-**挖盐不再是用户的一个独立步骤。** 此前本节描述的 `handleMineSalt` 与主 CTA 上那一档 `!saltLocked → "Mine a hook salt first"` 都已不存在。现在的函数是 `mineSalt` @ `soat-frontend/src/app/launch/page.tsx`，由 `handleLaunch` 在内部调用——用户点一次「Deploy」，挖盐作为其中一环跑完，期间 gate 显示 `mining` 拦截项 `Finding your pool address…`。
+**Salt mining is no longer a step the user takes on their own.** The `handleMineSalt` this section used to describe, and the `!saltLocked → "Mine a hook salt first"` rung on the primary CTA, are both gone. The function now is `mineSalt` @ `soat-frontend/src/app/launch/page.tsx`, called internally by `handleLaunch` — the user clicks "Deploy" once and mining runs to completion as one link in that chain, during which the gate shows the `mining` blocker `Finding your pool address…`.
 
-**流程**（`mineSalt`）：
+**The flow** (`mineSalt`):
 
 ```
-1. 前置：address && publicClient && adminAddr 都就绪
-2. 现场读三个链上值（不用缓存的 useReadContracts 结果，避免过期）：
+1. Preconditions: address && publicClient && adminAddr all ready
+2. Read three on-chain values live (not the cached useReadContracts results, to avoid staleness):
      liveSoftCap   = factory.defaultSoftCap()
      liveWalletCap = factory.maxPogAllocationLimit()
      initcodeHash  = factory.hookInitcodeHash(
@@ -1161,68 +1161,68 @@ if (sender == ladderTreasury || _piggybackActive()) { /* 零 delta，不写预�
                         liveSoftCap, liveWalletCap, genesisDuration)
 3. mineHookSalt(FACTORY_ADDRESS, address, initcodeHash)
      for i = 0 .. 500_000:
-         rawSalt   = 32 字节零填充的 i
+         rawSalt   = i, zero-padded to 32 bytes
          finalSalt = keccak256(abi.encode(creator, rawSalt))
-         addr      = "0xff" ++ factory ++ finalSalt ++ initcodeHash → keccak → 取低 20 字节
+         addr      = "0xff" ++ factory ++ finalSalt ++ initcodeHash → keccak → take low 20 bytes
          if isValidHookAddress(addr): return { rawSalt, finalSalt, hookAddress }
-     否则 throw "no valid salt found within 500000 attempts"
+     otherwise throw "no valid salt found within 500000 attempts"
 4. setSalt(rawSalt) + setPredictedHook(hookAddress)
 ```
 
-矿机实现：`soat-frontend/src/app/lib/hookMiner.ts:128-143`（`computeCreate2Address` @ `:17-24`，`isValidHookAddress` @ `:27-35`，`deriveFinalSalt` @ `:105-115`）。这是 Solidity `HookMiner` 的逐行镜像，包括四条 return-delta 一致性规则。
+Miner implementation: `soat-frontend/src/app/lib/hookMiner.ts:128-143` (`computeCreate2Address` @ `:17-24`, `isValidHookAddress` @ `:27-35`, `deriveFinalSalt` @ `:105-115`). It is a line-by-line mirror of Solidity's `HookMiner`, including all four return-delta consistency rules.
 
-**关键设计**：`initcodeHash` **从工厂链上读回**（`factory.hookInitcodeHash(...)`），而不是在前端本地重算。这消除了"字节码快照过期 → 挖出死盐"这一整类问题。
+**The load-bearing design choice**: `initcodeHash` is **read back off the factory on chain** (`factory.hookInitcodeHash(...)`) instead of being recomputed locally in the frontend. That eliminates an entire class of problem: "bytecode snapshot goes stale → you mine a dead salt".
 
-> **这段话本身值得记一笔。** 它原本还有个括号：「不过 `test/ToshV5Bytecode.t.sol` 仍在守护那个快照，说明它在别处仍被依赖。」那句推断是错的，而且错得很典型——**守卫的存在被当成了"被依赖"的证据**。实际上没有任何文件 import 过 `HOOK_BYTECODE`；它是 EIP-1167 克隆重构之前的遗留物，重构后 hook 的初始化码里装的是实现合约地址，前端再也不碰 hook 的创建码。
+> **This paragraph is itself worth a note.** It used to carry a parenthetical: "though `test/ToshV5Bytecode.t.sol` still guards that snapshot, which shows it is still depended on elsewhere." That inference was wrong, and wrong in a thoroughly typical way — **the existence of a guard was taken as evidence of being depended on**. In fact no file has ever imported `HOOK_BYTECODE`; it is a leftover from before the EIP-1167 clone refactor, after which the hook's initcode carries the implementation contract's address and the frontend never touches the hook's creation code at all.
 >
-> 代价不是零：那个守卫、它的提取脚本、CI 步骤、`foundry.toml` 里为它开的权限，以及三处声称它至关重要的注释（其中一处是自动生成的，改了会被重新写回），合起来造成过一次数小时的 CI 红灯和一整轮元数据调查。快照、守卫、脚本与相关注释已于 2026-09-03 全部删除，详见 `PRE_MAINNET_CHECKLIST.md` §6.2。
+> The cost was not zero: that guard, its extraction script, the CI step, the permission opened for it in `foundry.toml`, and three comments claiming it was critical (one of them auto-generated, so an edit gets written straight back) together produced several hours of red CI and a full round of metadata investigation. The snapshot, the guard, the script and the associated comments were all deleted on 2026-09-03; see `PRE_MAINNET_CHECKLIST.md` §6.2.
 
-**`projectAdmin` 已不在这把 hash 里**，注释写明了原因：hook 是 EIP-1167 克隆，其不可变参数只有 `creator` / `projectTreasury` / `softCap` / `perWalletCap` / `genesisDuration`；admin 按设计可变、在初始化时才写入，因此不再影响挖出的地址。旧版本这里列的是六个参数（含 `adminAddr`）。
+**`projectAdmin` is no longer in this hash**, and the comment spells out why: the hook is an EIP-1167 clone whose immutable args are only `creator` / `projectTreasury` / `softCap` / `perWalletCap` / `genesisDuration`; the admin is mutable by design and is written in at initialisation, so it no longer moves the mined address. The old version of this section listed six parameters here (including `adminAddr`).
 
-**缓存失效条件**（这些变化会让已挖的盐立即作废，因为它们都在 initcode hash 里）：
+**Cache-invalidation conditions** (each of these voids an already-mined salt immediately, because they all sit inside the initcode hash):
 
-| 触发 | 处理 | 行号 |
+| Trigger | Handling | Line |
 |---|---|---|
-| **连接钱包变化**（`address`） | `setSalt('')` + `setPredictedHook('')`。注释标为 `CRITICAL`：`address` 同时作为 `projectTreasury` 与 `creator` 传入 `hookInitcodeHash`，换钱包就换 hash | `:437-444` |
-| **Project Admin 输入变化** | 同上，`onChange` 里直接清——但**这一条如今已属多余**：admin 已不在 initcode hash 里，改它并不会让盐失效，清掉只是白挖一次。保守无害，但不是必需的。 | `:620-623` |
-| **Genesis Window 切换** | `pickWindow` 里清（且 `next === genesisDuration` 时提前 return 避免误清） | — |
-| **工厂软顶 / 钱包上限在"挖盐"与"提交"之间被 owner 改动** | 挖盐时把两个值记进 `saltCaps`，`useEffect` 一旦发现它们与最新读数不符就清盐清 `saltCaps`，并提示 `Factory soft cap / wallet cap changed — the next deploy will grind a fresh salt.` | — |
+| **The connected wallet changes** (`address`) | `setSalt('')` + `setPredictedHook('')`. The comment marks it `CRITICAL`: `address` is passed into `hookInitcodeHash` as both `projectTreasury` and `creator`, so a new wallet is a new hash | `:437-444` |
+| **The Project Admin input changes** | Same as above, cleared directly in `onChange` — but **this one is now redundant**: the admin is no longer in the initcode hash, so changing it does not invalidate the salt, and clearing it merely throws away one mining run. Harmlessly conservative, but not necessary. | `:620-623` |
+| **Genesis Window switched** | Cleared inside `pickWindow` (which returns early when `next === genesisDuration`, so it cannot clear by accident) | — |
+| **The factory soft cap / wallet cap is retuned by the owner between "mine" and "submit"** | Mining records both values into `saltCaps`; the moment a `useEffect` finds them disagreeing with the latest reading it clears the salt and `saltCaps`, and shows `Factory soft cap / wallet cap changed — the next deploy will grind a fresh salt.` | — |
 
-**这最后一条曾被本节列为"没有做的失效"**，说前端没有重试提示、用户只能自己重新挖盐。它已经做了：`saltCaps` 快照加那个 `useEffect` 正是为此。链上兜底仍在——真撞上了 `createLaunch` 会 revert `InvalidHookSalt`，`test_createLaunch_revertsWhenSoftCapRotatedAfterMining` @ `test/ToshV5Factory.t.sol` 固化了这个行为——只是现在不必再靠它来告知用户。
+**That last row was once listed in this section as an invalidation that had not been built**, with the claim that the frontend offers no retry hint and the user has to re-mine by hand. It has been built: the `saltCaps` snapshot plus that `useEffect` exist for precisely this. The on-chain backstop is still in place — hit it for real and `createLaunch` reverts `InvalidHookSalt`, a behaviour pinned by `test_createLaunch_revertsWhenSoftCapRotatedAfterMining` @ `test/ToshV5Factory.t.sol` — it is just no longer what has to tell the user.
 
-**`createLaunch` 的调用参数**（`soat-frontend/src/app/lib/useTosh.ts:78-98`）：
+**`createLaunch` call parameters** (`soat-frontend/src/app/lib/useTosh.ts:78-98`):
 
 ```ts
 writeA({
   functionName: 'createLaunch',
   args: [name, symbol, projectTreasury, projectAdmin, hookSalt, expectedFee, genesisDuration],
-  value: expectedFee,      // 与 expectedFee 同值：既是滑点上限也是实付
-  gas:   6_000_000n,       // 显式 gas 上限，绕过 eth_estimateGas
+  value: expectedFee,      // Same as expectedFee: both the slippage cap and the actual payment
+  gas:   6_000_000n,       // Explicit gas ceiling, bypassing eth_estimateGas
   chainId: TARGET_CHAIN_ID,
 })
 ```
 
-显式 `gas` 的理由写在注释里：绕过 `eth_estimateGas`，避免 RPC 在模拟 revert 时抛出误导性的 "exceeds block gas limit"。Foundry 报这个调用约 3.7M gas，6M 留了充裕余量。
+The reason for the explicit `gas` is written in the comment: bypass `eth_estimateGas` so the RPC cannot throw a misleading "exceeds block gas limit" while simulating a revert. Foundry reports roughly 3.7M gas for this call, so 6M leaves ample headroom.
 
-`useTosh` 用**两个独立的 `useWriteContract` slot**——A 是 `createLaunch`，B 是 `registerPoG`——让两条流的 `hash`/`isPending`/`error` 永不互相污染。本节此前记录过"两处注释互相矛盾"（顶部说 slot A 是 `createLaunch + registerPoG`，而 slot B 归 `contribute`）：**该矛盾已不存在**，现在头注释与两个 slot 的实际分配一致，也没有 `contribute` 这条流。
+`useTosh` uses **two independent `useWriteContract` slots** — A for `createLaunch`, B for `registerPoG` — so that the two flows' `hash`/`isPending`/`error` can never contaminate each other. This section previously recorded "two comments contradicting each other" (the header said slot A was `createLaunch + registerPoG` while slot B belonged to `contribute`): **that contradiction is gone**; the header comment now agrees with what the two slots actually carry, and there is no `contribute` flow.
 
-另有一处修好的坑值得留档：`useWaitForTransactionReceipt` 的 `isSuccess` 只代表**回执到了**，不代表 `createLaunch` 成功——一笔上了链随后 revert 的交易，viem 照样正常 resolve。这里的 `revertedA`/`receiptErrorA` 一度被整个丢弃，于是一次 revert 掉的发射会显示成 "Confirmed"，而 RPC 故障会让 toast 永远转圈。现在两者都并进对外暴露的 `error`，并给出 `Reverted on-chain — createLaunch was rejected by the factory.`
+One more repaired trap is worth keeping on record: `isSuccess` on `useWaitForTransactionReceipt` only means **a receipt arrived**, not that `createLaunch` succeeded — viem resolves a transaction that landed on chain and then reverted just as cleanly. `revertedA`/`receiptErrorA` here were once discarded outright, so a reverted launch displayed as "Confirmed" while an RPC failure left the toast spinning forever. Both are now folded into the outward-facing `error`, which reports `Reverted on-chain — createLaunch was rejected by the factory.`
 
-### 6.6 项目终端 `ProjectTerminal`
+### 6.6 The `ProjectTerminal` project terminal
 
-#### 6.6.1 批量链上读取
+#### 6.6.1 Batched on-chain reads
 
-`soat-frontend/src/components/ProjectTerminal/index.tsx` 的 `ProjectTerminal()` 中的 `bulkContracts`，单次 `useReadContracts` 拉 15 项（12s 轮询）：
+`bulkContracts` inside `ProjectTerminal()` in `soat-frontend/src/components/ProjectTerminal/index.tsx` pulls 15 items in a single `useReadContracts` (12s polling):
 
-`totalEthDeposited`、`launched`、`p0`、`phase2Minted`、`canRefund`、`genesisDeadline`、`softCap`、`BONDING_MAX`、`currentBondingPrice`、`ethDeposited(user)`、`factory.pogQuota(user)`、`factory.eligibility(user, hook)`、`factory.userLaunchCooldownEnd(user, hook)`、`shelfP0`、`factory.blacklistedUntil(user)`。
+`totalEthDeposited`, `launched`, `p0`, `phase2Minted`, `canRefund`, `genesisDeadline`, `softCap`, `BONDING_MAX`, `currentBondingPrice`, `ethDeposited(user)`, `factory.pogQuota(user)`, `factory.eligibility(user, hook)`, `factory.userLaunchCooldownEnd(user, hook)`, `shelfP0`, `factory.blacklistedUntil(user)`.
 
-`projectToken` 单独读且 `staleTime: Infinity`——部署即固定，12s 轮询是浪费（同文件里紧跟 `bulkContracts` 之后的 `useReadContract`）。
+`projectToken` is read on its own with `staleTime: Infinity` — it is fixed at deployment, so polling it every 12s is waste (the `useReadContract` immediately following `bulkContracts` in the same file).
 
-类型显式声明为 `ContractFunctionParameters[]` 而非交给推断：HOOK_ABI 约 130 条，wagmi 的逐项映射类型会炸掉 TypeScript 的实例化深度上限（理由写在 `bulkContracts` 声明上方的注释里）。
+The type is declared explicitly as `ContractFunctionParameters[]` rather than left to inference: HOOK_ABI runs to about 130 entries, and wagmi's per-item mapped type blows past TypeScript's instantiation-depth limit (the reason sits in the comment above the `bulkContracts` declaration).
 
-#### 6.6.2 相位状态机
+#### 6.6.2 The phase state machine
 
-`resolvePhase` @ `soat-frontend/src/components/ProjectTerminal/phase.ts` 现在有**四**个相位，且不再从软顶推断开盘：
+`resolvePhase` @ `soat-frontend/src/components/ProjectTerminal/phase.ts` now has **four** phases, and no longer infers launch from the soft cap:
 
 ```ts
 export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
@@ -1234,100 +1234,101 @@ const zombie = BigInt(nowSec) >= genesisDeadline + LAUNCH_WINDOW_SECONDS
 return totalEthDeposited >= softCap && softCap > 0n && !zombie ? 'awaiting_launch' : 'refund'
 ```
 
-| 相位 | 徽章文案（`PHASE_BADGE` @ `HeroStats.tsx`） | 渲染的面板 |
+| Phase | Badge copy (`PHASE_BADGE` @ `HeroStats.tsx`) | Panels rendered |
 |---|---|---|
-| `genesis` | `Genesis`（ok，live） | `GenesisPanel` + 倒计时 |
-| `awaiting_launch` | `Awaiting launch`（warn，live） | `AwaitingLaunchPanel` |
-| `bonding` | `Ladder`（info，live） | `BondingPanel`，且 `launched` 为真时追加 `LiquidityPanel` |
-| `refund` | `Refund open`（danger，非 live） | `RefundPanel` |
+| `genesis` | `Genesis` (ok, live) | `GenesisPanel` + countdown |
+| `awaiting_launch` | `Awaiting launch` (warn, live) | `AwaitingLaunchPanel` |
+| `bonding` | `Ladder` (info, live) | `BondingPanel`, with `LiquidityPanel` appended when `launched` is true |
+| `refund` | `Refund open` (danger, not live) | `RefundPanel` |
 
-**未连接钱包不走单独的门。** 此前本节写的 `ConnectGate` 不存在：`isConnected` 是以 prop 形式**逐个传进各面板**的（`isConnected={wConnected}`），由各自的 `useActionGate` 变成一条"先连钱包"的拦截原因，所以未连接的访客看到的是完整的只读终端而非一道闸门。真正的整页早退只有两处：`hook_address` 缺失时渲染一张 `HOOK BINDING MISSING` 卡片，以及**时钟未同步时**整个终端体挂在骨架屏后面。后者是刻意的前置条件——`phase.ts` 的注释写明，`nowSec` 若为 `CLOCK_UNSYNCED`（0），下面每个比较都会读成"窗口还开着"，于是一轮已经失败的创世会解析回 `'genesis'`，把存款面板盖在死掉的募资上。
+**A disconnected wallet does not meet a gate of its own.** The `ConnectGate` this section used to name does not exist: `isConnected` is handed **to each panel individually** as a prop (`isConnected={wConnected}`), where each panel's own `useActionGate` turns it into a "connect a wallet first" blocker reason. A disconnected visitor therefore sees the complete read-only terminal, not a turnstile. Only two whole-page early returns are real: a missing `hook_address` renders a `HOOK BINDING MISSING` card, and **an unsynced clock** holds the entire terminal body behind a skeleton. The latter is a deliberate precondition — the comment in `phase.ts` states that if `nowSec` is `CLOCK_UNSYNCED` (0), every comparison below it reads as "the window is still open", so a genesis round that has already failed resolves back to `'genesis'` and lays the deposit panel over a dead raise.
 
-> **⚠️ 8.6 —— 已修，这里保留记录。** 旧版 `resolvePhase` 用一个子句 `totalEthDeposited >= softCap` 同时表示"进入 bonding"，一次踩坏两条规则，`phase.ts` 的注释把两条都写下来了：
-> - 货架阶梯在 `launch()` 跑之前根本不存在，达到软顶**不会**打开它，而创作者要等创世截止之后才能调 `launch()`——提前显示阶梯面板等于递给用户一个只能 revert `NotLaunched` 的铸造按钮；
-> - 存款在整个创世窗口内都开着，软顶是**地板不是天花板**，一碰到就关掉存款面板会把每一轮募资都钉死在它的最小值上。
+> **⚠️ 8.6 — fixed; the record is kept here.** The old `resolvePhase` used a single clause, `totalEthDeposited >= softCap`, to mean "enter bonding" as well, breaking two rules at once; the comment in `phase.ts` writes both of them down:
+> - The ladder shelf does not exist at all before `launch()` runs, and reaching the soft cap does **not** open it, while the creator cannot call `launch()` until after the genesis deadline — showing the ladder panel early hands the user a mint button that can do nothing but revert `NotLaunched`;
+> - Deposits stay open across the whole genesis window, the soft cap is a **floor, not a ceiling**, and closing the deposit panel the instant it is touched nails every raise to its own minimum.
 >
-> 现在由独立的 `awaiting_launch` 相位承接这段时间，配 `AwaitingLaunchPanel`。同时补了 `zombie` 判断：截止日之上再过完 `LAUNCH_WINDOW_SECONDS`，hook 就对所有人开放 `refund()`，而孤立地读软顶会把用户停在一张"退款已开"却全页找不到退款按钮的面板上。
+> That interval is now carried by a separate `awaiting_launch` phase with `AwaitingLaunchPanel`. A `zombie` test went in at the same time: once `LAUNCH_WINDOW_SECONDS` has elapsed on top of the deadline, the hook opens `refund()` to everybody, and reading the soft cap in isolation would strand the user on a panel that says "refunds are open" with no refund button anywhere on the page.
 
-#### 6.6.3 创世面板 `GenesisPanel`
+#### 6.6.3 The `GenesisPanel` genesis panel
 
-`soat-frontend/src/components/ProjectTerminal/GenesisPanel.tsx`。
+`soat-frontend/src/components/ProjectTerminal/GenesisPanel.tsx`.
 
-**本地护栏**（在弹钱包之前拦住）走与管理面板同一套 `useActionGate` / `revertOrder` / `ActionButton` 抽象，`blockersInRevertOrder` 依次为：
+**Local guardrails** (which stop the transaction before the wallet opens) use the same `useActionGate` / `revertOrder` / `ActionButton` abstraction as the admin panels; `blockersInRevertOrder` runs in this order:
 
-| # | `id` | 锁定标签 | 触发条件 |
+| # | `id` | Locked label | Trigger |
 |---|---|---|---|
-| 1 | `amount-invalid` | `Check the amount` | 输入不是能当 ETH 发出去的数 |
+| 1 | `amount-invalid` | `Check the amount` | The input is not a number that can be sent as ETH |
 | 2 | `amount-zero` | `Enter an amount` | `amountWei === 0n` |
-| 3 | `blacklisted` | `Wallet blocked` | 该地址在黑名单内 |
-| 4 | `unattested` | `Gas check required` | 该钱包尚无 PoG 记录，因而没有额度可花 |
+| 3 | `blacklisted` | `Wallet blocked` | The address is on the blacklist |
+| 4 | `unattested` | `Gas check required` | The wallet has no PoG record yet, so it has no quota to spend |
 | 5 | `cooldown` | `Cooldown · HH:MM:SS` | `cooldownEnd > nowSec` |
-| 6 | `quota-exceeded` | `Over your limit` | 超出当前窗口剩余额度 |
-| 7 | `window-closed` | `Funding closed` | 创世窗口已关 |
-| 8 | `wallet-cap` | `Over the wallet cap · N ETH left` | 超出本项目单钱包持有上限 |
-| 9 | `balance` | `Not enough ETH` | 余额不足 |
+| 6 | `quota-exceeded` | `Over your limit` | Exceeds the quota remaining in the current window |
+| 7 | `window-closed` | `Funding closed` | The genesis window has closed |
+| 8 | `wallet-cap` | `Over the wallet cap · N ETH left` | Exceeds this project's per-wallet holding cap |
+| 9 | `balance` | `Not enough ETH` | Insufficient balance |
 
-**这个顺序是对着链排的，不是对着屏幕排的**，注释把理由写清楚了：`factory.deposit` 恰按"黑名单 → 无额度 → 冷却 → 超额"的次序拒绝，再交给 `hook.deposit`，后者先查窗口、再查单钱包上限。它替换掉的旧级联把 `onCooldown` 放在 `quotaBreached` 之后，于是一个既在冷却中又超预算的钱包会被告知"你这个窗口的额度用完了"，而交易真正会 revert 的是 `CooldownActive`——把"你没有额度了"说成了"等 24 小时"的反面。
+**This order is arranged against the chain, not against the screen**, and the comment makes the reasoning explicit: `factory.deposit` rejects in exactly the order "blacklist → no quota → cooldown → over quota" before handing off to `hook.deposit`, which checks the window first and the per-wallet cap second. The cascade it replaced put `onCooldown` after `quotaBreached`, so a wallet that was both in cooldown and over budget was told "you have used up your quota for this window" when the transaction would actually have reverted `CooldownActive` — turning "you have no quota left" into the opposite of "wait 24 hours".
 
-`armed = gate.verdict.kind === 'ready'`。金额输入另有一个简短的红框标签（`NOT A NUMBER` / `ABOVE YOUR REMAINING WINDOW` / `ABOVE THIS PROJECT'S WALLET CAP` / `ABOVE YOUR BALANCE`），只针对刚输入的那个数；完整的原因与补救措施留在按钮下方由 gate 统一陈述，钱包级的三种状态（封禁、缺 PoG、窗口已关）各自在输入框上方另有独立提示框，因此不在这里重复。
+`armed = gate.verdict.kind === 'ready'`. The amount input carries a separate terse red-boxed label (`NOT A NUMBER` / `ABOVE YOUR REMAINING WINDOW` / `ABOVE THIS PROJECT'S WALLET CAP` / `ABOVE YOUR BALANCE`) which speaks only to the number just typed; the full reason and its remedy are left to the gate to state uniformly below the button, and the three wallet-level states (banned, no PoG, window closed) each get their own separate callout above the input, so they are not repeated here.
 
-**UI 元件**：创世进度条（`totalEthDeposited / softCap`）、`QuotaLedger`（跨 hook 已存 / 额度 / 本次投影三档，投影超额时变红）、ETH 余额与冷却期读数、带 `max` 按钮的金额输入、`PogScanButton`（触发服务端签名 → `registerPoG`）。软顶已达而窗口仍开时，面板顶部显示 `→ OVERSUBSCRIBED · SOFT CAP CLEARED, DEPOSITS STAY OPEN UNTIL THE WINDOW ENDS`——即 8.6 第二条（软顶是地板不是天花板）在 UI 上的落点。
+**UI elements**: the genesis progress bar (`totalEthDeposited / softCap`), `QuotaLedger` (three readings — deposited across hooks / quota / this transaction's projection, going red when the projection is over), the ETH balance and cooldown readouts, the amount input with its `max` button, and `PogScanButton` (which triggers server-side signing → `registerPoG`). When the soft cap has been reached while the window is still open, the top of the panel shows `→ OVERSUBSCRIBED · SOFT CAP CLEARED, DEPOSITS STAY OPEN UNTIL THE WINDOW ENDS` — the second bullet of 8.6 (the soft cap is a floor, not a ceiling) landing in the UI.
 
-**发起交易**（`submitDeposit`，经 `useTxAction({ action: 'deposit' })`）：
+**Sending the transaction** (`submitDeposit`, through `useTxAction({ action: 'deposit' })`):
 
 ```ts
 sendDeposit({
   address: FACTORY_ADDRESS, abi: FACTORY_ABI,
   functionName: 'deposit',
-  // 在发送时刻解析，而非渲染时刻
+  // Resolved at send time, not at render time
   args: [p.hookAddress, resolveReferrerNow(p.userAddress)],
   value: amountWei,
 })
 ```
 
-推荐人**在发送时刻**解析而非渲染时刻，理由写在注释里：工厂对一个钱包只绑定一次推荐人且永久有效，而挂载后的第一帧里 `p.referrer` 还是零地址哨兵——渲染时取值会把首次出资的推荐关系永久烧成空。
+The referrer is resolved **at send time** rather than render time, and the comment gives the reason: the factory binds a referrer to a wallet once and permanently, while on the first frame after mount `p.referrer` is still the zero-address sentinel — reading it at render time would burn the referral relationship of a first contribution to empty, for good.
 
-> **✅ 8.3（已解决）**：推荐人一度被硬编码为 `ZERO_ADDRESS`，后果是经官方 UI 完成的每一笔创世出资、其 10% 都走 `orphanReferral` 进平台国库，一条完整实现的合约功能被前端整体旁路。现已打通：
-> - `<ReferralCapture/>`（挂在 `app/layout.tsx`）在任意页面加载时解析 `?ref=<address>` 并落盘；
-> - `useBoundReferrer`（`soat-frontend/src/lib/useReferral.ts`）返回本地捕获值（首个链接先到先得，自荐则清空该槽位），没有则返回 `ZERO_ADDRESS`。它**不读链上 `referrerOf`**——该 view 只存在于 ABI 里，前端从未调用；也不需要读，因为 `deposit` 内部以 `globalReferrers[msg.sender]` 为准、`_recordReferral` 对已绑定钱包直接 return，所以一个过期的本地值无法覆盖链上既有绑定，链上始终是权威；
-> - `ProjectTerminal` 将该地址作为 `deposit` 的第二个参数传入。
+> **✅ 8.3 (resolved)**: the referrer was once hard-coded to `ZERO_ADDRESS`, and the consequence was that 10% of every genesis contribution made through the official UI went to the platform treasury via `orphanReferral` — a fully implemented contract feature bypassed wholesale by the frontend. It is now wired through:
+> - `<ReferralCapture/>` (mounted in `app/layout.tsx`) parses `?ref=<address>` on any page load and persists it;
+> - `useBoundReferrer` (`soat-frontend/src/lib/useReferral.ts`) returns the locally captured value (first link wins; a self-referral clears the slot), or `ZERO_ADDRESS` when there is none. It **does not read the on-chain `referrerOf`** — that view exists only in the ABI and the frontend has never called it; nor does it need to, because `deposit` internally takes `globalReferrers[msg.sender]` as authoritative and `_recordReferral` returns immediately for an already-bound wallet, so a stale local value cannot overwrite an existing on-chain binding and the chain remains authoritative throughout;
+> - `ProjectTerminal` passes that address as `deposit`'s second argument.
 >
-> **仍需知道的一条边界**：推荐人自己必须持有 PoG 额度（`pogQuota[referrer] > 0`），否则 `_recordReferral` 不予绑定、佣金照旧走 `orphanReferral`。这是防"自造二号钱包刷佣"的门槛，不是 bug；`ReferralPanel` 对尚未达标的分享者给出显式提示，避免其误以为链接已在计佣。
+> **One boundary that still has to be understood**: the referrer must hold PoG quota themselves (`pogQuota[referrer] > 0`), or `_recordReferral` declines to bind and the commission goes through `orphanReferral` as before. That is the threshold against "spin up a second wallet and farm your own commission", not a bug; `ReferralPanel` gives an explicit hint to a sharer who has not qualified yet, so they do not assume their link is already earning.
 
-> **✅ 8.4（已解决）**：`claimReferralReward()` 已在 `ProjectTerminal` 的 `ReferralPanel` 接线，并带 `TxLine` 广播状态回显。
+> **✅ 8.4 (resolved)**: `claimReferralReward()` is now wired up in `ProjectTerminal`'s `ReferralPanel`, with `TxLine` echoing the broadcast state.
 
-#### 6.6.4 阶梯面板 `BondingPanel` —— 报价与铸造
+#### 6.6.4 The `BondingPanel` ladder panel — quoting and minting
 
-`:969-1176`。
+`:969-1176`.
 
-**报价流水线**：
+**The quote pipeline**:
 
 ```
-1. tierStatus() 轮询（8s）→ 取 unlocked（第 7 个返回值）
-2. maxMintable() 轮询（8s）→ exceedsMax = tokenAmountWei > maxMintable
-   注释明确：单次铸造上限不是 TIER_SIZE，而是 maxMintable() —— 它折叠了
-   105% 门控、阶梯末端、MAX_TIERS_PER_TX 三重限制（:991-993）
+1. tierStatus() polled (8s) → take unlocked (the 7th return value)
+2. maxMintable() polled (8s) → exceedsMax = tokenAmountWei > maxMintable
+   The comment is explicit: the ceiling on a single mint is not TIER_SIZE but
+   maxMintable() — it folds together three limits, the 105% gate, the end of
+   the ladder, and MAX_TIERS_PER_TX (:991-993)
 3. quotable = tokenAmountWei > 0 && !exceedsMax
-4. quoteMint(tokenAmountWei) 轮询（8s，仅 quotable 时 enabled）
-5. isDust = quotable && !quoteFailed && ethCost === 0n        // L-01 dust 守卫
+4. quoteMint(tokenAmountWei) polled (8s, enabled only while quotable)
+5. isDust = quotable && !quoteFailed && ethCost === 0n        // L-01 dust guard
 6. maxEthCost = ethCost + ethCost × SLIPPAGE_BPS / 10000      // +0.5%
 7. insufficientBal = maxEthCost > ethBalance
 8. gateLocked = tokenAmountWei > 0 && !unlocked
-9. awaitingFirstUnlock = gateLocked && phase2Minted === 0n     // 区分"设计如此"与"故障"
+9. awaitingFirstUnlock = gateLocked && phase2Minted === 0n     // "by design" vs "broken"
 ```
 
-**0.5% 滑点缓冲与合约退款找零**（`:65-67`、`:1017`、`:1048-1054`、`:1143-1145`）：
+**The 0.5% slippage buffer and the contract's change refund** (`:65-67`, `:1017`, `:1048-1054`, `:1143-1145`):
 
-- `SLIPPAGE_BPS = 50n`，注释原文："Padded into the on-chain quote and sent as `msg.value`; excess ETH is refunded by the hook."
-- `msg.value = maxEthCost`（含 0.5% 头寸），UI 在报价卡片底部明示：`msg.value = {maxEthCost} wei · excess refunded`。
-- 合约侧对应的退款：`change = msg.value - cost; if (change > 0) _sendEth(msg.sender, change)`（`src/ToshLaunchpadHook.sol:922-923`）。
-- 这个缓冲的必要性：`quoteMint` 是上一个区块的读，而 `mintBondingCurve` 在下一个区块执行，中间如果有别人抢先吃掉当前档的剩余，实际成交会跨到更贵的档。0.5% 覆盖这个滑移；不足则 revert `InsufficientPayment`。
+- `SLIPPAGE_BPS = 50n`; the comment verbatim: "Padded into the on-chain quote and sent as `msg.value`; excess ETH is refunded by the hook."
+- `msg.value = maxEthCost` (with the 0.5% padding in it), which the UI states outright at the foot of the quote card: `msg.value = {maxEthCost} wei · excess refunded`.
+- The matching refund on the contract side: `change = msg.value - cost; if (change > 0) _sendEth(msg.sender, change)` (`src/ToshLaunchpadHook.sol:922-923`).
+- Why the buffer is necessary: `quoteMint` is a read of the previous block while `mintBondingCurve` executes in the next one, and if somebody gets in ahead and eats the remainder of the current tier in between, the actual fill crosses into a more expensive tier. 0.5% covers that slip; beyond it, the call reverts `InsufficientPayment`.
 
-**`handleMint` 的护栏顺序**（`:1039-1058`），每一条都有对应的锁定标签：
+**The guardrail order in `handleMint`** (`:1039-1058`), each rung with its own locked label:
 
-| # | 检查 | 错误文案 / 锁定标签 |
+| # | Check | Error copy / locked label |
 |---|---|---|
-| 1 | 已连接 | "Connect wallet" |
+| 1 | Connected | "Connect wallet" |
 | 2 | `tokenAmountWei > 0` | `[enter_amount]` |
 | 3 | `!exceedsMax` | `"Exceeds what one call can serve — max X right now"` / `[exceeds_max_per_call]` |
 | 4 | `!awaitingFirstUnlock` | `"Shelf 0 sits 5% over the pool — the ladder opens once the market holds at or above P₀"` / `[awaiting_market_above_p0]` |
@@ -1335,71 +1336,71 @@ sendDeposit({
 | 6 | `!isDust` | `[invalid_amount]` |
 | 7 | `!insufficientBal` | `"Insufficient ETH for quoted cost + slippage"` / `[insufficient_eth]` |
 
-第 4 条特别值得注意：注释解释了为什么要把它与第 5 条分开——**在任何人铸造之前，门关着是设计的开盘状态，不是故障**，所以文案要陈述事实而不是报警（`:1021-1023`）。这直接对应 5.1/3.3 里 `SHELF_PREMIUM_BPS == PRICE_CEILING_BPS` 的设计。
+Row 4 is especially worth noting: the comment explains why it is kept apart from row 5 — **before anyone has minted, a closed gate is the designed opening state, not a fault** — so the copy states the fact instead of raising an alarm (`:1021-1023`). This maps directly onto the `SHELF_PREMIUM_BPS == PRICE_CEILING_BPS` design in 5.1/3.3.
 
-**`ShelfLadder` 子组件**（`:440-539`）：
+**The `ShelfLadder` subcomponent** (`:440-539`):
 
-- 读 `tierStatus()`（7 元组全用上）+ `getTiers(windowStart, 5)`，窗口以当前档为中心（`windowStart = max(tierIndex - 2, 0)`，`:464`）。
-- 顶栏显示 `GATE OPEN` / `GATE LOCKED · 105%`。
-- 四个读数：ACTIVE SHELF `#i / 4000`（分母直接取链上 `TIER_COUNT`）、SHELF PRICE、REMAINING、105% CEILING（解锁时用 fluo 色）。
-- 当前档填充进度条。
-- 5 行档位表：`#索引 / 价格 / 已售% / LIVE|CLEARED|QUEUED`。
-- 底栏：`P₀ = … / spot = … / twap = …`（把三个价格摆在一起，让用户自己看门控逻辑）。
+- Reads `tierStatus()` (all 7 tuple members are used) plus `getTiers(windowStart, 5)`, with the window centred on the current tier (`windowStart = max(tierIndex - 2, 0)`, `:464`).
+- The top bar shows `GATE OPEN` / `GATE LOCKED · 105%`.
+- Four readouts: ACTIVE SHELF `#i / 4000` (the denominator read straight off the on-chain `TIER_COUNT`), SHELF PRICE, REMAINING, and 105% CEILING (in the fluo colour when unlocked).
+- A fill bar for the current tier.
+- A 5-row tier table: `#index / price / sold% / LIVE|CLEARED|QUEUED`.
+- The bottom bar: `P₀ = … / spot = … / twap = …` (the three prices set side by side, so users can read the gating logic for themselves).
 
-**四个读数栏**（`:1084-1097`）：`P₀ · POOL OPEN`、`SHELF 0 · +5%`（提示 "mint premium over market"）、`ACTIVE SHELF`（提示 `X× ladder base`）、`PHASE-2 MINTED`（`phase2Minted / bondingMax`，提示 `4000 shelves × 3.15K`，即 `TIER_COUNT × TIER_SIZE`）。
+**Four readout strips** (`:1084-1097`): `P₀ · POOL OPEN`, `SHELF 0 · +5%` (hint: "mint premium over market"), `ACTIVE SHELF` (hint: `X× ladder base`), and `PHASE-2 MINTED` (`phase2Minted / bondingMax`, hint: `4000 shelves × 3.15K`, i.e. `TIER_COUNT × TIER_SIZE`).
 
-注意 `premiumRaw` 是相对 **`shelfP0`** 而非 `p0` 计算的（`:1063-1066`），注释理由："Measured against the LADDER base rather than the pool's opening price, so the flat 5% mint premium does not masquerade as ladder progress."
+Note that `premiumRaw` is computed against **`shelfP0`** and not `p0` (`:1063-1066`); the comment's reason: "Measured against the LADDER base rather than the pool's opening price, so the flat 5% mint premium does not masquerade as ladder progress."
 
-**事件流：项目终端里没有。** 本节此前描述过一个 `RecentEventsTicker`，订阅 `Deposited` / `TierMinted` / `Refunded` 并带 basescan 链接——它不存在，`BondingPanel` 里没有任何 `useWatchContractEvent`。全站唯一的实时事件流是**目录首页**的跑马灯 `TxFeedMarquee` @ `soat-frontend/src/components/TxFeedMarquee.tsx`，经 `A2AFeed` 动态挂载（`ssr: false`，因为它走 WebSocket 订阅）：订阅的是 `LaunchCreated` / `PoGRegistered` / `GenesisDeposit` 三个**工厂**事件，`RING_LIMIT` 24 条环形缓冲，去重后前插再裁剪，整条渲染两遍首尾相接以实现无缝滚动，hover 暂停。它**不带浏览器链接**，所以那句 basescan 是三重失真：错的组件名、错的事件名、以及一个从未存在的链接——顺带一提，链早已是 4663，浏览器是 Blockscout 而非 basescan。
+**Event stream: the project terminal does not have one.** This section previously described a `RecentEventsTicker` subscribing to `Deposited` / `TierMinted` / `Refunded` with basescan links — it does not exist, and there is no `useWatchContractEvent` anywhere in `BondingPanel`. The only live event stream in the whole app is the `TxFeedMarquee` marquee on the **directory home** @ `soat-frontend/src/components/TxFeedMarquee.tsx`, mounted dynamically through `A2AFeed` (`ssr: false`, because it runs on a WebSocket subscription): it subscribes to three **factory** events, `LaunchCreated` / `PoGRegistered` / `GenesisDeposit`, holds a `RING_LIMIT` 24-entry ring buffer, deduplicates then prepends and trims, and renders the whole strip twice head-to-tail for seamless scrolling, pausing on hover. It carries **no explorer links**, which makes that basescan claim wrong three times over: wrong component name, wrong event names, and a link that never existed — and, while we are here, the chain has been 4663 for some time and the explorer is Blockscout, not basescan.
 
-#### 6.6.5 散户 LP 极简全区间面板 `LiquidityPanel`
+#### 6.6.5 The `LiquidityPanel` minimal full-range retail LP panel
 
-`:1197-1456`。面板头部注释（`:1178-1189`）说明了范围界定：hook 故意把 `BEFORE_REMOVE_LIQUIDITY` 留在掩码之外，所以散户 LP 本来就能自由进出——**缺的是一扇前门**：posm 仓位是藏在 Permit2 授权舞步后面的 ERC-721，不是零售用户会手工组装的东西。**范围刻意只做一个区间**：与创世仓位相同的全区间。做区间选择器就得教用户理解 tick，而集中流动性的 LP 已经有专门工具了。
+`:1197-1456`. The panel's header comment (`:1178-1189`) sets out the scoping: the hook deliberately leaves `BEFORE_REMOVE_LIQUIDITY` outside its mask, so retail LPs could always come and go freely — **what was missing was a front door**: a posm position is an ERC-721 hidden behind the Permit2 approval dance, not something a retail user assembles by hand. **The scope is deliberately one range only**: the same full range as the genesis position. A range selector would mean teaching users to understand ticks, and concentrated-liquidity LPs already have purpose-built tools.
 
-**存入 ETH + 代币**：
+**Depositing ETH + token**:
 
 ```
-1. useLpPoolState(token, hook) → sqrtPriceX96, totalLiquidity（经 STATE_VIEW 读）
-2. tokenNeeded = pairedAmount1(sqrtPriceX96, ethWei)     // 向上取整
+1. useLpPoolState(token, hook) → sqrtPriceX96, totalLiquidity (read via STATE_VIEW)
+2. tokenNeeded = pairedAmount1(sqrtPriceX96, ethWei)     // rounds up
 3. ethMax   = ethWei      × 1.005
-   tokenMax = tokenNeeded × 1.005                        // 同样 0.5% 头寸
-4. liquidity = liquidityForAmounts(sqrtPriceX96, ethWei, tokenNeeded)  // 取绑定侧
+   tokenMax = tokenNeeded × 1.005                        // the same 0.5% padding
+4. liquidity = liquidityForAmounts(sqrtPriceX96, ethWei, tokenNeeded)  // takes the binding side
 5. encodeMintPayload → posm.modifyLiquidities(unlockData, deadline) with value: ethMax
 ```
 
-`pairedAmount1` 的取整方向是**刻意的**（`soat-frontend/src/lib/v4Math.ts:123-140`）："Rounds UP: under-quoting the token side makes the mint revert on the `amount1Max` guard." 对应地，`amountsForLiquidity` 向下取整，"matching what the pool actually pays out on a burn, so the panel never shows a number the user cannot withdraw"（`:82-87`）。
+The rounding direction of `pairedAmount1` is **deliberate** (`soat-frontend/src/lib/v4Math.ts:123-140`): "Rounds UP: under-quoting the token side makes the mint revert on the `amount1Max` guard." Correspondingly, `amountsForLiquidity` rounds down, "matching what the pool actually pays out on a burn, so the panel never shows a number the user cannot withdraw" (`:82-87`).
 
-`SQRT_PRICE_LOWER = 4_310_618_292n` / `SQRT_PRICE_UPPER = 1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535n` 是 `TickMath.getSqrtPriceAtTick(∓887200)` 对 v4-core 实跑的结果，不是浮点近似（`soat-frontend/src/lib/v4Math.ts:1-18`）。
+`SQRT_PRICE_LOWER = 4_310_618_292n` / `SQRT_PRICE_UPPER = 1_456_195_216_270_955_103_206_513_029_158_776_779_468_408_838_535n` are what `TickMath.getSqrtPriceAtTick(∓887200)` actually returned when run against v4-core, not floating-point approximations (`soat-frontend/src/lib/v4Math.ts:1-18`).
 
-这两个常数、以及 `amountsForLiquidity` / `liquidityForAmounts` / `pairedAmount1` 三个函数，由 `soat-frontend/scripts/checkV4Math.ts`（`npm run guard:v4math`，跑在 `frontend.yml`）对着 Foundry 实跑记录下来的向量校验。这里的漂移不会抛异常，只会让面板报出一个池子不肯接受的数额——用户已经签完两次 Permit2 授权之后，mint 才在 `amount1Max` 上 revert。
+Those two constants, plus the three functions `amountsForLiquidity` / `liquidityForAmounts` / `pairedAmount1`, are validated by `soat-frontend/scripts/checkV4Math.ts` (`npm run guard:v4math`, running in `frontend.yml`) against vectors recorded from real Foundry runs. Drift here throws no exception; all it does is make the panel quote an amount the pool will not accept — and the mint reverts on `amount1Max` only after the user has already signed two Permit2 approvals.
 
-**posm action payload**（`soat-frontend/src/lib/lpActions.ts`）：
+**posm action payload** (`soat-frontend/src/lib/lpActions.ts`):
 
-| 操作 | opcode 序列 | 说明 | 行号 |
+| Operation | Opcode sequence | Notes | Line |
 |---|---|---|---|
-| 存入 | `MINT_POSITION(0x02)` + `SETTLE_PAIR(0x0d)` + `SWEEP(0x14)` | `SWEEP` 把池子没取走的 ETH 退回来，所以调用方可以安心把 `amount0Max` 当 `msg.value` 发出去 | `:41-76` |
-| 撤出 | `BURN_POSITION(0x03)` + `TAKE_PAIR(0x11)` | 关仓并两侧付出 | `:78-100` |
+| Deposit | `MINT_POSITION(0x02)` + `SETTLE_PAIR(0x0d)` + `SWEEP(0x14)` | `SWEEP` returns whatever ETH the pool did not take, so the caller can send `amount0Max` as `msg.value` without worrying | `:41-76` |
+| Withdraw | `BURN_POSITION(0x03)` + `TAKE_PAIR(0x11)` | Closes the position and pays out both sides | `:78-100` |
 
-文件头注释（`:1-21`）解释了为什么这必须是独立的纯函数而不是内联在组件里：
-- `CalldataDecoder.decodeActionsRouterParams` 强制**严格** ABI 编码——它会重算每个偏移量，任何偏离（包括某些编码器产出的合法但非规范布局）都会 revert；
-- `decodeMintParams` 按**硬编码 calldata 偏移**读字段，所以参数表必须精确产出它期望的 head 布局（`PoolKey` 元组是静态的、占 slot 0..4，这就是 `hookData` 落在 slot 11 的原因）。
-- 两条性质由一对互补的守卫共同钉住，**都已接入 CI**：
-  - `soat-frontend/scripts/checkLpActions.ts`（`npm run guard:lpactions`，跑在 `frontend.yml`）驱动真实的 viem 编码器，逐字节检查它吐出的 payload；
-  - `scripts/checkLpActionsAbi.mjs`（跑在 `test.yml`，因为它要读 `lib/`）解析 `lib/v4-periphery` 的 `CalldataDecoder.sol` / `Actions.sol` 与 `lib/v4-core` 的 `PoolKey.sol`，要求上面那个守卫里的字面量、`V4_ACTIONS` 和 `MINT_PARAM_SPEC` 与真实 Solidity 逐项对齐。
+The file's header comment (`:1-21`) explains why these have to be standalone pure functions rather than inlined into the component:
+- `CalldataDecoder.decodeActionsRouterParams` enforces **strict** ABI encoding — it recomputes every offset, and any deviation reverts, including the legal-but-non-canonical layouts some encoders emit;
+- `decodeMintParams` reads its fields at **hard-coded calldata offsets**, so the parameter list must produce exactly the head layout it expects (the `PoolKey` tuple is static and occupies slots 0..4, which is why `hookData` lands in slot 11).
+- Both properties are pinned by a complementary pair of guards, **both of which are now wired into CI**:
+  - `soat-frontend/scripts/checkLpActions.ts` (`npm run guard:lpactions`, running in `frontend.yml`) drives the real viem encoder and inspects the payload it emits byte by byte;
+  - `scripts/checkLpActionsAbi.mjs` (running in `test.yml`, because it has to read `lib/`) parses `CalldataDecoder.sol` / `Actions.sol` from `lib/v4-periphery` and `PoolKey.sol` from `lib/v4-core`, and requires the literals in the guard above, along with `V4_ACTIONS` and `MINT_PARAM_SPEC`, to line up item for item with the real Solidity.
 
-  之所以要拆成两半：前者是唯一能检查真实编码器输出的一半，但它只能拿自己文件里写着的偏移量去比，**并不是**对着真实解码器断言——曾经它连 opcode 都是拿 `V4_ACTIONS` 去比 `V4_ACTIONS`（payload 正是由它编出来的），任何取值都能通过。实测：把 `lib/v4-periphery` 里 `decodeMintParams` 的偏移整体挪一格，它照样报 "All posm payload invariants hold"。后者补的就是这个洞。两半缺一不可。
+  Why this has to be split in half: the first half is the only one that can check the real encoder's output, but it can only compare against the offsets written down in its own file — it is **not** asserting against the real decoder. At one point it was even checking opcodes by comparing `V4_ACTIONS` against `V4_ACTIONS` (the very thing that encoded the payload), so any value whatsoever would have passed. Measured: shift every offset in `decodeMintParams` inside `lib/v4-periphery` by one slot and it still reports "All posm payload invariants hold". The second half is what closes that hole. Neither half is dispensable.
 
-  （历史：`checkLpActions.ts` 与 `checkV4Math.ts` 此前都在用法行里写 `npx tsx`，而 `tsx` 从来不是本仓依赖，所以两个都跑不起来、也没接进 CI——和 `.github/workflows/test.yml` 里记的 `checkHookMinerTuple.mjs` 事故同型。现在改由 `soat-frontend/scripts/runTsGuard.mjs` 用仓内已有的 `typescript` 转译执行，没有引入新依赖；`npm run guards` 一条命令跑齐前端侧的三个守卫。）
+  (History: `checkLpActions.ts` and `checkV4Math.ts` both used to print `npx tsx` on their usage line, and `tsx` has never been a dependency of this repo, so neither one could run and neither was wired into CI — the same shape as the `checkHookMinerTuple.mjs` incident recorded in `.github/workflows/test.yml`. They now run through `soat-frontend/scripts/runTsGuard.mjs`, which transpiles them with the `typescript` already in the repo, so no new dependency was introduced; `npm run guards` runs all three frontend-side guards in one command.)
 
-**Permit2 三步授权引导流程**（`:1355-1365`）——一次只暴露一个活跃步骤，让 CTA 永远精确说明"下一次签名做什么"，而不是一次甩三个按钮给用户：
+**The three-step Permit2 approval walkthrough** (`:1355-1365`) — only one step is live at a time, so the CTA always states exactly "what the next signature does" instead of throwing three buttons at the user at once:
 
 ```
-if (!isConnected)          → "Connect wallet to provide liquidity"（禁用）
-if (!tokenAddress)         → "Token not resolved yet"（禁用）
-if (ethWei <= 0)           → "Enter an ETH amount"（禁用）
-if (ethInvalid)            → "Invalid amount"（禁用）
-if (insufficientEth)       → "Insufficient ETH"（禁用）
-if (insufficientToken)     → "Insufficient {SYMBOL}"（禁用）
+if (!isConnected)          → "Connect wallet to provide liquidity" (disabled)
+if (!tokenAddress)         → "Token not resolved yet" (disabled)
+if (ethWei <= 0)           → "Enter an ETH amount" (disabled)
+if (ethInvalid)            → "Invalid amount" (disabled)
+if (insufficientEth)       → "Insufficient ETH" (disabled)
+if (insufficientToken)     → "Insufficient {SYMBOL}" (disabled)
 if (needsErc20Approval)    → "Step 1 of 3 — approve {SYMBOL} for Permit2"
                               → token.approve(PERMIT2, MAX_UINT160)
 if (needsPermit2Approval)  → "Step 2 of 3 — let Permit2 fund the position manager"
@@ -1409,129 +1410,129 @@ else                       → "Step 3 of 3 — deposit into the pool"
                               → posm.modifyLiquidities(..., value: ethMax)
 ```
 
-授权状态判定（`:1249-1252`）：
+How approval state is determined (`:1249-1252`):
 - `needsErc20Approval = tokenMax > 0 && erc20.allowance(user, PERMIT2) < tokenMax`
-- `needsPermit2Approval = tokenMax > 0 && (!posmAllowance || posmAllowance[0] < tokenMax || posmAllowance[1] <= nowSec)` —— Permit2 额度是 `uint160` 且**自带过期时间**，所以要同时看额度和到期（`:1192-1195`）。
+- `needsPermit2Approval = tokenMax > 0 && (!posmAllowance || posmAllowance[0] < tokenMax || posmAllowance[1] <= nowSec)` — a Permit2 allowance is a `uint160` and **carries its own expiry**, so the amount and the expiry both have to be checked (`:1192-1195`).
 
-常量：`MAX_UINT160 = 2^160 - 1`、`PERMIT2_TTL_SECONDS = 30 天`、`TX_DEADLINE_SECONDS = 20 分钟`（`:1193-1195`）。
+Constants: `MAX_UINT160 = 2^160 - 1`, `PERMIT2_TTL_SECONDS = 30 days`, `TX_DEADLINE_SECONDS = 20 minutes` (`:1193-1195`).
 
-**撤出**（`:1334-1351`）：
+**Withdrawal** (`:1334-1351`):
 
 ```ts
 encodeBurnPayload({
   tokenId,
-  amount0Min: amount0 − amount0 × 50 / 10000,   // 0.5% 下滑保护
+  amount0Min: amount0 − amount0 × 50 / 10000,   // 0.5% downside protection
   amount1Min: amount1 − amount1 × 50 / 10000,
 })
 ```
 
-> **⚠️ 8.23**：`amount0` / `amount1` 是前端用本地 `amountsForLiquidity(sqrtPriceX96, liquidity)` 算出来的。如果 RPC 返回的 `sqrtPriceX96` 滞后于链上真实价格（12s 轮询），这个 0.5% 的滑点下限要么让撤出 revert，要么形同虚设（因为基准本身就是错的）。
+> **⚠️ 8.23**: `amount0` / `amount1` are computed by the frontend locally with `amountsForLiquidity(sqrtPriceX96, liquidity)`. If the `sqrtPriceX96` the RPC returns lags the true on-chain price (12s polling), that 0.5% slippage floor either makes the withdrawal revert or is purely decorative — because the baseline it is measured from is itself wrong.
 
-**仓位发现**（`soat-frontend/src/lib/useLpPosition.ts`）——文件头把难点说得很清楚（`:6-20`）：V4 仓位是 posm 持有的 ERC-721，而 **posm 不是 `ERC721Enumerable`**——没有 `tokenOfOwnerByIndex`，periphery 里也没有任何"按 owner + pool 查仓位"的 view。所以从两个来源重建并合并：
+**Position discovery** (`soat-frontend/src/lib/useLpPosition.ts`) — the file header states the difficulty very plainly (`:6-20`): a V4 position is an ERC-721 held by posm, and **posm is not `ERC721Enumerable`** — there is no `tokenOfOwnerByIndex`, and periphery offers no "positions by owner + pool" view either. So the panel reconstructs and merges from two sources:
 
-1. posm 的 `Transfer(_, to = user, id)` 日志。权威，但公共 RPC 对日志查询有限流和范围上限，所以在有界回溯窗口内做、允许静默失败。回溯 `LOG_LOOKBACK_BLOCKS = 600,000`（Base 约 2s/块 ≈ 两周），分片 `LOG_PAGE_SIZE = 50,000`（`:31-36`、`:139-154`）。
-2. 本 UI 每次铸仓时写的 `localStorage` 缓存（`rememberLpPosition`，`:41-52`）。覆盖"刚铸好、RPC 日志索引没跟上"和"回溯窗口已滚过铸造点"两种情况。
+1. posm's `Transfer(_, to = user, id)` logs. Authoritative, but public RPCs rate-limit log queries and cap their range, so this runs inside a bounded look-back window and is allowed to fail silently. The look-back is `LOG_LOOKBACK_BLOCKS = 600,000` (at Base's roughly 2s/block, ≈ two weeks), paged at `LOG_PAGE_SIZE = 50,000` (`:31-36`, `:139-154`).
+2. The `localStorage` cache this UI writes on every mint (`rememberLpPosition`, `:41-52`). It covers two cases: "just minted, and the RPC's log index has not caught up", and "the look-back window has already rolled past the mint".
 
-**每个候选都会链上校验**（`ownerOf` == user、`getPoolAndPositionInfo().hooks` == 本 hook、`getPositionLiquidity() != 0`，`:165-181`），所以过期或恶意的缓存条目最多只会浪费一次读，绝不会算出错的余额。
+**Every candidate is verified on chain** (`ownerOf` == user, `getPoolAndPositionInfo().hooks` == this hook, `getPositionLiquidity() != 0`, `:165-181`), so a stale or malicious cache entry costs at most one wasted read and can never compute a wrong balance.
 
-日志扫描失败时设 `degraded = true`（`soat-frontend/src/lib/useLpPosition.ts`），面板显示降级提示（`ProjectTerminal/LiquidityPanel.tsx` 里的 `degraded` 分支）："this RPC would not serve position logs, so only positions minted from this browser are listed. Your other positions are safe on-chain and remain withdrawable through any Uniswap V4 interface."
+A failed log scan sets `degraded = true` (`soat-frontend/src/lib/useLpPosition.ts`) and the panel shows a degraded notice (the `degraded` branch in `ProjectTerminal/LiquidityPanel.tsx`): "this RPC would not serve position logs, so only positions minted from this browser are listed. Your other positions are safe on-chain and remain withdrawable through any Uniswap V4 interface."
 
-**四个读数栏**（`:1373-1386`）：POOL DEPTH · ETH / POOL DEPTH · {SYMBOL}（提示 "all LPs incl. genesis"）/ MY POSITION · ETH / MY POSITION · {SYMBOL}（提示 "withdrawable any time"）。开仓列表逐行显示 `#tokenId · X ETH + Y SYMBOL` 加一个 `Withdraw` 按钮。
+**Four readout strips** (`:1373-1386`): POOL DEPTH · ETH / POOL DEPTH · {SYMBOL} (hint: "all LPs incl. genesis") / MY POSITION · ETH / MY POSITION · {SYMBOL} (hint: "withdrawable any time"). The open-position list gives one row each, `#tokenId · X ETH + Y SYMBOL`, with a `Withdraw` button.
 
-面板副标题：`"Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"`（`:1371`）。
+Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"` (`:1371`).
 
-#### 6.6.6 退款面板 `RefundPanel`
+#### 6.6.6 The `RefundPanel` refund panel
 
-`:1462-1510`。副标题：`"hook.refund() — soft-cap not met OR zombie window elapsed · full claim, no penalty"`。锁定标签在 `ethDeposited === 0n` 时显示 `[no_deposit]`，否则 `[claim_refund]`。
+`:1462-1510`. Subtitle: `"hook.refund() — soft-cap not met OR zombie window elapsed · full claim, no penalty"`. The locked label reads `[no_deposit]` when `ethDeposited === 0n`, and `[claim_refund]` otherwise.
 
-#### 6.6.7 前端未覆盖的合约入口
+#### 6.6.7 Contract entry points the frontend does not cover
 
-| 合约函数 | 前端状态 | 影响 |
+| Contract function | Frontend state | Impact |
 |---|---|---|
-| `hook.launch()` | **⚠️ 8.5：无任何 UI 入口。** 全仓搜索 `functionName: 'launch'` 只命中 ABI JSON | creator 必须自己用 `cast send` / Etherscan / 自建脚本开盘。这是整个生命周期的**关键路径**，却没有产品化 |
-| `hook.claimReferralReward()` | **⚠️ 8.4：无 UI 入口** | 推荐佣金无法通过 UI 领取（配合 8.3，实际也累积不到） |
-| `hook.changeProjectAdmin()` | 无 UI 入口 | 管理员轮换需手工发交易 |
-| `treasury.addLadderToken()` / `removeLadderToken()` | 无 UI 入口（`/admin` 只有工厂的 owner 函数，见 `soat-frontend/src/app/admin/page.tsx` 的 13 处 `functionName`） | 回购策展需手工发交易 |
-| `hook.claimGenesis()` | ✅ 在 `UserDrawer`（`:655`）与 `useContractActions.genesisClaim`（`:90`） | — |
+| `hook.launch()` | **⚠️ 8.5: no UI entry point at all.** A repo-wide search for `functionName: 'launch'` hits nothing but ABI JSON | The creator has to open the market themselves with `cast send` / Etherscan / a script of their own. This is the **critical path** of the entire lifecycle, and it has not been productised |
+| `hook.claimReferralReward()` | **⚠️ 8.4: no UI entry point** | Referral commission cannot be claimed through the UI (and, given 8.3, none actually accrues) |
+| `hook.changeProjectAdmin()` | No UI entry point | Rotating the admin requires sending a transaction by hand |
+| `treasury.addLadderToken()` / `removeLadderToken()` | No UI entry point (`/admin` carries only the factory's owner functions — see the 13 `functionName` occurrences in `soat-frontend/src/app/admin/page.tsx`) | Buyback curation requires sending transactions by hand |
+| `hook.claimGenesis()` | ✅ Present in `UserDrawer` (`:655`) and `useContractActions.genesisClaim` (`:90`) | — |
 
-### 6.7 PoG 签名链路（前端 ↔ 服务端）
+### 6.7 The PoG signing path (frontend ↔ server)
 
-| 环节 | 位置 | 说明 |
+| Stage | Location | Notes |
 |---|---|---|
-| 会话授权签名 | `ProjectTerminal/PogScanButton.tsx` + `ProjectTerminal/pogAuthCache.ts`、`buildPoGScanAuthMessage`（`soat-frontend/src/lib/contracts.ts`） | 消息格式 `"Tosh PoG Scan Request\nAddress: {addr}\nTimestamp: {ms}"`，签名缓存在 `sessionStorage`，TTL `POG_SESSION_AUTH_TTL_MS = 1,800,000`（30 分钟） |
-| 服务端签发 | `soat-frontend/src/app/api/sign-allocation/route.ts`、`api/admin/config/route.ts`、`app/lib/pogQuota.ts`、`app/lib/onchainNonce.ts` | 服务端持 `POG_SIGNER_PRIVATE_KEY`；nonce 从链上 `factory.pogNonces(sender)` 现读（README §5 描述） |
-| 链上提交 | `useTosh.registerPoG`（`:103-118`） | `args: [maxAlloc, deadline, nonce, signature]` |
+| Session authorisation signature | `ProjectTerminal/PogScanButton.tsx` + `ProjectTerminal/pogAuthCache.ts`, `buildPoGScanAuthMessage` (`soat-frontend/src/lib/contracts.ts`) | Message format `"Tosh PoG Scan Request\nAddress: {addr}\nTimestamp: {ms}"`; the signature is cached in `sessionStorage` with TTL `POG_SESSION_AUTH_TTL_MS = 1,800,000` (30 minutes) |
+| Server-side issuance | `soat-frontend/src/app/api/sign-allocation/route.ts`, `api/admin/config/route.ts`, `app/lib/pogQuota.ts`, `app/lib/onchainNonce.ts` | The server holds `POG_SIGNER_PRIVATE_KEY`; the nonce is read live from the chain via `factory.pogNonces(sender)` (as described in README §5) |
+| On-chain submission | `useTosh.registerPoG` (`:103-118`) | `args: [maxAlloc, deadline, nonce, signature]` |
 
 ---
 
-## 7. 附录：常量、事件、错误码总表
+## 7. Appendix: constants, events and error codes
 
-### 7.1 常量总表
+### 7.1 Constants reference table
 
 #### `ToshLaunchpadHook`
 
-| 常量 | 值 | 行号 |
+| Constant | Value | Line |
 |---|---|---|
-| `GENESIS_SUPPLY` | 8,400,000e18（占硬顶 40%） | 139 |
-| `GENESIS_CLAIM_SUPPLY` | 4,620,000e18（创世块的 55%） | 161 |
-| `GENESIS_LP_SUPPLY` | 3,780,000e18（创世块的 45%） | 162 |
+| `GENESIS_SUPPLY` | 8,400,000e18 (40% of the hard cap) | 139 |
+| `GENESIS_CLAIM_SUPPLY` | 4,620,000e18 (55% of the genesis allocation) | 161 |
+| `GENESIS_LP_SUPPLY` | 3,780,000e18 (45% of the genesis allocation) | 162 |
 | `TIER_COUNT` | 4000 | 165 |
 | `TIER_SIZE` | 3,150e18 | 169 |
-| `BONDING_MAX` | 12,600,000e18（占硬顶 60%） | 172 |
-| `TIER_STEP_E18`（internal） | 1,001,902,508,266,805,824（跨度 2000×） | 186 |
+| `BONDING_MAX` | 12,600,000e18 (60% of the hard cap) | 172 |
+| `TIER_STEP_E18` (internal) | 1,001,902,508,266,805,824 (2000× span) | 186 |
 | `MAX_TIERS_PER_TX` | 32 | 200 |
 | `DURATION_FAST` / `_STANDARD` / `_SLOW` | 3h / 24h / 72h | 214-216 |
 | `LAUNCH_WINDOW` | 7 days | 218 |
-| `REFERRAL_BPS` | 1000（10%） | 226 |
-| `PLATFORM_TAX_BPS` | 100（1%） | 230 |
-| `TAX_BPS` | 100（1.00%） | 239 |
-| `PLATFORM_SWAP_FEE_BPS` | 30（0.30%） | 从 `TAX_BPS` 里**切出**、非叠加；仅买单。回购份额 = `TAX_BPS - PLATFORM_SWAP_FEE_BPS` = 70 bps |
-| `BPS_DENOMINATOR`（internal） | 10,000 | 241 |
-| `PRICE_CEILING_BPS` | 10,500（105%） | 247 |
-| `SHELF_PREMIUM_BPS` | 10,500（105%） | 279 |
-| `TWAP_WINDOW` | 1800（秒；实测窗口漂移于 [1800, 3600)） | 284 |
-| `POOL_FEE` | 3000（0.30%） | 302 |
+| `REFERRAL_BPS` | 1000 (10%) | 226 |
+| `PLATFORM_TAX_BPS` | 100 (1%) | 230 |
+| `TAX_BPS` | 100 (1.00%) | 239 |
+| `PLATFORM_SWAP_FEE_BPS` | 30 (0.30%) | **Carved out of** `TAX_BPS`, not stacked on top of it; buys only. Buyback share = `TAX_BPS - PLATFORM_SWAP_FEE_BPS` = 70 bps |
+| `BPS_DENOMINATOR` (internal) | 10,000 | 241 |
+| `PRICE_CEILING_BPS` | 10,500 (105%) | 247 |
+| `SHELF_PREMIUM_BPS` | 10,500 (105%) | 279 |
+| `TWAP_WINDOW` | 1800 (seconds; the measured window drifts within [1800, 3600)) | 284 |
+| `POOL_FEE` | 3000 (0.30%) | 302 |
 | `TICK_SPACING` | 200 | 309 |
-| `TICK_LOWER` / `TICK_UPPER`（internal） | −887,200 / +887,200 | 311-312 |
+| `TICK_LOWER` / `TICK_UPPER` (internal) | −887,200 / +887,200 | 311-312 |
 | `DEAD_ADDRESS` | `0x…dEaD` | 314 |
-| `ACTION_ADD_LIQUIDITY`（internal） | 1 | 316 |
-| `PIGGYBACK_TRIGGER_STEP` | 1 ether | 国库 `TRIGGER_STEP` 的本地副本，省一次跨合约读；`test_piggybackTriggerMirrorsTheTreasury` 钉住两者不漂移 |
-| `PIGGYBACK_MIN_GAS` | 230,000 | poke 所需的最低 `gasleft()`。标定见 8.34 |
-| `PIGGYBACK_TAIL_RESERVE` | 100,000 | 物理扣给收尾（`afterSwap` 返回 + V4 关帧 + router 结算，实测约 70k）的份额 |
+| `ACTION_ADD_LIQUIDITY` (internal) | 1 | 316 |
+| `PIGGYBACK_TRIGGER_STEP` | 1 ether | A local copy of the treasury's `TRIGGER_STEP`, saving one cross-contract read; `test_piggybackTriggerMirrorsTheTreasury` pins the two together so they cannot drift |
+| `PIGGYBACK_MIN_GAS` | 230,000 | The minimum `gasleft()` a poke needs. Calibration in 8.34 |
+| `PIGGYBACK_TAIL_RESERVE` | 100,000 | The share physically withheld for the tail (the `afterSwap` return + the V4 frame close + router settlement, measured at roughly 70k) |
 
-**Phase-2 阶梯状态是打包的**：`currentTierIndex` / `currentTierSold` / `phase2Minted` 三个原本各占一个槽的 `uint256` 公开字段，现合并为内部结构体 `LadderState { uint16 tierIndex; uint88 tierSold; uint96 minted; }`（单槽，25 字节）。三个公开 getter 手写保留，**ABI 未变**。位宽由本表的常量证明——`TIER_COUNT ≤ 65,535`、`TIER_SIZE ≤ 2^88`、`BONDING_MAX ≤ 2^96`——并由 `test_ladderStateWidthsFitTheirConstants` 守住：Solidity 不检查显式向下转型，所以常量涨过字段会**静默截断**而不是 revert，后果是阶梯把已售货架重新开卖。`mintBondingCurve` 因此从 197,195 降到 173,550。
+**Phase-2 ladder state is packed**: `currentTierIndex` / `currentTierSold` / `phase2Minted` were three public `uint256` fields that each occupied a slot of their own; they are now merged into the internal struct `LadderState { uint16 tierIndex; uint88 tierSold; uint96 minted; }` (one slot, 25 bytes). The three public getters are retained by hand, so the **ABI is unchanged**. The widths are proved by the constants in this table — `TIER_COUNT ≤ 65,535`, `TIER_SIZE ≤ 2^88`, `BONDING_MAX ≤ 2^96` — and held by `test_ladderStateWidthsFitTheirConstants`: Solidity does not check explicit downcasts, so a constant that outgrew its field would **truncate silently** rather than revert, and the consequence is a ladder that puts already-sold shelves back on sale. `mintBondingCurve` accordingly drops from 197,195 to 173,550.
 
 #### `ToshFactory`
 
-| 常量 / 默认值 | 值 | 行号 |
+| Constant / default | Value | Line |
 |---|---|---|
 | `MAX_SIG_VALIDITY` | 24 hours | 42 |
 | `MAX_COOLDOWN` | 7 days | 43 |
 | `MIN_SOFT_CAP_PROD` | 0.01 ether | 55 |
-| `cooldownDuration`（默认） | 24 hours | 75 |
-| `launchFee`（默认） | 0.1 ether | 78 |
-| `maxPogAllocationLimit`（默认） | 0.1 ether | 89 |
-| `defaultSoftCap`（默认） | 10 ether | 92 |
-| 黑名单批量上限 | 200 | 264、273 |
+| `cooldownDuration` (default) | 24 hours | 75 |
+| `launchFee` (default) | 0.1 ether | 78 |
+| `maxPogAllocationLimit` (default) | 0.1 ether | 89 |
+| `defaultSoftCap` (default) | 10 ether | 92 |
+| Blacklist batch limit | 200 | 264, 273 |
 
 #### `ToshLadderTreasury` / `ToshToken` / `HookMiner`
 
-| 常量 | 值 | 说明 |
+| Constant | Value | Description |
 |---|---|---|
-| `TRIGGER_STEP` | 1 ether | 武装阈值 |
-| `SPEND_BPS` | 1000 | 每周期投放 `max(TRIGGER_STEP, 余额 × 10%)`（8.10） |
-| `BATCH_SIZE` | 3 | **分仓除数**：`perToken = spend / BATCH_SIZE`。已不再是每次 poke 的腿数 |
-| `LEGS_PER_POKE` | 1 | 每次 poke 的腿数。与上一行拆开是 8.33 的修法 |
-| `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | TWAP 下限，SQRT 口径（≈19% 价格） |
-| `_PIGGYBACK_SLOT` | `0x546f73685069676779626163b1000001` | EIP-1153 瞬态标记 |
+| `TRIGGER_STEP` | 1 ether | Arming threshold |
+| `SPEND_BPS` | 1000 | Each cycle deploys `max(TRIGGER_STEP, balance × 10%)` (8.10) |
+| `BATCH_SIZE` | 3 | **The sharding divisor**: `perToken = spend / BATCH_SIZE`. No longer the number of legs per poke |
+| `LEGS_PER_POKE` | 1 | Legs per poke. Splitting it off from the row above is the fix from 8.33 |
+| `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | TWAP floor, in sqrt terms (≈19% in price terms) |
+| `_PIGGYBACK_SLOT` | `0x546f73685069676779626163b1000001` | EIP-1153 transient marker |
 | `MAX_SUPPLY` | 21,000,000e18 | `ToshToken.sol:53` |
 | `MINTER_ROLE` | `keccak256("MINTER_ROLE")` | `ToshToken.sol:47` |
 | `REQUIRED_FLAGS` | `0x20CC` | `HookMiner.sol:64-65` |
 | `ALL_HOOK_MASK` | `0x3FFF` | `HookMiner.sol:46` |
 
-### 7.2 事件总表
+### 7.2 Events reference table
 
-| 合约 | 事件 | 行号 |
+| Contract | Event | Line |
 |---|---|---|
 | Hook | `TokenInitialized` / `Deposited` / `Launched` / `GenesisFailed` / `ZombieRefund` / `Refunded` / `GenesisShareClaimed` | 440-446 |
 | Hook | `ReferralAccrued` / `ReferralClaimed` / `OrphanReferralForwarded` / `ProjectAdminChanged` | 447-450 |
@@ -1540,42 +1541,43 @@ encodeBurnPayload({
 | Factory | `LaunchCreated` / `Blacklisted` / `PoGRegistered` / `GenesisDeposit` / `ReferralBound` | 147-158 |
 | Factory | `PogSignerUpdated` / `LaunchFeeUpdated` / `LaunchFeeForwarded` / `CooldownDurationUpdated` / `DefaultSoftCapUpdated` / `MaxPogAllocationLimitUpdated` / `QuotaWindowReset` | 159-168 |
 
-**`BuyTaxToTreasury` 现在只承载 70 bps，不是整笔税。** 名字没改（改了会打断现有索引器的匹配），但含义变了：买单的另外 30 bps 由**同一笔 swap 里**的 `PlatformSwapFeePaid` 单独上报。把 `BuyTaxToTreasury` 当作「买入税总额」求和，会低报 30%。`SellTaxBurned` 反过来——卖单不拆，它承载的是完整的 1.00%。
+**`BuyTaxToTreasury` now carries only 70 bps, not the whole tax.** The name did not change (changing it would break the matching in every existing indexer), but the meaning did: the other 30 bps of a buy is reported separately by `PlatformSwapFeePaid`, **from within the same swap**. Summing `BuyTaxToTreasury` as "total buy-side tax" under-reports by 30%. `SellTaxBurned` is the other way round — sells are not split, and it carries the full 1.00%.
 
-**`TreasuryUpdated` 已删除。** 它是 `setPlatformTreasury` 的伴生事件，那个函数不存在了，所以这个事件**永远不可能再触发**。任何仍在监听它的告警规则都是一条静默的死规则（`monitoring/alerts.json` 已移除对应项，并新增了 `PlatformSwapFeePaid` 的规则）。
+**`TreasuryUpdated` has been deleted.** It was the companion event of `setPlatformTreasury`, and that function no longer exists, so this event **can never fire again**. Any alert rule still listening for it is a silently dead rule (`monitoring/alerts.json` has dropped the corresponding entry and added a rule for `PlatformSwapFeePaid`).
+
 | Treasury | `FactorySet` / `LadderTokenAdded` / `LadderTokenRemoved` / `TaxReceived` / `PiggybackExecuted` / `BuybackBurned` / `BuybackSkipped` | 110-123 |
 
-**`PiggybackExecuted` 的频率变了**：`LEGS_PER_POKE = 1` 之后它每条腿发一次，而不是每三条腿一次。同样的 ETH，三倍的事件数——按旧节奏调过阈值的告警规则会把这读成回购风暴。
+**`PiggybackExecuted` fires at a different rate now**: after `LEGS_PER_POKE = 1` it is emitted once per leg rather than once per three legs. The same ETH, three times the events — an alert rule whose thresholds were tuned to the old cadence will read this as a buyback storm.
 
-**没有「poke 被跳过」的事件**，这是故意的：跳过是常态，记日志要让每个交易者掏钱。所以 gas 门控造成的储备闲置对任何事件订阅都是不可见的，只能靠 `STATE-06` 轮询余额。
+**There is no "poke was skipped" event**, and that is deliberate: skipping is the normal case, and logging it would make every trader pay for the record. Reserve sitting idle because of the gas gate is therefore invisible to any event subscription; the only way to see it is `STATE-06` polling the balance.
 
-### 7.3 错误码总表（面向前端文案）
+### 7.3 Error codes reference table (for frontend copy)
 
-#### Hook（`src/ToshLaunchpadHook.sol:475-527`）
+#### Hook (`src/ToshLaunchpadHook.sol:475-527`)
 
-| 错误 | 触发条件 | 建议文案 |
+| Error | Trigger | Suggested copy |
 |---|---|---|
-| `OnlyPoolManager` / `OnlyFactory` / `OnlyCreator` / `Unauthorized` | 调用方不对 | 内部错误 |
-| `NotInitialized` / `AlreadyInitialized` | 代币未绑定 / 已绑定 | 内部错误 |
-| `GenesisActive` | 创世窗口未结束就 `launch()` | "创世窗口还没结束" |
-| `GenesisExpired` | 窗口已结束还在存 | "创世已截止" |
-| `AlreadyLaunched` / `NotLaunched` | 相位错 | — |
-| `AlreadyClaimed` / `NoDeposit` | 已认领 / 无出资 | — |
-| `SoftCapNotMet` | 软顶未达成就开盘 | "软顶未达成" |
-| `LaunchWindowExpired` | 超 7 天僵尸窗口 | "发射窗口已过期，储户可退款" |
-| `InvalidDuration` | 创世时长不在 {3h,24h,72h} | "创世时长必须是 3/24/72 小时" |
-| `InvalidAdmin` | `projectAdmin == 0` | "项目管理员不能为零地址" |
-| `LadderExhausted` | 全部 2000 档售罄 | "阶梯已耗尽" |
-| `ExceedsTierRemaining` | 订单越过阶梯末端 | "订单超出剩余供应"（⚠️ 8.15） |
-| `SpanTooManyShelves` | 跨档 > `MAX_TIERS_PER_TX`（32） | "拆成两笔发送，终态相同" |
-| `SameBlockMintForbidden` | 本区块内有过 swap | "等一个区块" |
-| `TierPriceAboveCeiling` | 档价 > 105% 参考价 | "价格门锁定，等二级市场跟上" |
-| `InsufficientPayment` | `msg.value < cost` | "滑点不足，重新报价" |
-| `NoReferralReward` | 无累积佣金 | — |
-| `PerWalletCapExceeded` | 超本项目每钱包上限 | "已达本项目单钱包上限" |
+| `OnlyPoolManager` / `OnlyFactory` / `OnlyCreator` / `Unauthorized` | Wrong caller | Internal error |
+| `NotInitialized` / `AlreadyInitialized` | Token not bound / already bound | Internal error |
+| `GenesisActive` | `launch()` before the genesis window closed | "The genesis window has not closed yet" |
+| `GenesisExpired` | Still depositing after the window closed | "Genesis has closed" |
+| `AlreadyLaunched` / `NotLaunched` | Wrong phase | — |
+| `AlreadyClaimed` / `NoDeposit` | Already claimed / no contribution | — |
+| `SoftCapNotMet` | Launching before the soft cap is met | "Soft cap not met" |
+| `LaunchWindowExpired` | Past the 7-day zombie window | "The launch window has expired; depositors can refund" |
+| `InvalidDuration` | Genesis duration not in {3h,24h,72h} | "Genesis duration must be 3/24/72 hours" |
+| `InvalidAdmin` | `projectAdmin == 0` | "The project admin cannot be the zero address" |
+| `LadderExhausted` | All 2000 tiers sold out | "The ladder is exhausted" |
+| `ExceedsTierRemaining` | The order runs past the end of the ladder | "Order exceeds remaining supply" (⚠️ 8.15) |
+| `SpanTooManyShelves` | Spans more than `MAX_TIERS_PER_TX` (32) tiers | "Send it as two transactions; the end state is the same" |
+| `SameBlockMintForbidden` | There has already been a swap in this block | "Wait one block" |
+| `TierPriceAboveCeiling` | Tier price > 105% of the reference price | "The price gate is locked; waiting for the secondary market to catch up" |
+| `InsufficientPayment` | `msg.value < cost` | "Not enough slippage allowance; re-quote" |
+| `NoReferralReward` | No accrued commission | — |
+| `PerWalletCapExceeded` | Over this project's per-wallet cap | "You have reached this project's per-wallet cap" |
 | `EthTransferFailed` / `UnknownAction` / `UnauthorizedInitialization` / `ZeroAmount` | — | — |
 
-#### Factory（`src/ToshFactory.sol:172-195`）
+#### Factory (`src/ToshFactory.sol:172-195`)
 
 `IsBlacklisted` / `NoPogQuota` / `QuotaExceeded` / `CooldownActive` / `InvalidSignature` / `NonceConflict` / `SignatureExpired` / `SignatureTooLong` / `HookNotRegistered` / `InvalidHookSalt` / `DeployFailed` / `ZeroAmount` / `InvalidAdmin` / `ExceedsGlobalPogLimit` / `InvalidSoftCap` / `NameTaken` / `EmptyName` / `InsufficientLaunchFee` / `FeeChanged` / `EthTransferFailed`
 
@@ -1583,261 +1585,271 @@ encodeBurnPayload({
 
 `OnlyHook` / `OnlySelf` / `OnlyPoolManager` / `FactoryAlreadySet` / `FactoryNotSet` / `ZeroAddress` / `TokenAlreadyListed` / `TokenNotListed` / `TokenNotLaunchedHere` / `InvalidPoolKey` / `PoolNotLaunched` / `NotArmed` / `PiggybackInProgress`
 
-三个值得单独说明：
+Three are worth spelling out on their own:
 
-| 错误 | 何时 | 面向用户的文案 |
+| Error | When | User-facing copy |
 |---|---|---|
-| `NotArmed` | `pokeBuyback()` 时储备低于 `TRIGGER_STEP` 或挂牌列表为空 | "国库尚未攒够，无需触发" |
-| `PiggybackInProgress` | 同一调用栈里已有回购在跑 | "回购正在进行中" |
-| `PoolNotLaunched` | `addLadderToken` 挂一个尚未 `launch()` 的项目。与 `InvalidPoolKey` 不同——hook 存在、`PoolKey` 也构造良好，只是背后还没有池子。存储打包移除 `_poolKey` 后，`getPoolKey()` 不再对未发射项目返回零值，所以这条检查改为显式读 `launched()` | "该项目还未开盘" |
+| `NotArmed` | `pokeBuyback()` while the reserve is below `TRIGGER_STEP`, or the listing is empty | "The treasury has not accumulated enough yet; there is nothing to trigger" |
+| `PiggybackInProgress` | A buyback is already running in the same call stack | "A buyback is already in progress" |
+| `PoolNotLaunched` | `addLadderToken` listing a project that has not `launch()`ed yet. Different from `InvalidPoolKey` — the hook exists and the `PoolKey` is well-formed, there is simply no pool behind it yet. Since storage packing removed `_poolKey`, `getPoolKey()` no longer returns zero for an unlaunched project, so this check now reads `launched()` explicitly | "This project has not launched yet" |
 
-#### Token（`src/ToshToken.sol:67-69`）
+#### Token (`src/ToshToken.sol:67-69`)
 
 `OnlyFactory` / `AlreadyInitialized` / `MaxSupplyExceeded`
 
-### 7.4 部署脚本对照
+### 7.4 Deployment script cross-reference
 
-| 脚本 | 用途 | 关键动作 |
+| Script | Purpose | Key actions |
 |---|---|---|
-| `script/Deploy.s.sol` | Base Sepolia | Treasury → Factory → `setFactory`；打印 `getLiveHookInitcodeHash` 与 6 条后续步骤（含"掩码现在是 0x20CC"、"createLaunch 现在 payable"、"deposit 现在 payable，无需 approve"） |
-| `script/DeployMainnet.s.sol` | 生产 | 所有 env 必填无默认；强制 `PROD_OWNER_SAFE != deployer`；两步移交工厂 + 国库；打印 `HOOK_CREATION_CODEHASH` / `LIVE_INITCODE_HASH` / 三个 wei 级默认值 + 6 条 CRITICAL NEXT STEPS |
-| `script/DeployLocal.s.sol` | anvil | Anvil 账户 #0；`V4_POOL_MANAGER` 缺省为 `address(1)` 桩（够跑工厂级流程：PoG、推荐绑定、资格） |
-| `script/VerifyDeployment.s.sol` | 部署后不变量巡检 | 6 类断言，含 `treasury.factory() == factory`、`!paused()`、`initcodeHash` 同块可重复性；支持 `EXPECTED_OWNER` / `EXPECTED_POG_SIGNER` / `EXPECTED_PLATFORM_TREASURY` 严格交叉校验 |
-| `script/RecomputeInitcodeHash.s.sol` | 重播种前端矿机 | 只读；导出可直接粘贴的 JSON；明确提示"这是 24h STANDARD 窗口的 hash，3h/72h 哈希不同，矿机必须按创作者选的窗口重建" |
+| `script/Deploy.s.sol` | Base Sepolia | Treasury → Factory → `setFactory`; prints `getLiveHookInitcodeHash` plus six follow-up steps (including "the mask is now 0x20CC", "createLaunch is now payable", "deposit is now payable, no approve needed") |
+| `script/DeployMainnet.s.sol` | Production | Every env var mandatory, none defaulted; enforces `PROD_OWNER_SAFE != deployer`; two-step handover of the factory and the treasury; prints `HOOK_CREATION_CODEHASH` / `LIVE_INITCODE_HASH` / three wei-level defaults plus 6 CRITICAL NEXT STEPS |
+| `script/DeployLocal.s.sol` | anvil | Anvil account #0; `V4_POOL_MANAGER` defaults to an `address(1)` stub (enough to exercise the factory-level flows: PoG, referral binding, eligibility) |
+| `script/VerifyDeployment.s.sol` | Post-deployment invariant sweep | 6 classes of assertion, including `treasury.factory() == factory`, `!paused()`, and same-block reproducibility of `initcodeHash`; supports strict cross-checking against `EXPECTED_OWNER` / `EXPECTED_POG_SIGNER` / `EXPECTED_PLATFORM_TREASURY` |
+| `script/RecomputeInitcodeHash.s.sol` | Re-seeding the frontend miner | Read-only; exports paste-ready JSON; states explicitly that "this is the hash for the 24h STANDARD window; the 3h/72h hashes differ, and the miner has to be rebuilt for whichever window the creator chose" |
 
-### 7.5 测试套件到需求的映射（v5.0 验收）
+### 7.5 Test suite to requirements mapping (v5.0 acceptance)
 
-| 需求 | 测试 | 位置 |
+| Requirement | Test | Location |
 |---|---|---|
-| 10% 创世溢价（关系而非硬编码） | `test_genesisPremium_isExactlyTenPercent` | `test/ToshV5.t.sol` |
-| 开盘时阶梯完全关闭 | `test_ladderOpensLockedAtLaunch` | `:858` |
-| 阶梯几何（4000 档 / 4200 / 2000× 跨度） | `test_tierLadder_geometryIsWellFormed` | `:688` |
-| 早期放量时间表（2× 解锁 365 档 = 1.14975M = 创世盘 13.7%） | `test_earlyReleaseSchedule_isSetByTheSupplySplit` | `test/ToshV5.t.sol` |
-| 跨档 ≡ 逐档 | `test_tierMint_spanIsEquivalentToSequentialShelfBuys` | `:755` |
-| `maxMintable()` 是精确边界 | `test_maxMintable_isTheExactAcceptedBoundary` | `:789` |
-| 腿数上限是 gas 而非安全 | `test_tierMint_legCapBindsWhenMarketRunsAhead` | `:816` |
-| 即时铸造砸盘亏钱 | `test_sweepAndDumpIsLossMaking` | `:885` |
-| **市场先涨后扫货赚钱（接受的代价）** | `test_sweepIsProfitableOnceTheMarketHasRunAhead` | `:932` |
-| 同区块锁 + 105% 门控 | `test_tierMintAntiSpikeAndCeiling` | `:967` |
-| TWAP 击败单区块拉盘 | `test_tierMint_twapDefeatsASingleBlockPump` | `:1006` |
-| 开盘窗口参考价封顶 p0 | `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` | `:899` |
-| 买入侧税 1% 拆分为储备池 0.7% + 平台 0.3% | `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform` | `test/ToshV5.t.sol` |
-| 卖出侧税全额 1% 就地销毁，不拆分 | `test_sellTax_burnsTheFullOnePercentOfTokensInPlace` | `test/ToshV5.t.sol` |
-| 创世 LP 永久锁定 | `test_genesisLiquidityIsPermanentlyLocked` | `:613` |
-| 散户 LP 自由进出且不影响创世 | `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` | `:633` |
-| 顺风车轮转回购 | `test_treasuryPiggybackRoundRobin` | `:1110` |
-| 单腿故障隔离 | `test_piggyback_isolatesAFaultyLadderLeg` | `:1173` |
-| 每次 poke 一条腿，但仍覆盖整个阶梯 | `test_piggybackRunsOneLegPerPokeAndStillCoversTheLadder` | 8.33 |
-| 一条腿的边际 gas，且不随阶梯长度增长 | `test_gas_piggybackCostPerLeg` | 8.33 |
-| **预算紧时回购让路，交易不死** | `test_piggybackSkipsRatherThanKillingTheTrade` | 8.32 |
-| **推过阈值的那笔交易按自己的估算成交** | `test_piggybackSparesTheTradeThatTipsIt` | 8.32 |
-| 诚实估算的交易仍带得上回购（门控没订过高） | `test_piggybackStillRidesAProperlyEstimatedSwap` | 8.34 |
-| 无许可 `pokeBuyback()` 不靠 swap 就能投放 | `test_pokeBuyback_deploysWithoutASwap` | 8.32 |
-| 未武装 / 空名单时 `pokeBuyback` 明确 revert | `test_pokeBuyback_revertsWhenUnarmed` / `_revertsWithAnEmptyLadder` | 8.32 |
-| fuzz handler 真能走到 `pokeBuyback`（不变量非空转） | `test_handlerCanReachPokeBuyback` | 8.32 |
-| 打包字段宽度仍容得下各自的常量 | `test_ladderStateWidthsFitTheirConstants` | §7.1 |
-| 国库无提现路径 | `test_ladderTreasury_hasNoWithdrawPath` | `:1196` |
-| **owner 无法把支出导向自己的池子** | `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` | `:1216` |
-| 策展拒绝外部代币 / 未开盘项目 | `test_ladderCuration_rejectsForeignTokens` / `test_ladderCuration_rejectsUnlaunchedProjects` | `:1089` / `:1099` |
-| PoG 额度不因退款恢复 | `test_pogQuota_isNotRestoredByRefund` | `:425` |
-| PoG 额度按窗口续期 | `test_pogQuota_refillsAfterTheCooldownWindow` | `:450` |
-| 每钱包上限在创建时快照 | `test_perWalletCap_isSnapshottedAtProjectCreation` | `:396` |
-| 全局推荐持久化 / 自我推荐被忽略 | `test_globalReferralPersistence` / `_selfReferralIsIgnored` | `:497` / `:524` |
-| 孤儿佣金转入国库 | `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` | `:537` |
-| 掩码 = `0x20CC` | `test_minedHookAddress_carriesV5FlagMask` / `test_hookMiner_requiredFlagsAre0x20CC` | `:314` / `Guards` |
-| 三档窗口接受 / 未列窗口拒绝 / 跨窗口盐拒绝 | `Guards:184` / `Guards:206` / `Factory:928` | — |
-| 供应切分闭合 / 硬顶 21M | `test_supplyPartitioning` / `test_tokenMaxSupply_is21M` | `Guards:458` / `:464` |
-| 铸币权永久冻结在 Hook | `test_token_minterSetIsFrozenAtOneAddress` | `Guards` |
+| 10% genesis premium (as a relationship, not a hard-coded number) | `test_genesisPremium_isExactlyTenPercent` | `test/ToshV5.t.sol` |
+| The ladder is fully closed at launch | `test_ladderOpensLockedAtLaunch` | `:858` |
+| Ladder geometry (4000 tiers / 4200 / 2000× span) | `test_tierLadder_geometryIsWellFormed` | `:688` |
+| Early release schedule (2× unlocks 365 tiers = 1.14975M = 13.7% of the genesis float) | `test_earlyReleaseSchedule_isSetByTheSupplySplit` | `test/ToshV5.t.sol` |
+| Spanning tiers ≡ buying them one at a time | `test_tierMint_spanIsEquivalentToSequentialShelfBuys` | `:755` |
+| `maxMintable()` is the exact boundary | `test_maxMintable_isTheExactAcceptedBoundary` | `:789` |
+| The leg cap is about gas, not safety | `test_tierMint_legCapBindsWhenMarketRunsAhead` | `:816` |
+| Minting and immediately dumping loses money | `test_sweepAndDumpIsLossMaking` | `:885` |
+| **Sweeping is profitable once the market has run ahead (the accepted cost)** | `test_sweepIsProfitableOnceTheMarketHasRunAhead` | `:932` |
+| Same-block lock + the 105% gate | `test_tierMintAntiSpikeAndCeiling` | `:967` |
+| TWAP defeats a single-block pump | `test_tierMint_twapDefeatsASingleBlockPump` | `:1006` |
+| In the launch window the reference price is capped at p0 | `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` | `:899` |
+| The 1% buy-side tax splits into 0.7% to the reservoir + 0.3% to the platform | `test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform` | `test/ToshV5.t.sol` |
+| The sell-side tax burns the full 1% in place, with no split | `test_sellTax_burnsTheFullOnePercentOfTokensInPlace` | `test/ToshV5.t.sol` |
+| Genesis LP is permanently locked | `test_genesisLiquidityIsPermanentlyLocked` | `:613` |
+| Retail LPs can enter and exit freely without touching genesis | `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` | `:633` |
+| Round-robin piggyback buyback | `test_treasuryPiggybackRoundRobin` | `:1110` |
+| A single faulty leg is isolated | `test_piggyback_isolatesAFaultyLadderLeg` | `:1173` |
+| One leg per poke, and the whole ladder still gets covered | `test_piggybackRunsOneLegPerPokeAndStillCoversTheLadder` | 8.33 |
+| The marginal gas of one leg, and it does not grow with ladder length | `test_gas_piggybackCostPerLeg` | 8.33 |
+| **When the budget is tight the buyback yields and the trade survives** | `test_piggybackSkipsRatherThanKillingTheTrade` | 8.32 |
+| **The trade that tips the threshold settles on its own estimate** | `test_piggybackSparesTheTradeThatTipsIt` | 8.32 |
+| An honestly estimated trade still carries the buyback (the gate is not set too high) | `test_piggybackStillRidesAProperlyEstimatedSwap` | 8.34 |
+| Permissionless `pokeBuyback()` deploys without needing a swap | `test_pokeBuyback_deploysWithoutASwap` | 8.32 |
+| `pokeBuyback` reverts explicitly when unarmed / when the list is empty | `test_pokeBuyback_revertsWhenUnarmed` / `_revertsWithAnEmptyLadder` | 8.32 |
+| The fuzz handler really can reach `pokeBuyback` (the invariants are not spinning idle) | `test_handlerCanReachPokeBuyback` | 8.32 |
+| The packed field widths still fit their respective constants | `test_ladderStateWidthsFitTheirConstants` | §7.1 |
+| The treasury has no withdrawal path | `test_ladderTreasury_hasNoWithdrawPath` | `:1196` |
+| **The owner cannot redirect spending into their own pool** | `test_ladderTreasury_ownerCannotRedirectSpendToOwnPool` | `:1216` |
+| Curation rejects foreign tokens / unlaunched projects | `test_ladderCuration_rejectsForeignTokens` / `test_ladderCuration_rejectsUnlaunchedProjects` | `:1089` / `:1099` |
+| PoG quota is not restored by a refund | `test_pogQuota_isNotRestoredByRefund` | `:425` |
+| PoG quota refills on its window | `test_pogQuota_refillsAfterTheCooldownWindow` | `:450` |
+| The per-wallet cap is snapshotted at project creation | `test_perWalletCap_isSnapshottedAtProjectCreation` | `:396` |
+| Global referral persists / self-referral is ignored | `test_globalReferralPersistence` / `_selfReferralIsIgnored` | `:497` / `:524` |
+| Orphaned commission is forwarded to the treasury | `test_orphanReferralIsForwardedToLadderTreasuryAtLaunch` | `:537` |
+| Mask = `0x20CC` | `test_minedHookAddress_carriesV5FlagMask` / `test_hookMiner_requiredFlagsAre0x20CC` | `:314` / `Guards` |
+| The three windows accepted / an unlisted window rejected / a cross-window salt rejected | `Guards:184` / `Guards:206` / `Factory:928` | — |
+| The supply partition closes / the 21M hard cap | `test_supplyPartitioning` / `test_tokenMaxSupply_is21M` | `Guards:458` / `:464` |
+| Minting rights are permanently frozen at the Hook | `test_token_minterSetIsFrozenAtOneAddress` | `Guards` |
 
 ---
 
-## 8. 已关闭条目记录
+## 8. Closed items
 
-> 本章条目已全部关闭。关闭记录保留原编号以便回溯。行号对应 2026-08-25 落地后的文件状态。
+> Every item in this chapter is closed. The closure records keep the original numbering so they can be traced back. Line numbers reflect the state of the files after the 2026-08-25 landing.
 
-### 8.0 已关闭条目（原编号 → 处置）
+### 8.0 Closed items (original number → disposition)
 
-| 原编号 | 条目 | 处置 |
+| Original | Item | Disposition |
 |--------|------|------|
-| 8.1 | `projectTreasury` 是纯元数据 | **保留代码，改文档**。它是 CREATE2 构造元组的一员，改名或移除都会让已挖的盐全部失效（连改注释都会——见 8.13），而经济收益为零。natspec 已明确标注「此地址永不收款，找钱请看 `projectAdmin` 与 `ladderTreasury`」 |
-| 8.2 | `platformTreasury` 也没有资金流 | **已关闭——但不是靠文档，是靠给它资金流。** 原处置是「改文档」：在 `ToshFactory` natspec、`.env.example`、`.env.production.example`、admin 面板标题、`INCIDENT_RESPONSE.md` 五处标注为 v4.x 遗留、不在资金路径上。现在这个字段收每笔买单 ETH input 的 0.30%（`PLATFORM_SWAP_FEE_BPS`），是平台的维护收入，所以那五处标注**全部已改回**，不再是遗留字段。附带处置：由于收费地址可变正是审计项 M-2，`setPlatformTreasury` 与 `TreasuryUpdated` 已删除、字段改 `immutable`，并与 hook 实现的 `platformFeeRecipient` 同源。详见 §2.2.5.1 |
-| 8.3 | 推荐人硬编码零地址 | **已修**。新增 `soat-frontend/src/lib/useReferral.ts`：`?ref=` 校验 + 校验和化 + localStorage 首写优先；`<ReferralCapture/>` 挂在根布局，任意页面落地都能捕获；自荐在 spend 时清除存储而非忽略，避免用户点自己的链接测试后永久占住唯一的绑定名额 |
-| 8.4 | `claimReferralReward()` 无 UI | **已修**。`ReferralPanel` 读 `claimableReferral`，连接钱包即显示（佣金为零也显示，否则用户找不到自己的链接） |
-| 8.5 | `hook.launch()` 无 UI | **已修**。`AwaitingLaunchPanel` 提供 creator 专属入口，并明示不开盘则 7 天后全员退款 |
-| 8.6 | 相位在「软顶达成未开盘」时错切 | **已修**。新增 `awaiting-launch` 相位；出资面板改为只看窗口不看软顶，超额认购时显示提示但不关闭入口 |
-| 8.9 | 105% 门控让 5% 溢价对消 | **作为设计接受**。产品方确认这正是货架追踪市价的机制。行为由 `test_sweepIsProfitableOnceTheMarketHasRunAhead` 钉住。量化精度仍不足，见 8.7 |
-| 8.16 | `ToshToken` 注释说供应渐近 | **已修**。离散阶梯 4000 × 3,150 精确可清空，总供应可真正到达 21M，注释已改写 |
-| 8.17 | `ToshToken` natspec 停留在 v4.0 | **已修**。整段重写。同时**删除了 `renounceMinterRole()`**：`MINTER_ROLE` 只属于 hook，而 hook 无任何调用它的代码路径，也无 delegatecall / 任意调用转发，所以部署后无人能触发——原测试通过仅因 `vm.prank(address(hook))` 伪造调用者。一个有文档、有测试背书、实际不存在的安全控制比没有更危险。替换为 `test_token_minterSetIsFrozenAtOneAddress`，验证 `DEFAULT_ADMIN_ROLE` 槽位空置导致铸造者集合永久冻结。**铸币权不可迁移 / 无代理是故意的 Immutable Pact**：逻辑缺陷不能靠换 v5.1 Hook 补救，未售完阶梯永远无法二次铸出。已在 `ToshToken` natspec、README、发射页《Immutable Pact》高亮声明 |
-| 8.18 | README 停留在 v3.4 | **已修**。整份重写为 v5.0 |
-| 8.19 | 发射台写 98% | **已修**，改为 99% |
-| 8.26 | PoG 命名不统一 | **并入 8.15**，统一为 Proof-of-Gas |
-| 8.27 | `useTosh` slot 注释矛盾 | **已修**，注释改为 `Slot A: createLaunch` |
-| — | `LiquidityPanel` 不可达 | **本文档原本漏报**。它挂在 `ProjectTerminal` 的 `full` 变体里，而唯一调用点传的是 `action-only`，导致整个加/撤流动性功能用户点不到。已移入实际渲染的分支，并删除不可达的 `full` 变体（259 行） |
-| 8.1 (新) | `launch()` 必须等满窗口 | **保持**。和「窗口内一直可投、无硬顶」自洽。`/launch` 时长选择器旁加了警示，确认勾选也写明窗口不会因软顶提前结束 |
-| 8.2 (新) | 交易税按 specified 侧路由 | **已闭环**。exact-input 仍在 `beforeSwap` 抽 input；exact-output 在 `afterSwap` 对 unspecified input 补齐 Delta（掩码 `0x20C8` → `0x20CC`）。买单无论怎么构造都把 1.0% 的 ETH 抽走（70 bps 进国库 + 30 bps 进平台），卖单都烧币。`test_buyTax_exactOutputSkimsEthNotTokens` / `test_sellTax_exactOutputBurnsTokensNotEth` |
-| 8.3 (新) | `pogQuota` 只上调不下调 | **保持**。风控收紧不追溯。README 与 `registerPoG` natspec 已写明：调低 `maxPogAllocationLimit` 不回收已登记额度 |
-| 8.4 (新) | `registerPoG` 不检查黑名单 | **已修**。与 `deposit` 对齐，被拉黑钱包无法注册或提升额度。`test_registerPoG_rejectsBlacklisted` |
-| 8.5 (新) | 平台暂停覆盖不到 hook 与池子 | **接受，后经 D3 部分修订**。`pause()` 覆盖面维持不变，「已发射项目的交易、领取、退款不可被平台干预」仍然成立；但 D3 新增了一个**只停阶梯铸造、7 天自动失效、可按项目分域**的独立刹车，用于货架定价本身出缺陷时的事故响应。`INCIDENT_RESPONSE.md` 需同步这条新边界 |
-| 8.6 (新) | `refundEnabled` 只写不读 | **保持代码，改注释**。明确为事件去重标记，权威状态是 `canRefund()` |
-| 8.7 (新) | 货架套利窗口无量化保护 | **已钉**。`test_sweepIsProfitableOnceTheMarketHasRunAhead` 上界从 `2×` 收紧到 `1.5×`。`ExceedsTierRemaining` 错误注释改为指向 `maxMintable()` |
-| 8.8 (新) | 开盘初期 TWAP 退化为纯 spot | **已闭环**。`span < TWAP_WINDOW`（含 `twap == 0`）时 `_safeReferencePrice = min(spot, p0)`，两步脉冲最多顶开货架 0。`test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` |
-| 8.9 (新) | hook 余尘无清扫路径 | **保持无清扫口**（与国库单向阀同一取舍），补量级断言：ETH 余尘 `< 0.001 ether`，代币余尘 `< 1e18` |
-| 8.10 (新) | 顺风车每次固定 1 ETH | **改为按余额 10% 投放，1 ETH 下限**。`SPEND_BPS = 1000`。`test_piggyback_spendsTenPercentOnceThePotIsFull` |
-| 8.11 (新) | 回购策展是 owner 单点 | **接受，靠治理**。部署脚本已强制 owner 是 Safe 且两步移交。`INCIDENT_RESPONSE.md` 写入策展政策：FIFO 挂牌、`removeLadderToken` 只用于敌对或损坏池 |
-| 8.12 (新) | LP 撤出滑点建立在滞后价格上 | **容差用户可调，默认 1%**。`LiquidityPanel` 提供 0.5 / 1 / 2 / 5% 四档 |
-| 8.13 (新) | 链上地址与 chainId 写死在源码 | **拆开**。`POOL_MANAGER` 保持硬编码（错的会静默 mis-CREATE2）；`POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` / `NEXT_PUBLIC_CHAIN_ID` 走环境变量，fallback 为 Base Sepolia |
-| 8.14 (新) | 冷却期与额度窗口是同一旋钮 | **拆成两个独立参数**。`cooldownDuration` 管 per-(wallet, hook) 再存款冷却；`quotaWindowDuration` 管 PoG 额度窗口。`= 0` 时额度退化为终身预算，只影响第二个旋钮 |
-| 8.15 (新) | PoG 命名不统一 | **统一为 Proof-of-Gas**。合约 natspec、README、前端一致 |
-| 8.26 | PoG 命名不统一 | 并入 8.15，已关闭 |
+| 8.1 | `projectTreasury` is pure metadata | **Keep the code, fix the doc**. It is a member of the CREATE2 constructor tuple, so renaming or removing it would invalidate every salt already mined (so would editing a comment — see 8.13), and the economic gain would be zero. The natspec now states plainly that "this address never receives funds; for the money, look at `projectAdmin` and `ladderTreasury`" |
+| 8.2 | `platformTreasury` has no fund flow either | **Closed — but not by documentation, by giving it a fund flow.** The original disposition was "fix the doc": mark it as v4.x legacy and off the money path in five places — the `ToshFactory` natspec, `.env.example`, `.env.production.example`, the admin panel heading, and `INCIDENT_RESPONSE.md`. This field now collects 0.30% of the ETH input of every buy (`PLATFORM_SWAP_FEE_BPS`), which is the platform's maintenance revenue, so **all five of those notes have been reverted**; it is no longer a legacy field. Follow-on disposition: since a mutable fee recipient is precisely audit item M-2, `setPlatformTreasury` and `TreasuryUpdated` have been deleted, the field is now `immutable`, and it shares a source with the hook implementation's `platformFeeRecipient`. See §2.2.5.1 |
+| 8.3 | Referrer hard-coded to the zero address | **Fixed**. New `soat-frontend/src/lib/useReferral.ts`: `?ref=` validation + checksumming + localStorage first-write-wins; `<ReferralCapture/>` is mounted in the root layout, so a landing on any page captures it; a self-referral clears the stored value at spend time rather than being ignored, so a user who tests their own link does not permanently occupy their one binding slot |
+| 8.4 | `claimReferralReward()` has no UI | **Fixed**. `ReferralPanel` reads `claimableReferral` and shows as soon as a wallet is connected (shown even at zero commission, otherwise users cannot find their own link) |
+| 8.5 | `hook.launch()` has no UI | **Fixed**. `AwaitingLaunchPanel` gives the creator a dedicated entry point and states plainly that if they do not launch, everyone is refunded after 7 days |
+| 8.6 | The phase switches wrongly at "soft cap met, not yet launched" | **Fixed**. New `awaiting-launch` phase; the contribution panel now looks only at the window, not at the soft cap, and on oversubscription shows a notice without closing the entrance |
+| 8.9 | The 105% gate cancels out the 5% premium | **Accepted as designed**. Product confirmed that this is exactly the mechanism by which the shelf tracks the market price. The behaviour is pinned by `test_sweepIsProfitableOnceTheMarketHasRunAhead`. The quantitative precision is still not there — see 8.7 |
+| 8.16 | `ToshToken` comments say supply is asymptotic | **Fixed**. The discrete ladder, 4000 × 3,150, clears exactly, so total supply can genuinely reach 21M; the comment has been rewritten |
+| 8.17 | `ToshToken` natspec still at v4.0 | **Fixed**. Rewritten wholesale. **`renounceMinterRole()` was deleted at the same time**: `MINTER_ROLE` belongs solely to the hook, and the hook has no code path that calls it, no delegatecall and no arbitrary-call forwarding, so once deployed nobody can trigger it — the original test passed only because `vm.prank(address(hook))` forged the caller. A safety control that is documented, backed by a test, and does not actually exist is more dangerous than none. It is replaced by `test_token_minterSetIsFrozenAtOneAddress`, which verifies that the vacant `DEFAULT_ADMIN_ROLE` slot freezes the minter set permanently. **Minting rights being non-migratable and un-proxied is a deliberate Immutable Pact**: a logic flaw cannot be patched by swapping in a v5.1 Hook, and an unsold ladder can never be minted a second time. Declared prominently in the `ToshToken` natspec, in the README, and in the "Immutable Pact" callout on the launch page |
+| 8.18 | README still at v3.4 | **Fixed**. Rewritten wholesale for v5.0 |
+| 8.19 | The launchpad says 98% | **Fixed**, changed to 99% |
+| 8.26 | PoG naming is inconsistent | **Merged into 8.15**, standardised on Proof-of-Gas |
+| 8.27 | `useTosh` slot comments contradict each other | **Fixed**, the comment now reads `Slot A: createLaunch` |
+| — | `LiquidityPanel` is unreachable | **This document originally failed to report it**. It hangs off the `full` variant of `ProjectTerminal`, while the only call site passes `action-only`, which made the entire add/remove-liquidity feature unclickable for users. It has been moved into the branch that actually renders, and the unreachable `full` variant (259 lines) deleted |
+| 8.1 (new) | `launch()` has to wait out the full window | **Kept**. Consistent with "deposits stay open for the whole window, with no hard cap". A warning has been added beside the duration picker on `/launch`, and the confirmation checkbox also states that the window will not end early on reaching the soft cap |
+| 8.2 (new) | Trade tax routes on the specified side | **Loop closed**. exact-input still skims the input in `beforeSwap`; exact-output tops up the Delta on the unspecified input in `afterSwap` (mask `0x20C8` → `0x20CC`). However a buy is constructed, 1.0% of the ETH is skimmed away (70 bps to the treasury + 30 bps to the platform), and every sell burns tokens. `test_buyTax_exactOutputSkimsEthNotTokens` / `test_sellTax_exactOutputBurnsTokensNotEth` |
+| 8.3 (new) | `pogQuota` only ratchets up, never down | **Kept**. Tightening risk controls is not retroactive. The README and the `registerPoG` natspec now say so: lowering `maxPogAllocationLimit` does not claw back quota already registered |
+| 8.4 (new) | `registerPoG` does not check the blacklist | **Fixed**. Aligned with `deposit`; a blacklisted wallet can neither register nor raise its quota. `test_registerPoG_rejectsBlacklisted` |
+| 8.5 (new) | Platform pause does not reach the hook or the pool | **Accepted, later partly revised by D3**. The reach of `pause()` is unchanged, and "trading, claiming and refunding on a launched project cannot be interfered with by the platform" still holds; but D3 adds a separate brake that **only stops ladder minting, expires automatically after 7 days, and can be scoped per project**, for incident response when shelf pricing itself turns out to be defective. `INCIDENT_RESPONSE.md` needs to pick up this new boundary |
+| 8.6 (new) | `refundEnabled` is written but never read | **Keep the code, fix the comment**. It is now identified as an event-deduplication marker; the authoritative state is `canRefund()` |
+| 8.7 (new) | No quantified protection on the shelf arbitrage window | **Pinned**. The upper bound in `test_sweepIsProfitableOnceTheMarketHasRunAhead` tightened from `2×` to `1.5×`. The comment on the `ExceedsTierRemaining` error now points at `maxMintable()` |
+| 8.8 (new) | Early after launch the TWAP degenerates into pure spot | **Loop closed**. When `span < TWAP_WINDOW` (including `twap == 0`), `_safeReferencePrice = min(spot, p0)`, so a two-step pulse can push open shelf 0 at most. `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` |
+| 8.9 (new) | Hook dust has no sweep path | **Keep it with no sweep** (the same trade-off as the treasury's one-way valve), with magnitude assertions added: ETH dust `< 0.001 ether`, token dust `< 1e18` |
+| 8.10 (new) | The piggyback always spends a flat 1 ETH | **Changed to deploying 10% of the balance, with a 1 ETH floor**. `SPEND_BPS = 1000`. `test_piggyback_spendsTenPercentOnceThePotIsFull` |
+| 8.11 (new) | Buyback curation is a single owner point | **Accepted, handled by governance**. The deploy script already enforces that the owner is a Safe and that handover is two-step. `INCIDENT_RESPONSE.md` records the curation policy: FIFO listing, and `removeLadderToken` used only for hostile or broken pools |
+| 8.12 (new) | LP exit slippage is computed on a lagging price | **Tolerance is user-adjustable, default 1%**. `LiquidityPanel` offers four settings: 0.5 / 1 / 2 / 5% |
+| 8.13 (new) | On-chain addresses and chainId hard-coded in the source | **Split apart**. `POOL_MANAGER` stays hard-coded (a wrong one would silently mis-CREATE2); `POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` / `NEXT_PUBLIC_CHAIN_ID` come from environment variables, falling back to Base Sepolia |
+| 8.14 (new) | The cooldown and the quota window are the same knob | **Split into two independent parameters**. `cooldownDuration` governs the per-(wallet, hook) re-deposit cooldown; `quotaWindowDuration` governs the PoG quota window. At `= 0` the quota degenerates into a lifetime budget, which affects only the second knob |
+| 8.15 (new) | PoG naming is inconsistent | **Standardised on Proof-of-Gas**. Contract natspec, README and frontend all agree |
+| 8.26 | PoG naming is inconsistent | Merged into 8.15, closed |
 
-### 8.26–8.31 —— 红队对抗审查（v5.0 后期）追加
+### 8.26–8.31 — Added by the red-team adversarial review (late v5.0)
 
-以下六条来自一轮以攻击者视角进行的对抗性复查，PoC 全部落在 `test/ToshV5Attack.t.sol`。**没有发现任何盗取用户资金或突破 21M 硬顶的路径**；问题集中在经济设计、治理杠杆，以及文档所声称的与代码实际做的之间的偏差。
+The six items below come from a review pass conducted from an attacker's point of view; every PoC lands in `test/ToshV5Attack.t.sol`. **No path was found that steals user funds or breaks the 21M hard cap**; the findings cluster in the economic design, in governance leverage, and in the gap between what the documentation claims and what the code actually does.
 
-| 编号 | 条目 | 处置 |
+| Number | Item | Disposition |
 |---|---|---|
-| 8.26 (红队) | **「阶梯开盘即锁」是 1 wei 的掷硬币** | **已修**。natspec 称 Phase-2 开盘完全关闭，但 `shelfP0` 与 `ceiling` 是同一个 `(x * 10500) / 10000` 表达式分别作用于 `p0` 与 `min(spot, p0)`，闸门用严格 `>`，货架 0 正好坐在边界上——放不放行取决于 spot 经 `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken` 往返截断后落在 `p0` 哪一侧，而那取决于**募资额**：扫 1–24 ETH，只有 10 ETH 那档是开着的，原测试恰好只跑了一个募资额。修法是 `launch()` 主动盖 `lastSwapBlock`，复用同区块锁把开盘区块整个关掉——对所有募资额确定成立，买家损失的只是一个区块，且不动定价代数。连带修正：`maxMintable()` 原先不看同区块锁，会报出下一笔调用必然拒绝的数量。`test_ladderOpensLockedAtLaunch_acrossRaiseSizes` / `test_probeA_shelfZeroInLaunchBlock` |
-| 8.27 (红队) | **`setMaxPogAllocationLimit(0)` 锁死全站发射** | **已修**。该值快照进每个新 hook 的构造函数，而构造函数 `require(_perWalletCap > 0)`，所以归零会让 CREATE2 构造 revert、`createLaunch` 对**每一个** creator 以 `DeployFailed` 报废——出自一个文档写着「只影响新项目」的开关，且签名与事件里都看不出这一点。现加 `InvalidPogLimit` 拒绝零值，失败暴露在治理调用处而不是每个 creator 的交易里。前端同步拦截并把「0 = 冻结注册」的错误文案换掉。`test_probeK_zeroPogLimitBricksCreateLaunch` |
-| 8.28 (红队) | **推荐返佣可用第二个钱包自我农场** | **已修（缓解）**。`_recordReferral` 原本只挡 `referrer == user`，而 natspec 声称这阻止了「任何人农自己的 10%」。一个地址的深度：换个自己的小号即可，且那个小号不需要额度、不需要出资、不需要任何历史——这不是推荐计划，是给知情者的一个 10% 暗折，由只有不知情者才会缴的孤儿佣金买单。现要求 `pogQuota[referrer] > 0`。**这挡不住铁了心的女巫**（推荐人本质就是个地址，链上做不到），它把判断挪到唯一能判断的地方：PoG 预言机。详见 §2.2.8。`test_probeJ_referralSelfFarmViaSecondWallet` |
-| 8.29 (红队) | **TWAP 深度即 `TWAP_WINDOW`** | **已缓解（参数）**。见 §5.1 的 ⚠️ 8.29 与 8.30。`TWAP_WINDOW` 600 → 1800；`twapSqrtPriceX96()` 未满窗口返回 0，与 `_safeReferencePrice` 口径对齐。**无结构性解**——要更深必须上环形缓冲，见 §11 待决策 D4 |
-| 8.30 (红队) | **国库「单向阀」管的是保管权，不是受益人** | **已缓解**。`ToshLadderTreasury` 声称「owner、hook、工厂谁都无法转走一个 wei」——这句话为真，但极易被读成关于受益人的声明。资金确实被销毁，但 owner 可以用 `removeLadderToken` 把挂牌列表收窄到一个代币，从而把全部买压指向自己持有的盘口，把国库当作价格支撑使用。`perToken` 原为 `spend / count`，窄名单会拿到**同样一张支票的浓缩**；现改为 `spend / BATCH_SIZE`，稳态（≥3 个挂牌）行为完全不变，只在被人为收窄的列表上生效。需要说清的是：该池深下真正的限流器是 `_buybackSqrtFloor`——储备再大，单腿也只能把价格推到 TWAP 下限就停止成交，除数是它背后的纵深防御。（8.33 把每次 poke 的腿数降到 1 之后，投放同样多的 ETH 需要三倍的 poke 次数，但每腿的额度与这条下限都没变，所以这里的结论不受影响。）natspec 与 admin 面板文案均已诚实化。**未加时间锁**，见 §11 待决策 D2。`test_probeL_ownerDirectsEntireReservoirAtOneMarket` |
-| 8.31 (红队) | **同一代币可开无 hook 平行池** | **无链上解，改文档**。V4 只对指名自己的池子发言，`beforeInitialize` 只能挡绑定本 hook 的池。任何人都能给同一个 ERC-20 开无 hook 的 ETH/token 池，绕过 1.0% 税、不喂预言机、不供回购；代币是无 transfer hook 的普通 ERC-20，合约层无从阻止，也没有尝试阻止。**真正要记住的不是漏掉的税**，而是 `_safeReferencePrice` 是**单场地**的——它只读本池。流动性外迁会削薄反尖刺闸门所依据的那本盘口，从而降低撬动它的成本。创世仓位永久锁在本池，这才是本池保持最深的原因，也才是参考价有意义的原因。`test_probeH_hooklessParallelPool` |
+| 8.26 (red team) | **"The ladder is locked at launch" is a 1-wei coin flip** | **Fixed**. The natspec says Phase 2 is fully closed at launch, but `shelfP0` and `ceiling` are the same `(x * 10500) / 10000` expression applied to `p0` and to `min(spot, p0)` respectively, the gate uses a strict `>`, and shelf 0 sits exactly on the boundary — whether it opens depends on which side of `p0` spot lands on after the round-trip truncation through `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken`, and that depends on **the amount raised**: sweeping 1–24 ETH, only the 10 ETH point was open, and the original test happened to run exactly one raise size. The fix is for `launch()` to stamp `lastSwapBlock` itself, reusing the same-block lock to close the launch block outright — which holds for every raise size, costs the buyer nothing but one block, and leaves the pricing algebra untouched. Consequential fix: `maxMintable()` previously ignored the same-block lock and would report a quantity that the next call was certain to reject. `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` / `test_probeA_shelfZeroInLaunchBlock` |
+| 8.27 (red team) | **`setMaxPogAllocationLimit(0)` bricks launches platform-wide** | **Fixed**. The value is snapshotted into every new hook's constructor, and that constructor does `require(_perWalletCap > 0)`, so zeroing it makes the CREATE2 construction revert and scraps `createLaunch` with `DeployFailed` for **every single** creator — out of a switch documented as "affects new projects only", and with nothing in either the signature or the event to reveal it. `InvalidPogLimit` now rejects zero, so the failure surfaces at the governance call rather than inside every creator's transaction. The frontend blocks it in parallel and has replaced the "0 = freeze registration" error copy. `test_probeK_zeroPogLimitBricksCreateLaunch` |
+| 8.28 (red team) | **Referral commission can be self-farmed with a second wallet** | **Fixed (mitigated)**. `_recordReferral` only blocked `referrer == user`, while the natspec claimed this prevented "anyone from farming their own 10%". That is one address deep: use a second wallet of your own, and that wallet needs no quota, no contribution and no history whatsoever — this is not a referral programme, it is a 10% secret discount for insiders, paid for by the orphaned referral commission that only the uninformed hand over. It now requires `pogQuota[referrer] > 0`. **This does not stop a determined sybil** (a referrer is fundamentally just an address, and the chain cannot tell), but it moves the judgement to the only place that can make it: the PoG oracle. See §2.2.8. `test_probeJ_referralSelfFarmViaSecondWallet` |
+| 8.29 (red team) | **TWAP depth is exactly `TWAP_WINDOW`** | **Mitigated (by parameter)**. See ⚠️ 8.29 and 8.30 in §5.1. `TWAP_WINDOW` 600 → 1800; `twapSqrtPriceX96()` returns 0 on an unfilled window, matching the `_safeReferencePrice` convention. **There is no structural fix** — going deeper requires a ring buffer; see pending decision D4 in §11 |
+| 8.30 (red team) | **The treasury's "one-way valve" governs custody, not beneficiaries** | **Mitigated**. `ToshLadderTreasury` claims that "neither the owner, nor the hook, nor the factory can move a single wei out" — that sentence is true, but it is very easily read as a claim about beneficiaries. The funds really are burned, but the owner can use `removeLadderToken` to narrow the listing down to a single token and thereby point all of the buy pressure at a book they hold, using the treasury as price support. `perToken` used to be `spend / count`, so a narrow list would receive **the same cheque, concentrated**; it is now `spend / BATCH_SIZE`, which leaves steady-state behaviour (≥3 listings) completely unchanged and bites only on an artificially narrowed list. What needs saying clearly: at that pool depth the real rate limiter is `_buybackSqrtFloor` — however large the reserve, a single leg can only push the price as far as the TWAP floor before it stops filling, and the divisor is the defence in depth behind it. (After 8.33 cut legs per poke to 1, deploying the same amount of ETH takes three times as many pokes, but neither the per-leg allowance nor this floor changed, so the conclusion here is unaffected.) The natspec and the admin panel copy have both been made honest. **No timelock was added** — see pending decision D2 in §11. `test_probeL_ownerDirectsEntireReservoirAtOneMarket` |
+| 8.31 (red team) | **The same token can be given a hookless parallel pool** | **No on-chain fix; documentation changed**. V4 only speaks for pools that name it, and `beforeInitialize` can only block pools bound to this hook. Anyone can open a hookless ETH/token pool on the same ERC-20, bypassing the 1.0% tax, feeding nothing to the oracle and supplying nothing to the buyback; the token is a plain ERC-20 with no transfer hook, so the contract layer has no way to prevent this, and does not attempt to. **The thing to remember is not the tax that gets away**, but that `_safeReferencePrice` is **single-venue** — it reads this pool and nothing else. Liquidity migrating out thins the very book the anti-spike gate rests on, and so lowers the cost of levering it. The genesis position is locked in this pool forever, which is why this pool stays the deepest, and why the reference price means anything at all. `test_probeH_hooklessParallelPool` |
 
-**低危、已作为现状接受**（均已在代码注释中记录）：143 wei 以下的粉尘 swap 因取整免税（经济上不成立）；1 wei 可买 799,999 wei-token 的铸造取整边缘（不可放大）；砸盘会暂时冻结阶梯直到套利回补（`min(spot, TWAP)` 设计的既定代价）；186 wei-token 的创世残尘（与 8.9 新 同一取舍）。
+**Low severity, accepted as they stand** (all recorded in code comments): dust swaps below 143 wei escape the tax through rounding (not economically viable); the minting rounding edge where 1 wei buys 799,999 wei-token (not amplifiable); a dump temporarily freezes the ladder until arbitrage fills it back in (the settled cost of the `min(spot, TWAP)` design); 186 wei-token of genesis residue (the same trade-off as 8.9 (new)).
 
-**经受住攻击的防御**：国库回购的原子三明治（`_buybackSqrtFloor` 使国库总是在攻击者砸盘**之后**买入而非之前）；供应硬顶闭合且精确；hook 权限掩码 `0x20CC` 正确；`refund()` 与 `launch()` 互斥；CEI 与重入防护（OZ `nonReentrant` + V4 unlock 模式）稳固。
+**Defences that held up under attack**: the atomic sandwich around the treasury buyback (`_buybackSqrtFloor` means the treasury always buys **after** the attacker's dump, never before); the supply hard cap closes and is exact; the hook permission mask `0x20CC` is correct; `refund()` and `launch()` are mutually exclusive; CEI and the reentrancy guards (OZ `nonReentrant` + the V4 unlock pattern) are solid.
 
-### 8.32–8.34 —— gas 成本复查追加
+### 8.32–8.34 — Added by the gas cost review
 
-以下三条来自一轮以「用户实际付多少、会不会白付」为目标的复查。8.32 是本轮唯一的**正确性缺陷**，另两条是纯成本项。
+The three items below come from a review pass aimed at "what does the user actually pay, and can they end up paying it for nothing". 8.32 is the only **correctness defect** in the round; the other two are pure cost items.
 
-| 编号 | 条目 | 处置 |
+| Number | Item | Disposition |
 |---|---|---|
-| 8.32 | **顺风车会把推过阈值的那笔交易搞挂** | **已修**。买入税在 `beforeSwap` 就 `take` 进国库，所以一笔交易能开始时未武装、到 `afterSwap` 时已武装——被收费跑回购的恰恰是把储备推过阈值的那一笔，而它按未武装的池子估的 gas。不是概率性的倒霉窗口，而是**每个周期确定性地都有一笔**。`try/catch` 不管用：子调用 OOG 后 63/64 规则只留给外层六十四分之一，走不完 `afterSwap` 加 V4 关帧，交易连同回购一起死。修法是 `PIGGYBACK_MIN_GAS` 余量门控加 `{gas: avail - PIGGYBACK_TAIL_RESERVE}` 硬上限——收尾的份额是**物理扣下的**，不是估出来的，所以一条腿再贵也只会被跳过。代价是活性,由无许可的 `pokeBuyback()` 兜住,并加了 `STATE-06` 轮询。`test_piggybackSkipsRatherThanKillingTheTrade` / `test_piggybackSparesTheTradeThatTipsIt` / `test_pokeBuyback_deploysWithoutASwap` |
-| 8.33 | **一次 poke 三条腿，峰值 579k** | **已修**。见 §4.9：`LEGS_PER_POKE` 拆离 `BATCH_SIZE`，每次一条腿，分仓除数不变。峰值 578,809 → 362,884，每池到账金额不变。`test_gas_piggybackCostPerLeg` |
-| 8.34 | **门控标定过高会静默注销整个搭车机制** | **已修**。`PIGGYBACK_MIN_GAS` 初值 260,000 时，钱包要加 22% buffer 回购才肯上车——超出常规 buffer，机制实际退化成只能靠 `pokeBuyback`。根因是 gas 相关控制流破坏 `eth_estimateGas`：模拟时上限充裕会走回购分支报 333k，真跑时到 poke 点只剩「上限减去已花的 147k」。改到 230,000 后降到 12%。这里的不对称是关键——**订低只是偶尔浪费一次注定失败的 poke，交易永远安全;订高则悄悄注销机制**，所以该往低取。`test_piggybackStillRidesAProperlyEstimatedSwap` 用结构性断言（`MIN_GAS ≤ TAIL_RESERVE + 实测一条腿 + 余量`）而非百分比,因为百分比在两种 gas 记账模式下不可比 |
+| 8.32 | **The piggyback kills the very trade that tips the threshold** | **Fixed**. The buy tax is `take`n into the treasury in `beforeSwap`, so a transaction can begin unarmed and be armed by the time `afterSwap` runs — and the one charged with running the buyback is exactly the one that pushed the reserve over the threshold, having estimated its gas against an unarmed pool. This is not an unlucky probabilistic window; it is **one deterministic transaction every cycle**. `try/catch` does not help: once the sub-call OOGs, the 63/64 rule leaves the outer frame only a sixty-fourth, not enough to finish `afterSwap` plus the V4 frame close, and the trade dies along with the buyback. The fix is a `PIGGYBACK_MIN_GAS` headroom gate plus a hard `{gas: avail - PIGGYBACK_TAIL_RESERVE}` ceiling — the tail's share is **physically withheld**, not estimated, so however expensive a leg gets, all that can happen is that it is skipped. The cost is liveness, which the permissionless `pokeBuyback()` backstops, with `STATE-06` polling added. `test_piggybackSkipsRatherThanKillingTheTrade` / `test_piggybackSparesTheTradeThatTipsIt` / `test_pokeBuyback_deploysWithoutASwap` |
+| 8.33 | **Three legs per poke, peaking at 579k** | **Fixed**. See §4.9: `LEGS_PER_POKE` split off from `BATCH_SIZE`, one leg per poke, sharding divisor unchanged. Peak 578,809 → 362,884, with the amount reaching each pool unchanged. `test_gas_piggybackCostPerLeg` |
+| 8.34 | **A gate calibrated too high silently decommissions the entire piggyback mechanism** | **Fixed**. At the initial `PIGGYBACK_MIN_GAS` of 260,000, a wallet had to add a 22% buffer before the buyback would ride along — beyond a normal buffer, which in practice degraded the mechanism to `pokeBuyback` only. The root cause is that gas-dependent control flow breaks `eth_estimateGas`: in simulation the limit is generous, so the buyback branch is taken and reports 333k, while in the real run only "the limit minus the 147k already spent" is left by the time it reaches the poke. At 230,000 it drops to 12%. The asymmetry here is the point — **setting it too low only occasionally wastes a poke that was doomed anyway, and the trade is always safe; setting it too high quietly decommissions the mechanism**, so err low. `test_piggybackStillRidesAProperlyEstimatedSwap` asserts structurally (`MIN_GAS ≤ TAIL_RESERVE + one measured leg + headroom`) rather than by percentage, because percentages are not comparable across the two gas-accounting modes |
 
-**顺带发现的两个测试缺陷**（不影响合约）：一个确定性测试用 `vm.assume` 掩盖 fixture 攒不够 1 ETH——非 fuzz 测试里 assume 无法重采样，只会硬挂；一个 fuzz 反例 `3150e18 + 1` 切分后尾块只剩 1 wei，成本向下取整成 0 撞上防尘埃守卫,属于**合约正确、测试的分解策略在该输入上无定义**,已收窄定义域而非绕过守卫。
+**Two test defects found along the way** (neither affects the contracts): a deterministic test used `vm.assume` to paper over a fixture that never accumulated 1 ETH — in a non-fuzz test `assume` cannot resample, it can only hang the test outright; and a fuzz counterexample of `3150e18 + 1` left a tail block of just 1 wei after splitting, whose cost rounded down to 0 and hit the anti-dust guard, which is **the contract behaving correctly and the test's decomposition strategy being undefined on that input** — the domain was narrowed rather than the guard bypassed.
 
-**CI 追加**：`forge test --isolate` 作为第二道门。普通模式让 setup 碰过的存储全程预热，后续调用都比链上便宜;两种记账在同一个测试上给出 15% 和 45% 两个数字。已有两个 bug 只有 isolate 能抓到。
-
----
-
-本章第 8.1–8.15 系列已无未决项。红队追加的 8.26–8.31 中，8.29–8.31 保留了**需要产品决策的开放项**，见 §11。gas 复查追加的 8.32–8.34 均已闭环。
+**Added to CI**: `forge test --isolate` as a second gate. In normal mode any storage the setup touched stays warm for the whole run, so every later call is cheaper than it would be on chain; the two accounting modes give 15% and 45% for the same test. Two bugs so far were catchable only under isolate.
 
 ---
 
-## 11. 决策记录（Decision Record）
-
-以下四条不是缺陷，是**产品方已经拍板的取舍**。本节记录的是决定本身、理由、落地位置，以及**什么条件下应当重新审视**——最后一项尤其重要：一个没写下重审条件的决定，等于把当时的假设永久化了。
-
-四条均于 v5.0 红队复查后一次性定稿。D1 与 D3 改变了代码，D2 与 D4 是明确的「维持现状」——**「维持现状」也是一个决定，不是没有决定**，所以同样立此存照。
-
-**观察责任（PM-E6，2026-09-08）：** 四条的重审条件由 Deployer / Primary Operator 盯着。不另设岗位。命名观察者不是已经观察过；重审条件本身未改。
+The 8.1–8.15 series in this chapter has no open items left. Of the red team's additions, 8.26–8.31, items 8.29–8.31 retain **open questions that need a product decision** — see §11. The gas review's additions, 8.32–8.34, are all closed.
 
 ---
 
-### D1 · 参数固化：接受 24.9% 的早期放量
+## 11. Decision record
 
-**决定：固化【2000× 跨度 / 4000 档 / 等量平均分配 / 8.4M 创世 + 12.6M 货架】，不再继续压早期放量。**
+The four items below are not defects; they are **trade-offs that product has already ruled on**. What this section records is the decision itself, the reasoning, where it lands, and **the conditions under which it should be revisited** — that last one above all: a decision with no revisit condition written down has made the assumptions of the day permanent.
 
-| 参数 | 定值 |
+All four were settled in one pass after the v5.0 red-team review. D1 and D3 changed code; D2 and D4 are explicit decisions to hold the current behaviour — **"hold" is a decision, not the absence of one**, so it is placed on the record here just the same.
+
+**Ownership of the watch (PM-E6, 2026-09-08):** the revisit conditions for all four are watched by the Deployer / Primary Operator. No separate role is created. Naming a watcher is not the same as having watched; the revisit conditions themselves are unchanged.
+
+---
+
+### D1 · Parameter freeze: accepting a 24.9% early release
+
+**Decision: freeze [2000× span / 4000 tiers / equal flat allocation / 8.4M genesis + 12.6M shelf], and stop pushing the early release down any further.**
+
+| Parameter | Fixed value |
 |---|---|
-| `GENESIS_SUPPLY` | 8,400,000e18（Claim 4.62M + LP 3.78M） |
+| `GENESIS_SUPPLY` | 8,400,000e18 (Claim 4.62M + LP 3.78M) |
 | `BONDING_MAX` | 12,600,000e18 |
 | `TIER_COUNT` | 4000 |
-| `TIER_SIZE` | 3,150e18（每档等量） |
+| `TIER_SIZE` | 3,150e18 (equal per tier) |
 | `TIER_STEP_E18` | 1,001,902,508,266,805,824 |
 | `MAX_TIERS_PER_TX` | 32 |
 
-**接受的代价，说清楚：** 2× 时释放 1,149,750 枚。对 `GENESIS_SUPPLY` 是 13.7%，对**可交易认领盘**是 24.9%，对释放后总流通盘是 19.9%（三个口径见 §3.1 与 §3.4）。最初提出的目标是流通盘 ~10%，**这个目标没有达成，且决定不再追**。
+**The cost, stated plainly:** at 2×, 1,149,750 tokens are released. That is 13.7% of `GENESIS_SUPPLY`, 24.9% of the **tradable claim float**, and 19.9% of total circulating float after the release (§3.1 and §3.4 define all three measures). The target originally proposed was ~10% of the float; **that target was not met, and the decision is to stop chasing it**.
 
-**理由：** 40/60 拆分把 36.5% 压到 13.7% 是同口径下的真实改进，剩下的差距只能靠加大跨度或再缩 Phase 2 来补，而两者都比它们修的问题更糟——等量档位下释放比例是 `log(R) / log(SPAN)`，跨度对早期的边际作用是对数级的（1000×→2000× 只把 2× 释放从 36.5% 挪到 34.9%，真正起作用的是切分），代价却是整条中后期曲线被拉平；再缩 Phase 2 则会削掉市场唯一能定价的那部分供应，把项目推回「创世盘决定一切」的老问题。
+**Why:** the 40/60 split cutting 36.5% down to 13.7% is a real improvement on a like-for-like measure, and the remaining gap could only be closed by widening the span or shrinking Phase 2 further — both of which are worse than the problem they fix. With equal-sized tiers the release fraction is `log(R) / log(SPAN)`, so the span's marginal effect on the early release is logarithmic (1000×→2000× moves the release at 2× only from 36.5% to 34.9%; the split is what actually does the work), while the cost is that the entire mid-to-late curve gets flattened. Shrinking Phase 2 further would carve into the only supply the market can price, pushing the project back into the old problem where the genesis float decides everything.
 
-**落地：** `test_ratifiedParameterSet_isFrozen` @ `test/ToshV5.t.sol` 把六个字面量钉在一处，作为改动经济模型的**单一闸门**；`test_earlyReleaseSchedule_isSetByTheSupplySplit` 同时钉住三个口径的释放比例，任何一个口径变了都得重述另外两个。
+**Where it lands:** `test_ratifiedParameterSet_isFrozen` @ `test/ToshV5.t.sol` pins the six literals in one place, as the **single gate** on any change to the economic model; `test_earlyReleaseSchedule_isSetByTheSupplySplit` pins the release fraction on all three measures at once, so if any one of them changes the other two have to be restated.
 
-**重审条件：** 若首批真实项目在 2× 附近出现持续的卖压塌陷（即 24.9% 事实上吃不下），或跨度/切分因其他原因需要改动时，一并重开此条。
-
----
-
-### D2 · 国库策展：不加时间锁，依赖多签流程
-
-**决定：`addLadderToken` / `removeLadderToken` 维持 owner 即时生效，不引入 timelock。**
-
-**理由：** 8.30 的两处缓解（`perToken` 除以 `BATCH_SIZE`、`_buybackSqrtFloor` 按窗口限速）已经把「随时把储备抽干砸向单一盘口」降级为「按窗口限速的缓慢倾斜」，剩下的是**治理面而非代码面**的风险。timelock 在这里的收益并不对称：它拦不住一个铁了心的 owner（等 48 小时即可），却会在真正需要紧急摘牌时（比如某个已挂牌项目的池子出了问题、继续回购等于往坏池子里送钱）强制延迟 48 小时。既然 owner 终局是 Safe 多签，多签自身的提案—审批流程已经提供了「改动可见、需要多人同意」这一层，与 timelock 想买的是同一样东西。
-
-**前提（已确认）：** Factory 与 LadderTreasury 的终局 owner 为 **Safe 多签，2/N 或更严格**。**这条决定完全建立在这个前提上**——多签的提案—审批流程就是本决定用来替代 timelock 的那一层保护，前提不成立则决定不成立。
-
-**落地：** 无代码改动。`ToshLadderTreasury` 的 natspec 与 admin 面板 G4 文案已诚实标注「策展不是中立的，它是经济旋钮」。
-
-**重审条件：** ①owner 结构若退化为单 EOA 或 1/N 多签，**必须立即补 timelock**，本决定自动失效；②国库储备规模显著超过单个已挂牌项目的池深时应重审——那时集中度的绝对影响会超过 sqrt 地板的限速能力；③所有权移交完成后，应在 `INCIDENT_RESPONSE.md` 记录实际的 N 与阈值，使前提可被审计而不是口头相传。
+**Revisit if:** the first real projects show sustained sell-pressure collapse around 2× (that is, the 24.9% turns out to be more than the market can absorb), or the span or the split has to change for some other reason — in which case reopen this item along with it.
 
 ---
 
-### D3 · 协议级熔断：新增有界的阶梯停售开关
+### D2 · Treasury curation: no timelock, rely on the multisig process
 
-**决定：新增 `haltLadderMinting` / `resumeLadderMinting`，这是唯一一个能触及已开盘项目的平台刹车。此条修订 §8.5 (新) 记录的「已发射项目完全不可被平台干预」承诺。**
+**Decision: `addLadderToken` / `removeLadderToken` stay owner-controlled and effective immediately; no timelock is introduced.**
 
-**为什么开这个口子：** `pause()` 有意不停任何已开盘项目，这条边界是平台的核心承诺，但它留下了一个值得关门的缺口——**如果货架定价本身被发现有缺陷，每一个在跑的项目都会继续按那个缺陷卖出供应，而唯一的应对手段是好言相劝**。这不是理论风险：本轮红队就在定价闸门上找到了 8.26（开盘锁是掷硬币）。
+**Why:** the two mitigations from 8.30 (`perToken` divided by `BATCH_SIZE`, and `_buybackSqrtFloor` rate-limiting per window) have already downgraded "drain the reserve at will into a single book" to "a slow tilt, rate-limited per window", and what remains is a **governance-surface risk, not a code-surface one**. A timelock buys nothing symmetric here: it does not stop a determined owner (who simply waits 48 hours), but it does force a 48-hour delay exactly when an emergency delisting is genuinely needed (say a listed project's pool has gone wrong and continuing to buy back means sending money into a broken pool). And since the owner ends up as a Safe multisig, the multisig's own propose-and-approve flow already provides the layer of "changes are visible and need several people to agree" — which is the same thing a timelock is bought for.
 
-**为什么它没有变成一个否决权：** 三条性质把新增的信任假设约束成有界的：
+**Premise (confirmed):** the final owner of both the Factory and the LadderTreasury is a **Safe multisig, 2/N or stricter**. **This decision rests entirely on that premise** — the multisig's propose-and-approve flow is the protection this decision substitutes for a timelock, and if the premise does not hold, neither does the decision.
 
-1. **只触及 `mintBondingCurve`，别无其他。** 池子 swap、散户 LP、`claimGenesis`、`claimReferralReward`、`refund` 全部不受影响。**停售能让买家损失一个机会，永远不能让任何人损失一笔余额**——没有任何用户资金会被它扣住。
-2. **它会自己过期。** 每次停售携带一个不超过 `MAX_HALT_DURATION`（7 天）的截止时间。一个变坏的、被攻陷的、或者干脆消失了的 owner **无法永久锁死 Phase 2**，最坏情况是一个必须每周在链上公开续期一次的滚动停售。这是「破窗锤」与「杀死开关」的区别，也是新信任假设有界而非绝对的原因。
-3. **它是可分域的。** `hook == address(0)` 停全部，任何其他地址只停那一个项目，单个出问题的市场不需要把全平台的 Phase 2 拖下水。
+**Where it lands:** no code change. The `ToshLadderTreasury` natspec and the G4 copy in the admin panel now note honestly that "curation is not neutral; it is an economic knob".
 
-**为什么是独立开关而不是并进 `pause()`：** 合并会悄悄拓宽「paused」这个词对每一个读者和每一个既有测试的含义。两个刹车回答的是不同问题——`pause()` 阻止平台**生长**，这个阻止阶梯**售卖**。
-
-**落地：** `ToshFactory.haltLadderMinting` / `resumeLadderMinting` / `ladderMintingHalted`；hook 侧 Guard 0 与 `LadderMintingHalted` 错误；`maxMintable()` 同步读取，保证 UI 与闸门口径一致；admin 面板新增对应模块。
-
-**重审条件：** 若上线一年内从未使用，应重新评估它是否值得继续承担这份信任假设。反之若被使用超过一次，说明货架定价需要的是修复而不是刹车。
+**Revisit if:** ① the owner structure degrades to a single EOA or a 1/N multisig — **a timelock must be added immediately** and this decision lapses automatically; ② the treasury reserve grows substantially beyond the pool depth of any single listed project — at that point the absolute effect of concentration outgrows what the sqrt floor can rate-limit; ③ once the ownership handover is complete, the actual N and threshold should be recorded in `INCIDENT_RESPONSE.md`, so that the premise can be audited rather than passed along by word of mouth.
 
 ---
 
-### D4 · TWAP 深度：维持 1800s 两检查点，不上环形缓冲
+### D3 · Protocol-level circuit breaker: a new bounded ladder halt switch
 
-**决定：`TWAP_WINDOW` 保持 1800 秒，不改造成完整环形缓冲。**
+**Decision: add `haltLadderMinting` / `resumeLadderMinting`, the one and only platform brake that can reach a launched project. This revises the promise recorded in §8.5 (new) that "a launched project cannot be interfered with by the platform at all".**
 
-**接受的代价，说清楚：** 预言机的操纵深度**就等于** `TWAP_WINDOW`。攻击者把价格顶住 30 分钟再用灰尘 swap 触发检查点滚动，均价即收敛到操纵价（§8.29，`test_probeB_twapReanchorSpeed` 钉住了这个行为）。1800s 相对原先 600s 把这份持仓成本翻了三倍，但它是**提价，不是变形**。
+**Why open this door at all:** `pause()` deliberately stops no launched project, and that boundary is a core platform promise, but it left a gap worth closing — **if shelf pricing itself is found to be defective, every running project keeps selling supply through that defect, and the only remedy available is polite persuasion**. This is not a theoretical risk: this red-team round found 8.26 (the launch lock is a coin flip) in the pricing gate itself.
 
-**理由：** 完整环形缓冲能把深度与单笔成本解耦，代价是一次不小的重写，且把 gas 从「每窗口一次冷 SSTORE」推回接近「每笔 swap 一次」——这笔成本由**每一个诚实交易者**承担，用来防一个必须先自掏腰包把价格顶住半小时、且顶完还要面对 105% 溢价才能铸造的攻击者。继续加大 `TWAP_WINDOW` 则是零工程量的线性提价，但会同步拖慢**真实**上涨的市场打开阶梯的速度，30 分钟已接近这个取舍的拐点。
+**Why it did not turn into a veto:** three properties keep the new trust assumption bounded:
 
-**落地：** 无代码改动。`TWAP_WINDOW` 的 natspec 已明写「这个常数就是预言机的全部纵深，把它读作价格而不是保证」。
+1. **It touches `mintBondingCurve` and nothing else.** Pool swaps, retail LPs, `claimGenesis`, `claimReferralReward` and `refund` are all unaffected. **A halt can cost a buyer an opportunity; it can never cost anyone a balance** — no user funds are ever withheld by it.
+2. **It expires on its own.** Every halt carries a deadline no further out than `MAX_HALT_DURATION` (7 days). An owner who turns bad, is compromised, or simply disappears **cannot lock Phase 2 shut permanently**; the worst case is a rolling halt that has to be renewed publicly on chain once a week. That is the difference between a break-glass hammer and a kill switch, and it is why the new trust assumption is bounded rather than absolute.
+3. **It can be scoped.** `hook == address(0)` halts everything; any other address halts only that one project, so a single market gone wrong does not have to drag the whole platform's Phase 2 down with it.
 
-**重审条件：** 若出现一次真实的持价操纵（而非理论推演），或阶梯铸造的经济激励发生变化（例如 `SHELF_PREMIUM_BPS` 下调，使得操纵后铸造真正有利可图）——目前挡住攻击的主力是 105% 溢价而不是预言机，一旦那层保护变薄，这条必须重开。
+**Why a separate switch instead of folding it into `pause()`:** merging them would quietly widen what the word "paused" means to every reader and every existing test. The two brakes answer different questions — `pause()` stops the platform from **growing**; this one stops the ladder from **selling**.
+
+**Where it lands:** `ToshFactory.haltLadderMinting` / `resumeLadderMinting` / `ladderMintingHalted`; Guard 0 and the `LadderMintingHalted` error on the hook side; `maxMintable()` reads it too, so the UI and the gate agree; a corresponding module has been added to the admin panel.
+
+**Revisit if:** it goes unused for a year after launch — then reassess whether it is still worth carrying that trust assumption. Conversely, if it is used more than once, that says shelf pricing needs a fix rather than a brake.
 
 ---
 
-## 附：本文档的取证边界
+### D4 · TWAP depth: keep 1800s and two checkpoints, no ring buffer
 
-- 本文档 §8.26–8.31 与 §11 对应的那轮改动**已执行** `forge build` 与 `forge test`、前端 `npm run build` 与 `npm run lint`（均无错误）。§11 定稿（D1 参数固化 + D3 阶梯停售）后重跑为 250/250 通过；随后补入 `test_ladderHalt_cannotHoldAFailedGenesisHostage` 与 `test_ladderHalt_blocksNeitherLaunchNorPayouts` 两条「停售不得扣押退款/派息」用例，那一轮收在 252/252。此后又经历了有状态不变量套件、EIP-1167 克隆重构与 gas 优化三轮改动，**当前为 303/303 通过**（普通模式与 `--isolate` 各一遍，均为 CI 门禁）。此前章节的断言仍以静态阅读为主。
-- **§8.12 的「pause 覆盖 `deposit`」是被本轮实测推翻的**：`deposit` 只有 `nonReentrant`，没有 `whenNotPaused`。该错误同时存在于 `INCIDENT_RESPONSE.md` §2 Step 2，两处均已修正。这提示本文其余「某函数受某修饰符保护」类断言若未标注测试名，都应视为待核实——**修饰符清单是最容易在重构中悄悄失真的一类文档**。
+**Decision: `TWAP_WINDOW` stays at 1800 seconds; it is not rebuilt into a full ring buffer.**
 
-  **2026-09-05 已系统核实完毕，结论与预期相反**（`SECURITY_AUDIT.md` §5.17）：把
-  `src/` 里 95 个对外可达函数连同其真实修饰符全部列出、逐条对照本文的十一处断言，
-  **修饰符断言全部准确**——`whenNotPaused` 恰好只覆盖 `registerPoG` 与 `createLaunch`、
-  `nonReentrant` 恰好覆盖本文列出的五个 hook 入口与两个工厂入口，`onlySelf` /
-  `onlyHook` / `onlyClone` / `onlyPoolManager` 均在其位。七个改状态而无修饰符的函数
-  也都各有理由：或有 natspec 写明无许可是刻意的（`releaseAbandonedName`、
-  `pokeBuyback`），或带等价的内联校验（`hook.deposit` 与 `ToshToken.initialize` 查
-  `msg.sender != factory`）。
-  **真正腐烂的不是断言，是行号**：本文 108 处 `文件:行号` 引用中，可机械判定的 23 处
-  里有 22 处指错，且一律偏向真实位置**之上**——这是行号对着更短的旧版合约写就、此后
-  从未重新生成的特征。其中两处正是同一天加 `MAX_LAUNCH_FEE` 时挤歪的，所以这种衰减
-  不是历史遗留，而是每次在上方补一段注释就会发生一次。现由
-  `scripts/checkDocLineRefs.mjs` 在 CI 里守住：**当句子在行号旁用反引号点名了函数时，
-  「只有人知道它原本想指什么」就不成立了**，文档已经说出来了。
-- **本条曾列出七个早已不存在的测试文件**（`ToshLaunchpadHook.t.sol`、`ToshFactory.t.sol`、`ToshFactoryCoverage.t.sol`、`ToshHookCoverage.t.sol`、`ToshPauseBlacklist.t.sol`、`ToshIntegration.t.sol`、`ToshFuzz.t.sol`）——测试套件早已合并为 `ToshV5*` 家族，而这份「未读清单」把读者指向了空气。当前实际存在的测试文件共 **10** 个：`ToshV5.t.sol`、`ToshV5Factory.t.sol`、`ToshV5Guards.t.sol`、`ToshV5Attack.t.sol`、`ToshV5Fuzz.t.sol`、`ToshV5Bytecode.t.sol`、`ToshV5Abi.t.sol`、`ToshV5Invariants.t.sol`、`ToshHookClone.t.sol`、`DeployMainnet.t.sol`。其中 `ToshV5Fuzz.t.sol` 与 `DeployMainnet.t.sol` 未通读全文，其余均已按测试名或关键段落核对。
-  - 这份清单本身随后又漂了一次：`ToshV5Invariants.t.sol`（有状态不变量套件）与 `ToshHookClone.t.sol`（EIP-1167 克隆布局与参数往返）都是在它写下之后新增的，而它读起来像一份完备枚举。**同一段文字第二次因为同一个原因失真**，这比第一次更能说明问题——手写的文件清单没有任何机制在文件增删时提醒作者。
-  - **然后它第三次失真了**（2026-09-03）：上面那句"当前实际存在的测试文件共 10 个"写下之后，`ToshV5ArbSys.t.sol`、`ToshV5Fork.t.sol`、`ToshV5LpMathVectors.t.sol` 新增，`ToshV5Bytecode.t.sol` 删除，实际是 **12** 个。**同一段文字，同一个原因，第三次。** 到这里就不该再改数字了——枚举本身才是缺陷。要当前名单请跑：
+**The cost, stated plainly:** the oracle's manipulation depth **is exactly** `TWAP_WINDOW`. An attacker who holds the price up for 30 minutes and then rolls the checkpoint with a dust swap gets the average to converge on the manipulated price (§8.29; `test_probeB_twapReanchorSpeed` pins this behaviour). Going from 600s to 1800s triples the cost of holding that position, but that is **raising the price, not changing the shape**.
+
+**Why:** a full ring buffer would decouple depth from per-transaction cost, at the price of a substantial rewrite and of pushing gas from "one cold SSTORE per window" back to something close to "one per swap" — a cost borne by **every honest trader**, to defend against an attacker who must first fund holding the price up for half an hour out of their own pocket and then, having done so, still face the 105% premium before they can mint. Raising `TWAP_WINDOW` further is a linear price increase with zero engineering, but it equally slows the rate at which a **genuinely** rising market opens the ladder, and 30 minutes is already close to the inflection point of that trade-off.
+
+**Where it lands:** no code change. The `TWAP_WINDOW` natspec now says outright that "this constant is the entire depth of the oracle; read it as a price, not as a guarantee".
+
+**Revisit if:** a real price-holding manipulation occurs (as opposed to a theoretical one), or the economics of ladder minting change (for example `SHELF_PREMIUM_BPS` being lowered, so that minting after a manipulation becomes genuinely profitable) — what actually stops the attack today is the 105% premium, not the oracle, and the moment that layer thins, this must be reopened.
+
+---
+
+## Appendix: evidentiary limits of this document
+
+- The round of changes behind §8.26–8.31 and §11 **has been run** through `forge build` and `forge test`, and the frontend through `npm run build` and `npm run lint` (all clean). After §11 was settled (D1 parameter freeze + D3 ladder halt) the rerun came to 250/250 passing; two cases were then added, `test_ladderHalt_cannotHoldAFailedGenesisHostage` and `test_ladderHalt_blocksNeitherLaunchNorPayouts`, covering "a halt must not hold refunds or payouts hostage", and that round closed at 252/252. Three further rounds of change have happened since — the stateful invariant suite, the EIP-1167 clone refactor, and gas optimisation — and it **currently stands at 303/303 passing** (once in normal mode and once under `--isolate`, both CI gates). Assertions in earlier chapters still rest mostly on static reading.
+- **§8.12's "pause covers `deposit`" was disproved by measurement in this round**: `deposit` carries only `nonReentrant`, not `whenNotPaused`. The same error was present in `INCIDENT_RESPONSE.md` §2 Step 2; both have been corrected. This suggests that every other "function X is protected by modifier Y" assertion in this document should be treated as unverified unless a test name is written beside it — **a modifier list is the kind of documentation that most easily goes quietly false through a refactor**.
+
+  **Systematically verified on 2026-09-05, and the conclusion was the opposite of
+  what was expected** (`SECURITY_AUDIT.md` §5.17): all 95 externally reachable
+  functions in `src/` were enumerated with the modifiers actually attached and
+  checked one by one against the eleven assertions in this document, and
+  **every modifier assertion is accurate** — `whenNotPaused` covers exactly
+  `registerPoG` and `createLaunch`, `nonReentrant` covers exactly the five hook
+  entry points and two factory entry points listed here, and `onlySelf` /
+  `onlyHook` / `onlyClone` / `onlyPoolManager` are all where they are said to
+  be. The seven functions that change state without a modifier each have a
+  reason: either the natspec states that being permissionless is deliberate
+  (`releaseAbandonedName`, `pokeBuyback`), or there is an equivalent inline
+  check (`hook.deposit` and `ToshToken.initialize` test
+  `msg.sender != factory`).
+  **What had actually rotted was not the assertions but the line numbers**: of
+  the 108 `file:line` citations in this document, 23 can be judged
+  mechanically, and 22 of those point to the wrong place — all of them
+  **above** the true position, which is the signature of numbers written
+  against a much shorter, older version of the contracts and never regenerated
+  since. Two of them were knocked out of place on the same day `MAX_LAUNCH_FEE`
+  was added, so this decay is not a historical legacy: it happens once every
+  time a comment is inserted above. `scripts/checkDocLineRefs.mjs` now holds
+  this in CI: **when a sentence names the function in backticks beside the line
+  number, "only a human knows what it meant" no longer applies** — the document
+  has already said it.
+- **This item once listed seven test files that had long since ceased to exist** (`ToshLaunchpadHook.t.sol`, `ToshFactory.t.sol`, `ToshFactoryCoverage.t.sol`, `ToshHookCoverage.t.sol`, `ToshPauseBlacklist.t.sol`, `ToshIntegration.t.sol`, `ToshFuzz.t.sol`) — the test suite had already been consolidated into the `ToshV5*` family, and this "not yet read" list was pointing readers at thin air. The test files that actually exist number **10**: `ToshV5.t.sol`, `ToshV5Factory.t.sol`, `ToshV5Guards.t.sol`, `ToshV5Attack.t.sol`, `ToshV5Fuzz.t.sol`, `ToshV5Bytecode.t.sol`, `ToshV5Abi.t.sol`, `ToshV5Invariants.t.sol`, `ToshHookClone.t.sol`, `DeployMainnet.t.sol`. Of those, `ToshV5Fuzz.t.sol` and `DeployMainnet.t.sol` were not read end to end; the rest have been checked against test names or key passages.
+  - That list then drifted once more on its own: `ToshV5Invariants.t.sol` (the stateful invariant suite) and `ToshHookClone.t.sol` (EIP-1167 clone layout and argument round-tripping) were both added after it was written, and it reads like a complete enumeration. **The same passage went false a second time for the same reason**, which says more than the first time did — a hand-written file list has no mechanism to alert its author when files are added or removed.
+  - **Then it went false a third time** (2026-09-03): after the sentence above saying "the test files that actually exist number 10" was written, `ToshV5ArbSys.t.sol`, `ToshV5Fork.t.sol` and `ToshV5LpMathVectors.t.sol` were added and `ToshV5Bytecode.t.sol` was deleted, so the real count is **12**. **The same passage, the same reason, a third time.** At this point the answer is not to correct the number again — the enumeration itself is the defect. For the current list, run:
 
     ```bash
     ls test/*.t.sol
     ```
 
-    并以 `docs/SECURITY_AUDIT.md` §4 的表格为准（那张表至少列出每个文件的用例数，改动时更难无声漂移）。**本文档此后不再维护测试文件的手写枚举。**
-- 未阅读 `soat-frontend/src/app/admin/page.tsx`（51KB）、`UserDrawer.tsx`（33KB）、`useLaunchData.ts`、`pogQuota.ts`、`apiGuard.ts`、`api/` 下的服务端路由全文——PoG 签发链路与管理后台的细节可能有本文未覆盖的规则。
-- `scripts/` 目录多数脚本（`extractAbis.js`、`pogSigner.ts`、`mineHookSalt.js`、`releaseCompare.js`、`checkEncoding.mjs`、`checkHookMinerTuple.mjs`）未阅读，只从其他文件的引用推断其作用。**"只从引用推断作用"这件事本身出过一次事故**：`extractBytecode.js` 曾在这份清单里，而从引用推断出的结论（"它维护的快照被前端依赖"）是错的，实际无人 import——见 §6.6 关键设计一节的旁注。本条曾列出一个并不存在的 `checkLpActions.ts`，已删除——它确实不在根 `scripts/` 下，而在 `soat-frontend/scripts/`（见 §上文 posm payload 一节）。根 `scripts/` 下新增的 `checkLpActionsAbi.mjs` 已通读，不在本清单内。
-- **⚠️ 行号锚点已系统性失效。** 本文大量使用 `src/ToshLaunchpadHook.sol:857-877` 这类锚点。红队那轮往 Hook / Factory / Treasury 里插入了数十行说明性 natspec，所有位于插入点之后的锚点都已偏移。§1.2、§2.2.8、§5.1、§8.26–8.31 中被触及的锚点已改为**函数名**。此外，**指向 `test/*.t.sol` 的行号锚点已全部去掉行号、只留测试名**（共 30 处，均经机器校验：原行号所落入的函数与同一行标注的测试名不符）。指向 `src/` 的行号锚点仍未逐一校准。
-  行号锚点在活跃代码库里本质上不可维护——它们在写下的那一刻就开始腐烂，而且腐烂时不会报错。**后续新增引用请一律锚定函数名或测试名，不要写行号**；已有的行号请当作「大致位置」而非事实。
-  `scripts/checkDocAnchors.js` 现在把「文件不存在」和「行号超出文件末尾」这两类**机器可判定**的失效钉成硬失败（`node scripts/checkDocAnchors.js --strict`），并为每个锚点打印其落入的符号，供人工复核「落点是否还对得上」。
+    and treat the table in `docs/SECURITY_AUDIT.md` §4 as authoritative (that table at least lists a case count per file, which makes it harder for a change to drift through silently). **This document no longer maintains a hand-written enumeration of test files.**
+- Not read in full: `soat-frontend/src/app/admin/page.tsx` (51KB), `UserDrawer.tsx` (33KB), `useLaunchData.ts`, `pogQuota.ts`, `apiGuard.ts`, and the server routes under `api/` — the PoG issuance path and the admin backend may contain rules this document does not cover.
+- Most of the scripts in `scripts/` (`extractAbis.js`, `pogSigner.ts`, `mineHookSalt.js`, `releaseCompare.js`, `checkEncoding.mjs`, `checkHookMinerTuple.mjs`) have not been read; their purpose is inferred purely from how other files reference them. **"Inferring purpose from references" has itself caused one incident**: `extractBytecode.js` used to be on this list, and the conclusion inferred from references ("the snapshot it maintains is relied on by the frontend") was wrong — nothing actually imports it. See the aside in the key-design part of §6.6. This item once listed a `checkLpActions.ts` that does not exist, and it has been removed — it is indeed not under the root `scripts/` but under `soat-frontend/scripts/` (see the posm payload section above). The newly added `checkLpActionsAbi.mjs` under the root `scripts/` has been read in full and is not on this list.
+- **⚠️ Line-number anchors have failed systematically.** This document makes heavy use of anchors like `src/ToshLaunchpadHook.sol:857-877`. The red-team round inserted dozens of lines of explanatory natspec into the Hook / Factory / Treasury, and every anchor sitting after an insertion point has shifted. The anchors touched in §1.2, §2.2.8, §5.1 and §8.26–8.31 have been changed to **function names**. In addition, **every line-number anchor pointing into `test/*.t.sol` has had its line number dropped, leaving only the test name** (30 in all, each machine-verified: the function the original line number fell into did not match the test name given on the same line). The anchors pointing into `src/` have still not been recalibrated one by one.
+  Line-number anchors are fundamentally unmaintainable in a live codebase — they begin to rot the moment they are written, and they rot without raising an error. **New references should always be anchored to a function name or a test name, never a line number**; treat the existing line numbers as "roughly where it is" rather than as fact.
+  `scripts/checkDocAnchors.js` now pins the two **machine-decidable** failure classes, "the file does not exist" and "the line is past the end of the file", as hard failures (`node scripts/checkDocAnchors.js --strict`), and prints the symbol each anchor lands in so that a human can review whether "the landing point still matches".
