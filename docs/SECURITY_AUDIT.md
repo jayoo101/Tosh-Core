@@ -4707,6 +4707,40 @@ previously filed as a post-audit obligation; it is not an audit artefact at all
 but a property of CREATE2, and it now binds from the deploy transaction rather
 than from a sign-off date. Before deployment there is no such constraint (§0.4).
 
+> **What the freeze has stranded, now that it is in force.** C1 ran, so this
+> paragraph is live for the first time, and the reconciliation of `PRD-v5.0.md`
+> against the tree (commits `4e8f4ff`, `2b38b2b`) surfaced four things inside
+> `src/` that are known to be wrong or unfinished and **cannot be corrected for
+> the life of this deployment**:
+>
+> | Location | Says | Should say |
+> |---|---|---|
+> | `src/ToshLaunchpadHook.sol:385` | shelves 0..25 are `109 200` tokens | `81,900`. The range is right; the total is 26 × `4,200`, the per-tier size retired by the 40/60 split, where `TIER_SIZE` is now `3_150e18` |
+> | `src/ToshLaunchpadHook.sol:1814` | a piggyback leg needs `~125k` | `156,153`, measured on 4663 against the live V4 singleton (§F.7 of `ROBINHOOD_MIGRATION.md`) |
+> | `src/ToshLadderTreasury.sol:107` | `~125k each, measured` | the same figure, rotted the same way |
+> | `src/ToshLadderTreasury.sol:32` | a three-character Chinese gloss, parenthesised after "gives a ride" | nothing — it is the last Han text in the repository outside two matcher literals, and it survived the translation pass by being unreachable rather than by being wanted |
+>
+> None is a behaviour defect: every one of them is prose describing a constant
+> that is itself correct, so they mislead a reader and not the machine. The two
+> `~125k` figures are the more troublesome pair, because `PRD-v5.0.md` §4.9
+> cites them and therefore agrees with them — the document and the comments are
+> consistent with each other and both disagree with `PIGGYBACK_MIN_GAS`, whose
+> own natspec carries the measurement. That is the shape §5.32's calibration
+> reversal already cost us once.
+>
+> **So the usual precedence inverts here, and it is worth saying out loud** — a
+> reader who finds a comment and a document disagreeing will believe the comment,
+> because source normally outranks prose. For these four the document is the
+> authority, for the plain reason that it can be corrected and they cannot.
+>
+> The freeze is enforced rather than agreed: `RecomputeInitcodeHash.s.sol:161`
+> reverts `HookCreationCodehashMismatch` when the local creation code stops
+> matching the constant baked into the live factory, so anyone editing one of
+> these comments learns at the next fingerprint check. That is the guard working.
+> Blockscout verification of the deployed implementation (PM-C4) breaks on the
+> same edit. If `src/` is ever legitimately reopened by a redeploy, these four
+> are the queue and all four are one-line changes.
+
 ---
 
 *Last updated: 2026-09-08 — reframed from an external-audit package to the
