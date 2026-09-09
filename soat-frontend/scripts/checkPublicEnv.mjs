@@ -33,6 +33,12 @@
  * this, because the value is discarded at build time, not at run time. Only a
  * source-level check can.
  *
+ * Scope: this file checks the WIRING — that each documented variable is one the
+ * build can actually read. It has no opinion on values, and PM-C7 shipped with
+ * both checks below green because the values themselves disagreed (mainnet
+ * contract addresses under a testnet chain id). `checkDeployedChain.mjs` is the
+ * companion that cross-checks those against `broadcast/`.
+ *
  * Hence two checks, both cheap:
  *
  *   A. No computed `process.env[...]` under `src/`. A blanket ban rather than a
