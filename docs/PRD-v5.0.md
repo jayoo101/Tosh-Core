@@ -127,7 +127,7 @@ The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.so
 | 1 | Deployer → Treasury | `constructor` | Must be deployed before the factory (which takes it as an immutable constructor argument) | `script/Deploy.s.sol:51` |
 | 2 | Deployer → Factory | `constructor(poolManager, pogSigner, platformTreasury, ladderTreasury)` | Also computes `HOOK_CREATION_CODEHASH`, and DELEGATECALLs `HookDeployLib.deployImplementation` to burn `platformTreasury` into the hook implementation's `platformFeeRecipient` immutable at the same time. **The two addresses come from one source, both are immutable, and neither has a setter** — this is the only structural guarantee against "the factory reads the new address while swaps keep paying the old one" | `src/ToshFactory.sol` |
 | 3 | owner → Treasury | `setFactory` | **One-shot**; closes the loop. Leave the loop open and every buyback silently does nothing | `src/ToshLadderTreasury.sol` |
-| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2-deploys the hook → `new ToshToken` → `token.initialize(hook)` → `hook.initializeToken(token)` | `src/ToshFactory.sol` |
+| 4 | creator → Factory | `createLaunch{value: fee}` | CREATE2-deploys the hook clone → CREATE-deploys the token clone → `token.initialize(hook, name, symbol)` → `hook.initializeToken(token, projectAdmin)` | `src/ToshFactory.sol` |
 | 5 | Depositor → Factory → Hook | `deposit{value}` → `hook.deposit(user, boundReferrer)` | Eligibility checks all live in the factory, bookkeeping all lives in the hook | `src/ToshFactory.sol` → `src/ToshLaunchpadHook.sol` |
 | 6 | creator → Hook → PoolManager | `launch()` → `initialize` + `unlock` → `unlockCallback` → `modifyLiquidity` | Pool creation plus the injection of full-range genesis liquidity | `launch` / `_addInitialLiquidity` @ `src/ToshLaunchpadHook.sol` |
 | 7 | Any trader → PoolManager → Hook | `beforeSwap` / `afterSwap` | Skim the tax, write the oracle, poke the piggyback | `beforeSwap` / `afterSwap` @ `src/ToshLaunchpadHook.sol` |
@@ -148,7 +148,8 @@ The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.so
 | Rotate the PoG signer | `setPogSigner` | Non-zero | `src/ToshFactory.sol` |
 | ~~Rotate `platformTreasury`~~ | ~~`setPlatformTreasury`~~ | **Deleted.** That address now receives 30 bps of ETH from every buy, and a mutable fee-flow target is precisely audit finding M-2; so it became `immutable`, and rotating it means redeploying the factory (see §2.2.5) | — |
 | Adjust the launch fee | `setLaunchFee` | Zero is allowed; protected by the caller's `expectedFee` slippage check | `src/ToshFactory.sol` |
-| Adjust the cooldown | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`; at 0 the PoG quota degenerates into a lifetime budget (⚠️ 8.25) | `src/ToshFactory.sol` |
+| Adjust the re-deposit cooldown | `setCooldownDuration` | `≤ MAX_COOLDOWN = 7 days`; at 0 the per-(wallet, hook) throttle is simply off. It does **not** govern the PoG quota window (⚠️ 8.25) | `src/ToshFactory.sol` |
+| Adjust the PoG quota window | `setQuotaWindowDuration` | `≤ MAX_COOLDOWN = 7 days`; a **separate dial** from the cooldown, and the one whose 0 matters: at 0 there is nothing to anchor a refill to and the quota degenerates into a lifetime budget (⚠️ 8.25) | `src/ToshFactory.sol` |
 | Adjust the default soft cap | `setDefaultSoftCap` | `≥ MIN_SOFT_CAP_PROD = 0.01 ether`, to keep `p0` from truncating to 0 | `src/ToshFactory.sol` |
 | Adjust the per-wallet cap | `setMaxPogAllocationLimit` | **Must be non-zero** (`InvalidPogLimit`); affects only projects created afterwards. The value is snapshotted into every new hook's constructor, and that constructor requires `_perWalletCap > 0`, so zeroing it wrecks `createLaunch` platform-wide with `DeployFailed` — to stop accepting projects, use `pause()` (see §8.27) | `src/ToshFactory.sol` `setMaxPogAllocationLimit` |
 | Blacklist / unblacklist in bulk | `setBlacklist` / `liftBlacklist` | ≤ 200 per batch; `banDuration == type(uint256).max` means permanent | `src/ToshFactory.sol` |
@@ -280,7 +281,7 @@ The 10% opening premium is **unaffected**: it is set by the **ratio** 55 : 45 ag
 ### 3.2 Funds flow: genesis raise → the pool
 
 ```
-  Total depositor contributions  R  =  totalEthDeposition
+  Total depositor contributions  R  =  totalEthDeposited
         │
         ├─── 10% (REFERRAL_BPS = 1000) carved off every deposit in deposit
         │      ├── with referrer  → referralAccrued[referrer] += 10% (claimable after launch)
@@ -326,7 +327,7 @@ That is: **the 55/45 split plus the 10% referral rate — those three numbers to
   ```
 
 - Three consequences:
-  1. **Phase-2 is shut completely the instant the pool opens**. At launch `spot == p0` lands exactly on the boundary (`tierPriceAt(0) = 1.05·p0 > 1.05·p0` does not hold, but with equality the `≤` passes — measured, `maxMintable() == 0`, see `test_ladderOpensLockedAtLaunch` @ `test/ToshV5.t.sol`). Were the shelf level with the pool, shelves 0..14 (126,000 tokens) would be mintable the moment it opened.
+  1. **The opening exposure collapses to nothing**. Were the shelf level with the pool, the ceiling would leave shelves 0..25 (81,900 tokens — `ln(1.05)/ln(STEP) ≈ 25.7`, so 26 shelves of 3,150) mintable in the launch block. One notch above it, only shelf 0 can ever be in range at the open. **What actually shuts the launch block, though, is not this arithmetic but the same-block mint lockout**: at launch `spot == p0` only up to the truncation in `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken`, and the gate's `>` is strict, so shelf 0 sits precisely *on* the boundary and is admitted or refused according to which side of `p0` the round-tripped spot lands — a function of the raise size, not of the design (this is §8.26). So `launch()` stamps `lastSwapBlock` itself, and `mintBondingCurve` and `maxMintable()` both read that stamp: Phase 2 is closed outright for the launch block at **every** raise size, and lifts from the next block, only once the market holds at or above the genesis price. Measured, `maxMintable() == 0` — see `test_ladderOpensLockedAtLaunch` and `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` @ `test/ToshV5.t.sol`.
   2. **Mint-and-dump loses money along the whole ladder**, because the buyer always pays 5% over market (test `test_sweepAndDumpIsLossMaking` @ `test/ToshV5.t.sol`, which asserts a loss > 5% of cost).
   3. Stacked on the genesis premium, shelf 0 = depositor cost × 1.155, so Phase-2 issuance never cuts below the genesis depositors' cost line.
 
@@ -363,7 +364,7 @@ The last column is the only one that answers "who is going to buy this": the den
 
 **The span knob cannot squeeze early release down by another order of magnitude** — what is left is to make the per-tier quota grow geometrically with price (`size(i) ∝ SIZE_STEP^i`, which at 2× could push it to a single-digit percentage of the genesis float). That design would cut what a single order can buy in the low-price region to roughly 1/4 of today's, and after evaluation it has not been adopted for now.
 
-**Why the step and the tier count are coupled**: the comment states it outright, `STEP = 1000^(1/1999)`, and the two must change together. Nor can the span be pulled arbitrarily high — `1.2^1999 ≈ 1e158` would overflow `uint256` before the ladder emptied (`TIER_STEP_E18` @ `src/ToshLaunchpadHook.sol`).
+**Why the step and the tier count are coupled**: the comment states it outright — `STEP = 2000^(1/(TIER_COUNT-1)) = exp(ln 2000 / 3999) ≈ 1.001902508` — so the span is the chosen invariant and the step is re-derived to hit it; neither may be edited alone. The literal `TIER_STEP_E18 = 1_001_902_508_266_805_824` is **fitted** so that `_powE18(STEP, 3999) ≈ 2000e18` under the contract's own floor `mulDiv`, rather than being a rounded floating-point `exp`. Nor can the span be pulled arbitrarily high — a naive `1.2^3999 ≈ 1e317` would overflow `uint256` long before the ladder emptied, whereas ×2000 leaves the top rung about 202 bits of headroom on a typical raise (`TIER_STEP_E18` @ `src/ToshLaunchpadHook.sol`).
 
 **Why prices are not stored**: materialising 4000 tiers as storage structs would burn millions of gas, and "cache the current price, advance by multiplication" drifts away from the closed form after 4000 truncating steps. So `tierPriceAt()` is the **single source of price** for the mint hot path, for `quoteMint`, and for every view (`tierPriceAt` @ `src/ToshLaunchpadHook.sol`). The paginated `getTiers()` view also recomputes tier by tier rather than walking the sequence forward, on the grounds that "a 1 wei gap between the displayed price and the executed price is a support ticket" (`getTiers` @ `src/ToshLaunchpadHook.sol`).
 
@@ -454,29 +455,31 @@ function createLaunch(
 | 5 | **The (name, symbol) tuple is not already taken**: `nameKey = keccak256(abi.encode(name, symbol))` | `NameTaken` | 364-365 |
 | 6 | Derive the creator-bound salt `finalSalt = keccak256(abi.encode(msg.sender, hookSalt))` | — | 367 |
 | 7 | **Freeze the two platform dials** into the initcode: `launchSoftCap = defaultSoftCap`, `launchWalletCap = maxPogAllocationLimit` | — | 371-372 |
-| 8 | Compute the initcode hash (**9-field tuple**) and predict the address | — | 374-385 |
+| 8 | Compute the initcode hash of the hook's EIP-1167 clone (**6-field tuple**) and predict the address: `ToshCloneLib.initcodeHash` | — | 374-385 |
 | 9 | **Mask check**: `HookMiner.isValidHookAddress(predicted)`, requiring the low 14 bits to carry `0x20CC` | `InvalidHookSalt` | 386 |
-| 10 | `HookDeployLib.deployHook` (CREATE2, delegatecall into the library, so the deployer is the factory) | `DeployFailed` | 388-400 |
-| 11 | `new ToshToken(name, symbol, factory)` → `token.initialize(hook)` (grants `MINTER_ROLE`) → `hook.initializeToken(token)` | — | 402-404 |
+| 10 | `ToshCloneLib.deployHook` (CREATE2 on the 131-byte clone initcode, so the deployer is the factory itself) | `DeployFailed` | 388-400 |
+| 11 | `ToshCloneLib.deployBareClone(tokenImplementation)` (a 45-byte argument-free proxy, CREATE not CREATE2) → `token.initialize(hook, name, symbol)` (grants `MINTER_ROLE`, writes name/symbol to storage) → `hook.initializeToken(token, projectAdmin)` | — | 402-404 |
 | 12 | Register: `registeredHooks[hook] = true`, `tokenToHook[token] = hook`, `nameTaken[nameKey] = true` | — | 406-408 |
 | 13 | Append to the registry + emit `LaunchCreated` | — | 410-413 |
 | 14 | Launch fee forwarded to `ladderTreasury`; any overpayment refunded to `msg.sender` | `EthTransferFailed` | 416-421 |
 
-**The 9-field constructor tuple** (`deployHook` @ `src/libraries/HookDeployLib.sol`, order is fixed):
+**The 6-field clone tuple** (`cloneInitcode` / `initcodeHash` / `deployHook` @ `src/libraries/ToshCloneLib.sol`, order is fixed):
 
 ```
-1. poolManager      (address)   Uniswap V4 PoolManager
-2. factoryAddr      (address)   = address(this) (the factory, under delegatecall)
+1. implementation   (address)   the one shared ToshLaunchpadHook every clone delegates to
+                               — the only field that is not per-project
+2. creator          (address)   = msg.sender
 3. projectTreasury  (address)   project multisig, metadata only
-4. creator          (address)   = msg.sender
-5. projectAdmin     (address)   recipient of 99% of shelf revenue
-6. ladderTreasury   (address)   platform buyback reserve
-7. softCap          (uint256)   this project's soft cap (snapshot)
-8. perWalletCap     (uint256)   this project's per-wallet cap (snapshot)
-9. genesisDuration  (uint256)   genesis window length (one of 3h / 24h / 72h)
+4. softCap          (uint128)   this project's soft cap (snapshot), narrowed to fit
+5. perWalletCap     (uint128)   this project's per-wallet cap (snapshot), narrowed to fit
+6. genesisDuration  (uint32)    genesis window length (one of 3h / 24h / 72h)
 ```
 
-**All nine of these parameters go into the initcode hash**, so a change to any one of them invalidates every salt already mined. The front end handles this with three separate cache invalidations (see 6.4). `HookDeployLib`'s comment names it outright: v5.0 dropped `satoToken` and added `ladderTreasury` + `perWalletCap`, with `genesisDuration` bringing it to nine fields, so **every off-chain salt miner has to regenerate** (`src/libraries/HookDeployLib.sol`).
+**Every project is an EIP-1167 clone, not a fresh copy of the hook.** The initcode is 131 bytes — a 10-byte creation stub, the canonical 45-byte proxy body carrying the implementation address, and the 76 bytes of immutable args that fields 2–6 pack into — and the clone reads those args back out of its own runtime bytecode with `EXTCODECOPY`, which is a warm access and therefore as cheap as the constructor immutables it replaces. Fields 2–6 are precisely the five the front end passes to the public view `factory.hookInitcodeHash(projectTreasury, creator, softCap, perWalletCap, genesisDuration)`; the implementation is supplied by the factory.
+
+**All six go into the initcode hash**, so a change to any one of them invalidates every salt already mined; the front end clears an already-mined salt on each trigger that can move one (see 6.5). What decides membership is stated in `ToshCloneLib`'s comment: **a value the creator cannot predict while mining the salt off-chain cannot be an immutable arg** — which is why `genesisDeadline` (`block.timestamp + genesisDuration`) stays in storage and only the *duration* is packed.
+
+**Three of the nine fields the old constructor tuple carried are gone from the hash, and this note is where that lands.** `poolManager`, `factoryAddr` and `ladderTreasury` are identical for every launch, so they are ordinary immutables on the shared implementation and cost nothing per project; `projectAdmin` is mutable by design and is applied by `initializeToken`, so it no longer moves the mined address (see 6.5, where the frontend still clears the salt on an admin edit and no longer needs to). `HookDeployLib` survives, but only to hold `deployImplementation` and `creationCodeHash` — it is called once per platform, from the factory's constructor, and no longer builds a per-project initcode at all. Its own comment states the migration cost outright: the initcode changed shape completely, from `creationCode ++ abi.encode(9 args)` to a 131-byte clone stub, so **every previously mined salt is stale and every off-chain miner has to regenerate** (`src/libraries/HookDeployLib.sol`). `soat-frontend/src/app/lib/hookMiner.ts` carries the TypeScript mirror of the same six fields (`computeCloneInitcode` / `computeHookInitcodeHash`), and `scripts/checkHookMinerTuple.mjs` pins it to the Solidity.
 
 **The CREATE2 mask `0x20CC`** (`src/libraries/HookMiner.sol`):
 
@@ -541,13 +544,13 @@ require(digest.recover(signature) == pogSigner)
 
 **Quota ratchets up, never down**: `if (maxAlloc > pogQuota[sender]) pogQuota[sender] = maxAlloc;` (`registerPoG` @ `src/ToshFactory.sol`). ⚠️ **8.10**: an owner who later lowers `maxPogAllocationLimit` **does not** claw back quota already registered.
 
-⚠️ **8.11**: `registerPoG` carries `whenNotPaused` but **no blacklist check**. A blacklisted wallet can still register or raise its PoG quota (only `deposit` is stopped, by `IsBlacklisted`).
+✅ **8.11 (resolved)**: `registerPoG` used to carry `whenNotPaused` and **no blacklist check**, so a blacklisted wallet could still register or raise its PoG quota while only `deposit` was stopped. The check is now the **first statement of the function** — ahead of the validity window, the nonce and the signature recovery — and reverts `IsBlacklisted`, exactly as `deposit` does (`registerPoG` @ `src/ToshFactory.sol`). Test `test_registerPoG_rejectsBlacklisted`.
 
 **How the quota window works** (`quotaWindowEnd` / `quotaSpent` / `_rollQuotaWindow` @ `src/ToshFactory.sol`):
 
-- PoG quota is a **per-cooldown budget**, not a lifetime one: a wallet may spend at most `pogQuota` within each `cooldownDuration` window, and once the window lapses it zeroes out and reopens.
+- PoG quota is a **per-window budget**, not a lifetime one: a wallet may spend at most `pogQuota` within each `quotaWindowDuration` window (24 hours by default), and once the window lapses it zeroes out and reopens.
 - **A refund does not restore window quota** — deliberately: pulling your money out ought to cost you your slot for the round, or a deposit-then-refund loop could recycle one wallet's quota indefinitely (`quotaSpent` @ `src/ToshFactory.sol`). Test `test_pogQuota_isNotRestoredByRefund` @ `test/ToshV5.t.sol`.
-- ⚠️ **8.25**: with `cooldownDuration == 0`, `_rollQuotaWindow` returns `quotaSpent` immediately and the quota degenerates into a **lifetime budget** (`src/ToshFactory.sol:909-921`). The cooldown length and the quota-window length are the same dial, so the two are coupled.
+- ✅ **8.25 (resolved)**: the cooldown length and the quota-window length used to be one dial. They are **two independent dials** now, each declared and set on its own — `cooldownDuration` (default 24 hours, `setCooldownDuration`) throttles re-deposits per (wallet, hook), and `quotaWindowDuration` (default 24 hours, `setQuotaWindowDuration`) governs how long a wallet's PoG spend ledger lasts (`src/ToshFactory.sol`). The degeneracy keys on the **second** of them: with `quotaWindowDuration == 0` there is no window to anchor a refill to, so `_rollQuotaWindow` returns `quotaSpent` immediately and the quota becomes a **lifetime budget** (`_rollQuotaWindow` @ `src/ToshFactory.sol`). `cooldownDuration == 0` switches off the re-deposit throttle and nothing else — a platform can now run a cool-off without a refill, or a refill without a cool-off. See 8.14 (new).
 
 #### 4.3.3 Depositing — `deposit`
 
@@ -744,7 +747,7 @@ Note that the denominator is `R`, the **total raise including the 10% commission
 
 **Two trigger paths, one shared `_runPiggyback()`**:
 
-1. **Piggyback (gas-gated)**: a swap on a Tosh pool → the hook's `afterSwap` → when `ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP` **and** `gasleft() >= PIGGYBACK_MIN_GAS` (230,000), `try ... autoPiggybackBuyback{gas: gasleft() - PIGGYBACK_TAIL_RESERVE}()`.
+1. **Piggyback (gas-gated)**: a swap on a Tosh pool → the hook's `afterSwap` → when `ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP` **and** `gasleft() >= PIGGYBACK_MIN_GAS` (260,000), `try ... autoPiggybackBuyback{gas: gasleft() - PIGGYBACK_TAIL_RESERVE}()`.
 2. **Permissionless direct poke**: any address → `treasury.pokeBuyback()` → `poolManager.unlock("")` → `unlockCallback` → `_runPiggyback()`.
 
 **Why the gas gate has to exist**: the buy tax is `take`n into the treasury inside `beforeSwap`, so one trade can be **unarmed when it starts and armed by the time it reaches `afterSwap`**. That means the trade charged for running the buyback is precisely the one that pushed the reserve past the threshold — and its wallet estimated gas against an unarmed pool. This is not "a transaction signed inside an unlucky window", it is **deterministically one trade per cycle**. Measured, a leg is about 125k and the post-gate tail about 70k, and neither is in the estimate.
@@ -1065,7 +1068,7 @@ The file header of `soat-frontend/src/lib/contracts.ts` (`:10-12`) says what the
 | `REQUIRED_FLAGS` | `0x20CC` | `HookMiner.REQUIRED_FLAGS` | `hookMiner.ts:6` |
 | `GENESIS_DURATION_*` | 10,800 / 86,400 / 259,200 seconds | `Hook.DURATION_*` | `hookMiner.ts:41-43` |
 
-**Hard-coded on-chain addresses** (`soat-frontend/src/lib/contracts.ts:41-60`):
+**On-chain addresses, and which of them the environment can move** (`soat-frontend/src/lib/contracts.ts:41-60`) — one is a source constant and three are `envAddress(...)` lookups with a fallback, so the header cannot say "hard-coded" of the table as a whole; 8.24 below has the split:
 
 | Constant | Address | Remarks |
 |---|---|---|
@@ -1102,16 +1105,31 @@ Only `FACTORY_ADDRESS` (required; a missing value throws at boot, `:31-35`) and 
 | Project Admin | Editable, prefilled with the connected wallet | Validated with `isAddress`; an amber hint when it differs from the wallet | `:630-652` |
 | **Genesis Window** | Three-tier segmented control | See below | `:653-661` |
 | Manifesto / Image URL / Website / Twitter / Telegram | Optional, off-chain directory only | Goes through `POST /api/projects` | `:665-679` |
-| Acknowledgement checkbox | Must be ticked before the form can be submitted | Restates the launch fee, soft cap, cooldown and refund | `:696-714` |
+| Acknowledgement checkbox | Must be ticked before the form can be submitted, and only becomes tickable once the dials have been read | Restates **four** things: the launch fee, the **minimum raise** (the page's word for the soft cap throughout the consent copy), a genesis window that cannot close early, and the full refund if the raise misses or the 7-day window to open trading expires unused. There is no mention of the cooldown anywhere on this page | `:696-714` |
+
+**The tick binds to the numbers, not to the act of ticking.** `ackedTerms` holds `{ fee, softCap }` — the values that were on screen when the box was checked — and `ack` is only true while both still equal the live readings. The comment says why a `boolean` was wrong: it made consent portable between different pacts, so a tick could outlive the numbers it was given for. For the same reason the box is disabled until the dials are readable, because with `feeDisplay` and `softCapDisplay` falling back to an em dash the pact rendered as "I accept the immutable pact: — ETH launch fee, — ETH minimum raise" beside a box that could still be ticked — never signable, since the deploy button was already gated on `dialsReady`, but a consent statement presenting blanks as terms all the same.
 
 **The three-tier genesis-duration segmented control** — it is **not** an extracted component (the `GenesisWindowSelect` this section used to name does not exist); it is an inline block of `role="radiogroup" aria-label="Genesis window"` inside `soat-frontend/src/app/launch/page.tsx`, with the selection logic in `pickWindow`:
 
 - `role="radiogroup"` plus three `role="radio"` buttons, with `aria-checked` set correctly (accessibility is in place).
-- `"immutable once deployed"` is hard-coded above the label.
+- The copy above the control is the card's own subtitle, `"Immutable. The window runs to completion even if the soft cap fills in minutes."` — this section used to quote it as `"immutable once deployed"`, a string that appears nowhere in the source. It is the warning 8.1 (new) called for: the window does not end early on reaching the soft cap.
 - Each tier shows its positioning line underneath (see the table in 4.3.1).
 - Defaults to `GENESIS_DURATION_STANDARD` (24h).
 
-**The Immutable Pact sidebar** (`:194-230`, `:472-481`) — a sticky panel in the right column listing 8 "immutable rules you consent to by initialising": launch fee / genesis soft cap / per-wallet cap / curve type ("2 000-shelf ladder") / genesis window / refund mechanism / deployment network / target mainnet. Below them sits an amber note: "if genesis fails (soft cap not met), or the 7-day launch window expires with the curve never activated, depositors can call `refund()` to take their ETH back in full, with no penalty."
+**The Immutable Pact sidebar** (`:194-230`, `:472-481`) — a sticky panel in the right column, and **the distinction it draws is the point of it**: a card of things that can never change, and beside that a readout of things that can.
+
+The card is headed `Immutable rules`, subtitled "Unalterable the moment your launch confirms.", and holds **four** `<PactRule>` items — a kicker, a title and a body each:
+
+| Kicker | Title | Body |
+|---|---|---|
+| 40% (`shareOf(GENESIS_SUPPLY, TOTAL_SUPPLY)`) | `8.4M genesis` | 4.62M claimable to depositors · 3.78M locked as genesis LP |
+| 60% (`shareOf(BONDING_MAX, TOTAL_SUPPLY)`) | `12.6M ladder` | `{TIER_COUNT}` equal shelves across a `{LADDER_SPAN}`× span — 4000 and 2000, read from the mirrored constants. "Unsold supply can never be reminted" |
+| 10% | `Genesis premium` | Splitting genesis 55/45 between claims and pool liquidity opens the market at 1.10× what depositors paid |
+| 7 days | `Unopened raise refunds in full` | If trading is never opened after a successful raise, every depositor reclaims 100% of their ETH. No penalty, no haircut |
+
+Underneath, in a separate `CardWell`, sits a readout headed `Live factory dials`: launch fee / soft cap / per-wallet cap / network, each rendered from a live read and falling back to an em dash when the factory has not answered. **These are dials, not rules** — the platform owner can retune all three of the numbers, which is exactly why they are not in the card above; what freezes them for a given project is the snapshot taken at `createLaunch`, not the sidebar.
+
+The list this section used to give had eight entries and crossed the boundary in both directions: the launch fee, the genesis soft cap and the per-wallet cap are live dials rather than immutable rules; the genesis window is stated on its own card (see the segmented control above) rather than as a rule; "target mainnet" is not on the page at all; there is no per-wallet-cap **rule**; and the ladder rule reads 4000 shelves, not "2 000-shelf ladder". The amber refund note it described as sitting below the rules is gone too — refunds are now rule four itself, and what sits below the dials is a "What this costs you" readout (launch fee due now, the gas to create, the gas to open the pool later) followed by the "No proxy, no admin key, no upgrade" line that 8.17 calls for.
 
 **The primary CTA is no longer this page's own state machine.** The `LaunchCTA` this section used to describe, and its `feeMode` (`'loading' | 'insufficient' | 'broadcasting' | 'confirmed' | 'launch'`), are both gone; the deploy button is driven by the shared `useActionGate` / `revertOrder` / `ActionButton` @ `soat-frontend/src/components/ui/actionGate.tsx`, exactly like every other write button in the app.
 
@@ -1179,7 +1197,7 @@ Miner implementation: `soat-frontend/src/app/lib/hookMiner.ts:128-143` (`compute
 
 **`projectAdmin` is no longer in this hash**, and the comment spells out why: the hook is an EIP-1167 clone whose immutable args are only `creator` / `projectTreasury` / `softCap` / `perWalletCap` / `genesisDuration`; the admin is mutable by design and is written in at initialisation, so it no longer moves the mined address. The old version of this section listed six parameters here (including `adminAddr`).
 
-**Cache-invalidation conditions** (each of these voids an already-mined salt immediately, because they all sit inside the initcode hash):
+**Cache-invalidation conditions** (the frontend clears an already-mined salt on each of these; three of the four are genuinely inside the initcode hash and the second is not — the row says so, and this line no longer claims otherwise):
 
 | Trigger | Handling | Line |
 |---|---|---|
@@ -1430,8 +1448,16 @@ encodeBurnPayload({
 
 **Position discovery** (`soat-frontend/src/lib/useLpPosition.ts`) — the file header states the difficulty very plainly (`:6-20`): a V4 position is an ERC-721 held by posm, and **posm is not `ERC721Enumerable`** — there is no `tokenOfOwnerByIndex`, and periphery offers no "positions by owner + pool" view either. So the panel reconstructs and merges from two sources:
 
-1. posm's `Transfer(_, to = user, id)` logs. Authoritative, but public RPCs rate-limit log queries and cap their range, so this runs inside a bounded look-back window and is allowed to fail silently. The look-back is `LOG_LOOKBACK_BLOCKS = 600,000` (at Base's roughly 2s/block, ≈ two weeks), paged at `LOG_PAGE_SIZE = 50,000` (`:31-36`, `:139-154`).
+1. posm's `Transfer(_, to = user, id)` logs. Authoritative, but public RPCs rate-limit log queries and cap their range, so this runs inside a bounded look-back window and is allowed to fail silently. The window is **derived from the chain's block time and then capped by a call budget**: `LOG_TARGET_WINDOW_MS` asks for a fortnight, `LOG_PAGE_BUDGET = 24` is what a scan is allowed to spend at `LOG_PAGE_SIZE = 50,000` blocks a page, and `lookbackPlan()` returns whichever is smaller along with how long it actually covers. On Robinhood mainnet the budget binds: 1.2M blocks, **33 hours**.
 2. The `localStorage` cache this UI writes on every mint (`rememberLpPosition`, `:41-52`). It covers two cases: "just minted, and the RPC's log index has not caught up", and "the look-back window has already rolled past the mint".
+
+> **This was a flat `LOG_LOOKBACK_BLOCKS = 600_000`, explained as "Base blocks are ~2s, so this is roughly a fortnight", and both halves had stopped being true** (fixed in code, commit d60db68). The chain is Robinhood, measured at **0.101 s/block** — viem's chain definition says `blockTime: 100` — so 600,000 blocks was about **17 hours**, not a fortnight. Nothing announced the change, because a block count cannot: it goes on meaning blocks while the time it stands for shrinks twentyfold.
+>
+> The second half was worse. 600,000 blocks at 50,000 a page is twelve sequential `eth_getLogs` calls, and the mainnet endpoint returns `Too Many Requests` on roughly the **seventh**. So this scan did not merely return a short window — it **threw partway through, every time**, landing in the `catch` and leaving discovery to the localStorage cache alone while the panel reported a degraded RPC. The same limit took the on-chain watcher blind for a full pass (see `docs/ONCHAIN_MONITORING.md` and `SECURITY_AUDIT.md` §5.28, where 250 ms was the interval measured to be clean). Pacing is now per page rather than around the whole walk — `LOG_MIN_INTERVAL_MS = 250`, with `LOG_MAX_RETRIES = 3` and exponential `LOG_BACKOFF_MS` on a rate-limit specifically — so a 429 on page seven backs off and continues instead of discarding the six pages already earned.
+>
+> **And the panel now states its coverage even when the scan succeeds**, via `lpScanCoverageLabel()`: "Position discovery scans the last 33 hours of transfers." Succeeding is not the same as being complete, and a position minted before the window and not held in this browser's cache is simply absent from the list with nothing to distinguish it from having no position at all. Only the failure case used to say anything, which is the case that needed it least — it at least announced itself.
+>
+> **"Scan further back" is not the fix, and it is worth writing down why**, because it is the first thing anyone proposes. The two ways out of a bounded scan are enumeration and a walk, and neither is available: posm is not `ERC721Enumerable` — confirmed against the live contract, `supportsInterface(0x780e9d63)` returns **false**, so there is no `tokenOfOwnerByIndex` to iterate — and `nextTokenId()` is already past **2.25M**, so brute-forcing the id space is not a walk anyone can afford either. What is left is a bounded log scan plus a local cache, which is what this is; the honest move is to size the window against the endpoint's real limits and then **say what it covers**.
 
 **Every candidate is verified on chain** (`ownerOf` == user, `getPoolAndPositionInfo().hooks` == this hook, `getPositionLiquidity() != 0`, `:165-181`), so a stale or malicious cache entry costs at most one wasted read and can never compute a wrong balance.
 
@@ -1453,7 +1479,7 @@ Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee acc
 | `hook.claimReferralReward()` | **⚠️ 8.4: no UI entry point** | Referral commission cannot be claimed through the UI (and, given 8.3, none actually accrues) |
 | `hook.changeProjectAdmin()` | No UI entry point | Rotating the admin requires sending a transaction by hand |
 | `treasury.addLadderToken()` / `removeLadderToken()` | No UI entry point (`/admin` carries only the factory's owner functions — see the 13 `functionName` occurrences in `soat-frontend/src/app/admin/page.tsx`) | Buyback curation requires sending transactions by hand |
-| `hook.claimGenesis()` | ✅ Present in `UserDrawer` (`:655`) and `useContractActions.genesisClaim` (`:90`) | — |
+| `hook.claimGenesis()` | ✅ Present in `UserDrawer`, dispatched through `useTxAction` @ `soat-frontend/src/components/ui/useTxAction.ts` | — |
 
 ### 6.7 The PoG signing path (frontend ↔ server)
 
@@ -1497,7 +1523,7 @@ Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee acc
 | `DEAD_ADDRESS` | `0x…dEaD` | 314 |
 | `ACTION_ADD_LIQUIDITY` (internal) | 1 | 316 |
 | `PIGGYBACK_TRIGGER_STEP` | 1 ether | A local copy of the treasury's `TRIGGER_STEP`, saving one cross-contract read; `test_piggybackTriggerMirrorsTheTreasury` pins the two together so they cannot drift |
-| `PIGGYBACK_MIN_GAS` | 230,000 | The minimum `gasleft()` a poke needs. Calibration in 8.34 |
+| `PIGGYBACK_MIN_GAS` | 260,000 | The minimum `gasleft()` a poke needs. Calibration in 8.34 — it spent time at 230,000 and was raised back |
 | `PIGGYBACK_TAIL_RESERVE` | 100,000 | The share physically withheld for the tail (the `afterSwap` return + the V4 frame close + router settlement, measured at roughly 70k) |
 
 **Phase-2 ladder state is packed**: `currentTierIndex` / `currentTierSold` / `phase2Minted` were three public `uint256` fields that each occupied a slot of their own; they are now merged into the internal struct `LadderState { uint16 tierIndex; uint88 tierSold; uint96 minted; }` (one slot, 25 bytes). The three public getters are retained by hand, so the **ABI is unchanged**. The widths are proved by the constants in this table — `TIER_COUNT ≤ 65,535`, `TIER_SIZE ≤ 2^88`, `BONDING_MAX ≤ 2^96` — and held by `test_ladderStateWidthsFitTheirConstants`: Solidity does not check explicit downcasts, so a constant that outgrew its field would **truncate silently** rather than revert, and the consequence is a ladder that puts already-sold shelves back on sale. `mintBondingCurve` accordingly drops from 197,195 to 173,550.
@@ -1510,6 +1536,7 @@ Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee acc
 | `MAX_COOLDOWN` | 7 days | 43 |
 | `MIN_SOFT_CAP_PROD` | 0.01 ether | 55 |
 | `cooldownDuration` (default) | 24 hours | 75 |
+| `quotaWindowDuration` (default) | 24 hours | A **separate dial** from the cooldown; see 8.25 |
 | `launchFee` (default) | 0.1 ether | 78 |
 | `maxPogAllocationLimit` (default) | 0.1 ether | 89 |
 | `defaultSoftCap` (default) | 10 ether | 92 |
@@ -1567,7 +1594,7 @@ Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee acc
 | `LaunchWindowExpired` | Past the 7-day zombie window | "The launch window has expired; depositors can refund" |
 | `InvalidDuration` | Genesis duration not in {3h,24h,72h} | "Genesis duration must be 3/24/72 hours" |
 | `InvalidAdmin` | `projectAdmin == 0` | "The project admin cannot be the zero address" |
-| `LadderExhausted` | All 2000 tiers sold out | "The ladder is exhausted" |
+| `LadderExhausted` | All 4000 tiers sold out | "The ladder is exhausted" |
 | `ExceedsTierRemaining` | The order runs past the end of the ladder | "Order exceeds remaining supply" (⚠️ 8.15) |
 | `SpanTooManyShelves` | Spans more than `MAX_TIERS_PER_TX` (32) tiers | "Send it as two transactions; the end state is the same" |
 | `SameBlockMintForbidden` | There has already been a swap in this block | "Wait one block" |
@@ -1613,7 +1640,7 @@ Three are worth spelling out on their own:
 |---|---|---|
 | 10% genesis premium (as a relationship, not a hard-coded number) | `test_genesisPremium_isExactlyTenPercent` | `test/ToshV5.t.sol` |
 | The ladder is fully closed at launch | `test_ladderOpensLockedAtLaunch` | `:858` |
-| Ladder geometry (4000 tiers / 4200 / 2000× span) | `test_tierLadder_geometryIsWellFormed` | `:688` |
+| Ladder geometry (4000 tiers × 3,150 each = 12.6M, over a 2000× span) | `test_tierLadder_geometryIsWellFormed` | `:688` |
 | Early release schedule (2× unlocks 365 tiers = 1.14975M = 13.7% of the genesis float) | `test_earlyReleaseSchedule_isSetByTheSupplySplit` | `test/ToshV5.t.sol` |
 | Spanning tiers ≡ buying them one at a time | `test_tierMint_spanIsEquivalentToSequentialShelfBuys` | `:755` |
 | `maxMintable()` is the exact boundary | `test_maxMintable_isTheExactAcceptedBoundary` | `:789` |
@@ -1668,6 +1695,7 @@ Three are worth spelling out on their own:
 | 8.5 | `hook.launch()` has no UI | **Fixed**. `AwaitingLaunchPanel` gives the creator a dedicated entry point and states plainly that if they do not launch, everyone is refunded after 7 days |
 | 8.6 | The phase switches wrongly at "soft cap met, not yet launched" | **Fixed**. New `awaiting-launch` phase; the contribution panel now looks only at the window, not at the soft cap, and on oversubscription shows a notice without closing the entrance |
 | 8.9 | The 105% gate cancels out the 5% premium | **Accepted as designed**. Product confirmed that this is exactly the mechanism by which the shelf tracks the market price. The behaviour is pinned by `test_sweepIsProfitableOnceTheMarketHasRunAhead`. The quantitative precision is still not there — see 8.7 |
+| 8.11 | `registerPoG` does not check the blacklist | **Fixed**. The blacklist test is now the first statement of the function, ahead of the validity window, the nonce and the signature recovery, so a blacklisted wallet can neither register nor raise its quota (`registerPoG` @ `src/ToshFactory.sol`). The same defect was raised again independently as 8.4 (new) and closed there; both numbers point at one fix, and the numbering is kept so either can be traced back. `test_registerPoG_rejectsBlacklisted` |
 | 8.16 | `ToshToken` comments say supply is asymptotic | **Fixed**. The discrete ladder, 4000 × 3,150, clears exactly, so total supply can genuinely reach 21M; the comment has been rewritten |
 | 8.17 | `ToshToken` natspec still at v4.0 | **Fixed**. Rewritten wholesale. **`renounceMinterRole()` was deleted at the same time**: `MINTER_ROLE` belongs solely to the hook, and the hook has no code path that calls it, no delegatecall and no arbitrary-call forwarding, so once deployed nobody can trigger it — the original test passed only because `vm.prank(address(hook))` forged the caller. A safety control that is documented, backed by a test, and does not actually exist is more dangerous than none. It is replaced by `test_token_minterSetIsFrozenAtOneAddress`, which verifies that the vacant `DEFAULT_ADMIN_ROLE` slot freezes the minter set permanently. **Minting rights being non-migratable and un-proxied is a deliberate Immutable Pact**: a logic flaw cannot be patched by swapping in a v5.1 Hook, and an unsold ladder can never be minted a second time. Declared prominently in the `ToshToken` natspec, in the README, and in the "Immutable Pact" callout on the launch page |
 | 8.18 | README still at v3.4 | **Fixed**. Rewritten wholesale for v5.0 |
@@ -1717,7 +1745,7 @@ The three items below come from a review pass aimed at "what does the user actua
 |---|---|---|
 | 8.32 | **The piggyback kills the very trade that tips the threshold** | **Fixed**. The buy tax is `take`n into the treasury in `beforeSwap`, so a transaction can begin unarmed and be armed by the time `afterSwap` runs — and the one charged with running the buyback is exactly the one that pushed the reserve over the threshold, having estimated its gas against an unarmed pool. This is not an unlucky probabilistic window; it is **one deterministic transaction every cycle**. `try/catch` does not help: once the sub-call OOGs, the 63/64 rule leaves the outer frame only a sixty-fourth, not enough to finish `afterSwap` plus the V4 frame close, and the trade dies along with the buyback. The fix is a `PIGGYBACK_MIN_GAS` headroom gate plus a hard `{gas: avail - PIGGYBACK_TAIL_RESERVE}` ceiling — the tail's share is **physically withheld**, not estimated, so however expensive a leg gets, all that can happen is that it is skipped. The cost is liveness, which the permissionless `pokeBuyback()` backstops, with `STATE-06` polling added. `test_piggybackSkipsRatherThanKillingTheTrade` / `test_piggybackSparesTheTradeThatTipsIt` / `test_pokeBuyback_deploysWithoutASwap` |
 | 8.33 | **Three legs per poke, peaking at 579k** | **Fixed**. See §4.9: `LEGS_PER_POKE` split off from `BATCH_SIZE`, one leg per poke, sharding divisor unchanged. Peak 578,809 → 362,884, with the amount reaching each pool unchanged. `test_gas_piggybackCostPerLeg` |
-| 8.34 | **A gate calibrated too high silently decommissions the entire piggyback mechanism** | **Fixed**. At the initial `PIGGYBACK_MIN_GAS` of 260,000, a wallet had to add a 22% buffer before the buyback would ride along — beyond a normal buffer, which in practice degraded the mechanism to `pokeBuyback` only. The root cause is that gas-dependent control flow breaks `eth_estimateGas`: in simulation the limit is generous, so the buyback branch is taken and reports 333k, while in the real run only "the limit minus the 147k already spent" is left by the time it reaches the poke. At 230,000 it drops to 12%. The asymmetry here is the point — **setting it too low only occasionally wastes a poke that was doomed anyway, and the trade is always safe; setting it too high quietly decommissions the mechanism**, so err low. `test_piggybackStillRidesAProperlyEstimatedSwap` asserts structurally (`MIN_GAS ≤ TAIL_RESERVE + one measured leg + headroom`) rather than by percentage, because percentages are not comparable across the two gas-accounting modes |
+| 8.34 | **A gate calibrated too high silently decommissions the entire piggyback mechanism — and then the correction overshot the floor** | **Fixed, and the fix was reversed; the value is back at 260,000.** The original finding stands: gas-dependent control flow breaks `eth_estimateGas`, because in simulation the limit is generous, the buyback branch is taken and reports 333k, while in the real run only "the limit minus the ~147k already spent" is left by the time execution reaches the poke — so raising this constant raises the buffer a wallet must attach, and at 260,000 an earlier revision measured 22%. The conclusion drawn from it — **lower it to 230,000, which drops the buffer to 12%, and err low, because too low only wastes a doomed poke while too high retires the mechanism** — did not survive the next measurement, and this document recorded it as though it had. **The two failures are only asymmetric above the floor.** One leg is `PIGGYBACK_TAIL_RESERVE` plus its own cost, so the floor is a measurement, not a preference: measured on Robinhood 46630 against the live V4 singleton and a real launched pool, one leg costs **156,153** gas (4.8% above the 148,986 the same leg measures locally under `--isolate`), which puts the floor on 4663 at `100_000 + 156_153 = 256_153`. A gate at 230,000 sits **below** it: the poke is admitted, forwarded 130k, and handed a leg that needs ~149k, so it runs out, `try/catch` swallows it, and no buyback happens either way — the trade survives and the wasted 130k is invisible, because a buyback that did not happen is indistinguishable from the unarmed case that is this branch's normal state. So the floor is the target rather than a bound to sit above, and 260,000 is the next round number over it. **What it costs the reader:** ~5 more points of wallet buffer (the engage test reads 20% where it read 15% at 230,000), which means `afterSwap` skips the piggyback more often and the reservoir leans harder on the permissionless `pokeBuyback()` — some of the engagements the lower gate appeared to buy were real, so this is a genuine trade and not a free correction. `test_piggybackStillRidesAProperlyEstimatedSwap` now asserts **both** bounds structurally (`MIN_GAS ≤ TAIL_RESERVE + one measured leg + headroom`, and no lower than the floor) — it was the missing lower bound that let the value sit under the floor unnoticed; `test_piggybackSkipsRatherThanKillingTheTrade` pins the skip side. All four gas samples and the probe contract are in §F.7 of `docs/ROBINHOOD_MIGRATION.md` |
 
 **Two test defects found along the way** (neither affects the contracts): a deterministic test used `vm.assume` to paper over a fixture that never accumulated 1 ETH — in a non-fuzz test `assume` cannot resample, it can only hang the test outright; and a fuzz counterexample of `3150e18 + 1` left a tail block of just 1 wei after splitting, whose cost rounded down to 0 and hit the anti-dust guard, which is **the contract behaving correctly and the test's decomposition strategy being undefined on that input** — the domain was narrowed rather than the guard bypassed.
 
