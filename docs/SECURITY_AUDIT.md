@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 28 (§5.1–§5.32) |
+| Numbered review sweeps of `src/` and the settings surface | 29 (§5.1–§5.33) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26 by hand, automated in §5.30. `RecomputeInitcodeHash.s.sol` asserts `keccak256(type(ToshLaunchpadHook).creationCode)` against on-chain `HOOK_CREATION_CODEHASH` and reverts on mismatch. On-demand against a live RPC, deliberately not a CI gate (§5.28). |
 | Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -4773,6 +4773,93 @@ hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth, §5.29 the seventh,
 §5.30 the eighth, §5.31 the ninth. This is the tenth. Still not
 built.
+
+---
+
+### 5.33 Twenty-ninth sweep — a deploy flag that could not have worked, and a checklist row that assumed it had
+
+**PM-C4 was not "probably done, needs confirming". It was not done, and
+the mechanism it relied on has never been able to work on this chain.**
+
+The row read that way because `--verify` was in the mainnet broadcast
+command, and because the *testnet* contracts on 46630 are verified — so
+the flag demonstrably works in general, and the only apparent gap was
+that nobody had opened the page. Checked 2026-09-09 in a real browser:
+both `0xBa9d2E86…` and `0x99aD248d…` show a **Verify & publish** button
+with creation and deployed bytecode and nothing else. No contract name,
+no compiler metadata, no Read/Write tabs — the state Blockscout renders
+for an address it has no source for.
+
+**Why the flag failed, and why it failed silently.** Every path under
+`https://robinhoodchain.blockscout.com/api` is behind a Cloudflare
+`managed` challenge. Measured directly: `GET /api/v2/smart-contracts/…`
+and `GET /api?module=contract&action=getsourcecode&…` both return 403
+with the `Just a moment...` interstitial, while `GET /` and
+`GET /address/…` return 200. Re-running `forge verify-contract` here
+reproduces it exactly — foundry receives that HTML where it expects JSON
+and reports:
+
+```
+Failed to deserialize response: expected value at line 1 column 1
+Error: Failed to obtain contract ABI for 0xBa9d2E86…
+```
+
+That is the shape of the problem worth keeping. The message names a
+parse failure, not an access failure, so it reads as a transient or
+malformed reply rather than a wall that will still be there tomorrow.
+During a broadcast it appears after the deployment output, when the
+transactions have already succeeded and attention is on the addresses.
+A flag that cannot work, failing in the vocabulary of a flag that
+usually works, is close to the worst available outcome: it produced a
+checklist row that said *confirm this* when the honest row was *this has
+not started*.
+
+**The asymmetry that makes it fixable.** The HTML surface is not
+challenged, so a human with a browser can complete the verification
+form. Nothing can be automated past that point from here, which is why
+`scripts/genVerifyInput.mjs` produces files rather than making a call.
+
+Two details in that script are load-bearing and were each learned the
+expensive way:
+
+- **Standard JSON, not flattened source.** `foundry.toml` sets
+  `via_ir = true`. The flattened flow submits a file and a few form
+  fields with nowhere to declare that, so the explorer recompiles
+  through the non-IR pipeline, gets different bytecode, and reports a
+  mismatch — which looks like the source being wrong rather than the
+  submission format being wrong. Standard JSON carries `viaIR`, the
+  optimizer runs, the EVM version and the remappings inside the
+  document.
+- **UTF-8, written explicitly.** PowerShell's `>` emits UTF-16LE. The
+  first attempt produced a 1,053,286-byte file where the correct one is
+  537,408, and the only symptom before upload is the size.
+
+**What licenses verifying now rather than redeploying.** `src/`,
+`foundry.toml` and the `lib/` submodule pointers are byte-identical to
+deploy commit `d0220e2` — confirmed by `git diff`, empty on all three.
+This is the deploy-time freeze doing its job: it is why the four known-
+wrong comments in `src/` were left in place rather than corrected, and
+this row is the payoff for that discipline. Correcting them would have
+changed the metadata hash and made the deployed bytecode unverifiable
+against any tree we still have.
+
+**What this says about the other rows.** PM-C4's evidence column asked
+for "public verified source at the deployed address" and the row was
+filled in against *the command that was supposed to produce it*. That
+substitution — recording the action instead of the outcome — is the same
+error as §5.28's blind watcher pass reporting green, and the same as the
+PM-C2 batch being reported complete when signatures had been gathered
+but nothing executed. Three instances now, in three different systems.
+The common shape is that the confirming step is manual and the acting
+step is automated, so the act leaves a trace and the confirmation does
+not.
+
+**The sweep count is now the eleventh consecutive commit to update it
+by hand.** Still not built. It is worth noting that a guard here would
+not have caught this one either: no CI runner can read that explorer
+past Cloudflare, so verification status is not machine-checkable from
+anywhere this project controls. That is a genuine limit rather than an
+unbuilt guard, and it means PM-C4 will stay a human check.
 
 ---
 
