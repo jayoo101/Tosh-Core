@@ -22,7 +22,7 @@ const MAX_POG_LIMIT_TYPED = '1000000'
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
  *
  * Each of these three panels refuses a value the factory would revert on, and
- * until now none of them had a test 鈥?SECURITY_AUDIT.md 搂5.14 recorded exactly
+ * until now none of them had a test — SECURITY_AUDIT.md §5.14 recorded exactly
  * that, and the reason it was recorded rather than fixed is that the suite had no
  * way to render a component at all.
  *
@@ -46,7 +46,7 @@ vi.hoisted(() => {
 })
 
 /**
- * A connected owner on the right chain with no transaction in flight 鈥?the state
+ * A connected owner on the right chain with no transaction in flight — the state
  * in which the domain blockers are the only thing that can still stop the button.
  * Get any of these wrong and every test passes for the wrong reason, because the
  * gate would be reporting `connect` or `switch` instead of the bound under test.
@@ -110,7 +110,7 @@ describe('LAUNCH FEE dial', () => {
   })
 
   it('refuses the wei/ether slip this ceiling exists for', () => {
-    // 0.1 ETH entered as its wei value into a field denominated in ETH 鈥?the
+    // 0.1 ETH entered as its wei value into a field denominated in ETH — the
     // realistic accident, at its real magnitude.
     const v = verdictFor(<LaunchFeePanel />, '100000000000000000')
     expect(v.label).toBe('[max_launch_fee_violation]')
