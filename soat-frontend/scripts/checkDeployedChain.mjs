@@ -224,6 +224,32 @@ function checkStatic(files) {
   }
 }
 
+/**
+ * The ambient environment, which is how the builds that matter are actually
+ * configured. Neither CI nor Vercel uses a dotenv file: CI sets job-level `env:`
+ * and Vercel injects panel values, so a guard that reads only `.env*` is blind
+ * to both. Run as a build step this is the arm that would have failed PM-C7
+ * before it deployed, instead of after.
+ *
+ * CI's own values pass, and should: the factory there is deliberately
+ * `0x1111…1111` rather than a real deployment, so it is unrecognised and not
+ * asserted. What it would catch is a real address paired with the wrong id.
+ */
+function checkAmbient() {
+  const addresses = {}
+  for (const key of Object.keys(ADDRESS_KEYS)) {
+    const v = process.env[key]
+    if (v && /^0x[0-9a-fA-F]{40}$/.test(v.trim())) addresses[key] = v.trim()
+  }
+  if (Object.keys(addresses).length === 0) return false
+
+  console.log('process.env (ambient)')
+  const raw = process.env.NEXT_PUBLIC_CHAIN_ID
+  if (raw === undefined) console.log('  chain id        (unset — chain.ts defaults to 46630)')
+  assertCoherent('process.env', raw === undefined ? 46630 : Number(raw), addresses)
+  return true
+}
+
 // ── Live mode ───────────────────────────────────────────────────────────────
 const KNOWN_IDS = new Set([...byChain.keys(), 31337])
 
@@ -326,15 +352,14 @@ if (urlArg) {
     .filter((f) => f.startsWith('.env') && !f.endsWith('.example'))
     .map((f) => join('.', f))
 
-  if (dotenvs.length === 0) {
-    console.log('No dotenv file to check.')
-    note('This is the hermetic arm and it can only see local files.')
-    note('To verify what a deployment actually serves:  node scripts/checkDeployedChain.mjs --url https://…')
-  } else {
-    checkStatic(dotenvs)
-    note('Static arm only — the PM-C7 miss lived in a hosting panel, not in these files.')
-    note('Verify the artifact too:  node scripts/checkDeployedChain.mjs --url https://…')
+  const sawAmbient = checkAmbient()
+  if (dotenvs.length > 0) checkStatic(dotenvs)
+
+  if (dotenvs.length === 0 && !sawAmbient) {
+    console.log('Neither a dotenv file nor an ambient address to check.')
   }
+  note('Static arms only. They read configuration; they cannot read a built artifact.')
+  note('Verify the deployment too:  node scripts/checkDeployedChain.mjs --url https://…')
 }
 
 console.log(

@@ -88,6 +88,22 @@ jobs:
       - name: Public env vars are actually inlined
         run: node scripts/checkPublicEnv.mjs
 
+      # The step above proves each variable is READ. It has no opinion on the
+      # values, and PM-C7 shipped a production build with every check green:
+      # the factory and treasury were set to the canonical 4663 contracts while
+      # NEXT_PUBLIC_CHAIN_ID stayed 46630, so the site connected wallets to
+      # testnet and read addresses that have no code there. The factory address
+      # is not keyed by the chain id — it is read straight from the environment
+      # — so nothing cross-checked the two.
+      #
+      # Reads the ambient environment, which is how this job and Vercel both
+      # supply these; a dotenv-only check is blind to both. CI's placeholder
+      # factory is deliberately not a real deployment, so it is unrecognised
+      # and not asserted — what fails here is a real address under the wrong id,
+      # including the id being unset, since chain.ts then defaults to 46630.
+      - name: Chain id and contract addresses are the same chain
+        run: npm run guard:chainaddr
+
       # Endpoint selection used to be copy-pasted into four modules, each
       # falling back to a hardcoded `https://sepolia.base.org` and each pairing
       # it with `chain: targetChain` — so the chain a client was bound to and
