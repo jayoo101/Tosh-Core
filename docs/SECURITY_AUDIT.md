@@ -85,7 +85,7 @@ being substantial — not on it being equivalent to an audit, which it is not.
 
 | Evidence | State |
 |---|---|
-| Numbered review sweeps of `src/` and the settings surface | 29 (§5.1–§5.33) |
+| Numbered review sweeps of `src/` and the settings surface | 30 (§5.1–§5.34) |
 | Source-to-chain fingerprint of the deployed hook implementation | Done 2026-09-08 — §5.26 by hand, automated in §5.30. `RecomputeInitcodeHash.s.sol` asserts `keccak256(type(ToshLaunchpadHook).creationCode)` against on-chain `HOOK_CREATION_CODEHASH` and reverts on mismatch. On-demand against a live RPC, deliberately not a CI gate (§5.28). |
 | Foundry tests | 363, with a CI floor equal to the suite |
 | Frontend tests | 188, same |
@@ -869,7 +869,7 @@ and the tip is all an unpinned fork asks for.
 Originally scoped as work to finish *before* an auditor started, so their hours
 would go to logic rather than to telling us things CI could have. With §0's
 decision it is no longer a preparation for anything — it is the review itself,
-which is why §5.2 onward grew from a checklist into twenty-eight numbered sweeps:
+which is why §5.2 onward grew from a checklist into thirty numbered sweeps:
 
 - [x] `forge build --sizes` — every DEPLOYED contract under the 24 KB EIP-170
       limit. Tightest margin is `HookDeployLib` at 2,953 B, then
@@ -5087,6 +5087,118 @@ than from a sign-off date. Before deployment there is no such constraint (§0.4)
 
 ---
 
+### 5.34 Thirtieth sweep — a manual step that could not be taken, and the half of it a machine could take instead
+
+The open item was "click the two-phase PoG flow through once on this
+deployment". It had survived several sittings as a pending task. It was not
+pending; it was **impossible**, and nobody had checked which.
+
+The PoG button renders only inside a project page in the genesis phase
+(`ProjectTerminal/index.tsx:247`). The mainnet factory has never launched
+anything. Its complete log history since deploy is **four events, all
+governance** — `OwnershipTransferred` twice (construction, then the PM-C2
+accept), `OwnershipTransferStarted` once, `PogSignerUpdated` once for the
+§5.32 rotation — and **zero `LaunchCreated`** (`0xac89f904…`). No launch means
+no hook, no hook means no project page, and no project page means no button.
+The instruction had been unactionable since the moment it was written, and
+carrying it as a task misrepresented a precondition as effort. The lesson is
+narrow and repeatable: a manual step should be checked for *reachability*
+before it is checked for completion, because an unreachable step looks exactly
+like a neglected one on a checklist.
+
+**What could be automated was, and it moved more than expected.** The scan
+stage needs no gas history to exercise — only a valid auth signature — so it
+was driven with a throwaway in-memory key against production:
+
+```
+POST /api/pog-scan            -> 202 running
+GET  /api/pog-scan?address=   -> done in 2.7 s, 1 poll
+  eligible          false
+  totalGasWei       0
+  floorWei          50000000000000000
+  truncated         false
+  unavailableChains []
+```
+
+An ineligible verdict is the **pass**, not the failure: reaching a verdict at
+all means the Blockscout credential is present in the runtime, the job store is
+reachable, and all five chains were read — `unavailableChains` empty is the
+load-bearing field, because a missing credential answers 503 "not configured"
+and an unreachable chain names itself there and silently under-counts a real
+user. The 2.7 s against a documented 10–23 s is consistent rather than
+suspicious: an address with no history has nothing to page through. Combined
+with the §5.32 probe, which reached the 409 scan-check and so proved the key
+loads and `pogNonces()` reads from 4663, everything in the pipeline is now
+confirmed on production except the two things that genuinely require a funded
+wallet: that the loaded key is the *same* key the factory accepts, and that
+`registerPoG` accepts its signature.
+
+**The first of those two is no longer invisible until it costs someone gas.**
+`sign-allocation` has always returned `issuer` — the address derived from the
+loaded key, i.e. who actually signed — and the client had always discarded it,
+destructuring only the four fields the verifier consumes. It now reads
+`factory.pogSigner()` and refuses to send when the two disagree, naming the
+drift as a deployment fault. Previously a Vercel key that had drifted from the
+on-chain signer — exactly what a half-finished rotation leaves behind, since
+the key lives in one system and the address in another — surfaced as
+`InvalidSignature()` from `registerPoG` (`ToshFactory.sol:603`), after the
+transaction was signed and the gas spent, in an error naming the signature
+rather than the configuration.
+
+Two limits belong on the record rather than in a commit message. It runs on the
+client, so it is **diagnosis, not enforcement**; `registerPoG` verifies the
+signature itself and stays the only thing that decides. And a missing `issuer`
+or an unreadable `pogSigner()` deliberately falls through to that verdict
+instead of blocking, because a client-side guard may convert a confusing
+failure into a clear one but must never invent a failure the chain would not
+have produced. The comparison target was confirmed live: `pogSigner()` on 4663
+reads `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736`.
+
+**Two assumptions about the first launch, both wrong on first statement.** The
+0.1 ETH `launchFee` does not return to the operator. It is forwarded to
+`ladderTreasury`, not `platformTreasury` (`ToshFactory.sol:731`), and
+`ToshLadderTreasury` has no `withdraw`, `sweep`, or `rescue` — its header
+states the absence as a design choice at lines 42–51, and the only exit is
+`pokeBuyback` spending on a listed token, of which there are none. The fee is
+therefore genuinely spent, as reservoir seed capital, and is not a refundable
+test cost; the arithmetic was initially done as though it were recycled into
+the Safe. Zeroing `setLaunchFee` to avoid it is permitted and is the wrong
+trade, since it opens a free-launch window on a live permissionless factory
+whose address is about to be published. A test **deposit** is a different
+matter and is cleanly recoverable: the default soft cap is 10 ETH, a small
+deposit cannot reach it, and `refund()` opens once the genesis deadline passes
+with `softCapFailed` (`ToshLaunchpadHook.sol:1227`).
+
+**One suspected cross-layer mismatch, checked and cleared.** The scan response
+advertises `capWei` of 1 ETH while the on-chain `maxPogAllocationLimit()` is
+0.1 ETH, and `registerPoG` reverts `ExceedsGlobalPogLimit` on any `maxAlloc`
+above it (`ToshFactory.sol:599`) — which reads like an attestation the chain
+would refuse. It is not. `POG_GAS_CAP_WEI` caps the *input*, historical gas
+spend, and at the 0.1 rate maps onto `MAX_ALLOC_ETH_WEI`, the *output*
+allocation ceiling, which equals the on-chain limit
+(`pogQuota.ts:100`, `:184`, `:229`). The two numbers measure different
+quantities and `assertPogBandCoherent()` exists precisely to stop the three
+from drifting apart (`pogQuota.ts:98`). Recorded as a negative result because
+the shape of the near-miss is worth keeping: an input cap and an output cap
+denominated in the same unit will keep inviting this reading.
+
+**Incidental, found while preparing the commit.** `soat-frontend/src/app/admin/page.tsx`
+was sitting modified in the working tree with a whitespace-only reindent that
+`git diff -w` confirmed carried no logic and that left the nesting less
+readable than before — a stray auto-format from an earlier sitting. Reverted
+rather than committed. Worth a line only because a whitespace-only diff in a
+file this sensitive is indistinguishable at a glance from a real change to an
+`onlyOwner` console, and an unexplained modified file is how one gets swept
+into an unrelated commit.
+
+**Still open after this sweep:** the two-phase walkthrough, now correctly gated
+on the first real launch rather than listed as a standalone errand — it is a
+step inside that launch, which also first exercises `createLaunch`, the genesis
+panel, and `deposit`. And `HookDeployLib` `0x873E0841…` remains unverified on
+Blockscout by decision, with inputs prepared.
+
+---
+
 *Last updated: 2026-09-08 — reframed from an external-audit package to the
 internal review record it actually is, after the decision in §0 not to engage a
 third-party auditor. §6 retains only its severity ladder and §7 is retired;
@@ -5150,3 +5262,19 @@ also now in force for the first time, stranding four known-wrong
 comments in `src/`; they are listed under "Obligations at deploy time"
 in §8 rather than as a sweep, because finding them was doc work and
 not a review pass.*
+
+*2026-09-10 — §5.34 records the thirtieth sweep, which began by finding that
+the outstanding manual step could not be performed at all: the PoG flow
+renders only inside a genesis project page, and the factory's entire log
+history is four governance events with zero `LaunchCreated`. A step should be
+checked for reachability before it is checked for completion. The scan half was
+then driven on production with a throwaway key and passed with all five chains
+read, so only the signer-identity match and `registerPoG` itself now await a
+funded wallet; the identity mismatch is no longer silent until it costs gas,
+because the client compares the `issuer` it had always discarded against
+`factory.pogSigner()` before sending — diagnosis, not enforcement, and
+deliberately non-blocking when either value is unreadable. Also corrected: the
+0.1 ETH launch fee goes to `ladderTreasury`, which has no withdraw by design,
+so it is spent rather than recycled. Also cleared: the 1 ETH `capWei` against
+the 0.1 ETH on-chain allocation limit is an input cap against an output cap,
+not a mismatch, and `assertPogBandCoherent()` already binds them.*

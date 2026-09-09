@@ -1,6 +1,6 @@
 'use client'
 import { useState, useCallback } from 'react'
-import { useChainId, useSignMessage } from 'wagmi'
+import { useChainId, usePublicClient, useSignMessage } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
@@ -100,6 +100,7 @@ export function PogScanButton({
   refetch:     () => void
 }) {
   const chainId = useChainId()
+  const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
   const [phase, setPhase] = useState<Phase>('idle')
 
@@ -178,7 +179,37 @@ export function PogScanButton({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
 
-      const { maxAlloc, nonce, deadline, signature } = data
+      const { maxAlloc, nonce, deadline, signature, issuer } = data
+
+      // Check who signed against who the factory will accept, before paying gas
+      // to find out. A deployment whose signing key has drifted from the on-chain
+      // `pogSigner` — precisely what a half-finished rotation leaves behind, since
+      // the key lives in Vercel and the address lives in the factory — reaches the
+      // user as `InvalidSignature()` from `registerPoG`: an error that names the
+      // signature rather than the misconfiguration, and that arrives only after
+      // the transaction has been signed and the gas spent.
+      //
+      // This is diagnosis, not enforcement. It runs on the client and therefore
+      // cannot be a security boundary; `registerPoG` verifies the signature itself
+      // and remains the only thing that decides. So a missing `issuer` and an
+      // unreadable `pogSigner()` both fall through to that verdict rather than
+      // blocking a user the contract would have accepted — this can turn a
+      // confusing failure into a clear one, but must never invent a new one.
+      if (issuer && publicClient) {
+        const accepted = await publicClient.readContract({
+          address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+          functionName: 'pogSigner',
+        }).catch(() => undefined)
+        if (accepted && String(accepted).toLowerCase() !== String(issuer).toLowerCase()) {
+          throw new Error(
+            `Attestation signer mismatch — this site signed with ${issuer}, but the `
+            + `factory only accepts ${accepted}, so registerPoG would reject it. `
+            + 'The signing key and the on-chain signer have drifted apart; this is a '
+            + 'deployment fault, not a problem with your wallet.',
+          )
+        }
+      }
+
       toshToast.info(`Quota sized · ${fmt(BigInt(maxAlloc))} ETH`)
 
       send({
@@ -191,7 +222,7 @@ export function PogScanButton({
     } finally {
       setPhase('idle')
     }
-  }, [userAddress, hookAddress, chainId, signMessageAsync, send])
+  }, [userAddress, hookAddress, chainId, publicClient, signMessageAsync, send])
 
   const gate = useActionGate({
     // The scan reads five explorers and takes tens of seconds, so a button that
