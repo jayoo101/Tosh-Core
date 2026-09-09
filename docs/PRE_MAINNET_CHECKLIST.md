@@ -280,7 +280,7 @@ Ordered. Each step's output feeds the next.
 | **PM-C6** *(legacy `#23`)* | Hook initcode hash regenerated against the **mainnet** build | `RecomputeInitcodeHash.s.sol` output committed; `extractAbis.js` produces no diff | ✅ **2026-09-08, chain 4663, block 57592077.** `RecomputeInitcodeHash.s.sol` run against factory `0xBa9d2E86281b988225Eca383C375215912fb20B9` with `--sig 'run(address)'`. `HOOK_CREATION_CODEHASH` `0xc43a20c91d0f3164cdeb07d8786c61184c105825a9edec30a8df949f41b4d139` matches `keccak256(type(ToshLaunchpadHook).creationCode)` of this tree; `getLiveHookInitcodeHash()` `0x3a706af1817f0f630ccde8389a67d0bffd6a4744f5e4e0dc6e914bb8bd0e91ef` (clone initcode; not comparable to the former). Output committed in `SECURITY_AUDIT.md` §5.30. `extractAbis.js` produced no diff. `.env.production` still holds the `0x` placeholders — that file is gitignored and is operator work, not this row's evidence. The launch page reads `factory.hookInitcodeHash(...)` from chain either way. See `SECURITY_AUDIT.md` §5.30 |
 | **PM-C7** | `.env.production` filled: `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_CHAIN_ID` — **and the status page's `CHAIN` block repointed** | Deployed frontend reads the right factory; `checkStatusPage.mjs` green | ✅ **both halves closed, and the frontend one only after a half-cutover shipped.** Status page: `jayoo101/tosh-status` names Robinhood mainnet 4663, factory `0xBa9d2E86…`, explorer `robinhoodchain.blockscout.com`. That half was added 2026-09-04 because C7 had never covered it — the page hardcodes its own chain in a different repository (`SECURITY_AUDIT.md` §5.27). Frontend: the first production deploy reported ready carried the mainnet factory and treasury with `NEXT_PUBLIC_CHAIN_ID` still `46630`, so the live site pointed a testnet connection at contracts that have no code on 46630 and rendered nothing. It was found by reading address literals out of a minified chunk by hand, which is why `checkDeployedChain.mjs` now exists. Verified 2026-09-09 against `https://tosh-two.vercel.app`: 19 chunks scanned, badge reads mainnet, chain id **4663**, both addresses resolve to the 4663 deployments, `coherent`. Re-check with `npm run check:deployed -- --url …`, never by eye |
 | **PM-C8** | Ladder buyback targets curated (`treasury.addLadderToken`) — **no token listed until its TWAP has matured**, see §3.2 | On-chain state; `STATE-07` green | ❌ for mainnet, **no longer gated**. The PoG rotation that blocked this landed 2026-09-09 (`SECURITY_AUDIT.md` §5.32), so a listed token no longer hands value to a leaked key. No token has been listed on the 4663 treasury. Procedure rehearsed correctly on 46630 (`ROBINHOOD_MIGRATION.md` §F.8), which is also where §3.2's "poll, don't compute" caveat came from — the first testnet sitting had listed 52 s after launch |
-| **PM-C9** | Deploy-side role addresses decided and distinct: `PROD_OWNER_SAFE`, `PLATFORM_TREASURY`, `POG_SIGNER_ADDRESS` | `verifyOwnerSafe.mjs` green; `DeployMainnet.s.sol`'s `requireDistinctRoles` passes | ✅ **all three filled and used in the 2026-09-08 broadcast.** The 2-of-3 Safe is both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`; `POG_SIGNER_ADDRESS` is `0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b`, matching `factory.pogSigner()`. `requireDistinctRoles` passed — the broadcast reverts otherwise. **Added 2026-09-04, because `PLATFORM_TREASURY` had no checklist row at all.** C7 covers the *frontend* env; this row covered the *deploy* env, and one of its values can never be changed. `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool, forever, and is immutable — baked into the factory *and* into the hook implementation's `platformFeeRecipient`, so rotating it means redeploying the factory and migrating every pool. The deploy script asserts only that it is non-zero and differs from the deployer and the PoG signer, so a personal EOA passes and is then permanent. **Decided:** the 2-of-3 owner Safe serves as both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`. Two properties of that choice which a comment had claimed and no test had checked are now asserted in `ToshV5.t.sol`: a recipient dearer than a `transfer()` stipend is still payable — a 1.4.1 Safe cost 29,944 gas to pay on 46630, and it works **only** because v4-core sends native value with `call(gas(), …)` — and a recipient that *reverts* does brick every buy on every pool. Note that `.env` today still points all three roles at the testnet deployer, which would fail all three assertions and is not what C1 used |
+| **PM-C9** | Deploy-side role addresses decided and distinct: `PROD_OWNER_SAFE`, `PLATFORM_TREASURY`, `POG_SIGNER_ADDRESS` | `verifyOwnerSafe.mjs` green; `DeployMainnet.s.sol`'s `requireDistinctRoles` passes | ✅ **all three filled and used in the 2026-09-08 broadcast.** The 2-of-3 Safe is both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`; `POG_SIGNER_ADDRESS` is `0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b`, which matched `factory.pogSigner()` at the broadcast and no longer does — that key was rotated 2026-09-09 after reaching PowerShell history in plaintext, and `factory.pogSigner()` now reads `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736` (PM-D1, `SECURITY_AUDIT.md` §5.32). This row remains satisfied regardless, because what it asks is that the three deploy-side roles were decided, distinct and used, which the broadcast did; the rotation moved one of them afterwards on purpose, so the value above is now the record of what C1 sent rather than a live wiring statement. `requireDistinctRoles` passed — the broadcast reverts otherwise. **Added 2026-09-04, because `PLATFORM_TREASURY` had no checklist row at all.** C7 covers the *frontend* env; this row covered the *deploy* env, and one of its values can never be changed. `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool, forever, and is immutable — baked into the factory *and* into the hook implementation's `platformFeeRecipient`, so rotating it means redeploying the factory and migrating every pool. The deploy script asserts only that it is non-zero and differs from the deployer and the PoG signer, so a personal EOA passes and is then permanent. **Decided:** the 2-of-3 owner Safe serves as both `PROD_OWNER_SAFE` and `PLATFORM_TREASURY`. Two properties of that choice which a comment had claimed and no test had checked are now asserted in `ToshV5.t.sol`: a recipient dearer than a `transfer()` stipend is still payable — a 1.4.1 Safe cost 29,944 gas to pay on 46630, and it works **only** because v4-core sends native value with `call(gas(), …)` — and a recipient that *reverts* does brick every buy on every pool. Note that `.env` today still points all three roles at the testnet deployer, which would fail all three assertions and is not what C1 used |
 
 > **PM-C1 ran on 2026-09-08.** Chain 4663, blocks 57400516–57400521, five
 > transactions all `status=0x1`, artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json`.
@@ -410,9 +410,19 @@ is not spent on an unlisted token.
 |---|---|---|---|
 | **PM-D1** | PoG signer is a **new** key, distinct from the deployer, held only in the production secret store | Cutover: `factory.pogSigner()` ≠ deployer; `POG_SIGNER_PRIVATE_KEY` set in Vercel Production only; absent from every laptop `.env*`. See §4.1 | ✅ both halves closed 2026-09-09. On chain, `factory.pogSigner()` is `0x9A1a8C7b…`, distinct from the deployer and from all three Safe owners. Custody: `POG_SIGNER_PRIVATE_KEY` is sensitive and write-only in Vercel Production, absent from every local dotenv, and `POG_PRIVATE_KEY` — the second legal name for the same key — is unset and now inventoried `absent`. **Verified rather than asserted:** a forensic sweep of 220 shell-history, terminal-capture and transcript files derived every one of 105 distinct 64-hex candidates and found no copy of the new key, and the address has on-chain nonce **0**, so it has never been loaded into anything that sends a transaction — which is what nonce 2 on the old key had revealed (§5.32). This is the first key this project has generated that did not leak |
 | **PM-D2** | ~~PoG signer wallet pre-funded (~0.05 ETH) for signature gas~~ | — | ⬜ **Not applicable, closed 2026-09-04.** There is no signature gas. `registerPoG` is `external` and keys off `msg.sender`, so the depositor pays; the signer's address appears in the contract only as the expected result of `hash.recover(signature)`. Both consumers of the key sign with no chain connection — `privateKeyToAccount().signMessage()` in the API route, and an `ethers.Wallet(pk)` with **no provider** in `scripts/pogSigner.ts`, which cannot broadcast at all. Funding it would add a liability without buying anything: the key lives in a Vercel env var, and one guarding a balance is worth more to steal. `ONCHAIN_MONITORING.md` §4.1 has the full correction and what became of STATE-05 |
-| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | `npm run check:secrets` green (store, tier, **and** no secret-tier assignment in local dotenv); no secret in any committed `.env*` | ✅ Custody is now checked mechanically — see §4.2. All **five** credentials are in Vercel Production at the write-only tier (`BLOCKSCOUT_API_KEY` joined them 2026-09-05, verified on all five chains before it was stored, since a Sensitive value cannot be read back to notice it was stored wrong), nothing has ever been committed, and the open question "does any CI job need the Supabase service key" is answered **no**. The workflows reference **two** secrets, `ROBINHOOD_RPC` and `MONITOR_RPC` — this row said "exactly one" until 2026-09-05, having been written before PM-E2 added the watcher, which is precisely the drift §4.2 exists to catch. Adding the key surfaced two standing gaps rather than none: `MONITOR_RPC` had been a live GitHub secret since 2026-09-04 that no row classified, and the check could not see GitHub *variables* at all. The same drift fired a second time on 2026-09-08: PM-C7 added `NEXT_PUBLIC_RPC_URL` to Vercel Production, which no inventory row classified, and `check:secrets` failed with that single finding. Classified `config` — anything `NEXT_PUBLIC_` is inlined into the browser bundle, so it cannot hold a secret; today's value is the bare public Robinhood endpoint. The row's `why` now says what changes if that is swapped for a keyed provider URL. `SENTRY_AUTH_TOKEN` is fully closed — Vercel only, no laptop copy — and stays out of GitHub Actions on purpose, because a workflow run that is not a production deploy would cut a Sentry release for a commit that never shipped. The laptop copies that kept this amber are gone: Supabase service_role and the Upstash token were rotated in their consoles, Vercel Production updated, local `.env.local` deleted; the local PoG copy (the burned testnet key) cleaned up; deployer `PRIVATE_KEY` destroyed from `.env.production`. `npm run check:secrets` reports 27/27 green. See `SECURITY_AUDIT.md` §5.31. That is not a clean custody surface: the live mainnet PoG signing key reached PowerShell history in plaintext and was not rotated (`SECURITY_AUDIT.md` §5.32). That defect is PM-D1's, not this row's |
+| **PM-D3** | `SENTRY_AUTH_TOKEN`, Supabase service keys held only in the CI secret store | `npm run check:secrets` green (store, tier, **and** no secret-tier assignment in local dotenv); no secret in any committed `.env*` | ✅ Custody is now checked mechanically — see §4.2. All **five** credentials are in Vercel Production at the write-only tier (`BLOCKSCOUT_API_KEY` joined them 2026-09-05, verified on all five chains before it was stored, since a Sensitive value cannot be read back to notice it was stored wrong), nothing has ever been committed, and the open question "does any CI job need the Supabase service key" is answered **no**. The workflows reference **two** secrets, `ROBINHOOD_RPC` and `MONITOR_RPC` — this row said "exactly one" until 2026-09-05, having been written before PM-E2 added the watcher, which is precisely the drift §4.2 exists to catch. Adding the key surfaced two standing gaps rather than none: `MONITOR_RPC` had been a live GitHub secret since 2026-09-04 that no row classified, and the check could not see GitHub *variables* at all. The same drift fired a second time on 2026-09-08: PM-C7 added `NEXT_PUBLIC_RPC_URL` to Vercel Production, which no inventory row classified, and `check:secrets` failed with that single finding. Classified `config` — anything `NEXT_PUBLIC_` is inlined into the browser bundle, so it cannot hold a secret; today's value is the bare public Robinhood endpoint. The row's `why` now says what changes if that is swapped for a keyed provider URL. `SENTRY_AUTH_TOKEN` is fully closed — Vercel only, no laptop copy — and stays out of GitHub Actions on purpose, because a workflow run that is not a production deploy would cut a Sentry release for a commit that never shipped. The laptop copies that kept this amber are gone: Supabase service_role and the Upstash token were rotated in their consoles, Vercel Production updated, local `.env.local` deleted; the local PoG copy (the burned testnet key) cleaned up; deployer `PRIVATE_KEY` destroyed from `.env.production`. `npm run check:secrets` reports 27/27 green. See `SECURITY_AUDIT.md` §5.31. That was not a clean custody surface: the live mainnet PoG signing key had reached PowerShell history in plaintext (`SECURITY_AUDIT.md` §5.32). **Discharged 2026-09-09** — that key was rotated to `0x9A1a8C7b…` and PM-D1 closed on both halves. The defect was PM-D1's, not this row's. **Inherited 2026-09-10:** `.env.bak-premigration` holds a plaintext `PRIVATE_KEY` and used to be attributed to PM-D1, which cannot own it now that it has closed. Identified rather than left as "a key": it is `0x73db078f…`, the Base-era PoG signer, with **nonce 0 and zero balance on Base mainnet** and 0.048593 ETH on Base Sepolia — a faucet-funded testnet key with no live footprint (§5.2). It keeps this row amber-adjacent for a reason worth stating: `check:secrets` is 27/27 green and always was, and §5.2 shows that is two gaps rather than luck — the laptop-copy arm globs `.env*` under `FRONTEND_ROOT` only, and its INVENTORY knows `POG_SIGNER_PRIVATE_KEY` and `POG_PRIVATE_KEY` but not the bare `PRIVATE_KEY` that Foundry and this repo's own deployer used. A deployer key in `soat-frontend/.env.local` under that name would pass today |
 | **PM-D4** | Gnosis Safe threshold and signer set confirmed, signers reachable | `INCIDENT_RESPONSE.md` §1 filled | ✅ **the Safe exists: `0x2953957774482efA660921df85A1E7634ccfe27A`, 2-of-3 SafeL2 1.4.1 on 4663, created 2026-09-04** (tx `0x0ac80e07…`, 305,871 gas, ~0.0001 ETH; the transaction service reports `1.4.1+L2`). All three owners proved control of their address by signature before creation, so no owner slot is occupied by an address nobody can sign for. `verifyOwnerSafe.mjs` is green on every property: threshold, owner set, L2 indexing, fallback handler, role separation from the deployer and PoG signer, and that it accepts plain ETH — which matters because PM-C9 makes this same Safe the platform treasury. **Reachability, closed 2026-09-08:** §1 names Encrypted Signal / Telegram for Tom, Jack and Joe, with the handle looked up in the operator's offline 1Password / Vault, not in this repository. That is what the row asked for. It is not a 03:00 page-out; the vault entry existing and staying current is an operator obligation no guard here can see. §8.2 measured the mechanical path at 5 s against a 60-second budget, so the budget is still the human hop, and one unreachable signer still turns 2-of-3 into 2-of-2. **The tooling was verified before any of this, so the remaining half was only ever a people problem.** Robinhood Chain is a custom Orbit chain and nothing had ever checked that a Safe is possible on it, while D2's premise, C2 and E5 all rest on one existing. Checked 2026-09-04: Safe 1.3.0 **and** 1.4.1 singletons, proxy factories and MultiSend are all deployed at their canonical addresses on **both** 4663 and 46630, and both chains are in Safe's official supported list with live transaction services (`api.safe.global/tx-service/robinhood`, `…/robinhood-testnet`, service 6.10.1). Those facts are still true. What they do not establish — and what that sitting inferred from them — is that the UI offers an entry point for constructing an arbitrary call. Rechecked 2026-09-08 (`SECURITY_AUDIT.md` §5.29): chain 4663's Apps registry carries two apps and no Transaction Builder; the paste-the-ABI flow is reachable only by a direct appUrl. `INCIDENT_RESPONSE.md` §1.1 and §2 Step 1 now say so. **Then rehearsed rather than inferred:** a throwaway 1-of-1 Safe was deployed on 46630 (`0x3e3A1223…`, SafeL2 1.4.1, 270,604 gas), confirmed indexed by the service as `1.4.1+L2`, and used to `execTransaction` a real contract call into the factory — `isSuccessful=true`, nonce 0→1. `INCIDENT_RESPONSE.md` §1.1 has the hashes. That rehearsal drove `execTransaction` from a script, not through the UI's app surface — the same untested link §5.29 records. That Safe is disposable and must never own anything: 1-of-1 is what D2 trigger ① forbids. **Then the real path, §8.2, same day:** that first run chose a *view* function, so it proved a Safe can make a call and nothing about the call Step 1 actually makes. A **2-of-3** Safe (`0x83f877BE…`, 318,831 gas) took ownership of the testnet factory and executed `pause()` and `unpause()` through it — so the `onlyOwner` path, PM-C2's `acceptOwnership`, and the two-signature bar are all now measured rather than assumed. The number that matters for recruiting: the mechanical path is **5 s**, so the 60-second bar in Step 1 is almost entirely the time to reach a second human, which makes the requirement *reachability*, not skill. `docs/SIGNER_BRIEF.md` exists to be handed to a candidate, since "help me run a multisig" is not a question anyone can answer and the vagueness was itself part of the blocker. **Two candidates found 2026-09-04**; the three scripted steps ran the same day: `verifySignerCandidates.mjs` (each candidate signs a message; the recovered address must match the one they sent — an owner nobody can sign for is indistinguishable from a working one until the first P0), `createOwnerSafe.mjs` (2-of-3 SafeL2 on 4663, refusing to run on any other chain, refusing the deployer EOA as an owner, and re-verifying the signatures at the write rather than trusting the earlier step), and `verifyOwnerSafe.mjs`. **This gated C1, not just C2:** `DeployMainnet.s.sol` reads `PROD_OWNER_SAFE` with no default and calls `transferOwnership` to it in the same broadcast, so the Safe is an input to the mainnet deploy.
 
+> **PM-D1 closed on 2026-09-09. What follows is the 2026-09-08 wording, kept
+> because it is the argument that produced the rotation.** The key it calls
+> unrotated was rotated: `factory.pogSigner()` on 4663 now reads
+> `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736`, the old
+> `0x0E496Bd529646770192C7c35c65Ee1BB0e554E1b` is retired, and the replacement
+> has on-chain nonce 0 with no copy in any of the 220 history and transcript
+> files swept (`SECURITY_AUDIT.md` §5.32). Read the last sentence below as
+> spent rather than pending: rotation is no longer a precondition for PM-C3 or
+> PM-C8, both of which are now open on their own terms.
+>
 > **PM-D1 is the highest-severity open item that is not the audit.** The
 > on-chain half is done and the custody half is now a known violation, not
 > an unverified remainder. The live PoG signing key reached PowerShell
@@ -424,7 +434,12 @@ is not spent on an unlisted token.
 > signature itself — see `INCIDENT_RESPONSE.md` §4 for the cap table and the
 > rotation playbook. Quota currently buys nothing (zero launches). It
 > becomes real value the moment PM-C3 announces the factory or PM-C8 lists
-> a token; rotation is a blocking precondition for both.
+> a token; rotation is a blocking precondition for both. **Both halves of that
+> sentence have since moved, 2026-09-10.** Rotation landed on 2026-09-09, so it
+> gates neither C3 nor C8 any longer — they are open on their own terms. The
+> "quota currently buys nothing" half is still exactly true, and was confirmed
+> rather than assumed: the factory's entire log history is four governance
+> events with zero `LaunchCreated` (`SECURITY_AUDIT.md` §5.34).
 
 ### 4.1 Every wallet is new on mainnet — and KMS is not required
 
@@ -436,7 +451,13 @@ keeps reading `POG_SIGNER_PRIVATE_KEY`. KMS would keep the material out of the
 process and log every signature; for a single-operator launch those are not
 the failure we have. The failure we have is a key that has sat in plaintext
 on a laptop, in a second `.env`, and in this working tree, and that currently
-is also the deployer. Vercel encrypted env plus the rotation below is the
+is also the deployer. (**That "currently" expired on 2026-09-09**: the key was
+rotated to `0x9A1a8C7b…`, which has never been a deployer, and the mainnet
+deployer key was destroyed. The sentence is kept because it is the reasoning
+that chose Vercel over KMS, and that reasoning has to be re-examined on its own
+terms rather than inherited — the argument was "the failure we have is custody,
+not process isolation", and the custody failure it named has since occurred and
+been remediated.) Vercel encrypted env plus the rotation below is the
 control; a KMS client is not. Revisit when more than one person can pull
 Production secrets, or when an auditor requires the key never enter the
 process.
@@ -589,8 +610,11 @@ local copies were not evaluated, rather than treating an empty scan as a
 pass. That gap is what §5.31 records: the check was green while two live
 production credentials sat in `soat-frontend/.env.local`. Those copies are
 now deleted and the live values rotated; the check is 27/27 green. The
-open custody defect on this machine is a different variable — the live
-PoG signing key in PowerShell history, §5.32, which is PM-D1.
+open custody defect on this machine was a different variable — the live
+PoG signing key in PowerShell history, §5.32, which is PM-D1. **Closed
+2026-09-09:** that key was rotated to `0x9A1a8C7b…` and the sweep behind
+§5.32 found no copy of the replacement in any history file, so the defect
+this sentence was written for no longer stands.
 
 It needs an authenticated `vercel` and `gh`, which CI deliberately does not
 have, so it is an operator command and not a gate. **Preview and Development
@@ -770,6 +794,43 @@ the outcome to want: a diagnostic that cannot find its configuration should say
 so, not quietly find the wrong one. `.env.bak-premigration` is still there and
 still holds a plaintext `PRIVATE_KEY`, but no loader looks for that name, so it
 is dormant rather than shadowing — it belongs to PM-D1.
+
+**Identified 2026-09-10, because "a plaintext `PRIVATE_KEY`" was as far as the
+description ever got, and an uncharacterised key is impossible to prioritise.**
+The key was read into memory and its address derived without printing the
+material; it is `0x73db078f…`, which the same file records as its
+`POG_SIGNER_ADDRESS` — so this was the Base-era PoG signer, doing double duty
+as deployer. Every address beside it is Base, not Robinhood: the RPCs are
+`sepolia.base.org` and `mainnet.base.org`, and the factory, treasury and
+`HOOK_DEPLOY_LIB` it names are none of the 4663 contracts. The file's name is
+accurate — it predates the chain migration entirely.
+
+Exposure, measured rather than assumed, because the file carries a
+`BASE_MAINNET_RPC` and that is the line that would make it matter: on Base
+mainnet the address has **nonce 0 and zero balance** — the key has never sent a
+transaction there and holds nothing. On Base Sepolia it has nonce 46 and
+0.048593 testnet ETH. So the residue is a faucet-funded testnet key with no
+real-money footprint on any live chain, which is the disposition the name
+implied and nobody had verified.
+
+Two corrections follow. It does **not** belong to PM-D1, which closed on
+2026-09-09; a closed row cannot own a live residue, and leaving the attribution
+there is how a file gets forgotten. It is re-homed to PM-D3 as a custody item.
+And it is worth naming precisely why `check:secrets` stayed green across all of
+this, because the reason turned out to be two gaps rather than one and the
+second is the serious one. First, scope: the laptop-copy arm globs `.env*` from
+`readdirSync(FRONTEND_ROOT)` (`checkSecretStore.mjs:321`), so it reads siblings
+of the frontend package and this file sits one directory above, at the repo
+root. Second, and worse, **coverage**: that arm only looks for names the
+INVENTORY classifies at secret tier, and the inventory knows
+`POG_SIGNER_PRIVATE_KEY` and `POG_PRIVATE_KEY` but not the bare `PRIVATE_KEY`.
+So even moved into scope, this file would still pass — and the bare name is not
+hypothetical, it is the Foundry convention this repository used for the
+deployer, the same `PRIVATE_KEY` that §5.31 records destroying from
+`.env.production`. A deployer key dropped into `soat-frontend/.env.local` under
+that name is invisible to this guard today. That is the finding; §5.31's
+"the check never looked for a copy" has a sibling in "the check does not know
+the name the copy would use".
 
 ---
 
@@ -1258,7 +1319,9 @@ letting a bare 409 stand in for it.
 Not yet done: nobody has clicked it against a live deployment. `tsc`, `eslint`,
 the unit suite and `next build` all pass, and the scan underneath is verified
 against real hosts, but the assembled flow has not been exercised in a browser.
-That belongs with PM-C7, when the frontend is pointed at 4663.
+That belonged with PM-C7, which closed 2026-09-09 with the frontend pointed at
+4663; the walkthrough outlived the row and is carried in §8, where it is now
+gated on the first real launch rather than on the cutover.
 
 #### Reopened the same day — the free tier is ten wallets an hour
 
@@ -1427,8 +1490,9 @@ that awards more. Nine mutations on the policy, all caught, including flipping a
 major chain to optional and reporting an unreadable chain as cap-skipped.
 
 **PM-F9 is now ✅ on correctness and capacity.** What remains is not this row: the
-assembled flow has still never been clicked on a real deployment, which is carried
-with PM-C7, and the Builder upgrade is carried to mainnet.
+assembled flow has still never been clicked on a real deployment, which was carried
+with PM-C7 and, since that row closed 2026-09-09, is carried in §8 without an ID;
+and the Builder upgrade is carried to mainnet.
 
 ---
 
@@ -1475,7 +1539,7 @@ Three days later it absorbed the entire audit gate, which is a good argument for
 having built it: the decision in `SECURITY_AUDIT.md` §0 moved three items out of
 *Open* at once, and without this column that would have read as three items
 quietly completed. **N/A is not Done.** A1–A3 are counted here precisely so the
-27 in the Done column cannot be read as covering them. That is the smallest possible version of
+29 in the Done column cannot be read as covering them. That is the smallest possible version of
 the failure this document keeps finding elsewhere: a summary maintained
 separately from the thing it summarises, agreeing with it only for as long as
 someone remembers both. The counts are now derived from the gate tables by
@@ -1539,20 +1603,72 @@ below, in the order it actually blocks.
 > needs a wallet with genuine cross-chain gas history, which is exactly why this
 > is a human walkthrough and not a script. On the success response, check
 > `issuer` equals `0x9A1a8C7b…` before signing the registration.
+>
+> **Blocked by arithmetic, not by effort — 2026-09-10.** The walkthrough above
+> cannot be performed on this deployment yet, and the reason is structural. The
+> PoG button renders only inside a project page in the genesis phase
+> (`ProjectTerminal/index.tsx:247`), and the mainnet factory has never launched
+> anything: it has emitted **4 logs since deploy, all governance** —
+> `OwnershipTransferred` ×2, `OwnershipTransferStarted`, `PogSignerUpdated` —
+> and **zero `LaunchCreated`** (`0xac89f904…`). With no launch there is no hook,
+> with no hook there is no project page, and with no project page there is no
+> button. The instruction "do the walkthrough" was therefore unactionable from
+> the moment the rotation landed, and stating it as pending misrepresented a
+> precondition as a task. It is now gated on the first real launch, which is the
+> event that also exercises `createLaunch`, the genesis panel, and `deposit` —
+> so the walkthrough is not a separate errand but a step inside the first launch.
+>
+> **What was done instead, since the identity gap could not be closed by
+> waiting.** The mismatch is now caught client-side before the transaction:
+> `PogScanButton` reads `factory.pogSigner()` and compares it to the `issuer`
+> the route already returned but never rendered, refusing to send when they
+> disagree. That converts the failure from `InvalidSignature()` after the gas is
+> spent into a message naming the drift as a deployment fault. Two limits worth
+> stating plainly: it runs on the client and so is **diagnosis, not
+> enforcement** — `registerPoG` remains the only thing that decides — and a
+> missing `issuer` or an unreadable `pogSigner()` deliberately falls through to
+> the contract's verdict rather than blocking a user the chain would accept, so
+> the guard can make a confusing failure clear but can never invent a new one.
+> The comparison target was confirmed live: `pogSigner()` on 4663 reads
+> `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736`. The walkthrough still has to
+> happen, because a guard that says "these agree" is only as good as the read,
+> and only a real attestation proves the key can sign one.
+>
+> **Two facts about that first launch, established 2026-09-10 because both were
+> assumed wrongly first.** The 0.1 ETH `launchFee` does **not** return to the
+> operator: it is forwarded to `ladderTreasury` (`ToshFactory.sol:731`), not to
+> `platformTreasury`, and `ToshLadderTreasury` has no `withdraw`, `sweep`, or
+> `rescue` by design (its header states the absence at lines 42–51). The only
+> exit is `pokeBuyback` spending on a listed token, and PM-C8 has listed none —
+> so the fee becomes reservoir seed capital and is genuinely spent, which is
+> where it is meant to go but is not a refundable test cost. Setting `launchFee`
+> to 0 to avoid it is possible (`setLaunchFee` allows zero) and is the wrong
+> trade: it opens a free-launch window on a live permissionless factory whose
+> address is about to be announced. A test **deposit**, by contrast, is cleanly
+> recoverable — the default soft cap is 10 ETH, a small deposit cannot reach it,
+> and `refund()` opens once the genesis deadline passes with `softCapFailed`
+> (`ToshLaunchpadHook.sol:1227`).
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A used to be a procurement and calendar problem and is now neither —
 it was retired rather than solved (§1), which removes the last item on this list
 that money could have bought. Gate C's broadcast has landed and the ownership
 handoff with it (C2 — the single-key window is closed). What remains there
-is verification, the announcement (gated on PoG signer rotation — §5.32), the frontend
-cutover (the status-page half of C7 is done; the `soat-frontend` /
-`.env.production` half is not), and the first ladder listing (also gated
-on that rotation). Gate D's remaining row is PM-D1: the live PoG signing
-key reached PowerShell history in plaintext and was not rotated
-(`SECURITY_AUDIT.md` §5.32). The laptop copies of the Supabase and
+is verification (C4's `HookDeployLib`), the announcement (C3), and the first
+ladder listing (C8). **Corrected 2026-09-09.** This paragraph gated the last
+two on the PoG signer rotation and called the frontend cutover half-done;
+neither survives the day. The rotation landed, so `factory.pogSigner()` is
+`0x9A1a8C7b…` (`SECURITY_AUDIT.md` §5.32) and C3 and C8 are open on their own
+terms — C3 because the address has still not been announced, C8 because
+nothing has been listed — and C7 closed with both halves, the `soat-frontend` /
+Vercel Production cutover verified against the live site as well as the status
+page. Gate D has no open row left either: PM-D1 closed the same day, the key
+that had reached PowerShell history in plaintext replaced by one with on-chain
+nonce 0. The laptop copies of the Supabase and
 Upstash credentials that §5.31 found are rotated and deleted;
-`check:secrets` is 27/27 green. That is not a clean custody surface.
+`check:secrets` is 27/27 green. The sentence that stood here — "that is not a
+clean custody surface" — was written while D1 was open and no longer describes
+the surface it was about.
 Gate E has no red row left — E4 and E6 closed 2026-09-08 as a
 policy naming, not as a 03:00 page-out. E2's `MONITOR_*` re-point at 4663 has
 landed; its first mainnet pass was blind and is recorded in §5.28. What keeps
@@ -1560,11 +1676,15 @@ E2 at 🟡 is the pager, not the chain.
 
 That leaves a list on which **every single remaining item is procedural or
 operational**, and not one of them is a second opinion on the contracts. Worth
-noticing before reading the count as reassuring: 4 open and 2 partial is a
+noticing before reading the count as reassuring: 2 open and 2 partial is a
 smaller number than it was, produced by C1 landing, by C2 closing the
-single-key window, by C6 committing the mainnet hashes, and by C9 closing with C1 —
-the PoG signer address was `REPLACE_ME` in this file and is `0x0E496Bd5…` in
-`.env.production` and on chain.
+single-key window, by C6 committing the mainnet hashes, by C7 finishing the
+frontend cutover, by D1 rotating the signing key, and by C9 closing with C1 —
+the PoG signer address was `REPLACE_ME` in this file and was `0x0E496Bd5…` in
+`.env.production` and on chain on the day C9 closed. Both halves of that last
+clause have since moved: the 2026-09-09 rotation put a new private key in
+Vercel Production and `0x9A1a8C7b…` on chain, so `0x0E496Bd5…` is now only the
+record of what C1 broadcast.
 
 What is left that is purely engineering:
 
@@ -1598,8 +1718,9 @@ What is left that is purely engineering:
   As of this sitting the page in `jayoo101/tosh-status` names the 4663
   factory. `checkStatusPage.mjs` is green against that local file and stays
   red against the live page until that repository is pushed — expected, not
-  a reason to weaken the guard. The remaining half of PM-C7 is the
-  frontend.
+  a reason to weaken the guard. The sentence that closed this paragraph —
+  "the remaining half of PM-C7 is the frontend" — was true when it was written
+  and is not now: that half closed 2026-09-09 and C7 is done on both.
 
   One of them caught a hole in the guard itself: the chain-read check
   originally asked whether the page *contained* the `paused()` selector, and a
