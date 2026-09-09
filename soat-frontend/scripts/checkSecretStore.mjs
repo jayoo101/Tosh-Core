@@ -159,6 +159,17 @@ const INVENTORY = {
        + 'leaves the owner-signature check as the only way in, which is the posture we want. '
        + 'Setting it re-opens a shared-secret route to a privileged endpoint.',
   },
+  POG_PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'The spec-compliant alias for POG_SIGNER_PRIVATE_KEY, and a second place the signing '
+       + 'key can live. `loadOracleAccount` reads `POG_SIGNER_PRIVATE_KEY ?? POG_PRIVATE_KEY` '
+       + '(sign-allocation/route.ts), so whichever value sits here is inert while the primary '
+       + 'is set -- which is exactly what makes it dangerous: rotating the primary leaves a '
+       + 'superseded key behind, in a store, readable, and this file would still report every '
+       + 'row green because it never asked about a name it did not carry. That is the shape of '
+       + 'SECURITY_AUDIT.md 5.31, where the check was green throughout because it never asked '
+       + 'whether a copy existed. One name for the key, and it is the primary.',
+  },
 }
 
 const ICON = { ok: '  ok  ', bad: ' FAIL ', warn: ' warn ' }
