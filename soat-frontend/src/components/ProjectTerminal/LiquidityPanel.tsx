@@ -7,7 +7,12 @@ import { PERMIT2, POSITION_MANAGER } from '@/lib/contracts'
 import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
-import { useLpPoolState, useLpPositions, rememberLpPosition } from '@/lib/useLpPosition'
+import {
+  useLpPoolState,
+  useLpPositions,
+  rememberLpPosition,
+  lpScanCoverageLabel,
+} from '@/lib/useLpPosition'
 import {
   Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction, toshToast,
   CLOCK_UNSYNCED,
@@ -60,6 +65,10 @@ export function LiquidityPanel({
   const { sqrtPriceX96, totalLiquidity } = useLpPoolState(tokenAddress, hookAddress)
   const { positions, totals, degraded, refresh } =
     useLpPositions(userAddress, hookAddress, sqrtPriceX96)
+
+  // Derived from the chain definition, so it is constant for a build; read once
+  // rather than per render.
+  const scanCoverage = useMemo(() => lpScanCoverageLabel(), [])
 
   const poolAmounts = amountsForLiquidity(sqrtPriceX96, totalLiquidity)
 
@@ -478,6 +487,23 @@ export function LiquidityPanel({
           {'// '}This RPC would not serve position logs, so only positions minted from this
           browser are listed. Your other positions are safe on-chain and remain withdrawable
           through any Uniswap V4 interface.
+        </p>
+      )}
+
+      {/*
+        Stated even when the scan succeeds, because succeeding is not the same
+        as being complete. Discovery walks a bounded span of `Transfer` logs —
+        hours, not weeks, on a 100 ms chain — so a position minted before that
+        window and not held in this browser's cache is simply absent from the
+        list above, with nothing to distinguish it from having no position at
+        all. Only the failure case used to say anything, which is the case that
+        needed it least: it at least announced itself.
+      */}
+      {!degraded && scanCoverage && (
+        <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
+          {'// '}Position discovery scans the last {scanCoverage} of transfers. Anything older,
+          minted from another browser, is not listed here — it remains yours on-chain and
+          withdrawable through any Uniswap V4 interface.
         </p>
       )}
     </Card>

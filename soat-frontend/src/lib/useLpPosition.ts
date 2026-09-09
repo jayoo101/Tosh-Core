@@ -24,16 +24,95 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePublicClient, useReadContract } from 'wagmi'
 import { getAddress, type Address } from 'viem'
 
-import { POSITION_MANAGER, STATE_VIEW, TARGET_CHAIN_ID } from './contracts'
+import { POSITION_MANAGER, STATE_VIEW, TARGET_CHAIN_ID, targetChain } from './contracts'
 import { POSM_ABI, STATE_VIEW_ABI } from './lpAbis'
 import { amountsForLiquidity, poolIdOf, toshPoolKey } from './v4Math'
 
-/** How far back to scan posm `Transfer` logs.  Base blocks are ~2s, so this is
- *  roughly a fortnight — comfortably longer than any live testnet project. */
-const LOG_LOOKBACK_BLOCKS = 600_000n
-
 /** Public RPCs cap `eth_getLogs` spans; walk the window in slices. */
 const LOG_PAGE_SIZE = 50_000n
+
+/**
+ * The window this scan would like to cover.
+ *
+ * The lookback used to be a flat `600_000n` explained as "Base blocks are ~2s,
+ * so this is roughly a fortnight". Both halves had stopped being true. The
+ * chain is Robinhood, measured at 0.101 s/block, so 600,000 blocks is about
+ * 17 hours — and nothing announced the change, because a block count cannot:
+ * it keeps meaning blocks while the time it stands for shrinks twentyfold.
+ */
+const LOG_TARGET_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
+/**
+ * The ceiling that actually binds, and the reason the window above is a wish.
+ *
+ * A fortnight of 100 ms blocks is 12.1M blocks, which is 242 paged
+ * `eth_getLogs` calls. This runs in a panel with somebody waiting on it, and
+ * the endpoint rate-limits well before that (see the pacing below), so the
+ * target is capped by what a scan can spend rather than the other way round.
+ *
+ * 24 pages is ~6 s of paced requests. Deliberately double the 12 the flat
+ * constant worked out to, because that number was never chosen — it fell out
+ * of an arithmetic error about a different chain.
+ */
+const LOG_PAGE_BUDGET = 24n
+
+/**
+ * Blocks to scan, and how long that actually covers.
+ *
+ * `blockTime` is absent from some chain definitions, including the Robinhood
+ * testnet's. Falling back to the page budget is right for that case: it spends
+ * exactly what the scan is allowed to spend, which is the same answer the
+ * budget gives on a chain we can measure, just without a span to report.
+ */
+function lookbackPlan(): { blocks: bigint; coverageMs: number | undefined } {
+  const budgetBlocks = LOG_PAGE_SIZE * LOG_PAGE_BUDGET
+  const ms = targetChain.blockTime
+  if (!ms) return { blocks: budgetBlocks, coverageMs: undefined }
+
+  const wanted = BigInt(Math.ceil(LOG_TARGET_WINDOW_MS / ms))
+  const blocks = wanted < budgetBlocks ? wanted : budgetBlocks
+  return { blocks, coverageMs: Number(blocks) * ms }
+}
+
+/**
+ * How recent a position has to be for the log scan to find it, as prose.
+ *
+ * Exported because the panel's degraded notice used to promise nothing about
+ * coverage, which was survivable while the window was two weeks and is not now
+ * that it is hours. A user who cannot see a position they hold should be told
+ * the boundary rather than left to infer it.
+ */
+export function lpScanCoverageLabel(): string | undefined {
+  const { coverageMs } = lookbackPlan()
+  if (coverageMs === undefined) return undefined
+  const hours = coverageMs / 3_600_000
+  if (hours < 48) return `${Math.round(hours)} hours`
+  return `${Math.round(hours / 24)} days`
+}
+
+/**
+ * Minimum spacing between `eth_getLogs` calls, and the retries that spacing
+ * cannot save us from.
+ *
+ * The Robinhood mainnet endpoint returns `Too Many Requests` on roughly the
+ * seventh tight sequential `eth_getLogs`. The flat lookback issued twelve, so
+ * this scan did not merely return a short window on mainnet — it threw partway
+ * through and landed in the `catch` below, every time, leaving discovery to the
+ * localStorage cache alone while the panel reported a degraded RPC. The same
+ * limit took the on-chain watcher blind for a full pass; see
+ * docs/ONCHAIN_MONITORING.md and SECURITY_AUDIT.md §5.28, where 250 ms was the
+ * interval measured to be clean.
+ */
+const LOG_MIN_INTERVAL_MS = 250
+const LOG_MAX_RETRIES = 3
+const LOG_BACKOFF_MS = 400
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+const isRateLimit = (e: unknown): boolean =>
+  /429|too many requests|rate ?limit/i.test(
+    e instanceof Error ? `${e.message}` : String(e),
+  )
 
 const cacheKey = (user: Address, hook: Address) =>
   `tosh.lp.${TARGET_CHAIN_ID}.${user.toLowerCase()}.${hook.toLowerCase()}`
@@ -134,18 +213,37 @@ export function useLpPositions(
 
     try {
       const head = await client.getBlockNumber()
-      const floor = head > LOG_LOOKBACK_BLOCKS ? head - LOG_LOOKBACK_BLOCKS : 0n
+      const { blocks } = lookbackPlan()
+      const floor = head > blocks ? head - blocks : 0n
+
+      // Paced and retried per page rather than wrapped around the whole walk.
+      // A 429 on page seven used to abandon every page after it, so the pages
+      // already fetched were discarded along with the ones never attempted;
+      // backing off and continuing keeps what the scan has earned.
+      let lastStartedAt = 0
+      const pageLogs = async (from: bigint, to: bigint) => {
+        for (let attempt = 0; ; attempt++) {
+          const wait = LOG_MIN_INTERVAL_MS - (Date.now() - lastStartedAt)
+          if (wait > 0) await sleep(wait)
+          lastStartedAt = Date.now()
+          try {
+            return await client.getLogs({
+              address: POSITION_MANAGER,
+              event: POSM_ABI[5],
+              args: { to: user },
+              fromBlock: from,
+              toBlock: to,
+            })
+          } catch (e) {
+            if (attempt >= LOG_MAX_RETRIES || !isRateLimit(e)) throw e
+            await sleep(LOG_BACKOFF_MS * 2 ** attempt)
+          }
+        }
+      }
 
       for (let to = head; to > floor; ) {
         const from = to > floor + LOG_PAGE_SIZE ? to - LOG_PAGE_SIZE : floor
-        const logs = await client.getLogs({
-          address: POSITION_MANAGER,
-          event: POSM_ABI[5],
-          args: { to: user },
-          fromBlock: from,
-          toBlock: to,
-        })
-        for (const log of logs) {
+        for (const log of await pageLogs(from, to)) {
           const id = log.args.id
           if (id !== undefined) candidates.add(id.toString())
         }
@@ -153,8 +251,8 @@ export function useLpPositions(
         to = from - 1n
       }
     } catch {
-      // Log scan unavailable (rate limit, range cap, unsupported RPC).  Fall
-      // back to whatever this browser minted itself.
+      // Log scan unavailable (rate limit that outlasted the retries, range cap,
+      // unsupported RPC).  Fall back to whatever this browser minted itself.
       scanFailed = true
     }
 
