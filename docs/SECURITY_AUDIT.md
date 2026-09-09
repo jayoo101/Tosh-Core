@@ -4854,12 +4854,110 @@ The common shape is that the confirming step is manual and the acting
 step is automated, so the act leaves a trace and the confirmation does
 not.
 
+**Outcome, same day.** Both contracts verified through the browser form
+and both read **exact match**, not partial: `ToshFactory` at 23:18:07
+and `ToshLadderTreasury` at 23:26:10, `v0.8.26+commit.8a97fa7a`,
+cancun, optimizer on / 200 runs, MIT, constructor arguments decoded,
+Read/Write tabs live.
+
+**The explorer's verdict was then checked rather than accepted, and it
+is what turned up the rest of this section.** The treasury's banner
+adds *"verified using Blockscout Bytecode Database"*, which means the
+source was matched out of a store of previously-verified bytecode
+rather than necessarily from the upload — a different provenance than
+"we submitted this and it compiled to that". So the claim that matters
+was tested independently of the explorer: a deploy transaction's input
+is `creationCode ++ abi.encode(constructorArgs)`, so stripping the
+encoded arguments off the tail leaves a prefix that must equal
+`forge inspect <target> bytecode`.
+
+`ToshLadderTreasury` matched byte for byte on the first attempt. The
+other two comparisons each failed first and each failure was
+informative:
+
+- **`transactions[].hash` in `run-latest.json` does not belong to the
+  entry it sits in.** `transactions[1]` is the `ToshFactory` CREATE and
+  carries `0xbcec476c…`, which on chain is a 36-byte
+  `setFactory(address)` call at deployer nonce 8. The real factory
+  CREATE is `0x0eed646b…` at nonce 7, filed under `transactions[4]` and
+  labelled a treasury CALL. `receipts[]` **is** positionally aligned and
+  is the authoritative mapping — `receipts[1].transactionHash` is the
+  factory. Everything else on those entries (`contractAddress`,
+  `arguments`, `transactionType`) is correct; only `hash` is permuted.
+  Any runbook, dossier or script that quotes a deploy hash out of
+  `transactions[]` is quoting the wrong transaction, and the mistake is
+  invisible because the hash is well-formed and the transaction exists.
+- **`ToshFactory` links an external library**, so its creation code
+  carries an unlinked `__$ee832620f4ff53cb02e60c6040e1893895$__`
+  placeholder where the address goes. Substituting the address gives an
+  exact match. That placeholder is how the third contract was found.
+
+**There is a third contract on mainnet, and nothing outside the
+broadcast log knew it.** `src/libraries/HookDeployLib.sol:HookDeployLib`
+is deployed at `0x873E0841bc0d8F87102E2a2862a0d32D1b890462`. Its
+deployed code is 22,152 bytes and equals this tree's
+`deployedBytecode` at every byte except a single contiguous 20-byte
+field at offset 65, which on chain holds the library's own address and
+locally is zeroes — solc's self-address field, patched in at deploy.
+Substituting it yields an exact match, so the library is this tree too.
+
+Why it was invisible is structural rather than careless: `forge script`
+deploys libraries through the canonical CREATE2 proxy
+`0x4e59b44847b379578588920cA78FbF26c0B4956C`, not as a transaction from
+the deployer. So it is not a `CREATE` entry in `transactions[]`, the
+deployer's nonce sequence runs 6–10 with no gap to notice, and every
+count of what this project put on mainnet said two contracts.
+`HookDeployLib` is discussed at length elsewhere in this document and in
+`PRD-v5.0.md` — its size, its `assembly` block, its role — but its
+deployed address appears in exactly one place in the repository, and
+PM-C4's evidence column named two addresses.
+
+**It is not a live surface, and that is verified rather than reasoned
+from the source.** Both call sites (`ToshFactory.sol:378` and `:383`)
+are inside the constructor, and the deployed factory's *runtime* code
+contains **zero** occurrences of the library address — checked against
+`eth_getCode`. Nothing the factory does now can reach it. The residual
+value in verifying it is the audit trail: `deployImplementation` is what
+burned `platformTreasury` into the hook implementation's
+`platformFeeRecipient`, which is immutable, has no setter, and takes
+0.30 % of the ETH input of every buy on every pool forever. A reader
+tracing where that value came from ends up at this library, and today
+finds unnamed bytecode. Hence PM-C4 is 🟡 rather than ✅.
+
+A corroborating detail worth keeping: the library's page shows **4
+internal transactions** and 0 external ones. Two `DELEGATECALL`s per
+factory construction (`creationCodeHash` and `deployImplementation`)
+means exactly two factories have ever been constructed on 4663 — the
+canonical one and the orphan of §5.26. That is independent evidence
+against a third, unnoticed factory, which §5.28 had to reason about from
+event topics.
+
+**One defect in this section's own tooling, fixed here.**
+`--show-standard-json-input` emits `settings.libraries` **empty**, and
+Blockscout accepted the factory anyway by matching the placeholder
+positionally against whatever bytes are on chain. The verification is
+sound, but the submission relied on a verifier heuristic and the
+resulting page does not record which library the factory was linked
+against. `scripts/genVerifyInput.mjs` now fills the field from the
+broadcast log's `libraries` entry — and fills it *only* where the file
+is actually among that document's sources and is not the contract being
+verified, because a first pass wrote it into all three and both of the
+other two are wrong: the treasury does not import HookDeployLib at all
+(absent from its 25 sources, and solc may reject a link naming a source
+it was not given), and a library does not link against itself.
+
 **The sweep count is now the eleventh consecutive commit to update it
 by hand.** Still not built. It is worth noting that a guard here would
 not have caught this one either: no CI runner can read that explorer
 past Cloudflare, so verification status is not machine-checkable from
 anywhere this project controls. That is a genuine limit rather than an
-unbuilt guard, and it means PM-C4 will stay a human check.
+unbuilt guard, and it means PM-C4 will stay a human check. What *is*
+machine-checkable, and now demonstrated, is the stronger claim
+underneath it — that the deployed bytecode reproduces from this tree.
+An explorer saying "verified" is a statement about what a third party
+recompiled; reproducing the creation code locally is a statement about
+the bytes themselves, and it does not require the explorer to be up,
+honest, or reachable.
 
 ---
 
