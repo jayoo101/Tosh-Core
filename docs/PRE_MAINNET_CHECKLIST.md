@@ -477,15 +477,22 @@ listed tokens, no Pausable). The operator had intended the deployer to
 `renounceOwnership` on both orphans before the key was destroyed; those
 calls were never sent (deployer nonce 12, no such transactions). The
 orphans are stranded with a dead owner and `pendingOwner()` = the Safe.
-The remedy now chosen is the path §5.31 originally declined: the Safe
+The remedy taken is the path §5.31 originally declined: the Safe
 `acceptOwnership` then immediately `renounceOwnership` on each, atomically
-in one MultiSend batch. Built and verified 2026-09-08; both owners signed
-`safeTxHash` `0xffe2da61…` on 2026-09-09 and it was never executed. It is
-now **void**, and has been rebuilt: sign
-`0x389d443c7cdaf6a799f2545e0abb06f530cfcad475a5c016c97649fb80f35587`
-instead. Both orphans still read `owner()` = `0x4e41cea9…` with
-`pendingOwner()` = the Safe, so the path is unchanged and open. See
-`SECURITY_AUDIT.md` §5.31, and §5.26 for the orphan pause.
+in one MultiSend batch. Built and verified 2026-09-08; the first build sat
+at nonce 1 with both signatures and was voided when `setPogSigner` took
+that slot; rebuilt at nonce 2 as `safeTxHash` `0x389d443c…` and
+**executed 2026-09-09**, tx
+`0xba5995e1dde8f0287422dd327aa10de76d633ad6100cfd6d85cd3bd733cff3b2`
+at block 58,601,352.
+
+Verified on chain after execution: both orphans read `owner()` = zero and
+`pendingOwner()` = zero, and the orphan factory still reads `paused()` =
+true — stopped, with no address left that could ever `unpause()` it. The
+canonical pair is untouched (factory `0xba9d2e86…` and treasury
+`0x99ad248d…` both `owner()` = the Safe, `pendingOwner()` zero, not
+paused). Safe nonce is 3. See `SECURITY_AUDIT.md` §5.31, and §5.26 for
+the orphan pause.
 
 > **Signed is not executed, and the two are easy to conflate.** A
 > `safeTxHash` is what owners sign; it exists as soon as the batch is
@@ -506,6 +513,14 @@ instead. Both orphans still read `owner()` = `0x4e41cea9…` with
 > 1, which is how the two were confirmed to be the same batch differing
 > only in position. **Execute a signed Safe transaction before starting
 > another, or expect to re-sign it.**
+>
+> **And an empty queue proves nothing.** The rebuilt hash was computed by
+> `eth_call` against the Safe's `getTransactionHash()`, which posts
+> nothing to the Safe Client Gateway — so the web queue stayed empty and
+> looked like a failure when it was only ever a local computation.
+> Creating the transaction in the UI is what enqueues it. There were also
+> no signatures to hand over: a rebuilt hash starts at zero, and nothing
+> in this repository's tooling holds an owner key, by design.
 
 ### 4.2 Custody is checked, not remembered
 

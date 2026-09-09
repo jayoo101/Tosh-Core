@@ -3767,8 +3767,11 @@ Both orphans still have `owner()` = deployer and `pendingOwner()` = the
 Safe. That is deliberate and safe: the pending assignment is already on
 chain, so the Safe can accept them at any future time even after the
 deployer key is burned. §5.31 originally declined that path; the same
-section now reverses it. The accept-then-renounce batch is built and
-verified, **not executed** (Safe nonce still 1). The orphan `ToshLadderTreasury`
+section now reverses it. The accept-then-renounce batch **executed
+2026-09-09** at nonce 2; both orphans now read `owner()` = zero and
+`pendingOwner()` = zero, so nothing below about the deployer still
+holding this pair survives — it is kept as the record of the state that
+made the batch necessary. The orphan `ToshLadderTreasury`
 `0xbA6c032d0FAacd2A11B86Da7D3c82fbbba1ce4D4` has no Pausable at all.
 Pausing its factory closes `createLaunch` and therefore any new hook
 that could call `autoPiggybackBuyback`. The treasury's remaining live
@@ -4234,6 +4237,20 @@ the orphan accept-then-renounce batch recorded in §5.31. It has not
 been executed. Safe nonce is still 1, which is the proof. This is not
 the drill completing.
 
+> **The drill did complete, 2026-09-09.** That batch executed at nonce 2
+> (execution tx `0xba5995e1…`), which closes this paragraph: signers have
+> now driven Transaction Builder on chain 4663 end to end, through the
+> direct appUrl §5.29 records, using Custom data rather than an ABI
+> because the orphans are unverified on Blockscout. That is the same
+> sequence the P0 pause runbook asks for, on the same UI, against
+> contracts whose bytecode is identical to the canonical pair. What it
+> still does not rehearse is `pause()` on a live factory — the batch
+> called `acceptOwnership` and `renounceOwnership` — so the decision
+> above stands, but the UI-mechanics half of the rehearsal is no longer
+> untested. §5.31 also records the one route that does *not* work, which
+> the attempt discovered: raw MultiSend calldata pasted into Raw Data
+> executes as CALL and reverts.
+
 **The sweep count is now the seventh consecutive commit to update it by
 hand.** §5.24 said a guard is warranted; §5.25 was the third, §5.26
 the fourth, §5.27 the fifth, §5.28 the sixth. This is the seventh.
@@ -4464,17 +4481,18 @@ renounce-then-destroy would have produced (`owner()` zero,
 anyone), and it no longer depends on a key that no longer exists. The
 Safe holds ownership only inside a single atomic transaction.
 
-The batch, built and verified 2026-09-08:
+The batch, built 2026-09-08 and executed 2026-09-09:
 
 | Field | Value |
 |---|---|
 | Safe | `0x2953957774482efA660921df85A1E7634ccfe27A` (v1.4.1, 2-of-3) |
-| Safe nonce | 1 |
+| Safe nonce | 2 (the first build sat at 1; see below) |
 | to | `0x9641d764fc13c8B624c04430C7356C1C7C8102e2` MultiSendCallOnly |
 | operation | 1 (DELEGATECALL) |
 | value, safeTxGas, baseGas, gasPrice | all 0 |
 | gasToken, refundReceiver | zero address |
-| `safeTxHash` | `0xffe2da614a1cadfbe531d238b3db9f46ba9580a8fb31f777d8245a8d5d56e14d` |
+| `safeTxHash` | `0x389d443c7cdaf6a799f2545e0abb06f530cfcad475a5c016c97649fb80f35587` |
+| execution tx | `0xba5995e1dde8f0287422dd327aa10de76d633ad6100cfd6d85cd3bd733cff3b2`, block 58,601,352 |
 
 Four inner calls, in order: orphan factory `acceptOwnership()`
 `0x79ba5097`; orphan factory `renounceOwnership()` `0x715018a6`;
@@ -4484,11 +4502,36 @@ orphan treasury `acceptOwnership()`; orphan treasury
 The `safeTxHash` was computed by the Safe's own `getTransactionHash()`
 via `eth_call` rather than assembled locally, and reproduced
 independently. A simulateAndRevert dry run of the delegatecall
-returns success = 1, returndatasize = 0 — all four inner calls
+returned success = 1, returndatasize = 0 — all four inner calls
 pass.
 
-**Status: built and verified, NOT EXECUTED.** The Safe's nonce is
-still 1, which is the proof it has not landed.
+**Status: EXECUTED and verified on chain 2026-09-09.** Both orphans now
+read `owner()` = zero and `pendingOwner()` = zero; the orphan factory
+also still reads `paused()` = true, so it is stopped and there is no
+longer an address that could ever `unpause()` it. The Safe's nonce is 3.
+The canonical pair is untouched: factory `0xba9d2e86…` and treasury
+`0x99ad248d…` both still read `owner()` = the Safe with `pendingOwner()`
+zero, and the factory is not paused.
+
+The `ExecutionSuccess` log carries `safeTxHash`
+`0x389d443c…`, matching the hash computed here byte for byte. That is
+worth recording for a reason beyond bookkeeping: the batch was created
+through Transaction Builder's own batching UI, which assembles the
+MultiSend payload itself, and it arrived at the identical hash. The two
+independent constructions agreeing is what licenses reading the dry run
+above as evidence about the transaction that actually executed.
+
+> **A batch cannot be handed to Transaction Builder as raw calldata.**
+> The obvious-looking route — paste the assembled `multiSend(bytes)`
+> calldata into the Raw Data field with `to` = MultiSendCallOnly — was
+> tried and rejected on evidence: that field produces `operation` = CALL,
+> and an `eth_call` of it from the Safe reverts. `multiSend` dispatches
+> its inner calls with CALL from whatever context it runs in, so under
+> DELEGATECALL `msg.sender` on the orphans is the Safe, which is
+> `pendingOwner`, while under a plain CALL it is MultiSendCallOnly, which
+> is not, and `acceptOwnership()` refuses. A batch has to be built as a
+> batch, through the UI's own batching, so that the Safe SDK emits the
+> delegatecall. There is no field in that app for setting `operation`.
 
 **What this sweep's operator actions became.** Confirmed complete on
 2026-09-08:
@@ -4691,12 +4734,27 @@ hash to sign is now
 and `simulateAndRevert` against the Safe returns success for it, run as
 a `DELEGATECALL` exactly as `operation = 1` will.
 
+That rebuild was signed and executed the same day (tx `0xba5995e1…`,
+block 58,601,352), and the `ExecutionSuccess` log carries
+`0x389d443c…` — so the second signing round is spent and the batch is
+closed. §5.31 holds the verified end state.
+
 **The generalisation worth keeping:** a Safe queue is not a set of
 independent authorisations. Two transactions signed for the same nonce
 are mutually exclusive, and executing either silently retires the
 other. This repository has now spent two signing rounds on one batch
 for that reason. Execute what is signed before starting the next thing,
 or plan to re-sign.
+
+A second, smaller lesson from the same batch: **the queue being empty is
+not evidence the transaction does not exist, and a locally computed
+`safeTxHash` never populates it.** The hash here was produced by
+`eth_call` against the Safe's own `getTransactionHash()`, which reads
+state and posts nothing; only creating the transaction in the UI submits
+it to the Safe Client Gateway. Operators looked at an empty queue and
+reasonably asked for execute parameters — which do not exist either,
+since a rebuilt hash starts with zero signatures and no key in this
+project's tooling is a Safe owner.
 
 **What was actually done.** The single offending history line was
 removed programmatically — the line, not the file, so the operator's
@@ -4886,7 +4944,8 @@ destroy the mainnet deployer key rather than sweep it or hand the
 orphans to the Safe. Rotation of those two credentials, deletion of
 the laptop copies, and destruction of the deployer key are confirmed
 complete; the orphan accept-then-renounce batch is built and
-verified, not executed. §5.32 records that the live mainnet PoG
+verified, not executed (it executed later the same day, at nonce 2 —
+see the closing postscript). §5.32 records that the live mainnet PoG
 signing key reached PowerShell history in plaintext, that the
 disposition is accepted-deviation rather than rotation, and that
 rotation is a blocking precondition for PM-C3 and PM-C8.*

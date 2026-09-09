@@ -157,6 +157,15 @@ const ALLOW = new Map([
   // would notice — but `src/` gaining a `simulateAndRevert` would not falsify a
   // claim about what the Safe does, which is the same reasoning as `trace_filter`.
   ['simulateAndRevert', 'a Gnosis Safe function used to dry-run batches — consumed, not contained'],
+  // The other two halves of the same story, admitted for the same reason. A
+  // dossier that says a batch executed has to name the evidence: `ExecutionSuccess`
+  // is the Safe's own log, and its indexed `safeTxHash` is what lets an execution
+  // be tied to a hash computed days earlier. `multiSend` is named because §5.31
+  // records a route that does NOT work — raw calldata in Transaction Builder's Raw
+  // Data field, which runs as CALL and reverts — and that finding is unstatable
+  // without naming the function whose dispatch context is the whole point.
+  ['ExecutionSuccess', 'the Gnosis Safe execution log — emitted by the Safe, not by anything here'],
+  ['multiSend', 'the MultiSendCallOnly entrypoint this project delegatecalls into — consumed, not contained'],
   // A dossier that records a stale-name finding has to be able to print the
   // stale name. Both appear in §5.12 for exactly that reason. Note what an ALLOW
   // entry costs: the name is skipped BEFORE the search runs, so this guard would
