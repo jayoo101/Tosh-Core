@@ -1519,6 +1519,26 @@ below, in the order it actually blocks.
 > one, and inventing `PM-C10` for it would misrepresent a manual walkthrough as
 > a gate. Do it once the PoG rotation lands, since the rotation changes the key
 > that flow signs with and a walkthrough before it would test the wrong key.
+>
+> **Partly discharged automatically, 2026-09-09 — and the part that remains is
+> the part that matters.** The rotation has landed, so the signing path was
+> probed with an ephemeral in-memory wallet: `POST /api/sign-allocation` on the
+> production deployment returned **409 "No completed gas scan for this wallet"**.
+> That status is a pass for every stage above it in the handler, because
+> `loadOracleAccount()` and `fetchPogNonce()` both run *before* the scan check —
+> so the key is present in Vercel Production, viem accepted it as a private key,
+> and `factory.pogNonces()` was read from 4663. A 500 there would have meant the
+> rotation put nothing usable in the runtime.
+>
+> What it cannot show is **identity**: `issuer` is returned only on the success
+> path, so this proves *some* valid key is loaded, not that it is the same key as
+> the on-chain `pogSigner()` `0x9A1a8C7b…`. A mismatch stays invisible until the
+> first real registration and then surfaces as `InvalidSignature()` from
+> `registerPoG` (`ToshFactory.sol:603`) — an error that names the signature
+> rather than the configuration. Closing that needs one real attestation, which
+> needs a wallet with genuine cross-chain gas history, which is exactly why this
+> is a human walkthrough and not a script. On the success response, check
+> `issuer` equals `0x9A1a8C7b…` before signing the registration.
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A used to be a procurement and calendar problem and is now neither —
