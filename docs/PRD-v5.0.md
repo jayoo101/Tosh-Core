@@ -1068,16 +1068,18 @@ The file header of `soat-frontend/src/lib/contracts.ts` (`:10-12`) says what the
 | `REQUIRED_FLAGS` | `0x20CC` | `HookMiner.REQUIRED_FLAGS` | `hookMiner.ts:6` |
 | `GENESIS_DURATION_*` | 10,800 / 86,400 / 259,200 seconds | `Hook.DURATION_*` | `hookMiner.ts:41-43` |
 
-**On-chain addresses, and which of them the environment can move** (`soat-frontend/src/lib/contracts.ts:41-60`) — one is a source constant and three are `envAddress(...)` lookups with a fallback, so the header cannot say "hard-coded" of the table as a whole; 8.24 below has the split:
+**On-chain addresses, and which of them the environment can move** (`POOL_MANAGER` / `POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` @ `soat-frontend/src/lib/contracts.ts`) — one is a source constant and three are `envAddress(...)` lookups with a fallback, so the header cannot say "hard-coded" of the table as a whole; 8.24 below has the split:
 
 | Constant | Address | Remarks |
 |---|---|---|
-| `POOL_MANAGER` | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | **Deliberately not env-bound** — a wrong PoolManager silently mis-CREATE2s every single hook |
-| `POSITION_MANAGER` | `0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80` | The comment warns that the earlier Base Sepolia posm `0xda4910cd…` was deployed against the **wrong** PoolManager, so every liquidity call into it reverts |
-| `PERMIT2` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | Same address on every chain |
-| `STATE_VIEW` | `0x571291b572ed32ce6751a2cb2486ebee8defb9b4` | Read-only `getSlot0` / `getLiquidity`, so the LP panel can size amounts against the real `sqrtPriceX96` |
+| `POOL_MANAGER` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | **Deliberately not env-bound** — a wrong PoolManager silently mis-CREATE2s every single hook, so it gets no escape hatch and a cutover here is a reviewed source change. Uniswap deployed V4 on Robinhood themselves and 4663 and 46630 **share the address**, so unlike the Base era there is no testnet/mainnet split to get wrong and a rehearsal exercises the production value |
+| `POSITION_MANAGER` | `0x58daec3116aae6D93017bAAea7749052E8a04fA7` | The retail LP entry point. Same address on 4663 and 46630, 23,877 bytes of runtime on each, so the fallback is correct on either without an override |
+| `PERMIT2` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | Canonical on every chain, overridable only just in case. Present on both Robinhood chains |
+| `STATE_VIEW` | `0xF3334192D15450CdD385c8B70e03f9A6bD9E673b` | Read-only `getSlot0`, so the LP panel sizes a deposit off the real `sqrtPriceX96` rather than a derived spot. Same address on both Robinhood chains |
 
-Only `FACTORY_ADDRESS` (required; a missing value throws at boot, `:31-35`) and `LADDER_TREASURY_ADDRESS` (optional) come from the environment.
+> **This table used to list the Base-era addresses**, and all three of the movable ones had changed: `POOL_MANAGER` read `0x05E73354…`, `POSITION_MANAGER` `0x4b2c77d2…`, `STATE_VIEW` `0x571291b5…`, and the posm remark still warned about a Base Sepolia deployment built against the wrong PoolManager. `eth_getCode` returns `0x` for all three on 4663 — they are not contracts on the chain this product now runs on. Only Permit2 was unaffected, by being canonical everywhere. A stale address table is the specific thing that misleads someone checking a cutover, which is how PM-C7 went wrong for a day; the four above were read out of `contracts.ts` and each confirmed to carry runtime on 4663.
+
+Only `FACTORY_ADDRESS` (required; a missing value throws at module load, before any component renders) and `LADDER_TREASURY_ADDRESS` (optional) come from the environment.
 
 > **⚠️ 8.24 (substantially narrowed)**: the `NetworkGuard` half no longer holds — it reads `TARGET_CHAIN_ID` now, and the chain ID together with every piece of chain-name copy is driven by `NEXT_PUBLIC_CHAIN_ID`. Of the four addresses, only `POOL_MANAGER` is hard-coded on purpose (the comment spells out why: a wrong one silently mis-CREATE2s, so it gets no environment-variable escape hatch); `POSITION_MANAGER` / `PERMIT2` / `STATE_VIEW` all go through `envAddress(...)` and fall back to the Robinhood addresses when unset. **The accurate statement is: switching chains is an environment change, and only switching PoolManager is a code change.**
 
