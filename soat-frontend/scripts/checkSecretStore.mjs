@@ -34,9 +34,12 @@
  *
  * Store-and-tier is necessary and not sufficient. A credential can be in
  * Vercel as Sensitive and also sit in `.env.local`, and this check was green
- * throughout that state because it never asked about the laptop. Secret-tier
- * names must now be absent or empty in the local dotenv files under this
- * package. Presence of a non-empty assignment is the entire signal: values
+ * throughout that state because it never asked about the laptop. Secret- and
+ * absent-tier names must now be absent or empty in the local dotenv files in
+ * both `soat-frontend/` and the repo root -- the root because that is where
+ * `forge script` runs and therefore where a deploy key lands, which is the
+ * gap PRE_MAINNET_CHECKLIST.md 5.2 found after this scan had been green for
+ * weeks. Presence of a non-empty assignment is the entire signal: values
  * are never read for comparison and never printed. If no such file is
  * present — the CI case, because `.env.local` is gitignored — that absence
  * is reported as not-evaluated, not as a pass.
@@ -169,6 +172,18 @@ const INVENTORY = {
        + 'row green because it never asked about a name it did not carry. That is the shape of '
        + 'SECURITY_AUDIT.md 5.31, where the check was green throughout because it never asked '
        + 'whether a copy existed. One name for the key, and it is the primary.',
+  },
+  PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'The bare Foundry name for a deploy key, and the one this repository actually used -- '
+       + 'SECURITY_AUDIT.md 5.31 records destroying it from .env.production. Nothing in the '
+       + 'application reads it; it exists only for `forge script --private-key`, which is a '
+       + 'terminal operation and not a deployment variable. Carried here because 5.31 and the '
+       + 'POG_PRIVATE_KEY row above are the same lesson twice and this was the third instance: '
+       + 'PRE_MAINNET_CHECKLIST.md 5.2 found a plaintext PRIVATE_KEY in a repo-root '
+       + '.env.bak-premigration that every green run had missed, because a check that does not '
+       + 'carry a name cannot report on it. A deploy key is the strictly worse leak -- it owns '
+       + 'contracts rather than signing quota.',
   },
 }
 
@@ -310,21 +325,36 @@ for (const name of unclassifiedCiVar) {
   )
 }
 
-// Local dotenv copies. Store-and-tier cannot see a laptop file. Secret-tier
-// names must be absent or empty in every `.env*` sibling of this package
-// except `*.example` templates (committed placeholders, empty by design).
+// Local dotenv copies. Store-and-tier cannot see a laptop file. Secret- and
+// absent-tier names must be absent or empty in every `.env*` file in the two
+// directories below, except `*.example` templates (committed placeholders,
+// empty by design).
 // The assigned value is discarded unread: a non-empty right-hand side is
 // the whole finding. Vercel Sensitive values cannot be read back anyway,
 // so there is nothing to compare against.
-const localEnvFiles = (() => {
+// Two directories, not one. This read `FRONTEND_ROOT` alone until 2026-09-10,
+// which meant the repo root was never opened -- and the repo root is where
+// `forge script` is run from, so it is exactly where a deploy key lands.
+// PRE_MAINNET_CHECKLIST.md 5.2 found a plaintext `PRIVATE_KEY` sitting in
+// `.env.bak-premigration` one level above this scan, dormant only because no
+// loader looks for that filename. Scoping a laptop-copy check to the
+// application package assumes secrets only ever land where the application
+// would read them, and a deploy key is the counterexample.
+const ENV_SCAN_DIRS = [
+  { dir: FRONTEND_ROOT, label: 'soat-frontend' },
+  { dir: dirname(FRONTEND_ROOT), label: 'repo root' },
+]
+
+const localEnvFiles = ENV_SCAN_DIRS.flatMap(({ dir, label }) => {
   try {
-    return readdirSync(FRONTEND_ROOT)
+    return readdirSync(dir)
       .filter((n) => n.startsWith('.env') && !n.toLowerCase().includes('example'))
       .sort()
+      .map((name) => ({ dir, name, shown: `${label}/${name}` }))
   } catch {
     return []
   }
-})()
+})
 
 /**
  * True when `name` has a non-empty assignment. The right-hand side is
@@ -350,20 +380,25 @@ function hasNonEmptyAssignment(text, name) {
   return false
 }
 
-const secretNames = Object.entries(INVENTORY)
-  .filter(([, spec]) => spec.tier === 'secret')
+// `absent` joins `secret` here, where it used to be checked against the two
+// remote stores only. A name whose whole classification is "must exist in no
+// store" is not satisfied by being missing from Vercel while sitting in a
+// dotenv on the machine that deploys -- that is the more likely of the two
+// places for it to be, not the less.
+const localScanNames = Object.entries(INVENTORY)
+  .filter(([, spec]) => spec.tier === 'secret' || spec.tier === 'absent')
   .map(([name]) => name)
 
 if (localEnvFiles.length > 0) {
   for (const file of localEnvFiles) {
-    const text = readFileSync(join(FRONTEND_ROOT, file), 'utf8')
-    for (const name of secretNames) {
+    const text = readFileSync(join(file.dir, file.name), 'utf8')
+    for (const name of localScanNames) {
       if (!hasNonEmptyAssignment(text, name)) continue
       lines.push(
-        `${ICON.bad} ${name} — non-empty assignment in ${file}; delete it and rotate, not delete only`,
+        `${ICON.bad} ${name} — non-empty assignment in ${file.shown}; delete it and rotate, not delete only`,
       )
       findings.push(
-        `${name} has a non-empty assignment in ${file}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`,
+        `${name} has a non-empty assignment in ${file.shown}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`,
       )
     }
   }
@@ -390,20 +425,22 @@ if (previewCount > 0) {
 
 if (localEnvFiles.length === 0) {
   console.log(
-    '\nnote  No local dotenv file was present under this package (.env, .env.local, and other\n'
-    + '      .env* siblings, excluding *.example), so absence of laptop copies was not evaluated.\n'
-    + '      That is expected in CI, where .env.local is gitignored; it is not a pass of this check.',
+    '\nnote  No local dotenv file was present in soat-frontend/ or the repo root (.env,\n'
+    + '      .env.local, and other .env* siblings, excluding *.example), so absence of laptop\n'
+    + '      copies was not evaluated. That is expected in CI, where .env.local is gitignored;\n'
+    + '      it is not a pass of this check.',
   )
 } else {
   console.log(
-    `\nnote  Local dotenv scanned: ${localEnvFiles.join(', ')}. Secret-tier names must be absent or empty.`,
+    `\nnote  Local dotenv scanned: ${localEnvFiles.map((f) => f.shown).join(', ')}. Secret- and`
+    + ' absent-tier names must be absent or empty.',
   )
 }
 
 if (findings.length === 0) {
   const localBit = localEnvFiles.length === 0
     ? ''
-    : ', and no secret-tier assignment in local dotenv'
+    : ', and no secret- or absent-tier assignment in local dotenv'
   console.log(`\n${Object.keys(INVENTORY).length} credentials checked · every one in the right store at the right tier${localBit}\n`)
   process.exit(0)
 }
