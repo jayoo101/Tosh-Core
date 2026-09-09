@@ -292,13 +292,18 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    and live-tested and no human has ever clicked it on a real deploy.
 6. **PM-C8** — `treasury.addLadderToken`, but **poll for TWAP maturity, do not
    compute it**. The first testnet sitting listed 52 s after launch; see
-   `PRE_MAINNET_CHECKLIST.md` §3.2. Do not list until the live PoG signer
-   is rotated (`SECURITY_AUDIT.md` §5.32).
+   `PRE_MAINNET_CHECKLIST.md` §3.2. ~~Do not list until the live PoG signer
+   is rotated~~ — **satisfied 2026-09-09**, the rotation landed
+   (`SECURITY_AUDIT.md` §5.32), so this no longer gates listing.
 7. **PM-D1 / PM-D3** — D3's laptop copies are rotated and deleted;
    `npm run check:secrets` (from `soat-frontend/`, where that script is
-   defined) is 27/27 green. D1 is not: the live PoG signing key reached
-   PowerShell history and was not rotated. Rotation is a blocking
-   precondition for C3 and C8.
+   defined) is **29/29** green. **D1 closed 2026-09-09** — the live PoG
+   signing key that had reached PowerShell history was rotated to
+   `0x9A1a8C7b…` on chain, in Vercel, and in the monitor variable, so it is
+   no longer a precondition for C3 or C8 (`SECURITY_AUDIT.md` §5.32). D3
+   inherited one residue from it: a plaintext `PRIVATE_KEY` in two repo-root
+   files, both now cleared, and the two gaps that let `check:secrets` stay
+   green through it are closed (`PRE_MAINNET_CHECKLIST.md` §5.2).
 8. **PM-E2** — repoint `MONITOR_*` at 4663 and give `watch.yml` its delivery
    sink. C1 has landed, so this is unblocked.
 
