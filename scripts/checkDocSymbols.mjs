@@ -148,6 +148,15 @@ const ALLOW = new Map([
   ['eth_getTransactionsByAddress', 'a JSON-RPC method the node does not serve — §7 names it to record its absence'],
   ['trace_filter', 'a JSON-RPC method absent from the Robinhood node — §7 names it to record that'],
   ['arbtrace_filter', 'the Nitro-flavoured spelling, absent from the same node — §7'],
+  // A function on the Gnosis Safe, which this repository consumes and does not
+  // contain: same category as `master` and the three method names above. It is
+  // named because every Safe batch this project has sent was dry-run through it
+  // first, and a dossier that reports "the simulation returned success" has to
+  // be able to say what performed the simulation. The ALLOW cost is nil in the
+  // usual direction — a name arriving in `src/` would matter, and nothing here
+  // would notice — but `src/` gaining a `simulateAndRevert` would not falsify a
+  // claim about what the Safe does, which is the same reasoning as `trace_filter`.
+  ['simulateAndRevert', 'a Gnosis Safe function used to dry-run batches — consumed, not contained'],
   // A dossier that records a stale-name finding has to be able to print the
   // stale name. Both appear in §5.12 for exactly that reason. Note what an ALLOW
   // entry costs: the name is skipped BEFORE the search runs, so this guard would

@@ -4651,7 +4651,52 @@ precondition, not a recommendation.
 > the key sent straight to the clipboard, so the pairing holds by
 > construction and there is never a reason to run `cast wallet address`
 > on a literal. PSReadLine records input, not output, so no command in
-> the sequence carries the key.
+> the sequence carries the key. `cast wallet address --interactive`
+> exists as the recovery path if an address is lost, and reads the key
+> from a hidden child-process prompt rather than the command line — that
+> is the derivation route whose absence made pasting the literal the
+> natural thing to do, and it was in the tool the whole time.
+
+**Rotation landed 2026-09-09, and verified in five places rather than
+one.** `factory.pogSigner()` is
+`0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736`, an EOA at nonce 0 that
+holds no balance, carries no code, and collides with none of the eight
+addresses this project has reason to know: the old signer, the dead
+deployer, the Safe, §5.23's two burned keys and the three Safe owners.
+`POG_SIGNER_PRIVATE_KEY` is sensitive and write-only in Vercel
+Production with no local dotenv copy, `POG_PRIVATE_KEY` is unset, and
+`MONITOR_EXPECTED_POG_SIGNER` carries the new address, so `STATE-04`
+compares the live signer against the live expectation instead of a
+retired one. The nonce is the property to keep watching: PM-D2 says
+this key never sends a transaction, so **0 is not a starting value but
+the permanent one**, and nonce 2 on its predecessor is the whole reason
+this sweep exists.
+
+**One casualty, and it is a lesson about Safe nonces rather than about
+keys.** The orphan accept-then-renounce batch had been signed by both
+owners at nonce 1 and was waiting to be executed. `setPogSigner` was
+executed first and took nonce 1, because that was simply the next free
+slot — and `_nonce` is a field inside the EIP-712 `SafeTx` struct, so
+both signatures stopped authorising anything at that moment. Nothing
+announced it. A signature does not become invalid in a way anybody is
+told about; it just ceases to describe an executable transaction.
+
+The batch was rebuilt at nonce 2 and, as a check on the reconstruction,
+hashing the same four calls at nonce **1** reproduces the recorded
+`0xffe2da614a1cadfbe531d238b3db9f46ba9580a8fb31f777d8245a8d5d56e14d`
+byte for byte — which proves the rebuild is the same batch in a
+different position rather than a new one that merely looks similar. The
+hash to sign is now
+`0x389d443c7cdaf6a799f2545e0abb06f530cfcad475a5c016c97649fb80f35587`,
+and `simulateAndRevert` against the Safe returns success for it, run as
+a `DELEGATECALL` exactly as `operation = 1` will.
+
+**The generalisation worth keeping:** a Safe queue is not a set of
+independent authorisations. Two transactions signed for the same nonce
+are mutually exclusive, and executing either silently retires the
+other. This repository has now spent two signing rounds on one batch
+for that reason. Execute what is signed before starting the next thing,
+or plan to re-sign.
 
 **What was actually done.** The single offending history line was
 removed programmatically — the line, not the file, so the operator's
