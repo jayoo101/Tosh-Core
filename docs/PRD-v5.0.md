@@ -51,7 +51,7 @@ The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.so
 
 | User | What they want | What the product gives them |
 |---|---|---|
-| **Project creator (creator)** | To launch a token with a real pool and credible rules at minimum cost | A 0.1 ETH launch fee; three genesis durations to choose from; 99% of shelf revenue to `projectAdmin`; the rules frozen into immutables at deployment |
+| **Project creator (creator)** | To launch a token with a real pool and credible rules at minimum cost | A 0.01 ETH launch fee; three genesis durations to choose from; 99% of shelf revenue to `projectAdmin`; the rules frozen into immutables at deployment |
 | **Genesis depositors** | An early low price plus definite downside protection | A structural 10% launch premium; a 100% penalty-free refund if the soft cap is missed or the 7-day zombie window times out |
 | **Secondary-market traders** | A pool with depth and no hidden rake | Full-range genesis liquidity locked permanently; total friction of **1.30%** (0.30% to LPs + 1.00% protocol tax, of which 0.70% is buy-and-burn and 0.30% platform revenue) |
 | **Retail LPs** | To earn pool fees without being locked in | The 0.30% pool fee is settled natively by V4; withdraw whenever you like; the UI ships a minimal full-range panel |
@@ -84,7 +84,7 @@ The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.so
    │  + ReentrancyGuard               │◀──registeredHooks()───────│  (one-way valve / buyback engine)  │
    │                                  │◀──tokenToHook()───────────│                                    │
    │ · createLaunch (CREATE2)         │                           │ · receive() — ETH from four pipes  │
-   │ · registerPoG (signed quota)     │    launchFee(0.1 ETH)     │ · addLadderToken curation (owner)  │
+   │ · registerPoG (signed quota)     │    launchFee(0.01 ETH)    │ · addLadderToken curation (owner)  │
    │ · deposit — genesis gateway      │──────────────────────────▶│ · autoPiggybackBuyback(onlyHook)   │
    │ · globalReferrers referral graph │                           │ · pokeBuyback() permissionless     │
    │ · blacklist / cooldown / pause   │                           │ · unlockCallback → _runPiggyback   │
@@ -372,7 +372,7 @@ The last column is the only one that answers "who is going to buy this": the den
 
 | Fee | Constant | Value | Charged on | Destination | Line |
 |---|---|---|---|---|---|
-| Launch fee | `ToshFactory.launchFee` | 0.1 ETH (default, owner-adjustable, may be 0) | creator | `ladderTreasury` (buyback ammunition) | `launchFee` / `createLaunch` @ `src/ToshFactory.sol` |
+| Launch fee | `ToshFactory.launchFee` | **0.01 ETH live on 4663**; the constructor default in `src/` is 0.1 ETH (owner-adjustable, may be 0) | creator | `ladderTreasury` (buyback ammunition) | `launchFee` / `createLaunch` @ `src/ToshFactory.sol` |
 | Referral commission | `REFERRAL_BPS` | 10% (1000 bps) | every genesis deposit | the referrer; no referrer → `ladderTreasury` | `REFERRAL_BPS` / `deposit` @ `src/ToshLaunchpadHook.sol` |
 | Phase-2 platform cut | `PLATFORM_TAX_BPS` | **1%** (100 bps) | shelf proceeds | `ladderTreasury` | `PLATFORM_TAX_BPS` / `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
 | Phase-2 project cut | the remainder | **99%** | shelf proceeds | `projectAdmin` | `mintBondingCurve` @ `src/ToshLaunchpadHook.sol` |
@@ -1543,6 +1543,17 @@ Panel subtitle: `"Uniswap V4 PositionManager · full range · 0.30% pool fee acc
 | `maxPogAllocationLimit` (default) | 0.1 ether | 89 |
 | `defaultSoftCap` (default) | 10 ether | 92 |
 | Blacklist batch limit | 200 | 264, 273 |
+
+**This table reads `src/`, and for `launchFee` `src/` is no longer what 4663
+charges.** The constructor default is still `0.1 ether` and the line reference
+above is correct, but the live value has been `0.01 ether` since 2026-09-10,
+set by the owner Safe rather than by an edit (`setLaunchFee`, Safe nonce 3,
+tx `0x4fbd140d…`). The source was deliberately left alone: it only takes effect
+at construction, the factory was deployed long before, so editing it would
+change nothing on chain while forfeiting the byte-for-byte reproducibility that
+PM-C4's verification rests on. §3.5 carries the live number; every other
+`0.1 ether` on this page is the *other* dial with the same value,
+`maxPogAllocationLimit`, which has not moved.
 
 #### `ToshLadderTreasury` / `ToshToken` / `HookMiner`
 

@@ -1682,7 +1682,9 @@ below, in the order it actually blocks.
 > and only a real attestation proves the key can sign one.
 >
 > **Two facts about that first launch, established 2026-09-10 because both were
-> assumed wrongly first.** The 0.1 ETH `launchFee` does **not** return to the
+> assumed wrongly first.** The `launchFee` — **0.01 ETH** since 2026-09-10,
+> lowered from 0.1 by the owner Safe and not by a source edit (see the note
+> below) — does **not** return to the
 > operator: it is forwarded to `ladderTreasury` (`ToshFactory.sol:731`), not to
 > `platformTreasury`, and `ToshLadderTreasury` has no `withdraw`, `sweep`, or
 > `rescue` by design (its header states the absence at lines 42–51). The only
@@ -1695,6 +1697,27 @@ below, in the order it actually blocks.
 > recoverable — the default soft cap is 10 ETH, a small deposit cannot reach it,
 > and `refund()` opens once the genesis deadline passes with `softCapFailed`
 > (`ToshLaunchpadHook.sol:1227`).
+>
+> **The launch fee was lowered to 0.01 ETH on 2026-09-10, on chain and not in
+> `src/`.** `setLaunchFee(1e16)` executed as a plain owner call from the Safe —
+> `to` the canonical factory, `operation` 0, Safe nonce 3, `safeTxHash`
+> `0x7e05b2575e85aae486284e0dafbdc34bc45ebe55f396bb138bc303975a3ba518`,
+> execution tx
+> `0x4fbd140d71efd93c65ad69678405d66f4b0b7c378011553b229db1206a576761`, two
+> confirmations, `launchFee()` now reads `10000000000000000`. The
+> `0.1 ether` initialiser at `ToshFactory.sol:222` was **left alone on
+> purpose** and now disagrees with the chain by design: it is a constructor
+> default, the factory was deployed long before it could be re-read, so editing
+> it would move nothing on chain while destroying the byte-for-byte
+> reproducibility PM-C4's exact-match verification depends on. Anyone
+> reconciling source against chain should expect this one divergence and no
+> others. Two consequences worth stating rather than discovering: the launch fee
+> is the only *economic* anti-spam gate on `createLaunch` (the other is
+> name/symbol squatting defence), so the cost of minting a hundred junk projects
+> fell from 10 ETH to 1; and the per-launch seed into the buyback reservoir fell
+> with it, since that is where the fee irrevocably goes. Monitoring behaved as
+> designed — `LaunchFeeUpdated` is `PARAM-03`, severity P2 with `page: false`,
+> because a pricing change is an audit-trail event and not an incident.
 
 **The shape of the remaining work:** almost none of it is writing application
 code. Gate A used to be a procurement and calendar problem and is now neither —

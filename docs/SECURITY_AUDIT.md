@@ -5155,7 +5155,10 @@ have produced. The comparison target was confirmed live: `pogSigner()` on 4663
 reads `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736`.
 
 **Two assumptions about the first launch, both wrong on first statement.** The
-0.1 ETH `launchFee` does not return to the operator. It is forwarded to
+`launchFee` — 0.1 ETH when this was written, lowered to **0.01 ETH** later the
+same day by an owner Safe call rather than a source edit (recorded in
+`PRE_MAINNET_CHECKLIST.md` under the first-launch note) — does not return to
+the operator. It is forwarded to
 `ladderTreasury`, not `platformTreasury` (`ToshFactory.sol:731`), and
 `ToshLadderTreasury` has no `withdraw`, `sweep`, or `rescue` — its header
 states the absence as a design choice at lines 42–51, and the only exit is
@@ -5274,7 +5277,9 @@ funded wallet; the identity mismatch is no longer silent until it costs gas,
 because the client compares the `issuer` it had always discarded against
 `factory.pogSigner()` before sending — diagnosis, not enforcement, and
 deliberately non-blocking when either value is unreadable. Also corrected: the
-0.1 ETH launch fee goes to `ladderTreasury`, which has no withdraw by design,
-so it is spent rather than recycled. Also cleared: the 1 ETH `capWei` against
+launch fee goes to `ladderTreasury`, which has no withdraw by design, so it is
+spent rather than recycled — and later the same day it was lowered from 0.1 to
+0.01 ETH on chain, leaving `src/` deliberately unedited and therefore
+deliberately divergent. Also cleared: the 1 ETH `capWei` against
 the 0.1 ETH on-chain allocation limit is an input cap against an output cap,
 not a mismatch, and `assertPogBandCoherent()` already binds them.*
