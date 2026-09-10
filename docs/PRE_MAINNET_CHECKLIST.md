@@ -803,7 +803,9 @@ is dormant rather than shadowing — it belongs to PM-D1.
 description ever got, and an uncharacterised key is impossible to prioritise.**
 The key was read into memory and its address derived without printing the
 material. It is `0x73db078f…` — **the testnet deployer**, the one §4.1 forbids
-reusing and that `C1_RUNBOOK.md` §35 names by address. So this is not an
+reusing and that `C1_RUNBOOK.md` §0 names by address — §35 until 2026-09-11,
+a section that file has never had; `check:doc-line-refs` validates
+`file:line` citations and not `§N` ones, so nothing was watching. So this is not an
 unknown key; it is a known-burned key in an unknown place, which is a different
 and easier problem. The file also records it as its own `POG_SIGNER_ADDRESS`,
 so on Base it was doing double duty as signer and deployer. Every address
