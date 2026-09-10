@@ -276,20 +276,49 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    `FACTORY_ADDRESS` and `EXPECTED_OWNER` in the environment. The contract
    declares both `run()` and `run(address)`, so omitting `--sig` fails with
    "Multiple functions with the same name 'run' found in the ABI".
-2. **PM-C3** — do not announce the factory address until the live PoG
-   signer is rotated. C2 has closed; that was the original gate. The
-   leaked signer key (`SECURITY_AUDIT.md` §5.32) is now a second,
-   blocking one.
-3. **PM-C4** — explorer verification. `--verify` in step 5 should have done it;
-   confirm the source is actually public at the address.
+2. **PM-C3** — announce the factory address. **Both gates are gone:** C2
+   closed 2026-09-08, which was the original one, and the leaked signer key
+   that had become a second was rotated 2026-09-09 (`SECURITY_AUDIT.md`
+   §5.32). Item 6 below already recorded that rotation and this item did not,
+   so the list contradicted itself for two days. Still open, but nothing
+   technical is holding it.
+3. **PM-C4** — explorer verification. **Two of three done, 2026-09-09, and
+   `--verify` in step 5 did not do any of it** — both were verified by hand.
+   The factory at 23:18:07 and the ladder treasury at 23:26:10 each read
+   "Contract source code verified (exact match)", `v0.8.26+commit.8a97fa7a`,
+   cancun, optimizer on / 200 runs.
+
+   Outstanding is `HookDeployLib` at `0x873E0841…`, a third mainnet contract
+   no earlier count knew about. `node scripts/genVerifyInput.mjs` writes its
+   standard-JSON input; it must be uploaded through a browser, because
+   Cloudflare answers every `/api` path on that explorer with a 403
+   interstitial and forge reports it as a deserialisation error. Constructor
+   arguments field stays empty. Full detail in `PRE_MAINNET_CHECKLIST.md`
+   PM-C4.
+
+   One thing to know before treating this row as a prerequisite for anything:
+   **the Safe does not read Blockscout.** The factory was verified on the
+   evening of 2026-09-09 and the Safe UI still displayed "Unverified contract"
+   the following night, so finishing this row does not address the
+   wrong-selector hazard and should not be scheduled as if it did.
 4. **PM-C6** — regenerate the hook initcode hash against the **mainnet** build
    and commit it. Nothing errors if you skip this: the launch page reads
    `factory.hookInitcodeHash(...)` from chain and works either way. The
    published number is simply, quietly wrong.
-5. **PM-C7** — point the frontend at 4663, and the status page's own `CHAIN`
-   block in the other repository. Then click the two-phase PoG flow through on
-   the real deployment — `/api/pog-scan` then `/api/sign-allocation`. It is unit-
-   and live-tested and no human has ever clicked it on a real deploy.
+5. **PM-C7** — **frontend half done, 2026-09-10.** Production serves 4663 with
+   the mainnet factory and treasury. Read back out of the deployed client
+   bundle rather than assumed: `NEXT_PUBLIC_*` values are inlined at build
+   time, so the shipped bundle is the authority on what a deployment actually
+   points at. The site renders the MAINNET badge and the live project. The
+   mismatch this row exists to catch — mainnet addresses against a testnet
+   chain id — is not present.
+
+   Still open: the status page's own `CHAIN` block in the other repository,
+   and the two-phase PoG flow on the real deployment, `/api/pog-scan` then
+   `/api/sign-allocation`. The first mainnet launch did not exercise either.
+   It was driven with `cast`, and its PoG attestation was signed locally by
+   `scripts/signPoG.mjs`, so both routes remain unit- and live-tested and
+   never once clicked through by a human on a real deploy.
 6. **PM-C8** — `treasury.addLadderToken`, but **poll for TWAP maturity, do not
    compute it**. The first testnet sitting listed 52 s after launch; see
    `PRE_MAINNET_CHECKLIST.md` §3.2. ~~Do not list until the live PoG signer
