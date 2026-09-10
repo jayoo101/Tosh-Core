@@ -524,13 +524,29 @@ it here:
 bills each call the way a real transaction would rather than letting storage
 touched in setup stay warm for the rest of the test. Both runs are CI gates.
 
-A further **8 fork tests** run only when `ROBINHOOD_RPC` is set and report as
-SKIPPED otherwise, so the passing count is 355 or 363 depending on whether the
+A further **12 fork tests** run only when `ROBINHOOD_RPC` is set and report as
+SKIPPED otherwise, so the passing count is 355 or 367 depending on whether the
 runner has an endpoint. They are listed below but excluded from the 355
 deliberately: a number that changes with a credential is not a number. The CI
 floor is immune to that distinction because it reads forge's `(N total tests)`,
-which counts a skipped test — so the gate is 363 either way, measured rather
+which counts a skipped test — so the gate is 367 either way, measured rather
 than assumed in `.github/workflows/test.yml`.
+
+Which rows those 12 are is now derived from whether the file reads
+`ROBINHOOD_RPC`, not from whether its name contains "Fork".
+`ToshV5FirstLaunchRehearsal.t.sol` skips on a missing endpoint exactly as
+`ToshV5Fork.t.sol` does, and the filename rule had put its 4 into the 355 —
+the bucket this paragraph defines as the count that holds without a credential.
+The arithmetic still reconciled, so nothing was red; the passing figure was
+simply four too high, which is the shape of drift `checkTestTable.mjs` exists
+to catch.
+
+Not all 12 run on a green CI, and the two suites differ here. `test.yml`'s
+live-V4 step selects `--match-contract ToshV5ForkTest`, so the rehearsal's 4
+skip on every push even with the secret present. Wiring them in would couple
+the check to live mainnet dials — it asserts the current `pogSigner()` and the
+three dial bounds — so a rotation would go red on an unrelated commit. Left as
+an on-demand suite deliberately; the floor is what notices if it is deleted.
 
 > **Every number below is re-measured by `scripts/checkTestTable.mjs` against
 > `forge test --list`, on every push.** The table had drifted 28 tests low while
@@ -553,6 +569,7 @@ than assumed in `.github/workflows/test.yml`.
 | `test/ToshV5Fuzz.t.sol` | 7 | Property fuzzing, 256 runs per property. |
 | `test/ToshV5LpMathVectors.t.sol` | 4 | Fixed vectors for the V4 liquidity math, checked against independently computed expectations. |
 | `test/ToshV5Fork.t.sol` | 8 | **Live chain 4663**, skipped without `ROBINHOOD_RPC`. Lifecycle against the deployed V4 singleton; a buy through the deployed UniversalRouter; the router's calldata layout pinned against the chain. See §4.2. |
+| `test/ToshV5FirstLaunchRehearsal.t.sol` | 4 | **Live chain 4663**, skipped without `ROBINHOOD_RPC`. Binds the *deployed* factory rather than a fresh one and runs the whole lifecycle at the 0.01 ETH production floor — the cap every other suite launches above. Pins `totalEthDeposited == softCap()` exactly, `shelfP0() == 2_499_999_999`, the stale-dial salt rejection, and that a lone depositor takes the entire 22% genesis tranche. See §4.3. |
 
 The table is tests. One check that is not a test, and that this table therefore
 cannot carry: whether the deployed hook implementation's `HOOK_CREATION_CODEHASH`
@@ -861,6 +878,62 @@ and the tip is all an unpinned fork asks for.
   CI sees it unless the secret is configured. Read a green CI run as "the fork
   tests were not contradicted", and check the run log for `SKIP` before
   treating them as evidence.
+
+### 4.3 First-launch rehearsal — the production floor, before it was load-bearing
+
+`test/ToshV5FirstLaunchRehearsal.t.sol`, against **Robinhood Chain (4663)**,
+unpinned, and against the **deployed** factory rather than one this tree
+compiles. §4.2's suite forks the chain and then `new`s its own factory, which
+tests the source; this binds the contract that holds the money.
+
+It exists because of a gap that mattered exactly once. The lowest soft cap any
+suite here had ever launched at was 1 ETH, and the first mainnet launch was
+planned at 0.01 ETH, the production floor. At that cap only the arithmetic had
+been checked — `test_smallestReachableShelfP0_stillStepsTheLadder` derives
+minShelfP0 = 2,499,999,999 and a 4,756,270-wei step, §5.11 — and it did so on a
+bare `new`'d hook. The full genesis → deposit → launch path at the floor had
+never been executed anywhere, so the mainnet attempt would have been its first
+execution.
+
+1. `test_rehearsal_liveFactoryIsWhatWeThinkItIs` states the premise as assertions instead of
+   trusting it: chain id 4663, code at the factory, `owner()` is the 2-of-3
+   Safe, `pogSigner()` is the live signer, not paused, and all three dial
+   bounds. Nothing later in the file is worth reading unless this one holds.
+2. `test_rehearsal_fullLifecycleAtTheSoftCapFloor` pins two numbers exactly:
+   `totalEthDeposited == softCap()` with no dust, and `shelfP0()` at
+   2,499,999,999 — the value §5.11 reaches by a different route, which is why
+   asserting it a second way is not redundant.
+3. `test_rehearsal_saltMinedAgainstStaleDialsIsRejected` mines a salt, moves a dial, then
+   expects `InvalidHookSalt`. `createLaunch` bakes `defaultSoftCap` and
+   `maxPogAllocationLimit` into the clone's initcode, so a dial that moves
+   between mining and sending invalidates the salt — and on mainnet that dial
+   was moved by a Safe transaction shortly before the launch.
+4. `test_rehearsal_loneDepositorTakesTheWholeGenesisTranche` asserts the entire
+   `GENESIS_CLAIM_SUPPLY` — 4,620,000e18, 22% of `MAX_SUPPLY` — reaches a single
+   depositor who fills the cap alone. That is pro-rata distribution working, not
+   a defect, and it is written down so that nobody meets it first on a project
+   with outside money in it.
+
+**One deliberate deviation, and it is the only one.** `setPogSigner` is
+repointed at a test key inside the rehearsal's Safe step, because the live
+signer's key is not in this repository and must not be. Everything else —
+factory, pool manager, `ArbSys`, owner, dial bounds — is the live article, and
+§4.2's `ArbSys` caveat applies here unchanged: it is etched, for the same reason
+and at the same cost.
+
+**What it does not cover** is §4.2's list, plus one of its own: it never
+exercises the frontend. The mainnet launch was driven with `cast`, so
+`/launch`'s pre-flight — the live fee re-read and the revert decoding — was not
+on that path at all.
+
+**Vindicated by the event it was written for.** The launch went out on
+2026-09-10 at block 59,514,785 for 498,529 gas, and `shelfP0()` read
+2,499,999,999 on chain — a third independent agreement on that number, after
+§5.11's arithmetic and this file. `totalEthDeposited` equalled `softCap()`
+exactly at 1e16, the pool came up with the expected key holding roughly
+`GENESIS_LP_SUPPLY`, and the exercise cost 0.010094 ETH end to end.
+
+It is not selected by `test.yml`'s live-V4 step, deliberately — see §4.
 
 ---
 

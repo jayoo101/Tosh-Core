@@ -108,7 +108,24 @@ for (const [file, n] of [...live].sort()) {
   }
 }
 
-const forkFiles = [...table.keys()].filter(f => /Fork/i.test(f))
+// Which rows are the credential-gated ones is read out of the sources rather
+// than matched against their names.
+//
+// The original rule was `/Fork/i` on the filename, and it misfiled
+// `ToshV5FirstLaunchRehearsal.t.sol` — a suite that skips without
+// `ROBINHOOD_RPC` exactly as `ToshV5Fork.t.sol` does — into the 355, which is
+// the bucket §4 defines as the count that holds WITHOUT a credential. The
+// header arithmetic still reconciled, so the only symptom was this guard
+// reporting a passing figure four too high, which is the shape of drift it
+// exists to catch.
+//
+// Reading the variable is a fact about the file; containing "Fork" is a fact
+// about what someone called it. A missing file is already reported as its own
+// problem above, so `existsSync` here only avoids throwing before that runs.
+const forkFiles = [...table.keys()].filter((f) => {
+  const p = path.join(REPO, f)
+  return fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('ROBINHOOD_RPC')
+})
 const forkCount = forkFiles.reduce((a, f) => a + (live.get(f) ?? table.get(f)), 0)
 if (forkCount !== headerFork) {
   problems.push(
