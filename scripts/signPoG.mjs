@@ -17,9 +17,9 @@
  * stay under a deliberately small `maxPogAllocationLimit`. Asking the heuristic
  * for a number and hoping it lands under the cap is not a test of anything.
  *
- * What must NOT diverge is the digest, so it is restated here once and pinned
- * by `--verify-against`, which recovers the signer locally before printing.
- * The digest is, from `ToshFactory.registerPoG`:
+ * What must NOT diverge is the digest, so it is restated here once and the
+ * signer is recovered locally before anything is printed. The digest is, from
+ * `ToshFactory.registerPoG`:
  *
  *   keccak256(abi.encode(user, maxAlloc, nonce, deadline, factory, chainId))
  *     .toEthSignedMessageHash()
@@ -28,25 +28,37 @@
  * wrong without noticing. The factory answers every one of those mistakes with
  * the same `InvalidSignature`, so the local recovery below is the only place
  * that can tell you *which* field drifted.
+ *
+ * ── Local recovery is necessary and not sufficient ──────────────────────────
+ *
+ * It proves the signature matches the key that made it. It cannot prove that
+ * key is the one the factory will accept, or that `--factory` and `--chain-id`
+ * name the deployment you meant. Those are facts about the chain, so when an
+ * RPC is reachable they are checked against the chain: `pogSigner()` must equal
+ * the signing account, and the endpoint's own chain id must equal the one being
+ * signed into the digest.
+ *
+ * That check is not hypothetical. On 2026-09-10 `.env.production` still named
+ * the pre-rotation signer and `.env` named a testnet one, so both files
+ * disagreed with `ToshFactory.pogSigner()`; an attestation cut from either
+ * would have reverted `InvalidSignature` with nothing local to explain it.
+ * Role vars therefore resolve through `loadRoleEnv`, which reads
+ * `.env.production` before `.env` — the previous hard-coded read of `.env`
+ * alone would silently pick the testnet factory, an address with no code on
+ * mainnet at all.
  */
 
 import { keccak256, encodeAbiParameters, parseAbiParameters, hashMessage,
-         recoverAddress, getAddress } from 'viem'
+         recoverAddress, getAddress, createPublicClient, http, parseAbi } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { loadRoleEnv } from './loadRoleEnv.mjs'
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-
-function envFromDotfile(key) {
-  try {
-    const line = readFileSync(resolve(REPO_ROOT, '.env'), 'utf8')
-      .split(/\r?\n/)
-      .find(l => l.startsWith(key + '='))
-    return line ? line.slice(key.length + 1).trim() : undefined
-  } catch { return undefined }
-}
+// `CHAIN_ID` is accepted but has never existed in either env file; the files
+// spell it `TARGET_CHAIN_ID`, which is what Foundry reads.
+loadRoleEnv([
+  'FACTORY_ADDRESS', 'TARGET_CHAIN_ID', 'CHAIN_ID', 'ROBINHOOD_RPC',
+  'POG_SIGNER_PRIVATE_KEY', 'PRIVATE_KEY',
+])
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name)
@@ -58,16 +70,15 @@ const user     = arg('user')
 const maxAlloc = arg('max-alloc')
 const nonce    = arg('nonce', '0')
 const ttl      = BigInt(arg('ttl', '3600'))
-const factory  = arg('factory', process.env.FACTORY_ADDRESS ?? envFromDotfile('FACTORY_ADDRESS'))
-const chainId  = arg('chain-id', process.env.CHAIN_ID ?? envFromDotfile('CHAIN_ID'))
+const factory  = arg('factory', process.env.FACTORY_ADDRESS)
+const chainId  = arg('chain-id', process.env.CHAIN_ID ?? process.env.TARGET_CHAIN_ID)
 
-const pk = process.env.POG_SIGNER_PRIVATE_KEY
-  ?? envFromDotfile('POG_SIGNER_PRIVATE_KEY')
-  ?? envFromDotfile('PRIVATE_KEY')
+const pk = process.env.POG_SIGNER_PRIVATE_KEY ?? process.env.PRIVATE_KEY
 
 if (!user || !maxAlloc || !factory || !chainId || !pk) {
   console.error('usage: node scripts/signPoG.mjs --user 0x… --max-alloc <wei> --nonce <n>')
-  console.error('       --factory and --chain-id fall back to .env; both are signed into the digest.')
+  console.error('       --factory and --chain-id fall back to .env.production, then .env;')
+  console.error('       both are signed into the digest, so a wrong one is an InvalidSignature on chain.')
   console.error('       signing key: POG_SIGNER_PRIVATE_KEY, else PRIVATE_KEY')
   process.exit(1)
 }
@@ -96,6 +107,48 @@ const recovered = await recoverAddress({ hash: hashMessage({ raw: digest }), sig
 if (getAddress(recovered) !== getAddress(account.address)) {
   console.error('local recovery disagrees with the signing account — digest construction is wrong')
   process.exit(1)
+}
+
+// Then against the chain, which is the only thing that can say whether this key
+// and this factory are the ones `registerPoG` will accept. Skipped, loudly, when
+// no endpoint answers: an operator signing offline is a supported case, and
+// failing here would push them toward removing the check rather than reading it.
+const rpc = arg('rpc', process.env.ROBINHOOD_RPC)
+if (rpc) {
+  try {
+    const pub = createPublicClient({ transport: http(rpc) })
+    const liveChainId = await pub.getChainId()
+    if (BigInt(liveChainId) !== BigInt(chainId)) {
+      console.error(`✗ --chain-id ${chainId} is signed into the digest, but ${rpc} is chain ${liveChainId}.`)
+      console.error('  One of the two is the wrong network. .env holds testnet values; .env.production holds mainnet.')
+      process.exit(1)
+    }
+    if ((await pub.getCode({ address: getAddress(factory) })) === undefined) {
+      console.error(`✗ no contract at --factory ${getAddress(factory)} on chain ${liveChainId}.`)
+      process.exit(1)
+    }
+    const onChainSigner = await pub.readContract({
+      address: getAddress(factory),
+      abi: parseAbi(['function pogSigner() view returns (address)']),
+      functionName: 'pogSigner',
+    })
+    if (getAddress(onChainSigner) !== getAddress(account.address)) {
+      console.error('✗ this key is not the signer the factory accepts.')
+      console.error(`    factory.pogSigner()  ${getAddress(onChainSigner)}`)
+      console.error(`    key derives to       ${account.address}`)
+      console.error('  registerPoG would revert InvalidSignature. Check POG_SIGNER_PRIVATE_KEY,')
+      console.error('  and note that both env files have carried a stale POG_SIGNER_ADDRESS before.')
+      process.exit(1)
+    }
+    console.log(`verified against ${rpc} — chain ${liveChainId}, factory.pogSigner() agrees.\n`)
+  } catch (e) {
+    // `process.exit` above terminates rather than throwing, so nothing reaches
+    // here except a genuine transport or decode failure.
+    console.error(`⚠ could not verify against ${rpc}: ${(e.shortMessage ?? e.message ?? e).split('\n')[0]}`)
+    console.error('  Signing anyway. The digest is locally consistent but UNCHECKED against the chain.\n')
+  }
+} else {
+  console.error('⚠ no --rpc and no ROBINHOOD_RPC: signer and chain id are UNCHECKED against the chain.\n')
 }
 
 console.log('signer      : ' + account.address + '   (must equal factory.pogSigner())')

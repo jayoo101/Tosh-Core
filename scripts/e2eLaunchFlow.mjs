@@ -27,10 +27,26 @@
  * ── Usage ───────────────────────────────────────────────────────────────────
  *
  *   node scripts/e2eLaunchFlow.mjs --factory 0x...
- *   node scripts/e2eLaunchFlow.mjs --factory 0x... --rpc <url> --pk 0x... --duration 10800
+ *   node scripts/e2eLaunchFlow.mjs --factory 0x... --rpc <url> --duration 10800
  *
  * Defaults target a local anvil with account #0. It broadcasts a transaction
  * and costs the launch fee, so point it at a devnet or a testnet you own.
+ *
+ * ── The key never comes from argv ───────────────────────────────────────────
+ *
+ * `--pk` used to be accepted and no longer is. On Windows every argv value
+ * lands in PowerShell history, which is how a deployer key leaked here once
+ * already. Off a local endpoint the key must arrive through
+ * `LAUNCH_CREATOR_PRIVATE_KEY` or `PRIVATE_KEY`, resolved by `loadRoleEnv` from
+ * `.env.production` then `.env`. Anvil's published account #0 stays the default
+ * for localhost only, where it is not a secret and never will be.
+ *
+ * ── This script names projects, and names are permanent ─────────────────────
+ *
+ * `nameTaken` is only released by `releaseAbandonedName`, which requires the
+ * launch to have FAILED. A run that succeeds holds its generated `E2E Clone …`
+ * name forever, so against a chain whose directory anyone will read, pass
+ * `--name`/`--symbol` deliberately rather than letting the stamp decide.
  */
 
 import {
@@ -38,6 +54,8 @@ import {
   parseEventLogs, formatEther, getAddress,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+
+import { loadRoleEnv } from './loadRoleEnv.mjs';
 
 import {
   computeHookInitcodeHash,
@@ -78,11 +96,30 @@ function check(label, pass, detail) {
 async function main() {
   const rpc = arg('rpc', 'http://127.0.0.1:8545');
   const factoryArg = arg('factory');
-  const pk = arg('pk', ANVIL_PK);
   const duration = BigInt(arg('duration', GENESIS_DURATION_STANDARD.toString()));
 
   if (!factoryArg) {
-    console.error('usage: node scripts/e2eLaunchFlow.mjs --factory 0x... [--rpc url] [--pk 0x...] [--duration 10800|86400|259200]');
+    console.error('usage: node scripts/e2eLaunchFlow.mjs --factory 0x... [--rpc url] [--name N --symbol S] [--duration 10800|86400|259200]');
+    console.error('       signing key: LAUNCH_CREATOR_PRIVATE_KEY, else PRIVATE_KEY (never on the command line)');
+    process.exit(2);
+  }
+
+  if (process.argv.includes('--pk')) {
+    console.error('✗ --pk is no longer accepted: on Windows it goes straight into shell history.');
+    console.error('  Set LAUNCH_CREATOR_PRIVATE_KEY (or PRIVATE_KEY) in the environment or .env.production.');
+    process.exit(2);
+  }
+
+  // Anvil's key is the default only where it is published and worthless.
+  const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(:|\/|$)/.test(rpc);
+  loadRoleEnv(['LAUNCH_CREATOR_PRIVATE_KEY', 'PRIVATE_KEY']);
+  const pk = process.env.LAUNCH_CREATOR_PRIVATE_KEY
+    ?? process.env.PRIVATE_KEY
+    ?? (isLocal ? ANVIL_PK : undefined);
+
+  if (!pk) {
+    console.error(`✗ no signing key, and ${rpc} is not a local endpoint where anvil's published key would do.`);
+    console.error('  Set LAUNCH_CREATOR_PRIVATE_KEY or PRIVATE_KEY. This script broadcasts and spends the launch fee.');
     process.exit(2);
   }
   const factory = getAddress(factoryArg);
@@ -145,11 +182,13 @@ async function main() {
     `${predicted} · flags 0x${(BigInt(predicted) & 0x3fffn).toString(16).toUpperCase().padStart(4, '0')} · ${Date.now() - t0} ms`);
 
   // ── 4. Spend the gas ──────────────────────────────────────────────────────
-  // The name is unique per run: `nameTaken` is permanent, so a fixed one makes
-  // this script single-use against any given chain.
+  // Stamped rather than fixed, because `nameTaken` is permanent and a constant
+  // would make this script single-use against any given chain. Override with
+  // `--name`/`--symbol` anywhere the directory is public: a run that SUCCEEDS
+  // holds the name forever, since only a failed launch can release it.
   const stamp = Date.now().toString(36).toUpperCase();
-  const name = `E2E Clone ${stamp}`;
-  const symbol = `E2E${stamp.slice(-3)}`;
+  const name = arg('name', `E2E Clone ${stamp}`);
+  const symbol = arg('symbol', `E2E${stamp.slice(-3)}`);
 
   let gasEstimate;
   try {
