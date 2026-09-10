@@ -144,10 +144,24 @@ jobs:
       # buy (`mintBondingCurve`) had no invariant action; the UI never talks to
       # the V4 router, so the shelf's price gates and same-block lockout were
       # composed against nothing.
+      #
+      # 363 -> 367 on 2026-09-11: the four tests in
+      # `ToshV5FirstLaunchRehearsal.t.sol`, which take the whole lifecycle
+      # through the deployed factory at the 0.01 ETH production floor. Every
+      # other suite that reaches genesis does it at 1 ETH or above, so the
+      # planned first mainnet launch would have been the floor's first
+      # execution anywhere.
+      #
+      # These four skip on this runner, and the count is unchanged by that --
+      # see the note above on `vm.skip`'d tests still appearing in the total.
+      # They are not in the live-V4 step either, which selects on
+      # `--match-contract ToshV5ForkTest`. So the floor is the only thing here
+      # that notices if they are deleted, which is the argument for raising it
+      # in the same commit rather than leaving four tests below an unmoved one.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=363
+          floor=367
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
