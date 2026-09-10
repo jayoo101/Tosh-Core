@@ -297,7 +297,7 @@ armed by the `broadcast/*/4663/` artefact, not a broken guard.
    (`SECURITY_AUDIT.md` §5.32), so this no longer gates listing.
 7. **PM-D1 / PM-D3** — D3's laptop copies are rotated and deleted;
    `npm run check:secrets` (from `soat-frontend/`, where that script is
-   defined) is **29/29** green. **D1 closed 2026-09-09** — the live PoG
+   defined) is **31/31** green. **D1 closed 2026-09-09** — the live PoG
    signing key that had reached PowerShell history was rotated to
    `0x9A1a8C7b…` on chain, in Vercel, and in the monitor variable, so it is
    no longer a precondition for C3 or C8 (`SECURITY_AUDIT.md` §5.32). D3

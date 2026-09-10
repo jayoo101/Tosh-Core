@@ -609,9 +609,11 @@ present — CI, because `.env.local` is gitignored — the check reports that
 local copies were not evaluated, rather than treating an empty scan as a
 pass. That gap is what §5.31 records: the check was green while two live
 production credentials sat in `soat-frontend/.env.local`. Those copies are
-now deleted and the live values rotated; the check is 29/29 green (27/27 until
-2026-09-10, when `PRIVATE_KEY` joined the inventory and the stale count from
-`NEXT_PUBLIC_RPC_URL`'s addition was corrected — see §5.2). The
+now deleted and the live values rotated; the check is 31/31 green (29/29 until
+2026-09-11, when the two creator signing keys were inventoried under a new
+`local-only` tier; 27/27 until 2026-09-10, when `PRIVATE_KEY` joined the
+inventory and the stale count from `NEXT_PUBLIC_RPC_URL`'s addition was
+corrected — see §5.2). The
 open custody defect on this machine was a different variable — the live
 PoG signing key in PowerShell history, §5.32, which is PM-D1. **Closed
 2026-09-09:** that key was rotated to `0x9A1a8C7b…` and the sweep behind
@@ -868,8 +870,23 @@ than being checked against the two remote stores alone. Its first run reported
 to catch and is now deleted. The other was the repo root's own `.env`, holding
 the same key and never suspected — the file is the live 46630 config, so the
 `PRIVATE_KEY` line was removed and a comment left in its place, rather than
-deleting a file that is still in use. `check:secrets` is now 29/29 green with
+deleting a file that is still in use. `check:secrets` is 31/31 green with
 zero secret- or absent-tier assignments in any local dotenv.
+
+A third gap of the same shape closed on 2026-09-11, and it is worth stating
+because the two above would not have caught it. Both are checks on names the
+inventory already lists; the unclassified sweep that would otherwise notice a
+new name reads only Vercel and GitHub, so a credential in **neither** remote
+store is invisible to this script however it is held locally. That was exactly
+the state of `LAUNCH_CREATOR_PRIVATE_KEY` and a duplicate `CREATOR_PRIVATE_KEY`
+— two copies of the key that created the live 4663 project, in plaintext in the
+repo root `.env.production`, through every green run. Neither existing tier
+could hold them: `secret` asserts the value *is* in Vercel, which for a launch
+signing key would itself be the finding, and `absent` asserts it is nowhere,
+which contradicts the dotenv the operator needs it in. So the fix is a tier
+rather than a row — `local-only`, where a remote store is the failure and a
+local copy is reported by name instead of passed over in silence. The dead
+duplicate went to `absent`, so putting it back is a finding.
 
 Two things worth keeping from that. A guard written for one file found a second
 in its first run, which is the argument for fixing the *class* rather than
@@ -1736,8 +1753,10 @@ page. Gate D has no open row left either: PM-D1 closed the same day, the key
 that had reached PowerShell history in plaintext replaced by one with on-chain
 nonce 0. The laptop copies of the Supabase and
 Upstash credentials that §5.31 found are rotated and deleted;
-`check:secrets` is 29/29 green, after 2026-09-10 closed the two gaps that had
-kept it green while a plaintext deploy key sat in two repo-root files (§5.2).
+`check:secrets` is 31/31 green, after 2026-09-10 closed the two gaps that had
+kept it green while a plaintext deploy key sat in two repo-root files, and
+2026-09-11 closed a third of the same shape — a signing key in no remote store
+at all, which the unclassified sweep cannot see (§5.2).
 The sentence that stood here — "that is not a
 clean custody surface" — was written while D1 was open and no longer describes
 the surface it was about.

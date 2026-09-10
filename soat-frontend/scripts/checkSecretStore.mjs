@@ -65,6 +65,21 @@ const FRONTEND_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  * `ci-config`  must exist as a GitHub Actions variable; readable is intended.
  * `absent`     must exist in NO store. Setting it changes behaviour, and the
  *              `why` says what it turns on.
+ * `local-only` must exist in NO remote store, but MAY hold a value in a local
+ *              dotenv — an operator signing key with no server-side use. The
+ *              finding is inverted: presence in Vercel or GitHub is the
+ *              incident, and a copy on the operator's machine is the point.
+ *
+ * That last tier was added on 2026-09-11 because the two keys it now covers
+ * fitted no existing one, and so had been classified nowhere at all. `secret`
+ * asserts the value IS in Vercel, which for a launch signing key would be the
+ * incident; `absent` asserts it is nowhere, which contradicts the dotenv the
+ * operator needs it in. The consequence was not theoretical: the unclassified
+ * sweep below reads only the two remote stores, so a name in neither of them
+ * is invisible to this file however it is stored locally, and
+ * `LAUNCH_CREATOR_PRIVATE_KEY` sat in plaintext in the repo root
+ * `.env.production` — beside a copy of the live PoG signer key — through a
+ * green run of this check.
  *
  * GitHub keeps secrets and variables in separate namespaces, and a workflow that
  * reads `secrets.X` cannot tell that a plaintext `vars.X` exists beside it. Both
@@ -96,6 +111,26 @@ const INVENTORY = {
        + 'credential twice over: the daily credit allowance is drainable, and the gas scan '
        + 'fails closed, so whoever spends the budget blocks every claim — and on a paid tier '
        + 'the overage is billed to us.',
+  },
+
+  // ── Operator signing keys. No server-side use; never a remote store. ────
+  LAUNCH_CREATOR_PRIVATE_KEY: {
+    tier: 'local-only',
+    why: 'Broadcasts createLaunch and launch(), and on 4663 it is the creator of the live '
+       + 'project — so it holds the only claim on that launch\'s 4,620,000-token genesis '
+       + 'tranche, and `creator` is an immutable clone argument that no admin call can '
+       + 'reassign. Read by scripts/watchAndLaunch.mjs and scripts/e2eLaunchFlow.mjs, both '
+       + 'of which run on an operator machine. Nothing server-side reads it, so a copy in '
+       + 'Vercel would be reach without a reason.',
+  },
+  CREATOR_PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'A dead alias of LAUNCH_CREATOR_PRIVATE_KEY that no code in this repository reads — '
+       + 'every call site resolves LAUNCH_CREATOR_PRIVATE_KEY, else PRIVATE_KEY. It held a '
+       + 'second copy of the same key in .env.production until 2026-09-11, which is the '
+       + '"second key copy" shape cd148d8 already cleared once: two names for one secret '
+       + 'double the places it can leak from and halve the chance a sweep finds both. Absent '
+       + 'rather than local-only on purpose, so reintroducing the duplicate is a finding.',
   },
 
   // ── Configuration. Readable on purpose; none of it is a credential. ──────
@@ -245,6 +280,24 @@ for (const [name, spec] of Object.entries(INVENTORY)) {
     continue
   }
 
+  // Inverted against every other tier: here a remote store is the finding.
+  // The local half is handled with the dotenv scan further down, where it is
+  // reported rather than failed — see the tier's entry in the docblock.
+  if (spec.tier === 'local-only') {
+    if (inVercel || inCi || inCiVar) {
+      const where = [inVercel && 'Vercel', inCi && 'a GitHub secret', inCiVar && 'a GitHub variable']
+        .filter(Boolean).join(' and ')
+      lines.push(`${ICON.bad} ${name} — an operator key, but it is set in ${where}`)
+      findings.push(
+        `${name} is set in ${where}, and nothing server-side reads it. ${spec.why} `
+        + `Delete it from there and treat the value as exposed.`
+      )
+    } else {
+      lines.push(`${ICON.ok} ${name} — in no remote store, as intended`)
+    }
+    continue
+  }
+
   if (spec.tier === 'ci') {
     if (!inCi) {
       lines.push(`${ICON.bad} ${name} — missing from GitHub Actions`)
@@ -389,6 +442,16 @@ const localScanNames = Object.entries(INVENTORY)
   .filter(([, spec]) => spec.tier === 'secret' || spec.tier === 'absent')
   .map(([name]) => name)
 
+// `local-only` names are counted here and reported below rather than failed:
+// a copy on this machine is what the tier means. They are named anyway, which
+// is the whole lesson of the two sweeps this scan already carries -- a key
+// nobody lists is a key nobody re-examines, and plaintext at rest is still
+// exposure the moment the disk is imaged, backed up or synced.
+const localOnlyNames = Object.entries(INVENTORY)
+  .filter(([, spec]) => spec.tier === 'local-only')
+  .map(([name]) => name)
+const localOnlySeen = []
+
 if (localEnvFiles.length > 0) {
   for (const file of localEnvFiles) {
     const text = readFileSync(join(file.dir, file.name), 'utf8')
@@ -400,6 +463,9 @@ if (localEnvFiles.length > 0) {
       findings.push(
         `${name} has a non-empty assignment in ${file.shown}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`,
       )
+    }
+    for (const name of localOnlyNames) {
+      if (hasNonEmptyAssignment(text, name)) localOnlySeen.push(`${name} in ${file.shown}`)
     }
   }
 }
@@ -434,6 +500,16 @@ if (localEnvFiles.length === 0) {
   console.log(
     `\nnote  Local dotenv scanned: ${localEnvFiles.map((f) => f.shown).join(', ')}. Secret- and`
     + ' absent-tier names must be absent or empty.',
+  )
+}
+
+if (localOnlySeen.length > 0) {
+  console.log(
+    `\nnote  Operator signing key(s) held locally, which is the local-only tier's intended`
+    + `\n      state and not a finding:`
+    + `\n        ${localOnlySeen.join('\n        ')}`
+    + `\n      Named rather than passed over in silence: this is plaintext at rest, so a disk`
+    + `\n      image, an off-machine backup or a file-sync client each turn it into exposure.`,
   )
 }
 
