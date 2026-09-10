@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 /**
  * /launch — three beats, then one signature.
@@ -21,7 +21,11 @@ import {
   useReadContracts, usePublicClient, useEstimateFeesPerGas,
   useSignMessage,
 } from 'wagmi'
-import { formatUnits, parseEventLogs, isAddress, type Address } from 'viem'
+import {
+  formatUnits, parseEventLogs, isAddress,
+  BaseError, ContractFunctionRevertedError,
+  type Address,
+} from 'viem'
 
 import { useTosh } from '../lib/useTosh'
 import {
@@ -81,6 +85,53 @@ const GENESIS_WINDOWS = [
     blurb: 'Maximum reach. The window still cannot close early, even if the cap fills in minutes.',
   },
 ] as const
+
+/**
+ * The creator-facing sentence for a `createLaunch` revert, or `null` when the
+ * failure was not a revert the factory owns.
+ *
+ * `useTosh` pins an explicit gas cap so an RPC cannot dress a revert up as
+ * "exceeds block gas limit", and the price of that is no `eth_estimateGas` and
+ * therefore no pre-flight of any kind. Without the simulation in
+ * `handleLaunch` the factory's reason reaches nobody: by the time the receipt
+ * says `reverted` the fee and the gas are spent, and all `useTosh` can offer
+ * is the generic "rejected by the factory" string.
+ *
+ * Read structurally off `ContractFunctionRevertedError` rather than matched
+ * against message text, because `shortErrorMessage` keeps only the first line
+ * of a viem error and the custom-error name sits several lines below it.
+ *
+ * `null` is the load-bearing return. A transport failure, a rate limit, or a
+ * node that refuses `eth_call` with value must never stand between a creator
+ * and a launch the factory would have accepted, so only a decoded revert is
+ * grounds to stop.
+ */
+function launchRevertMessage(err: unknown): string | null {
+  const reverted = err instanceof BaseError
+    ? err.walk((e) => e instanceof ContractFunctionRevertedError)
+    : null
+  if (!(reverted instanceof ContractFunctionRevertedError)) return null
+
+  const name = reverted.data?.errorName ?? reverted.reason ?? ''
+  switch (name) {
+    case 'FeeChanged':
+      return 'The launch fee was raised above your quote. Reload to see the new terms.'
+    case 'NameTaken':
+      return 'That name and ticker pair is already claimed. Pick another.'
+    case 'InvalidHookSalt':
+      return 'The factory dials moved since the salt was ground. Deploy again for a fresh one.'
+    case 'InsufficientLaunchFee':
+      return 'The value sent does not cover the launch fee.'
+    case 'InvalidAdmin':
+      return 'The Phase-2 admin cannot be the zero address.'
+    case 'DeployFailed':
+      return 'The hook clone failed to deploy. Deploy again to grind a fresh salt.'
+    case 'EnforcedPause':
+      return 'The factory is paused and is not taking new projects.'
+    default:
+      return name ? `The factory rejected this launch: ${name}.` : null
+  }
+}
 
 function PactRule({ kicker, title, body }: { kicker: string; title: string; body: string }) {
   return (
@@ -203,6 +254,10 @@ export default function GenesisConsole() {
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'maxPogAllocationLimit' },
     ],
   })
+  // Aliased because `feeRead` is a fresh object every render: depending on it
+  // from `handleLaunch` would rebuild that callback on each one, while the
+  // refetch function itself is stable.
+  const refetchDials = feeRead.refetch
   const { data: ethBal } = useBalance({ address, query: { enabled: walletEnabled } })
 
   // A zero launch fee is legal, so an unread dial must never collapse into 0n:
@@ -339,6 +394,10 @@ export default function GenesisConsole() {
       } catch { return }
     }
 
+    // A message from the previous attempt outlives it: `mineSalt` clears this
+    // on entry, but it is skipped entirely when a valid salt is already held.
+    setMineError('')
+
     pendingRef.current = {
       name: nameTrimmed, symbol: symbolTrimmed,
       logoUrl, website, twitter, telegram, description,
@@ -371,18 +430,74 @@ export default function GenesisConsole() {
       } catch { /* contract still rejects a stale salt */ }
     }
 
+    // `useTosh.createLaunch` documents that its caller MUST read the live fee
+    // immediately before invoking it. `launchFeeWei` comes from a
+    // `useReadContracts` with no refetch interval, so in a long-lived session
+    // it can be arbitrarily old — and it was the one dial in that batch not
+    // re-read above, where the two caps are re-read precisely because a stale
+    // value invalidates the transaction.
+    //
+    // A moved fee un-ticks the pact rather than being spent anyway. That box
+    // is an agreement to two specific numbers, and `ack` already goes false
+    // when the cached read notices a change; this is the same rule applied at
+    // the one moment it decides whether ETH leaves the wallet.
+    let feeToSend = launchFeeWei
+    if (publicClient) {
+      try {
+        const liveFee = await publicClient.readContract({
+          address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchFee',
+        }) as bigint
+        if (liveFee !== launchFeeWei) {
+          setAckedTerms(null)
+          setMineError(
+            `Launch fee is now ${trimEth(formatUnits(liveFee, 18))} ETH, not `
+            + `${trimEth(formatUnits(launchFeeWei, 18))} ETH. Review the terms and tick the pact again.`,
+          )
+          void refetchDials()
+          return
+        }
+        feeToSend = liveFee
+      } catch { /* the factory's own FeeChanged is the backstop */ }
+    }
+
+    // Pre-flight. The write pins an explicit gas cap and so never estimates,
+    // which leaves this `eth_call` as the only thing between a rejected launch
+    // and a creator who has already paid for it — see `launchRevertMessage`,
+    // and note that only a decoded revert stops the send.
+    if (publicClient) {
+      try {
+        await publicClient.simulateContract({
+          address: FACTORY_ADDRESS,
+          abi: FACTORY_ABI,
+          functionName: 'createLaunch',
+          args: [
+            nameTrimmed, symbolTrimmed, address, adminAddr,
+            saltToUse as `0x${string}`, feeToSend, genesisDuration,
+          ],
+          value: feeToSend,
+          account: address,
+        })
+      } catch (e: unknown) {
+        const reason = launchRevertMessage(e)
+        if (reason !== null) {
+          setMineError(reason)
+          return
+        }
+      }
+    }
+
     reset(); setSyncState('idle')
     try {
       await createLaunch(
         nameTrimmed, symbolTrimmed, address, adminAddr,
-        saltToUse as `0x${string}`, launchFeeWei, genesisDuration,
+        saltToUse as `0x${string}`, feeToSend, genesisDuration,
       )
     } catch { /* wagmi + toast */ }
   }, [
     address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
     logoUrl, website, twitter, telegram, description, salt, mineSalt,
     createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
-    dialsReady, predictedHook,
+    dialsReady, predictedHook, refetchDials,
   ])
 
   useEffect(() => {
