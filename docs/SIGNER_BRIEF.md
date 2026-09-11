@@ -52,6 +52,38 @@ and the reason we are not lowering it to make recruiting easier. It also means
 the third signer is not a formality: they are the reason no two people can
 quietly do the above without a third who could have refused.
 
+## Before you sign a buyback listing, run one command
+
+```
+node scripts/preflightLadderListing.mjs <token-address>
+```
+
+It is read-only, holds no key and sends nothing. It prints `safe to sign` or
+`DO NOT SIGN` and says why.
+
+The reason it exists is worth a paragraph, because it is the sort of thing that
+is easy to wave through. `_buybackSqrtFloor` bounds every buyback leg to the
+pool's own 30-minute average price, which is what stops the treasury being
+made to buy at a price somebody moved a moment earlier. For the first 30
+minutes of a pool's life that average does not exist yet, and the contract
+reads the absence as "no limit" rather than as "wait". A token listed inside
+that window therefore has no price protection on its buybacks at all, on the
+pool least able to absorb it — measured at 0.93 ETH taken from a 3.33 ETH leg,
+and repeatable, not once.
+
+Listing is the only way to reach that state, and listing needs your signature.
+So the rule is: do not sign a listing for a pool younger than 30 minutes. The
+script is that rule, checked against the chain instead of remembered. Nothing
+is lost by waiting — an unlisted token costs the treasury nothing, and the
+window closes on the clock by itself.
+
+Newer deployments enforce this in the contract, and the script tells you which
+kind you are looking at. The treasury holding the live reservoir is the older
+kind and cannot be upgraded to the newer one, so for that one your signature
+and this script are the whole control. `SECURITY_AUDIT.md` §2.3 is the full
+account, including our own view that holding it this way is weaker than fixing
+it in code.
+
 If you want to verify any of this rather than take our word for it, the
 contracts are source-verified on the explorer and the function list above is
 exhaustive.

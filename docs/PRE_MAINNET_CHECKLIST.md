@@ -409,6 +409,12 @@ retired only for a platform deployed from source at or after that date, and the
 way to tell is to call `addLadderToken` against a fresh pool on the treasury in
 question and check that it reverts rather than succeeding.
 
+**Before signing any listing,** run
+`node scripts/preflightLadderListing.mjs <token>`. Read-only, holds no key, and
+answers `safe to sign` or `DO NOT SIGN` against the chain rather than against
+the operator's memory of this page. It also reports whether the treasury it is
+pointed at carries the gate, which for the live one it does not.
+
 **If STATE-07 ever fires,** the recovery is `removeLadderToken(token)` via the
 Safe, wait for maturity, re-add. Nothing is forfeited by removing: the reservoir
 is not spent on an unlisted token.

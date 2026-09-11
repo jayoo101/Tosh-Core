@@ -300,6 +300,9 @@ git 历史里已经把漏掉 `set -a` 这件事称为"它里面第二条错的�
    碰到。它是用 `cast` 驱动的,PoG 证明是本地用 `scripts/signPoG.mjs` 签的,
    所以这两条路由至今仍然只有单元测试和实测,从未被人在真实部署上点过一次。
 6. **PM-C8 —— `treasury.addLadderToken`,但要**轮询 TWAP 成熟,不要自己算**。
+   **签名前先跑 `node scripts/preflightLadderListing.mjs <token>`** —— 只读,
+   不持私钥,直接告诉你能不能签,并且会说明这个 treasury 自己有没有强制这条
+   规则(活体那个没有,所以脚本和读它的人就是全部控制)。
    第一次测试网上机是在发射后 52 秒挂牌的;见 `PRE_MAINNET_CHECKLIST.md` §3.2。
    ~~在活的 PoG 签名者轮换之前不要挂牌~~ —— **已于 2026-09-09 满足**,轮换已
    落地(`SECURITY_AUDIT.md` §5.32),所以这一点不再是挂牌的闸门。

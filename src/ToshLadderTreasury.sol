@@ -366,6 +366,15 @@ contract ToshLadderTreasury is Ownable2Step {
         // Asked of the hook just proven to be this token's, so it cannot be
         // pointed at some other pool's mature TWAP.
         //
+        // And asked AFTER the `launched()` check above, which is load bearing
+        // rather than tidy.  An unlaunched hook does not report 0 here: it has
+        // no initialised `_prevCheckpointTs`, so `span` is the whole unix epoch,
+        // `_twapSqrtPriceX96` takes its "flat for a full window" branch, and it
+        // answers `getSqrtPriceAtTick(0)` — 2**96, non-zero, and meaningless.
+        // Measured on 0xF40B2F1Dfb4fE4549F8812A4914FCA9a27Da7eEE, an abandoned
+        // launch.  This check alone would wave that through; `PoolNotLaunched`
+        // is what stops it, so the two are a pair and must stay in this order.
+        //
         // Nothing is given up by refusing. The reservoir is not spent on an
         // unlisted token and the window closes on the clock alone, so the cost
         // is a wait of at most `TWAP_WINDOW`. That is the trade
