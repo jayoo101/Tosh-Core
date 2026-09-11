@@ -9,8 +9,8 @@
  *
  * ── What is different, and why it is the whole point ────────────────────────
  *
- * The drill Safe's owners are the REAL mainnet signer set — Tom, Jack and Joe,
- * the same three addresses that own
+ * The drill Safe's owners are the REAL mainnet signer set — Signer #1, #2 and
+ * #3, the same three addresses that own
  * 0x2953957774482efA660921df85A1E7634ccfe27A on 4663, each of whom proved
  * control by signature before that Safe was created.
  *
@@ -64,9 +64,9 @@ const TX_SERVICE = 'https://api.safe.global/tx-service/robinhood-testnet'
  * only criterion it exists to satisfy. Checked against the mainnet Safe by
  * `state`. */
 const OWNERS = [
-  { name: 'Tom', address: '0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB' },
-  { name: 'Jack', address: '0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E' },
-  { name: 'Joe', address: '0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6' },
+  { name: 'Signer #1', address: '0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB' },
+  { name: 'Signer #2', address: '0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E' },
+  { name: 'Signer #3', address: '0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6' },
 ]
 const MAINNET_SAFE = '0x2953957774482efA660921df85A1E7634ccfe27A'
 

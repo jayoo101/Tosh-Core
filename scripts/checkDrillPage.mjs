@@ -38,9 +38,9 @@ const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robi
 const TESTNET_ID = 46630n
 const MAINNET_SAFE = '0x2953957774482efA660921df85A1E7634ccfe27A'
 const OWNERS = {
-  '0xc2ea14ce2112b18afbc78fe78c969b3002f07cbb': 'Tom',
-  '0x0db9114fa8082800b23aa6141ec88f2a64ca1c6e': 'Jack',
-  '0x3b7ff171a71281b1d77e18ae1a0bc725d69712e6': 'Joe',
+  '0xc2ea14ce2112b18afbc78fe78c969b3002f07cbb': 'Signer #1',
+  '0x0db9114fa8082800b23aa6141ec88f2a64ca1c6e': 'Signer #2',
+  '0x3b7ff171a71281b1d77e18ae1a0bc725d69712e6': 'Signer #3',
 }
 
 const problems = []

@@ -312,8 +312,8 @@ console.log(`    PROD_OWNER_SAFE=${ethers.getAddress(safeAddr)}`)
 console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)
 // This closing block has gone stale twice. First it asked you to fill §1 with
 // the three signers and to re-run the §8.2 Q1 drill as "the only one still
-// unmet" — both already done on 2026-09-04 (§1 names Tom, Jack and Joe;
-// §8.3 had Joe and Tom sign all four payloads). Then (e118e91) it printed a
+// unmet" — both already done on 2026-09-04 (§1 labels Signer #1, #2 and #3;
+// §8.3 had #3 and #1 sign all four payloads). Then (e118e91) it printed a
 // remaining-for-D4/E4 nag: "a contact channel for each signer" / "how you wake
 // two of the three at 03:00". That closed 2026-09-08: §1 names Encrypted
 // Signal / Telegram and points at the offline vault; there are no placeholders.

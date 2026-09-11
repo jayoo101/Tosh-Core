@@ -3405,9 +3405,9 @@ instead was two more places where a tool's own prose sends you somewhere wrong.
 you to "fill `INCIDENT_RESPONSE.md` §1 with all three signers, and re-run the
 §8.2 Q1 drill on 46630 with one of the new signers taking part — that is the
 third Q1 criterion, and the only one still unmet." Both halves were false by
-2026-09-04. §1 names Tom, Jack and Joe against the addresses they
-signature-proved, and §8.3 closed the third criterion the same day, with Joe and
-Tom signing all four payloads. Meanwhile the thing that *was* open — a contact
+2026-09-04. §1 labels Signer #1, #2 and #3 against the addresses they
+signature-proved, and §8.3 closed the third criterion the same day, with #3 and
+#1 signing all four payloads. Meanwhile the thing that *was* open — a contact
 channel for any of the three, which is what PM-D4 and PM-E4 both reduced to —
 went unmentioned. That column closed 2026-09-08: the channel is named, the
 handles live in the offline vault, and this document does not record them.
@@ -3646,8 +3646,8 @@ fix ran:
 - From a 0 ETH sender (`0xE7c1bCbCc5b8bB9B40F6E39C382bA94713588B7a`, the
   burned PoG EOA of §5.23) to the Safe: `INSUFFICIENT_FUNDS`,
   `have 0 want 1`. This is the defect's input.
-- From Joe (`0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6`, 0.089 ETH) to the
-  Safe: **27674 gas**. Matches `C1_RUNBOOK.md` §0.
+- From Signer #3 (`0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6`, 0.089 ETH) to
+  the Safe: **27674 gas**. Matches `C1_RUNBOOK.md` §0.
 - The live deployer `0x4E41CEa950cF40FA59774B409988D6F9F399E690` now holds
   **0.0117 ETH**, the runbook amount. Direct `estimateGas` from it already
   returns 27674–27675. The brief's "unfunded deployer" was true when measured
@@ -3668,7 +3668,7 @@ overrides path; the retry is raw `provider.send('eth_estimateGas', …)`.
 
 **(b) Sender choice.** Kept as `roles[0]?.[1] ?? owners[0]` — deployer when
 `PRIVATE_KEY` is set. Shopping for a funded `from` would pass on this machine
-(Tom, `owners[0]`, holds 0.005 ETH; Joe, owner 3, holds 0.089) and leave the
+(Signer #1, `owners[0]`, holds 0.005 ETH; #3, owner 3, holds 0.089) and leave the
 next caller, whose deployer is empty and whose owners are too, with the same
 misdiagnosis. The failure is not silent: a synthetic-balance hit prints that
 the sender could not pay, and that this is not a reason to rotate

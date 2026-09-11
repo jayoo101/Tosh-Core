@@ -46,21 +46,40 @@ P2/P3 are handled in-band by ordinary engineering rotation.
 > offline vault, not in this repo. No personal phone number, private email or
 > messaging handle is recorded here.
 
-The three Safe signers are identified as of 2026-09-04. Each address below is
+The three Safe signers are fixed as of 2026-09-04. Each address below is
 one of the three owners of `0x2953957774482efA660921df85A1E7634ccfe27A` (§1.1),
 and each proved control of it by signature before the Safe was created.
 
 | Role | Primary | Address | Reachable on |
 |------|---------|---------|--------------|
 | Incident commander | Deployer / Primary Operator | — | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
-| Gnosis Safe signer #1 | **Tom** | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
-| Gnosis Safe signer #2 | **Jack** | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
-| Gnosis Safe signer #3 | **Joe** | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #1 | *(identity in offline vault)* | `0xC2EA14cE2112B18AFBC78fE78C969b3002F07cbB` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #2 | *(identity in offline vault)* | `0x0db9114FA8082800B23AA6141ec88F2a64Ca1c6E` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
+| Gnosis Safe signer #3 | *(identity in offline vault)* | `0x3b7ff171A71281b1D77e18ae1A0bC725D69712E6` | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
 | Comms lead | Deployer / Primary Operator | — | Encrypted Signal / Telegram (handle kept in offline 1Password / Vault) |
 | Legal | N/A (Decentralized protocol / Founder-led at launch) | — | — |
 
+**Why the signers are labelled and not named, 2026-09-11.** They were named
+here — first names, no handles — until this repository was prepared for
+publication. The addresses are public either way: they are the Safe's owner
+set, readable on chain by anyone. A first name sitting beside one adds nothing
+an outsider can use, and quite a lot to someone who already knows the person,
+because it maps a specific human onto a key that can move a live treasury. So
+`Signer #1/#2/#3` is the identifier used throughout this repository and in
+`drillQ1.mjs` and `checkDrillPage.mjs`, and the label-to-person mapping went
+into the operator's offline 1Password / Vault beside the handles, under the same
+rule that put the handles there. The labels are ordered by the Safe's
+`getOwners()` return — verified on chain 2026-09-11 as
+`[0xC2EA14cE…, 0x0db9114F…, 0x3b7ff171…]` — so they are anchored to something
+checkable rather than to a note, and every reference written before the rename
+still resolves. **One limitation, since it would otherwise be mistaken for more
+than it is:** the names remain in this repository's git history, which was
+deliberately not rewritten (`SECURITY.md` explains what that history is load
+bearing for). Removing them at HEAD stops casual reading, search indexing and
+scraping. It does not stop a determined reader with `git log -p`.
+
 **Contact routing, restated 2026-09-08.** The channel is Encrypted Signal /
-Telegram. The handle for each of Tom, Jack and Joe is looked up in the
+Telegram. The handle for each of the three is looked up in the
 operator's offline 1Password / Vault — not in this repository, and not in any
 shared contact store this repo can see. Incident commander and Comms lead are
 the same person as each other and as the PM-E6 watcher: the Deployer / Primary
@@ -87,8 +106,8 @@ of it arrives during an incident. Revisit this row then, not after.
 All three signers hold gas on 4663 (0.005 / 0.005 / 0.089 ETH as of
 2026-09-04), so any one of them can be the account that actually submits
 `execTransaction` — the signatures are collected off chain, but the executor
-pays. Before this, only Joe was funded, which would have made him a single point
-of failure for pressing the button regardless of who had signed.
+pays. Before this, only Signer #3 was funded, which would have made them a
+single point of failure for pressing the button regardless of who had signed.
 
 ### 1.0 Before any governance alert becomes an incident: correlate
 
@@ -1188,7 +1207,7 @@ people. Neither sitting had ever demonstrated the thing Step 1 actually claims,
 which is not that a Safe can pause the factory — that is now measured twice —
 but that **the protocol can be stopped by people other than its operator**.
 
-PM-D4 closed in the meantime: Tom, Jack and Joe each proved control of an
+PM-D4 closed in the meantime: Signer #1, #2 and #3 each proved control of an
 address by signature, and the mainnet Safe
 [`0x2953957774482efA660921df85A1E7634ccfe27A`](https://robinhoodchain.blockscout.com/address/0x2953957774482efA660921df85A1E7634ccfe27A)
 was built from those three. So the missing half exists now, and this sitting
@@ -1252,19 +1271,20 @@ Ownership is staged: `transferOwnership(drill Safe)`
 remains owner until the Safe accepts, so this step is reversible on its own and
 the testnet factory is in its normal state while the drill waits.
 
-**Status: Q1's third criterion is met.** Two of the three real owners — **Joe
-and Tom** — signed all four payloads, recovered to their claimed addresses,
-and those signatures were the only ones `execTransaction` consumed. The
-operator's key is still not an owner; it paid gas and could not have originated
-any of the four. That is the property neither §8.1 nor §8.2 could show.
+**Status: Q1's third criterion is met.** Two of the three real owners —
+**Signer #3 and #1** — signed all four payloads, recovered to their claimed
+addresses, and those signatures were the only ones `execTransaction` consumed.
+The operator's key is still not an owner; it paid gas and could not have
+originated any of the four. That is the property neither §8.1 nor §8.2 could
+show.
 
 | Step | tx | gas | wall | signed by |
 |---|---|---|---|---|
-| `acceptOwnership()` | [`0x9ed70d18…`](https://explorer.testnet.chain.robinhood.com/tx/0x9ed70d1866435213fdfa81a1af192a08d885806df4bd5a4af5133ed10259ab5b) | 105,942 | 4.65 s | Joe + Tom |
-| `pause()` | [`0x7d12c1c5…`](https://explorer.testnet.chain.robinhood.com/tx/0x7d12c1c53b38903a6eb4c41504edeb7b20504d3e77010e0f0413257e63d035b9) | 107,280 | 4.91 s | Joe + Tom |
+| `acceptOwnership()` | [`0x9ed70d18…`](https://explorer.testnet.chain.robinhood.com/tx/0x9ed70d1866435213fdfa81a1af192a08d885806df4bd5a4af5133ed10259ab5b) | 105,942 | 4.65 s | Signer #3 + Signer #1 |
+| `pause()` | [`0x7d12c1c5…`](https://explorer.testnet.chain.robinhood.com/tx/0x7d12c1c53b38903a6eb4c41504edeb7b20504d3e77010e0f0413257e63d035b9) | 107,280 | 4.91 s | Signer #3 + Signer #1 |
 | status page `STATUS='paused'` publicly visible | — | — | **15.7 s** after `git push` | — |
-| `unpause()` | [`0xee733c38…`](https://explorer.testnet.chain.robinhood.com/tx/0xee733c38b2663d86346077c23be73ce9793a6857568072763976b175f765dc9e) | 84,854 | 4.09 s | Joe + Tom |
-| `transferOwnership(deployer)` | [`0xfb0da063…`](https://explorer.testnet.chain.robinhood.com/tx/0xfb0da063a04b95b924f903bcf6a055f0f71d7c78d7567dd27acb1aa41d0184eb) | 109,887 | 4.32 s | Joe + Tom |
+| `unpause()` | [`0xee733c38…`](https://explorer.testnet.chain.robinhood.com/tx/0xee733c38b2663d86346077c23be73ce9793a6857568072763976b175f765dc9e) | 84,854 | 4.09 s | Signer #3 + Signer #1 |
+| `transferOwnership(deployer)` | [`0xfb0da063…`](https://explorer.testnet.chain.robinhood.com/tx/0xfb0da063a04b95b924f903bcf6a055f0f71d7c78d7567dd27acb1aa41d0184eb) | 109,887 | 4.32 s | Signer #3 + Signer #1 |
 | deployer `acceptOwnership()` | [`0x15c5d58b…`](https://explorer.testnet.chain.robinhood.com/tx/0x15c5d58b6deb07dc043524eb35e019726d2609e8af987010d9e9a29e4de531e9) | 32,332 | — | deployer (gas only) |
 
 Pause window: blocks 112,850,505 → 112,851,107 = **602 blocks ≈ 1 min 56 s**
@@ -1283,9 +1303,10 @@ signatures are useless against nonce 4, and the CI guard is self-retiring on
   2-of-3 whose owners are the real mainnet signer set.
 - Public status page — **met**, banner fetched live at 15.7 s, then restored
   to `operational`.
-- At least one *new* signer participating — **now met.** Tom is one of the two
-  people recruited for PM-D4; Joe is the third owner. Neither key was on the
-  operator's laptop. Jack did not need to sign — threshold is two.
+- At least one *new* signer participating — **now met.** Signer #1 is one of
+  the two people recruited for PM-D4; Signer #3 is the third owner. Neither key
+  was on the operator's laptop. Signer #2 did not need to sign — threshold is
+  two.
 
 The limitation recorded above still holds: the four hashes were signed in one
 sitting by people who were expecting the request. This run timed the mechanical
