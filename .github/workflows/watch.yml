@@ -190,9 +190,28 @@ jobs:
       # skip. A crash before `code=` is written is treated as not-2, and
       # report.mjs is a no-op on an empty file.
       - name: File findings as issues
+        id: file
         if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `ALERT_REPO` and `ALERT_REPO_TOKEN` send findings to a private
+          # repository instead of this one. They exist because this repository
+          # went public on 2026-09-11 and the issue tracker went public with
+          # it — issues are not code and show up in no diff, which is why that
+          # consequence is easy to miss. A watcher filing here publishes the
+          # protocol's weak state at the moment it is weakest, and STATE-07 is
+          # the sharp case: it fires during exactly the window
+          # SECURITY_AUDIT.md §2.3 leaves unbounded, and alerts.json is public
+          # too, so the alert would supply the timing and the repository the
+          # method.
+          #
+          # The sink's NAME is a secret, not a `vars` variable. On a public
+          # repository a variable would advertise that a private sink exists
+          # and what it is called, which is the single thing it must not do.
+          #
+          # Both unset, this is byte-for-byte the old behaviour: the built-in
+          # token, this repository. Forks and local `--dry` need no setup.
+          GITHUB_TOKEN: ${{ secrets.ALERT_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          WATCH_ISSUE_REPO: ${{ secrets.ALERT_REPO }}
           WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node monitoring/report.mjs "$RUNNER_TEMP/findings.jsonl"
 
@@ -202,8 +221,18 @@ jobs:
       # window. `success()` would skip the write and leave the runner-temp
       # copy to die with the job, which is a different way to lose the
       # window if a previous persist had already moved lastBlock.
+      #
+      # `steps.file.outcome != 'failure'` added 2026-09-11 alongside
+      # `ALERT_REPO_TOKEN`. A checkpoint that advances past findings nobody
+      # filed loses them from the resume path entirely, and `--since` is the
+      # only way back. That could not really happen while the sink was this
+      # repository: `secrets.GITHUB_TOKEN` is minted per run and cannot expire
+      # mid-job. A fine-grained PAT can and eventually will, and its expiry
+      # looks like this — filing throws, the job goes red, and the window it
+      # covered is consumed anyway. Not persisting is the safe direction: the
+      # state branch keeps the older checkpoint and the next pass rescans.
       - name: Persist the block checkpoint
-        if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' }}
+        if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' && steps.file.outcome != 'failure' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

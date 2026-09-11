@@ -33,6 +33,7 @@
  *
  *   GITHUB_TOKEN     required unless --dry. Locally: $(gh auth token)
  *   GITHUB_REPOSITORY  owner/name. Locally: defaults to jayoo101/Tosh-Core
+ *   WATCH_ISSUE_REPO owner/name to file INTO, overriding GITHUB_REPOSITORY
  *   WATCH_RUN_URL    optional link back to the Actions run
  */
 
@@ -41,7 +42,22 @@ import { readFileSync } from 'node:fs'
 const argv = process.argv.slice(2)
 const DRY = argv.includes('--dry')
 const FILE = argv.find(a => !a.startsWith('--'))
-const REPO = process.env.GITHUB_REPOSITORY || 'jayoo101/Tosh-Core'
+/* Where findings are filed, which stopped being the same question as where the
+ * code lives on 2026-09-11, when this repository went public. The issue tracker
+ * went public with it — issues are not code and appear in no diff, so this is
+ * easy to miss — and a watcher that files there is publishing the protocol's
+ * live weak state to everyone at the moment it is weakest. STATE-07 is the
+ * sharp case: it fires exactly during the window SECURITY_AUDIT.md §2.3 leaves
+ * unbounded, and alerts.json is now public too, so the alert supplies the
+ * timing and the repository supplies the method.
+ *
+ * `WATCH_ISSUE_REPO` takes precedence over `GITHUB_REPOSITORY`, which Actions
+ * always sets to the running repository. Unset, behaviour is exactly what it
+ * was, so a fork and a local `--dry` still work without configuration.
+ *
+ * Both the de-duplication read and the write use this, so they cannot drift
+ * apart and start filing duplicates into one repository while reading another. */
+const REPO = process.env.WATCH_ISSUE_REPO || process.env.GITHUB_REPOSITORY || 'jayoo101/Tosh-Core'
 const TOKEN = process.env.GITHUB_TOKEN
 const RUN_URL = process.env.WATCH_RUN_URL || ''
 
@@ -108,7 +124,21 @@ async function gh(path, init = {}) {
       ...init.headers,
     },
   })
-  if (!res.ok) throw new Error(`${init.method || 'GET'} ${path} → ${res.status} ${await res.text()}`)
+  if (!res.ok) {
+    const detail = `${init.method || 'GET'} ${path} → ${res.status} ${await res.text()}`
+    /* A private repository answers 404, not 403, to a token that cannot see
+     * it, so "Not Found" here reads as "the sink is gone" when it almost
+     * always means "the token cannot reach the sink". WATCH_ISSUE_REPO is
+     * configured once and this is the error that configuring it wrong
+     * produces, so spend three lines saying so rather than leaving the next
+     * person to rediscover which of the two it was. */
+    if (res.status === 404 && process.env.WATCH_ISSUE_REPO) {
+      throw new Error(`${detail}\nWATCH_ISSUE_REPO is ${REPO}. Check that the token reaches it — ` +
+        `a private repository returns 404 to a token without access, so this is far more likely ` +
+        `to be an expired or wrongly scoped ALERT_REPO_TOKEN than a missing repository.`)
+    }
+    throw new Error(detail)
+  }
   return res.status === 204 ? null : res.json()
 }
 
