@@ -88,11 +88,6 @@ const findings = readFileSync(FILE, 'utf8')
 
 const paging = findings.filter(f => f.page === true)
 
-if (paging.length === 0) {
-  console.log(`no paging findings among ${findings.length} finding(s) — nothing to file`)
-  process.exit(0)
-}
-
 /**
  * The dedup key. `tx` is present exactly on event findings and absent on state
  * checks, which is the same line the two shapes fall on above.
@@ -140,6 +135,24 @@ async function gh(path, init = {}) {
     throw new Error(detail)
   }
   return res.status === 204 ? null : res.json()
+}
+
+/* Checked on every pass, and the quiet passes are the point. This script used
+ * to return before its first API call whenever nothing paged — which is almost
+ * every hour — so a sink it could not reach stayed green until the first
+ * finding that actually mattered.
+ *
+ * A fine-grained PAT expires on a date nobody remembers. "The day
+ * ALERT_REPO_TOKEN lapsed" and "the day of the first P0" are independent
+ * events, and discovering the first one during the second is the entire
+ * failure mode. One GET per hour buys a red job on the day it lapses instead.
+ *
+ * Only when the sink is overridden: on the default path the token is minted for
+ * this repository by the run using it, so there is nothing for a request to
+ * find out. */
+async function assertSinkReachable() {
+  await gh(`/repos/${REPO}`)
+  console.log(`sink ${REPO} reachable`)
 }
 
 /* Every open watcher issue, read once. Listing beats the search API, which lags
@@ -221,6 +234,13 @@ function body(f, key) {
  * failed delivery step on a delivery that succeeded, which is the worst way for
  * an alerting path to be wrong. */
 async function main() {
+  if (!DRY && process.env.WATCH_ISSUE_REPO) await assertSinkReachable()
+
+  if (paging.length === 0) {
+    console.log(`no paging findings among ${findings.length} finding(s) — nothing to file`)
+    return
+  }
+
   const seen = DRY ? new Map() : await openKeys()
   const fresh = []
   const suppressed = []
