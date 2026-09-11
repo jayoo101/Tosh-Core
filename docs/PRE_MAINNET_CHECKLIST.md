@@ -1591,11 +1591,11 @@ written by hand. See the note under the table.
 |---|---:|---:|---:|---:|---:|
 | A — Security review | 0 | 0 | 0 | 3 | 2 |
 | B — Chain decisions | 0 | 0 | 0 | 0 | 4 |
-| C — Deploy & handoff | 2 | 1 | 0 | 0 | 6 |
+| C — Deploy & handoff | 2 | 0 | 0 | 0 | 7 |
 | D — Keys & secrets | 0 | 0 | 0 | 1 | 3 |
 | E — Observability & ops | 0 | 1 | 0 | 0 | 5 |
 | F — Frontend & platform | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **2** | **2** | **0** | **4** | **29** |
+| **Total** | **2** | **1** | **0** | **4** | **30** |
 
 The **N/A** column holds four rows: PM-D2, and PM-A1 through PM-A3 as of
 2026-09-06. It was added for D2 alone, because the table had no column for a
@@ -1636,7 +1636,6 @@ below, in the order it actually blocks.
 |---|---|---|
 | **PM-A1, A2, A3** | ⬜ | Retired 2026-09-06: no third-party audit, permanently. Listed here because **N/A is not Done** — nothing further will happen on these rows, and `SECURITY_AUDIT.md` §0.1 states what that leaves uncovered. A4 no longer waits on A1 and has closed. |
 | **PM-C3** | ❌ | No longer gated: C2 closed and the PoG signer was rotated 2026-09-09. Open only because the factory address has still not been announced. |
-| **PM-C4** | ✅ | Closed 2026-09-11. Factory and treasury 2026-09-09, `HookDeployLib` `0x873E0841…` 02:23:12Z, all three exact matches. The library was the long pole only because it was invisible: CREATE2-deployed by `forge script` and absent from every previous count. Not a live surface (constructor-only; no runtime reference), so it was audit trail rather than safety throughout. |
 | **PM-C8** | ❌ | Mainnet ladder listing, after TWAP maturity, polled not computed. Rehearsed on 46630. No longer gated — the PoG rotation landed 2026-09-09. Nothing listed yet. |
 | **PM-D2** | ⬜ | Not applicable. The PoG signer never sends a transaction, so there is no gas to pre-fund (`ONCHAIN_MONITORING.md` §4.1). |
 | **PM-E2** | 🟡 | Re-pointed at 4663. First mainnet pass was blind (RPC 429, non-paging WATCHER-02; workflow run 34196807435). Transport and paging fixed (§5.28). Remaining is a pager rather than GitHub Issues. |
