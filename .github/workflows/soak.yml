@@ -15,20 +15,27 @@ name: Soak
 permissions: {}
 
 on:
-  # Daily, and offset from both the hour and the busy top-of-hour slot for the
+  # Weekly, and offset from both the hour and the busy top-of-hour slot for the
   # same reason watch.yml is: scheduled workflows queue on a shared pool and
   # `0 * * * *` is its worst minute. 05:23 UTC is off-peak for this pool and
   # nobody is waiting on the result, which is the whole point of moving it here.
   #
-  # Daily costs ~1,420 billed minutes a month at the measured 47m14s per run,
-  # against the same private-repository allowance watch.yml draws ~720 from.
-  # Accepted 2026-09-06 with the number in hand, not by default. If that
-  # allowance ever binds, change THIS LINE rather than the depths below: the
-  # depths are what SECURITY_AUDIT.md §5.19 measured and argued for, and nobody
-  # is waiting on a nightly, so cadence is the cheap thing to give up. Weekly at
-  # the same depth is ~200 min/month.
+  # This was daily until 2026-09-11, when the allowance the previous wording
+  # anticipated actually bound. The account's 2,000 included minutes were gone
+  # by day 11 of the cycle and every job stopped starting: a private repository
+  # whose Actions budget is $0 with "stop usage" set refuses to run rather than
+  # bill, and the resulting annotation names a failed payment first, which is
+  # not what had happened. Daily was ~1,420 of those minutes at the measured
+  # 47m14s per run, against ~720 for watch.yml and the remainder on
+  # push-triggered CI.
+  #
+  # So the instruction that wording left behind — change THIS LINE rather than
+  # the depths below — is the one followed here. The depths are untouched and
+  # are still what SECURITY_AUDIT.md §5.19 measured and argued for; only how
+  # often they run moved, because nobody is waiting on a soak. Weekly at the
+  # same depth is ~200 min/month.
   schedule:
-    - cron: '23 5 * * *'
+    - cron: '23 5 * * 0'
 
   # The one-off in §5.19 was 512 x 2500 and took 46 min locally. Do not put that
   # on the cron. Measured, not extrapolated: the nightly defaults below cost
