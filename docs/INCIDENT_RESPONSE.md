@@ -964,22 +964,37 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 > `docs/PRE_MAINNET_CHECKLIST.md`, and it is served by `monitoring/watch.mjs`
 > against the chain's own RPC rather than by a vendor
 > (`ONCHAIN_MONITORING.md` §7.1). Detection is built, rehearsed, **and since
-> 2026-09-04 scheduled**: `.github/workflows/watch.yml` runs it twice an hour
-> and files paging findings as deduplicated GitHub Issues (§7.3). So rewrite
-> Q4's criterion to name the watcher rather than Defender.
+> 2026-09-04 scheduled**: `.github/workflows/watch.yml` asks for four passes an
+> hour as of 2026-09-11, files paging findings as deduplicated issues in a
+> private sink, and points at mainnet 4663 rather than the 46630 this paragraph
+> was written against (§7.1, §7.3). So rewrite Q4's criterion to name the
+> watcher rather than Defender.
 >
 > **But do not simply mark Q4 runnable.** Its criterion is detection within 15
-> minutes, and that host cannot promise it: GitHub's scheduled runs are
-> best-effort and routinely late, and an issue filed at 03:00 wakes nobody. The
-> schedule also points at 46630 until C1. Q4 as written needs either a pager, or
-> a criterion honestly rewritten to "detected and recorded", with the reporting
-> half measured separately. The
+> minutes and that host still cannot promise it — though the reason narrowed on
+> 2026-09-11, and which half moved is the part worth being precise about.
+>
+> **The reporting half is closed.** A paging finding is pushed to Telegram, and
+> an unacknowledged P0 is pushed again on every pass, so "an issue filed at
+> 03:00 wakes nobody" has stopped being true. PM-E2's pager box in
+> `ONCHAIN_MONITORING.md` §8 is ticked and the drill that closed it is recorded
+> there. It reaches one phone rather than a rotation, which is the arrangement
+> §1 above already describes and not a new gap.
+>
+> **The detection half is not, and is now measured rather than argued.** Across
+> the 157 hours the schedule was observed, GitHub delivered 27% of the passes
+> the cron asked for, a median 4.0 hours apart. A pass that never runs pages
+> nobody, so the 15-minute criterion fails upstream of everything the pager
+> fixed, and a shorter cron does not reach it either. Q4 as written therefore
+> still needs its criterion honestly rewritten to "detected and recorded", with
+> the reporting half measured separately — what changed is that the reporting
+> half finally has something to measure. The
 > frontend error
 > monitoring that *was* wired (Sentry, PM-E1) reports browser and API-route
 > errors — it sees nothing on chain, and a forged-attestation attempt that
-> reverts inside the contract produces no frontend error at all. Either complete
-> PM-E2 before scheduling Q4, or run Q4 with manual log inspection and record
-> that the detection half was not exercised. Do not mark the drill passed on the
+> reverts inside the contract produces no frontend error at all. Run Q4 against
+> the mainnet watcher and record the interval detection actually took as an
+> observation, not a pass. Do not mark the drill passed on the
 > strength of the attempts failing; the attempts failing is the *contract*
 > working, not the *response* working.
 

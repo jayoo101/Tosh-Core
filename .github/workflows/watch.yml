@@ -2,7 +2,10 @@
 # precisely so the host could be decided later; this is that decision.
 #
 # Read `docs/ONCHAIN_MONITORING.md` §7.3 for what this host is and is not before
-# relying on it. In short: it is a monitor, not a pager.
+# relying on it. In short: findings are pushed to a pager as of 2026-09-11, and
+# the schedule underneath is still best-effort — GitHub delivered 27% of the
+# passes the hourly cron asked for over the 157 hours it was measured across.
+# Delivery was the half that could be fixed from here. Cadence is not.
 
 name: Watch
 

@@ -30,11 +30,15 @@ in 5 minutes, halted in 15. **Those are targets for an incident already
 detected, and they are not a commitment to an external reporter.** The reasons
 are written down rather than glossed:
 
-- The on-chain monitor is a GitHub Actions workflow, not a pager.
-  `docs/ONCHAIN_MONITORING.md` §7.3 states plainly that it does not meet the
-  15-minute detection criterion, that a P0 filed at 03:00 lands in an issue
-  inbox nobody watches out of hours, and that the honest claim is only *"the
-  protocol will notice, and will write it down."*
+- The on-chain monitor is a GitHub Actions workflow. Since 2026-09-11 a paging
+  finding is pushed to a phone rather than left in an issue inbox nobody
+  watches at 03:00, so that specific gap is closed. The one above it is not:
+  `docs/ONCHAIN_MONITORING.md` §7.3 states plainly that this host does not meet
+  the 15-minute detection criterion, and now states it with a number — across
+  the 157 hours the schedule was measured, GitHub delivered **27%** of the
+  passes the cron asked for. A pass that never runs pages nobody, so the honest
+  claim is that the protocol will notice, write it down and push it, on a
+  schedule we do not control. The push also reaches one phone, not a rotation.
 - The incident commander and comms lead are the same person.
 - Halting requires 2-of-3 signatures on Safe
   `0x2953957774482efA660921df85A1E7634ccfe27A`, so the binding constraint is

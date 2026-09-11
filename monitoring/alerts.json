@@ -59,7 +59,13 @@
     "by editing the numbers down, because the number a risk deserves and the number",
     "the infrastructure provides are different facts and collapsing them would lose",
     "the first one. ONCHAIN_MONITORING.md 7.3 is where the consequence is stated in",
-    "full: this is not a pager and does not meet a 15-minute detection criterion."
+    "full. AMENDED 2026-09-11: paging findings are now pushed to Telegram, so the",
+    "delivery half of that consequence is closed and 'this is not a pager' no longer",
+    "describes it. The cadence half is unchanged and is the one these numbers are",
+    "about -- GitHub delivered 27% of the passes the hourly cron asked for over 157",
+    "measured hours, so the 15-minute detection criterion is still not met, and a",
+    "check's stated interval here remains the interval it deserves rather than the",
+    "one it gets."
   ],
   "version": "1",
   "chainId": 4663,

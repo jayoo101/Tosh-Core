@@ -16,7 +16,7 @@ Monitoring for this project is two separate systems that are easy to confuse:
 | | Covers | Status |
 |---|---|---|
 | **PM-E1** — Sentry (`@sentry/nextjs`) | Browser errors, React error boundaries, API route failures under `src/app/api/**` | ✅ built |
-| **PM-E2** — this document | Contract events and on-chain state | 🟡 **re-pointed at mainnet 4663.** Observed history begins at block 57,492,253 — §7.1. Remaining: the sink is GitHub Issues, which is a monitor and not a pager (§7.3) |
+| **PM-E2** — this document | Contract events and on-chain state | 🟡 **re-pointed at mainnet 4663, and it pushes as of 2026-09-11.** Observed history begins at block 57,492,253 — §7.1. Findings file into a private sink and paging ones are pushed to Telegram, drilled end to end (§8). Still amber for the reason that is upstream of delivery: GitHub delivered 27% of the scheduled passes it was asked for, so the §8 Q4 detection criterion is unmet at any cadence (§7.3) |
 
 **These do not overlap at all.** Sentry sees a user's browser and our own server
 routes. It sees nothing on chain. A `pause()` executed by a stolen owner key, a
@@ -366,8 +366,9 @@ node will answer and false for *how fast*. Transport lives in
   `Promise.all` two `eth_getBlockByNumber`s and crash.
 
 Findings still go to stdout as JSON lines and the exit code is non-zero
-when any of them pages. Delivery is GitHub Issues (`report.mjs`), which
-is a monitor and not a pager — §7.3.
+when any of them pages. Delivery is `report.mjs`: an issue in the private
+sink, plus a Telegram push for anything that pages. What still falls short
+of a pager is the schedule rather than the delivery — §7.3.
 
 A failed `eth_getLogs` after those retries is WATCHER-02. If the skipped
 topic includes any P0, that pages. A pass that completed zero log queries
@@ -443,14 +444,32 @@ a fresh issue every time the treasury balance moved, and §6's noise budget woul
 be spent on the alerts it exists to protect. Nothing auto-closes: a check going
 quiet is equally consistent with the check having broken.
 
-> **This is a monitor. It is not a pager, and it must not be described as one.**
+> **It pushes now, and its schedule is still best-effort. Those are two
+> separate claims and only the first one changed on 2026-09-11.**
 >
 > GitHub's scheduled workflows are explicitly best-effort. Delays of tens of
 > minutes are routine when the shared pool is busy, and runs are dropped
 > outright under load — the cron here is offset from the hour for that
-> reason, which reduces contention and guarantees nothing. So the
-> **15-minute detection criterion in `INCIDENT_RESPONSE.md` §8 Q4 is not met by
-> this host**, and Q4 must not be marked passed on the strength of it.
+> reason, which reduces contention and guarantees nothing.
+>
+> **Measured 2026-09-11, because "best-effort" is not a number.** Across the
+> 157.0 hours the hourly cron was in force — first scheduled run
+> 2026-09-04 16:49:36Z, last 2026-09-11 05:52:04Z, `- cron: '7 * * * *'`
+> unchanged throughout — GitHub delivered **42 of an expected 157 passes, 27%**.
+> Consecutive passes were 2.1 h apart at the closest, 4.0 h at the median and
+> 6.2 h at the widest, against a cron asking for one hour. So the platform was
+> not delaying this schedule by tens of minutes. It was discarding about three
+> passes in four, and the surviving ones arrived at roughly a quarter of the
+> requested rate.
+>
+> Read the cadence change below against that. The cron now asks for four passes
+> an hour and the measured delivery rate it asks against was 0.27 an hour, so a
+> shorter interval buys more chances rather than proportionally more passes.
+> **The 15-minute detection criterion in `INCIDENT_RESPONSE.md` §8 Q4 is
+> therefore still not met by this host**, and Q4 must not be marked passed on
+> the strength of the cadence or of the pager. What the pager changed is that a
+> pass which does run now reaches a human. It did not change how often a pass
+> runs, and this measurement is the reason to keep saying so.
 >
 > Two silent failure modes come with the platform. Scheduled workflows are
 > **disabled automatically after 60 days without repository activity** — the
@@ -477,8 +496,18 @@ quiet is equally consistent with the check having broken.
 > issue sink shipped without it and had to be fixed the same day.
 >
 > **Until the two secrets are set this is inert**, and it says so on every
-> pass rather than looking configured. The honest claim while unset is
-> unchanged: **the protocol will notice, and will write it down.**
+> pass rather than looking configured. The honest claim while unset was
+> **the protocol will notice, and will write it down.**
+>
+> **They were set on 2026-09-11, to a direct chat rather than a group.** From
+> that pass on the log line is `pager reachable (telegram bot and chat both
+> answer)` instead of `pager not configured`, and the claim becomes: the
+> protocol will notice, will write it down, and will push it — subject to the
+> delivery rate measured above, which is the part no configuration fixes.
+> Direct chat rather than a group is worth recording because it is a
+> single-recipient pager: one phone, one person, and `INCIDENT_RESPONSE.md` §1
+> names three signers. Reaching the other two is still the human escalation
+> step, not something this does.
 
 **Cost, measured rather than assumed.** A 900k-block mainnet pass on
 2026-09-08 took 16.8 s wall-clock with the 250 ms floor (7 logs, 7
@@ -566,24 +595,39 @@ What closes that is a channel that pushes, not a shorter interval.
       than from the harvested hook set, so it is unaffected by a pass that
       knows 0 hooks — which is most of them, since the set is rebuilt from
       `LaunchCreated` inside the scanned window.
-- [ ] P0 routes to a pager that has been tested with a synthetic event.
-      **Still open, and now for a narrower reason than before.** Until
-      2026-09-11 delivery went only to GitHub Issues, and §7.3 sets out why
-      that is a monitor and not a pager: best-effort scheduling, silent
+- [x] P0 routes to a pager that has been tested with a synthetic event.
+      **Closed 2026-09-11, on the condition this box set for itself:** a
+      synthetic P0 has been pushed to a real chat, not merely the code to do it
+      merged. Until that day delivery went only to GitHub Issues, and §7.3 sets
+      out why that is a monitor and not a pager: best-effort scheduling, silent
       disablement after 60 idle days, and an issue nobody is notified of at
-      03:00. Marking it done because something arrived somewhere is precisely
-      the substitution this list exists to prevent.
+      03:00.
 
-      The mechanism now exists — a Telegram push in `report.mjs`, repaging
-      unacknowledged P0s every pass, credentials exercised hourly (§7.3). It
-      was exercised against a synthetic GOV-01 in `--dry`, both with the
-      secrets absent and present, so the message that would be sent has been
-      read. **What is still missing is the half that cannot be written:** the
-      bot and chat do not exist until an operator creates them, and until the
-      two secrets are set `report.mjs` reports on every pass that findings
-      were written down and nobody was woken. This box closes when a synthetic
-      P0 has been pushed to a real chat and someone's phone has rung, not
-      when the code to do it merges.
+      The drill, so it can be repeated rather than believed. Issue #1 in the
+      private sink `jayoo101/tosh-alerts`, titled `[TEST-P0] Watcher pager
+      drill verification`, carrying labels `watcher` and `P0`, no `acked`, and
+      a body whose first line is `<!-- watch-key: DRILL-P0-TELEGRAM -->`. Then
+      a `workflow_dispatch` of `watch.yml`, run 34596215950. It printed
+      `pager reachable (telegram bot and chat both answer)`, then
+      `no paging findings among 0 finding(s) — nothing to file`, then
+      **`paged: 0 new, 1 unacknowledged P0(s)`**. The issue was closed
+      afterwards and the sink is empty again.
+
+      **That last line is the evidence and it is worth saying why.** It is
+      printed only after `await telegram(text)` returns, and `telegram()`
+      throws on any non-2xx — so the line cannot appear unless Telegram's
+      `sendMessage` accepted the message. `pager reachable` on its own proves
+      two GETs answered, which is not the same claim. And the pass found
+      nothing on chain, so `0 new, 1 unacknowledged` means the delivery came
+      through the repaging path rather than a fresh finding: the path added the
+      same day, which no live pass had ever exercised, and the one a real
+      overnight P0 would depend on.
+
+      Two limits this does not clear, recorded so the tick is not read as more
+      than it is. The chat is a direct message, so this is a one-phone pager
+      against §1's three signers. And detection latency is unchanged — §7.3's
+      27% measured delivery rate is upstream of everything here, because a pass
+      that never runs pages nobody.
 - [x] The 22 `mustNotPage` events confirmed not paging — the 900k-block sweep
       produced 17 findings of which 11 paged, and `report.mjs` filed exactly the
       11. The non-paging six reached the run summary and nothing else.
