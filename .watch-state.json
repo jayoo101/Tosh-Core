@@ -1,12 +1,12 @@
 {
-  "lastBlock": 59761239,
+  "lastBlock": 59850147,
   "hooks": [
     "0xf40b2f1dfb4fe4549f8812a4914fca9a27da7eee",
     "0xb0aff0c899d9486b35594bcbd3e97c8866a1f9ec"
   ],
   "armedSince": null,
   "lastPiggybackBlock": null,
-  "lastRun": "2026-09-10T22:29:59.819Z",
+  "lastRun": "2026-09-11T00:59:32.036Z",
   "chainId": 4663,
   "treasuryBalance": "21000000000000000"
 }
