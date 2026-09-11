@@ -15,15 +15,27 @@ on:
   # runs can be dropped outright under load. Odd minutes are measurably less
   # contended. This does NOT make the cadence a guarantee; see §7.3.
   #
-  # Hourly, chosen 2026-09-04 as a budget decision rather than a detection one.
-  # A pass costs one billed minute and this repository is private, so twice an
-  # hour would be ~1,440 min/month against the same allowance that `test.yml`
-  # (4.4 min) and `frontend.yml` (2.4 min) draw on for every push. Halving it
-  # costs detection latency that the platform was never going to guarantee
-  # anyway — §7.3 is explicit that the 15-minute bar in Q4 is not met here, so
-  # paying double for a cadence that still misses it buys nothing.
+  # Was hourly, chosen 2026-09-04 as a budget decision rather than a detection
+  # one: a pass costs one billed minute, and against a PRIVATE repository's
+  # allowance twice an hour was ~1,440 min/month competing with `test.yml`
+  # (4.4 min per push) and `frontend.yml` (2.4 min).
+  #
+  # That constraint went away on 2026-09-11, when the repository was published.
+  # Actions minutes are free on public repositories, so the reason for hourly no
+  # longer exists and the cadence goes to every 15 minutes — which is what
+  # `alerts.json` says three of the state checks warrant, and four times more
+  # often than STATE-07 was being asked the one question that guards
+  # `SECURITY_AUDIT.md` §2.3.
+  #
+  # This still does not make the cadence a guarantee, and §7.3's verdict is
+  # unchanged: scheduled workflows are best-effort, delays of tens of minutes
+  # are routine, and the 15-minute bar in `INCIDENT_RESPONSE.md` §8 Q4 is NOT
+  # met by this host at any cron setting. What closes that is the pager, not the
+  # frequency. Minutes offset from the hour on purpose — `0 * * * *` is the
+  # busiest slot on the shared pool and odd minutes are measurably less
+  # contended.
   schedule:
-    - cron: '7 * * * *'
+    - cron: '7,22,37,52 * * * *'
 
   workflow_dispatch:
     inputs:
@@ -223,6 +235,17 @@ jobs:
           # telling them its credential lapsed.
           GITHUB_TOKEN: ${{ secrets.ALERT_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           WATCH_ISSUE_REPO: ${{ secrets.ALERT_REPO }}
+          # The push half of PM-E2. Unset, `report.mjs` files issues exactly as
+          # before and says on every pass that nobody is being woken, which is
+          # the state `ONCHAIN_MONITORING.md` §7.3 describes.
+          #
+          # Set, an unacknowledged P0 pages on EVERY pass until its issue is
+          # closed or labelled `acked` — so at this cron, every 15 minutes.
+          # That is deliberate and it is the thing that makes it a pager rather
+          # than a notification, but it also means a P0 nobody silences will
+          # keep arriving. Silencing it is one label.
+          PAGER_TELEGRAM_TOKEN: ${{ secrets.PAGER_TELEGRAM_TOKEN }}
+          PAGER_TELEGRAM_CHAT: ${{ secrets.PAGER_TELEGRAM_CHAT }}
           WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node monitoring/report.mjs "$RUNNER_TEMP/findings.jsonl"
 

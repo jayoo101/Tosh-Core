@@ -447,8 +447,8 @@ quiet is equally consistent with the check having broken.
 >
 > GitHub's scheduled workflows are explicitly best-effort. Delays of tens of
 > minutes are routine when the shared pool is busy, and runs are dropped
-> outright under load — the cron here is offset to `:07,:37` rather than the
-> hour for that reason, which reduces contention and guarantees nothing. So the
+> outright under load — the cron here is offset from the hour for that
+> reason, which reduces contention and guarantees nothing. So the
 > **15-minute detection criterion in `INCIDENT_RESPONSE.md` §8 Q4 is not met by
 > this host**, and Q4 must not be marked passed on the strength of it.
 >
@@ -459,26 +459,55 @@ quiet is equally consistent with the check having broken.
 > repository notifications on and reads them out of hours; a P0 filed at 03:00
 > into an inbox nobody watches has been detected and not reported.
 >
-> Closing that last gap needs a channel that pushes, which is the same missing
-> piece as the contact column in `INCIDENT_RESPONSE.md` §1. Until then the
-> honest claim is: **the protocol will notice, and will write it down.**
+> Closing that last gap needs a channel that pushes. `report.mjs` now has one,
+> built on 2026-09-11: with `PAGER_TELEGRAM_TOKEN` and `PAGER_TELEGRAM_CHAT`
+> set it pushes every paging finding into the Telegram channel
+> `INCIDENT_RESPONSE.md` §1 already names as the incident channel, so it
+> reaches the signers where they have agreed to be reached and costs nothing.
+>
+> **Two properties of it matter more than its existence.** An unacknowledged
+> P0 pages on EVERY pass, not once — a pager that fires into a sleeping phone
+> and then goes quiet has still detected and not reported, and nothing here
+> auto-closes, so a later pass knows the situation is unresolved.
+> Acknowledgement is the issue itself and needs no new state: close it, or add
+> the `acked` label. And the credentials are exercised on every pass via
+> `getMe`/`getChat`, because "the day the bot token was revoked" and "the day
+> of the first P0" are independent events and discovering the first during the
+> second is the entire failure mode. That lesson is second-hand: the private
+> issue sink shipped without it and had to be fixed the same day.
+>
+> **Until the two secrets are set this is inert**, and it says so on every
+> pass rather than looking configured. The honest claim while unset is
+> unchanged: **the protocol will notice, and will write it down.**
 
 **Cost, measured rather than assumed.** A 900k-block mainnet pass on
 2026-09-08 took 16.8 s wall-clock with the 250 ms floor (7 logs, 7
 findings, 0 WATCHER-02). The same-day `dry` CI dispatch (run 34200408580,
 `--since 150000`) is the verification that those seven logs, and zero
 WATCHER-02 entries, appear in the environment that had been blind. GitHub
-bills a whole minute per run, so cadence converts directly into spend:
-hourly ≈720 min/month, every 30 minutes ≈1,440, every 15 ≈2,880. This is
-a private repository, so those come out of the same allowance `test.yml`
-(4.4 min per push) and `frontend.yml` (2.4 min) draw on.
+bills a whole minute per run, so cadence used to convert directly into
+spend: hourly ≈720 min/month, every 30 minutes ≈1,440, every 15 ≈2,880,
+all against the same private-repository allowance that `test.yml`
+(4.4 min per push) and `frontend.yml` (2.4 min) drew on.
 
-**Hourly, at `:07`, decided 2026-09-04.** A budget decision, and cheap to make
-because the thing being given up was not real: the platform never guaranteed the
-15-minute bar at any cadence, so paying double for a schedule that still misses
-it buys latency on paper only. Raise it when detection latency is backed by
-something that can actually promise it — at which point the host itself is
-probably the thing to change.
+**That arithmetic stopped applying on 2026-09-11**, when the repository was
+published. Actions minutes are free on public repositories, so the budget
+that decided the cadence no longer exists.
+
+**Hourly, at `:07`, decided 2026-09-04. Every 15 minutes from 2026-09-11.**
+The original was a budget decision, and cheap to make because the thing being
+given up was not real: the platform never guaranteed the 15-minute bar at any
+cadence, so paying double for a schedule that still missed it bought latency on
+paper only.
+
+Publication removed the price rather than the argument, which is why the cadence
+moved and the verdict above did not. Free minutes make hourly a choice with
+nothing behind it, and four passes an hour is what `alerts.json` says three of
+the state checks warrant; STATE-07, which is the only automated check on the
+rule `SECURITY_AUDIT.md` §2.3 leans on, gets asked its question four times as
+often. None of that is a detection guarantee, and the 15-minute bar in
+`INCIDENT_RESPONSE.md` §8 Q4 is still not met by this host at any cron setting.
+What closes that is a channel that pushes, not a shorter interval.
 
 ---
 
@@ -518,20 +547,43 @@ probably the thing to change.
       rule existed. Observed history on 4663 therefore starts at 57,492,253;
       the following pass (run 34200284533) resumed there, scanned 25,382
       blocks, and exited 0. The skipped window will not be re-opened — §7.1.
-- [ ] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
+- [x] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce
       (PM-C8 / `SECURITY_AUDIT.md` §2.3). Listing a token before this is
       scheduled means running that window unobserved. The schedule now points
       at 4663; this box closes when the first `addLadderToken` lands and
       STATE-07 is observed to poll it, not from the re-point alone.
+      **Closed 2026-09-11.** The listing landed — `ladderTokenCount()` is 1 and
+      `ladderTokens(0)` is `0x88382f166D1F900E69cFc433a8F936D671246233` — and a
+      mainnet pass was then observed polling it. The evidence is a line that did
+      NOT appear: STATE-07 emits the gap `no ladder tokens listed, so there is
+      nothing to price-bound yet` whenever `count == 0`, and the pass printed
+      only the STATE-03/04 gaps, so the loop ran with `count == 1` and the read
+      came back non-zero. Worth stating in that shape, because a clean STATE-07
+      and a STATE-07 that never executed look identical in a finding count.
+      Note also that STATE-07 reads `ladderTokens(i)` off the treasury rather
+      than from the harvested hook set, so it is unaffected by a pass that
+      knows 0 hooks — which is most of them, since the set is rebuilt from
+      `LaunchCreated` inside the scanned window.
 - [ ] P0 routes to a pager that has been tested with a synthetic event.
-      **Deliberately still open.** Delivery exists and was tested with real
-      findings, but it delivers to GitHub Issues, and §7.3 sets out why that is
-      a monitor and not a pager: best-effort scheduling, silent disablement
-      after 60 idle days, and an issue nobody is notified of at 03:00. Marking
-      this done because something now arrives somewhere is precisely the
-      substitution this list exists to prevent.
+      **Still open, and now for a narrower reason than before.** Until
+      2026-09-11 delivery went only to GitHub Issues, and §7.3 sets out why
+      that is a monitor and not a pager: best-effort scheduling, silent
+      disablement after 60 idle days, and an issue nobody is notified of at
+      03:00. Marking it done because something arrived somewhere is precisely
+      the substitution this list exists to prevent.
+
+      The mechanism now exists — a Telegram push in `report.mjs`, repaging
+      unacknowledged P0s every pass, credentials exercised hourly (§7.3). It
+      was exercised against a synthetic GOV-01 in `--dry`, both with the
+      secrets absent and present, so the message that would be sent has been
+      read. **What is still missing is the half that cannot be written:** the
+      bot and chat do not exist until an operator creates them, and until the
+      two secrets are set `report.mjs` reports on every pass that findings
+      were written down and nobody was woken. This box closes when a synthetic
+      P0 has been pushed to a real chat and someone's phone has rung, not
+      when the code to do it merges.
 - [x] The 22 `mustNotPage` events confirmed not paging — the 900k-block sweep
       produced 17 findings of which 11 paged, and `report.mjs` filed exactly the
       11. The non-paging six reached the run summary and nothing else.
