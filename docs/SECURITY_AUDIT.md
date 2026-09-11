@@ -4994,8 +4994,11 @@ value in verifying it is the audit trail: `deployImplementation` is what
 burned `platformTreasury` into the hook implementation's
 `platformFeeRecipient`, which is immutable, has no setter, and takes
 0.30 % of the ETH input of every buy on every pool forever. A reader
-tracing where that value came from ends up at this library, and today
-finds unnamed bytecode. Hence PM-C4 is 🟡 rather than ✅.
+tracing where that value came from ends up at this library, and until
+2026-09-11 found unnamed bytecode. That was the whole of PM-C4's
+remaining 🟡. The library verified that day at 02:23:12Z as a full
+match — `is_fully_verified` true, `is_partially_verified` false — so
+the trail now terminates in named source, and the row is ✅.
 
 A corroborating detail worth keeping: the library's page shows **4
 internal transactions** and 0 external ones. Two `DELEGATECALL`s per
@@ -5270,8 +5273,9 @@ into an unrelated commit.
 **Still open after this sweep:** the two-phase walkthrough, now correctly gated
 on the first real launch rather than listed as a standalone errand — it is a
 step inside that launch, which also first exercises `createLaunch`, the genesis
-panel, and `deposit`. And `HookDeployLib` `0x873E0841…` remains unverified on
-Blockscout by decision, with inputs prepared.
+panel, and `deposit`. `HookDeployLib` `0x873E0841…` was still unverified at the
+close of this sweep, with inputs prepared; it verified 2026-09-11 as an exact
+match, closing PM-C4.
 
 ---
 

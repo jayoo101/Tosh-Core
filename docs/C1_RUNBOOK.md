@@ -252,21 +252,29 @@ git 历史里已经把漏掉 `set -a` 这件事称为"它里面第二条错的�
    原本的那道;而后来变成第二道的、泄露的签名者密钥已在 2026-09-09 轮换
    (`SECURITY_AUDIT.md` §5.32)。下面第 6 条早就记下了那次轮换,而这一条没有,
    于是这份清单自相矛盾了两天。仍然未做,但技术上没有任何东西在拦它。
-3. **PM-C4 —— 浏览器验证。三个里已完成两个,2026-09-09,而且第 5 步的
-   `--verify` 一个都没做成** —— 两个都是手工验证的。工厂在 23:18:07、阶梯金库在
-   23:26:10,各自显示 "Contract source code verified (exact match)",
-   `v0.8.26+commit.8a97fa7a`,cancun,优化器开启 / 200 轮。
+3. **PM-C4 —— 浏览器验证。三个全部完成,而且第 5 步的 `--verify` 一个都没做成**
+   —— 三个都是手工验证的。工厂在 2026-09-09 23:18:07、阶梯金库在 23:26:10,
+   各自显示 "Contract source code verified (exact match)";`HookDeployLib`
+   `0x873E0841…` 在 2026-09-11 02:23:12Z,`is_fully_verified` 为真、
+   `is_partially_verified` 为假,即完全匹配而非剥掉 metadata 的部分匹配。
+   三者都是 `v0.8.26+commit.8a97fa7a`,cancun,优化器开启 / 200 轮,`viaIR` 开启。
 
-   尚未完成的是 `HookDeployLib`,地址 `0x873E0841…`,这是第三个主网合约,
-   之前任何一次清点都不知道它的存在。`node scripts/genVerifyInput.mjs` 会写出
-   它的 standard-JSON 输入;这个文件必须通过浏览器上传,因为 Cloudflare 对那个
-   浏览器上 `/api` 的每一条路径都回 403 拦截页,而 forge 把它报成反序列化错误。
-   构造函数参数一栏留空。完整细节在 `PRE_MAINNET_CHECKLIST.md` 的 PM-C4。
+   `HookDeployLib` 拖到最后只是因为它此前不可见:它是第三个主网合约,而之前
+   任何一次清点都不知道它的存在。`node scripts/genVerifyInput.mjs` 会写出它的
+   standard-JSON 输入;这个文件必须通过浏览器上传,因为 Cloudflare 对那个浏览器
+   上 `/api` 的每一条路径都回 403 拦截页,而 forge 把它报成反序列化错误。构造
+   函数参数一栏留空——表单在选了 standard-JSON 之后根本不会显示这一栏,因为
+   优化器、`viaIR`、EVM 版本这些设置都写在 JSON 文件内部,表单上只需要选
+   license 和编译器版本。完整细节在 `PRE_MAINNET_CHECKLIST.md` 的 PM-C4。
 
-   在把这一行当作任何事情的前置条件之前,有一件事要知道:**Safe 不读
+   部署三天之后仍然能打出完全匹配,这件事本身就是可复现性的证据:它成立的
+   前提是 `src/`、`foundry.toml` 和 `lib/` 的指针跟部署提交 `d0220e2` 逐字节
+   一致。
+
+   这一行现在已经关闭,但不要把它当成解决了别的问题:**Safe 不读
    Blockscout。** 工厂在 2026-09-09 傍晚就验证了,而 Safe 界面在第二天晚上仍然
-   显示 "Unverified contract",所以做完这一行**并不能**解决选择器错误那个隐患,
-   不应该按能解决来排期。
+   显示 "Unverified contract",所以做完这一行**并不能**解决选择器错误那个隐患。
+   在 Safe 里签任何一笔交易,仍然要自己核对 calldata 的前四个字节。
 4. **PM-C6 —— 已完成,2026-09-08,并于 2026-09-11 在区块 59,605,031 重新测量。**
    `RecomputeInitcodeHash.s.sol` 对着活的工厂重跑了一次,这次是在首次主网发射
    *之后*:链上的

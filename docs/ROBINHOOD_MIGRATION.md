@@ -9,8 +9,8 @@ Safe. RH-F4 / PM-C6 closed 2026-09-08 and was re-measured 2026-09-11 at block
 59,605,031, after the first mainnet launch had run through the factory: the
 on-chain `HOOK_CREATION_CODEHASH` still equals
 `keccak256(type(ToshLaunchpadHook).creationCode)` of this tree. What is left of
-RH-F3 is Blockscout verification, and two of the three deployed contracts now
-have it — `HookDeployLib` is the outstanding one (PM-C4). This file is
+RH-F3 was Blockscout verification, and all three deployed contracts now have
+it: `HookDeployLib` verified 2026-09-11 as an exact match, closing PM-C4. This file is
 the plan and the evidence behind the chain migration; `PRE_MAINNET_CHECKLIST.md`
 remains the authority for everything that is not chain-specific.
 **Target:** Robinhood Chain testnet **46630** first, mainnet **4663** after.
@@ -408,7 +408,7 @@ gate.
 | **RH-F0b** | Contracts deployed and Blockscout-verified on 46630 | 🔁 was ✅ §F.2 — **superseded**, see below |
 | **RH-F1** | Full rehearsal on testnet 46630: create → genesis → launch → mint → buyback | ✅ re-run end to end on the redeployed contracts, §F.8. Buyback alone stays fork-grade, and not for want of trying — see §F.4 note 2 |
 | **RH-F2** | Lockout behaviour observed live under real 100 ms blocks | ✅ re-confirmed on the redeploy: `lastSwapBlock` = 112,342,060, which is both an L2 height and exactly the block `launch()` mined in. Re-armed to 112,348,233 by the phase 3 swap. §F.8 |
-| **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | ✅ deploy half 2026-09-08: factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json`. Blockscout verification is PM-C4, not confirmed from this sitting |
+| **RH-F3** | Mainnet 4663 deploy, Blockscout-verified | ✅ deploy half 2026-09-08: factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json`. Verification half closed 2026-09-11: all three contracts are exact matches on Blockscout — the two named above on 2026-09-09, and the library `HookDeployLib` `0x873E0841…` at 02:23:12Z, which no count of this deploy had included because `forge script` places libraries through the CREATE2 proxy rather than as a `CREATE` entry. See PM-C4 |
 | **RH-F4** | `RecomputeInitcodeHash` run; `FACTORY_ADDRESS`, `LIVE_INITCODE_HASH`, `DEPLOY_BLOCK` backfilled | ✅ all four filled. `FACTORY_ADDRESS` and `DEPLOY_BLOCK=57400516` on deploy day; `HOOK_CREATION_CODEHASH=0xc43a20c9…41b4d139` and `LIVE_INITCODE_HASH=0x3a706af1…bd0e91ef` since. **Re-measured 2026-09-11 at block 59,605,031** — the script was run again against the live factory *after* the first mainnet launch, and the on-chain fingerprint still equals this tree's `keccak256(type(ToshLaunchpadHook).creationCode)`. The script reverts `HookCreationCodehashMismatch` if it does not, so a clean exit is the assertion. The same run read the live dials back: launch fee 0.01 ETH, default soft cap 10 ETH (restored after the launch), per-wallet cap 0.1 ETH, PoG signer `0x9A1a8C7b…`, platform treasury = the owner Safe |
 
 **RH-F0b and RH-F1 were reset on 2026-09-03**, and the first version of this

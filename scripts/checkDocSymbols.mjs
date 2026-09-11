@@ -166,6 +166,25 @@ const ALLOW = new Map([
   // without naming the function whose dispatch context is the whole point.
   ['ExecutionSuccess', 'the Gnosis Safe execution log — emitted by the Safe, not by anything here'],
   ['multiSend', 'the MultiSendCallOnly entrypoint this project delegatecalls into — consumed, not contained'],
+  // Three fields on a Blockscout API response, same category as the Safe names
+  // above: they are keys in someone else's JSON, not symbols in this tree.
+  //
+  // They are named because PM-C4 closed on a distinction that is invisible
+  // without them. "Verified" on an explorer covers two different outcomes — a
+  // full match and a metadata-stripped partial one — and only the full match is
+  // evidence that this tree reproduces the deployed bytecode. Recording that
+  // `HookDeployLib` came back `is_fully_verified` true and
+  // `is_partially_verified` false says which one happened; writing "verified"
+  // would not. `is_changed_bytecode` is the third leg: it would be true if the
+  // address had been redeployed under the verified source.
+  //
+  // The ALLOW cost here is the usual one and it is nil in the direction that
+  // matters: the name is skipped before the search runs, so this guard would not
+  // notice one arriving in `src/`, but our tree gaining an `is_fully_verified`
+  // would not falsify a claim about what Blockscout returned.
+  ['is_fully_verified', 'a Blockscout API field — PM-C4 names it to distinguish a full match from a partial one'],
+  ['is_partially_verified', 'the other half of that distinction, same response, same reason'],
+  ['is_changed_bytecode', 'a Blockscout API field — true would mean the address was redeployed under the verified source'],
   // A dossier that records a stale-name finding has to be able to print the
   // stale name. Both appear in §5.12 for exactly that reason. Note what an ALLOW
   // entry costs: the name is skipped BEFORE the search runs, so this guard would
