@@ -51,6 +51,7 @@ import {
 import type { ProjectPayload } from '../api/projects/route'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
+import { LogoField } from '@/components/LogoField'
 import {
   Badge, Card, CardWell, Field, PageHeader,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
@@ -161,6 +162,12 @@ export default function GenesisConsole() {
   const [description, setDescription] = useState('')
   const [genesisDuration, setGenesisDuration] = useState<bigint>(GENESIS_DURATION_STANDARD)
   const [logoUrl, setLogoUrl] = useState('')
+  /**
+   * True while `POST /api/projects/logo` is in flight. `logoUrl` is inside the
+   * attestation, so a deploy that snapshots mid-upload would list the token
+   * without the picture the creator just chose.
+   */
+  const [logoUploading, setLogoUploading] = useState(false)
   const [website, setWebsite] = useState('')
   const [twitter, setTwitter] = useState('')
   const [telegram, setTelegram] = useState('')
@@ -650,6 +657,13 @@ export default function GenesisConsole() {
         tone: 'neutral',
       },
       {
+        id: 'logo-uploading',
+        active: logoUploading,
+        label: 'Uploading logo…',
+        reason: 'The picture has to finish landing before you sign: its URL is inside the directory attestation, and a snapshot taken now would list the token without it.',
+        tone: 'info',
+      },
+      {
         id: 'dials-unread',
         active: !dialsReady && !dialsFailed,
         label: 'Reading the terms…',
@@ -745,9 +759,16 @@ export default function GenesisConsole() {
                 </p>
               )}
 
+              <LogoField
+                value={logoUrl}
+                onValueChange={setLogoUrl}
+                onBusyChange={setLogoUploading}
+                name={name || symbol}
+              />
+
               <details className="group">
                 <summary className="cursor-pointer list-none font-mono text-label text-text-tertiary hover:text-text-secondary">
-                  Optional manifesto, links, artwork
+                  Optional manifesto and links
                   <span className="ml-2 text-text-quiet group-open:hidden">+</span>
                   <span className="ml-2 hidden text-text-quiet group-open:inline">−</span>
                 </summary>
@@ -760,7 +781,6 @@ export default function GenesisConsole() {
                     onValueChange={setDescription}
                     placeholder="Utility, economic model, roadmap."
                   />
-                  <Field label="Image URL" value={logoUrl} onValueChange={setLogoUrl} placeholder="https://…/logo.png" />
                   <Field label="Website" value={website} onValueChange={setWebsite} placeholder="https://…" />
                   <Field label="Twitter / X" value={twitter} onValueChange={setTwitter} placeholder="@handle" />
                   <Field label="Telegram / Discord" value={telegram} onValueChange={setTelegram} placeholder="t.me/…" />
