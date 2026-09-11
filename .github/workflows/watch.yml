@@ -210,6 +210,17 @@ jobs:
           #
           # Both unset, this is byte-for-byte the old behaviour: the built-in
           # token, this repository. Forks and local `--dry` need no setup.
+          #
+          # ALERT_REPO_TOKEN is a fine-grained PAT on jayoo101/tosh-alerts with
+          # Issues: read and write and Metadata: read — exactly the five calls
+          # report.mjs makes and nothing else. Issued 2026-09-11 for 90 days, so
+          # it EXPIRES 2026-12-10. On that day this job goes red with
+          # `delivery failed: GET /repos/… → 401` and stops persisting the
+          # checkpoint, which is the designed behaviour and not a bug to
+          # investigate: rotate the token and the pass that follows rescans the
+          # window it skipped. The date is written here because the alternative
+          # is someone debugging the alerting path on the one day it is only
+          # telling them its credential lapsed.
           GITHUB_TOKEN: ${{ secrets.ALERT_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           WATCH_ISSUE_REPO: ${{ secrets.ALERT_REPO }}
           WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
