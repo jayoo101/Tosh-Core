@@ -41,7 +41,6 @@ ToshV5AttackTest:test_probeD_platformCutFloorsToZeroBelowThreeThirtyFour() (gas:
 ToshV5AttackTest:test_probeE_mintRoundingEdge() (gas: 1324723)
 ToshV5AttackTest:test_probeF_spotCrashFreezesLadder() (gas: 1754180)
 ToshV5AttackTest:test_probeG2_bandEdgeSitsWhereTheConstantSaysItDoes() (gas: 2122676)
-ToshV5AttackTest:test_probeG3_immatureTwapLeavesTheBuybackUnbounded() (gas: 2233041)
 ToshV5AttackTest:test_probeG_sandwichThePiggyback() (gas: 2228753)
 ToshV5AttackTest:test_probeH_hooklessParallelPool() (gas: 1430410)
 ToshV5AttackTest:test_probeI_strandedGenesisTokens() (gas: 1274003)

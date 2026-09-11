@@ -1474,10 +1474,15 @@ slither . --filter-paths "lib/|test/|script/" --json slither.json
 node scripts/slitherTriage.mjs --full
 ```
 
-66 contracts, 102 detectors, **71 findings**. The JSON is ~8.6 MB and gitignored;
-regenerate it with the command above. `scripts/slitherTriage.mjs` groups a run
-by impact and detector, which is the form worth re-reading: on a later run the
-signal is a count that moved, not the seventeenth `timestamp` note.
+66 contracts, 102 detectors, **72 findings** — 1 high / 24 medium / 27 low /
+20 informational. Those are the CURRENT numbers, and they live here rather than
+in the newest re-run note below because `checkSlitherFindings.mjs` reads the
+first total and the first split it finds in this section. The dated notes below
+are a history and must keep the numbers they were written with; this line is
+the one that moves. The JSON is ~8.6 MB and gitignored; regenerate it with the
+command above. `scripts/slitherTriage.mjs` groups a run by impact and detector,
+which is the form worth re-reading: on a later run the signal is a count that
+moved, not the seventeenth `timestamp` note.
 
 **Re-run 2026-08-27**, after `PIGGYBACK_MIN_GAS` changed and `_nextSpendAmount`
 became `virtual` (`ROBINHOOD_MIGRATION.md` §F.7). Identical to the run before
@@ -1508,6 +1513,30 @@ some row naming it. Slither is pinned to 0.11.6 there and here, because
 detector counts move between releases and a baseline against an unstated
 version means nothing.
 
+**Re-run 2026-09-11, and it moved for the opposite reason.** 72 findings, 20 of
+them informational — one more than 2026-09-04, and this time the guard above is
+what noticed, on the push that caused it rather than weeks later. The new
+finding is `cyclomatic-complexity` on `ToshLadderTreasury.addLadderToken`, and
+it is the direct cost of closing §2.3: the TWAP gate added there is a
+`try/catch` around `twapSqrtPriceX96()` with a zero check inside, which takes
+the function to ten `revert` sites across nine `if`s and one `try/catch` and
+carries it over Slither's threshold.
+
+**Dispositioned: accepted, and the trade is the point.** The only thing this
+finding can be acted on by is splitting the function, and splitting a listing
+precondition away from the listing is how a precondition stops being checked.
+The body is nothing but preconditions — a flat sequence of guards, each with
+its own error, in an order that is load bearing rather than tidy: the
+`launched()` check has to precede the TWAP check, because an unlaunched hook
+does not report 0, it reports `2**96` from the "flat for a full window" branch
+and would walk straight through. Cyclomatic complexity is the wrong axis to
+optimise on a function whose entire job is to refuse.
+
+Worth separating from every other row in the table below. Those are findings
+that were already there, being looked at. This one is a finding this repository
+created deliberately, on the same day, with the argument in the commit that
+created it and in `addLadderToken`'s natspec.
+
 **Nothing here changed the code.** That is a claim worth being suspicious of,
 so the findings that could plausibly have been real are written up with the
 verification, and the reason the reentrancy cluster is structurally invisible
@@ -1527,7 +1556,7 @@ to Slither is stated rather than assumed.
 | `assembly` | Info | 9 | Expected — transient-storage mutex, hook-address bit checks, clone initcode. |
 | `missing-inheritance` | Info | 3 | Accepted — the three interfaces are consumed cross-contract; declaring inheritance adds a vtable for nothing. |
 | `low-level-calls` | Info | 2 | Accepted — the two identical `_sendEth` helpers. Deliberate, and the alternative is worse. Below. |
-| `naming-convention`, `too-many-digits`, `cyclomatic-complexity` | Info | 5 | Style. `_PIGGYBACK_SLOT`'s literal is a namespaced transient slot, meant to be unreadable as a number. |
+| `naming-convention`, `too-many-digits`, `cyclomatic-complexity` | Info | 6 | Style. `_PIGGYBACK_SLOT`'s literal is a namespaced transient slot, meant to be unreadable as a number. The second `cyclomatic-complexity` is `addLadderToken`, new on 2026-09-11 and the cost of closing §2.3; accepted above rather than here, because it is the only row in this table the repository created on purpose. |
 
 **`weak-prng` (High) is the detector firing on a `%` inside a condition.**
 
@@ -5049,7 +5078,7 @@ honest, or reachable.
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
 >
-> Static analysis is not here either: Slither's 71 findings are triaged in
+> Static analysis is not here either: Slither's 72 findings are triaged in
 > **§5.7**.
 
 **External findings to date: none, and none expected.** Previously this line
