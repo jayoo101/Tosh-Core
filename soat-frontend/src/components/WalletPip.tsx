@@ -32,7 +32,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
     // navbar on a 390px phone once the nav links stopped hiding themselves.
     ? `px-3 py-1.5 rounded-input border border-brand/40 text-brand text-note font-bold
        uppercase tracking-wider whitespace-nowrap hover:bg-brand hover:text-bg-base
-       transition-all shadow-[0_0_8px_rgba(0,255,163,0.15)] sm:px-4`
+       transition-all shadow-[0_0_8px_var(--tosh-brand-glow-soft)] sm:px-4`
     : `inline-flex items-center gap-1.5 px-3 py-1.5 border border-border-subtle text-text-tertiary
        font-mono text-label tracking-[0.32em] uppercase hover:border-brand
        hover:text-brand transition-colors`
@@ -59,7 +59,20 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
           disabled={isPending}
           className={`${connectCls} disabled:opacity-40 disabled:cursor-not-allowed`}
         >
-          {isPending ? 'CONNECTING…' : 'CONNECT WALLET'}
+          {/* The label sheds its second word on a phone, because the navbar
+              does not fit at 390px: measured there, the bar needs 424px of the
+              358px it has, and this button is 152px of it. Two spans rather
+              than an `aria-label`, so the accessible name is always the text
+              actually on screen - a voice-control user saying "click connect
+              wallet" on a phone would otherwise be naming something invisible.
+              `whitespace-nowrap` above is what stopped this wrapping to two
+              lines; it could not stop it colliding with the nav links. */}
+          {isPending ? 'CONNECTING…' : (
+            <>
+              <span className="sm:hidden">CONNECT</span>
+              <span className="hidden sm:inline">CONNECT WALLET</span>
+            </>
+          )}
         </button>
       ) : (
         <>

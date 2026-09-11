@@ -27,19 +27,31 @@
  * layer is now `--color-surface-card`, `--color-text-secondary`,
  * `--color-danger`: named for the decision, not the pigment.
  *
- * BRAND IS NOT SUCCESS. The old palette had one green doing both jobs, so an
- * armed "Deposit" button and a met soft cap were the same pixel value and the
- * eye could not tell an invitation from a confirmation. They are now two
- * greens: `--color-brand` is the loudest thing on the page and is reserved for
- * the one action the user can take, while `--color-success` is a slightly
- * deeper, calmer green that reports state.
+ * BRAND IS NOT SUCCESS, AND IT IS NOW A DIFFERENT HUE RATHER THAN A SHADE.
+ * The original palette had one green doing both jobs, so an armed "Deposit"
+ * button and a met soft cap were the same pixel value and the eye could not
+ * tell an invitation from a confirmation. Splitting them into two greens fixed
+ * the collision on paper and left it in practice: `#00FFA3` against `#00E58F`
+ * is a distinction a designer can name and a user cannot see, least of all in
+ * peripheral vision, which is exactly where a status pip is read.
  *
- * IDENTITY (kept deliberately)
- *   #000000  true-black canvas, OLED-correct and the protocol's signature
- *   #00FFA3  brand mint
- *   #1F1F2E  hairline. UNCHANGED, so migrating `border-[#1F1F2E]` to
- *            `border-border-subtle` is pixel-identical and reviewable.
- *   JetBrains Mono for numbers / addresses / labels, Geist for prose
+ * The v0 redesign settles it on the axis that actually carries: `--color-brand`
+ * is magenta and `--color-success` is green. An invitation and a confirmation
+ * can no longer be confused at any size, and the rule the comment above always
+ * asserted is now enforced by the pigment instead of by discipline.
+ *
+ * IDENTITY (revised 2026-09-11, with what was given up stated)
+ *   #0B0811  canvas. NOT true black any more, and that is the one piece of
+ *            identity this change spends: the old #000000 was OLED-correct and
+ *            the protocol's signature. Every surface above it is tinted toward
+ *            the same violet, so a true-black canvas under violet-grey cards
+ *            read as a bug rather than as a signature.
+ *   #F946A7  brand magenta, replacing #00FFA3 mint.
+ *   #2D2534  hairline, replacing #1F1F2E. Same job, same 1px, violet-tinted to
+ *            sit on the new canvas.
+ *   JetBrains Mono for numbers / addresses / labels, Geist for prose. UNCHANGED
+ *            - the redesign specifies the same two families this file already
+ *            loaded, so no call site and no font payload moved.
  *
  * -----------------------------------------------------------------------------
  * TOKEN CONTRACT
@@ -72,54 +84,89 @@
  * ========================================================================== */
 
 :root {
-  --background: #000000;
-  --foreground: #FFFFFF;
+  --background: #0B0811;
+  --foreground: #F8F3F8;
 
   /* -- Surfaces. A five-step depth ladder, each rung visibly distinct from its
    *    neighbour. `hover` is a rung and not an opacity trick, because a hovered
-   *    row inside a card must not blend with the card it sits on. ----------- */
-  --tosh-bg-base:          #000000;  /* page canvas */
-  --tosh-bg-subtle:        #05050A;  /* inset well, table stripe, code block */
-  --tosh-surface-card:     #0A0A10;  /* the card */
-  --tosh-surface-elevated: #12121A;  /* modal, drawer, popover, card header */
-  --tosh-surface-hover:    #1A1A24;  /* hover on an interactive row */
+   *    row inside a card must not blend with the card it sits on.
+   *
+   *    Two of these five are interpolated rather than taken from the redesign,
+   *    and deliberately. It specifies four surfaces (background, card, popover,
+   *    secondary) and its `popover` sits 2 points off its `card` - close enough
+   *    that a card header would not separate from the card. `bg-subtle` and
+   *    `elevated` are therefore spaced to keep five visible rungs, which is
+   *    what the ~40 components built against this ladder already assume. ---- */
+  --tosh-bg-base:          #0B0811;  /* page canvas */
+  --tosh-bg-subtle:        #0F0B16;  /* inset well, table stripe, code block */
+  --tosh-surface-card:     #14101B;  /* the card */
+  --tosh-surface-elevated: #1A1524;  /* modal, drawer, popover, card header */
+  --tosh-surface-hover:    #211C29;  /* hover on an interactive row */
 
   /* -- Borders. Width is not a scale in this system: it is 1px, always. The
    *    step is the colour. ------------------------------------------------- */
-  --tosh-border-subtle: #1F1F2E;                /* default divider */
-  --tosh-border-strong: #2E2E42;                /* hover, active, emphasis */
-  --tosh-border-accent: rgb(0 255 163 / 0.38);  /* armed input, live card */
+  --tosh-border-subtle: #2D2534;                /* default divider */
+  --tosh-border-strong: #3D3347;                /* hover, active, emphasis */
+  --tosh-border-accent: rgb(249 70 167 / 0.38); /* armed input, live card */
 
-  /* -- Brand. `hover` is BRIGHTER, not darker: on a black page a darkening
+  /* -- Brand. `hover` is BRIGHTER, not darker: on a dark page a darkening
    *    hover reads as disabled. -------------------------------------------- */
-  --tosh-brand:       #00FFA3;
-  --tosh-brand-hover: #5BFFC4;
-  --tosh-brand-muted: #00CC82;
-  --tosh-brand-glow:  rgb(0 255 163 / 0.45);
+  --tosh-brand:       #F946A7;
+  --tosh-brand-hover: #FF7BC2;
+  --tosh-brand-muted: #C62F82;
+  --tosh-brand-glow:  rgb(249 70 167 / 0.45);
+
+  /* -- Glows for `shadow-[...]` arbitrary values, which are the one place the
+   *    token layer does not reach: a colour inside an arbitrary shadow is not
+   *    a colour class, so `checkTokens.mjs` cannot see it and the v0 recolour
+   *    left three mint and emerald glows sitting on a magenta page. These
+   *    exist so those call sites reference a value instead of restating one.
+   *
+   *    `glow-soft` is NOT `glow` at a lower opacity for tidiness. The 0.45
+   *    glow is the armed-CTA signal; the wallet pip carries an ambient one at
+   *    0.15, and collapsing the two would make a connect button glow as loudly
+   *    as the single action the page is asking for. ------------------------ */
+  --tosh-brand-glow-soft: rgb(249 70 167 / 0.15);
+  --tosh-success-glow:    rgb(0 195 123 / 0.5);
+
+  /* -- The far stop of the hero headline's gradient, and nothing else.
+   *
+   *    It is NOT `--tosh-admin`, which is the same violet family and would
+   *    have saved a token. `admin` is owner-only chrome everywhere in this app,
+   *    and `TrustPipeline` already carries a written-out argument against
+   *    borrowing it to tint decoration - doing that is what teaches the eye
+   *    that the hue means nothing in particular, at which point it cannot mean
+   *    "you are in the operator console" either. A decorative violet that is
+   *    declared as decorative costs one line and keeps that argument true. -- */
+  --tosh-brand-violet: #9D5BF4;
 
   /* -- Type. Four rungs. `quiet` exists because a fourth, dimmer step is
    *    genuinely needed (raw hashes, wei strings, inert hints); without it
    *    those all round up to `tertiary` and flatten the hierarchy the other
    *    three establish. ---------------------------------------------------- */
-  --tosh-text-primary:   #FFFFFF;
-  --tosh-text-secondary: #A0A0AE;
-  --tosh-text-tertiary:  #6B6B7B;
-  --tosh-text-quiet:     #4A4A58;
+  --tosh-text-primary:   #F8F3F8;
+  --tosh-text-secondary: #9F93A6;
+  --tosh-text-tertiary:  #6E6478;
+  --tosh-text-quiet:     #4C4455;
 
   /* -- Status. One base per tone; every tint, border and hover is an opacity
-   *    modifier off it (`bg-danger/10`, `border-warning/30`). -------------- */
-  --tosh-success: #00E58F;  /* soft cap met, pool open, tx acknowledged */
-  --tosh-warning: #FFB400;  /* cooldown, price gate, deadline approaching */
-  --tosh-danger:  #FF3355;  /* revert, halt, refund, blacklist */
-  --tosh-info:    #22D3EE;  /* phase-2 ladder, neutral explanation */
-  --tosh-admin:   #A855F7;  /* owner-only chrome */
+   *    modifier off it (`bg-danger/10`, `border-warning/30`).
+   *
+   *    `success` stays green now that brand does not. It is the only token in
+   *    this block that was previously in danger of being read as the CTA, and
+   *    the ambiguity is gone by hue - see the header. ---------------------- */
+  --tosh-success: #00C37B;  /* soft cap met, pool open, tx acknowledged */
+  --tosh-warning: #EBAA2D;  /* cooldown, price gate, deadline approaching */
+  --tosh-danger:  #ED3151;  /* revert, halt, refund, blacklist */
+  --tosh-info:    #42A3FD;  /* phase-2 ladder, neutral explanation */
+  --tosh-admin:   #9D5BF4;  /* owner-only chrome */
 
   /* Dim companions: gradient stops and two-stop bars, never text */
-  --tosh-success-dim: #00A868;
-  --tosh-warning-dim: #B27F00;
-  --tosh-danger-dim:  #BB2640;
-  --tosh-info-dim:    #0E7490;
-  --tosh-admin-dim:   #6B21A8;
+  --tosh-success-dim: #008453;
+  --tosh-warning-dim: #A5761C;
+  --tosh-danger-dim:  #A82238;
+  --tosh-info-dim:    #1F6FB8;
+  --tosh-admin-dim:   #6B36B0;
 
   /* -- Type sizes and tracking, for the four steps that have a MOBILE step.
    *
@@ -172,10 +219,11 @@
   --color-border-strong: var(--tosh-border-strong);
   --color-border-accent: var(--tosh-border-accent);
 
-  --color-brand:       var(--tosh-brand);
-  --color-brand-hover: var(--tosh-brand-hover);
-  --color-brand-muted: var(--tosh-brand-muted);
-  --color-brand-glow:  var(--tosh-brand-glow);
+  --color-brand:        var(--tosh-brand);
+  --color-brand-hover:  var(--tosh-brand-hover);
+  --color-brand-muted:  var(--tosh-brand-muted);
+  --color-brand-glow:   var(--tosh-brand-glow);
+  --color-brand-violet: var(--tosh-brand-violet);
 
   --color-text-primary:   var(--tosh-text-primary);
   --color-text-secondary: var(--tosh-text-secondary);
@@ -220,6 +268,23 @@
    * the scale look tidier. A scale is supposed to describe the design, not
    * argue with it.
    */
+  /* The landing headline at desktop width, and the only step above `hero`.
+   *
+   * A literal rather than a `var()`, for the reason the other large steps are:
+   * it is never applied below `lg:`, so there is no mobile arm to override and
+   * nothing for the media query at the bottom of this file to reach. The hero
+   * carries `text-hero lg:text-display`, which is why `hero` is still the step
+   * a phone renders.
+   *
+   * Paired with `font-mono` at its one call site, per the v0 redesign. That is
+   * a step's business to know: at 52px, mono's wider advance is what the
+   * -0.03em tracking below is calibrated against, and the same tracking on
+   * Geist at this size closes the counters up. */
+  --text-display: 3.25rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.03em;
+  --text-display--font-weight: 700;
+
   --text-hero: 2.5rem;
   --text-hero--line-height: 1.06;
   --text-hero--letter-spacing: -0.03em;
@@ -284,7 +349,7 @@
   --shadow-panel:   inset 0 1px 0 0 rgb(255 255 255 / 0.04), 0 1px 2px 0 rgb(0 0 0 / 0.6);
   --shadow-lift:    inset 0 1px 0 0 rgb(255 255 255 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.8);
   --shadow-overlay: 0 24px 64px -12px rgb(0 0 0 / 0.9);
-  --shadow-armed:   0 0 0 1px rgb(0 255 163 / 0.35), 0 0 24px -6px rgb(0 255 163 / 0.45);
+  --shadow-armed:   0 0 0 1px rgb(249 70 167 / 0.35), 0 0 24px -6px rgb(249 70 167 / 0.45);
 
   /* -- Motion ----------------------------------------------------------- */
   --ease-out-quick: var(--tosh-ease-out);
@@ -296,7 +361,6 @@
   --animate-shimmer: tosh-shimmer 2s ease-in-out infinite;
   --animate-led:     tosh-led-breathe 2.4s ease-in-out infinite;
   --animate-marquee: tosh-marquee 30s linear infinite;
-  --animate-cable:   tosh-cable-flow 3s linear infinite;
 }
 
 /* =============================================================================
@@ -422,6 +486,22 @@ select:focus {
  * `<button>` is already `inline-block`, so it takes `min-height` directly and
  * is left alone otherwise.
  *
+ * ...AND WHY THAT ONE `display` NOW SITS IN `@layer base`.
+ * It did not, and `:where()` was doing nothing to make that safe. Cascade
+ * layers outrank specificity: an UNLAYERED declaration beats every layered
+ * one no matter how weak its selector, and Tailwind's utilities are all in
+ * `@layer utilities`. So this rule silently defeated `hidden` on any link in
+ * nav, header or footer — `display: none` lost to `display: inline-flex`, and
+ * because a flex child blockifies `inline-flex` the element reported
+ * `display: flex` and rendered, which is not a value either stylesheet asked
+ * for. Found when a `hidden sm:inline-flex` nav link appeared at 390px.
+ *
+ * The split is the fix and it is not cosmetic. `display` belongs in `base`,
+ * where a utility is meant to beat it: deciding whether a control is on screen
+ * at this width is exactly a call site's business. `min-height` stays
+ * UNLAYERED, because that is the floor no call site may lower, which is the
+ * whole reason this block exists instead of ~40 edits.
+ *
  * Links inside prose are deliberately NOT matched. Giving a sentence's inline
  * link a 44 px box would open a gap in the paragraph it sits in, so the
  * selector is scoped to the three landmarks whose links are all controls.
@@ -436,9 +516,16 @@ select:focus {
     min-height: 44px;
   }
 
+  /* Layered, so `hidden` / `md:hidden` / `items-start` at a call site win. */
+  @layer base {
+    :where(header, nav, footer) a {
+      display: inline-flex;
+      align-items: center;
+    }
+  }
+
+  /* Unlayered, so nothing wins. A control that is on screen is 44px tall. */
   :where(header, nav, footer) a {
-    display: inline-flex;
-    align-items: center;
     min-height: 44px;
   }
 
@@ -487,6 +574,20 @@ select:focus {
   isolation: isolate;
 }
 
+/** The ambient page texture.
+ *
+ * THE GRID LINES GOT FAINTER WHEN THE CANVAS GOT LIGHTER, and that is a
+ * correction rather than a preference. They were `0.018` white over `#000000`.
+ * The v0 canvas is `#0B0811`, so the same lines now sit on a surface that is
+ * already ~4% lit: the ratio between line and canvas collapsed and what read
+ * as texture on true black read as graph paper on violet. `0.01` restores
+ * roughly the contrast the value was chosen for.
+ *
+ * The third radial is new and is the one piece of the redesign's background
+ * that is not a colour swap: it carries a violet bloom behind the hero, which
+ * is what stops the top of the page from being flat now that there is no grid
+ * to fill it. Placed at `38% 0` rather than centred, so it sits behind the
+ * headline and not behind the feed panel, whose own surface would hide it. */
 .terminal-grid-bg::before {
   content: "";
   position: fixed;
@@ -494,11 +595,12 @@ select:focus {
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(circle at 0 0, rgb(255 255 255 / 0.025), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgb(0 255 163 / 0.035), transparent 55%),
-    linear-gradient(to right, rgb(255 255 255 / 0.018) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.018) 1px, transparent 1px);
-  background-size: 360px 360px, 420px 420px, 40px 40px, 40px 40px;
+    radial-gradient(circle at 38% 0, rgb(157 91 244 / 0.16), transparent 60%),
+    radial-gradient(circle at 0 0, rgb(255 255 255 / 0.02), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgb(249 70 167 / 0.06), transparent 55%),
+    linear-gradient(to right, rgb(255 255 255 / 0.01) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.01) 1px, transparent 1px);
+  background-size: 1100px 640px, 360px 360px, 420px 420px, 40px 40px, 40px 40px;
 }
 
 /* =============================================================================
@@ -540,17 +642,12 @@ select:focus {
   animation: var(--animate-led);
 }
 
-/** Cable flow: the Trust Pipeline connector lines, and nothing else. */
-@keyframes tosh-cable-flow {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.tosh-cable-flow,
-.cable-flow {
-  background-size: 200% 100%;
-  animation: var(--animate-cable);
-}
+/* `cable-flow` stood here and is gone with its one consumer. It animated the
+ * connector rail between the Trust Pipeline's five columns, and the v0 redesign
+ * replaced those columns with a numbered vertical list - which is ordered
+ * without anything drawn between the items, so there is no rail left to flow.
+ * The comment above it already said "and nothing else", which is what made this
+ * safe to delete rather than a grep away from finding out. */
 
 /** Marquee: the TxFeed ticker. Linear so the eye reads no acceleration. */
 @keyframes tosh-marquee {
@@ -595,5 +692,5 @@ select:focus {
   );
   background-size: 200% 100%;
   animation: bar-glow-slide 3s linear infinite;
-  box-shadow: 0 0 12px -2px rgb(0 255 163 / 0.4);
+  box-shadow: 0 0 12px -2px rgb(249 70 167 / 0.4);
 }

@@ -154,13 +154,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
               padding:       '12px 14px',
               maxWidth:      '380px',
             },
+            /* These two borders were the exception to the claim above: they
+               restated `success` and `danger` as literals, so the v0 recolour
+               moved both tokens and left the toast outlines on the old mint and
+               the old red. `color-mix` is what lets a 35% tint reference the
+               token instead of hard-coding a pre-multiplied copy of it, which
+               is the only reason this is not two more `--tosh-*` entries. */
             success: {
               iconTheme: { primary: 'var(--tosh-success)', secondary: 'var(--tosh-bg-base)' },
-              style:     { border: '1px solid rgb(0 229 143 / 0.35)' },
+              style:     { border: '1px solid color-mix(in srgb, var(--tosh-success) 35%, transparent)' },
             },
             error: {
               iconTheme: { primary: 'var(--tosh-danger)', secondary: 'var(--tosh-bg-base)' },
-              style:     { border: '1px solid rgb(255 51 85 / 0.35)' },
+              style:     { border: '1px solid color-mix(in srgb, var(--tosh-danger) 35%, transparent)' },
             },
             loading: {
               iconTheme: { primary: 'var(--tosh-text-tertiary)', secondary: 'var(--tosh-bg-base)' },

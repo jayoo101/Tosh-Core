@@ -118,7 +118,7 @@ function MeritXProjectCardImpl({ project: p }: { project: DirectoryProject }) {
   const desc = p.description?.trim()
     || `${p.name} ($${p.symbol}) — Proof-of-Gas gated genesis on Tosh Protocol. Deposit ETH before soft cap, claim tokens after the shelf ladder launches.`
   const barCls = p.tab === 'completed'
-    ? 'bg-gradient-to-r from-success to-success shadow-[0_0_10px_rgba(16,185,129,0.6)]'
+    ? 'bg-gradient-to-r from-success to-success shadow-[0_0_10px_var(--tosh-success-glow)]'
     : p.tab === 'archived'
       ? 'bg-danger/80'
       : 'bar-glow'
