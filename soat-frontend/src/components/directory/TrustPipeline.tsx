@@ -1,10 +1,8 @@
-'use client'
-
 /**
  * The five-step explainer under the directory.
  *
- * WHY THIS SECTION IS MONOCHROME. It used to give each step its own accent —
- * success, brand, warning, admin, success — which read as decoration but spent
+ * WHY THIS SECTION IS MONOCHROME. It used to give each step its own accent -
+ * success, brand, warning, admin, success - which read as decoration but spent
  * the palette's meaning. `admin` purple is owner-only chrome everywhere else in
  * the app, and `warning` amber means a deadline or a price gate; borrowing them
  * to tint "CURVE" and "GENESIS" taught the eye that those hues mean nothing in
@@ -13,17 +11,23 @@
  * five of them at once blew the glow budget that exists so a genuinely live
  * pip can be noticed.
  *
- * So colour is spent in exactly one place here: the connector rail, which is
- * the only thing on screen actually saying "these five are a sequence". The
- * cards themselves are the standard panel surface.
+ * So colour is spent in exactly one place: the step numbers, which are the only
+ * thing on screen actually saying "these five are a sequence".
  *
- * The rail's offset and the header band's height are the same number, hence
- * `--rail-band`. They were two hand-tuned literals before (`top-[130px]`
- * against a `min-h-[320px]` card) and drifted apart whenever a title wrapped
- * to a second line.
+ * WHY IT IS A LIST AND NOT FIVE COLUMNS.
+ * It was a `md:grid-cols-5` of cards joined by an animated connector rail, and
+ * the rail existed precisely because five side-by-side cards do not read as an
+ * ordered sequence on their own. That was solving a problem the layout had
+ * created: at five columns inside a 1152px container each description got about
+ * 130px of measure, which is four or five words per line for paragraphs that
+ * run to forty. The v0 redesign stacks them, and a numbered vertical list is
+ * ordered without needing anything drawn between the items - so the rail, the
+ * `--rail-band` variable that aligned it, and the `cable-flow` keyframes it
+ * animated with all went with the columns rather than being ported.
+ *
+ * `id="how-it-works"` because the navigation points at it. The section had no
+ * anchor while the only way in was scrolling.
  */
-
-const RAIL_BAND = '3rem'
 
 const STEPS = [
   {
@@ -65,12 +69,9 @@ const STEPS = [
 
 export function TrustPipeline() {
   return (
-    <section
-      className="relative z-10 overflow-hidden pt-28 pb-12 md:pt-36 md:pb-16"
-      style={{ ['--rail-band' as string]: RAIL_BAND }}
-    >
-      <div className="mb-16 md:mb-20">
-        <h3 className="mb-4 font-mono text-label text-text-quiet uppercase">
+    <section id="how-it-works" className="relative z-10 pt-24 pb-12 md:pt-32 md:pb-16">
+      <div className="mb-10 md:mb-12">
+        <h3 className="mb-4 font-mono text-label uppercase text-text-quiet">
           {`// HOW IT WORKS`}
         </h3>
         <h2 className="text-section text-text-primary md:text-hero">How a Tosh launch works.</h2>
@@ -79,36 +80,30 @@ export function TrustPipeline() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-gap md:grid-cols-5">
-        {STEPS.map((s, i) => (
-          <div key={s.step} className="group relative flex">
-            {/* The rail lives in the gutter between two cards, centred on the
-                header band so it meets each card at its step number. */}
-            {i < STEPS.length - 1 && (
-              <div
-                aria-hidden
-                className="cable-flow pointer-events-none absolute right-[calc(-1*var(--spacing-gap))] z-0 hidden h-px w-gap bg-gradient-to-r from-border-strong via-brand/25 to-border-strong md:block"
-                style={{ top: `calc(var(--rail-band) / 2)` }}
-              />
-            )}
+      <ol className="divide-y divide-border-subtle overflow-hidden rounded-panel border border-border-subtle bg-surface-card shadow-panel">
+        {STEPS.map(s => (
+          <li
+            key={s.step}
+            className="flex gap-card px-card py-card transition-colors hover:bg-surface-hover md:px-card-lg"
+          >
+            <span className="w-6 shrink-0 pt-0.5 font-mono text-note font-bold tabular-nums text-brand">
+              {s.step}
+            </span>
 
-            <div className="relative z-10 flex w-full flex-col rounded-panel border border-border-subtle bg-surface-card shadow-panel transition-colors group-hover:border-border-strong">
-              <div
-                className="flex shrink-0 items-center gap-gap-tight border-b border-border-subtle px-card"
-                style={{ height: 'var(--rail-band)' }}
-              >
-                <span className="font-mono text-micro text-text-quiet">{s.step}</span>
-                <span className="font-mono text-micro text-text-tertiary uppercase">{s.tag}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-gap-tight">
+                <span className="font-mono text-micro uppercase text-text-tertiary">{s.tag}</span>
+                <h4 className="font-mono text-title text-text-primary">{s.title}</h4>
               </div>
-
-              <div className="flex flex-1 flex-col gap-gap-tight px-card py-card">
-                <h4 className="text-title text-text-primary">{s.title}</h4>
-                <p className="text-note leading-relaxed text-text-secondary">{s.description}</p>
-              </div>
+              {/* `max-w-3xl`, so the measure stops at something readable on a
+                  wide monitor instead of running the full container width. */}
+              <p className="mt-gap-tight max-w-3xl text-note leading-relaxed text-text-secondary">
+                {s.description}
+              </p>
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
     </section>
   )
 }

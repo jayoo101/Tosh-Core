@@ -15,8 +15,10 @@
  * the CSS `tosh-marquee-track` animation can do a seamless `translateX(-50%)`
  * loop without snapping at the wrap point.
  *
- * Cyber-minimal styling: pure black background, hairline #1F1F2E rule top &
- * bottom, JetBrains Mono only, phase-tinted dot prefix per event type.  The
+ * Cyber-minimal styling: canvas background, a hairline rule top & bottom,
+ * JetBrains Mono only, phase-tinted dot prefix per event type.  Both surfaces
+ * are tokens; naming the hex here is what left the sentence describing a
+ * palette the app had stopped using.  The
  * hover handler pauses the animation so a visitor can read a long string.
  *
  * Hydration safety: on SSR the buffer is empty so we render a static seed

@@ -18,8 +18,16 @@
  *     the failure nobody would otherwise hear about (#26).
  *
  *  If a user sees this page, the deployment shipped a critical bug.  The
- *  page is intentionally austere — black background, white text, one
- *  reset button — to communicate "system error, not normal state".
+ *  page is intentionally austere — one surface, one accent, one reset
+ *  button — to communicate "system error, not normal state".
+ *
+ *  THE HEX LITERALS BELOW ARE COPIES OF TOKENS AND CANNOT READ THEM.
+ *  `globals.css` may not have loaded, which is the whole reason this file
+ *  uses inline styles, so `var(--tosh-brand)` would resolve to nothing and
+ *  render an unstyled button. That makes this the one file a palette change
+ *  has to be applied to by hand, and the one file `checkTokens.mjs` cannot
+ *  catch when nobody does: it greps utility classes, and there are none here.
+ *  Kept in step with the v0 recolour on 2026-09-11.
  */
 
 import { useEffect } from 'react'
@@ -45,8 +53,8 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
         style={{
           margin: 0,
           minHeight: '100vh',
-          backgroundColor: '#000',
-          color: '#fff',
+          backgroundColor: '#0B0811',
+          color: '#F8F3F8',
           fontFamily:
             'ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace',
           display: 'flex',
@@ -61,7 +69,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           style={{
             maxWidth: '560px',
             width: '100%',
-            border: '1px solid #1f1f2e',
+            border: '1px solid #2D2534',
             padding: '32px',
             display: 'flex',
             flexDirection: 'column',
@@ -73,7 +81,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
               fontSize: '11px',
               letterSpacing: '0.4em',
               textTransform: 'uppercase',
-              color: '#00FFA3',
+              color: '#F946A7',
             }}
           >
             {'// SYSTEM // ROOT_FAULT'}
@@ -83,7 +91,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
             Console offline.
           </h1>
 
-          <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#a1a1aa' }}>
+          <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#9F93A6' }}>
             The top-level UI threw before the application chrome could load.
             Your wallet, balance, and any on-chain positions are unaffected —
             this is purely a frontend crash.
@@ -92,15 +100,15 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           {error.digest && (
             <div
               style={{
-                border: '1px solid #1f1f2e',
+                border: '1px solid #2D2534',
                 padding: '12px',
                 fontSize: '11px',
-                color: '#a1a1aa',
+                color: '#9F93A6',
                 wordBreak: 'break-all',
               }}
             >
-              <div style={{ color: '#52525b', marginBottom: '4px' }}>{'// DIGEST'}</div>
-              <div style={{ color: '#e4e4e7' }}>{error.digest}</div>
+              <div style={{ color: '#4C4455', marginBottom: '4px' }}>{'// DIGEST'}</div>
+              <div style={{ color: '#F8F3F8' }}>{error.digest}</div>
             </div>
           )}
 
@@ -117,8 +125,8 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
               fontSize: '12px',
               letterSpacing: '0.3em',
               textTransform: 'uppercase',
-              color: '#00FFA3',
-              border: '1px solid #00FFA3',
+              color: '#F946A7',
+              border: '1px solid #F946A7',
               cursor: 'pointer',
             }}
           >

@@ -4,8 +4,11 @@
  * UserDrawer — Tosh personal sovereignty console.
  *
  * A right-anchored slide-in panel that mounts to the homepage WalletPip.
- * Pure-black canvas, hairline #1F1F2E dividers, JetBrains Mono everywhere,
- * fluorescent #00FFA3 reserved for unlock guards and primary call-to-action.
+ * Canvas, hairline dividers and accent all come from the tokens in
+ * `globals.css` and are named here rather than quoted: this comment used to
+ * spell out "#1F1F2E" and "#00FFA3", and the v0 recolour moved both without
+ * touching a line of this file. JetBrains Mono everywhere; `brand` is reserved
+ * for unlock guards and the primary call-to-action.
  *
  * Three stacked telemetry blocks:
  *
