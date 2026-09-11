@@ -816,13 +816,17 @@ So every leg now carries a floor: `_buybackSqrtFloor` = `hook.twapSqrtPriceX96()
 | Not already listed | `TokenAlreadyListed` |
 | `factory != 0` | `FactoryNotSet` |
 | `factory.tokenToHook(token) != 0` — **a token launched on this platform** | `TokenNotLaunchedHere` |
+| `hook.launched()` — the pool must be open | `PoolNotLaunched` |
+| `hook.twapSqrtPriceX96()` answers, and answers `!= 0` | `TwapNotMature` |
 | `key.currency0.isAddressZero()` — ETH must be currency0 | `InvalidPoolKey` |
 | `key.currency1 == token` | `InvalidPoolKey` |
 | `key.hooks == hook` | `InvalidPoolKey` |
 
-A hook that has not launched has no pool key (the key is all zeros) and so fails on the `currency1` arm (test `test_ladderCuration_rejectsUnlaunchedProjects` @ `test/ToshV5.t.sol`, expecting `InvalidPoolKey`).
+Liveness is asked for directly rather than inferred. It used to ride on the shape of the key — an unlaunched hook returned all zeros and failed the `currency1` arm with `InvalidPoolKey` — but the hook now restates its key from constants and `projectToken`, which is well-formed from the moment the token is set and therefore before launch. Hence the explicit `launched()` check and its own error, so "wrong platform" and "too early" are distinguishable; the second is a wait, not a mistake.
 
-**`removeLadderToken`** uses swap-and-pop to keep the array compact, which scrambles the rotation order — the comment calls that acceptable: the cursor only has to stay in range and be fair over the long run, not stay stable across a delisting (`src/ToshLadderTreasury.sol:361-383`).
+`TwapNotMature` is the same shape of answer and was added on 2026-09-11. `_buybackSqrtFloor` anchors the buyback's anti-sandwich bound to the hook's TWAP and treats both a zero reading and a reverting getter as "no reference, fill unbounded", so a token listed inside its first `TWAP_WINDOW` had no price bound on its buyback legs at all. That was held shut by an operational rule until the rule became the weaker half of the trade; see `SECURITY_AUDIT.md` §2.3 and `test_probeG3_immatureTwapIsRefusedAtListing`. Both doors are refused here, the reverting one included, because a getter that will not answer cannot be shown to have a bound. **The live treasury predates this check and cannot be given it** — `ToshFactory.ladderTreasury` is `immutable` and is baked into the hook implementation every launch clones — so there the rule and `STATE-07` are still the control.
+
+**`removeLadderToken`** uses swap-and-pop to keep the array compact, which scrambles the rotation order — the comment calls that acceptable: the cursor only has to stay in range and be fair over the long run, not stay stable across a delisting (see `removeLadderToken` in `src/ToshLadderTreasury.sol`).
 
 ---
 

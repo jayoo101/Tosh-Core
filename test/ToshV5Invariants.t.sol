@@ -895,6 +895,16 @@ contract ToshInvariantHandler is Test {
         // and an unlaunched hook has none, so a uniform pick reverts
         // `TokenNotLaunchedHere` for however many of the ten rounds have not
         // launched — which early in a run is all of them.
+        //
+        // Phase 3 is "launched", which since 2026-09-11 is no longer enough:
+        // `addLadderToken` also refuses a pool whose `twapSqrtPriceX96()`
+        // reads zero, and that is every pool for its first `TWAP_WINDOW`.
+        // Left alone, this action would only land when some unrelated
+        // `warpShort`/`warpLong` draw happened to have aged the pool the
+        // fuzzer then picked, so listings would be rare and correlated with
+        // warps rather than explored — the same "silent no-op" shape the note
+        // above describes, one layer down.  The clock is the fuzzer's to move,
+        // so this does not warp; it picks from the pools already old enough.
         address token = address(_hookInPhase(hookSeed, 3).projectToken());
 
         vm.prank(admin);
@@ -1490,6 +1500,12 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         ToshLaunchpadHook h2 = handler.hooks(2);
         assertTrue(h2.launched(), "precondition: the round must launch");
 
+        // A pool one second old reads a zero TWAP, and `addLadderToken` has
+        // refused that since 2026-09-11, so the listing has to clear
+        // `TWAP_WINDOW` first.  `warpShort` bounds its argument to
+        // [1 min, 2 h], so 1801 lands exactly one second past the window.
+        handler.warpShort(1801);
+
         handler.ownerAddLadderToken(2);
         assertEq(ladder.ladderTokenCount(), 1, "handler could not list a ladder token");
 
@@ -1553,6 +1569,13 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
+
+        // A pool one second old reads a zero TWAP, and `addLadderToken` has
+        // refused that since 2026-09-11, so the listing has to clear
+        // `TWAP_WINDOW` first.  `warpShort` bounds its argument to
+        // [1 min, 2 h], so 1801 lands exactly one second past the window.
+        handler.warpShort(1801);
+
         handler.ownerAddLadderToken(2);
 
         ToshLaunchpadHook h2 = handler.hooks(2);
@@ -1586,6 +1609,29 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             handler.createProject(1, 0);
         }
         assertGe(address(ladder).balance, ladder.TRIGGER_STEP(), "precondition: the reservoir must be armed");
+
+        // Let the market settle before poking, or the leg is refused outright.
+        //
+        // The four buys above moved spot well past
+        // `MAX_BUYBACK_SQRT_DEVIATION_BPS` from the TWAP the pool carried when
+        // it was listed, so `_buybackSqrtFloor` sits above where the buyback
+        // would have to trade and `_buyAndBurn` skips the whole leg.  Measured
+        // without this warp: the poke lands, `okPokeBuyback` reaches 1, and the
+        // reservoir does not move a single wei off 1.828 ether.
+        //
+        // This is not a new fragility, it is a newly visible one.  Until
+        // 2026-09-11 the listing on the line above happened one second after
+        // `launch()`, so this pool's TWAP read zero for the whole test and
+        // `_buybackSqrtFloor` fell back to unbounded — the poke filled because
+        // nothing bounded it, not because the price was defensible.  Three
+        // tests rested on that, this one included.
+        //
+        // A window with no swap in it is what re-anchors the reading: past
+        // `TWAP_WINDOW` since the last observation, `_twapSqrtPriceX96` takes
+        // its flat-price branch and reports `lastTick` outright, which is the
+        // tick the fourth buy left behind.  The arming loop below does not
+        // trade on this pool, so nothing disturbs that in between.
+        handler.warpShort(1801);
 
         uint256 ladderBefore = address(ladder).balance;
         uint256 burnedBefore = token.balanceOf(DEAD);

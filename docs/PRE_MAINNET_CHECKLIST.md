@@ -380,11 +380,11 @@ runs from the last checkpoint before maturity, not from `launch()`. Arithmetic
 here says "safe to list" while the floor is still unbounded, which is the exact
 state the rule exists to prevent. `ROBINHOOD_MIGRATION.md` §F.8.
 
-**Why it is a rule and not a `require`:** `_buybackSqrtFloor` anchors the
+**Why it was a rule and not a `require`, until 2026-09-11:** `_buybackSqrtFloor` anchors the
 buyback's anti-sandwich bound to that TWAP, and treats 0 as "no reference yet,
 fill unbounded". So a token listed inside the window has **no price bound on its
 buyback legs**, on the pool whose liquidity is thinnest.
-`test_probeG3_immatureTwapLeavesTheBuybackUnbounded` measures the cost: a pool
+`test_probeG3_immatureTwapIsRefusedAtListing` measures the cost: a pool
 parked 1500 bps out gives up 0.93 ETH of a 3.33 ETH leg, where a matured TWAP
 refuses the same deviation outright. `pokeBuyback` has no cooldown, so that
 repeats per block, and the leg is `balance / 30`, so it scales with the
@@ -397,6 +397,17 @@ which is why it is also a gate here, a warning in `addLadderToken`'s natspec,
 and `STATE-07` in `monitoring/alerts.json`. The audit dossier records it as
 accepted-with-residual-risk and explicitly invites the auditor to argue for the
 code fix instead (`SECURITY_AUDIT.md` §2.3).
+
+**That invitation was taken up on 2026-09-11, by us.** `addLadderToken` now
+reads `twapSqrtPriceX96()` and reverts `TwapNotMature` unless it answers
+non-zero. **This checklist item survives the fix unchanged, and that is not an
+oversight.** The live treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`
+cannot be given the gate — `ToshFactory.ladderTreasury` is `immutable` and is
+baked into the hook implementation every launch clones — so for the deployment
+this checklist is about, the rule is still the whole control. The item may be
+retired only for a platform deployed from source at or after that date, and the
+way to tell is to call `addLadderToken` against a fresh pool on the treasury in
+question and check that it reverts rather than succeeding.
 
 **If STATE-07 ever fires,** the recovery is `removeLadderToken(token)` via the
 Safe, wait for maturity, re-add. Nothing is forfeited by removing: the reservoir

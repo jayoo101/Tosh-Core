@@ -198,6 +198,61 @@ contract ToshV5Test is Test {
         hook.launch();
     }
 
+    /// @dev One second past `ToshLaunchpadHook.TWAP_WINDOW` (1800 s).
+    uint256 internal constant TWAP_MATURITY_WARP = 1801;
+
+    /// @dev Age a fresh pool until `addLadderToken` will accept it.
+    ///
+    ///      `addLadderToken` refuses a pool whose `twapSqrtPriceX96()` reads 0,
+    ///      which is every pool for its first `TWAP_WINDOW`, so a test that
+    ///      lists straight after `_launchProject` would be testing that gate
+    ///      rather than whatever it came to test.
+    ///
+    ///      A bare warp is enough, and is the smallest perturbation available.
+    ///      `_twapSqrtPriceX96` returns 0 only while `block.timestamp -
+    ///      _prevCheckpointTs < TWAP_WINDOW`; past that, a pool with no swap in
+    ///      the trailing window takes the flat-price branch and reports
+    ///      `lastTick` outright.  The two-swap sequence in
+    ///      `ToshV5Attack.t.sol` is there to produce a genuinely AVERAGED
+    ///      reading for the band-edge probes — it is not what non-zero
+    ///      requires, and its 1 ETH of buying would move the balances and tier
+    ///      state these tests assert on.
+    ///
+    ///      NOT folded into `_launch`:
+    ///      `test_preTwapWindow_capsReferenceAtP0AgainstATwoBlockPump` needs
+    ///      the immature window this skips past.
+    function _matureTwap() internal {
+        _warpBy(TWAP_MATURITY_WARP);
+        _nextBlock();
+    }
+
+    /// @dev Advance the clock by `secs`.
+    ///
+    ///      Deliberately NOT `vm.warp(block.timestamp + secs)`, for the same
+    ///      reason `_nextBlock` refuses `vm.roll(block.number + 1)`: under
+    ///      `via_ir` the optimizer treats `block.timestamp` as invariant
+    ///      within a call frame and reuses a read taken before an earlier
+    ///      `vm.warp`, so the addition lands on a stale base.  It can warp
+    ///      BACKWARD.
+    ///
+    ///      Measured in `_measureArmedSwap`, which had exactly this bug: after
+    ///      the launches had moved the clock to 172_803,
+    ///      `vm.warp(block.timestamp + 1900)` set it to 1901.  That left
+    ///      `_prevCheckpointTs` — written at launch, so 172_803 — ahead of
+    ///      `nowTs`, and `nowTs - _prevCheckpointTs` underflowed inside
+    ///      `_twapSqrtPriceX96`, making the getter REVERT.  `_buybackSqrtFloor`
+    ///      answers a reverting getter by falling back to unbounded, so the
+    ///      helper had been measuring an unbounded buyback for as long as its
+    ///      comment had been claiming an established TWAP.
+    ///
+    ///      `vm.getBlockTimestamp()` is an opaque cheatcode call and always
+    ///      reads through.  The suite still holds ~36 bare
+    ///      `vm.warp(block.timestamp + …)` sites, safe only where nothing
+    ///      moved the clock earlier in the same frame.
+    function _warpBy(uint256 secs) internal {
+        vm.warp(vm.getBlockTimestamp() + secs);
+    }
+
     /// @dev Advance exactly one block.
     ///
     ///      Deliberately NOT `vm.roll(block.number + 1)`: under `via_ir` the
@@ -1903,6 +1958,7 @@ contract ToshV5Test is Test {
     function test_ladderCuration_listsALaunchedTokenAtItsCanonicalPool() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Curate", "CUR", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(token));
         assertTrue(ladder.isLadderToken(address(token)));
@@ -1972,6 +2028,7 @@ contract ToshV5Test is Test {
         (ToshToken tokenC,) = _launchProject("LadderC", "LDC", alice, address(0));
         (ToshToken tokenD,) = _launchProject("LadderD", "LDD", alice, address(0));
 
+        _matureTwap();
         vm.startPrank(admin);
         ladder.addLadderToken(address(tokenB));
         ladder.addLadderToken(address(tokenC));
@@ -2020,6 +2077,7 @@ contract ToshV5Test is Test {
         (ToshToken tokenC,) = _launchProject("FullC", "FPC", alice, address(0));
         (ToshToken tokenD,) = _launchProject("FullD", "FPD", alice, address(0));
 
+        _matureTwap();
         vm.startPrank(admin);
         ladder.addLadderToken(address(tokenB));
         ladder.addLadderToken(address(tokenC));
@@ -2038,10 +2096,29 @@ contract ToshV5Test is Test {
         vm.prank(dave);
         ladder.pokeBuyback();
 
-        // The 10% slice is the OFFER.  Fresh genesis pools are only ~0.9 ETH
-        // deep, so the fill binds on pool depth well before 5 ETH lands.
-        // What we pin is that a full pot outspends the 1 ETH floor rather
-        // than dripping TRIGGER_STEP regardless of how much is sitting there.
+        // The 10% slice is the OFFER, and the `nextSpendAmount()` assertion
+        // above is where that claim is made good.  What the legs then SPEND is
+        // a different quantity, and it is not evidence about the offer.
+        //
+        // This assertion read `assertGt(spent, 1 ether)` until 2026-09-11 and
+        // passed for one reason: these pools were listed straight after
+        // `launch()`, so their TWAP read zero, so `_buybackSqrtFloor` fell
+        // back to unbounded and each leg filled all the way down the curve.
+        // `addLadderToken` now refuses a pool in that state, `_matureTwap()`
+        // above ages them first, and the deviation band is live for all three
+        // legs.  The old number was a measurement of the unbounded path, taken
+        // by a test that never said so.
+        //
+        // Under the band the offer stops mattering at all.  Measured on a
+        // single leg into a fresh ~0.9 ETH-deep genesis pool:
+        //
+        //     pot  1 ETH -> offer 1 ETH -> spent 100_329_788_532_604_040 wei
+        //     pot 50 ETH -> offer 5 ETH -> spent 100_329_788_532_604_040 wei
+        //
+        // Equal to the wei, with the same burn.  A five-fold larger offer buys
+        // nothing, because `MAX_BUYBACK_SQRT_DEVIATION_BPS` binds long before
+        // the offer does.  "A full pot outspends the floor" is therefore not a
+        // weaker claim than it was — it is the wrong claim.
         //
         // The correction term is what the swap ADDED to this balance, which is
         // the reservoir's 70 bps share and not the whole 100 bps skim — the
@@ -2050,7 +2127,12 @@ contract ToshV5Test is Test {
         // rate now rather than the tax rate.
         uint256 reservoirIn = (0.5 ether * _reservoirBps(trigger)) / 10_000;
         uint256 spent = before + reservoirIn - address(ladder).balance;
-        assertGt(spent, 1 ether, "a full pot must outspend the 1 ETH floor");
+        // Three bounded legs, measured at 0.3009 ETH.  Tight on both sides on
+        // purpose: losing the price bound again would push this far above the
+        // upper limit, and legs quietly ceasing to fill would drop it below the
+        // lower one.
+        assertGt(spent, 0.29 ether, "three bounded legs must fill");
+        assertLt(spent, 0.35 ether, "the band, not the offer, is what caps the spend");
         assertGt(tokenB.balanceOf(DEAD), 0);
         assertGt(tokenC.balanceOf(DEAD), 0);
         assertGt(tokenD.balanceOf(DEAD), 0);
@@ -2060,6 +2142,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("Idle", "IDL", alice, address(0));
         (ToshToken tokenB,) = _launchProject("IdleB", "IDB", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(tokenB));
 
@@ -2085,6 +2168,7 @@ contract ToshV5Test is Test {
         (ToshToken tokenB,) = _launchProject("FaultB", "FLB", alice, address(0));
         (ToshToken tokenC,) = _launchProject("FaultC", "FLC", alice, address(0));
 
+        _matureTwap();
         vm.startPrank(admin);
         ladder.addLadderToken(address(tokenB));
         ladder.addLadderToken(address(tokenC));
@@ -2141,6 +2225,7 @@ contract ToshV5Test is Test {
         (ToshToken tokenB, ToshLaunchpadHook hookB) = _launchProject("ReentB", "RNB", alice, address(0));
         (ToshToken tokenC,) = _launchProject("ReentC", "RNC", alice, address(0));
 
+        _matureTwap();
         vm.startPrank(admin);
         ladder.addLadderToken(address(tokenB));
         ladder.addLadderToken(address(tokenC));
@@ -2226,6 +2311,7 @@ contract ToshV5Test is Test {
     function test_executeBuyAndBurn_isNotCallableExternally() public {
         (ToshToken tokenB,) = _launchProject("Guard", "GRD", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(tokenB));
 
@@ -2256,6 +2342,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("Trig", "TRG", alice, address(0));
         (ToshToken victim, ToshLaunchpadHook victimHook) = _launchProject("Victim", "VIC", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(victim));
 
@@ -2293,6 +2380,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("Trig2", "TG2", alice, address(0));
         (ToshToken healthy, ToshLaunchpadHook healthyHook) = _launchProject("Healthy", "HLT", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2362,6 +2450,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("TrigEx", "TGX", alice, address(0));
         (ToshToken healthy,) = _launchProject("HealthyEx", "HLX", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2395,6 +2484,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("IdleEx", "IDX", alice, address(0));
         (ToshToken healthy,) = _launchProject("HealthyId", "HLI", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2630,6 +2720,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("OOGTrig", "OOG", alice, address(0));
         (ToshToken healthy,) = _launchProject("OOGHealthy", "OGH", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2733,6 +2824,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("TipTrig", "TIP", alice, address(0));
         (ToshToken healthy,) = _launchProject("TipHealthy", "TPH", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2810,6 +2902,7 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook trigger) = _launchProject("RideTrig", "RID", alice, address(0));
         (ToshToken healthy, ToshLaunchpadHook healthyHook) = _launchProject("RideHealthy", "RDH", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -2980,6 +3073,7 @@ contract ToshV5Test is Test {
     function test_pokeBuyback_deploysWithoutASwap() public {
         (ToshToken healthy,) = _launchProject("PokeHealthy", "PKH", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -3021,6 +3115,7 @@ contract ToshV5Test is Test {
     function test_pokeBuyback_shutsTheSameBlockMintLockout() public {
         (ToshToken healthy, ToshLaunchpadHook healthyHook) = _launchProject("PokeLockout", "PKL", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -3051,6 +3146,7 @@ contract ToshV5Test is Test {
     function test_pokeBuyback_revertsWhenUnarmed() public {
         (ToshToken healthy,) = _launchProject("PokeIdle", "PKI", alice, address(0));
 
+        _matureTwap();
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
@@ -3097,6 +3193,7 @@ contract ToshV5Test is Test {
         (ToshToken b,) = _launchProject("LegB", "LGB", alice, address(0));
         (ToshToken c,) = _launchProject("LegC", "LGC", alice, address(0));
 
+        _matureTwap();
         vm.startPrank(admin);
         ladder.addLadderToken(address(a));
         ladder.addLadderToken(address(b));
@@ -3135,6 +3232,7 @@ contract ToshV5Test is Test {
 
         (, ToshLaunchpadHook trigger) = _launchProject("PeakTrig", "PKT", alice, address(0));
 
+        ToshToken[] memory pools = new ToshToken[](ladderCount);
         for (uint256 i; i < ladderCount; ++i) {
             // The two `string.concat`s are hoisted rather than passed inline.
             // Inline, this call site is the one expression in the suite that
@@ -3143,14 +3241,32 @@ contract ToshV5Test is Test {
             string memory nm = string.concat("Peak", vm.toString(i));
             string memory sym = string.concat("PK", vm.toString(i));
             (ToshToken t,) = _launchProject(nm, sym, alice, address(0));
-            vm.prank(admin);
-            ladder.addLadderToken(address(t));
+            pools[i] = t;
         }
 
         // Every ladder pool needs an established TWAP, or `_buybackSqrtFloor`
         // falls back to unbounded and skips work a live pool would do.
-        vm.warp(block.timestamp + 1900);
+        //
+        // Two things were wrong here, and they hid each other.  `vm.warp(
+        // block.timestamp + 1900)` warped the clock BACKWARD to 1901 from
+        // 172_803 (see `_warpBy`), which made `twapSqrtPriceX96()` revert on
+        // an underflow, which `_buybackSqrtFloor` absorbs as "unbounded" — so
+        // this helper measured the unbounded path while its own comment
+        // claimed otherwise.  `_warpBy` reads the clock through a cheatcode.
+        //
+        // The listings also had to move below the warp.  Since 2026-09-11
+        // `addLadderToken` refuses a pool whose TWAP reads zero, so listing
+        // inside the launch loop above now reverts `TwapNotMature` on the
+        // first iteration.  One warp still covers every pool, because they
+        // were all launched before it.  What this measures is the swap, so
+        // the reordering does not move the number.
+        _warpBy(1900);
         _nextBlock();
+
+        for (uint256 i; i < ladderCount; ++i) {
+            vm.prank(admin);
+            ladder.addLadderToken(address(pools[i]));
+        }
 
         vm.deal(address(ladder), 10 ether);
 

@@ -4961,6 +4961,11 @@ export const TREASURY_ABI = [
   },
   {
     "type": "error",
+    "name": "TwapNotMature",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   }

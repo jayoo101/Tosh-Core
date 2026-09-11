@@ -217,6 +217,11 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      from `TokenNotLaunchedHere` so the owner can tell "wrong platform"
     ///      apart from "too early", which is a wait rather than a mistake.
     error PoolNotLaunched();
+    /// @dev Launched, but its hook cannot yet name a TWAP — so `_buybackSqrtFloor`
+    ///      would leave this token's buyback legs unbounded.  Like
+    ///      `PoolNotLaunched` this is a wait, not a mistake: it clears on the
+    ///      clock alone, within `TWAP_WINDOW` of `launch()`.
+    error TwapNotMature();
     error InvalidPoolKey();
     error OnlyPoolManager();
     /// @dev `pokeBuyback` called with nothing to deploy.
@@ -284,11 +289,23 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         is why its binding is one-shot: a re-pointable factory would
     ///         hand the answer to both questions back to the owner.
     ///
-    ///         ── DO NOT LIST A POOL YOUNGER THAN `TWAP_WINDOW` ───────────────
+    ///         ── A POOL YOUNGER THAN `TWAP_WINDOW` IS REFUSED ───────────────
     ///
-    ///         This is an OPERATIONAL rule, not one the contract enforces, so
-    ///         it can be broken by anyone holding this key and nothing on chain
-    ///         will stop them.
+    ///         This was an OPERATIONAL rule until 2026-09-11 — written here,
+    ///         breakable by anyone holding this key, with nothing on chain to
+    ///         stop them.  It is now a check: `twapSqrtPriceX96()` must answer,
+    ///         and must answer non-zero, or the listing reverts
+    ///         `TwapNotMature`.  Both of `_buybackSqrtFloor`'s doors to
+    ///         unbounded are closed, the reverting one included.
+    ///
+    ///         Read the rest of this box as the reason the check exists rather
+    ///         than as a live hazard.  The hazard is real in any deployment
+    ///         whose treasury predates this change — the live one does, because
+    ///         `ToshFactory.ladderTreasury` is `immutable` and is baked into
+    ///         the hook implementation every launch clones, so replacing the
+    ///         treasury means replacing the platform.  There the rule is still
+    ///         only a rule, `scripts/preflightLadderListing.mjs` is what checks
+    ///         it before a signature, and `STATE-07` is what catches it after.
     ///
     ///         `_buybackSqrtFloor` anchors the anti-sandwich bound to the
     ///         hook's TWAP, and the hook reports 0 — meaning "no TWAP yet" —
@@ -296,7 +313,7 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         floor falls back to unbounded, so a token listed inside that
     ///         window has NO price bound on its buyback legs, on the pool whose
     ///         liquidity is thinnest.  Measured at
-    ///         `test_probeG3_immatureTwapLeavesTheBuybackUnbounded`: a pool
+    ///         `test_probeG3_immatureTwapIsRefusedAtListing`: a pool
     ///         parked 1500 bps out gives up 0.93 ETH of a 3.33 ETH leg, where a
     ///         matured TWAP refuses the same deviation outright.  `pokeBuyback`
     ///         has no cooldown, so that is per block, not once.
@@ -312,9 +329,9 @@ contract ToshLadderTreasury is Ownable2Step {
     ///
     /// @param  token A token launched by this platform, already through
     ///               `launch()` — checked against the hook's `launched` flag,
-    ///               since there is no pool to buy into before that.  Listing
-    ///               is additionally gated OFF CHAIN until its TWAP matures;
-    ///               see above.
+    ///               since there is no pool to buy into before that — and whose
+    ///               hook names a non-zero TWAP, checked here rather than left
+    ///               to the operator; see above.
     function addLadderToken(address token) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
         if (_indexPlusOne[token] != 0) revert TokenAlreadyListed();
@@ -336,6 +353,39 @@ contract ToshLadderTreasury is Ownable2Step {
         // liveness check is asked for directly rather than inferred from a
         // side effect that no longer happens.
         if (!IToshHookPoolKey(hook).launched()) revert PoolNotLaunched();
+
+        // The rule in the box above, enforced rather than written down.
+        //
+        // `_buybackSqrtFloor` reaches "unbounded" by two doors eight lines
+        // apart — a zero reading and a revert — so a gate closing only one
+        // would be decoration. Both are refused, and refusing on a revert is
+        // the fail-closed direction on purpose: a hook that will not answer
+        // cannot be shown to have a bound, and "cannot be shown" is the same
+        // listing decision as "does not have".
+        //
+        // Asked of the hook just proven to be this token's, so it cannot be
+        // pointed at some other pool's mature TWAP.
+        //
+        // Nothing is given up by refusing. The reservoir is not spent on an
+        // unlisted token and the window closes on the clock alone, so the cost
+        // is a wait of at most `TWAP_WINDOW`. That is the trade
+        // `SECURITY_AUDIT.md` §2.3 priced when it chose the operational rule,
+        // and the same one it called weaker than "the one-line code change that
+        // would make it unreachable" while inviting an auditor to challenge it.
+        // Nobody challenged it; publishing the repository on 2026-09-11 did.
+        // `alerts.json` is public now, so STATE-07's `check` field names the
+        // quantity to poll and its `why` field prices the prize — which makes a
+        // procedural control resting on one key the wrong half of that trade to
+        // keep.
+        //
+        // STATE-07 stays. This makes the state unreachable through the only
+        // door leading to it; the alert is what notices if that is ever untrue
+        // for a reason neither of us has thought of.
+        try IToshHookTwap(hook).twapSqrtPriceX96() returns (uint160 twapSqrt) {
+            if (twapSqrt == 0) revert TwapNotMature();
+        } catch {
+            revert TwapNotMature();
+        }
 
         PoolKey memory key = IToshHookPoolKey(hook).getPoolKey();
 
@@ -593,15 +643,31 @@ contract ToshLadderTreasury is Ownable2Step {
     ///          instead is the absence of any anti-sandwich bound during the
     ///          window, measured at 0.93 ETH per leg and repeatable per block
     ///          via `pokeBuyback` — see
-    ///          `test_probeG3_immatureTwapLeavesTheBuybackUnbounded`.
+    ///          `test_probeG3_immatureTwapIsRefusedAtListing`.
     ///
-    ///      The second branch is therefore a known cost, held closed OFF CHAIN
-    ///      by not listing a token until its TWAP matures (see
-    ///      `addLadderToken`, and `STATE-07` in `monitoring/alerts.json` for
-    ///      the detection).  Anyone proposing to make it bounded in code is
-    ///      re-opening a decision that was taken deliberately, not fixing an
-    ///      oversight — and the reverse is also true: the operational rule is
-    ///      the only thing holding it, so it cannot be dropped silently.
+    ///      The second branch WAS a known cost held closed off chain by not
+    ///      listing a token until its TWAP matures.  Since 2026-09-11 it is
+    ///      held closed here in code: `addLadderToken` reads this same getter
+    ///      and refuses a pool that answers 0 or reverts, so a listed token has
+    ///      cleared the window by construction and this branch is not reachable
+    ///      through the listing door.
+    ///
+    ///      Read that as narrower than it sounds.  The gate fires ONCE, when the
+    ///      token is listed; this function runs on every leg thereafter.  A
+    ///      listed token whose getter later starts reverting still lands in the
+    ///      `catch` below and still buys unbounded, which is why `STATE-07` in
+    ///      `monitoring/alerts.json` polls both doors on every pass and is not
+    ///      retired by the gate.  The assessment is that a getter which answered
+    ///      once cannot stop answering on chain — `nowTs - _prevCheckpointTs`
+    ///      cannot underflow where time only moves forward — and `SECURITY.md`
+    ///      pre-discloses that assessment rather than burying it here.
+    ///
+    ///      The live treasury at 0x99aD248dD15498957B864Fd79917F0E103Aa78F7
+    ///      predates the gate and cannot receive it: `ladderTreasury` is
+    ///      `immutable` in `ToshFactory` and is baked into the hook
+    ///      implementation every launch clones.  For that deployment the
+    ///      operational rule is still the only thing holding this branch, so it
+    ///      cannot be dropped silently there.
     ///
     ///      Note the `twapSqrt == 0` early return is arithmetically redundant —
     ///      delete it and `floor` computes to 0 and the ternary picks

@@ -20,7 +20,7 @@ Please do not open a public issue for anything that could put funds at risk.
 — if you have one — a Foundry test that reproduces it. The test is worth more
 than the prose; `test/` carries 357 tests across 13 files, 17 of them
 adversarial `test_probe*` cases, and one of those —
-`test_probeG3_immatureTwapLeavesTheBuybackUnbounded` in
+`test_probeG3_immatureTwapIsRefusedAtListing` in
 `test/ToshV5Attack.t.sol` — is the model for what a useful report looks like.
 
 ## What we can honestly promise
@@ -93,18 +93,41 @@ pool whose liquidity is thinnest. It is measured, not theoretical: on a pool
 parked 1500 bps out, the full 3.33 ETH leg clears and 0.93 ETH of it is
 recovered by whoever parked the price.
 
-**We chose not to change the contract.** The exposure is held shut by an
-operational rule — do not list a token until its TWAP matures — on the grounds
-that reaching the state at all requires `addLadderToken`, which is owner-only.
-The rule is recorded in `addLadderToken`'s natspec, in `_buybackSqrtFloor`'s
+**Closed in source on 2026-09-11. Not yet closed on chain.**
+`addLadderToken` now reads `twapSqrtPriceX96()` itself and reverts
+`TwapNotMature` unless it answers non-zero, which puts the window out of reach
+through the only door that leads to it. `test_probeG3_immatureTwapIsRefusedAtListing`
+pins the refusal at the same 1500 bps park that used to clear the whole cheque.
+
+**The deployed treasury does not have that gate and cannot be given it.**
+`ToshFactory.ladderTreasury` is `immutable`, and it is baked into the hook
+implementation that every launch clones. Replacing
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` therefore means replacing the
+platform and stranding the launch already pointed at it, so the gate arrives
+with the next deployment rather than with the commit that wrote it. Until then
+the exposure is held shut exactly as the audit describes: by an operational
+rule — do not list a token until its TWAP matures — on the grounds that
+reaching the state at all requires `addLadderToken`, which is owner-only. The
+rule is recorded in `addLadderToken`'s natspec, in `_buybackSqrtFloor`'s
 natspec, and as `STATE-07` in `monitoring/alerts.json`.
 
-The audit's own verdict on that trade, which we are not going to soften here:
+The audit's own verdict on that trade is what the source change answers. It is
+reproduced rather than softened, because it still stands for the live
+deployment:
 
 > this is a procedural control on a privileged key, so it is exactly as strong
 > as the runbook and the alert pipeline, and weaker than the one-line code
 > change that would make it unreachable. An auditor who thinks that trade is
 > wrong should say so.
+
+**One part of this the gate does not fix, which is the part worth your time.**
+`_buybackSqrtFloor` answers a *reverting* `twapSqrtPriceX96()` with "unbounded"
+as well, and the gate only establishes that the getter answered once, at
+listing time. We think that door is unreachable on chain — `nowTs -
+_prevCheckpointTs` cannot underflow where time only moves forward, and nothing
+else in the getter reverts — and we would rather be shown wrong about that by
+you than find out otherwise. It is reachable in tests, and was reached; see
+`_warpBy` in `test/ToshV5.t.sol`.
 
 If you think it is wrong, say so. That is a legitimate report even though it is
 already documented, and arguing the trade is more useful to us than rediscovering

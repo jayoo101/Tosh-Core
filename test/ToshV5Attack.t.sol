@@ -570,8 +570,45 @@ contract ToshV5AttackTest is Test {
     //  PROBE G″ — for the first 1800 s of a pool's life the band is not there
     // ══════════════════════════════════════════════════════════════════════════
     //
-    // This probe RECORDS AN EXPOSURE.  It is not here to bless the fallback it
-    // measures, and the numbers below are the argument for closing it.
+    // ── CLOSED IN SOURCE, 2026-09-11 ─────────────────────────────────────────
+    //
+    // The argument below was accepted rather than answered.  `addLadderToken`
+    // now reads `twapSqrtPriceX96()` itself and reverts `TwapNotMature` unless
+    // it answers non-zero, so the state arm A used to drive cannot be entered
+    // through the only door that reaches it.  `SECURITY_AUDIT.md` §2.3 records
+    // the trade this replaced.
+    //
+    // What arm A used to measure, kept because it is the reason the gate exists
+    // and not a historical curiosity: one pool parked 1500 bps out, the full
+    // 3.33 ETH leg clearing at a deviation the band forbids, 0.93 ETH of it
+    // recovered by whoever parked the price, repeatable per block because
+    // `pokeBuyback` has no cooldown.  Arm A now pins the refusal instead, at
+    // the same park, so the gate is shown landing on the attack rather than
+    // beside it.
+    //
+    // TWO LIMITS, so the gate is not read as more than it is.
+    //
+    // `_buybackSqrtFloor` still answers a REVERTING `twapSqrtPriceX96()` with
+    // "unbounded", and the gate only proves the getter answered once, at
+    // listing time.  On chain that door is not practically reachable:
+    // `nowTs - _prevCheckpointTs` cannot underflow where time only moves
+    // forward, and nothing else in the getter reverts.  That is why it is left
+    // as the audit left it.  It is reachable in TESTS, and was reached —
+    // `_warpBy` in `ToshV5.t.sol` documents the backward warp that did it, and
+    // the three tests that had been measuring an unbounded buyback as a result.
+    //
+    // The live treasury at 0x99aD248dD15498957B864Fd79917F0E103Aa78F7 predates
+    // this gate and cannot be given it: `ToshFactory.ladderTreasury` is
+    // `immutable` and is baked into the hook implementation that every launch
+    // clones, so replacing the treasury means replacing the platform.  The gate
+    // therefore arrives with the next deployment, not with this commit, and
+    // until then the operational rule plus `STATE-07` are still what hold the
+    // exposure shut.
+    //
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // This probe RECORDED AN EXPOSURE.  It was not here to bless the fallback it
+    // measured, and the numbers below are the argument that closed it.
     //
     // `_buybackSqrtFloor` has two ways to end up returning `MIN_SQRT_PRICE + 1`
     // — no bound at all — and its natspec defends them with one sentence:
@@ -612,7 +649,7 @@ contract ToshV5AttackTest is Test {
     // displaces, so it is not the control being defended, and pretending to
     // catch it would mean sizing the fixture around the mutation instead of
     // around the attack.
-    function test_probeG3_immatureTwapLeavesTheBuybackUnbounded() public {
+    function test_probeG3_immatureTwapIsRefusedAtListing() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
         PoolKey memory key = hook.getPoolKey();
         (uint160 openingSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
@@ -628,13 +665,33 @@ contract ToshV5AttackTest is Test {
 
         uint256 snap = vm.snapshotState();
 
-        // ── Arm A: still inside the launch window, so there is no TWAP ───────
+        // ── Arm A: inside the launch window there is no TWAP, so no listing ──
         assertEq(hook.twapSqrtPriceX96(), 0, "premise: a pool in its first window has no TWAP to anchor to");
+
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.TwapNotMature.selector);
+        ladder.addLadderToken(address(token));
+        assertEq(ladder.ladderTokenCount(), 0, "nothing may be listed out of the immature window");
+
+        // Parking the price first changes nothing, and that is the point.  The
+        // gate is not a judgement about whether the price looks honest at
+        // listing time; it refuses because there is no reading to judge it
+        // against.  This is the exact state arm A used to spend the cheque in.
         _parkAt(hook, target);
-        uint256 burnedA = _armAndPoke(token);
-        uint256 spentA = 100 ether - address(ladder).balance;
-        (uint160 postSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
-        uint256 proceedsA = _dumpAll(hook, token);
+        assertEq(hook.twapSqrtPriceX96(), 0, "a swap does not mature the window, only the clock does");
+
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.TwapNotMature.selector);
+        ladder.addLadderToken(address(token));
+
+        // The reservoir is not empty here — the 5000 ETH pump paid tax into it
+        // on the way past — so the refusal has to be shown to bite on the
+        // spending side too, not just on the bookkeeping.  With nothing listed
+        // there is nowhere for that ETH to go, and the poke says so.
+        assertGt(address(ladder).balance, 0, "the pump did fund the reservoir");
+        vm.prank(attacker);
+        vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
+        ladder.pokeBuyback();
 
         vm.revertToState(snap);
 
@@ -650,36 +707,17 @@ contract ToshV5AttackTest is Test {
         uint256 proceedsB = _dumpAll(hook, token);
 
         console2.log("leg offered                 ", leg);
-        console2.log("arm A (no TWAP)   eth spent ", spentA);
-        console2.log("arm A (no TWAP)   burned    ", burnedA);
         console2.log("arm B (TWAP live) eth spent ", spentB);
         console2.log("arm B (TWAP live) burned    ", burnedB);
-        console2.log("arm A leg's own travel, bps ", 10_000 - (uint256(postSqrt) * 10_000) / target);
-        console2.log("attacker dump, arm A        ", proceedsA);
         console2.log("attacker dump, arm B        ", proceedsB);
-        console2.log("handed to the attacker      ", proceedsA - proceedsB);
 
-        // The behaviour on record: no TWAP means no bound, and no bound means
-        // the pool's price is not consulted at all — the whole cheque clears at
-        // a deviation the band exists to refuse.
-        assertEq(spentA, leg, "with no TWAP the leg fills the entire cheque, whatever the price");
-        assertGt(burnedA, 0, "and the reservoir does buy into the parked deviation");
-        // A limit of `MIN_SQRT_PRICE + 1` does not merely permit the fill, it
-        // lets the leg walk the price further on its own account.  Asserted
-        // because the tightest way to make this branch "bounded" is to hand it
-        // the pool's own spot, which permits zero travel and would leave the
-        // two assertions above intact.
-        assertLt(postSqrt, target, "an unbounded leg also moves the price it filled at");
-
-        // The same deviation with a reference to measure it against.
+        // Past the window the listing is accepted, and the band is then what
+        // refuses the deviation — so the two controls are shown to be
+        // independent.  The gate decides WHETHER a pool is eligible at all; the
+        // band decides what may be paid on any given leg.  Neither substitutes
+        // for the other, which is why arm A does not simply assert on spend.
         assertEq(spentB, 0, "with a TWAP the identical deviation is refused outright");
         assertEq(burnedB, 0, "so nothing is bought and nothing is burned");
-
-        // And the cost, which is the part the natspec does not price: the ETH
-        // the reservoir pushed into the pool at the parked price comes back out
-        // through the attacker's exit.  Same tokens sold, same starting price,
-        // so this difference is the leg and nothing else.
-        assertGt(proceedsA, proceedsB, "the unbounded leg is recovered by whoever parked the price");
     }
 
     /// @dev Sell the attacker's whole position back and return the ETH it
