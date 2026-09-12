@@ -20,7 +20,7 @@
  * real number and one hole. `currentBondingPrice` is the live shelf and is on
  * chain; a 24h change needs a price history and nothing indexes one. The slot
  * keeps its place in the layout and says there is no feed — see the note on it
- * below, and `MeritXProjectCard` for the same decision on the directory grid.
+ * below, and `ProjectCard` for the same decision on the directory grid.
  */
 
 import Link from 'next/link'

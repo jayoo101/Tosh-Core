@@ -241,7 +241,7 @@ export function useDirectoryProjects() {
     return out
   }, [phaseQuery.data, identityQuery.data, launches, registry])
 
-  // Re-bucketing must not hand every card a new object. `MeritXProjectCard` is
+  // Re-bucketing must not hand every card a new object. `ProjectCard` is
   // memoised on its `project` prop, so spreading a fresh row on every tick
   // would make that memo a no-op and re-render the whole grid for a boundary
   // nobody crossed. Collapsing the tabs to a primitive first keeps the memo

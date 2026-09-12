@@ -31,7 +31,7 @@ import { Search } from 'lucide-react'
 
 import { ACTIVE_CHAIN_LABEL, MAINNET_CHAIN_LABEL } from '@/lib/contracts'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
-import { MeritXProjectCard, SkeletonCard } from './MeritXProjectCard'
+import { ProjectCard, SkeletonCard } from './ProjectCard'
 import { useDirectoryProjects, type DirectoryTab } from './useDirectoryProjects'
 
 /**
@@ -291,7 +291,7 @@ export default function AgentDirectoryPage() {
               </div>
             ) : (
               <div className="grid gap-card sm:grid-cols-2 xl:grid-cols-3">
-                {visible.map(p => <MeritXProjectCard key={p.hook} project={p} />)}
+                {visible.map(p => <ProjectCard key={p.hook} project={p} />)}
               </div>
             )}
 

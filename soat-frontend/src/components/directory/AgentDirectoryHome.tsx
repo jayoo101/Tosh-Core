@@ -14,10 +14,10 @@ import {
 import { HeroFeedPanel } from './HeroFeedPanel'
 import {
   FeatureCard,
-  MeritXProjectCard,
+  ProjectCard,
   SkeletonCard,
   SkeletonFeatureCard,
-} from './MeritXProjectCard'
+} from './ProjectCard'
 import { TrustPipeline } from './TrustPipeline'
 import { useDirectoryProjects } from './useDirectoryProjects'
 
@@ -255,7 +255,7 @@ export default function AgentDirectoryHome() {
               <FeatureCard project={feature} />
               {rest.length > 0 && (
                 <div className="grid gap-card">
-                  {rest.map(p => <MeritXProjectCard key={p.hook} project={p} />)}
+                  {rest.map(p => <ProjectCard key={p.hook} project={p} />)}
                 </div>
               )}
             </div>

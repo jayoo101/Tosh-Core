@@ -145,7 +145,7 @@ function Remaining({ deadline, tab }: { deadline: bigint; tab: DirectoryProject[
   return <span>ends in {coarse(Number(target) - nowSec)}</span>
 }
 
-function MeritXProjectCardImpl({ project: p }: { project: DirectoryProject }) {
+function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
   const phase = PHASE[p.tab]
   const pct = Math.min(p.progress, 100)
@@ -270,14 +270,14 @@ function MeritXProjectCardImpl({ project: p }: { project: DirectoryProject }) {
  * whenever it re-buckets, but the rows inside it are referentially stable
  * between chain polls, so untouched cards skip the render entirely.
  */
-export const MeritXProjectCard = memo(MeritXProjectCardImpl)
+export const ProjectCard = memo(ProjectCardImpl)
 
 /**
  * The landing page's lead card: one project at roughly twice the area.
  *
  * The reference project pairs this with two standard cards in a
  * `lg:grid-cols-2`, so the feature fills the left column while the other two
- * stack in the right. It is the same information as `MeritXProjectCard` with
+ * stack in the right. It is the same information as `ProjectCard` with
  * more room to say it — a 56px sigil instead of 40, prose at reading size
  * instead of note size, and the numbers as a three-across row rather than a
  * single line.
@@ -288,7 +288,7 @@ export const MeritXProjectCard = memo(MeritXProjectCardImpl)
  *
  * WHERE THE MOCK PUTS PRICE / 24H / VOLUME, this puts raised / target /
  * funded. Same three-column row, same type, real numbers — see the note on
- * `MeritXProjectCard` for why the market stats cannot exist here.
+ * `ProjectCard` for why the market stats cannot exist here.
  */
 function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()

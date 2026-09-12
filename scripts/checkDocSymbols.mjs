@@ -229,6 +229,25 @@ const ALLOW = new Map([
   ['feeMode', 'asserted ABSENT — §6.4 names it to record that useActionGate replaced it'],
   ['handleDeposit', 'asserted ABSENT — the §5.12 finding; §6.6.3 now documents submitDeposit'],
   ['handleMineSalt', 'asserted ABSENT — §6.5 names it to record that mineSalt replaced it'],
+  // A seventh of exactly the same kind, and the last one to be found, which is
+  // the interesting part: the §5.12 sweep counted nine stale references and this
+  // was not among them, because it was the one that still resolved. The previous
+  // project's entire frontend was committed at `_meritx-ref/` and happened to
+  // contain an unrelated `handleMint`, so this guard had been checking a PRD
+  // citation against a foreign codebase and reporting green. Deleting that
+  // directory on 2026-09-12 is what surfaced it.
+  //
+  // The stale section was worse than the others, too. It documented a
+  // seven-rung mint cascade in an order the code had deliberately reversed —
+  // `exceedsMax` ahead of the same-block lock, which told a buyer to shrink an
+  // order that would have reverted regardless — so the PRD was teaching the bug
+  // as current behaviour. §6 now documents `submitMint` behind `useActionGate`.
+  //
+  // Two things to take from it. A guard that passes because the haystack is too
+  // large is worth less than no guard; and the six `[bracket_labels]` in the
+  // same table were never checked at all, because only identifiers in backticks
+  // are read. That second gap is still open.
+  ['handleMint', 'asserted ABSENT — §6 names it as the pre-rewrite handler, now `submitMint`'],
   ['ConnectGate', 'asserted ABSENT — §6.6.2 names it to record that no such gate exists'],
   ['GenesisWindowSelect', 'asserted ABSENT — §6.4 names it to record the control is inline, not a component'],
   ['RecentEventsTicker', 'asserted ABSENT — §6.6.4 names it to record the per-project ticker never existed'],
