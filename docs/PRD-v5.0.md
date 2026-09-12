@@ -43,7 +43,7 @@ The code comments state the design motivation bluntly (`src/ToshLaunchpadHook.so
 | 2 | The team holds a large pre-mine, a block explorer shows one address holding 100% of supply, and the community will not go near it | On-demand minting. Launch mints only the 8.4M genesis block; the remaining 12.6M is minted trade by trade as the shelves sell | `src/ToshToken.sol:44-60`, `mint` @ `src/ToshToken.sol:168-174` |
 | 3 | The team can mint from the cheap end of the curve and dump back into the pool, draining the genesis ETH | Three layers of price gating: a same-block minting ban, a `min(spot, TWAP)` reference price, and a 105% ceiling. Phase 2 is **shut entirely** for the launch block — enforced by `launch()` stamping `lastSwapBlock` itself rather than by boundary arithmetic (see §8.26) | `ToshLaunchpadHook.launch()` / `mintBondingCurve`; tests `test_ladderOpensLockedAtLaunch` + `test_ladderOpensLockedAtLaunch_acrossRaiseSizes` |
 | 4 | Genesis participants are underwater the moment the pool opens (opening price ≤ what they paid) | The 55/45 split of genesis supply produces, arithmetically, **exactly 10%** of paper premium at launch; shelf 0 stacks another 5% on top, for 15.5% combined | `GENESIS_CLAIM_SUPPLY` / `GENESIS_LP_SUPPLY` @ `src/ToshLaunchpadHook.sol`; test `test_genesisPremium_isExactlyTenPercent` @ `test/ToshV5.t.sol` |
-| 5 | The pool is locked forever, retail neither dares nor is able to LP, and pool fees accrue to a position nobody can claim | v5.0 **removes** `BEFORE_REMOVE_LIQUIDITY` from the address mask (0x22CC → 0x20CC), so retail LPs come and go freely; the genesis position is locked structurally, by "ownership plus the absence of any code path that removes" | `src/ToshLaunchpadHook.sol:129-136`, `1642-1667` (`beforeRemoveLiquidity`); test `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
+| 5 | The pool is locked forever, retail neither dares nor is able to LP, and pool fees accrue to a position nobody can claim | v5.0 **removes** `BEFORE_REMOVE_LIQUIDITY` from the address mask (0x22CC → 0x20CC), so retail LPs come and go freely; the genesis position is locked structurally, by "ownership plus the absence of any code path that removes" | `src/ToshLaunchpadHook.sol:129-136`, `1729-1754` (`beforeRemoveLiquidity`); test `test_retailLp_canAddAndRemoveWithoutTouchingGenesis` @ `test/ToshV5.t.sol` |
 | 6 | Deflation depends on an off-chain bot harvesting, which carries MEV risk and running costs | Piggyback buybacks: the `afterSwap` of a trade on a Tosh pool buys a slice and burns it to `0xdead` on its way out, **when there is gas to spare**; one leg per trade, with `max(1 ETH, 10% of balance)` divided by `BATCH_SIZE` to spread the spend. No off-chain component — but also no guarantee any longer that a trade will carry a buyback with it; the backstop is the permissionless `pokeBuyback()` (see §4.9, 8.32) | `afterSwap` @ `src/ToshLaunchpadHook.sol`; `autoPiggybackBuyback` / `pokeBuyback` @ `src/ToshLadderTreasury.sol` |
 | 7 | The platform treasury can be drained by the owner | The treasury is a **one-way valve**: no `withdraw` / `sweep` / `rescue` / `delegatecall`, and the recipient on its only outbound path, `_buyAndBurn`, is hard-coded to `0xdead` | `src/ToshLadderTreasury.sol:129`, `522-567` |
 
@@ -580,9 +580,9 @@ require(digest.recover(signature) == pogSigner)
 
 **How the two quota layers divide the work** (`src/ToshFactory.sol:430-436`):
 - `pogQuota` is a **platform-level budget across projects**, refilled per window.
-- `perWalletCap` is a **single-project ceiling**, enforced against the **snapshot taken at creation**, so that a later turn of the platform's dials cannot change the terms of a raise already in flight (`src/ToshLaunchpadHook.sol:692-694`). Test `test_perWalletCap_isSnapshottedAtProjectCreation` @ `test/ToshV5.t.sol`.
+- `perWalletCap` is a **single-project ceiling**, enforced against the **snapshot taken at creation**, so that a later turn of the platform's dials cannot change the terms of a raise already in flight (`src/ToshLaunchpadHook.sol:714-725`). Test `test_perWalletCap_isSnapshottedAtProjectCreation` @ `test/ToshV5.t.sol`.
 
-**The soft cap** is the hook's `softCap` immutable, snapshotted from `factory.defaultSoftCap` (10 ETH by default, `src/ToshFactory.sol:217`), with a floor of `MIN_SOFT_CAP_PROD = 0.01 ether`. That floor exists for exactly one reason — to prevent `p0` from truncating: `GENESIS_LP_SUPPLY = 3.78e24`, so the moment `lpEth < 3,780,000` wei, `p0` divides to 0 and the entire ladder collapses into a free-mint zone (`src/ToshFactory.sol:102-109`). Defence in depth: `launch()` also carries `require(p0 > 0)` (`src/ToshLaunchpadHook.sol:679-681`).
+**The soft cap** is the hook's `softCap` immutable (`src/ToshLaunchpadHook.sol:708-712`), snapshotted from `factory.defaultSoftCap` (10 ETH by default, `src/ToshFactory.sol:217`), with a floor of `MIN_SOFT_CAP_PROD = 0.01 ether`. That floor exists for exactly one reason — to prevent `p0` from truncating: `GENESIS_LP_SUPPLY = 3.78e24`, so the moment `lpEth < 3,780,000` wei, `p0` divides to 0 and the entire ladder collapses into a free-mint zone (`src/ToshFactory.sol:102-109`). Defence in depth: `launch()` also carries `require(p0 > 0)` (`src/ToshLaunchpadHook.sol:679-681`).
 
 **There is no hard cap**: **no basis was found in the code** for any over-subscription rejection. Deposits can keep coming after the soft cap is met, right through to the end of the window, bounded only by `perWalletCap` and the PoG quota.
 
@@ -630,7 +630,7 @@ require(digest.recover(signature) == pogSigner)
 
 > **Where M-2 stands now (updated)**: `platformTreasury` has since returned to the money path — it takes 30 bps of the ETH on every buy (`PLATFORM_SWAP_FEE_BPS`). That **reopens the surface M-2 described**, so what was removed this time is not the inflow but the **mutability**: `setPlatformTreasury` is deleted, the factory's field is now `immutable`, and the same address is burned into the hook implementation's `platformFeeRecipient` at construction. Put differently, M-2 is now held closed by "the address cannot change" rather than by "the address receives nothing". The per-launch snapshot is consequently still redundant — not because there is no fee flow, but because the source itself is already immutable. See §2.2.5.1.
 
-> **⚠️ 8.14**: at pool creation `getLiquidityForAmounts` takes the minimum of the two sides (`src/ToshLaunchpadHook.sol:2006-2012`), so both the ETH and the tokens actually consumed are ≤ the amounts offered, and the dust stays in the hook. Likewise, the truncation dust in `claimGenesis` (`allocation = CLAIM_SUPPLY × dep / total`, `src/ToshLaunchpadHook.sol:1341-1353`) leaves a minute residue in the hook permanently. The contract has **no sweep path whatsoever**. This is the same trade-off as the treasury's "one-way valve", except that on the hook side it was never documented.
+> **⚠️ 8.14**: at pool creation `getLiquidityForAmounts` takes the minimum of the two sides (`src/ToshLaunchpadHook.sol:2006-2012`), so both the ETH and the tokens actually consumed are ≤ the amounts offered, and the dust stays in the hook. Likewise, the truncation dust in `claimGenesis` (`allocation = CLAIM_SUPPLY × dep / total`, `src/ToshLaunchpadHook.sol:1424-1437`) leaves a minute residue in the hook permanently. The contract has **no sweep path whatsoever**. This is the same trade-off as the treasury's "one-way valve", except that on the hook side it was never documented.
 
 ### 4.5 The failure path — `refund()`
 
@@ -643,9 +643,9 @@ require(digest.recover(signature) == pogSigner)
 
 What the second gate means as a product: even with the soft cap met, if the creator does not launch within 7 days, depositors can withdraw in full. It closes off the "raise the money and vanish" route.
 
-**The refund is 100% of `ethDeposited[msg.sender]`** (`src/ToshLaunchpadHook.sol:1227-1252`). The 10% commission carve is only realised at `launch()`, so a failed genesis owes referrers nothing and `referralAccrued` simply becomes permanently unclaimable (`claimReferralReward` requires `launched`, `src/ToshLaunchpadHook.sol:1362-1373`).
+**The refund is 100% of `ethDeposited[msg.sender]`** (`src/ToshLaunchpadHook.sol:1227-1252`). The 10% commission carve is only realised at `launch()`, so a failed genesis owes referrers nothing and `referralAccrued` simply becomes permanently unclaimable (`claimReferralReward` requires `launched`, `src/ToshLaunchpadHook.sol:1439-1460`).
 
-**CEI order**: `ethDeposited[msg.sender] = 0` first (EFFECTS), then the event marker bits, then `_sendEth` last (INTERACTIONS), with `nonReentrant` wrapped around the whole thing (`src/ToshLaunchpadHook.sol:1227-1252`, `2207-2210`).
+**CEI order**: `ethDeposited[msg.sender] = 0` first (EFFECTS), then the event marker bits, then `_sendEth` last (INTERACTIONS), with `nonReentrant` wrapped around the whole thing (`src/ToshLaunchpadHook.sol:1227-1252`, `2294-2297`).
 
 **A pause does not affect refunds**: the test `test_pause_doesNotBlockRefund` @ `test/ToshV5Factory.t.sol` pins this down explicitly (the other face of ⚠️ 8.12: this is a good thing, but it also shows how narrow the pause's reach is).
 
@@ -714,7 +714,7 @@ Folds **every quantity limit** a buyer can hit into a single number (`src/ToshLa
 | `getPoolKey()` / `hasClaimed(user)` / `claimableReferral(referrer)` | pool key / claim flag / claimable commission | `1522-1533` |
 | `satoDeposited(user)` / `totalSatoDeposited()` | **v4.x compatibility shims**, aliasing `ethDeposited` / `totalEthDeposited` respectively | `1535-1546` |
 
-> **⚠️ 8.15**: `phase2Minted` is an independent accumulator (`phase2Minted += tokenAmount`), a second set of books alongside `currentTierIndex`/`currentTierSold`. On the normal path the two agree, but the comment on the `ExceedsTierRemaining` error says to "read `bondingRemaining()` and shrink the order" (`src/ToshLaunchpadHook.sol:942`, `789-807`), whereas the actual trigger condition is `tierIndex >= TIER_COUNT` (the ladder's tiers are exhausted). The view the error points at is not the same quantity as the condition that fired it.
+> **⚠️ 8.15**: `phase2Minted` is an independent accumulator (`phase2Minted += tokenAmount`, `src/ToshLaunchpadHook.sol:835-838`), a second set of books alongside `currentTierIndex`/`currentTierSold` (`src/ToshLaunchpadHook.sol:826-828`, `831-833`). On the normal path the two agree, but the comment on the `ExceedsTierRemaining` error says to "read `bondingRemaining()` and shrink the order" (`src/ToshLaunchpadHook.sol:942`, `789-807`), whereas the actual trigger condition is `tierIndex >= TIER_COUNT` (the ladder's tiers are exhausted). The view the error points at is not the same quantity as the condition that fired it.
 
 ### 4.7 Claiming the genesis share — `claimGenesis()`
 
@@ -882,11 +882,11 @@ _getTWAPPrice():
 
 **Two layers of lock**:
 
-1. **OpenZeppelin `ReentrancyGuard` (persistent storage)**: the hook inherits `ReentrancyGuard` (`src/ToshLaunchpadHook.sol:145`, `1223-1519`), and `nonReentrant` covers `refund` / `launch` / `claimGenesis` / `claimReferralReward` / `mintBondingCurve`. The factory inherits it too and covers `createLaunch` / `deposit` (`src/ToshFactory.sol:37`, `657-717`, `740-766`).
+1. **OpenZeppelin `ReentrancyGuard` (persistent storage)**: the hook inherits `ReentrancyGuard` (`src/ToshLaunchpadHook.sol:145`, `1223-1519`), and `nonReentrant` covers `refund` / `launch` / `claimGenesis` / `claimReferralReward` / `mintBondingCurve`. The factory inherits it too and covers `createLaunch` / `deposit` (`src/ToshFactory.sol:37`, `780-840`, `867-901`).
 
 2. **EIP-1153 transient flag (`tstore`/`tload`)**: the treasury parks a recursion guard in slot `0x546f73685069676779626163b1000001` (`src/ToshLadderTreasury.sol:79-85`, `359-363`, `385-389`). The reason for transient storage is that "the flag is only meaningful within the current transaction".
 
-**Why recursion suppression is necessary** (`src/ToshLadderTreasury.sol:160-166`): a piggyback buys through **other** Tosh pools, and those pools' hooks would otherwise tax the buyback and **re-trigger a nested piggyback**. So the hook reads `piggybackActive()` early in both `beforeSwap` and `afterSwap`, and goes **fully passive** while it is set (`src/ToshLaunchpadHook.sol:1720`, `1774`):
+**Why recursion suppression is necessary** (`src/ToshLadderTreasury.sol:160-166`): a piggyback buys through **other** Tosh pools, and those pools' hooks would otherwise tax the buyback and **re-trigger a nested piggyback**. So the hook reads `piggybackActive()` early in both `beforeSwap` and `afterSwap`, and goes **fully passive** while it is set (`src/ToshLaunchpadHook.sol:1790-1819`, `1828-1921`):
 
 ```solidity
 if (sender == ladderTreasury || _piggybackActive()) { /* zero delta, no tax, no poke */ }

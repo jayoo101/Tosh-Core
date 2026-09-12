@@ -520,22 +520,22 @@ it here:
 
 ## 4. Test coverage
 
-`forge test` — **355 passing**, and again under `forge test --isolate`, which
+`forge test` — **361 passing**, and again under `forge test --isolate`, which
 bills each call the way a real transaction would rather than letting storage
 touched in setup stay warm for the rest of the test. Both runs are CI gates.
 
 A further **12 fork tests** run only when `ROBINHOOD_RPC` is set and report as
-SKIPPED otherwise, so the passing count is 355 or 367 depending on whether the
-runner has an endpoint. They are listed below but excluded from the 355
+SKIPPED otherwise, so the passing count is 361 or 373 depending on whether the
+runner has an endpoint. They are listed below but excluded from the 361
 deliberately: a number that changes with a credential is not a number. The CI
 floor is immune to that distinction because it reads forge's `(N total tests)`,
-which counts a skipped test — so the gate is 367 either way, measured rather
+which counts a skipped test — so the gate is 373 either way, measured rather
 than assumed in `.github/workflows/test.yml`.
 
 Which rows those 12 are is now derived from whether the file reads
 `ROBINHOOD_RPC`, not from whether its name contains "Fork".
 `ToshV5FirstLaunchRehearsal.t.sol` skips on a missing endpoint exactly as
-`ToshV5Fork.t.sol` does, and the filename rule had put its 4 into the 355 —
+`ToshV5Fork.t.sol` does, and the filename rule had put its 4 into the 361 —
 the bucket this paragraph defines as the count that holds without a credential.
 The arithmetic still reconciled, so nothing was red; the passing figure was
 simply four too high, which is the shape of drift `checkTestTable.mjs` exists
@@ -558,7 +558,7 @@ an on-demand suite deliberately; the floor is what notices if it is deleted.
 | File | Tests | Focus |
 |------|------:|-------|
 | `test/ToshV5Factory.t.sol` | 112 | Pause, blacklist, PoG quota/cooldown/nonce, launch fee, name registry, ownership. Also the four bounded setters (§5.14, §5.15). |
-| `test/ToshV5.t.sol` | 87 | Happy paths: genesis → launch → claim → shelf ladder → refund; ladder halt. Also the gas budgets and the piggyback gas gate. |
+| `test/ToshV5.t.sol` | 93 | Happy paths: genesis → launch → claim → shelf ladder → refund; ladder halt. Also the gas budgets and the piggyback gas gate. |
 | `test/ToshV5Guards.t.sol` | 72 | Access control and phase guards across every external entry point. |
 | `test/ToshHookClone.t.sol` | 18 | EIP-1167 clone layout, immutable-arg round-trip, per-clone isolation, salt mining, deployment gas. |
 | `test/ToshV5Attack.t.sol` | 17 | The §2.3 surfaces, adversarially. |
@@ -1474,7 +1474,7 @@ slither . --filter-paths "lib/|test/|script/" --json slither.json
 node scripts/slitherTriage.mjs --full
 ```
 
-66 contracts, 102 detectors, **72 findings** — 1 high / 24 medium / 27 low /
+66 contracts, 102 detectors, **74 findings** — 1 high / 26 medium / 27 low /
 20 informational. Those are the CURRENT numbers, and they live here rather than
 in the newest re-run note below because `checkSlitherFindings.mjs` reads the
 first total and the first split it finds in this section. The dated notes below
@@ -1537,6 +1537,20 @@ that were already there, being looked at. This one is a finding this repository
 created deliberately, on the same day, with the argument in the commit that
 created it and in `addLadderToken`'s natspec.
 
+**Re-run 2026-09-12, and both new findings are in code written that day.**
+74 findings, 26 of them medium. The referral carve was split 8 % to a
+per-project referrer and 2 % to a lifetime slot, and `deposit()` grew the
+arithmetic that does it. Slither reads two things in it:
+
+- `uninitialized-local` on `deposit.reserved`, which is `uint256 reserved;`
+  with no `= 0`. Accepted on the same grounds as the four loop accumulators
+  already in the table: a value-type local is zero-initialised by the language,
+  so the declaration is not missing anything. This is the row where the count
+  is the only honest thing to update.
+- `divide-before-multiply` on `deposit`, which is a correct reading of the
+  code and **not** a defect. It is treated separately below, because the reason
+  it is left alone is not the reason the two in `launch()` are.
+
 **Nothing here changed the code.** That is a claim worth being suspicious of,
 so the findings that could plausibly have been real are written up with the
 verification, and the reason the reentrancy cluster is structurally invisible
@@ -1548,8 +1562,8 @@ to Slither is stated rather than assumed.
 | `incorrect-equality` | Medium | 5 | False positive — all are `== 0` guards, with no manipulable intermediate. |
 | `reentrancy-no-eth` | Medium | 3 | False positive — guarded, but by mechanisms Slither does not model. Below. |
 | `unused-return` | Medium | 8 | Accepted — V4 `settle`/`initialize`/`getSlot0` returns genuinely unneeded; `modifyLiquidity` destructures the delta it uses and drops `feesAccrued`, zero on a fresh position. |
-| `uninitialized-local` | Medium | 6 | Accepted — loop accumulators (`filled`, `cost`, `sold`, `legs`) whose intended initial value is zero. An explicit `= 0` costs gas and says nothing. |
-| `divide-before-multiply` | Medium | 2 | Reviewed against real magnitudes, bounded, not changed. Below. |
+| `uninitialized-local` | Medium | 7 | Accepted — loop accumulators (`filled`, `cost`, `sold`, `legs`) whose intended initial value is zero, plus `deposit.reserved` since 2026-09-12. An explicit `= 0` costs gas and says nothing. |
+| `divide-before-multiply` | Medium | 3 | Reviewed against real magnitudes, bounded, not changed. Two in `launch()`, one in `deposit()` since 2026-09-12. Below. |
 | `timestamp` | Low | 17 | Already inventoried in §2.4 — the genesis clock and the TWAP window, both intentionally wall-clock. |
 | `reentrancy-events` / `reentrancy-benign` | Low | 8 | Accepted — event ordering only; no state a caller can observe or act on. Three of the eight are the dark tax and are new since 2026-08-27. Below. |
 | `calls-loop` | Low | 2 | Accepted — the piggyback loop is bounded by `LEGS_PER_POKE` and every leg is `try/catch` fault-isolated. |
@@ -1711,6 +1725,36 @@ The second instance — `perToken * count` in `_runPiggyback`'s
 `PiggybackExecuted` — is not a defect: `count` legs each received `perToken`,
 so the product is what was actually committed. Emitting `spend` would be wrong,
 since the remainder stays in the reservoir.
+
+**The third instance — `deposit()`, added 2026-09-12 — is a chosen rounding,
+not an overlooked one.**
+
+```solidity
+uint256 commission  = (amount * REFERRAL_BPS) / BPS_DENOMINATOR;
+uint256 projectCut  = (commission * PROJECT_REFERRAL_SHARE_BPS) / BPS_DENOMINATOR;
+uint256 lifetimeCut = commission - projectCut;
+```
+
+Slither is right that `commission` is a quotient and is then multiplied. The
+single-step form, `amount * 800 / BPS_DENOMINATOR`, would be more accurate for
+`projectCut` taken alone — and it is rejected on purpose, because the two legs
+are not independent quantities. What has to hold exactly is
+`projectCut + lifetimeCut == commission`, for every amount, since `launch()`
+seeds the LP with the non-commission remainder and a wei of drift in the total
+moves the opening premium. Subtracting the second leg rather than computing it
+makes that identity hold by construction, for free, at every magnitude.
+
+The price is one wei of slippage in the 80/20 split at dust amounts. At
+`amount = 19` wei: `commission = 1`, `projectCut = 0`, `lifetimeCut = 1`, where
+a single mulDiv would have given the project referrer the wei instead. Both
+forms carve exactly 1 wei in total, which is the invariant that matters; they
+disagree only about which of two referrers receives a quantity worth
+`2e-18` ETH. Folding the multiply in would trade an exact total for an exact
+split, which is the wrong direction.
+
+Unlike the `launch()` case above, there is nothing here to revisit later: this
+is not a rounding waiting for a convenient redeploy, it is the arithmetic the
+invariant requires.
 
 ### 5.8 Fourth sweep — what an unreachable registry costs
 
@@ -5078,7 +5122,7 @@ honest, or reachable.
 > would separate each finding from the reasoning that produced it, which is the
 > part worth keeping when nobody external is reading either.
 >
-> Static analysis is not here either: Slither's 72 findings are triaged in
+> Static analysis is not here either: Slither's 74 findings are triaged in
 > **§5.7**.
 
 **External findings to date: none, and none expected.** Previously this line
