@@ -294,9 +294,27 @@ jobs:
               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           fi
           cp monitoring/.watch-state.json "$STATE_DIR/.watch-state.json"
+
+          # Every checkpoint push made Vercel attempt a Preview build of this
+          # branch, and every one of them failed: the branch holds a state file
+          # and no application. ~6.5 failed deployments a day, and the cost is
+          # not the build minutes — it is that a permanent stream of expected
+          # deployment failures is how a real one stops being noticed.
+          #
+          # `git.deploymentEnabled` has to be present ON the branch being pushed
+          # to be consulted (vercel/vercel#11176 — an orphan `gh-pages` branch,
+          # the same shape as this one). Written to both paths on purpose: the
+          # project's Root Directory is `soat-frontend`, which is where Vercel
+          # documents vercel.json living, and reports differ on which path a
+          # pre-build check reads. Two lines beats guessing, because guessing
+          # wrong here fails silently — the deployments simply keep failing.
+          printf '{"git":{"deploymentEnabled":false}}\n' > "$STATE_DIR/vercel.json"
+          mkdir -p "$STATE_DIR/soat-frontend"
+          cp "$STATE_DIR/vercel.json" "$STATE_DIR/soat-frontend/vercel.json"
+
           git -C "$STATE_DIR" config user.name  'tosh-watcher'
           git -C "$STATE_DIR" config user.email 'watcher@users.noreply.github.com'
-          git -C "$STATE_DIR" add .watch-state.json
+          git -C "$STATE_DIR" add .watch-state.json vercel.json soat-frontend/vercel.json
           if git -C "$STATE_DIR" diff --cached --quiet; then
             echo 'checkpoint unchanged'
             exit 0
