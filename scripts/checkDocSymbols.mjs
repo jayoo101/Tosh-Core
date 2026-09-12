@@ -216,6 +216,42 @@ const ALLOW = new Map([
   ['ConnectGate', 'asserted ABSENT — §6.6.2 names it to record that no such gate exists'],
   ['GenesisWindowSelect', 'asserted ABSENT — §6.4 names it to record the control is inline, not a component'],
   ['RecentEventsTicker', 'asserted ABSENT — §6.6.4 names it to record the per-project ticker never existed'],
+  // These five are the v0 redesign's removal of the directory-home event
+  // ticker (2026-09-12), and they are the entries in this file most likely to
+  // become wrong, so read the last paragraph before trusting them.
+  //
+  // Unlike everything above, these names are not absent on principle. They
+  // name components that really shipped — `TxFeedMarquee`, its
+  // `EventTickerStrip` wrapper (called `A2AFeed` until 50bc9a7) and the
+  // `useWatchContractEvent` subscription that drove them — and the redesign
+  // deleted both files and the mount in `AgentDirectoryHome` as one change.
+  // What these entries record is that removal, not a claim that the
+  // components were never written. §6.6.4 describes what was removed, and
+  // 50bc9a7 is where it is recoverable from.
+  //
+  // HOW THIS GUARD CAUGHT IT, which is the part worth keeping. The haystack is
+  // what `git ls-files` reports, and a file it cannot open is skipped rather
+  // than failed. So while the deletion was still uncommitted, three
+  // tracked-but-absent files read here as symbols existing nowhere — and the
+  // guard went red on a working tree whose docs were still correct. That is it
+  // working: an uncommitted deletion of a live feature is exactly the drift
+  // this is for. It was briefly misread as documentation drift, and the docs
+  // were rewritten to say the components had never existed, on the reasoning
+  // that `git log --diff-filter=D` found no delete commit. That inference is
+  // invalid — an uncommitted deletion produces no delete commit either — and
+  // the rewrite was reverted. §6.6.4 keeps the record so it is not repeated.
+  //
+  // THE COST HERE IS REAL, unlike `trace_filter` or the Safe names. An ALLOW
+  // entry is skipped BEFORE the search runs, so these five now sit between
+  // this guard and the very condition it just detected: rebuild a ticker under
+  // any of these names, or restore the files, and the guard stays green while
+  // §6.6.4 asserts an absence that has stopped being true. Whoever does either
+  // has to delete these entries in the same change.
+  ['TxFeedMarquee', 'removed by the v0 redesign — §6.6.4 records what it was; recoverable from 50bc9a7'],
+  ['EventTickerStrip', 'the ssr:false wrapper that mounted it, removed in the same change'],
+  ['A2AFeed', 'that wrapper\'s pre-50bc9a7 name — §6.6.4 cites it for the rename; neither name is in the tree now'],
+  ['watchContractEvent', 'asserted ABSENT — §6.6.4 names it to record that the app subscribes to no contract event'],
+  ['useWatchContractEvent', 'the wagmi hook form: it drove the removed marquee, and §6.6.4 names it for both facts'],
 ]);
 
 function fail(code, msg) {

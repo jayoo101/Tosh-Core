@@ -8,12 +8,20 @@
  *
  * NON-OBVIOUS CONSTRAINT — `accent` is a substring of the title, not a colour
  * prop.  Every page in this app renders its headline as "Protocol *Control*" /
- * "Create a *Tosh Launch*" with the tail in fluorescent green; passing the two
+ * "Launch an *agent*" with the tail in the brand colour; passing the two
  * halves separately is what keeps that from being re-hand-rolled as a nested
- * <span> with a different green each time.
+ * <span> with a different value each time.  It says "the brand colour" rather
+ * than naming a hue because the brand stopped being green in 50bc9a7 and this
+ * sentence outlived it by naming one.
  *
- * REPLACES: the `<header>` block in launch/page.tsx, the admin console's page
- * header, and `GroupHeader` in admin/page.tsx (as `SectionHeader`).
+ * REPLACES: the admin console's page header and `GroupHeader` in admin/page.tsx
+ * (as `SectionHeader`).
+ *
+ * `/launch` IS NO LONGER A CALLER, and this line used to claim it was. The v0
+ * port gave that page a single flat mono headline over a `border-b` rule, with
+ * no accent tail to split — so it went back to hand-written markup rather than
+ * growing this component a "no accent, different type, own rule" mode for one
+ * route. Anything that wants the two-tone headline still belongs here.
  */
 
 import type { ReactNode } from 'react'

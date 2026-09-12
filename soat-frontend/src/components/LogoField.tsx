@@ -11,8 +11,9 @@
  * most do not, which is why the directory is mostly letter sigils.
  *
  * `POST /api/projects/logo` is the capability. This is the control that
- * actually calls it, placed on the Token card rather than behind a details
- * summary so choosing a picture is the same kind of act as naming the token.
+ * actually calls it, and it leads the Identity section rather than sitting
+ * behind a disclosure, so choosing a picture is the same kind of act as naming
+ * the token.
  *
  * ── Timing, which is load bearing ──────────────────────────────────────────
  *
@@ -30,8 +31,8 @@
  */
 
 import { useId, useRef, useState } from 'react'
+import { Upload, X } from 'lucide-react'
 import { ProjectLogo } from '@/components/ProjectLogo'
-import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { cn } from '@/components/ui/cn'
 import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
@@ -129,83 +130,119 @@ export function LogoField({
   }
 
   return (
-    <div className="flex flex-col gap-gap">
-      <div className="flex flex-col gap-gap-tight">
-        <span className="font-mono text-label text-text-tertiary">Logo</span>
+    <div className="flex flex-col gap-gap-tight">
+      <span className="font-mono text-label text-text-tertiary">Logo</span>
 
-        <div className="flex items-stretch gap-gap-tight">
-          <label
-            htmlFor={id}
-            onDragEnter={(e) => { e.preventDefault(); setDragging(true) }}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDragging(false)
-              takeFile(e.dataTransfer.files)
-            }}
-            className={cn(
-              'flex flex-1 cursor-pointer items-center gap-gap rounded-input border px-3 py-2.5',
-              'transition-colors',
-              error
-                ? 'border-danger/60'
-                : dragging || value
-                  ? 'border-brand'
-                  : 'border-border-subtle hover:border-border-strong',
-              busy && 'cursor-wait opacity-60',
-            )}
-          >
-            <input
-              ref={inputRef}
-              id={id}
-              type="file"
-              accept={LOGO_ACCEPT}
-              disabled={busy}
-              className="hidden"
-              onChange={(e) => takeFile(e.target.files)}
-            />
-            <ProjectLogo src={value || null} name={name} className="h-12 w-12" />
-            <span className="flex min-w-0 flex-col gap-1">
-              <span className="font-mono text-label uppercase text-text-primary">
-                {busy ? 'Uploading…' : value ? 'Replace image' : 'Choose image'}
-              </span>
-              <span className="font-mono text-label text-text-quiet">
-                PNG, JPEG, GIF or WebP · up to 1 MB
-              </span>
-            </span>
-          </label>
+      {/* THE REFERENCE'S SHAPE: an 80px preview square with the control and
+          the format hint stacked beside it. This was one bordered label with
+          the tile and the words inside it, which made the preview itself the
+          button; the reference separates them, and the separation is what lets
+          the hint sit next to the control it constrains instead of under the
+          whole block.
 
-          {value ? (
-            <Button
-              label="Remove"
-              variant="ghost"
-              size="sm"
-              disabled={busy}
+          The square keeps the drop handlers. It is inert in the reference — a
+          preview only — but a picture dropped on a picture-shaped hole is the
+          one gesture worth having here, and it costs no layout. */}
+      <div className="flex items-center gap-4">
+        <input
+          ref={inputRef}
+          id={id}
+          type="file"
+          accept={LOGO_ACCEPT}
+          disabled={busy}
+          // `hidden`, not `sr-only`: the button below is the accessible
+          // control, and an `sr-only` input stays focusable, so a keyboard
+          // user would hit an unlabelled file input before reaching it.
+          className="hidden"
+          onChange={(e) => takeFile(e.target.files)}
+        />
+
+        <div
+          onDragEnter={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            takeFile(e.dataTransfer.files)
+          }}
+          className={cn(
+            'relative flex h-20 w-20 shrink-0 items-center justify-center',
+            'overflow-hidden rounded-panel border bg-bg-base transition-colors',
+            error
+              ? 'border-danger/60'
+              : dragging || value
+                ? 'border-brand'
+                : 'border-border-subtle',
+            busy && 'opacity-60',
+          )}
+        >
+          <ProjectLogo src={value || null} name={name} className="h-full w-full" />
+
+          {value && !busy ? (
+            <button
+              type="button"
+              aria-label="Remove image"
               onClick={() => {
                 setError(null)
                 onValueChange('')
               }}
-            />
+              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-pill bg-bg-base/80 text-text-primary backdrop-blur transition-colors hover:bg-danger hover:text-bg-base"
+            >
+              <X aria-hidden className="h-3 w-3" />
+            </button>
           ) : null}
         </div>
 
-        {error ? (
-          <span className="font-mono text-label tracking-[0.12em] text-danger">
-            {error}
-          </span>
-        ) : null}
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex w-fit items-center gap-1.5 rounded-input border border-border-subtle bg-bg-base px-3 py-2 text-note font-medium text-text-primary transition-colors hover:border-brand/50 disabled:cursor-wait disabled:opacity-60"
+          >
+            <Upload aria-hidden className="h-3.5 w-3.5" />
+            {busy ? 'Uploading…' : value ? 'Replace token logo' : 'Upload token logo'}
+          </button>
+
+          {error ? (
+            <span className="font-mono text-micro text-danger">{error}</span>
+          ) : (
+            // The reference's hint reads "PNG, JPG or SVG · square · max 1MB".
+            // Two thirds of that is wrong for this route: SVG is refused
+            // because it is a document that can carry script, and nothing
+            // crops or checks the aspect ratio, so promising "square" would be
+            // an instruction the server does not enforce.
+            <span className="font-mono text-micro text-text-quiet">
+              PNG, JPEG, GIF or WebP · up to 1 MB
+            </span>
+          )}
+        </div>
       </div>
 
-      <Field
-        label="Or paste a URL"
-        value={value}
-        onValueChange={(next) => {
-          setError(null)
-          onValueChange(next)
-        }}
-        placeholder="https://…/logo.png"
-        disabled={busy}
-      />
+      {/* Behind a disclosure now. It is the fallback for a creator who already
+          hosts the image or who hit the 503 on a deployment with no storage
+          key, and as a permanently visible second row it looked like the other
+          half of a two-part control. */}
+      <details className="group mt-gap-tight">
+        <summary className="cursor-pointer list-none font-mono text-label text-text-quiet hover:text-text-tertiary">
+          Or paste a URL
+          <span className="ml-2 group-open:hidden">+</span>
+          <span className="ml-2 hidden group-open:inline">−</span>
+        </summary>
+        <div className="mt-gap-tight">
+          <Field
+            label="Image URL"
+            value={value}
+            onValueChange={(next) => {
+              setError(null)
+              onValueChange(next)
+            }}
+            placeholder="https://…/logo.png"
+            disabled={busy}
+          />
+        </div>
+      </details>
     </div>
   )
 }

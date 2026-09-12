@@ -117,13 +117,23 @@ export function HeroFeedPanel({
   const empty = !loading && rows.length === 0
 
   return (
-    <div className="overflow-hidden rounded-panel border border-border-subtle bg-surface-card shadow-panel">
+    // `bg-surface-card/70` + `backdrop-blur-sm`, which is the reference's
+    // `bg-card/70`: the hero glow sits behind this panel and the translucency
+    // is what lets it through, so an opaque card reads as a hole punched in
+    // the gradient. Only works because the glow is an overlay on the hero —
+    // there is nothing behind the panel to blur on any other page.
+    <div className="overflow-hidden rounded-panel border border-border-subtle bg-surface-card/70 shadow-lift backdrop-blur-sm">
       <div className="flex items-center justify-between border-b border-border-subtle px-card py-gap-tight">
         <span className="font-mono text-micro uppercase text-text-tertiary">On-chain feed</span>
-        {/* "newest launches", not "factory events": the event ticker is a
-            separate strip below the hero, and two captions saying the same
-            thing about two different things is how one of them gets misread. */}
-        <span className="font-mono text-micro text-text-quiet">newest launches</span>
+        {/* "factory events" with a live pip, restored to the reference's
+            wording. This said "newest launches" to avoid colliding with the
+            FACTORY EVENTS ticker strip that used to sit below the hero; that
+            strip is deleted, so there is nothing left to collide with — and
+            these rows are factory events, newest first. */}
+        <span className="flex items-center gap-1.5 font-mono text-micro text-success">
+          <span className="dot-breathe h-1.5 w-1.5 rounded-pill bg-success text-success" />
+          factory events
+        </span>
       </div>
 
       <div className="divide-y divide-border-subtle/60">
