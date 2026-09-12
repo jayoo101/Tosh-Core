@@ -149,6 +149,19 @@ const ALLOW = new Map([
   // `b938da7`. Cost is nil in the usual direction — `src/` gaining a `d0220e2`
   // string would not falsify a statement about which commit was deployed.
   ['d0220e2', 'the 2026-09-08 deploy commit — a git object, not a code symbol; artefact recoverable from b938da7'],
+  // Two error names that never existed. §5.35 first offered them as errors whose
+  // selectors are absent from the deployed treasury bytecode, which was true and
+  // worthless: they are absent because nothing declares them. The real names are
+  // `TokenAlreadyListed` and `FactoryNotSet`.
+  //
+  // This guard caught that, and the paragraph now says so and keeps the wrong
+  // names deliberately, because a correction that hides what it corrected teaches
+  // nothing. They are allowed here on exactly the terms of the `_headers` entry
+  // above: asserted absent, with a doc that depends on their absence rather than
+  // their presence. If either name ever appears in `src/`, §5.35's aside becomes
+  // false and should be rewritten — the reason for a reason.
+  ['AlreadyListed', 'asserted ABSENT — §5.35 names it as a misremembering of `TokenAlreadyListed`'],
+  ['NotFactory', 'asserted ABSENT — §5.35 names it as a misremembering of `FactoryNotSet`'],
   // Three JSON-RPC method names, same category as `master`: they are names on
   // someone else's node, not symbols in this tree, so "found nowhere" is the
   // expected result rather than drift. PRE_MAINNET_CHECKLIST.md §7 names them

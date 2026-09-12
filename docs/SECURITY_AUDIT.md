@@ -3803,7 +3803,12 @@ one. A guard is warranted. Not built in this sweep.
 
 ### 5.25 Twenty-first sweep — a complete mainnet factory with no artefact
 
-PM-C1 broadcast on 2026-09-08. The canonical pair is on chain 4663 at blocks
+PM-C1 broadcast on 2026-09-08. **The pair below stopped being canonical on
+2026-09-12**, when the immutable referral split forced a redeploy to factory
+`0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892` and treasury
+`0x255722226720914eF5B2CD54647f21f584BD4Ea2` at block 61056709; see §5.35. This
+section is left as written because it is the record of that day's sweep, including
+the ownership state it found mid-handoff. Chain 4663, blocks
 57400516–57400521:
 
 - `ToshFactory` `0xBa9d2E86281b988225Eca383C375215912fb20B9` (10,789 bytes)
@@ -5433,3 +5438,147 @@ spent rather than recycled — and later the same day it was lowered from 0.1 to
 deliberately divergent. Also cleared: the 1 ETH `capWei` against
 the 0.1 ETH on-chain allocation limit is an input cap against an output cap,
 not a mismatch, and `assertPogBandCoherent()` already binds them.*
+
+---
+
+### 5.35 Thirty-first sweep — the platform moved and one page kept watching the address it left
+
+The 8 % / 2 % referral split lives in `immutable` storage, so changing it meant
+new bytecode, and on 2026-09-12 the platform was redeployed: factory
+`0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892`, treasury
+`0x255722226720914eF5B2CD54647f21f584BD4Ea2`, block 61056709, from commit
+`9b9d9ce`. The 2026-09-08 pair still exists on chain, unpaused and unowned by
+anyone but the Safe, and is out of scope. This sweep is about what a redeploy
+does to everything that had written the old address down.
+
+**The finding: the public status page spent four days reporting on a factory
+nobody uses.** `jayoo101/tosh-status` hardcodes its own `CHAIN` block, and its
+`factory` field still read `0xBa9d2E86…` on 2026-09-12. The page's entire
+function is to answer "is the live factory paused" during an incident, from a
+host that does not depend on our app. Pausing the real factory would therefore
+have left it reporting *operational* — the precise failure it exists to prevent —
+and both of its explorer links sent readers to a contract with no users. Fixed at
+`8099867`.
+
+**Nothing was ever going to catch this, and that is the part worth generalising.**
+The page is in a different repository, so no guard in this one can see it;
+`checkStatusPage.mjs` asks whether the page is reachable and internally coherent,
+not whether its factory is the factory this repo deploys. A cutover has as many
+halves as there are places the address is written, and the halves outside the
+repository have no guard by construction. PM-C7 already carried two halves for
+exactly this reason and still needed a manual sweep to close the second one.
+
+**`checkStatusPage.mjs` had a cutover check and it was the wrong one, which is
+more interesting than not having had one.** Check 6 makes the page's four chain
+fields vote testnet-or-mainnet and complains if the vote is testnet once a 4663
+broadcast exists. `0xBa9d2E86…` votes mainnet — it is a perfectly good mainnet
+factory, merely a retired one — so the guard was satisfied for the whole four
+days, and reported `cutover check active` while doing it. The distinction it was
+missing is *which* mainnet factory, and the reason that distinction had never
+come up is that until 2026-09-12 there had only ever been one.
+
+Closed this sweep as check **6b**: the page's `factory` field is now compared
+against the `ToshFactory` `CREATE` entry in `broadcast/*/4663/run-latest.json`.
+The comparison introduces no constant to maintain, because the broadcast
+overwrites that artefact itself, and the page already had to be parsed for check
+6 — so the two values were both already in hand and simply never met. It was
+verified by making it fail: fed the retired address as the expected value it
+reports the drift rather than passing, which is the only way to know a green
+check means anything. Any future immutable change forces another redeploy, so
+this will be load-bearing again.
+
+**Two resets that are consequences rather than defects, recorded so they are not
+later read as either.** First, PoG attestation is scoped to the factory, so every
+user's attestation reset with the redeploy; nothing was lost that cannot be
+re-earned, but the live system's attested-user count went to zero silently.
+Second, `acceptOwnership()` is per-contract, so PM-C2's 2026-09-08 acceptance
+said nothing whatever about the new addresses: the new pair opened its own
+single-key window with the deployer as `owner()` and closed it only when the Safe
+accepted. A redeploy reopens every per-address control, and the checklist rows
+that look "already closed" are the dangerous ones.
+
+**Three things that look like evidence and are not.** All three cost real time
+this sweep, and all three fail in the direction of a false negative or a false
+positive rather than an error.
+
+1. **Blockscout's own verification form offers a method called `sourcify`, and it
+   does not verify on Blockscout.** It renders an embedded `verify.sourcify.dev`
+   widget that submits to Sourcify and displays *Sourcify's* result, so it shows a
+   green "Match" badge for a contract Blockscout continues to list as unverified.
+   Two attempts were reported successful on that basis before anyone read
+   `is_verified` from `/api/v2/addresses/<addr>`. There is no path from a Sourcify
+   publication into Blockscout's database. The method that works is **Solidity
+   (Standard JSON input)**, and all five contracts are verified through it, graded
+   `partial match` with `is_verified_via_sourcify: false` — accurate, because
+   Blockscout compiled and compared for itself.
+2. **A silently re-enabled form was a rate limit, not a rejected payload.**
+   Blockscout's verification endpoint allows `x-ratelimit-limit: 1` submission per
+   `x-ratelimit-reset` ≈ 18-minute window and answers `429 {"message":"Too many
+   requests"}`, but the page surfaces none of it: the form simply re-enables with
+   the file still attached. Retrying early spends the attempt and appears to
+   restart the window. Found only by installing `fetch` and `XHR` interceptors in
+   the page and reading the response instead of the form.
+3. **Searching runtime bytecode for a custom-error selector is not a test.**
+   Checking whether the new treasury carries the `TwapNotMature` gate by looking
+   for `0x6b0cd1ba` in `cast code` returns absent — and that means nothing. Of the
+   fourteen custom errors `ToshLadderTreasury` declares, **six leave a literal
+   four-byte selector in the deployed runtime and eight do not**, with no relation
+   to reachability: `OnlyHook` `0x5a91834f`, `ZeroAddress` `0xd92e233d`,
+   `TokenNotLaunchedHere` `0x8696f741`, `InvalidPoolKey` `0xc256622b`,
+   `OnlyPoolManager` `0xf655705d` and `PiggybackInProgress` `0x13987a05` are
+   findable, while `FactoryNotSet` `0xa7df7fac`, `TokenAlreadyListed` `0xdeaabdc2`,
+   `TokenNotListed` `0xc5f0a1ee`, `PoolNotLaunched` `0xf3ea0eb4`, `NotArmed`
+   `0x8db2750a`, `OnlySelf` `0x14d4a4e8`, `FactoryAlreadySet` `0x154c51b8` and
+   `TwapNotMature` itself are not. Under `viaIR` the selector is frequently
+   materialised rather than stored, so **absence carries no information at all**.
+   The evidence that holds is the Blockscout match — runtime
+   bytecode identical to a compilation of source containing the gate. Probing it
+   live is unavailable: `addLadderToken` is owner-only and reverts
+   `OwnableUnauthorizedAccount` `0x118cdaa7` before reaching the check.
+
+   *The first version of this paragraph cited two contrasting errors called
+   `AlreadyListed` and `NotFactory`. Neither exists — the real names are
+   `TokenAlreadyListed` and `FactoryNotSet` — so it had computed selectors for
+   signatures no compiler had ever seen and offered their absence as evidence.
+   `checkDocSymbols.mjs` refused the commit, which is the second time in this
+   dossier that a doc guard has caught a claim resting on a symbol that was never
+   there. The numbers above replaced the invention and are a measurement.*
+
+**And one where the verification machine itself was the liar.** DNS and HTTP
+checks run from the operator laptop returned addresses in `198.18.0.0/15` for
+every hostname, which were read as a registrar parking page and produced a
+confident, wrong report that the domain had not propagated. That range is the
+fake-IP block a Clash-style local proxy hands out; the tell that was missed is
+that the *nameservers* resolved into it too (`launch1.spaceship.net` →
+`198.18.0.75`). Real answers came from DNS-over-HTTPS (`dns.google/resolve`,
+`cloudflare-dns.com/dns-query`) and from Vercel's own request logs: both
+hostnames `76.76.21.21`, serving 200s. **Any check whose subject is the network
+must not be run through this machine's resolver.** The same artefact had been
+making local HTTPS failures look like site outages.
+
+*(Also closed this sweep, mechanically: `RecomputeInitcodeHash` re-measured
+against the new factory — `HOOK_CREATION_CODEHASH`
+`0xece3b0c259085201dda4d6a2ab94ed469a1d806b498a4d8c411b74ecd0b549f4`, changed
+because the hook's creation code changed, which is what a working redeploy looks
+like — `.env.production` refilled, `VerifyDeployment.s.sol` green against the new
+pair, and the deployed frontend confirmed to contain the new addresses and **no
+occurrence** of the old factory in any chunk. `9b9d9ce` is tagged
+`deploy-4663-2026-09-12`, because GitHub's rebase merge replayed it onto `main` as
+`d18d2d5` and nothing else kept the object that `run-latest.json` and `SECURITY.md`
+both name reachable.)*
+
+*2026-09-12 — §5.35 records the thirty-first sweep, which followed the redeploy
+forced by the immutable referral split. The finding is that the public incident
+status page, being in another repository, kept reading `paused()` off the retired
+factory for four days and would have reported operational while the live factory
+was paused; no guard in this repo can see that page, and `checkStatusPage.mjs`
+checks reachability rather than identity. Recorded alongside it: a redeploy
+reopens every per-address control, so PM-C2 needed re-doing and every user's PoG
+attestation silently reset; three verification methods that produce confident
+wrong answers — Blockscout's `sourcify` form method reports Sourcify's status and
+not Blockscout's, a rate-limited submission is indistinguishable from a rejected
+one at `1` per ~18 minutes, and custom-error selectors do not reliably survive
+`viaIR` so bytecode selector searches are not tests; and the discovery that this
+machine's proxy answers every DNS query from `198.18.0.0/15`, which had already
+produced one confidently wrong report about the domain. Checks whose subject is
+the network must not run through this resolver.*
