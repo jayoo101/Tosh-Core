@@ -882,9 +882,21 @@ contract ToshV5AttackTest is Test {
     // address the same person controls is not `user`, so the 10 % came straight
     // back — to a wallet with no quota, no deposit and no history.
     //
-    // FIX.  A referrer must now hold PoG quota, which puts a throwaway wallet
+    // FIX 1.  A referrer must hold PoG quota, which puts a throwaway wallet
     // behind the same oracle attestation a depositor needs.  Not a wall; a per
     // sybil cost the signer can price off-chain.
+    //
+    // FIX 2 (two-slot referrals).  Binding per project would have made this
+    // attack N times better at no extra cost — the same throwaway collecting on
+    // every project instead of once per wallet, lifetime.  So the 8 % project
+    // leg additionally requires the referrer to hold a deposit IN THAT PROJECT,
+    // and only the 2 % lifetime leg is reachable without one.
+    //
+    // What that leaves, measured below: an attested but unstaked throwaway
+    // recovers 2 % rather than 10 %, and recovering the full 10 % costs a stake
+    // in every project it wants to farm.  The throwaway's stake is not burned —
+    // it earns genesis tokens like any other deposit — so this is capital tied
+    // up, not capital lost.  Still a price, still not a wall.
     function test_probeJ_referralSelfFarmViaSecondWallet() public {
         address sybil = makeAddr("sybil"); // attacker's own second EOA, never attested
 
@@ -925,7 +937,28 @@ contract ToshV5AttackTest is Test {
 
         vm.prank(alice);
         factory.deposit{value: 10 ether}(address(hook2), realRef);
-        assertEq(hook2.referralAccrued(realRef), 1 ether, "an attested referrer still earns 10 %");
+        assertEq(hook2.referralAccrued(realRef), 0.2 ether, "an attested but unstaked referrer earns the 2 % leg");
+        assertEq(hook2.orphanReferral(), 0.8 ether, "the 8 % project leg orphans for want of a stake");
+
+        // The whole 10 % is still reachable — it just costs a stake in this
+        // project, which is the gate's entire purpose. `realRef` stakes hook2,
+        // and the next referee to arrive on their link pays both legs.
+        address referee2 = makeAddr("referee2");
+        vm.deal(realRef, 10 ether);
+        vm.deal(referee2, 100 ether);
+
+        vm.prank(realRef);
+        factory.deposit{value: 1 ether}(address(hook2), address(0));
+
+        _registerPoG(referee2, POG_CAP);
+        vm.prank(referee2);
+        factory.deposit{value: 10 ether}(address(hook2), realRef);
+
+        assertEq(
+            hook2.referralAccrued(realRef),
+            1.2 ether,
+            "0.2 from alice's lifetime leg, then 0.8 + 0.2 from a referee who arrived after the stake"
+        );
     }
 
     // ══════════════════════════════════════════════════════════════════════════

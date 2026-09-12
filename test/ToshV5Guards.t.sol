@@ -322,13 +322,13 @@ contract ToshV5GuardsTest is Test {
     function test_hook_deposit_revertsBeforeTokenInitialised() public {
         ToshLaunchpadHook fresh = _freshHook();
         vm.expectRevert(ToshLaunchpadHook.NotInitialized.selector);
-        fresh.deposit{value: 1}(user1, address(0));
+        fresh.deposit{value: 1}(user1, address(0), address(0));
     }
 
     function test_hook_deposit_rejectsNonFactory() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
-        hook.deposit{value: 1 ether}(user1, address(0));
+        hook.deposit{value: 1 ether}(user1, address(0), address(0));
     }
 
     function test_deposit_revertsAfterDeadline() public {

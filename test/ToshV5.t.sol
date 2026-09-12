@@ -567,13 +567,21 @@ contract ToshV5Test is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  3. Global lifetime referral graph  [v5.0 acceptance test]
+    //  3. Two-slot referral graph  [v5.0 acceptance test]
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice A wallet's FIRST referrer is bound platform-wide and forever.
-    ///         Every later deposit —on any project —pays that same referrer,
-    ///         and a competing referral code is silently ignored rather than
+    /// @notice A wallet's FIRST referrer is bound platform-wide and forever, and
+    ///         keeps earning the LIFETIME leg on every later project.  A
+    ///         competing referral code is silently ignored rather than
     ///         reverting (a stale link must never brick a deposit).
+    ///
+    /// @dev    The rate asserted here is 2 %, not the whole 10 %, and that is
+    ///         the two-slot design working rather than a shortfall.  bob never
+    ///         deposits into either project, so he never qualifies for the 8 %
+    ///         project leg and it orphans to the buyback reservoir.  What bob
+    ///         holds is the tail that follows alice around the platform.  The
+    ///         other leg is covered by
+    ///         `test_projectReferral_takesEightOfTheTenPoints`.
     function test_globalReferralPersistence() public {
         (, ToshLaunchpadHook hookA) = _createProject("RefA", "RFA");
         (, ToshLaunchpadHook hookB) = _createProject("RefB", "RFB");
@@ -590,21 +598,27 @@ contract ToshV5Test is Test {
         _deposit(alice, hookA, 1 ether, bob);
         assertEq(factory.globalReferrers(alice), bob, "first referrer must be bound");
         assertEq(factory.referralCount(bob), 1);
-        assertEq(hookA.referralAccrued(bob), 0.1 ether, "referrer earns 10% of the deposit");
+        assertEq(
+            factory.projectReferrers(alice, address(hookA)),
+            address(0),
+            "bob holds no deposit in hookA, so the project slot must stay empty"
+        );
+        assertEq(hookA.referralAccrued(bob), 0.02 ether, "referrer earns the 2% lifetime leg");
+        assertEq(hookA.orphanReferral(), 0.08 ether, "the unbound 8% leg becomes buyback fuel");
 
         // A different project, a different (competing) code: binding is immutable.
         _deposit(alice, hookB, 1 ether, carol);
         assertEq(factory.globalReferrers(alice), bob, "binding must be permanent");
         assertEq(factory.referralCount(carol), 0, "competing code must not rebind");
         assertEq(hookB.referralAccrued(carol), 0, "competing referrer earns nothing");
-        assertEq(hookB.referralAccrued(bob), 0.1 ether, "original referrer earns on the new project too");
+        assertEq(hookB.referralAccrued(bob), 0.02 ether, "original referrer earns on the new project too");
 
         // ...and the commission is real ETH, claimable once the project launches.
         _launch(hookB);
         uint256 before = bob.balance;
         vm.prank(bob);
         hookB.claimReferralReward();
-        assertEq(bob.balance - before, 0.1 ether, "referral reward is paid in ETH");
+        assertEq(bob.balance - before, 0.02 ether, "referral reward is paid in ETH");
     }
 
     function test_referral_selfReferralIsIgnored() public {
@@ -631,6 +645,157 @@ contract ToshV5Test is Test {
         _launch(hook);
         assertEq(address(ladder).balance - before, 0.1 ether, "orphan commission funds the buyback reservoir");
         assertEq(hook.orphanReferral(), 0, "orphan pot must be drained at launch");
+    }
+
+    /// @notice The project leg is 8 of the 10 points, and it goes to whoever
+    ///         brought the depositor to THIS project — not to the wallet that
+    ///         first brought them to the platform.
+    function test_projectReferral_takesEightOfTheTenPoints() public {
+        (, ToshLaunchpadHook hookA) = _createProject("SplitA", "SPA");
+        (, ToshLaunchpadHook hookB) = _createProject("SplitB", "SPB");
+
+        _registerPoG(bob, POG_CAP);
+        _registerPoG(carol, POG_CAP);
+
+        // alice spends her one lifetime slot on carol, on a project carol has no
+        // stake in.  That is the slot that follows alice from here on.
+        _deposit(alice, hookA, 1 ether, carol);
+        assertEq(factory.globalReferrers(alice), carol, "lifetime slot goes to the first link");
+
+        // bob stakes hookB himself, which is what qualifies him to earn there.
+        _deposit(bob, hookB, 1 ether, address(0));
+
+        _deposit(alice, hookB, 1 ether, bob);
+
+        assertEq(factory.projectReferrers(alice, address(hookB)), bob, "project slot binds to bob");
+        assertEq(factory.globalReferrers(alice), carol, "and leaves the lifetime slot alone");
+        assertEq(factory.projectReferralCount(address(hookB), bob), 1, "bob recruited one wallet here");
+
+        assertEq(hookB.referralAccrued(bob), 0.08 ether, "project referrer takes 8% of the deposit");
+        assertEq(hookB.referralAccrued(carol), 0.02 ether, "lifetime referrer takes the other 2%");
+    }
+
+    /// @notice A first-time depositor arriving on one link fills BOTH slots with
+    ///         it, so that referrer earns the entire 10 %.  The split is between
+    ///         slots, never a haircut on the sharer.
+    function test_projectReferral_bothSlotsToOneWalletEarnTheWholeCarve() public {
+        (, ToshLaunchpadHook hook) = _createProject("BothSlots", "BTH");
+
+        _registerPoG(bob, POG_CAP);
+        _deposit(bob, hook, 1 ether, address(0));
+
+        _deposit(alice, hook, 1 ether, bob);
+
+        assertEq(factory.globalReferrers(alice), bob, "lifetime slot");
+        assertEq(factory.projectReferrers(alice, address(hook)), bob, "and the project slot");
+        assertEq(hook.referralAccrued(bob), 0.1 ether, "one wallet in both slots earns the whole carve");
+        assertEq(hook.orphanReferral(), 0.1 ether, "only bob's own unreferred deposit orphans");
+    }
+
+    /// @notice The project slot will not bind a referrer who holds no stake in
+    ///         the project, and a rejected binding is not sticky.
+    ///
+    /// @dev    The first half is the cost this gate imposes on honest early
+    ///         promoters — see `_recordProjectReferral`.  The second half is why
+    ///         it is a delay and not a forfeit.
+    function test_projectReferral_requiresTheReferrerToHoldADepositHere() public {
+        (, ToshLaunchpadHook hook) = _createProject("Gate", "GAT");
+
+        _registerPoG(bob, POG_CAP);
+
+        // bob is attested but has staked nothing here, so the 8 % has nobody to
+        // go to and becomes buyback fuel.
+        _deposit(alice, hook, 1 ether, bob);
+        assertEq(factory.projectReferrers(alice, address(hook)), address(0), "gate rejects an unstaked referrer");
+        assertEq(hook.referralAccrued(bob), 0.02 ether, "only the lifetime leg pays");
+        assertEq(hook.orphanReferral(), 0.08 ether, "the project leg orphans");
+
+        // bob stakes the project, and alice's NEXT deposit binds him.  The empty
+        // slot was never poisoned by the earlier rejection.
+        _deposit(bob, hook, 1 ether, address(0));
+        _deposit(alice, hook, 1 ether, bob);
+
+        assertEq(factory.projectReferrers(alice, address(hook)), bob, "binding retries and succeeds");
+        assertEq(
+            hook.referralAccrued(bob),
+            0.12 ether,
+            "two lifetime legs at 2% plus one project leg at 8% on the second deposit"
+        );
+    }
+
+    /// @notice The project slot is first-link-wins PER PROJECT: a later link
+    ///         cannot rebind a project, and binding one says nothing about the
+    ///         next.
+    function test_projectReferral_isPerProjectAndFirstLinkWins() public {
+        (, ToshLaunchpadHook hookA) = _createProject("PerProjA", "PPA");
+        (, ToshLaunchpadHook hookB) = _createProject("PerProjB", "PPB");
+
+        _registerPoG(bob, POG_CAP);
+        _registerPoG(carol, POG_CAP);
+
+        // Both qualify on both projects, so the only thing deciding the bindings
+        // below is which link arrived first.
+        _deposit(bob, hookA, 1 ether, address(0));
+        _deposit(bob, hookB, 1 ether, address(0));
+        _deposit(carol, hookA, 1 ether, address(0));
+        _deposit(carol, hookB, 1 ether, address(0));
+
+        _deposit(alice, hookA, 1 ether, bob);
+        assertEq(factory.projectReferrers(alice, address(hookA)), bob, "first link on hookA wins");
+
+        _deposit(alice, hookA, 1 ether, carol);
+        assertEq(factory.projectReferrers(alice, address(hookA)), bob, "and cannot be rebound");
+        assertEq(hookA.referralAccrued(carol), 0, "the later sharer earns nothing on hookA");
+
+        // hookB is a separate slot, and carol takes it.
+        _deposit(alice, hookB, 1 ether, carol);
+        assertEq(factory.projectReferrers(alice, address(hookB)), carol, "a different project binds independently");
+        assertEq(hookB.referralAccrued(carol), 0.08 ether, "carol takes the project leg there");
+        assertEq(hookB.referralAccrued(bob), 0.02 ether, "bob keeps the lifetime leg everywhere");
+    }
+
+    /// @notice The two legs always sum back to the carve, including on amounts
+    ///         where both divisions would round down.
+    ///
+    /// @dev    `1000000000000000033` wei is picked, not round.  Its carve is
+    ///         `100000000000000003` wei, which is not divisible by 5, so
+    ///         `commission * PROJECT_REFERRAL_SHARE_BPS / 10_000` truncates.
+    ///         Deriving the second leg with its own mulDiv rather than by
+    ///         subtraction loses exactly one wei on this amount — and an
+    ///         uncarved wei does not stay put, it lands in `lpEth`, which is
+    ///         the numerator of `p0`.  This is the test that would catch it.
+    function test_referralSplit_sumsToTheCarveOnAmountsThatTruncate() public {
+        (, ToshLaunchpadHook hook) = _createProject("Exact", "EXA");
+
+        uint256 amount = 1_000_000_000_000_000_033;
+
+        _registerPoG(bob, POG_CAP);
+        _deposit(bob, hook, amount, address(0));
+        _deposit(alice, hook, amount, bob);
+
+        uint256 carvePerDeposit = (amount * hook.REFERRAL_BPS()) / 10_000;
+        assertEq(
+            hook.totalReferralReserved() + hook.orphanReferral(),
+            2 * carvePerDeposit,
+            "every wei of the carve is accounted for, in one pot or the other"
+        );
+    }
+
+    /// @notice The share-side view agrees with the gate the binding applies, so
+    ///         the UI does not have to reimplement it.
+    function test_canBindProjectReferral_tracksTheGate() public {
+        (, ToshLaunchpadHook hook) = _createProject("View", "VEW");
+
+        assertFalse(factory.canBindProjectReferral(bob, address(hook)), "unattested and unstaked");
+
+        _registerPoG(bob, POG_CAP);
+        assertFalse(factory.canBindProjectReferral(bob, address(hook)), "attested but holds no stake here");
+
+        _deposit(bob, hook, 1 ether, address(0));
+        assertTrue(factory.canBindProjectReferral(bob, address(hook)), "attested and staked");
+
+        assertFalse(factory.canBindProjectReferral(address(0), address(hook)), "the zero address is nobody");
+        assertFalse(factory.canBindProjectReferral(bob, makeAddr("notAHook")), "an unregistered hook");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1297,10 +1462,16 @@ contract ToshV5Test is Test {
         factory.haltLadderMinting(address(0), maxHalt);
         assertTrue(factory.ladderMintingHalted(address(hook)), "re-armed for the payout paths below");
 
+        // bob is alice's LIFETIME referrer and holds no deposit in this project,
+        // so he earns the 2 % leg rather than the whole 10 % carve — see
+        // `test_globalReferralPersistence`. A literal rather than a re-derivation
+        // from the constants: what this test owns is that a halt pays commission
+        // out at all, so if the split ever moves, this should fail loudly and be
+        // re-read rather than quietly agree with whatever the contract now does.
         uint256 bobBefore = bob.balance;
         vm.prank(bob);
         hook.claimReferralReward();
-        assertEq(bob.balance - bobBefore, SOFT_CAP / 10, "referral commission pays out mid-halt");
+        assertEq(bob.balance - bobBefore, SOFT_CAP / 50, "referral commission pays out mid-halt");
 
         vm.prank(alice);
         hook.claimGenesis();

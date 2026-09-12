@@ -126,10 +126,11 @@ export function GenesisPanel(p: GenesisProps) {
     sendDeposit({
       address: FACTORY_ADDRESS, abi: FACTORY_ABI,
       functionName: 'deposit',
-      // Resolved at send time, not at render time: the factory binds a wallet
-      // to its referrer once and forever, and `p.referrer` is still the zero
-      // sentinel on the first frame after mount.
-      args: [p.hookAddress, resolveReferrerNow(p.userAddress)],
+      // Resolved at send time, not at render time: the factory binds each slot
+      // once and forever, and `p.referrer` is still the zero sentinel on the
+      // first frame after mount. The hook address selects this project's slot,
+      // which takes precedence over the lifetime one.
+      args: [p.hookAddress, resolveReferrerNow(p.userAddress, p.hookAddress)],
       value: amountWei,
     })
   }, [p.hookAddress, p.userAddress, amountWei, sendDeposit])

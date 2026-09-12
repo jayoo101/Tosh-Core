@@ -210,7 +210,8 @@ export const TAX_BPS = 100
 export const PLATFORM_SWAP_FEE_BPS = 30
 
 /**
- * `ToshLaunchpadHook.REFERRAL_BPS` — the referrer's cut of a genesis deposit.
+ * `ToshLaunchpadHook.REFERRAL_BPS` — the total referral cut of a genesis
+ * deposit.
  *
  * 10%, and it comes out of the reserve the hook holds against
  * `totalReferralReserved`, not out of the depositor's allocation. Mirrored so
@@ -218,6 +219,29 @@ export const PLATFORM_SWAP_FEE_BPS = 30
  * typed into a component.
  */
 export const REFERRAL_BPS = 1000
+
+/**
+ * `ToshLaunchpadHook.PROJECT_REFERRAL_SHARE_BPS` — the project referrer's
+ * share OF that cut, not of the deposit.
+ *
+ * 80% of 10%, so 8% of the deposit goes to whoever brought the depositor to
+ * this project and the remaining 2% to whoever first brought them to the
+ * platform. Expressed the same way the contract expresses it, because the two
+ * are pinned to each other by `checkContractConstants`.
+ */
+export const PROJECT_REFERRAL_SHARE_BPS = 8000
+
+/**
+ * The two legs as shares of the DEPOSIT, which is the only form a user is ever
+ * shown.
+ *
+ * Derived rather than typed, so the panel cannot promise 8% and 2% while the
+ * contract splits it some other way — and the subtraction mirrors the hook's,
+ * where the second leg is the remainder for exactness reasons that matter far
+ * more on chain than they do here.
+ */
+export const PROJECT_REFERRAL_BPS = (REFERRAL_BPS * PROJECT_REFERRAL_SHARE_BPS) / 10_000
+export const LIFETIME_REFERRAL_BPS = REFERRAL_BPS - PROJECT_REFERRAL_BPS
 
 /** v4-periphery `Actions` opcodes used by the LP panel. */
 export const V4_ACTIONS = {

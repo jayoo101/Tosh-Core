@@ -23,6 +23,12 @@ export function SiteFooter() {
           >
             Launch
           </Link>
+          <Link
+            href="/referrals"
+            className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+          >
+            Referrals
+          </Link>
           {/* The reference footer carries "How it works" between these two.
               There is no route to point it at — see the NAV comment in
               ToshNavbar for why that page was removed rather than kept — and a

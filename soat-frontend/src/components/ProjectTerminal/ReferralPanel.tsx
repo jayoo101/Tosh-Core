@@ -4,7 +4,8 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, REFERRAL_BPS,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
+  REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
 import { buildReferralLink, buildShortReferralLink, useReferralCode } from '@/lib/useReferral'
 import {
@@ -12,9 +13,11 @@ import {
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
 
-/** Basis points, so 1e4 is 100%. Whole percent at 1000 bps; `toFixed` would
- *  print "10.0%" and this rate is quoted in the subtitle as prose. */
+/** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
+ *  `toFixed` would print "10.0%" and they are quoted as prose. */
 const REFERRAL_PCT = REFERRAL_BPS / 100
+const PROJECT_PCT = PROJECT_REFERRAL_BPS / 100
+const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL PANEL  ·  share a link, claim the commission it earned
@@ -32,6 +35,22 @@ const REFERRAL_PCT = REFERRAL_BPS / 100
 // `lib/contracts.ts` and pinned to `src/ToshLaunchpadHook.sol` by
 // `scripts/checkContractConstants.ts`, so a change to the rate on chain fails
 // that guard instead of quietly making this panel promise the old one.
+//
+// THAT 10 % ARRIVES IN TWO LEGS, and which one a sharer earns depends on
+// something they can change, so the panel has to say so rather than quote a
+// single headline number:
+//
+//   8 %  to whoever brought the depositor to THIS project — but the factory
+//        will not bind a project referrer who holds no deposit here, so this
+//        leg is dark until the sharer has staked the project themselves.
+//   2 %  to whoever first brought that wallet to the platform at all, on every
+//        project it ever deposits into.
+//
+// A sharer whose 8 % leg is dark is the case worth designing for: their link
+// still works, deposits still succeed, and they still earn the 2 % — so
+// nothing visibly breaks while four fifths of what they expected silently
+// becomes buyback fuel.  `canBindProjectReferral` is read for exactly this,
+// rather than reproducing the gate in TypeScript where it would go stale.
 
 // `isConnected` is gone from the props: the gate resolves wallet state itself,
 // so threading it in only gave this panel a second, staler copy of it.
@@ -58,11 +77,11 @@ export function ReferralPanel({
   })
   const claimable = (claimableRaw as bigint | undefined) ?? 0n
 
-  // A referrer must hold their own PoG attestation for `_recordReferral` to
-  // bind — the guard that stops the programme being a self-rebate for anyone
-  // with a second wallet.  Rejection is silent on-chain (the depositor's
-  // transaction still succeeds, the commission just becomes buyback fuel), so
-  // an unattested sharer would otherwise watch their link earn nothing with no
+  // A referrer must hold their own PoG attestation for EITHER slot to bind —
+  // the guard that stops the programme being a self-rebate for anyone with a
+  // second wallet.  Rejection is silent on-chain (the depositor's transaction
+  // still succeeds, the commission just becomes buyback fuel), so an
+  // unattested sharer would otherwise watch their link earn nothing with no
   // explanation anywhere.
   const { data: ownQuotaRaw } = useReadContract({
     address:      FACTORY_ADDRESS,
@@ -71,7 +90,20 @@ export function ReferralPanel({
     args:         userAddress ? [userAddress] : undefined,
     query:        { enabled: !!userAddress },
   })
-  const linkIsLive = ((ownQuotaRaw as bigint | undefined) ?? 0n) > 0n
+  const hasAttestation = ((ownQuotaRaw as bigint | undefined) ?? 0n) > 0n
+
+  // The project leg's own gate, asked of the factory rather than rebuilt here.
+  // It folds in the attestation check as well, so it is the stricter of the
+  // two and `hasAttestation` above is only needed to tell the two failure
+  // states apart: nothing at all, versus the 2 % tail only.
+  const { data: projectLegRaw } = useReadContract({
+    address:      FACTORY_ADDRESS,
+    abi:          FACTORY_ABI,
+    functionName: 'canBindProjectReferral',
+    args:         userAddress ? [userAddress, hookAddress] : undefined,
+    query:        { enabled: !!userAddress, refetchInterval: 30_000 },
+  })
+  const projectLegIsLive = (projectLegRaw as boolean | undefined) ?? false
 
   const { send, isPending, isConfirming } = useTxAction({
     action: 'claim commission',
@@ -127,7 +159,7 @@ export function ReferralPanel({
     <Card
       id="REF"
       title="REFERRAL DESK"
-      subtitle={`${REFERRAL_PCT}% of every genesis deposit made through your link · payable once the project launches`}
+      subtitle={`${PROJECT_PCT}% of every genesis deposit made through your link on this project, plus ${LIFETIME_PCT}% for life on wallets you brought to Tosh · payable once the project launches`}
     >
       <Readout
         label="CLAIMABLE COMMISSION"
@@ -155,16 +187,28 @@ export function ReferralPanel({
             {copied ? 'copied' : 'copy'}
           </button>
           <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-            {'// '}The first link a wallet arrives on binds it to you permanently, across every
-            project on the platform. Self-referral is ignored by the factory.
+            {'// '}The first link a wallet arrives on through this project binds it to you
+            here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
+            used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
+            Both bindings are permanent, and self-referral is ignored by the factory.
           </p>
-          {!linkIsLive && (
+          {!hasAttestation && (
             <p className="text-label text-danger tracking-wider leading-relaxed">
-              {'// '}This link will not pay yet. A referrer needs their own PoG
+              {'// '}This link will not pay at all yet. A referrer needs their own PoG
               attestation, so register PoG before sharing — until then a deposit
-              made through it still goes through, but the {REFERRAL_PCT}% falls
+              made through it still goes through, but the whole {REFERRAL_PCT}% falls
               through to the buyback reservoir instead of accruing to you, and
-              the binding is not made.
+              neither binding is made.
+            </p>
+          )}
+          {hasAttestation && !projectLegIsLive && (
+            <p className="text-label text-warning tracking-wider leading-relaxed">
+              {'// '}This link pays you {LIFETIME_PCT}% but not the {PROJECT_PCT}%. The
+              project leg only binds to a referrer who already holds a deposit in this
+              project, and you do not — so deposit here before sharing, or that
+              {' '}{PROJECT_PCT}% goes to the buyback reservoir instead of to you. Deposits
+              made through your link in the meantime still succeed, and the binding is
+              retried on each one, so it starts paying as soon as you have staked.
             </p>
           )}
         </div>
