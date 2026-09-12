@@ -122,7 +122,7 @@ playbook rather than inventing a parallel vocabulary.
 | **P2** | Silent degradation | Ticket, next business day |
 | **P3** | Informational | Dashboard / digest — **never** pages |
 
-Current inventory: **6 P0, 5 P1, 9 P2, 4 P3**, plus 7 state checks and 22
+Current inventory: **6 P0, 5 P1, 9 P2, 4 P3**, plus 7 state checks and 24
 events explicitly routed away from the pager. These counts are asserted against
 `monitoring/alerts.json` by `scripts/verifyAlertTopics.js`; see §5.
 
@@ -272,7 +272,7 @@ The failure mode of a new monitoring setup is not too few alerts. It is a
 firehose that gets muted wholesale in week two, taking the P0 alerts down with
 it.
 
-`mustNotPage` in `alerts.json` lists 22 events that are high-volume and entirely
+`mustNotPage` in `alerts.json` lists 24 events that are high-volume and entirely
 normal — deposits, tier mints, tax receipts, referral accruals, quota resets.
 They belong on a dashboard or in a daily digest. Two specifics worth knowing:
 
@@ -628,9 +628,14 @@ What closes that is a channel that pushes, not a shorter interval.
       against §1's three signers. And detection latency is unchanged — §7.3's
       27% measured delivery rate is upstream of everything here, because a pass
       that never runs pages nobody.
-- [x] The 22 `mustNotPage` events confirmed not paging — the 900k-block sweep
+- [x] The 24 `mustNotPage` events confirmed not paging — the 900k-block sweep
       produced 17 findings of which 11 paged, and `report.mjs` filed exactly the
       11. The non-paging six reached the run summary and nothing else.
+      One gap in that tick: the sweep covered the 22 events that existed when it
+      ran. `ProjectReferralBound` and `LifetimeReferralAccrued` arrived with the
+      2026-09-12 referral split, and are classified but unswept — nothing has yet
+      watched them stay off the pager. Classification is a promise; the sweep is
+      the evidence, and for those two we have the first and not the second.
 - [x] Correlation rule in §3.1 written into the on-call runbook —
       `INCIDENT_RESPONSE.md` §1.0, 2026-09-05, with the routing this catalogue
       implies and had not stated: which playbook each *unmatched* alert goes to.

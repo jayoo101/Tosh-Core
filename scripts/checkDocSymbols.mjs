@@ -133,6 +133,22 @@ const ALLOW = new Map([
   ['_headers', 'asserted ABSENT — §5.1 proves no Cloudflare/Netlify edge config exists'],
   ['webSocket', 'asserted ABSENT — §5.1 proves no viem webSocket() transport is used'],
   ['master', 'a git branch name in the submodule pin table, not a code symbol'],
+  // A git commit sha, same category as `master`: an object name, not a symbol.
+  //
+  // Worth recording WHY it only started dangling on 2026-09-12, because the
+  // answer is not "the docs rotted". It resolved for four days by accident:
+  // `broadcast/DeployMainnet.s.sol/4663/run-latest.json` carried
+  // `"commit": "d0220e2"`, and that file is tracked, so the haystack contained
+  // the literal. Redeploying overwrote the artefact with `9b9d9ce` and the
+  // string left the tree — which means this guard was, without anyone intending
+  // it, checking that the deploy artefact still described the deployment the
+  // docs describe. It stopped being true and the guard said so.
+  //
+  // The claim resting on the name survives: `d0220e279218243754c0c85363b8ec786c7caffb`
+  // is still in history, and the superseded artefact is recoverable from
+  // `b938da7`. Cost is nil in the usual direction — `src/` gaining a `d0220e2`
+  // string would not falsify a statement about which commit was deployed.
+  ['d0220e2', 'the 2026-09-08 deploy commit — a git object, not a code symbol; artefact recoverable from b938da7'],
   // Three JSON-RPC method names, same category as `master`: they are names on
   // someone else's node, not symbols in this tree, so "found nowhere" is the
   // expected result rather than drift. PRE_MAINNET_CHECKLIST.md §7 names them
