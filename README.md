@@ -439,7 +439,8 @@ NEXT_PUBLIC_FACTORY_ADDRESS=0x...
 NEXT_PUBLIC_CHAIN_ID=46630           # 4663 for production
 NEXT_PUBLIC_POSITION_MANAGER=0x...   # optional; the Robinhood address is baked in
 NEXT_PUBLIC_STATE_VIEW=0x...         # optional; the Robinhood address is baked in
-NEXT_PUBLIC_RPC_URL=https://...      # chain-agnostic; must match NEXT_PUBLIC_CHAIN_ID
+ROBINHOOD_RPC=https://...            # server-side only; where a KEYED endpoint goes
+# NEXT_PUBLIC_RPC_URL=              # leave unset in production; see below
 POG_SIGNER_PRIVATE_KEY=0x...  # server-side only, never NEXT_PUBLIC_
 ```
 
@@ -447,6 +448,15 @@ POG_SIGNER_PRIVATE_KEY=0x...  # server-side only, never NEXT_PUBLIC_
 longer falls back to a default for an unknown id — it throws at boot, because a
 UI silently pointed at a chain nobody asked for is worse than one that will not
 start.
+
+A paid RPC endpoint goes in `ROBINHOOD_RPC` and nowhere else. `NEXT_PUBLIC_RPC_URL`
+is read first by *both* `providers.tsx` and `serverRpc.ts`, so putting a keyed URL
+there ships the key in every bundle **and** preempts the server-side variable — the
+paid node stays configured, stays billed, and is never called. Leave it unset: its
+value was identical to viem's own Robinhood default, which `providers.tsx` appends
+unconditionally, so the browser loses nothing. `npm run check:secrets` enforces
+both halves, and asserts the Vercel row is stored Sensitive rather than merely
+encrypted, because an RPC key travels in the URL path.
 
 ---
 
