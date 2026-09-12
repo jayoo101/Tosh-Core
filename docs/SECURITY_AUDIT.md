@@ -5662,6 +5662,21 @@ so that a schedule which has *stopped* is distinguishable from one that is merel
 as bad as usual. Before it, `state.lastRun` was written by every pass and read by
 nothing, so the only failure mode this host has was invisible from inside it.
 
+**Fourth finding, small and the same species as the first three.** Every
+checkpoint the watcher pushes goes to a one-file orphan branch, and Vercel was
+building a Preview of it: an application-less branch, so every build failed —
+about 6.5 failed deployments a day since 2026-09-04. The cost is not build
+minutes. It is that a permanent stream of *expected* deployment failures is the
+mechanism by which a real one stops being noticed, which is §6's noise-budget
+argument arriving by a different road. `git.deploymentEnabled: false` has to be
+present on the branch being pushed to be consulted rather than in the repository
+being deployed (`vercel/vercel#11176` documents exactly this on an orphan
+`gh-pages` branch), so the persist step writes it alongside the state file, at
+both the repository root and under `soat-frontend/` because that is the project's
+configured Root Directory and reports differ on which path a pre-build check
+reads. Verified by pushing it and observing that the push produced no deployment
+at all, where the previous checkpoint had produced a failed one.
+
 *2026-09-13 — §5.36 records the thirty-second sweep. Its finding is that the
 on-chain watcher spent four days pointed at the retired factory and treasury via
 two GitHub Actions variables the redeploy did not update, going green throughout
