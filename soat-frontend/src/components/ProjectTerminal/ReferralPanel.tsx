@@ -4,30 +4,46 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, REFERRAL_BPS,
 } from '@/lib/contracts'
-import { buildReferralLink } from '@/lib/useReferral'
+import { buildReferralLink, buildShortReferralLink, useReferralCode } from '@/lib/useReferral'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
 
+/** Basis points, so 1e4 is 100%. Whole percent at 1000 bps; `toFixed` would
+ *  print "10.0%" and this rate is quoted in the subtitle as prose. */
+const REFERRAL_PCT = REFERRAL_BPS / 100
+
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL PANEL  ·  share a link, claim the commission it earned
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The hook carves 10 % off every genesis deposit at deposit time and parks it
-// in `referralAccrued`.  It only becomes withdrawable once the project has
-// launched — a failed genesis refunds depositors in full and simply never pays
-// the commission out — which is exactly what `claimableReferral` encodes, so
-// the panel reads that rather than deriving eligibility itself.
+// The hook carves `REFERRAL_BPS` off every genesis deposit at deposit time and
+// parks it in `referralAccrued`.  It only becomes withdrawable once the project
+// has launched — a failed genesis refunds depositors in full and simply never
+// pays the commission out — which is exactly what `claimableReferral` encodes,
+// so the panel reads that rather than deriving eligibility itself.
+//
+// THE RATE IS NO LONGER TYPED IN.  It appeared as the literal "10 %" in three
+// places here, which is three claims about what a referrer will be paid with
+// nothing holding them to the hook.  `REFERRAL_BPS` is now mirrored in
+// `lib/contracts.ts` and pinned to `src/ToshLaunchpadHook.sol` by
+// `scripts/checkContractConstants.ts`, so a change to the rate on chain fails
+// that guard instead of quietly making this panel promise the old one.
 
 // `isConnected` is gone from the props: the gate resolves wallet state itself,
 // so threading it in only gave this panel a second, staler copy of it.
 export function ReferralPanel({
-  hookAddress, userAddress, refetch,
+  hookAddress, symbol, userAddress, refetch,
 }: {
   hookAddress: Address
+  /** Goes into `?p=` so the link lands on this project. Advisory — `/r/[code]`
+   *  falls back to the directory when it cannot resolve a ticker, so the
+   *  placeholder symbol the terminal substitutes when the registry has no name
+   *  costs a landing page and never the referral. */
+  symbol:      string
   userAddress: Address | undefined
   refetch:     () => void
 }) {
@@ -69,7 +85,16 @@ export function ReferralPanel({
     })
   }, [hookAddress, send])
 
-  const link = userAddress ? buildReferralLink(userAddress) : ''
+  // The short code when there is one, the long `?ref=<address>` URL otherwise.
+  // Both bind identically — `/r/<code>` redirects to exactly the long form —
+  // so this is a choice about how the link READS, and there is no state in
+  // which the panel has nothing to offer. While the code is in flight the long
+  // link is shown rather than a spinner: a link that is present and ugly is
+  // more useful than a box that might become a link.
+  const { code } = useReferralCode(userAddress)
+  const link = code
+    ? buildShortReferralLink(code, symbol)
+    : userAddress ? buildReferralLink(userAddress) : ''
 
   const handleCopy = useCallback(() => {
     if (!link) return
@@ -102,7 +127,7 @@ export function ReferralPanel({
     <Card
       id="REF"
       title="REFERRAL DESK"
-      subtitle="10% of every genesis deposit made through your link · payable once the project launches"
+      subtitle={`${REFERRAL_PCT}% of every genesis deposit made through your link · payable once the project launches`}
     >
       <Readout
         label="CLAIMABLE COMMISSION"
@@ -137,9 +162,9 @@ export function ReferralPanel({
             <p className="text-label text-danger tracking-wider leading-relaxed">
               {'// '}This link will not pay yet. A referrer needs their own PoG
               attestation, so register PoG before sharing — until then a deposit
-              made through it still goes through, but the 10 % falls through to
-              the buyback reservoir instead of accruing to you, and the binding
-              is not made.
+              made through it still goes through, but the {REFERRAL_PCT}% falls
+              through to the buyback reservoir instead of accruing to you, and
+              the binding is not made.
             </p>
           )}
         </div>

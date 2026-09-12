@@ -54,6 +54,11 @@ export type ErrorSurface =
   | 'project-error-boundary'
   | 'tx-lifecycle'
   | 'api-route'
+  // A server component, which is not a route handler: it has no status code to
+  // return and no client to tell, so it degrades and reports. `/r/[code]` is
+  // the first — a referral that failed to resolve redirects the visitor
+  // onwards regardless, and this is the only trace that it happened.
+  | 'ssr'
 
 export interface ReportContext {
   surface: ErrorSurface

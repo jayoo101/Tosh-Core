@@ -14,13 +14,26 @@
  *
  *   PHASE 3 · REFUND
  *     ▸ hook.refund() returns 100 % of the ETH deposit
+ *
+ * ── LAYOUT: PORTED FROM THE v0 REDESIGN ──────────────────────────────────────
+ *
+ * This used to be one 768px column with every panel stacked in it. The mock is
+ * 1280px wide and splits into a wide reading column and a 360px sidebar that
+ * sticks: everything that INFORMS goes left, everything that ASKS FOR A
+ * TRANSACTION goes right, where it stays in view while the left column scrolls.
+ *
+ * The chain reads did not move. This file still owns the whole bulk call and
+ * every panel's props are unchanged; only the JSX around them is new.
  */
 import dynamic from 'next/dynamic'
+import type { ReactNode } from 'react'
 import { useAccount, useBalance, useReadContract, useReadContracts } from 'wagmi'
 import type { Address, ContractFunctionParameters } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
-import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX } from '@/lib/contracts'
+import {
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX, TIER_COUNT, TIER_SIZE,
+} from '@/lib/contracts'
 import { useBoundReferrer } from '@/lib/useReferral'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
@@ -31,18 +44,38 @@ import { GenesisPanel } from './GenesisPanel'
 import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
 import { RefundPanel } from './RefundPanel'
 import { ReferralPanel } from './ReferralPanel'
+import { LifecycleTracker } from './LifecycleTracker'
+import { BondingStateProvider } from './bondingState'
 
 // Phase-2 only, and by far the heaviest code on this route: the 4000-rung
 // ladder table, the quoting maths, and the Permit2 / V4 position manager
 // stack. A project in genesis — which is every project for its first hours —
 // used to download all of it to render a deposit box.
+//
+// `BondingPanel` is now two exports rather than one, because the mock puts the
+// ladder in the main column and the buy form in the sidebar and those are
+// siblings in two different grid tracks. They still come from one module, so
+// this is one chunk fetched once, not two. What they share — the reads, the
+// amount, the quote and the single write gate — lives in `bondingState`, which
+// is imported statically above; see the header comment there for why a provider
+// cannot be lazy when it wraps the grid it provides for.
+//
+// `LifecycleTracker` is a static import despite also being phase-scoped:
+// markup plus arithmetic over values this file already holds, with no
+// dependency the bundle does not carry anyway, so it does not earn a chunk
+// boundary or the loading flash it costs. `MarketMakingSection` and
+// `LadderCurveSection` were the other two until both sections came out.
 const panelFallback = () => <Skeleton className="h-64" radius="card" />
 const GenesisClaimPanel = dynamic(
   () => import('./GenesisClaimPanel').then(m => m.GenesisClaimPanel),
   { loading: panelFallback },
 )
-const BondingPanel = dynamic(
-  () => import('./BondingPanel').then(m => m.BondingPanel),
+const BondingLadderSection = dynamic(
+  () => import('./BondingPanel').then(m => m.BondingLadderSection),
+  { loading: panelFallback },
+)
+const BondingBuyPanel = dynamic(
+  () => import('./BondingPanel').then(m => m.BondingBuyPanel),
   { loading: panelFallback },
 )
 const LiquidityPanel = dynamic(
@@ -50,11 +83,64 @@ const LiquidityPanel = dynamic(
   { loading: panelFallback },
 )
 
+/**
+ * What the page header is allowed to know about the chain.
+ *
+ * The mock's header carries a phase badge and a live price, and both are
+ * resolved here — this file owns every read on the route, and the brief for the
+ * port is explicit that no read may move. But the header itself belongs to
+ * `ProjectDetail`, which owns the page shell.
+ *
+ * So the header comes in as a function of this state rather than the state
+ * going out to a second reader. `null` means "nothing chain-derived is safe to
+ * print yet", which is not the same as zero: before the clock syncs,
+ * `resolvePhase` reads an expired genesis as still open (see the PRECONDITION
+ * on `resolvePhase`), so a badge rendered then would assert the wrong phase for
+ * a frame.
+ */
+export interface TerminalHeaderState {
+  phase: Phase
+  /** `currentBondingPrice` — the live shelf, in wei per whole token. */
+  currentPrice: bigint
+  /**
+   * Which shelf `currentPrice` came off, zero-based, derived from
+   * `phase2Minted` rather than read a second time.
+   *
+   * Added so the header has something true under the price. The mock prints a
+   * 24h delta there and this app has no price history to difference against,
+   * so the slot held a permanent "no price feed · 24h" — a caption explaining
+   * an absence, directly under the largest number on the page. The shelf index
+   * is the honest answer to the question that line was gesturing at: not how
+   * the price moved, but where it currently is on a ladder whose every rung is
+   * known in advance.
+   */
+  shelfIndex: number
+  /**
+   * `hook.creator()`. Surfaced rather than newly read: the launch panel already
+   * needs it to decide whether to offer the launch button, and the mock's
+   * header prints `by 0x…`. `ProjectRow` has no creator column, so the chain is
+   * the only place it exists.
+   */
+  creator: Address | undefined
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN EXPORT  ·  ProjectTerminal
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function ProjectTerminal({ project }: { project: ProjectRow }) {
+export default function ProjectTerminal({ project, about, header }: {
+  project: ProjectRow
+  /**
+   * The mock's `About` section, rendered at the top of the main column.
+   *
+   * Passed in rather than built here because the description is registry data,
+   * not chain data, and `ProjectDetail` already holds the row. It is a slot and
+   * not a second copy: the header used to print the description too, and it no
+   * longer does.
+   */
+  about?: ReactNode
+  header?: (live: TerminalHeaderState | null) => ReactNode
+}) {
   const { address, isConnected } = useAccount()
   const hydrated    = useIsHydrated()
   const userAddress = hydrated ? (address as Address | undefined) : undefined
@@ -188,17 +274,19 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   })()
 
 
-
   if (!hookAddress) {
     return (
-      <div className="flex flex-col">
-        <Card id="ERR" title="HOOK BINDING MISSING">
-          <p className="font-mono text-note text-text-tertiary leading-relaxed">
-            This project row has no <span className="text-brand">hook_address</span> on file.
-            Deploy may still be pending — refresh after the createLaunch tx confirms.
-          </p>
-        </Card>
-      </div>
+      <>
+        {header?.(null)}
+        <div className="mt-6 flex flex-col">
+          <Card id="ERR" title="HOOK BINDING MISSING">
+            <p className="font-mono text-note text-text-tertiary leading-relaxed">
+              This project row has no <span className="text-brand">hook_address</span> on file.
+              Deploy may still be pending — refresh after the createLaunch tx confirms.
+            </p>
+          </Card>
+        </div>
+      </>
     )
   }
 
@@ -207,123 +295,234 @@ export default function ProjectTerminal({ project }: { project: ProjectRow }) {
   // have a sibling above it.
   if (!clockReady) {
     return (
-      <div className="@container flex flex-col gap-6">
-        <Skeleton className="h-24" radius="card" />
-        <Skeleton className="h-64" radius="card" />
-      </div>
+      <>
+        {header?.(null)}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="@container flex min-w-0 flex-col gap-6">
+            <Skeleton className="h-24" radius="card" />
+            <Skeleton className="h-64" radius="card" />
+          </div>
+          <div className="@container flex flex-col gap-4">
+            <Skeleton className="h-64" radius="card" />
+          </div>
+        </div>
+      </>
     )
   }
 
-  // `@container` is load-bearing. Grids below query this column's width, not
-  // the viewport — a leftover from when the terminal sat in a 290px sidebar.
-  return (
-    <div className="@container flex flex-col gap-6">
-      <div className="rounded-panel border border-border-subtle bg-surface-card p-card">
-        <HeroStats
-          phase={phase}
-          symbol={symbol}
-          p0={p0}
-          currentPrice={currentPrice}
-          shelfP0={shelfP0}
-          totalEthDeposited={totalEthDeposited}
-          softCap={softCap}
-          phase2Minted={phase2Minted}
-          bondingMax={bondingMax}
-          userEthDeposited={userEthDeposited}
-          windowLabel={windowLabel}
-        />
+  /**
+   * The reading column.
+   *
+   * `minmax(0,1fr)` on the track and `min-w-0` here, not a bare `1fr`: the
+   * ladder table is a fixed `grid-cols-[4rem_1fr_6rem_5rem]`, and an auto
+   * minimum would let it push the track wider than the grid, shoving the 360px
+   * sidebar off the edge instead of scrolling inside its own card.
+   *
+   * `@container` moved here from the old single column, and it is still
+   * load-bearing: every grid inside these panels queries its column, not the
+   * viewport. It has to sit on each column separately now — a single container
+   * on the wrapper would tell the sidebar's panels they have 1280px to lay out
+   * in when they have 360.
+   */
+  const grid = (
+    <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="@container flex min-w-0 flex-col gap-6">
+        <div className="rounded-panel border border-border-subtle bg-surface-card p-card">
+          <HeroStats
+            phase={phase}
+            symbol={symbol}
+            p0={p0}
+            currentPrice={currentPrice}
+            shelfP0={shelfP0}
+            totalEthDeposited={totalEthDeposited}
+            softCap={softCap}
+            phase2Minted={phase2Minted}
+            bondingMax={bondingMax}
+            userEthDeposited={userEthDeposited}
+            windowLabel={windowLabel}
+          />
+        </div>
+
+        {/* `LadderCurveSection` USED TO OPEN THE TRADING COLUMN HERE, holding
+            the mock's chart-and-stats slot with a plot of the ladder's own
+            price curve and three readouts under it. Both halves are gone.
+
+            The chart was honest and still not worth its height. It plotted
+            `Math.pow(TIER_STEP, i - TIER_COUNT)` — a closed-form curve over a
+            fixed step and a fixed shelf count, identical in shape for every
+            project on the platform and unchanged by anything that happens to
+            this one. It labelled itself "ladder geometry · not trade history"
+            precisely because a reader would otherwise take it for a market,
+            and a panel that has to disclaim what it is not is answering a
+            question nobody came here with. The thing it was standing in for —
+            a real price history — needs a trade index that does not exist.
+
+            Of its three readouts, two were restatements: `Ladder remaining`
+            was the denominator of the progress bar two cards up, and `Shelf
+            climb` reads 1.00x for the whole of shelf #0, which is where a new
+            project sits. `Total supply` was the one figure on the card that
+            appeared nowhere else on this page. It is a constant of the launch
+            rather than a fact about the market, so it went with the card
+            instead of being rehomed — the launch page states it among the
+            immutable terms, which is where a supply number is decided. */}
+
+        {about}
+
+        {phase === 'refund' && (
+          <div className="rounded-card border border-warning/40 bg-warning/10 px-card py-gap">
+            <p className="font-mono text-label text-warning">Refund window open</p>
+            <p className="mt-1 text-note text-text-secondary leading-relaxed">
+              This raise did not open a pool. Every depositor can reclaim 100% of
+              their ETH — no penalty, no haircut, no expiry on the claim itself.
+            </p>
+          </div>
+        )}
+
+        {phase === 'bonding' && (
+          <>
+            {/* The mock folds the genesis claim into the sidebar's buy card as
+                a one-line row. Ours is a Card with its own action gate and its
+                own "already claimed" read, and it hides itself entirely for a
+                wallet with nothing to claim — so it reads as information here
+                rather than as a second button competing with Buy. */}
+            <GenesisClaimPanel
+              hookAddress={hookAddress}
+              symbol={symbol}
+              userAddress={userAddress}
+              ethDeposited={userEthDeposited}
+              refetch={() => { void refetch() }}
+            />
+            <BondingLadderSection />
+            {/* `MarketMakingSection` USED TO SIT HERE, immediately above the
+                LP panel, as a three-paragraph explainer of the pool fee, the
+                swap tax and the shelf split. Every figure on it is a platform
+                constant — 1.30%, 99%, full-range — identical for every
+                project and already restated on the LP panel's own subtitle
+                (`full range · 0.30% pool fee accrues to LPs`). A card that
+                cannot change between projects is not a project page.
+
+                It is not replaced by a second About. The About slot is
+                already rendered above this column, once, from the registry
+                description. Two About cards for one paragraph is the copy
+                the header used to carry and that this file's `about` prop
+                exists to stop. */}
+            {launched && (
+              <LiquidityPanel
+                hookAddress={hookAddress}
+                tokenAddress={tokenAddress}
+                symbol={symbol}
+                userAddress={userAddress}
+                isConnected={wConnected}
+                ethBalance={ethBalance}
+                nowSec={nowSec}
+              />
+            )}
+          </>
+        )}
+
+        {/* Pre-trading only, as in the mock: once the pool is open all three
+            steps are done and the rail says nothing the ladder does not. */}
+        {phase !== 'bonding' && <LifecycleTracker phase={phase} />}
       </div>
 
-      {phase === 'refund' && (
-        <div className="rounded-card border border-warning/40 bg-warning/10 px-card py-gap">
-          <p className="font-mono text-label text-warning">Refund window open</p>
-          <p className="mt-1 text-note text-text-secondary leading-relaxed">
-            This raise did not open a pool. Every depositor can reclaim 100% of
-            their ETH — no penalty, no haircut, no expiry on the claim itself.
-          </p>
-        </div>
-      )}
-
-      {phase === 'genesis' ? (
-        <GenesisPanel
-          hookAddress={hookAddress}
-          symbol={symbol}
-          userAddress={userAddress}
-          isConnected={wConnected}
-          totalEthDeposited={totalEthDeposited}
-          softCap={softCap}
-          ethBalance={ethBalance}
-          pogQuota={pogQuota}
-          quotaRemaining={quotaRemaining}
-          blacklistedUntil={blacklistedUntil}
-          cooldownEnd={cooldownEnd}
-          nowSec={nowSec}
-          perWalletCap={perWalletCap}
-          userDeposited={userEthDeposited}
-          genesisDeadline={genesisDeadline}
-          referrer={referrer}
-          refetch={() => { void refetch() }}
-        />
-      ) : phase === 'awaiting_launch' ? (
-        <AwaitingLaunchPanel
-          hookAddress={hookAddress}
-          symbol={symbol}
-          isCreator={isCreator}
-          totalEthDeposited={totalEthDeposited}
-          genesisDeadline={genesisDeadline}
-          nowSec={nowSec}
-          refetch={() => { void refetch() }}
-        />
-      ) : phase === 'bonding' ? (
-        <>
-          <GenesisClaimPanel
-            hookAddress={hookAddress}
-            symbol={symbol}
-            userAddress={userAddress}
-            ethDeposited={userEthDeposited}
-            refetch={() => { void refetch() }}
-          />
-          <BondingPanel
+      {/* The action column. Everything that asks for a signature lives here and
+          stays in view while the reading column scrolls. */}
+      <div className="@container flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+        {phase === 'genesis' && (
+          <GenesisPanel
             hookAddress={hookAddress}
             symbol={symbol}
             userAddress={userAddress}
             isConnected={wConnected}
-            p0={p0}
-            shelfP0={shelfP0}
-            currentPrice={currentPrice}
-            phase2Minted={phase2Minted}
-            bondingMax={bondingMax}
+            totalEthDeposited={totalEthDeposited}
+            softCap={softCap}
             ethBalance={ethBalance}
+            pogQuota={pogQuota}
+            quotaRemaining={quotaRemaining}
+            blacklistedUntil={blacklistedUntil}
+            cooldownEnd={cooldownEnd}
+            nowSec={nowSec}
+            perWalletCap={perWalletCap}
+            userDeposited={userEthDeposited}
+            genesisDeadline={genesisDeadline}
+            referrer={referrer}
+            refetch={() => { void refetch() }}
+          />
+        )}
+
+        {phase === 'awaiting_launch' && (
+          <AwaitingLaunchPanel
+            hookAddress={hookAddress}
+            symbol={symbol}
+            isCreator={isCreator}
+            totalEthDeposited={totalEthDeposited}
+            genesisDeadline={genesisDeadline}
             nowSec={nowSec}
             refetch={() => { void refetch() }}
           />
-          {launched && (
-            <LiquidityPanel
-              hookAddress={hookAddress}
-              tokenAddress={tokenAddress}
-              symbol={symbol}
-              userAddress={userAddress}
-              isConnected={wConnected}
-              ethBalance={ethBalance}
-              nowSec={nowSec}
-            />
-          )}
-        </>
-      ) : (
-        <RefundPanel
-          hookAddress={hookAddress}
-          ethDeposited={userEthDeposited}
-          refetch={() => { void refetch() }}
-        />
-      )}
+        )}
 
-      {wConnected && (
-        <ReferralPanel
-          hookAddress={hookAddress}
-          userAddress={userAddress}
-          refetch={() => { void refetch() }}
-        />
-      )}
+        {phase === 'bonding' && <BondingBuyPanel />}
+
+        {phase === 'refund' && (
+          <RefundPanel
+            hookAddress={hookAddress}
+            ethDeposited={userEthDeposited}
+            refetch={() => { void refetch() }}
+          />
+        )}
+
+        {wConnected && (
+          <ReferralPanel
+            hookAddress={hookAddress}
+            symbol={symbol}
+            userAddress={userAddress}
+            refetch={() => { void refetch() }}
+          />
+        )}
+      </div>
     </div>
+  )
+
+  return (
+    <>
+      {header?.({
+        phase,
+        currentPrice,
+        // Derived rather than read a second time: every shelf holds exactly
+        // `TIER_SIZE`, so the quotient IS the index — the same arithmetic the
+        // hook does. `tierStatus[0]` would give it directly, but that read
+        // belongs to the bonding provider and this renders from the bulk call.
+        // (The removed `LadderCurveSection` computed it the same way, which is
+        // why this comment used to cite it.)
+        shelfIndex: TIER_SIZE > 0n
+          ? Math.min(TIER_COUNT, Number(phase2Minted / TIER_SIZE))
+          : 0,
+        creator: creatorAddress as Address | undefined,
+      })}
+      {/*
+        The provider wraps BOTH tracks because its two consumers sit in
+        different ones, and it is mounted only for the phase that has a ladder —
+        so a genesis page never runs a single one of its reads.
+      */}
+      {phase === 'bonding' ? (
+        <BondingStateProvider
+          hookAddress={hookAddress}
+          symbol={symbol}
+          userAddress={userAddress}
+          isConnected={wConnected}
+          p0={p0}
+          shelfP0={shelfP0}
+          currentPrice={currentPrice}
+          phase2Minted={phase2Minted}
+          bondingMax={bondingMax}
+          ethBalance={ethBalance}
+          nowSec={nowSec}
+          refetch={() => { void refetch() }}
+        >
+          {grid}
+        </BondingStateProvider>
+      ) : grid}
+    </>
   )
 }

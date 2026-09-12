@@ -36,6 +36,7 @@
 import { useEffect, useState } from 'react'
 import { getAddress, isAddress, type Address } from 'viem'
 import { ZERO_ADDRESS } from './contracts'
+import { isRefCodeShape } from './refCode'
 
 const STORAGE_KEY = 'tosh_referrer'
 const QUERY_PARAM = 'ref'
@@ -130,11 +131,108 @@ export function useBoundReferrer(userAddress: Address | undefined): Address {
   return referrer
 }
 
-/** The shareable link that binds a new wallet to `userAddress`. */
+/**
+ * The long form: the current page with `?ref=<address>` on it.
+ *
+ * Still the canonical link and still the fallback — `/r/<code>` resolves to
+ * exactly this URL — so it is what the panel shows whenever a short code
+ * cannot be minted. Roughly a hundred characters of path and query on a
+ * project page, which is why `buildShortReferralLink` exists.
+ */
 export function buildReferralLink(userAddress: Address): string {
   if (typeof window === 'undefined') return ''
   const url = new URL(window.location.href)
   url.searchParams.set(QUERY_PARAM, userAddress)
   url.hash = ''
   return url.toString()
+}
+
+/**
+ * The short form: `https://host/r/swift-amber-otter?p=RHRSL`.
+ *
+ * Built from the current ORIGIN rather than the current href, because the code
+ * already carries the referrer and `?p=` already carries the destination —
+ * inheriting the present path as well would put a third copy of the same
+ * information in a link whose entire purpose is to be short.
+ *
+ * `symbol` is optional and advisory. `/r/[code]` falls back to the directory
+ * when it cannot resolve one, so a wrong or unknown ticker costs a landing
+ * page and never the referral.
+ */
+export function buildShortReferralLink(code: string, symbol?: string): string {
+  if (typeof window === 'undefined') return ''
+  const url = new URL(`/r/${code}`, window.location.origin)
+  if (symbol) url.searchParams.set('p', symbol)
+  return url.toString()
+}
+
+/** `unavailable` means the long link is what the user should be given. */
+export type RefCodeState = 'idle' | 'loading' | 'ready' | 'unavailable'
+
+/**
+ * This wallet's permanent short code, minting it on first ask.
+ *
+ * POST rather than GET because the first call creates the row — but it is
+ * idempotent by construction: `referral_codes.address` is UNIQUE and the route
+ * upserts on it, so every later call returns the same three words. That
+ * matters more than it sounds. A code that changed between visits would leave
+ * every link already pasted somewhere still working but no longer matching
+ * what this panel displays, and a referral link's whole job is to keep working
+ * after it has left.
+ *
+ * Failure is not an error state worth showing. The long `?ref=<address>` link
+ * is always available and binds identically, so the panel silently falls back
+ * to it rather than telling the user that a cosmetic service is down.
+ */
+export function useReferralCode(userAddress: Address | undefined): {
+  code: string | null
+  state: RefCodeState
+} {
+  // ONE PIECE OF STATE, AND IT REMEMBERS WHOSE ANSWER IT IS.
+  //
+  // The obvious shape is a `code` and a `state`, with the effect setting
+  // `'loading'` on the way in. That synchronous set inside an effect is what
+  // `react-hooks/set-state-in-effect` objects to, and the rule is right about
+  // more than cascading renders here: two separate states let the hook hold a
+  // code for the PREVIOUS wallet while loading the next one, so switching
+  // accounts flashes someone else's referral link. Stamping the answer with
+  // the address it belongs to makes that unrepresentable, and lets both
+  // `state` and `code` be derived below instead of stored.
+  const [answer, setAnswer] = useState<{ address: Address; code: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!userAddress) return
+
+    let cancelled = false
+
+    void fetch('/api/ref', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ address: userAddress }),
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((body: { code?: unknown }) => {
+        if (cancelled) return
+        // Shape-checked on arrival. This string goes straight into a URL the
+        // user is about to broadcast, so it is validated rather than trusted
+        // for having come from our own route.
+        const ok = typeof body.code === 'string' && isRefCodeShape(body.code)
+        setAnswer({ address: userAddress, code: ok ? (body.code as string) : null })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setAnswer({ address: userAddress, code: null })
+      })
+
+    return () => { cancelled = true }
+  }, [userAddress])
+
+  const mine = answer && answer.address === userAddress ? answer : null
+
+  const state: RefCodeState =
+    !userAddress ? 'idle'
+      : mine === null ? 'loading'
+        : mine.code ? 'ready' : 'unavailable'
+
+  return { code: mine?.code ?? null, state }
 }

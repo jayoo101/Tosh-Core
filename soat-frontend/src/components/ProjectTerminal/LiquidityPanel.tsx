@@ -362,7 +362,12 @@ export function LiquidityPanel({
   return (
     <Card
       id="P-3"
-      title={`MARKET MAKING · ${symbol}/ETH`}
+      // Was `MARKET MAKING · SYM/ETH`. The heading changed when a separate
+      // explainer card sat directly above this one and both said the same
+      // words. That card is gone; the title stays, because this panel is
+      // still about the reader's own position, not about market making in
+      // general. Copy only: nothing below moved.
+      title={`YOUR LIQUIDITY · ${symbol}/ETH`}
       subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
     >
       <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">

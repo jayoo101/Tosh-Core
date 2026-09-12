@@ -333,21 +333,13 @@ export function GenesisPanel(p: GenesisProps) {
           }
         />
 
-        {spendable > 0n && !windowClosed && !banned && !unattested && (
-          <div className="flex flex-wrap gap-gap-tight">
-            {([25n, 50n, 75n, 100n] as const).map(pct => (
-              <button
-                key={pct.toString()}
-                type="button"
-                disabled={txBusy}
-                onClick={() => setAmount(formatUnits((spendable * pct) / 100n, 18))}
-                className="rounded-input border border-border-subtle px-3 py-1 font-mono text-label text-text-tertiary hover:border-brand hover:text-brand disabled:opacity-40"
-              >
-                {pct === 100n ? 'MAX' : `${pct}%`}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* A FOUR-CHIP ROW USED TO SIT HERE — 25 / 50 / 75 / MAX of
+            `spendable`. MAX is already the affix on the field above, so the
+            row's fourth chip was a second copy of the same click, and the
+            other three were guesses at a fraction. The binding ceiling is
+            whichever of quota, wallet headroom and balance runs out first;
+            that number is what `max` writes, and a percentage of it is a
+            number the user can type if they want less. */}
 
         <div className="flex gap-3 flex-wrap items-start">
           <ActionButton gate={gate} size="lg" />

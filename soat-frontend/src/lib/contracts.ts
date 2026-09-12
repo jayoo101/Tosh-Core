@@ -163,6 +163,62 @@ export const TICK_UPPER = 887_200
 export const POOL_FEE = 3000
 export const TICK_SPACING = 200
 
+/**
+ * `ToshLaunchpadHook.PLATFORM_TAX_BPS` — the platform's cut of PHASE-2 SHELF
+ * PROCEEDS, in basis points. Mirrored here for the same reason the soft-cap
+ * floor above is: the project page states the remainder as a headline number
+ * ("99% of shelf earnings route back to the project"), and a claim about where
+ * a user's money goes should not be a literal typed into a component.
+ *
+ * ⚠ NOT `TAX_BPS`, which is also 100 and means something entirely different —
+ * the 1.00% toll on a SWAP INPUT, split between the buyback reservoir and the
+ * platform. This one is 1.00% of what a shelf mint COSTS. The hook's own
+ * natspec carries the same warning; see `test/ToshV5.t.sol`'s
+ * `test_TaxConstants_MeanDifferentThings`.
+ */
+export const PLATFORM_TAX_BPS = 100
+
+/**
+ * `ToshLaunchpadHook.TAX_BPS` — the 1.00% toll on a SWAP INPUT, and the one
+ * cost of using this protocol that no screen stated.
+ *
+ * Mirrored because the project page was disclosing `POOL_FEE` alone: a reader
+ * was told trading costs 0.30% when it costs 1.30%, which is not a rounding
+ * difference but a fourfold understatement of the fee on a page people trade
+ * from. `POOL_FEE` is V4's and goes to liquidity providers; this is the hook's
+ * and is stacked on top of it.
+ *
+ * THE TWO LEGS DO DIFFERENT THINGS WITH IT, which is why the UI cannot
+ * describe it as one destination:
+ *
+ *   • buy  — split. `PLATFORM_SWAP_FEE_BPS` (30) of the ETH input goes to the
+ *            platform, the remaining 70 bps to the ladder treasury.
+ *   • sell — not split. The full 100 bps of the TOKEN input is burned.
+ *
+ * ⚠ NOT `PLATFORM_TAX_BPS` above, which is also 100. See the warning there.
+ */
+export const TAX_BPS = 100
+
+/**
+ * `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS` — the platform's share of the buy
+ * leg's `TAX_BPS`, in basis points of the ETH input.
+ *
+ * Only the buy leg splits, and only this slice is platform revenue. An indexer
+ * that sums `BuyTaxToTreasury` as well is double-counting; see the wire notes
+ * at the top of `app/lib/abis.ts`.
+ */
+export const PLATFORM_SWAP_FEE_BPS = 30
+
+/**
+ * `ToshLaunchpadHook.REFERRAL_BPS` — the referrer's cut of a genesis deposit.
+ *
+ * 10%, and it comes out of the reserve the hook holds against
+ * `totalReferralReserved`, not out of the depositor's allocation. Mirrored so
+ * the referral panel states a number the contract defines rather than one
+ * typed into a component.
+ */
+export const REFERRAL_BPS = 1000
+
 /** v4-periphery `Actions` opcodes used by the LP panel. */
 export const V4_ACTIONS = {
   MINT_POSITION: 0x02,
