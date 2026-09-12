@@ -1220,7 +1220,7 @@ Three things worth recording about how it was found and checked:
 - **The type system found the call sites, not a search.** Adding `chain_id` to
   `ProjectRow` produced five errors in three files — the chain-fallback row in
   `getProject.ts`, two `rememberProject` calls in `launch/page.tsx`, and
-  `directoryToRow` in `MeritXProjectCard.tsx`, whose return type was inferred
+  `directoryToRow` in `ProjectCard.tsx`, whose return type was inferred
   rather than annotated and is now annotated for that reason.
 - **The session cache had the same shape of bug**, keyed by bare address. The
   exposure is narrow — `TARGET_CHAIN_ID` is fixed at build time and

@@ -1349,19 +1349,49 @@ The referrer is resolved **at send time** rather than render time, and the comme
 - The matching refund on the contract side: `change = msg.value - cost; if (change > 0) _sendEth(msg.sender, change)` (`src/ToshLaunchpadHook.sol:922-923`).
 - Why the buffer is necessary: `quoteMint` is a read of the previous block while `mintBondingCurve` executes in the next one, and if somebody gets in ahead and eats the remainder of the current tier in between, the actual fill crosses into a more expensive tier. 0.5% covers that slip; beyond it, the call reverts `InsufficientPayment`.
 
-**The guardrail order in `handleMint`** (`:1039-1058`), each rung with its own locked label:
+**The guardrail order**, now `submitMint` behind `useActionGate` in
+`ProjectTerminal/bondingState.tsx:299-385`. Twelve rungs, each with a plain-English
+label and a `reason` sentence:
 
-| # | Check | Error copy / locked label |
-|---|---|---|
-| 1 | Connected | "Connect wallet" |
-| 2 | `tokenAmountWei > 0` | `[enter_amount]` |
-| 3 | `!exceedsMax` | `"Exceeds what one call can serve — max X right now"` / `[exceeds_max_per_call]` |
-| 4 | `!awaitingFirstUnlock` | `"Shelf 0 sits 5% over the pool — the ladder opens once the market holds at or above P₀"` / `[awaiting_market_above_p0]` |
-| 5 | `!gateLocked` | `"105% price gate is locked — wait for spot/TWAP"` / `[gate_locked]` |
-| 6 | `!isDust` | `[invalid_amount]` |
-| 7 | `!insufficientBal` | `"Insufficient ETH for quoted cost + slippage"` / `[insufficient_eth]` |
+| # | `id` | Label | What it means |
+|---|---|---|---|
+| 1 | `amount-invalid` | "Check the amount" | not a number the field can send |
+| 2 | `amount-zero` | "Enter an amount" | nothing typed |
+| 3 | `ladder-halted` | "Paused · resumes …" | the circuit breaker, platform-wide or per project |
+| 4 | `same-block` | "Paused for this block" | a swap landed in this block; reopens on the next |
+| 5 | `exceeds-max` | "Amount too large" | more than one call can serve; send the rest separately |
+| 6 | `awaiting-first-unlock` | "Waiting for the market" | shelf 0 sits 5 % above the pool **by design** |
+| 7 | `gate-locked` | "Above the price ceiling" | next shelf is >5 % over spot |
+| 8 | `no-capacity` | "No supply available" | sold out or priced out at the margin |
+| 9 | `quote-pending` | "Checking the price…" | quote in flight |
+| 10 | `quote-unavailable` | "Price unavailable" | no quote came back |
+| 11 | `dust` | "Amount too small" | costs less than one wei |
+| 12 | `balance` | "Not enough ETH" | below quoted cost plus slippage headroom |
 
-Row 4 is especially worth noting: the comment explains why it is kept apart from row 5 — **before anyone has minted, a closed gate is the designed opening state, not a fault** — so the copy states the fact instead of raising an alarm (`:1021-1023`). This maps directly onto the `SHELF_PREMIUM_BPS == PRICE_CEILING_BPS` design in 5.1/3.3.
+Rung 6 is worth noting for the same reason it always was: **before anyone has
+minted, a closed gate is the designed opening state and not a fault**, so the copy
+states the fact rather than raising an alarm. That maps onto the
+`SHELF_PREMIUM_BPS == PRICE_CEILING_BPS` design in 5.1 / 3.3.
+
+> **This table used to describe a different cascade, and its row order was the
+> bug.** It listed seven rungs against a function called `handleMint`, with
+> labels like `[enter_amount]` and `[gate_locked]`, and put `exceedsMax` *ahead
+> of* the same-block lock. The code comment at `bondingState.tsx:292-298` records
+> why that order was wrong and was changed: a buyer who typed too much during a
+> same-block lockout was told to send a smaller order, which would have reverted
+> too — the truth was "wait one block", and lowering the amount could never
+> reveal it. The order now matches the sequence `hook.mintBondingCurve` itself
+> rejects in.
+>
+> None of the old names survived the rewrite, and this document went on
+> describing them anyway. It was caught on 2026-09-12 by deleting `_meritx-ref/`,
+> the previous project's frontend, which had been sitting in this repository and
+> happened to contain an unrelated `handleMint` — so `checkDocSymbols.mjs` had
+> been resolving this citation against a foreign codebase and reporting green.
+> The six bracket labels were never checked at all, because the guard only reads
+> identifiers in backticks. **A guard that passes because the haystack is too
+> large is worth less than no guard**, and it is the reason a directory of dead
+> reference code is not free to keep.
 
 **The `ShelfLadder` subcomponent** (`:440-539`):
 

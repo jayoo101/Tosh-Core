@@ -9,7 +9,7 @@ import { fmtEth, type DirectoryProject } from './useDirectoryProjects'
 const ROWS = 5
 
 /**
- * Compact phase labels, deliberately not shared with `MeritXProjectCard`.
+ * Compact phase labels, deliberately not shared with `ProjectCard`.
  *
  * That component's badges read "GENESIS · FUNDING" and "AWAITING LAUNCH",
  * which are the right length for a card with 320px of width to spend and two
