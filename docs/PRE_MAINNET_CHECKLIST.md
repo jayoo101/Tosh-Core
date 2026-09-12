@@ -1837,10 +1837,23 @@ What is left that is purely engineering:
   happened. The first mainnet pass was blind: run 34196807435 reported
   0 logs in a window that held seven P0 governance events, because the
   public RPC rate-limits a tight `eth_getLogs` loop and WATCHER-02 did
-  not page (`SECURITY_AUDIT.md` §5.28). That is fixed. What is still
+  not page (`SECURITY_AUDIT.md` §5.28). That is fixed. ~~What is still
   open is not code: a P0 still lands in an issue rather than on a phone.
   §1 now names Encrypted Signal / Telegram for the signers, but the
-  watcher does not drive it.
+  watcher does not drive it.~~ **Struck 2026-09-13: that stopped being
+  true on 2026-09-11**, when `report.mjs` gained a Telegram push that was
+  drilled end to end (`ONCHAIN_MONITORING.md` §8). It survived here for
+  two days because nothing checks prose against the code it describes,
+  which is the same reason the row two paragraphs up needed a strikethrough.
+  What is open is the **cadence**, and it is now measured rather than
+  described: GitHub delivers about 6.5 scheduled passes a day and going
+  from an hourly cron to a 15-minute one changed that by nothing at all
+  (0.27 → 0.269 passes an hour), so detection latency is a ~3.3 h median
+  with a 7.2 h worst observed case. `WATCHER-05` prints the gap on every
+  pass. Separately, and worse while it lasted: the two `MONITOR_*`
+  variables still named the **retired** pair for four days after the
+  redeploy, so cadence was not the binding constraint on detection during
+  that window — subject was (§5.36, guarded by `WATCHER-06`).
 - ~~The public status page~~ — **done**, at
   <https://jayoo101.github.io/tosh-status/> (repo `jayoo101/tosh-status`). It
   is worth recording that the sentence above this list — "Gate E's two red rows

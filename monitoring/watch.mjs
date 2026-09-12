@@ -196,6 +196,37 @@ const chainId = Number(await rpc('eth_chainId'))
  * the chain that produced it, so it is evidence of the same fault by itself.
  * It also catches a chain rolled back beneath us, which is the other way this
  * arithmetic silently inverts. */
+/* WATCHER-07 — the endpoint is not the chain this catalogue is about.
+ *
+ * `alerts.json` has carried `"chainId": 4663` since it was written, and nothing
+ * read it. The only chain test was the one below, which compares the endpoint
+ * against the CHECKPOINT — so it needs a previous pass to have happened on the
+ * right chain, and says nothing on a cold start. Cold starts are not exotic
+ * here: the state branch may not exist, and WATCHER-03 and -06 both discard the
+ * checkpoint by design.
+ *
+ * Reaching the wrong chain takes no more than forgetting one variable. RPC
+ * defaults to the TESTNET endpoint (see the `--rpc` default above), and a pass
+ * against 46630 with mainnet addresses is quiet rather than loud: the log filters
+ * are address-scoped so they return empty, and `owner()`/`paused()` on addresses
+ * with no code fail as non-paging "check failed" P1s. Empty logs plus successful
+ * queries does not trip WATCHER-04 either, because the queries did succeed. So
+ * the catalogue states which chain it is about and this compares the two.
+ *
+ * It records rather than exiting 2. Exit 2 means "could not even start" and the
+ * workflow skips `report.mjs` on it, so the loudest possible misconfiguration
+ * would reach a red Actions run and no pager — and at ~6.5 passes a day nobody
+ * is watching the Actions tab. Paging is the point.
+ */
+if (CONFIG.chainId != null && CONFIG.chainId !== chainId) {
+  record('WATCHER-07', 'P1', true,
+    `alerts.json declares chain ${CONFIG.chainId} and this endpoint is chain ${chainId}. Every ` +
+    `alert and address in the catalogue is about the other chain, so nothing below is a ` +
+    `statement about ${CONFIG.chainId}. Set MONITOR_RPC — unset, it defaults to the testnet ` +
+    `endpoint, and this pass would otherwise have looked quiet rather than wrong.`,
+    { catalogueChainId: CONFIG.chainId, endpointChainId: chainId })
+}
+
 const staleChain = state.chainId != null && state.chainId !== chainId
 const impossible = state.lastBlock != null && state.lastBlock > head
 
@@ -490,8 +521,26 @@ try {
       `factory.pendingOwner() is ${pending} — a transfer is mid-flight and can still be abandoned`,
       { playbook: 'docs/INCIDENT_RESPONSE.md §5' })
   }
+  /* Paging, not a gap, since 2026-09-13. A gap prints in the summary of a run
+   * that is otherwise green, and this workflow's own comment says nobody opens
+   * one of those. Deleting this variable therefore turned off the check on the
+   * single worst thing that can happen to this protocol — ownership moving away
+   * from the Safe — and the only trace was a line in a log nobody reads.
+   *
+   * The precedent is the sweep that added this: two MONITOR_* variables went
+   * STALE and four days of green passes said nothing (SECURITY_AUDIT.md §5.36).
+   * A MONITOR_* variable going ABSENT is the same failure with a wider blast
+   * radius, because a stale expectation still compares against something.
+   *
+   * It cannot storm: the variable is either set or it is not, so this is one
+   * page until someone sets it, and it names the value to set it to. */
   if (!EXPECTED_OWNER) {
-    gap('STATE-03', `MONITOR_EXPECTED_OWNER unset — owner is ${owner}, compared against nothing`)
+    record('STATE-03', 'P1', true,
+      `MONITOR_EXPECTED_OWNER is unset, so factory.owner() is compared against nothing and ` +
+      `STATE-03 cannot detect ownership moving away from the Safe — the P0 this check exists ` +
+      `for. The chain currently answers ${owner}; if that is correct, set the variable to it. ` +
+      `Until then this pass is not evidence that ownership is intact.`,
+      { playbook: 'docs/INCIDENT_RESPONSE.md §5', observedOwner: owner })
   }
 } catch (err) {
   record('STATE-03', 'P1', false, `ownership check failed: ${err.message}`)
@@ -504,8 +553,15 @@ try {
     record('STATE-04', sev('STATE-04'), pages('STATE-04'),
       `factory.pogSigner() is ${signer}, expected ${EXPECTED_SIGNER}`)
   }
+  // Same change as STATE-03's, for the same reason. A rotated-away PoG signer is
+  // how forged attestations get minted, so "compared against nothing" is not a
+  // note in a summary.
   if (!EXPECTED_SIGNER) {
-    gap('STATE-04', `MONITOR_EXPECTED_POG_SIGNER unset — signer is ${signer}, compared against nothing`)
+    record('STATE-04', 'P1', true,
+      `MONITOR_EXPECTED_POG_SIGNER is unset, so factory.pogSigner() is compared against nothing ` +
+      `and STATE-04 cannot detect the signer being rotated to an attacker's key. The chain ` +
+      `currently answers ${signer}; if that is correct, set the variable to it.`,
+      { observedSigner: signer })
   }
 } catch (err) {
   record('STATE-04', 'P1', false, `PoG signer check failed: ${err.message}`)
