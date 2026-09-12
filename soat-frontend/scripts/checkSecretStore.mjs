@@ -178,6 +178,56 @@ const INVENTORY = {
   // ── CI configuration. Plaintext to anyone with repo access, and meant to be.
   //    Listed because "holds no credential" is a claim worth having reviewed,
   //    and because these four are what decide WHICH chain is being watched. ──
+  // ── The alerting path. Added 2026-09-12: all four were live GitHub secrets
+  //    that this file did not carry, which is the one failure mode its own
+  //    docblock is about — a check that does not name a credential cannot
+  //    report on it, and every run stayed green while four went unclassified. ──
+  // All four are `ci`, not `secret`/`ci-config`, and the tiers are not
+  // interchangeable: `secret` asserts a row in Vercel production, `ci-config`
+  // asserts a GitHub Actions VARIABLE. Nothing in the Next.js app reads any of
+  // these — they are read by `monitoring/report.mjs` under `watch.yml` — and
+  // watch.yml resolves all four through `secrets.`, including the two that
+  // carry no credential. Classifying them by what they ARE rather than by
+  // where they LIVE would make this check demand a Vercel row for a pager
+  // token the app cannot use, which is reach without a reason.
+  ALERT_REPO_TOKEN: {
+    tier: 'ci',
+    why: 'A fine-grained PAT on jayoo101/tosh-alerts with Issues:write. It exists because this '
+       + 'repository went public on 2026-09-11 and the issue tracker went public with it, so the '
+       + 'watcher files findings into a private repo instead — meaning this token is what keeps '
+       + 'unpublished on-chain findings unpublished. It EXPIRES 2026-12-10 (issued for 90 days); '
+       + 'watch.yml documents the date in place because the day it lapses, `assertSinkReachable` '
+       + 'turns the job red with a 401 and the checkpoint deliberately stops advancing. Unset '
+       + 'falls back to the per-run secrets.GITHUB_TOKEN and this repository, which is the old '
+       + 'behaviour and now the wrong sink.',
+  },
+  PAGER_TELEGRAM_TOKEN: {
+    tier: 'ci',
+    why: 'A Telegram bot token. With PAGER_TELEGRAM_CHAT it turns report.mjs from a notifier into '
+       + 'a pager that pushes every P0 into the channel INCIDENT_RESPONSE.md §1 names as the '
+       + 'incident channel. Holding it means being able to post into that channel as the pager — '
+       + 'so a leak is not only eavesdropping, it is forging incident traffic to the signers. '
+       + 'MUST be set through the stdin prompt, never `gh secret set --body`: SECURITY_AUDIT.md '
+       + '§5.32\'s live PoG key leak happened exactly that way, via shell history.',
+  },
+  ALERT_REPO: {
+    tier: 'ci',
+    why: 'The owner/name the watcher files into, read as WATCH_ISSUE_REPO. A repository slug and '
+       + 'no credential, yet stored as a GitHub secret rather than a variable — which is the '
+       + 'right call for a different reason than secrecy: it names a PRIVATE repository, and a '
+       + 'variable is readable to anyone who can see the public Actions logs. report.mjs also '
+       + 'treats a 404 from it as a likely token problem rather than a missing repo, because a '
+       + 'private repository returns 404 to a token without access.',
+  },
+  PAGER_TELEGRAM_CHAT: {
+    tier: 'ci',
+    why: 'The chat id the pager pushes into. Not a credential — posting needs the bot token — but '
+       + 'stored as a secret for the same reason as ALERT_REPO: it identifies the operators\' '
+       + 'incident channel, which is not something to publish in a log. It is half of the '
+       + 'PAGER_ON condition, so with only one of the pair set report.mjs writes findings down '
+       + 'and wakes nobody, and says so on every pass rather than failing.',
+  },
+
   MONITOR_FACTORY:             { tier: 'ci-config', why: 'Public factory address the watcher scans.' },
   MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
   MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },

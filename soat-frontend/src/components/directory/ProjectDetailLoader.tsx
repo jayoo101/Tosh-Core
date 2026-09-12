@@ -6,12 +6,21 @@ import { lookupProject, recallProject, subscribeProjects } from '@/lib/projectCa
 import { ProjectDetail } from './ProjectDetail'
 import { Skeleton } from '@/components/ui/Skeleton'
 
+/**
+ * Stands in for `ProjectDetail`, so it is measured off it: same `max-w-7xl`
+ * container and the same two-column grid. It used to be `max-w-3xl`, which was
+ * right when the page was, and would now resolve into a page 512px wider —
+ * every element on screen shifting once the row lands.
+ */
 function DetailSkeleton() {
   return (
-    <div className="text-text-primary font-sans">
-      <main className="max-w-3xl mx-auto py-6 px-4 md:px-6">
-        <Skeleton className="h-10 w-64 mb-6" />
-        <Skeleton className="h-80" radius="card" />
+    <div className="font-sans text-text-primary">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <Skeleton className="h-80" radius="card" />
+          <Skeleton className="h-64" radius="card" />
+        </div>
       </main>
     </div>
   )

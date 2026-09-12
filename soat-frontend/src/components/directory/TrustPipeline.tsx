@@ -1,3 +1,5 @@
+import { BarChart3, Fuel, Lock, Rocket, Timer, type LucideIcon } from 'lucide-react'
+
 /**
  * The five-step explainer under the directory.
  *
@@ -11,24 +13,45 @@
  * five of them at once blew the glow budget that exists so a genuinely live
  * pip can be noticed.
  *
- * So colour is spent in exactly one place: the step numbers, which are the only
- * thing on screen actually saying "these five are a sequence".
+ * So colour is spent in exactly one place: brand, on the step number and the
+ * icon beside it, which are the only marks on screen actually saying "these
+ * five are a sequence".
  *
- * WHY IT IS A LIST AND NOT FIVE COLUMNS.
- * It was a `md:grid-cols-5` of cards joined by an animated connector rail, and
- * the rail existed precisely because five side-by-side cards do not read as an
- * ordered sequence on their own. That was solving a problem the layout had
- * created: at five columns inside a 1152px container each description got about
- * 130px of measure, which is four or five words per line for paragraphs that
- * run to forty. The v0 redesign stacks them, and a numbered vertical list is
- * ordered without needing anything drawn between the items - so the rail, the
- * `--rail-band` variable that aligned it, and the `cable-flow` keyframes it
- * animated with all went with the columns rather than being ported.
+ * WHY THE FIVE COLUMNS ARE BACK.
+ * They were taken out in 50bc9a7 on an argument that still holds arithmetically:
+ * at five columns inside this container each description gets about 130px of
+ * measure, which is four or five words per line for paragraphs that run to
+ * forty, and a numbered vertical list is ordered without needing anything drawn
+ * between the items. Nothing has refuted that. What changed is the requirement
+ * above it - the brief is now exact fidelity to the v0 mock, and the mock is a
+ * five-column grid - so the trade is taken knowingly rather than won on the
+ * merits. The narrow measure is the price of the layout, and these five
+ * descriptions are what pays it.
  *
- * `id="how-it-works"` because the navigation points at it. The section had no
- * anchor while the only way in was scrolling.
+ * What did NOT come back with the columns is the animated connector rail that
+ * used to join them. The rail existed because five side-by-side cards do not
+ * read as an ordered sequence on their own, which it solved by drawing the
+ * sequence; an `<ol>` of hairline-separated cells solves the same thing with
+ * structure, so the rail, the `--rail-band` variable that aligned it and the
+ * `cable-flow` keyframes it animated with stay deleted.
+ *
+ * `id="how-it-works"` is kept although nothing in the app links to it any more
+ * — the navbar entry that needed it is gone. It stays because it is the only
+ * address this explanation has: it is what a support reply or a forum post
+ * pastes, and removing it breaks those silently from outside the codebase.
  */
 
+/**
+ * Local again. This was briefly exported so a `/docs` route could render the
+ * same five steps in a different shape; that route is gone and the export went
+ * with it, because an exported constant with no importer is an invitation to
+ * grow a second presentation of these sentences somewhere else.
+ *
+ * They are a claim about what the contract does, so a second copy of them is a
+ * second thing to keep true — and the one that goes stale is always the one
+ * nobody remembers exists. If another surface needs them, export it again and
+ * have that surface reformat this array rather than restate it.
+ */
 const STEPS = [
   {
     step: '01',
@@ -67,43 +90,90 @@ const STEPS = [
   },
 ] as const
 
+/**
+ * Iconography, kept out of `STEPS` on purpose.
+ *
+ * The glyphs are this grid's decoration, not part of what the steps say.
+ * Putting them in the array would make a copy edit to a description read as a
+ * change to the layout, and would force any future consumer of `STEPS` to
+ * carry an icon rail it may have no room to draw. Keyed by `step` rather than
+ * ordered alongside it
+ * so that adding a sixth step is a type error here instead of an icon silently
+ * falling off the end.
+ */
+const ICONS: Record<(typeof STEPS)[number]['step'], LucideIcon> = {
+  '01': Fuel,
+  '02': Rocket,
+  '03': Timer,
+  '04': BarChart3,
+  '05': Lock,
+}
+
 export function TrustPipeline() {
   return (
-    <section id="how-it-works" className="relative z-10 pt-24 pb-12 md:pt-32 md:pb-16">
-      <div className="mb-10 md:mb-12">
-        <h3 className="mb-4 font-mono text-label uppercase text-text-quiet">
-          {`// HOW IT WORKS`}
-        </h3>
-        <h2 className="text-section text-text-primary md:text-hero">How a Tosh launch works.</h2>
-        <p className="mt-gap max-w-2xl text-body text-text-secondary">
-          Five steps, all of them settled on chain. Nothing below is enforced by this interface.
-        </p>
-      </div>
-
-      <ol className="divide-y divide-border-subtle overflow-hidden rounded-panel border border-border-subtle bg-surface-card shadow-panel">
-        {STEPS.map(s => (
-          <li
-            key={s.step}
-            className="flex gap-card px-card py-card transition-colors hover:bg-surface-hover md:px-card-lg"
-          >
-            <span className="w-6 shrink-0 pt-0.5 font-mono text-note font-bold tabular-nums text-brand">
-              {s.step}
+    <section id="how-it-works" className="border-t border-border-subtle">
+      {/* The gutter is back. It was dropped because this section rendered
+          inside the landing page's own `max-w-6xl mx-auto px-4` main, where
+          repeating it would have inset the grid twice. That main no longer
+          constrains anything — the landing page now spans the viewport and
+          each section carries its own column, the way the reference project
+          arranges it — so this block owns its gutter and its `border-t`
+          finally reaches both edges. */}
+      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+        <div className="flex flex-col gap-4 border-b border-border-subtle pb-section md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-gap">
+            <span className="font-mono text-label uppercase text-brand">
+              {`// How it works`}
             </span>
+            <h2 className="text-balance font-mono text-section text-text-primary md:text-hero">
+              How a Tosh launch works.
+            </h2>
+          </div>
+          <p className="max-w-sm text-pretty text-body leading-relaxed text-text-secondary md:text-right">
+            Five steps, all settled on chain. Nothing here is enforced by this
+            interface — the contract is the source of truth.
+          </p>
+        </div>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-baseline gap-gap-tight">
-                <span className="font-mono text-micro uppercase text-text-tertiary">{s.tag}</span>
-                <h4 className="font-mono text-title text-text-primary">{s.title}</h4>
-              </div>
-              {/* `max-w-3xl`, so the measure stops at something readable on a
-                  wide monitor instead of running the full container width. */}
-              <p className="mt-gap-tight max-w-3xl text-note leading-relaxed text-text-secondary">
-                {s.description}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
+        {/* THE DIVIDERS ARE THE BACKGROUND. There is no border on the cells:
+            the `<ol>` is painted `bg-border-subtle`, `gap-px` leaves a 1px seam
+            between items, and each `<li>` paints itself back to the canvas
+            colour - so what reads as a hairline rule is the list showing
+            through. It is the only way to get a single-pixel grid with no
+            doubling where two cells meet, and it is why a background colour on
+            the `<li>` is load-bearing rather than cosmetic.
+
+            `mt-px` for the same reason: it lets the first row's seam sit
+            against the header's `border-b` without the two stacking into 2px. */}
+        <ol className="mt-px grid gap-px bg-border-subtle md:grid-cols-2 lg:grid-cols-5">
+          {STEPS.map(s => {
+            const Icon = ICONS[s.step]
+            return (
+              <li key={s.step} className="group flex flex-col bg-bg-base p-card-lg">
+                <div className="flex items-center justify-between">
+                  {/* Dim until the column is hovered, because five numerals at
+                      full brand weight would out-shout the titles they are
+                      supposed to be counting. */}
+                  <span className="font-mono text-figure tabular-nums text-brand/25 transition-colors group-hover:text-brand/60">
+                    {s.step}
+                  </span>
+                  <Icon className="h-5 w-5 text-brand" aria-hidden />
+                </div>
+
+                <span className="mt-card-lg font-mono text-note font-semibold uppercase tracking-widest text-text-secondary">
+                  {s.tag}
+                </span>
+                <h3 className="mt-gap-tight font-mono text-title leading-snug text-text-primary">
+                  {s.title}
+                </h3>
+                <p className="mt-gap-tight text-body leading-relaxed text-text-secondary">
+                  {s.description}
+                </p>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
     </section>
   )
 }

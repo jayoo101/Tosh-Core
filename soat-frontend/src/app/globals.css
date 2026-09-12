@@ -189,8 +189,28 @@
   --tosh-size-micro:   0.5625rem;  /*  9px */
   --tosh-size-readout: 0.875rem;   /* 14px */
 
-  --tosh-track-label: 0.28em;
-  --tosh-track-micro: 0.22em;
+  /* Tracking for the two uppercase steps.
+   *
+   * RETUNED FROM 0.28em / 0.22em TO MATCH THE REFERENCE DESIGN, and this is
+   * the single change that most closes the gap between our pages and the mock.
+   * Every other axis already lines up — the palette is value-for-value
+   * identical after 50bc9a7, the radii are within 2px, the spacing steps land
+   * on the same 4px rhythm — and screenshots of the two still did not look
+   * like the same product. The reason is here: the mock's uppercase captions
+   * are `tracking-widest` (0.1em) and `tracking-wider` (0.05em), and ours were
+   * two to five times that. At 0.28em a ten-character label is a third wider
+   * than the mock's, which is enough to change how many fit on a row, where a
+   * pill wraps, and how wide a sidebar has to be to hold its own text.
+   *
+   * The old values were not arbitrary: extreme tracking is a terminal-UI
+   * signature and it is what made `/// P-1` read as machine output. That
+   * signature is what is being spent here, deliberately, and it is the one
+   * piece of the old identity this retune costs. Reverting is two numbers.
+   *
+   * `micro` stays slightly wider than `label` in proportion, because it is
+   * 1px smaller and loses letter separation faster than the larger step. */
+  --tosh-track-label: 0.10em;
+  --tosh-track-micro: 0.14em;
 
   /* -- Motion ----------------------------------------------------------- */
   --tosh-dur-fast:  120ms;   /* hover / colour swap */
@@ -252,7 +272,9 @@
    *    again. There is no global `letter-spacing` on <body>; it fought every
    *    one of these. -------------------------------------------------------
    *
+   *    text-display  the landing banner, and nothing else
    *    text-hero     page headline
+   *    text-lede     the landing banner's paragraph, and nothing else
    *    text-section  governance-group / section heading
    *    text-title    card title
    *    text-body     prose, descriptions, blurbs
@@ -270,20 +292,46 @@
    */
   /* The landing headline at desktop width, and the only step above `hero`.
    *
+   * RETUNED FROM 52px TO 72px to match the reference design, which sets this
+   * headline at `text-7xl` over three hard-broken lines. 52px was close enough
+   * to `hero` (40px) that the step barely earned its place; at 72px the
+   * landing page has an actual banner and the gap to `hero` means something.
+   * The line height comes down with the size — 1.04 was already tight and at
+   * 72px over three lines it left a visible gutter between them.
+   *
+   * -0.025em, not the -0.03em the other large steps use, because that is the
+   * reference's `tracking-tight` and at this size the difference is legible:
+   * 0.36px per character over an eleven-character line.
+   *
    * A literal rather than a `var()`, for the reason the other large steps are:
-   * it is never applied below `lg:`, so there is no mobile arm to override and
+   * it is never applied below `sm:`, so there is no mobile arm to override and
    * nothing for the media query at the bottom of this file to reach. The hero
-   * carries `text-hero lg:text-display`, which is why `hero` is still the step
+   * carries `text-hero sm:text-display`, which is why `hero` is still the step
    * a phone renders.
    *
    * Paired with `font-mono` at its one call site, per the v0 redesign. That is
-   * a step's business to know: at 52px, mono's wider advance is what the
-   * -0.03em tracking below is calibrated against, and the same tracking on
-   * Geist at this size closes the counters up. */
-  --text-display: 3.25rem;
-  --text-display--line-height: 1.04;
-  --text-display--letter-spacing: -0.03em;
+   * a step's business to know: at 72px, mono's wider advance is what the
+   * tracking below is calibrated against, and the same tracking on Geist at
+   * this size closes the counters up. */
+  --text-display: 4.5rem;
+  --text-display--line-height: 0.98;
+  --text-display--letter-spacing: -0.025em;
   --text-display--font-weight: 700;
+
+  /* The landing hero's one paragraph, and the only prose in the app at 16px.
+   *
+   * `body` (13px) is the prose step everywhere else and it is the right size
+   * inside a card. The hero is not a card: it carries two sentences at the top
+   * of the page with a 72px headline over them, and at 13px the reference's
+   * lede read as a caption under a banner rather than as the sentence that
+   * explains it. Named for the role, like the rest of the scale — if a second
+   * caller appears that is not a lede, that is the signal this should be a
+   * size name instead. Weight 400 and a 1.6 line height, i.e. prose metrics,
+   * which is what separates it from `title` at the same 16px. */
+  --text-lede: 1rem;
+  --text-lede--line-height: 1.6;
+  --text-lede--letter-spacing: 0em;
+  --text-lede--font-weight: 400;
 
   --text-hero: 2.5rem;
   --text-hero--line-height: 1.06;
@@ -450,8 +498,12 @@ select:focus {
     --tosh-size-micro:   0.6875rem;  /*  9px -> 11px  collapses into label */
     --tosh-size-readout: 0.9375rem;  /* 14px -> 15px  numbers and addresses */
 
-    --tosh-track-label: 0.14em;      /* 0.28em, halved against the size rise */
-    --tosh-track-micro: 0.12em;      /* 0.22em */
+    /* Still halved against the size rise, against the retuned desktop values
+     * rather than the old ones. `label` and `micro` both land on 11px here, so
+     * tracking is one of only three things left separating them — which is why
+     * `micro` keeps the wider value even after both were cut. */
+    --tosh-track-label: 0.05em;      /* 0.10em, halved against the size rise */
+    --tosh-track-micro: 0.07em;      /* 0.14em */
   }
 }
 
@@ -574,33 +626,73 @@ select:focus {
   isolation: isolate;
 }
 
-/** The ambient page texture.
+/** The ambient page texture: a magenta DOT grid, full-bleed and repeating.
  *
- * THE GRID LINES GOT FAINTER WHEN THE CANVAS GOT LIGHTER, and that is a
- * correction rather than a preference. They were `0.018` white over `#000000`.
- * The v0 canvas is `#0B0811`, so the same lines now sit on a surface that is
- * already ~4% lit: the ratio between line and canvas collapsed and what read
- * as texture on true black read as graph paper on violet. `0.01` restores
- * roughly the contrast the value was chosen for.
+ * PORTED FROM THE REFERENCE PROJECT'S `.tosh-grid`, which is
  *
- * The third radial is new and is the one piece of the redesign's background
- * that is not a colour swap: it carries a violet bloom behind the hero, which
- * is what stops the top of the page from being flat now that there is no grid
- * to fill it. Placed at `38% 0` rather than centred, so it sits behind the
- * headline and not behind the feed panel, whose own surface would hide it. */
+ *     radial-gradient(oklch(0.68 0.23 352 / 12%) 1px, transparent 1px)
+ *     background-size: 22px 22px
+ *
+ * and `oklch(0.68 0.23 352)` is `--tosh-brand` to the byte, so this is the
+ * same rule written in the colour space the rest of this file uses.
+ *
+ * Two earlier revisions of this block got the texture wrong in opposite
+ * directions and both are worth recording, because the second was a reaction
+ * to the first. It began as WHITE LINES on a 40px pitch — graph paper. When
+ * the canvas moved from `#000000` to `#0B0811` those lines lost their contrast
+ * ratio and were dimmed to `0.01` to compensate. Reading the mock's rendered
+ * page rather than its source, the remaining lines looked like the largest
+ * difference left, so they were deleted outright and the comment here said the
+ * reference had no grid.
+ *
+ * It has one. It is dots, not lines; magenta, not white; 22px, not 40px; and
+ * at 12% it is roughly twelve times the opacity the lines had been cut to.
+ * Texture was never the error — every guess about it was made from a
+ * screenshot, and a 1px dot at 12% magenta does not survive a screenshot.
+ *
+ * Repeating is the whole point of this layer and is why it carries no
+ * `background-size` fighting a `background-repeat`. The tile IS the pattern. */
 .terminal-grid-bg::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image:
-    radial-gradient(circle at 38% 0, rgb(157 91 244 / 0.16), transparent 60%),
-    radial-gradient(circle at 0 0, rgb(255 255 255 / 0.02), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgb(249 70 167 / 0.06), transparent 55%),
-    linear-gradient(to right, rgb(255 255 255 / 0.01) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.01) 1px, transparent 1px);
-  background-size: 1100px 640px, 360px 360px, 420px 420px, 40px 40px, 40px 40px;
+  background-image: radial-gradient(rgb(249 70 167 / 0.12) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/** The hero glow.
+ *
+ * The reference project's `.tosh-glow`, and note WHERE it applies: to the hero
+ * section, not to the page wrapper. Only the landing page has it. That is the
+ * distinction the previous revision here collapsed — it put a violet bloom in
+ * the fixed full-viewport layer, so every route got a wash the mock gives to
+ * one, and a tall page like the directory got it tiled down its whole length.
+ *
+ * Percentage-positioned rather than pixel-sized, so it scales with the hero
+ * instead of being a fixed-size blob that a wide viewport turns into a spot. */
+.tosh-glow {
+  background:
+    radial-gradient(55% 55% at 82% 8%, rgb(249 70 167 / 0.18) 0%, transparent 70%),
+    radial-gradient(50% 50% at 5% 100%, rgb(157 91 244 / 0.14) 0%, transparent 70%);
+}
+
+/** Pink-to-violet fill for signature elements: progress bars, gradient text.
+ *
+ * The reference project's `.tosh-gradient-bg` / `.tosh-gradient-text`. A
+ * `100deg` sweep rather than a plain `to right`, which is why these are here
+ * as classes instead of being spelled `bg-gradient-to-r from-brand to-...` at
+ * each call site — the angle is part of the signature and was being lost. */
+.tosh-gradient-bg {
+  background-image: linear-gradient(100deg, var(--tosh-brand) 0%, var(--tosh-brand-violet) 100%);
+}
+
+.tosh-gradient-text {
+  background-image: linear-gradient(100deg, var(--tosh-brand) 0%, var(--tosh-brand-violet) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* =============================================================================

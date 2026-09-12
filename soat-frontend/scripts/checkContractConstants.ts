@@ -49,7 +49,8 @@ import { fileURLToPath } from 'node:url'
 import {
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY, BONDING_MAX,
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
-  PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS,
+  PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS, PLATFORM_TAX_BPS,
+  TAX_BPS, PLATFORM_SWAP_FEE_BPS, REFERRAL_BPS,
   GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_LAUNCH_FEE, MAX_COOLDOWN_SECONDS,
   MAX_DEFAULT_SOFT_CAP, MAX_POG_ALLOCATION_LIMIT,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
@@ -196,6 +197,22 @@ const FIELDS: Field[] = [
     cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
   { sol: 'DURATION_SLOW', file: HOOK, ts: GENESIS_DURATIONS.slow, where: 'contracts.GENESIS_DURATIONS.slow',
     cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
+  // Do not confuse this with `TAX_BPS`, which is also 100 and is a different
+  // levy on a different flow — see the note in ToshLaunchpadHook.sol. The name
+  // in `sol` is matched whole, so the two cannot cross-resolve.
+  { sol: 'PLATFORM_TAX_BPS', file: HOOK, ts: BigInt(PLATFORM_TAX_BPS), where: 'contracts.PLATFORM_TAX_BPS',
+    cost: 'the detail page publishes the wrong split of a shelf mint — it states, as a figure, '
+      + "what share of a buyer's ETH reaches the project" },
+  // The three below are all disclosures of what trading costs. They are the
+  // numbers a user is owed before they sign, so drift here is not a cosmetic
+  // bug — it is the interface quoting a fee the chain does not charge.
+  { sol: 'TAX_BPS', file: HOOK, ts: BigInt(TAX_BPS), where: 'contracts.TAX_BPS',
+    cost: 'the project page understates or overstates total trader friction, which it '
+      + 'publishes as a single percentage next to a buy button' },
+  { sol: 'PLATFORM_SWAP_FEE_BPS', file: HOOK, ts: BigInt(PLATFORM_SWAP_FEE_BPS), where: 'contracts.PLATFORM_SWAP_FEE_BPS',
+    cost: "the buy leg's split is misattributed — the share called platform revenue is not the one the hook pays out" },
+  { sol: 'REFERRAL_BPS', file: HOOK, ts: BigInt(REFERRAL_BPS), where: 'contracts.REFERRAL_BPS',
+    cost: 'the referral panel promises a cut the hook does not reserve' },
   { sol: 'MIN_SOFT_CAP_PROD', file: FACTORY, ts: MIN_SOFT_CAP_PROD, where: 'contracts.MIN_SOFT_CAP_PROD',
     cost: 'the launch form accepts a soft cap the factory rejects, or blocks one it allows' },
   { sol: 'MAX_LAUNCH_FEE', file: FACTORY, ts: MAX_LAUNCH_FEE, where: 'contracts.MAX_LAUNCH_FEE',

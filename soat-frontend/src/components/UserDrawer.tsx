@@ -833,15 +833,19 @@ function AssetRow({
 // SHARED PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function PanelHeader({ index, label }: { index: string, label: string }) {
-  return (
-    <div className="flex items-center gap-3 text-label tracking-[0.4em] uppercase text-text-tertiary mb-4">
-      <span className="text-text-quiet">{'// ['}{index}{']'}</span>
-      <span className="text-text-primary">{label}</span>
-    </div>
-  )
-}
+/*
+ * `PanelHeader` USED TO BE HERE, and it was never called from anywhere in the
+ * tree. It rendered a `// [index] LABEL` eyebrow, which is what `Card`'s own
+ * eyebrow does now — so it was not a primitive waiting for a caller, it was
+ * one that had been replaced and left behind.
+ *
+ * What makes it worth a note rather than a silent delete is how it survived:
+ * the `@typescript-eslint/no-unused-vars` disable directly above it. Lint was
+ * telling the truth, and the directive was added to stop it saying so, which
+ * turns a self-clearing warning into something only a reader can find. If a
+ * primitive here is genuinely unused, delete it; the disable is for a
+ * parameter a signature is obliged to accept, not for a whole component.
+ */
 
 function Row({ label, value }: { label: string, value: React.ReactNode }) {
   return (

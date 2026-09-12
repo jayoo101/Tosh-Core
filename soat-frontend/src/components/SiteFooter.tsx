@@ -12,7 +12,7 @@ import { CHAIN_BYLINE } from '@/lib/contracts'
 export function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-border-subtle/60">
-      <div className="max-w-6xl mx-auto flex flex-col gap-gap px-4 py-card-lg md:flex-row md:items-center md:justify-between md:px-6">
+      <div className="max-w-7xl mx-auto flex flex-col gap-gap px-4 py-card-lg sm:px-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-card">
           <span className="text-title text-text-primary tracking-tighter">
             Tosh<span className="text-brand"> Protocol</span>
@@ -23,6 +23,11 @@ export function SiteFooter() {
           >
             Launch
           </Link>
+          {/* The reference footer carries "How it works" between these two.
+              There is no route to point it at — see the NAV comment in
+              ToshNavbar for why that page was removed rather than kept — and a
+              footer link to an anchor on one specific page is worse than no
+              link, so the slot is closed rather than filled. */}
           <a
             href="https://github.com/tosh-protocol"
             target="_blank"

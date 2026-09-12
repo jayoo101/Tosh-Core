@@ -116,7 +116,14 @@ describe('LogoField', () => {
       <LogoField value="https://cdn.test/logo.png" onValueChange={onValueChange} />,
     )
     try {
-      act(() => { ui.button('Remove').click() })
+      // Queried by accessible name, not text: the reference design's remove
+      // control is the X in the corner of the preview square, so it has an
+      // `aria-label` and no text content for `ui.button` to match on.
+      const remove = ui.container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove image"]',
+      )
+      if (remove === null) throw new Error('no control labelled "Remove image"')
+      act(() => { remove.click() })
       expect(onValueChange).toHaveBeenCalledWith('')
     } finally {
       ui.unmount()

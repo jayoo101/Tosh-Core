@@ -223,7 +223,7 @@ describe('what counts as gas the claimant paid', () => {
           window++
           if (window % 2 === 1) return v1Response(full)
           // Window 2 repeats the boundary block, then stops (short page).
-          return v1Response(boundaryHashes.map((h, i) =>
+          return v1Response(boundaryHashes.map(h =>
             v1Row(USER, 21_000n, 1n * GWEI, 9_999, h)).slice(0, 2))
         },
       },
