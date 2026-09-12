@@ -1,4 +1,4 @@
-import Link from 'next/link'
+﻿import Link from 'next/link'
 
 import { CHAIN_BYLINE } from '@/lib/contracts'
 
@@ -30,12 +30,17 @@ export function SiteFooter() {
             Referrals
           </Link>
           {/* The reference footer carries "How it works" between these two.
-              There is no route to point it at — see the NAV comment in
-              ToshNavbar for why that page was removed rather than kept — and a
+              There is no route to point it at 鈥?see the NAV comment in
+              ToshNavbar for why that page was removed rather than kept 鈥?and a
               footer link to an anchor on one specific page is worse than no
               link, so the slot is closed rather than filled. */}
+          {/* The repository, not an organisation. This read
+              `github.com/tosh-protocol` until 2026-09-12 鈥?a plausible name for
+              an org that has never existed, so the one link on the site that
+              invites a reader to check the source for themselves answered 404.
+              `checkFooterLinks.mjs` now resolves it. */}
           <a
-            href="https://github.com/tosh-protocol"
+            href="https://github.com/jayoo101/Tosh-Core"
             target="_blank"
             rel="noopener noreferrer"
             className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
@@ -44,7 +49,7 @@ export function SiteFooter() {
           </a>
         </div>
         <span className="font-mono text-label text-text-quiet">
-          © {new Date().getFullYear()} Tosh Protocol — {CHAIN_BYLINE}
+          漏 {new Date().getFullYear()} Tosh Protocol 鈥?{CHAIN_BYLINE}
         </span>
       </div>
     </footer>

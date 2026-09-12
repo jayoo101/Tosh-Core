@@ -392,6 +392,23 @@ jobs:
       - name: Check the status page still agrees with the playbook
         run: node scripts/checkStatusPage.mjs
 
+      # The site's footer pointed "GitHub" at `github.com/tosh-protocol` for as
+      # long as nobody clicked it — a plausible name for an organisation that
+      # has never existed. The one link inviting a reader to stop trusting the
+      # copy and read the source answered 404, and every check here was green
+      # while it did, because nothing had ever looked outward from the frontend.
+      #
+      # It also checks the link is *this* repository, resolved from `git remote`
+      # rather than from a constant in the script. Reachability alone would have
+      # started passing the day somebody registered `tosh-protocol`, which is
+      # the same failure the status page had the same day: a reference that is
+      # real and still not the right one.
+      #
+      # Exit 2 is a blocked runner rather than a broken site, on the same
+      # reasoning as the step above.
+      - name: Check the site's external links resolve and name this repo
+        run: node scripts/checkFooterLinks.mjs
+
       # PRE_MAINNET_CHECKLIST §8 summarises its own gate tables three times
       # over: as per-gate counts, as a total, and as a "Still open" list that
       # repeats each item's status glyph. All three were maintained by hand.
