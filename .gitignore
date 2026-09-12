@@ -31,6 +31,13 @@ foundry.lock
 /broadcast/*/31337/
 /broadcast/**/dry-run/
 
+# Standard-JSON-input bundles for explorer verification. ~1.4 MB of flattened
+# sources regenerable by `forge verify-contract --show-standard-json-input`, so
+# the repository is not the right place to keep them. The instructions beside
+# them ARE worth keeping, because the constructor arguments in there were read
+# back off chain rather than assumed.
+/verify-out/*.std.json
+
 # ─── Next.js / frontend build output ─────────────────────────────────────────
 .next/
 build/

@@ -57,16 +57,29 @@ In scope — the singletons deployed on chain 4663:
 
 | Contract | Address |
 |---|---|
-| `ToshFactory` | `0xBa9d2E86281b988225Eca383C375215912fb20B9` |
-| `ToshLadderTreasury` | `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` |
+| `ToshFactory` | `0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892` |
+| `ToshLadderTreasury` | `0x255722226720914eF5B2CD54647f21f584BD4Ea2` |
 
 Also in scope: `ToshLaunchpadHook` and `ToshToken`, which are deployed as clones
 by the factory on every launch; the PoG signing oracle under `scripts/`; and the
 frontend under `soat-frontend/`.
 
-Both singletons are verified on Blockscout, so the source you are reading here
-is the source that is running. `docs/PRE_MAINNET_CHECKLIST.md` PM-C4 records the
-verification and the commit it was built from.
+Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`. **These two are not
+yet verified on Blockscout** — the `--verify` pass of the deploy was refused by
+a Cloudflare challenge in front of the explorer's API, so for now the anchor
+between this source and the running bytecode is the deploy artefact
+`broadcast/DeployMainnet.s.sol/4663/run-latest.json` plus the factory's
+`HOOK_CREATION_CODEHASH`, which equals this tree's
+`keccak256(type(ToshLaunchpadHook).creationCode)`. If you are auditing, that
+equality is checkable from the chain and from this repository without trusting
+either of us; `script/RecomputeInitcodeHash.s.sol` is the check.
+
+The previous pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`,
+treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, deployed 2026-09-08 and
+Blockscout-verified — is **out of scope**. It is no longer the platform. It
+still exists and still holds a small buyback reservoir with no withdraw path,
+and its two launches were abandoned by decision rather than by failure. Reports
+against it are welcome as history but are not live findings.
 
 ### Out of scope
 
@@ -97,27 +110,37 @@ pool whose liquidity is thinnest. It is measured, not theoretical: on a pool
 parked 1500 bps out, the full 3.33 ETH leg clears and 0.93 ETH of it is
 recovered by whoever parked the price.
 
-**Closed in source on 2026-09-11. Not yet closed on chain.**
+**Closed in source on 2026-09-11, and on chain on 2026-09-12.**
 `addLadderToken` now reads `twapSqrtPriceX96()` itself and reverts
 `TwapNotMature` unless it answers non-zero, which puts the window out of reach
 through the only door that leads to it. `test_probeG3_immatureTwapIsRefusedAtListing`
 pins the refusal at the same 1500 bps park that used to clear the whole cheque.
 
-**The deployed treasury does not have that gate and cannot be given it.**
-`ToshFactory.ladderTreasury` is `immutable`, and it is baked into the hook
-implementation that every launch clones. Replacing
-`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` therefore means replacing the
-platform and stranding the launch already pointed at it, so the gate arrives
-with the next deployment rather than with the commit that wrote it. Until then
-the exposure is held shut exactly as the audit describes: by an operational
-rule — do not list a token until its TWAP matures — on the grounds that
-reaching the state at all requires `addLadderToken`, which is owner-only. The
-rule is recorded in `addLadderToken`'s natspec, in `_buybackSqrtFloor`'s
-natspec, and as `STATE-07` in `monitoring/alerts.json`.
+**How it reached the chain is worth stating, because it was not by plan.**
+`ToshFactory.ladderTreasury` is `immutable` and is baked into the hook
+implementation every launch clones, so this gate could never be retrofitted to
+the treasury that was live — it could only arrive with a whole new platform.
+This section used to say so, and used to say the gate would therefore wait. It
+did not wait: the platform was redeployed on 2026-09-12 for an unrelated reason
+(per-project referral binding), the new treasury is built from source carrying
+the gate, and the exposure closed as a side effect. The old treasury still does
+not have it and still never can; it is simply no longer the platform.
 
-The audit's own verdict on that trade is what the source change answers. It is
-reproduced rather than softened, because it still stands for the live
-deployment:
+Two honest limits on that claim. First, the gate's presence in the live treasury
+rests on **provenance rather than observation**: the deploy artefact records the
+commit, the factory's `HOOK_CREATION_CODEHASH` matches this tree, and the
+treasury's runtime differs from this tree's build only in the bytes of the
+`poolManager` immutable — but nobody has watched the gate fire, because reaching
+it needs a launched pool with an immature TWAP and the new factory has launched
+nothing yet. Second, the gate fires **once, at listing**, while
+`_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a
+healthy getter whose getter later reverts still buys unbounded. That residual is
+assessed as unreachable on chain and is pre-disclosed below. `STATE-07` in
+`monitoring/alerts.json` is not retired by any of this.
+
+The audit's own verdict on the trade the gate replaced is reproduced rather than
+softened, because it is what the source change was answering and because it
+still describes any deployment that lacks the gate:
 
 > this is a procedural control on a privileged key, so it is exactly as strong
 > as the runbook and the alert pipeline, and weaker than the one-line code

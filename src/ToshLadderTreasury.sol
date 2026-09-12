@@ -671,12 +671,17 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      cannot underflow where time only moves forward — and `SECURITY.md`
     ///      pre-discloses that assessment rather than burying it here.
     ///
-    ///      The live treasury at 0x99aD248dD15498957B864Fd79917F0E103Aa78F7
-    ///      predates the gate and cannot receive it: `ladderTreasury` is
-    ///      `immutable` in `ToshFactory` and is baked into the hook
-    ///      implementation every launch clones.  For that deployment the
-    ///      operational rule is still the only thing holding this branch, so it
-    ///      cannot be dropped silently there.
+    ///      This used to end by noting that the live treasury predated the gate
+    ///      and could never receive it — `ladderTreasury` is `immutable` in
+    ///      `ToshFactory` and is baked into the hook implementation every launch
+    ///      clones, so the gate could only ever arrive with a new platform.  It
+    ///      arrived on 2026-09-12, when the platform was redeployed for an
+    ///      unrelated reason; the live treasury is now
+    ///      0x255722226720914eF5B2CD54647f21f584BD4Ea2 and carries it.  The
+    ///      sentence is kept in this shape because it still governs the old
+    ///      treasury at 0x99aD248dD15498957B864Fd79917F0E103Aa78F7, and because
+    ///      it is the reason a future redeploy must not quietly drop the gate:
+    ///      there would be no second chance to add it.
     ///
     ///      Note the `twapSqrt == 0` early return is arithmetically redundant —
     ///      delete it and `floor` computes to 0 and the ternary picks
