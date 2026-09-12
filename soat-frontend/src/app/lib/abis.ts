@@ -200,6 +200,30 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "canBindProjectReferral",
+    "inputs": [
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "cooldownDuration",
     "inputs": [],
     "outputs": [
@@ -774,6 +798,78 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "projectReferralCount",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "projectReferrerOf",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "projectReferrers",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "quotaSpent",
     "inputs": [
       {
@@ -1249,9 +1345,15 @@ export const FACTORY_ABI = [
         "internalType": "uint256"
       },
       {
-        "name": "referrer",
+        "name": "projectReferrer",
         "type": "address",
         "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lifetimeReferrer",
+        "type": "address",
+        "indexed": false,
         "internalType": "address"
       }
     ],
@@ -1466,6 +1568,31 @@ export const FACTORY_ABI = [
     "inputs": [
       {
         "name": "newSigner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProjectReferralBound",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "hook",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "referrer",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1990,6 +2117,19 @@ export const HOOK_ABI = [
   {
     "type": "function",
     "name": "PRICE_CEILING_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PROJECT_REFERRAL_SHARE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -3012,7 +3152,12 @@ export const HOOK_ABI = [
         "internalType": "address"
       },
       {
-        "name": "referrer",
+        "name": "projectReferrer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "lifetimeReferrer",
         "type": "address",
         "internalType": "address"
       }
@@ -3816,7 +3961,13 @@ export const HOOK_ABI = [
         "internalType": "uint256"
       },
       {
-        "name": "referrer",
+        "name": "projectReferrer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lifetimeReferrer",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -3886,6 +4037,31 @@ export const HOOK_ABI = [
       },
       {
         "name": "p0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LifetimeReferralAccrued",
+    "inputs": [
+      {
+        "name": "referrer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "referee",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

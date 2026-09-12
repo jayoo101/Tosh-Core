@@ -256,7 +256,10 @@ export default function ProjectTerminal({ project, about, header }: {
   })
   const perWalletCap = (perWalletCapRaw as bigint | undefined) ?? 0n
 
-  const referrer = useBoundReferrer(userAddress)
+  // Passing the hook address is what claims this project's referral slot from
+  // `?ref=` on landing — the root layout's `<ReferralCapture/>` only parks the
+  // lifetime one, because it does not know which project the path names.
+  const referrer = useBoundReferrer(userAddress, hookAddress)
 
   const phase: Phase = resolvePhase({
     totalEthDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,

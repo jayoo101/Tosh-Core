@@ -46,10 +46,18 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      ETH is ALWAYS `currency0` — the v4.x `satoIsCurrency0` branching is
 ///      deleted along with it.
 ///
-///   2. GLOBAL REFERRALS.  10 % of each genesis deposit is carved off as
-///      referral commission.  Referred deposits credit the referrer (claimable
-///      post-launch); un-referred deposits send their 10 % to the platform
-///      ladder treasury as buyback ammunition rather than becoming dead ETH.
+///   2. TWO-SLOT REFERRALS.  10 % of each genesis deposit is carved off as
+///      referral commission and split between two referrers that ToshFactory
+///      resolves: 8 % to whoever brought this depositor to THIS project, 2 %
+///      to whoever first brought them to the platform at all.  Both are
+///      claimable post-launch.  Either slot may be empty, and an empty slot
+///      sends its own leg to the platform ladder treasury as buyback
+///      ammunition rather than letting it become dead ETH.
+///
+///      The carve is still 10 % IN TOTAL.  That is not a detail — it is what
+///      keeps the depositors' opening premium at exactly 10 %, since the
+///      premium is a function of how much is carved and not of who receives
+///      it.  See `PROJECT_REFERRAL_SHARE_BPS`.
 ///
 ///   3. DISCRETE TIER SHELVES replace the v4.x `tan(z)` Taylor bonding curve.
 ///      Phase 2 is a monotonic ramp of `TIER_COUNT` (4000) fixed-price shelves
@@ -276,6 +284,29 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     /// @notice Referral commission carved from every genesis deposit (10 %).
     uint256 public constant REFERRAL_BPS = 1000;
+
+    /// @notice The project-level referrer's share OF THE COMMISSION (80 %),
+    ///         i.e. 8 % of the deposit.  The lifetime referrer takes the rest.
+    ///
+    /// @dev    THIS SPLITS THE CARVE, IT DOES NOT RESIZE IT.  `REFERRAL_BPS`
+    ///         stays at 10 % and the two legs always sum back to it, which is
+    ///         the only reason a split is safe to introduce at all.  The
+    ///         depositors' opening premium is `(0.9 / 3.78) · 4.62 = 1.10`
+    ///         exactly, and every term in that is a function of how much is
+    ///         carved — never of who receives it.  So moving THIS number
+    ///         reprices referrers against each other and leaves the premium
+    ///         untouched, while moving `REFERRAL_BPS` moves the premium.
+    ///         `test_genesisPremium_isExactlyTenPercent` passes unchanged
+    ///         across this split, which is the assertion that says so.
+    ///
+    ///         The sum is held exact by SUBTRACTION, never by a second mulDiv
+    ///         — see `deposit`.  Two independent divisions would each round
+    ///         down and leave a wei of the commission uncarved, and an
+    ///         uncarved wei does not stay put: it falls into `lpEth`, which is
+    ///         the numerator of `p0`.  One wei of ETH is nothing.  A premium
+    ///         that is no longer exactly 10 % is the invariant this contract
+    ///         is built around.
+    uint256 public constant PROJECT_REFERRAL_SHARE_BPS = 8000;
 
     /// @notice Platform cut of Phase-2 shelf proceeds (1 %), routed to the
     ///         buyback reservoir; the remaining 99 % goes to `projectAdmin`.
@@ -849,13 +880,29 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     event TokenInitialized(address indexed token);
-    event Deposited(address indexed user, uint256 ethAmount, address indexed referrer);
+    /// @dev Carries BOTH referrer slots rather than one ambiguous `referrer`.
+    ///      They are paid different rates, so a log line naming only one of
+    ///      them cannot be read without guessing which.
+    event Deposited(
+        address indexed user, uint256 ethAmount, address indexed projectReferrer, address indexed lifetimeReferrer
+    );
     event Launched(uint256 totalEth, uint256 lpEth, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0);
     event GenesisFailed(uint256 totalEthRaised);
     event ZombieRefund(uint256 totalEthRaised);
     event Refunded(address indexed user, uint256 ethAmount);
     event GenesisShareClaimed(address indexed user, uint256 tokenAllocation);
+    /// @notice The project-level leg, `PROJECT_REFERRAL_SHARE_BPS` of the carve.
     event ReferralAccrued(address indexed referrer, address indexed referee, uint256 amount);
+
+    /// @notice The lifetime leg, the remainder of the carve.
+    ///
+    /// @dev    A separate event rather than a flag on `ReferralAccrued` so each
+    ///         one means a single thing and a log reader can filter by topic
+    ///         instead of decoding a discriminator.  Both fire for the same
+    ///         deposit whenever both slots are filled, and with the same
+    ///         `referrer` when one wallet holds both.
+    event LifetimeReferralAccrued(address indexed referrer, address indexed referee, uint256 amount);
+
     event ReferralClaimed(address indexed referrer, uint256 amount);
     event OrphanReferralForwarded(uint256 amount);
     event ProjectAdminChanged(address indexed previousAdmin, address indexed newAdmin);
@@ -1173,14 +1220,25 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     /// @notice Record a native-ETH genesis deposit.  The ETH arrives with this
-    ///         call; all eligibility checks (blacklist / PoG / cooldown) and the
-    ///         global referral resolution happen in ToshFactory.
+    ///         call; all eligibility checks (blacklist / PoG / cooldown) and
+    ///         both referral resolutions happen in ToshFactory.
     ///
-    /// @param user     Beneficiary of the deposit.
-    /// @param referrer Globally-bound referrer, or `address(0)` if the user has
-    ///                 none.  Resolved by the factory registry, never by the
-    ///                 caller, so it cannot be spoofed per-project.
-    function deposit(address user, address referrer) external payable {
+    /// @param user             Beneficiary of the deposit.
+    /// @param projectReferrer  The referrer bound to THIS project for `user`,
+    ///                         or `address(0)`.  Takes
+    ///                         `PROJECT_REFERRAL_SHARE_BPS` of the carve.
+    /// @param lifetimeReferrer The wallet's permanent platform-wide referrer,
+    ///                         or `address(0)`.  Takes the remainder.
+    ///
+    /// @dev    Both come from the factory's registries and never from the
+    ///         caller, so neither can be spoofed.  They are frequently the
+    ///         SAME address — a first-time depositor arriving on one link
+    ///         fills both slots with it — and that case is handled by
+    ///         crediting `referralAccrued` twice rather than being
+    ///         special-cased.  Two credits to one address sum to the same
+    ///         thing as one credit of the total, and keeping the legs
+    ///         independent means neither branch has to know about the other.
+    function deposit(address user, address projectReferrer, address lifetimeReferrer) external payable {
         if (msg.sender != factory) revert OnlyFactory();
         if (!tokenInitialized) revert NotInitialized();
         if (block.timestamp >= genesisDeadline) revert GenesisExpired();
@@ -1198,18 +1256,44 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
         // Carve the referral commission up-front so `launch()` can seed the LP
         // with exactly the non-commission remainder.
+        //
+        // The second leg is the SUBTRACTED remainder, never a second mulDiv, so
+        // `projectCut + lifetimeCut` is identically `commission` for every
+        // amount — including amounts where both divisions would have rounded
+        // down. See `PROJECT_REFERRAL_SHARE_BPS` for what a wei of drift here
+        // would do to the opening premium.
         uint256 commission = (amount * REFERRAL_BPS) / BPS_DENOMINATOR;
-        if (referrer != address(0)) {
-            referralAccrued[referrer] += commission;
-            totalReferralReserved += commission;
-            emit ReferralAccrued(referrer, user, commission);
+        uint256 projectCut = (commission * PROJECT_REFERRAL_SHARE_BPS) / BPS_DENOMINATOR;
+        uint256 lifetimeCut = commission - projectCut;
+
+        // Accumulated and written once. The two legs are independent, but
+        // `totalReferralReserved` is one slot and there is no state between
+        // them that could observe a half-applied total.
+        uint256 reserved;
+
+        if (projectReferrer != address(0)) {
+            referralAccrued[projectReferrer] += projectCut;
+            reserved += projectCut;
+            emit ReferralAccrued(projectReferrer, user, projectCut);
         } else {
-            // No referrer: the commission becomes platform buyback ammunition
-            // rather than ETH nobody can ever claim.
-            orphanReferral += commission;
+            // An empty slot's leg becomes platform buyback ammunition rather
+            // than ETH nobody can ever claim. Expect this on a project's
+            // earliest deposits: the factory will not bind a project referrer
+            // who has no deposit here yet, and at the start nobody does.
+            orphanReferral += projectCut;
         }
 
-        emit Deposited(user, amount, referrer);
+        if (lifetimeReferrer != address(0)) {
+            referralAccrued[lifetimeReferrer] += lifetimeCut;
+            reserved += lifetimeCut;
+            emit LifetimeReferralAccrued(lifetimeReferrer, user, lifetimeCut);
+        } else {
+            orphanReferral += lifetimeCut;
+        }
+
+        totalReferralReserved += reserved;
+
+        emit Deposited(user, amount, projectReferrer, lifetimeReferrer);
     }
 
     /// @notice True when depositors may reclaim their ETH.
@@ -1354,9 +1438,12 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     /// @notice Withdraw accrued referral commission.
     ///
-    /// @dev    Commission is credited pro-rata at deposit time (10 % of each
-    ///         referee's contribution) and unlocked in full once the project
-    ///         launches.  It is deliberately NOT time-vested: the amount is
+    /// @dev    Commission is credited pro-rata at deposit time and unlocked in
+    ///         full once the project launches.  One balance holds both legs:
+    ///         a wallet that is this project's referrer for some depositors and
+    ///         the lifetime referrer of others claims the sum in a single call,
+    ///         because `referralAccrued` is keyed by address and not by which
+    ///         slot earned it.  It is deliberately NOT time-vested: the amount is
     ///         already proportional to what each referee actually brought in,
     ///         and a launched project has no mechanism to claw it back.
     function claimReferralReward() external nonReentrant {

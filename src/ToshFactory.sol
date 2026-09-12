@@ -25,12 +25,26 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      launched on this platform, and the factory no longer even stores its
 ///      address.
 ///
-///   2. GLOBAL LIFETIME REFERRALS.  `globalReferrers` binds each wallet to its
-///      referrer ONCE, platform-wide and permanently.  Every subsequent deposit
-///      that wallet ever makes — on any project, forever — credits that same
-///      referrer with 10 % of the raise.  The binding is immutable: passing a
-///      different referrer later is silently ignored rather than reverting, so
-///      a stale referral link in a shared URL can never brick a deposit.
+///   2. TWO REFERRAL REGISTRIES, ONE LINK.  A deposit resolves two referrers
+///      and the hook pays them different rates out of the same 10 % carve.
+///
+///        `globalReferrers[user]`         bound ONCE per wallet, platform-wide
+///                                        and permanently, on that wallet's
+///                                        first genesis deposit → 2 %
+///        `projectReferrers[user][hook]`  bound once per wallet PER PROJECT
+///                                        → 8 %
+///
+///      `deposit` takes ONE referrer argument and offers it to both registries,
+///      each of which accepts only if its own slot is still empty.  So a
+///      first-time depositor's link fills both slots and that referrer earns
+///      the whole 10 %, while a returning depositor arriving on someone else's
+///      link leaves the lifetime slot alone and hands the new sharer the 8 %.
+///      One link, no project-specific link format, no way for a sharer to pick
+///      which slot they are claiming.
+///
+///      Both bindings are immutable once written: passing a different referrer
+///      later is silently ignored rather than reverting, so a stale referral
+///      link in a shared URL can never brick a deposit.
 ///
 ///   3. Launch fees are forwarded to `ladderTreasury`, becoming buyback fuel
 ///      instead of platform profit.
@@ -269,6 +283,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice How many wallets a referrer has recruited (informational).
     mapping(address => uint256) public referralCount;
 
+    /// @notice Per-project referrer binding: wallet → hook → referrer.  Written
+    ///         at most once per (wallet, project), on that wallet's first
+    ///         deposit into that project.
+    ///
+    /// @dev    Independent of `globalReferrers` in both directions.  A wallet
+    ///         can have a lifetime referrer and no project referrer (the
+    ///         common case early in a raise, where the deposit gate below is
+    ///         unmet), a project referrer and no lifetime one is impossible
+    ///         since the same call offers the same address to both, and the
+    ///         two can name different wallets or the same one.
+    mapping(address => mapping(address => address)) public projectReferrers;
+
+    /// @notice How many wallets a referrer has recruited into a given project
+    ///         (informational).  Keyed hook → referrer, the opposite order to
+    ///         `projectReferrers`, because the useful question here is "who
+    ///         brought people to this project" and not "which projects did
+    ///         this wallet recruit for".
+    mapping(address => mapping(address => uint256)) public projectReferralCount;
+
     // ─── Launch registry ──────────────────────────────────────────────────────
 
     struct LaunchInfo {
@@ -306,8 +339,19 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     );
     event Blacklisted(address indexed user, uint256 untilTimestamp);
     event PoGRegistered(address indexed user, uint256 quota);
-    event GenesisDeposit(address indexed user, address indexed hook, uint256 amount, address indexed referrer);
+    /// @dev `lifetimeReferrer` is the one unindexed address of the four fields.
+    ///      Three topics is the ceiling, and the project referrer is the one
+    ///      worth filtering on: it is the leg that varies per project and
+    ///      carries 8 of the 10 points.
+    event GenesisDeposit(
+        address indexed user,
+        address indexed hook,
+        uint256 amount,
+        address indexed projectReferrer,
+        address lifetimeReferrer
+    );
     event ReferralBound(address indexed user, address indexed referrer);
+    event ProjectReferralBound(address indexed user, address indexed hook, address indexed referrer);
     event PogSignerUpdated(address indexed newSigner);
     event LaunchFeeUpdated(uint256 fee);
     event LaunchFeeForwarded(uint256 amount);
@@ -658,6 +702,66 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit ReferralBound(user, referrer);
     }
 
+    /// @notice Bind `user` to `referrer` FOR ONE PROJECT, if and only if that
+    ///         pair has never been bound before.
+    ///
+    /// @dev    Silent on every rejection path for the same reason
+    ///         `_recordReferral` is: this runs inside `deposit`, and a revert
+    ///         would turn a cosmetic link mismatch into a denial of service on
+    ///         the deposit itself.  A rejected binding is not a rejected
+    ///         deposit — the 8 % leg simply falls through to `orphanReferral`
+    ///         and becomes buyback fuel.
+    ///
+    ///         ── Why this gate is stricter than the lifetime one ─────────────
+    ///
+    ///         Per-project binding multiplies the self-rebate.  Under the
+    ///         lifetime registry alone, a farmer running a throwaway wallet as
+    ///         the referrer for their own real wallet collected the carve ONCE,
+    ///         ever, for the cost of one PoG attestation.  Bind per project and
+    ///         the same pair collects 8 % in every project the real wallet ever
+    ///         deposits into, with the attestation cost amortised across all of
+    ///         them.  The cheapest attack got N times better and no more
+    ///         expensive.
+    ///
+    ///         So the project slot additionally requires the referrer to
+    ///         already hold a deposit IN THIS PROJECT.  Farming now needs
+    ///         capital committed per project rather than one attestation
+    ///         spread over many.
+    ///
+    ///         Be honest about the size of that: the throwaway's deposit is not
+    ///         burned, it earns genesis tokens like any other, so the cost is
+    ///         capital tied up and not capital lost.  This is a price, not a
+    ///         wall — the wall, as ever, is the off-chain PoG oracle, which is
+    ///         the only party that can price or refuse an attestation.
+    ///
+    ///         ── What this costs honest promoters ────────────────────────────
+    ///
+    ///         A project's earliest deposits CANNOT bind a project referrer,
+    ///         because at that point nobody has a deposit here to qualify
+    ///         with.  Their 8 % orphans to the buyback reservoir.  The playbook
+    ///         that follows is deliberate and has to be surfaced in the UI: to
+    ///         earn on a project, deposit into it before sharing the link.
+    ///
+    ///         A failed binding is NOT sticky.  The slot stays empty, so the
+    ///         same user's next deposit into the same project tries again and
+    ///         will bind if the referrer has since qualified.
+    function _recordProjectReferral(address user, address hook, address referrer) internal {
+        if (projectReferrers[user][hook] != address(0)) return;
+        if (referrer == address(0) || referrer == user) return;
+        if (pogQuota[referrer] == 0) return;
+
+        // Read before the caller's own ETH reaches the hook, so this is the
+        // referrer's state from an earlier transaction. `referrer != user`
+        // above already rules out self-qualification either way.
+        if (ToshLaunchpadHook(payable(hook)).ethDeposited(referrer) == 0) return;
+
+        projectReferrers[user][hook] = referrer;
+        unchecked {
+            ++projectReferralCount[hook][referrer];
+        }
+        emit ProjectReferralBound(user, hook, referrer);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  Launch Creation
     // ══════════════════════════════════════════════════════════════════════════
@@ -753,9 +857,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         underway must be able to run to its deadline on its own merits.
     ///
     /// @param  hook     Target launch hook.
-    /// @param  referrer Referral code carried by the caller's link.  Only
-    ///                  honoured if this wallet has never been bound before;
-    ///                  otherwise the existing lifetime binding stands.
+    /// @param  referrer The single referrer carried by the caller's link, which
+    ///                  is offered to BOTH registries.  Each accepts only if
+    ///                  its own slot is empty, so this one argument can bind
+    ///                  the lifetime slot, the project slot, both, or neither
+    ///                  — and the caller cannot choose which.  See
+    ///                  `_recordProjectReferral` for the extra gate the project
+    ///                  slot applies.
     function deposit(address hook, address referrer) external payable nonReentrant {
         uint256 amount = msg.value;
         if (amount == 0) revert ZeroAmount();
@@ -771,17 +879,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
             userLaunchCooldownEnd[msg.sender][hook] = block.timestamp + cooldownDuration;
         }
 
-        // Bind the lifetime referral BEFORE reading it back, so a first-time
-        // depositor's own link is honoured on this very deposit.
+        // Bind BOTH slots before reading either back, so a first-time
+        // depositor's own link is honoured on this very deposit. The project
+        // binding runs while the hook still holds pre-deposit state, which is
+        // what lets its gate ask whether the referrer already had a stake here.
         _recordReferral(msg.sender, referrer);
-        address boundReferrer = globalReferrers[msg.sender];
+        _recordProjectReferral(msg.sender, hook, referrer);
+
+        // Read back rather than reuse `referrer`: either binding may have been
+        // rejected, and what the hook must be paid against is the slot that
+        // actually stands, not the address that was offered.
+        address boundLifetime = globalReferrers[msg.sender];
+        address boundProject = projectReferrers[msg.sender][hook];
 
         quotaSpent[msg.sender] = alreadyIn + amount;
         totalGenesisDeposited[msg.sender] += amount;
 
-        ToshLaunchpadHook(payable(hook)).deposit{value: amount}(msg.sender, boundReferrer);
+        ToshLaunchpadHook(payable(hook)).deposit{value: amount}(msg.sender, boundProject, boundLifetime);
 
-        emit GenesisDeposit(msg.sender, hook, amount, boundReferrer);
+        emit GenesisDeposit(msg.sender, hook, amount, boundProject, boundLifetime);
     }
 
     /// @notice Hand a name/symbol back to the pool once its launch is provably
@@ -837,6 +953,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice The permanent referrer of `user`, or the zero address.
     function referrerOf(address user) external view returns (address) {
         return globalReferrers[user];
+    }
+
+    /// @notice The referrer bound to `user` for `hook`, or the zero address.
+    function projectReferrerOf(address user, address hook) external view returns (address) {
+        return projectReferrers[user][hook];
+    }
+
+    /// @notice Whether `referrer`'s link would bind on `hook` right now.
+    ///
+    /// @dev    For the share side of the UI, which otherwise has to reproduce
+    ///         `_recordProjectReferral`'s gate in TypeScript and go stale the
+    ///         moment the gate changes.  Deliberately ignores whether any
+    ///         particular depositor is already bound — this answers "is my link
+    ///         live on this project", not "will it bind for this one visitor".
+    function canBindProjectReferral(address referrer, address hook) external view returns (bool) {
+        if (referrer == address(0)) return false;
+        if (!registeredHooks[hook]) return false;
+        if (pogQuota[referrer] == 0) return false;
+        return ToshLaunchpadHook(payable(hook)).ethDeposited(referrer) > 0;
     }
 
     function launchCount() external view returns (uint256) {

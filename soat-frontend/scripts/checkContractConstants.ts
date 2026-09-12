@@ -50,7 +50,7 @@ import {
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY, BONDING_MAX,
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
   PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS, PLATFORM_TAX_BPS,
-  TAX_BPS, PLATFORM_SWAP_FEE_BPS, REFERRAL_BPS,
+  TAX_BPS, PLATFORM_SWAP_FEE_BPS, REFERRAL_BPS, PROJECT_REFERRAL_SHARE_BPS,
   GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_LAUNCH_FEE, MAX_COOLDOWN_SECONDS,
   MAX_DEFAULT_SOFT_CAP, MAX_POG_ALLOCATION_LIMIT,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
@@ -213,6 +213,11 @@ const FIELDS: Field[] = [
     cost: "the buy leg's split is misattributed — the share called platform revenue is not the one the hook pays out" },
   { sol: 'REFERRAL_BPS', file: HOOK, ts: BigInt(REFERRAL_BPS), where: 'contracts.REFERRAL_BPS',
     cost: 'the referral panel promises a cut the hook does not reserve' },
+  { sol: 'PROJECT_REFERRAL_SHARE_BPS', file: HOOK, ts: BigInt(PROJECT_REFERRAL_SHARE_BPS),
+    where: 'contracts.PROJECT_REFERRAL_SHARE_BPS',
+    cost: 'the referral desk and the rebate page split the cut one way while the hook '
+      + 'splits it another, so every sharer is quoted the wrong rate on the leg they '
+      + 'are actually earning' },
   { sol: 'MIN_SOFT_CAP_PROD', file: FACTORY, ts: MIN_SOFT_CAP_PROD, where: 'contracts.MIN_SOFT_CAP_PROD',
     cost: 'the launch form accepts a soft cap the factory rejects, or blocks one it allows' },
   { sol: 'MAX_LAUNCH_FEE', file: FACTORY, ts: MAX_LAUNCH_FEE, where: 'contracts.MAX_LAUNCH_FEE',
