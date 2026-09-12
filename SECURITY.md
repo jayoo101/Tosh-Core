@@ -64,9 +64,16 @@ Also in scope: `ToshLaunchpadHook` and `ToshToken`, which are deployed as clones
 by the factory on every launch; the PoG signing oracle under `scripts/`; and the
 frontend under `soat-frontend/`.
 
-Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`. Sources for both,
-and for the three contracts the factory creates, are published on **Sourcify**
-under chain 4663:
+Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`, which reaches
+`main` as `d18d2d5`. Two names for one tree, and worth stating rather than
+quietly picking one: `9b9d9ce` is what the deployer recorded in
+`broadcast/DeployMainnet.s.sol/4663/run-latest.json` at broadcast time and is
+therefore the historical fact, while GitHub's rebase merge replayed the commit
+onto `main` under a new object name. `git diff 9b9d9ce d18d2d5` is empty, so
+either name reproduces the build; `d18d2d5` is the one reachable from `main`.
+
+Sources for both, and for the three contracts the factory creates, are published
+on **Sourcify** under chain 4663:
 
     https://sourcify.dev/server/v2/contract/4663/<address>
 
@@ -76,11 +83,22 @@ byte, and the metadata hash appended after it does not. What is proven is that
 the code that executes is this code. What is not proven is the provenance of
 the trailing metadata blob, which contains no executable instructions.
 
-They are **not verified on Blockscout**; the explorer's write API is behind a
-Cloudflare challenge that refuses every automated client, and it does not import
-from Sourcify by itself. So if you are reading the contracts on the explorer you
-will see bytecode, and the source is a Sourcify lookup away rather than on the
-page.
+All five are **also verified on Blockscout**, so the explorer shows source rather
+than bytecode and the constructor arguments are decoded on the page. Blockscout
+grades them `partial match` for the same reason Sourcify says `match`: runtime
+bytecode byte-identical, trailing metadata hash not. Its records carry
+`is_verified_via_sourcify: false`, which is accurate — it did not import from
+Sourcify, it compiled the standard-JSON input itself and compared. The two
+verifications are therefore independent of each other, and agreeing is worth
+more than either alone.
+
+One warning for anyone repeating this. Blockscout's verification form offers a
+method called **Sourcify**, and it is not a way to verify on Blockscout. It is an
+embedded `verify.sourcify.dev` widget that submits to Sourcify and reports
+*Sourcify's* status, so it shows a green "Match" badge for a contract Blockscout
+still lists as unverified. Two attempts here were fooled by exactly that. The
+method that works is **Solidity (Standard JSON input)**; `verify-out/README.md`
+records the rest.
 
 A second, independent anchor that needs no third party at all: the deploy
 artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json` plus the factory's
