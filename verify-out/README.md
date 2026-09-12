@@ -1,16 +1,39 @@
-# Blockscout verification, by hand
+# Verification, by hand and by Sourcify
 
 Generated 2026-09-12 for the deployment at block 61056709 (commit `9b9d9ce`).
 
-## Why this is manual
+## Read this first: Sourcify worked
+
+All five contracts are published on **Sourcify**, which lists chain 4663 as
+supported and has no Cloudflare gate. `sourcify.mjs` in this directory did it
+unattended and is re-runnable; it skips anything already verified, so running
+it again is safe and cheap.
+
+    https://sourcify.dev/server/v2/contract/4663/<ADDRESS>
+
+Sourcify grades each one **`match`**, not `exact_match`. The distinction is
+worth stating plainly rather than rounding up: the runtime bytecode matches
+byte for byte, and the trailing metadata hash does not. So the executable code
+is proven identical to this tree, while the provenance of the appended metadata
+blob is not. For anyone reading the contracts to decide whether to trust them,
+the first of those is the whole question and the second is bookkeeping.
+
+Blockscout does **not** import from Sourcify on its own — it kept reporting
+`is_verified: false` afterwards — but `sourcify` is one of the verification
+methods its API advertises, and that method needs no file upload because it
+fetches from Sourcify by address. That is the cheap path if the explorer's own
+listing still matters. The rest of this file is the expensive path.
+
+## Why the Blockscout part is manual
 
 `forge verify-contract --verify` cannot reach the explorer. Blockscout's API
 sits behind a Cloudflare managed challenge that answers `403 Just a moment…`
 to every automated client tried: `forge`'s HTTP client, `curl` with a browser
-user-agent, and .NET `HttpClient`. GET requests pass — `/api/v2/…/config`
-returns the 1,657 compiler versions quite happily — and POST does not, which is
-Cloudflare applying stricter rules to writes rather than anything wrong with
-the payload.
+user-agent, .NET `HttpClient`, and node's `fetch`. GET requests pass —
+`/api/v2/…/config` returns the 1,657 compiler versions quite happily — and POST
+does not, which is Cloudflare applying stricter rules to writes rather than
+anything wrong with the payload. Four clients failing identically is what makes
+this a property of the endpoint and not a bug in one of them.
 
 A real browser solves the challenge, so the upload has to happen in one. That
 is the whole reason this directory exists: everything a browser cannot generate
@@ -94,7 +117,6 @@ No constructor arguments. Leave the field empty.
 
 ## When it is done
 
-`SECURITY.md` currently tells researchers these contracts are **not** verified
-and points them at the initcode hash instead. Once the explorer agrees, that
-paragraph should go back to the shorter claim it made before. Nothing else
-depends on verification.
+`SECURITY.md` names Sourcify as the published source of record. If Blockscout
+is made to agree as well, that paragraph can drop its caveat about the explorer
+specifically. Nothing else depends on verification.
