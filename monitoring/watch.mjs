@@ -216,7 +216,81 @@ if (staleChain || impossible) {
   state.lastPiggybackBlock = null
   delete state.treasuryBalance
 }
+/* WATCHER-06 — the checkpoint was written while watching a DIFFERENT factory.
+ *
+ * WATCHER-03 above asks "same chain?" and stops there, because until 2026-09-12
+ * there had only ever been one factory on 4663 and "which one" was not a
+ * question. The redeploy that day made it one, and nothing asked it: the
+ * variables kept naming the retired pair for four days while every pass went
+ * green. A retired factory is not a broken endpoint — it is a real contract that
+ * answers `owner()` with the Safe and `paused()` with false and emits nothing,
+ * because nothing uses it. So the monitor looked healthy in exactly the way a
+ * monitor watching nothing looks healthy. Same shape as `checkStatusPage.mjs`
+ * check 6b, same missing distinction: not testnet-vs-mainnet, but WHICH mainnet
+ * deployment.
+ *
+ * The reset is wider than WATCHER-03's on purpose. `hooks` was harvested from
+ * the old factory's launches and `treasuryBalance` is the old treasury's, so
+ * both are about contracts this pass is no longer watching. `lastBlock` goes too:
+ * those blocks were scanned, but scanned with the old addresses in the filters,
+ * so the new pair's events inside them were never looked for. Dropping it falls
+ * back to `head - MAX_SPAN`, which reaches a redeploy up to MAX_SPAN blocks old
+ * and NOT one older than that — said here rather than assumed, because the fix
+ * for an older one is a manual `--since`, not another pass.
+ *
+ * Detected here, where the previous values are still readable, and REPORTED
+ * below once MAX_SPAN exists — the message has to name the window it is about to
+ * rescan, and a finding that cannot say how far back it reached is not much of
+ * one.
+ */
+const prevFactory = state.factory ?? null
+const prevTreasury = state.treasury ?? null
+const watchedPairChanged =
+  (prevFactory != null && prevFactory !== FACTORY) ||
+  (prevTreasury != null && prevTreasury !== TREASURY)
+
 state.chainId = chainId
+state.factory = FACTORY
+state.treasury = TREASURY
+
+/* WATCHER-05 — how long it had been since a pass ran at all.
+ *
+ * `state.lastRun` has been written on every pass since this file existed and
+ * read by nothing, which made the one failure mode the host actually has
+ * invisible from inside: the schedule is best-effort and stops when GitHub
+ * decides, and the thing that would announce that is the thing that stopped.
+ * Nothing here can make a pass happen. What it can do is make the gap a
+ * finding once a pass does happen, so a responder reading a P0 knows whether
+ * it was detected in minutes or in hours, and so a schedule that has died
+ * announces itself on its first pass back instead of never.
+ *
+ * The threshold is deliberately far above the cadence the cron asks for.
+ * Measured 2026-09-13 over 193.5 h of the 15-minute cron: 52 passes against an
+ * expected 774, and consecutive passes 2.1 h apart at the closest and 7.2 h at
+ * the widest. A threshold at the requested 15 minutes would therefore fire on
+ * every single pass — §6's noise budget spent in full on a condition nobody can
+ * act on, taking the P0s with it. 8 h is above the widest gap observed, so this
+ * fires when the schedule has stopped rather than when it is merely as bad as
+ * usual. Raise it if the platform gets worse; do not lower it to the cron.
+ *
+ * P1 and paging: a monitor that has not run for a third of a day is an outage of
+ * the monitor, which is the same claim WATCHER-03 and -04 page for. It cannot
+ * storm — one pass brings the gap back under the threshold, so an outage of any
+ * length produces one page.
+ */
+const RUN_GAP_LIMIT_MIN = Number(process.env.MONITOR_MAX_RUN_GAP_MIN || 480)
+const prevRun = state.lastRun ? Date.parse(state.lastRun) : NaN
+const runGapMin = Number.isFinite(prevRun) ? (Date.now() - prevRun) / 60_000 : null
+if (runGapMin != null && runGapMin > RUN_GAP_LIMIT_MIN) {
+  record('WATCHER-05', 'P1', true,
+    `${(runGapMin / 60).toFixed(1)} h since the previous pass (${state.lastRun}), over the ` +
+    `${(RUN_GAP_LIMIT_MIN / 60).toFixed(1)} h limit. Nothing in that window was watched until ` +
+    `now, so anything this pass reports may have been true for up to that long — read every ` +
+    `finding below as "first seen now", not "happened now". The schedule is best-effort and ` +
+    `not ours to fix (ONCHAIN_MONITORING.md §7.3); what this says is that it stopped rather ` +
+    `than merely ran late.`,
+    { gapMinutes: Math.round(runGapMin), limitMinutes: RUN_GAP_LIMIT_MIN })
+}
 
 // A window wider than the node will answer gets split. 1,000,000 blocks was
 // accepted on the 46630 testnet node and, re-measured 2026-09-08 against
@@ -227,6 +301,24 @@ state.chainId = chainId
 // calls. A hardcoded sleep with no provenance is the thing someone deletes
 // later, which is why the numbers live next to the measurement, not here.
 const MAX_SPAN = Number(process.env.MONITOR_MAX_SPAN || 900_000)
+
+// The other half of WATCHER-06; see the comment above `watchedPairChanged`.
+if (watchedPairChanged) {
+  record('WATCHER-06', 'P1', true,
+    `The checkpoint was written while watching factory ${prevFactory} / treasury ` +
+    `${prevTreasury}, and this pass watches ${FACTORY} / ${TREASURY}. Every pass between ` +
+    `those two configurations reported on the old pair, so its greenness said nothing about ` +
+    `the new one. The checkpoint, the harvested hooks and the treasury-balance baseline have ` +
+    `been discarded; this pass rescans the most recent ${MAX_SPAN.toLocaleString()} blocks, ` +
+    `so expect duplicates. If the redeploy is older than that window, run the workflow ` +
+    `manually with a larger 'since' — no later pass will reach back on its own.`,
+    { previousFactory: prevFactory, previousTreasury: prevTreasury })
+  state.lastBlock = null
+  state.hooks = []
+  state.armedSince = null
+  state.lastPiggybackBlock = null
+  delete state.treasuryBalance
+}
 
 let from
 if (SINCE) from = Math.max(0, head - Number(SINCE))
@@ -457,7 +549,27 @@ try {
 
   // STATE-02: a drop with no buyback to explain it means either a withdrawal
   // path exists or we are watching the wrong contract.
-  if (state.treasuryBalance != null) {
+  //
+  // The comment above named both causes and the code could not tell them apart,
+  // because the stored balance did not record WHICH contract it was read from.
+  // Correcting MONITOR_TREASURY was therefore enough to fire this: measured
+  // 2026-09-13 against the real state file, the retired treasury's recorded
+  // 0.021017 ETH compared against the live one's 0.000000 produced
+  // "balance fell ... with NO buyback event in this window" — a P0 drain alarm,
+  // the loudest thing in the catalogue, caused by a variable edit. WATCHER-06
+  // clears the baseline when it sees the pair change, but it cannot see a change
+  // that predates the field, which is exactly the state the CI checkpoint was in
+  // on the day the variables were corrected. So the baseline carries its subject
+  // now: a reading from a different treasury is not a lower reading, it is a
+  // reading of something else, and the only safe thing to do with it is to
+  // re-baseline silently rather than to page.
+  const baselineIsOfThisTreasury =
+    state.treasuryBalance != null && state.treasuryBalanceOf === TREASURY
+  if (state.treasuryBalance != null && !baselineIsOfThisTreasury) {
+    gap('STATE-02', `balance baseline was read from ${state.treasuryBalanceOf ?? 'an unrecorded address'}, `
+      + `not ${TREASURY} — re-baselining this pass instead of comparing across contracts`)
+  }
+  if (baselineIsOfThisTreasury) {
     const before = BigInt(state.treasuryBalance)
     if (treasuryBalance < before) {
       const spent = findings.some(f => /Buyback|Piggyback/.test(f.message))
@@ -622,7 +734,12 @@ const fullyBlind = logQueriesAttempted > 0 && logQueriesSucceeded === 0
 const blindedP0 = findings.some(f => f.id === 'WATCHER-02' && f.page)
 if (!fullyBlind && !blindedP0) state.lastBlock = head
 state.lastRun = new Date().toISOString()
-if (treasuryBalance != null) state.treasuryBalance = treasuryBalance.toString()
+// Written as a pair, always. A balance without the address it was read from is
+// what let a variable edit look like a drain; the two must not be able to drift.
+if (treasuryBalance != null) {
+  state.treasuryBalance = treasuryBalance.toString()
+  state.treasuryBalanceOf = TREASURY
+}
 if (!DRY) writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
 
 const ORDER = { P0: 0, P1: 1, P2: 2, P3: 3 }
@@ -635,6 +752,16 @@ console.error(
   `\n[watch] chain ${chainId} · blocks ${from.toLocaleString()}-${head.toLocaleString()} · ` +
   `${logsSeen} log(s) · ${state.hooks.length} hook(s) known · ` +
   `${findings.length} finding(s), ${paging.length} paging`
+)
+// Printed on every pass, not only when WATCHER-05 fires. The threshold answers
+// "has the schedule stopped"; this line is the only place the cadence the host
+// actually delivers gets written down, and it is what a later measurement of it
+// will be read against.
+console.error(
+  runGapMin == null
+    ? '        first pass on this checkpoint — no previous run to measure a gap against'
+    : `        ${(runGapMin / 60).toFixed(1)} h since the previous pass ` +
+      `(cron asks for 0.25 h; WATCHER-05 fires past ${(RUN_GAP_LIMIT_MIN / 60).toFixed(1)} h)`
 )
 if (gaps.length > 0) {
   console.error(`        ${gaps.length} check(s) ran without being able to check:`)

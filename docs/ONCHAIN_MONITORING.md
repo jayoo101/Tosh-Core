@@ -465,6 +465,32 @@ quiet is equally consistent with the check having broken.
 > Read the cadence change below against that. The cron now asks for four passes
 > an hour and the measured delivery rate it asks against was 0.27 an hour, so a
 > shorter interval buys more chances rather than proportionally more passes.
+>
+> **Re-measured 2026-09-13, and it bought none.** Across the 193.5 h since the
+> 15-minute cron took effect, GitHub delivered **52 of an expected 774 passes,
+> 7%** — and 52/193.5 h is **0.269 passes an hour**, against 0.27 an hour under
+> the hourly cron. Asking four times as often produced the same ~6.5 passes a
+> day. Gaps between consecutive passes ran 2.1 h at the closest and **7.2 h at
+> the widest**, with no gap shorter than 2.1 h in the whole window even though
+> the cron asked for one every 15 minutes. So the throughput is a property of the
+> host, not of the request: **the interval is an inert knob**, and the paragraph
+> above should be read as the hypothesis it was, now disproved. Do not raise the
+> frequency again expecting detection to improve; the next person to try it will
+> measure exactly this.
+>
+> What that makes concrete is the detection latency this host actually provides:
+> a median of roughly 3.3 h and a worst observed case of 7.2 h. Any statement
+> elsewhere that this monitor detects within minutes is wrong.
+>
+> One thing about it *was* fixable from here, and was fixed the same day:
+> the gap was invisible from inside. `state.lastRun` had been written by every
+> pass since the file existed and read by nothing, so a schedule that stopped
+> announced nothing — the thing that would announce it being the thing that
+> stopped. `WATCHER-05` now prints the gap on every pass and pages past 8 h,
+> chosen above the 7.2 h widest observed gap so that it means "the schedule
+> stopped" and not "the schedule is as bad as it always is". It cannot make a
+> pass happen. It makes the absence of one legible, and it tells a responder
+> reading a P0 whether it was found in minutes or in hours.
 > **The 15-minute detection criterion in `INCIDENT_RESPONSE.md` §8 Q4 is
 > therefore still not met by this host**, and Q4 must not be marked passed on
 > the strength of the cadence or of the pager. What the pager changed is that a
@@ -576,6 +602,27 @@ What closes that is a channel that pushes, not a shorter interval.
       rule existed. Observed history on 4663 therefore starts at 57,492,253;
       the following pass (run 34200284533) resumed there, scanned 25,382
       blocks, and exited 0. The skipped window will not be re-opened — §7.1.
+- [x] **A checkpoint that survives a REDEPLOY, not only a cutover.** The box
+      above generalised one field and stopped. `WATCHER-03` asks "same chain?";
+      until 2026-09-13 nothing asked "same factory?", and there had been two on
+      4663 since the 2026-09-12 redeploy. `MONITOR_FACTORY` and
+      `MONITOR_TREASURY` kept naming the retired pair for four days and every
+      pass went green, because a retired factory answers `owner()` with the Safe,
+      answers `paused()` with `false`, and emits nothing — the exact appearance of
+      health. `WATCHER-06` now discards the checkpoint, the harvested hooks and
+      the balance baseline when the watched pair changes, and pages. Two things
+      it does not do, stated because they are the ways it is still incomplete: it
+      cannot see a change that predates its own field, and its rescan reaches
+      back `MONITOR_MAX_SPAN` blocks and no further, so a redeploy older than that
+      needs a manual `--since`. `SECURITY_AUDIT.md` §5.36.
+- [x] **A balance baseline that knows whose balance it is.** Correcting the
+      variable above was itself enough to fire `STATE-02` at P0 — "balance fell
+      from 0.021017 to 0.000000 ETH with NO buyback event" — because the stored
+      reading did not record which treasury produced it. The check's comment had
+      always named "or we are watching the wrong contract" as a cause without any
+      means to test it. `treasuryBalanceOf` is now written beside every reading
+      and a baseline from another address is re-baselined with a printed gap
+      instead of compared, so a configuration change cannot present as a drain.
 - [x] **STATE-07 live before the first `addLadderToken` on mainnet.** Unlike the
       others it is not a backstop for something the contract already handles —
       it is the only automated check on a rule the contract does not enforce

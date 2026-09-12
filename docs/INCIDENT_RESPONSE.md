@@ -990,7 +990,23 @@ Untested kill switches are theatre. Drill the runbook quarterly:
 > the 157 hours the schedule was observed, GitHub delivered 27% of the passes
 > the cron asked for, a median 4.0 hours apart. A pass that never runs pages
 > nobody, so the 15-minute criterion fails upstream of everything the pager
-> fixed, and a shorter cron does not reach it either. Q4 as written therefore
+> fixed, and a shorter cron does not reach it either. **Re-measured 2026-09-13
+> after the cron went to every 15 minutes: 52 of an expected 774 passes, 7% —
+> which is 0.269 passes an hour against 0.27 an hour when it was hourly. Four
+> times the requests bought no additional passes, so "a shorter cron does not
+> reach it either" is now a measurement rather than an expectation. The latency
+> to plan around is a ~3.3 h median and a 7.2 h worst observed case, and no gap
+> shorter than 2.1 h occurred in the whole window.** `WATCHER-05` states the gap
+> on every pass, so a responder reading a P0 no longer has to assume it was found
+> promptly; a finding that arrives after a 6 h gap says so in its own text.
+>
+> **A caveat that outranks the cadence, found 2026-09-13 (`SECURITY_AUDIT.md`
+> §5.36).** For the four days after the 2026-09-12 redeploy, `MONITOR_FACTORY`
+> and `MONITOR_TREASURY` still named the *retired* pair, so every pass in that
+> window was green about contracts nobody uses. When reading this section's
+> measurements, note that cadence was never the binding constraint on detection
+> during that window — subject was. `WATCHER-06` now discards the checkpoint and
+> pages when the watched pair changes underneath it. Q4 as written therefore
 > still needs its criterion honestly rewritten to "detected and recorded", with
 > the reporting half measured separately — what changed is that the reporting
 > half finally has something to measure. The
