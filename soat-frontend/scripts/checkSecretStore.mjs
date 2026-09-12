@@ -30,6 +30,14 @@
  * inventory is exhaustive and closed: anything live that is not classified here
  * is a finding, and anything classified `absent` must stay absent.
  *
+ * One tier per name was an assumption, not a fact, and it hid a gap until
+ * 2026-09-13: `ROBINHOOD_RPC` is read by the fork suite in CI AND by
+ * serverRpc.ts in production, so classifying it `ci` left its Vercel half
+ * unguarded. An optional `alsoVercel` names the second home and the Vercel
+ * type it must have. The lesson generalises past this one row: a name with two
+ * consumers gets checked in the store the tier is named after and nowhere
+ * else, so the store nobody classified is the one that fails silently.
+ *
  * ── Local copies, added after the 2026-09-08 exposure ───────────────────────
  *
  * Store-and-tier is necessary and not sufficient. A credential can be in
@@ -138,16 +146,18 @@ const INVENTORY = {
   NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
   NEXT_PUBLIC_RPC_URL: {
-    tier: 'config',
+    tier: 'absent',
     why: 'Universal RPC override, shipped in the client bundle because of the NEXT_PUBLIC_ prefix. '
-       + 'Today it is the bare public endpoint https://rpc.mainnet.chain.robinhood.com and holds '
-       + 'no credential. providers.tsx names this the premium leg ("Alchemy / Infura / drpc") and '
-       + '.env.production.example tells production to point it at a dedicated provider; those '
-       + 'providers embed the API key in the URL path. Swapping this for a keyed URL therefore '
-       + 'ships a credential to every browser while this row stays config and the guard stays '
-       + 'green. There is no conditional tier — the prefix makes a secret impossible, and this '
-       + 'check never reads the value. A paid endpoint belongs off NEXT_PUBLIC_*, the way '
-       + 'MONITOR_RPC is a GitHub secret for the same reason.',
+       + 'It was config until 2026-09-13, holding the bare public endpoint '
+       + 'https://rpc.mainnet.chain.robinhood.com, and it is absent now because serverRpcUrl() '
+       + 'reads it BEFORE the chain-scoped ROBINHOOD_RPC. Setting it therefore silently disables '
+       + 'the keyed server endpoint: the paid node stays configured, stays billed and is never '
+       + 'called. It cannot be repurposed to carry the key either, because the NEXT_PUBLIC_ '
+       + 'prefix inlines it into every browser bundle. So the only two things it can be here are '
+       + 'redundant or harmful. Redundant, precisely: its former value is character-for-character '
+       + "viem's robinhood.rpcUrls.default.http[0], which providers.tsx appends unconditionally, "
+       + 'so deleting it left the browser candidate list identical. A paid endpoint belongs off '
+       + 'NEXT_PUBLIC_*, the way MONITOR_RPC is a GitHub secret for the same reason.',
   },
   NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: { tier: 'config', why: 'Public RPC endpoint, no credential in the URL.' },
   NEXT_PUBLIC_SUPABASE_URL:          { tier: 'config', why: 'Public project URL.' },
@@ -163,7 +173,16 @@ const INVENTORY = {
   // ── CI. ──────────────────────────────────────────────────────────────────
   ROBINHOOD_RPC: {
     tier: 'ci',
+    alsoVercel: 'sensitive',
     why: 'Fork suite reads it. Unset, those tests skip rather than fail, so its absence is silent.',
+    alsoVercelWhy:
+      'Since 2026-09-13 this name has a second consumer: serverRpc.ts resolves it for chain 4663, '
+      + 'so it is also the keyed endpoint every server-side read goes through. One name, two '
+      + 'stores, and the two copies are NOT interchangeable — CI forks at a pinned block and '
+      + 'needs archive state, which the app never asks for. The Vercel copy has to be asserted '
+      + 'separately because losing it is silent: PUBLIC_FALLBACK answers, production reverts to '
+      + 'the public endpoint, and the only symptom is intermittent 429s under concurrency once '
+      + 'more than six requests overlap.',
   },
   MONITOR_RPC: {
     tier: 'ci',
@@ -365,6 +384,31 @@ for (const [name, spec] of Object.entries(INVENTORY)) {
       )
     } else {
       lines.push(`${ICON.ok} ${name} — GitHub Actions secret`)
+    }
+    // A name can be required in both stores at once. `tier` says which store
+    // the classification is named after; `alsoVercel` adds the second claim.
+    // Without it the inventory can only describe one home per name, and the
+    // unnamed one is unguarded — which for ROBINHOOD_RPC means deleting the
+    // Vercel row leaves every row green while production quietly falls back to
+    // the rate-limited public endpoint.
+    if (spec.alsoVercel) {
+      const why = spec.alsoVercelWhy ?? spec.why
+      if (!inVercel) {
+        lines.push(`${ICON.bad} ${name} — also required in Vercel production, and missing there`)
+        findings.push(`${name} is not set in Vercel production. ${why}`)
+      } else if (inVercel.type !== spec.alsoVercel) {
+        lines.push(
+          `${ICON.bad} ${name} — in Vercel as "${inVercel.type}", not "${spec.alsoVercel}"`,
+        )
+        findings.push(
+          `${name} is stored in Vercel as "${inVercel.type}" where it must be `
+          + `"${spec.alsoVercel}". ${why} An RPC URL carries its key in the path, so a readable `
+          + `row hands the endpoint to every collaborator. Re-add it: vercel env rm ${name} `
+          + `production, then vercel env add ${name} production, and rotate the old value.`,
+        )
+      } else {
+        lines.push(`${ICON.ok} ${name} — also in Vercel production as ${spec.alsoVercel}`)
+      }
     }
     continue
   }
