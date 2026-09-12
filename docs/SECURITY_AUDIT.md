@@ -5662,6 +5662,35 @@ so that a schedule which has *stopped* is distinguishable from one that is merel
 as bad as usual. Before it, `state.lastRun` was written by every pass and read by
 nothing, so the only failure mode this host has was invisible from inside it.
 
+**Two more of the same species, found by asking the question the first three
+produced.** If a stale `MONITOR_*` variable was invisible, what about an absent
+one, and what about the chain nobody compared?
+
+`alerts.json` has carried `"chainId": 4663` since it was written and nothing read
+it. The only chain test was `WATCHER-03`, which compares the endpoint against the
+*checkpoint* — so it needs a previous pass on the right chain and says nothing on a
+cold start, and cold starts are routine here because `WATCHER-03` and `WATCHER-06`
+both discard the checkpoint by design. Reaching the wrong chain needs nothing more
+than forgetting one variable: `MONITOR_RPC` unset falls back to the **testnet**
+endpoint. A pass against 46630 holding mainnet addresses is quiet rather than loud
+— address-scoped log filters return empty, `owner()` and `paused()` on codeless
+addresses fail as non-paging "check failed" P1s, and empty-but-successful queries
+do not trip `WATCHER-04`. `WATCHER-07` now compares the endpoint against the chain
+the catalogue declares. It records rather than exiting 2, because the workflow
+skips `report.mjs` on exit 2, so the loudest possible misconfiguration would have
+reached a red Actions run and no pager — and at ~6.5 passes a day nobody is
+watching the Actions tab.
+
+The second: `MONITOR_EXPECTED_OWNER` or `MONITOR_EXPECTED_POG_SIGNER` unset made
+`STATE-03` and `STATE-04` print a `gap()` and pass. A gap appears in the summary of
+a run that is otherwise green, and this workflow's own comment says nobody opens
+one of those. So deleting one variable silently turned off the check on the worst
+thing that can happen to this protocol — ownership moving off the Safe — and on the
+one that mints forged attestations, the PoG signer being rotated. Both now page,
+and both name the value the chain currently answers so the fix is in the alert. A
+stale expectation still compares against something; an absent one compares against
+nothing, which makes absence the wider blast radius of the two.
+
 **Fourth finding, small and the same species as the first three.** Every
 checkpoint the watcher pushes goes to a one-file orphan branch, and Vercel was
 building a Preview of it: an application-less branch, so every build failed —
