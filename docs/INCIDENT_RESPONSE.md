@@ -337,12 +337,17 @@ deployer EOA — that is the path the first drill used (§8.1).
    wallet is connected, which is another reason not to start there.
 
 3. **Under time pressure, skip the ABI.** Flip Custom data. Fill:
-   - `to` = `0xBa9d2E86281b988225Eca383C375215912fb20B9` (the live
+   - `to` = `0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892` (the live
      factory; same value as `NEXT_PUBLIC_FACTORY_ADDRESS`, read by
      `soat-frontend/src/lib/contracts.ts`. There is no
      `factoryDeployments.ts`; a previous version of this step named a
      file that does not exist, which a responder at 3am would have lost
-     minutes to.)
+     minutes to. Redeployed 2026-09-12; the address this step carried
+     until then, `0xBa9d2E86…fb20B9`, is a different contract that is
+     still pausable and still has an owner, so pausing it would succeed,
+     report success, and protect nothing. Check the value against
+     `monitoring/alerts.json` `addresses.factory` before sending if
+     there is any doubt.)
    - `value` = `0`
    - `data` = `0x8456cb59` (`pause()`. `unpause()` is `0x3f4ba83a` —
      you will need that in Step 6, not now.)

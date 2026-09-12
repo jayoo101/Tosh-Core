@@ -17,13 +17,32 @@
  * of them before the signature; `STATE-07` catches a violation AFTER the fact,
  * hourly, which is recovery rather than prevention.
  *
- * Since 2026-09-11 `addLadderToken` enforces the rule itself.  That does not
- * retire this script, because the treasury holding the live reservoir predates
- * the change and cannot receive it: `ToshFactory.ladderTreasury` is `immutable`
- * and is baked into the hook implementation that every launch clones, so
- * replacing the treasury means replacing the platform.  The script therefore
- * reports WHICH regime the treasury in front of it is in, rather than assuming
- * one, and says plainly whether it is the only control or a second one.
+ * Since 2026-09-11 `addLadderToken` enforces the rule itself, and since the
+ * 2026-09-12 deployment the live treasury is one that carries the gate — the
+ * platform WAS replaced, for an unrelated reason, and this arrived with it.
+ * So the exposure above is now held shut by the contract rather than by the
+ * signer reading this output.
+ *
+ * That does not retire the script.  The gate fires ONCE, at listing, while
+ * `_buybackSqrtFloor` runs on every leg thereafter, and a premature listing is
+ * still the one owner call that decides where reservoir ETH gets spent.  What
+ * it does change is the claim this script is entitled to make about itself: it
+ * is a second control now, not the only one, and on a treasury it cannot prove
+ * is gated it must say so rather than guess.
+ *
+ * It used to guess, and guessed wrong.  The regime was read by scanning the
+ * runtime bytecode for `TwapNotMature()`'s selector, and that selector is not
+ * in the bytecode of EITHER treasury — not the gated one and not the ungated
+ * one.  Measured 2026-09-12 on `0x25572222…` (gated, 6,159 B) and
+ * `0x99aD248d…` (ungated, 6,035 B): absent from both, as it is from this
+ * tree's own build.  Several of this contract's no-argument custom errors are
+ * absent the same way while others are present, so the selector is evidently
+ * not always emitted as a literal; whatever the codegen reason, a scan that
+ * answers "no" for a contract that does enforce the rule is worse than no
+ * scan, because it answers confidently.  The regime is now derived from the
+ * simulation the script already runs, which observes the gate only when there
+ * is a premature token to observe it with — and that is the only case where
+ * the answer changes a decision.
  *
  * Read-only.  It holds no key, signs nothing and sends nothing.
  *
@@ -35,11 +54,11 @@ import { ethers } from 'ethers'
 
 const MAINNET_ID = 4663n
 const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
-const LIVE_TREASURY = '0x99aD248dD15498957B864Fd79917F0E103Aa78F7'
+const LIVE_TREASURY = '0x255722226720914eF5B2CD54647f21f584BD4Ea2'
 
-// `error TwapNotMature()`. Present in the runtime bytecode only if the treasury
-// was compiled from source carrying the gate, which is how the two regimes are
-// told apart without trusting a version string or a deployment note.
+// `error TwapNotMature()`, kept only to decode a revert that arrives without an
+// ABI match. It is NOT a bytecode fingerprint — see the header for why the scan
+// that used it was removed.
 const TWAP_NOT_MATURE = ethers.id('TwapNotMature()').slice(0, 10)
 
 const TREASURY_ABI = [
@@ -97,26 +116,20 @@ if (net.chainId !== MAINNET_ID) {
 
 const treasury = new ethers.Contract(treasuryAddr, TREASURY_ABI, provider)
 
-// ── Which regime is this treasury in ────────────────────────────────────────
+// ── Is there anything there at all ──────────────────────────────────────────
+//
+// `gated` is decided further down, from the simulation, and stays null unless
+// the chain actually demonstrates the gate. Nothing here infers it: the only
+// evidence that a treasury enforces the rule is watching it refuse.
 let gated = null
 try {
-  const code = await provider.getCode(treasuryAddr)
-  if (code === '0x') {
+  if ((await provider.getCode(treasuryAddr)) === '0x') {
     problems.push(`nothing is deployed at ${treasuryAddr}.`)
-  } else {
-    gated = code.includes(TWAP_NOT_MATURE.slice(2))
-    console.log(gated
-      ? '✓ this treasury ENFORCES the rule: TwapNotMature is in its bytecode, so a premature\n'
-        + '  listing reverts on chain and this script is a second control, not the only one.'
-      : '⚠ this treasury does NOT enforce the rule: TwapNotMature is absent from its bytecode.\n'
-        + '  Nothing on chain will stop a premature listing, so this check and the operator\n'
-        + '  reading it are the whole control. STATE-07 only notices afterwards.')
   }
 } catch (err) {
-  unknowns.push(`could not read the treasury's bytecode (${err.message}), so which regime it is `
-    + 'in is unknown. Treat the result below as if nothing on chain enforces the rule.')
+  unknowns.push(`could not read the treasury's bytecode (${err.message}), so nothing below can `
+    + 'be trusted about the contract you are being asked to call.')
 }
-console.log()
 
 // ── Provenance: is this a token of ours, and is its pool open ───────────────
 let hook = null
@@ -234,6 +247,16 @@ if (hook) {
       // "could not determine" bucket. The checks above have usually already
       // said why; this is the chain agreeing with them.
       console.log(`\n✗ simulated from the owner: reverts \`${named}\`.`)
+
+      // The only positive evidence of the gate that exists. A gated treasury
+      // and an ungated one differ in exactly one observable way — what they do
+      // when handed a premature token — so this is where the regime is settled,
+      // and it settles only in the direction that can be seen.
+      if (named === 'TwapNotMature') {
+        gated = true
+        console.log('  which is the on-chain gate refusing the listing, not this script. '
+          + 'The contract enforces the rule itself.')
+      }
       if (!problems.length) {
         problems.push(`the call reverts \`${named}\` when simulated from the treasury's owner, `
           + 'and none of the checks above explains why. Do not sign a transaction whose '
@@ -273,8 +296,11 @@ if (unknowns.length) {
 
 console.log('\n✓ safe to sign: launched on this platform, pool open, not already listed, '
   + 'TWAP mature, and the call simulates clean.')
-if (gated === false) {
-  console.log('\n  Recorded, because it is the reason this script exists: the treasury you just '
-    + 'checked does not enforce this itself. The result above is a measurement taken now, and '
-    + 'nothing stops a later transaction listing a different, younger token. Re-run per token.')
+if (gated === null) {
+  console.log('\n  One thing this run could NOT establish: whether the treasury would have '
+    + 'refused a premature listing on its own. A gated and an ungated treasury behave '
+    + 'identically on a token whose TWAP is already mature, which is the token you just '
+    + 'checked, so the question did not come up and has not been answered. Everything above '
+    + 'is a measurement of THIS token taken now — re-run per token, and assume nothing on '
+    + 'chain will catch the next one.')
 }

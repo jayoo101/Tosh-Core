@@ -597,13 +597,16 @@ contract ToshV5AttackTest is Test {
     // `_warpBy` in `ToshV5.t.sol` documents the backward warp that did it, and
     // the three tests that had been measuring an unbounded buyback as a result.
     //
-    // The live treasury at 0x99aD248dD15498957B864Fd79917F0E103Aa78F7 predates
-    // this gate and cannot be given it: `ToshFactory.ladderTreasury` is
-    // `immutable` and is baked into the hook implementation that every launch
-    // clones, so replacing the treasury means replacing the platform.  The gate
-    // therefore arrives with the next deployment, not with this commit, and
-    // until then the operational rule plus `STATE-07` are still what hold the
-    // exposure shut.
+    // This comment used to say the gate would arrive with the next deployment
+    // rather than with the commit that wrote it, because
+    // `ToshFactory.ladderTreasury` is `immutable` and is baked into the hook
+    // implementation every launch clones — so the treasury at
+    // 0x99aD248dD15498957B864Fd79917F0E103Aa78F7 could never be given it.  The
+    // next deployment happened on 2026-09-12, for an unrelated reason, and the
+    // live treasury 0x255722226720914eF5B2CD54647f21f584BD4Ea2 carries the gate.
+    // The operational rule and `STATE-07` are still what hold the SECOND door,
+    // which the gate does not reach: it fires once at listing, and this branch
+    // runs on every leg after.
     //
     // ─────────────────────────────────────────────────────────────────────────
     //

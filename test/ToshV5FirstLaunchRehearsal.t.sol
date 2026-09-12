@@ -80,7 +80,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     // carries a stale `FACTORY_ADDRESS` with zero code at it, which is exactly
     // the accident this guards against.
 
-    address internal constant FACTORY = 0xBa9d2E86281b988225Eca383C375215912fb20B9;
+    address internal constant FACTORY = 0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant ARB_SYS = 0x0000000000000000000000000000000000000064;
 
