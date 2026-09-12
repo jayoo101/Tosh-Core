@@ -64,15 +64,30 @@ Also in scope: `ToshLaunchpadHook` and `ToshToken`, which are deployed as clones
 by the factory on every launch; the PoG signing oracle under `scripts/`; and the
 frontend under `soat-frontend/`.
 
-Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`. **These two are not
-yet verified on Blockscout** — the `--verify` pass of the deploy was refused by
-a Cloudflare challenge in front of the explorer's API, so for now the anchor
-between this source and the running bytecode is the deploy artefact
-`broadcast/DeployMainnet.s.sol/4663/run-latest.json` plus the factory's
+Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`. Sources for both,
+and for the three contracts the factory creates, are published on **Sourcify**
+under chain 4663:
+
+    https://sourcify.dev/server/v2/contract/4663/<address>
+
+Sourcify grades all five `match` rather than `exact_match`, and the difference
+matters enough to spell out: the runtime bytecode matches this tree byte for
+byte, and the metadata hash appended after it does not. What is proven is that
+the code that executes is this code. What is not proven is the provenance of
+the trailing metadata blob, which contains no executable instructions.
+
+They are **not verified on Blockscout**; the explorer's write API is behind a
+Cloudflare challenge that refuses every automated client, and it does not import
+from Sourcify by itself. So if you are reading the contracts on the explorer you
+will see bytecode, and the source is a Sourcify lookup away rather than on the
+page.
+
+A second, independent anchor that needs no third party at all: the deploy
+artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json` plus the factory's
 `HOOK_CREATION_CODEHASH`, which equals this tree's
 `keccak256(type(ToshLaunchpadHook).creationCode)`. If you are auditing, that
 equality is checkable from the chain and from this repository without trusting
-either of us; `script/RecomputeInitcodeHash.s.sol` is the check.
+either of us, or Sourcify; `script/RecomputeInitcodeHash.s.sol` is the check.
 
 The previous pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`,
 treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, deployed 2026-09-08 and
@@ -128,11 +143,13 @@ not have it and still never can; it is simply no longer the platform.
 
 Two honest limits on that claim. First, the gate's presence in the live treasury
 rests on **provenance rather than observation**: the deploy artefact records the
-commit, the factory's `HOOK_CREATION_CODEHASH` matches this tree, and the
-treasury's runtime differs from this tree's build only in the bytes of the
-`poolManager` immutable — but nobody has watched the gate fire, because reaching
-it needs a launched pool with an immature TWAP and the new factory has launched
-nothing yet. Second, the gate fires **once, at listing**, while
+commit, the factory's `HOOK_CREATION_CODEHASH` matches this tree, the treasury's
+runtime differs from this tree's build only in the bytes of the `poolManager`
+immutable, and Sourcify has independently recompiled this source and matched it
+against the deployed runtime — but nobody has watched the gate fire, because
+reaching it needs a launched pool with an immature TWAP and the new factory has
+launched nothing yet. Provenance from four directions is still provenance; it
+says the right code is there, not that it was seen to work. Second, the gate fires **once, at listing**, while
 `_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a
 healthy getter whose getter later reverts still buys unbounded. That residual is
 assessed as unreachable on chain and is pre-disclosed below. `STATE-07` in
