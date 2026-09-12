@@ -255,6 +255,25 @@ const mainnetDeployed = fs.existsSync(broadcastRoot)
   && fs.readdirSync(broadcastRoot).some(script =>
     fs.existsSync(path.join(broadcastRoot, script, MAINNET_ID)))
 
+// The factory the latest mainnet broadcast actually created, or null if the
+// artefact cannot be read. `CREATE` rather than `CALL`, because the later
+// entries are `setFactory` and the two `transferOwnership` calls and carry the
+// same address in a field that means something else.
+function deployedFactory() {
+  if (!fs.existsSync(broadcastRoot)) return null
+  for (const script of fs.readdirSync(broadcastRoot)) {
+    const runLatest = path.join(broadcastRoot, script, MAINNET_ID, 'run-latest.json')
+    if (!fs.existsSync(runLatest)) continue
+    try {
+      const run = JSON.parse(fs.readFileSync(runLatest, 'utf8'))
+      const create = (run.transactions ?? []).find(t =>
+        t.contractName === 'ToshFactory' && t.transactionType === 'CREATE')
+      if (create?.contractAddress) return create.contractAddress.toLowerCase()
+    } catch { /* unreadable artefact is not drift; check 6 still votes on the chain */ }
+  }
+  return null
+}
+
 if (mainnetDeployed && STATUS_PAGE_CHAIN && STATUS_PAGE_CHAIN !== 'mainnet') {
   drift.push(
     `broadcast/*/${MAINNET_ID}/ exists, so the mainnet factory is deployed, but `
@@ -264,6 +283,38 @@ if (mainnetDeployed && STATUS_PAGE_CHAIN && STATUS_PAGE_CHAIN !== 'mainnet') {
     + 'perfectly healthy while doing so. Swap the two CHAIN blocks in the '
     + 'status page repository — PM-C7 covers the frontend and has never '
     + 'covered this page.')
+}
+
+// ── 6b. …and at the mainnet factory that is current, not a retired one ───────
+//
+// Check 6 votes testnet-or-mainnet on four text fields, which is why it passed
+// for four days while the page read paused() off `0xBa9d2E86…`: that address is
+// a perfectly good mainnet factory, it is simply not the one holding funds any
+// more. The 2026-09-12 redeploy retired it — the 8%/2% referral split is
+// `immutable`, so changing it meant new bytecode — and nothing noticed until
+// somebody read the page's source by hand (SECURITY_AUDIT.md §5.35).
+//
+// A redeploy is not exotic. Any immutable this platform ever wants to change
+// forces one, so "which mainnet factory" needs to be checked and not just
+// "which chain". The comparison costs nothing new to maintain: the page already
+// hands us `STATUS_PAGE_FACTORY`, and `run-latest.json` is overwritten by the
+// broadcast itself, so the expected value updates without anyone editing it.
+//
+// Failure here is the worst-looking kind of healthy. The page's own
+// disagreement warning stays quiet, `paused()` returns a real answer from a real
+// contract, and it is the answer to a question nobody asked — so pausing the
+// live factory during an incident leaves this page saying `operational`.
+const currentFactory = deployedFactory()
+if (mainnetDeployed && STATUS_PAGE_CHAIN === 'mainnet' && currentFactory
+    && STATUS_PAGE_FACTORY && STATUS_PAGE_FACTORY !== currentFactory) {
+  drift.push(
+    `the status page names mainnet, but reads paused() from ${STATUS_PAGE_FACTORY} `
+    + `while the latest mainnet broadcast created ${currentFactory}. Both are real `
+    + 'mainnet factories, so check 6 is satisfied and the page looks healthy — it '
+    + 'is reporting on a contract nobody uses. Pausing the live factory during an '
+    + 'incident would leave this page saying operational, which is the one thing '
+    + 'it exists to prevent. Update `factory` in the status page repository\'s '
+    + 'CHAIN block.')
 }
 
 // ── 7. The signing page signs the message we verify against ─────────────────
