@@ -6,6 +6,17 @@
 # the schedule underneath is still best-effort — GitHub delivered 27% of the
 # passes the hourly cron asked for over the 157 hours it was measured across.
 # Delivery was the half that could be fixed from here. Cadence is not.
+#
+# Re-measured 2026-09-13, after the cadence below went to every 15 minutes:
+# 52 scheduled runs over 193.5 h against an expected 774, so 7%. The rate is the
+# number to read, not the percentage — 0.269 passes/hour, against 0.27/hour at
+# the hourly cron. Asking four times as often delivered the same ~6.5 passes a
+# day. So the interval is not a detection knob on this host; it is inert, and
+# §7.3's hope that "a shorter interval buys more chances" is answered: it bought
+# none. Observed gaps between passes ran 2.1 h at the closest and 7.2 h at the
+# widest. `WATCHER-05` in `monitoring/watch.mjs` now reports the gap on every
+# pass, because until it did, the only failure mode this host has was invisible
+# from inside it.
 
 name: Watch
 

@@ -5582,3 +5582,95 @@ one at `1` per ~18 minutes, and custom-error selectors do not reliably survive
 machine's proxy answers every DNS query from `198.18.0.0/15`, which had already
 produced one confidently wrong report about the domain. Checks whose subject is
 the network must not run through this resolver.*
+
+### 5.36 Thirty-second sweep — the monitor was watching the contracts we left, and correcting it would have paged a drain
+
+§5.35 found the public status page reading `paused()` off the retired factory and
+called that a class of bug. It was. This sweep found the same class one layer
+down, on the thing whose whole job is to notice: **the on-chain watcher had been
+pointed at the retired pair for four days.**
+
+`MONITOR_FACTORY` and `MONITOR_TREASURY` are GitHub Actions variables. Both were
+set 2026-09-08 and neither was touched by the 2026-09-12 redeploy:
+
+```
+MONITOR_FACTORY   0xBa9d2E86281b988225Eca383C375215912fb20B9   retired
+MONITOR_TREASURY  0x99aD248dD15498957B864Fd79917F0E103Aa78F7   retired
+```
+
+Every pass in those four days went green, and greenness was the problem. A
+retired factory is not an unreachable endpoint that trips `WATCHER-02`; it is a
+real contract that answers `owner()` with the Safe and `paused()` with `false`
+and emits nothing at all, because nothing uses it. Governance alerts had nothing
+to match, the state checks read exactly what they expected, and the monitor
+looked healthy in the one way a monitor watching nothing always looks healthy.
+Had the live factory been paused by an attacker in that window, the pass would
+have reported the retired one as operational — which is §5.35's finding verbatim,
+relocated from the status page to the detector.
+
+`WATCHER-03` had already fixed precisely this shape for one field. It asks "was
+this checkpoint written on the chain I am now watching?" and discards it if not,
+and its comment explains that a stored fact is meaningless without the subject it
+was measured against. That lesson was applied to `chainId` and to nothing else in
+the same file. **`WATCHER-06`** now asks the same question about the factory and
+treasury, and discards the checkpoint, the harvested hooks and the balance
+baseline when the answer changes. Verified by switching the variables back and
+forth and watching it fire on each change and stay quiet otherwise.
+
+**The second finding is what correcting the first would have done.** The stored
+treasury balance did not record which treasury it came from, so the moment the
+variable was fixed, `STATE-02` compared the retired treasury's recorded holdings
+against the live one's:
+
+```
+STATE-02 [P0] ladderTreasury balance fell from 0.021017 to 0.000000 ETH
+              with NO buyback event in this window
+```
+
+A P0 drain alarm — the loudest finding in the catalogue, the one whose playbook is
+`INCIDENT_RESPONSE.md` §2 — produced by editing a variable. This was not
+hypothetical: it was measured against the real state file before the fix landed.
+The check's own comment named both possible causes, "either a withdrawal path
+exists or we are watching the wrong contract", and the code had no way to tell
+them apart, because the only evidence that would distinguish them was the one
+thing the baseline did not carry. It carries it now: `treasuryBalanceOf` is
+written beside every reading, and a baseline belonging to a different address is
+re-baselined with a printed gap rather than compared. `WATCHER-06` alone would not
+have been enough — it cannot see a pair change that predates its own field, which
+is exactly the state the CI checkpoint was in on the day the variables were
+corrected.
+
+So three findings across two sweeps share one shape: **a stored fact without its
+subject.** A `paused()` reading without which factory it came from. A checkpoint
+without which factory harvested its hooks. A balance without which treasury held
+it. `chainId` was given its subject months ago and the pattern was not carried
+across, which is worth more than the three fixes: the question "what would make
+this reading meaningless, and is that recorded next to it?" is the one that finds
+these before a redeploy does.
+
+**Third finding, and the one nothing here can fix.** The schedule under the
+watcher was re-measured because §7.3 of `ONCHAIN_MONITORING.md` left a hypothesis
+open — that shortening the cron "buys more chances". Across 193.5 h of the
+15-minute cron GitHub delivered 52 of an expected 774 passes, which is 7%, and
+**0.269 passes an hour against 0.27 an hour under the hourly cron.** Four times
+the requests, the same ~6.5 passes a day. The interval is an inert knob and the
+hypothesis is answered. What that leaves is the honest detection latency of this
+host: a median near 3.3 h, a worst observed gap of 7.2 h, and no gap in the whole
+window shorter than 2.1 h. `WATCHER-05` cannot improve it and does not claim to —
+it prints the gap on every pass and pages past 8 h, above the widest gap observed,
+so that a schedule which has *stopped* is distinguishable from one that is merely
+as bad as usual. Before it, `state.lastRun` was written by every pass and read by
+nothing, so the only failure mode this host has was invisible from inside it.
+
+*2026-09-13 — §5.36 records the thirty-second sweep. Its finding is that the
+on-chain watcher spent four days pointed at the retired factory and treasury via
+two GitHub Actions variables the redeploy did not update, going green throughout
+because a retired contract answers reads and emits nothing. Fixed, and closed as
+a class by `WATCHER-06`. Recorded alongside it: correcting the variable would
+itself have paged a false P0 `STATE-02` drain, measured at 0.021017 → 0.000000
+ETH, because the stored balance did not record which treasury it was read from —
+now fixed at the root by `treasuryBalanceOf`; and the re-measurement that
+disproves §7.3's open hypothesis, 0.269 passes/hour under a 15-minute cron
+against 0.27 under an hourly one, making the cadence knob inert and the real
+detection latency a 3.3 h median with a 7.2 h worst case, which `WATCHER-05` now
+states on every pass rather than leaving to be inferred.*
