@@ -1,6 +1,7 @@
 {
   "$comment": [
-    "On-chain alert definitions for Tosh v5.0 — PM-E2 in docs/PRE_MAINNET_CHECKLIST.md.",
+    "On-chain alert definitions for Tosh v5.0. Consumed by monitoring/watch.mjs and",
+    "validated by scripts/verifyAlertTopics.js.",
     "",
     "There is no `$schema` key. This file used to declare one pointing at",
     "./alerts.schema.md, which has never existed — a dangling reference that looked",
@@ -8,15 +9,15 @@
     "",
     "Each alert carries either `event` + `topic0` (log subscription) or `check`",
     "(scheduled state read), plus `severity`, `page`, and a `why` stating what the",
-    "alert is actually evidence of. `playbook` points at a section of",
-    "docs/INCIDENT_RESPONSE.md or tosh-status/MANUAL_INTERACTION.md (public), or is null where the",
-    "alert is an audit trail with no response to run.",
+    "alert is actually evidence of. `playbook` carries the response inline, or names",
+    "tosh-status/MANUAL_INTERACTION.md for the steps users are walked through, or is",
+    "null where the alert is an audit trail with no response to run.",
     "",
     "NOTE: verifyAlertTopics.js validates events and topic0 against the compiled",
-    "ABIs. It does NOT validate `playbook` targets, and eleven of them were found",
-    "pointing at the wrong section — ownership alerts at the blacklist playbook,",
-    "ladder halts at the key-compromise playbook, refund alerts at the post-launch",
-    "guide. Those are fixed, but nothing mechanical stops them drifting again.",
+    "ABIs, and now also fails on any playbook or action naming a repo file that is",
+    "not on disk. It drifted twice before that check existed: eleven playbooks once",
+    "pointed at the wrong section, and later every one of them pointed at an",
+    "incident doc that had been deleted. Prose in this file is still unchecked.",
     "",
     "Deliberately provider-neutral. Every commercial monitor (OpenZeppelin Defender,",
     "Tenderly, Hypernative, a self-hosted log subscriber) can express 'topic0 == X on",
@@ -62,8 +63,9 @@
     "0.269 passes an hour, which is to say not at all. This is recorded here rather",
     "by editing the numbers down, because the number a risk deserves and the number",
     "the infrastructure provides are different facts and collapsing them would lose",
-    "the first one. ONCHAIN_MONITORING.md 7.3 is where the consequence is stated in",
-    "full. AMENDED 2026-09-11: paging findings are now pushed to Telegram, so the",
+    "the first one. The consequence: this cadence cannot be relied on to bound",
+    "detection latency, and the numbers below are what it actually delivers.",
+    "AMENDED 2026-09-11: paging findings are now pushed to Telegram, so the",
     "delivery half of that consequence is closed and 'this is not a pager' no longer",
     "describes it. The cadence half is unchanged and is the one these numbers are",
     "about -- GitHub delivered 27% of the passes the hourly cron asked for over 157",
@@ -105,7 +107,7 @@
   },
 
   "severities": {
-    "P0": "Funds at risk or governance compromised. Page immediately, 24/7. Pause per docs/INCIDENT_RESPONSE.md §2; if governance is the thing compromised, §5.",
+    "P0": "Funds at risk or governance compromised. Page immediately, 24/7. Pause the factory via the Safe. If governance itself is what is compromised, pausing may already be unavailable — announce, and tell users not to deposit.",
     "P1": "Protocol-level switch thrown, or user-visible degradation. Page during waking hours; ticket otherwise.",
     "P2": "Silent degradation. Ticket, review next business day.",
     "P3": "Informational. Dashboard and digest only — must never page."
@@ -119,7 +121,7 @@
       "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised.",
       "why": "Ownable2Step means a takeover needs two transactions. This is the first one, and it is the only window in which the transfer can still be abandoned by simply not accepting. Alerting on the completion instead of the start throws that window away."
     },
     {
@@ -129,7 +131,7 @@
       "topic0": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "playbook": "governance: ownership of every platform kill switch moved. Correlate against the Safe transaction history. If nothing matches, there is no on-chain remedy left to us — announce that the factory is under unknown control and tell users not to deposit.",
       "why": "Ownership of every platform kill switch changed hands. Expected exactly twice in the system's life: once at deploy, once at the Safe handoff (PM-C2). A third occurrence is an incident until proven otherwise."
     },
     {
@@ -139,7 +141,7 @@
       "topic0": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "playbook": "governance: ownership of the reservoir moved. Correlate against the Safe transaction history. If nothing matches, there is no on-chain remedy left to us — announce, and note that the reservoir can only be spent on buybacks, not withdrawn.",
       "why": "Same as GOV-02 for the treasury. Both contracts hand off separately, and it is entirely possible to complete one and forget the other."
     },
     {
@@ -149,7 +151,7 @@
       "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised, and this is the contract holding ETH.",
       "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds ETH."
     },
     {
@@ -159,7 +161,7 @@
       "topic0": "0xa676d845a0292f447b914da6658ab6bc2a690e571c38e95028d469f54e15b205",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §4",
+      "playbook": "PoG signer: whoever holds this key mints deposit quota. Correlate against the Safe transaction history. If unauthorised, pause() the factory to stop new deposits, then rotate with setPogSigner() to a key you control.",
       "why": "Whoever holds the PoG signer key can mint deposit quota. An unplanned rotation means either an incident response someone forgot to announce, or an attacker who already owns the factory."
     },
     {
@@ -169,7 +171,7 @@
       "topic0": "0x1edf3afd4ac789736e00d216cd88be164ddcef26a6eedcc30cdb0cb62f3741b1",
       "severity": "P0",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §5",
+      "playbook": "one-shot by design, so a second occurrence means you are not talking to the contract you believe you are. Re-derive the treasury address from the deploy broadcast and confirm its runtime codehash before acting on anything else this monitor reports.",
       "why": "One-shot by design: it should fire exactly once, at deploy. A second occurrence is impossible if the contract is what we think it is, which makes it a high-value canary for 'we are not talking to the contract we believe we are'."
     },
 
@@ -180,7 +182,7 @@
       "topic0": "0x62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a258",
       "severity": "P1",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §2",
+      "playbook": "pause: correlate against the Safe transaction history within minutes. Ours is expected. A pause that matches no Safe transaction means the owner key is compromised — escalate to P0 and handle as governance compromise.",
       "why": "Either we did it, or someone with the owner key did. Correlate against a Safe transaction within minutes; an unmatched pause is a P0 and escalates to §5."
     },
     {
@@ -190,7 +192,7 @@
       "topic0": "0x5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa",
       "severity": "P1",
       "page": true,
-      "playbook": "docs/INCIDENT_RESPONSE.md §2 Step 6",
+      "playbook": "unpause: this re-opens deposits. Correlate against the Safe transaction history and confirm whatever the pause was protecting against has actually been resolved. An unpause nobody ordered escalates to P0 as governance compromise.",
       "why": "An unpause nobody ordered is worse than a pause nobody ordered: it re-opens deposits during whatever the pause was protecting against. Step 6 is the four-condition gate an authorised resume must have satisfied; an unpause that cannot be matched to it escalates to §5."
     },
     {
@@ -200,7 +202,7 @@
       "topic0": "0x0ade0a15eb7bda187c9c786c0c69e2e1e24b3ac78b6d487c827981328b46dc74",
       "severity": "P1",
       "page": false,
-      "playbook": "docs/INCIDENT_RESPONSE.md §2b",
+      "playbook": "mint halt: users see the button lock within one block, so announce within 15 minutes. A zero `hook` argument is platform-wide and is a P0. The halt lapses on its own after at most 7 days, so no resume transaction is required.",
       "why": "Users see the mint button lock within one block, so the announcement clock (15 minutes) starts whether or not anyone is watching. A halt with a zero `hook` argument is platform-wide and should be treated as P0."
     },
     {
@@ -210,7 +212,7 @@
       "topic0": "0x8ec3a03527c21e7a12baa1d1b5c93aaaba77b931c4061142630ad88aeacae560",
       "severity": "P2",
       "page": false,
-      "playbook": "docs/INCIDENT_RESPONSE.md §2b Step 4",
+      "playbook": "closes the loop on SWITCH-03: confirm the resume was intended and announce it. Absence is not a fault — a halt lapses by itself after at most 7 days.",
       "why": "Closes the loop on SWITCH-03. Absence is also meaningful: a halt lapses on its own after at most 7 days, so a resume that never arrives is expected, not a fault."
     },
     {
@@ -220,7 +222,7 @@
       "topic0": "0x35cb901f95954817866fe7c7a12829f8b3e7c63d67e6fc9f329711ea871588e1",
       "severity": "P1",
       "page": false,
-      "playbook": "docs/INCIDENT_RESPONSE.md §3",
+      "playbook": "blacklist: policy requires two-engineer sign-off. Match this against the sign-off record. A blacklist with no matching record is the finding, not the blacklist itself.",
       "why": "Requires two-engineer sign-off by policy. The alert is the audit trail that proves the policy was followed; a blacklist with no matching sign-off record is the finding."
     },
 
@@ -231,7 +233,7 @@
       "topic0": "0xc7a74fcc6d9403be1a1749d0a1b68bdd0c9b9c1996ee83a58d325ac976c33f37",
       "severity": "P1",
       "page": false,
-      "playbook": "docs/INCIDENT_RESPONSE.md §4",
+      "playbook": "PoG cap: this is what bounds a compromised signer. Correlate against the Safe transaction history. Lowering it does not retroactively tighten hooks already deployed, because each snapshots its own perWalletCap at creation.",
       "why": "This is the cap that bounds a compromised PoG signer. Raising it widens the blast radius of GOV-04; lowering it does NOT retroactively tighten hooks already deployed, because each snapshots its own perWalletCap at creation."
     },
     {
@@ -378,21 +380,23 @@
       "cadence": "every 15 minutes",
       "check": "ladderTreasury ETH balance is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
       "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract.",
-      "action": "Treat as funds-at-risk: pause first per docs/INCIDENT_RESPONSE.md §2, then §5 if the drain cannot be matched to an authorised Safe transaction."
+      "action": "Treat as funds-at-risk: pause the factory via the Safe, then correlate the fall against buyback events and Safe transactions in the same window. A fall matching neither is a governance compromise, and once the reservoir is spent there is no on-chain remedy — announce."
     },
     {
       "id": "STATE-03",
       "severity": "P0",
       "cadence": "every 15 minutes",
       "check": "factory.owner() == the expected Gnosis Safe AND factory.pendingOwner() == address(0)",
-      "why": "Belt to GOV-01/02's braces. Event delivery can fail — a provider outage, a reorg, a misconfigured filter — and ownership is the one fact where finding out late is unacceptable. A non-zero pendingOwner is a takeover mid-flight."
+      "why": "Belt to GOV-01/02's braces. Event delivery can fail — a provider outage, a reorg, a misconfigured filter — and ownership is the one fact where finding out late is unacceptable. A non-zero pendingOwner is a takeover mid-flight.",
+      "action": "Confirm the move against the Safe transaction history, and pause the factory if it was not authorised. A non-zero pendingOwner is still abandonable: have the owner call transferOwnership() again with the intended address."
     },
     {
       "id": "STATE-04",
       "severity": "P1",
       "cadence": "every 15 minutes",
       "check": "factory.pogSigner() == the expected KMS address",
-      "why": "Same reasoning as STATE-03 applied to GOV-04. Cheap, and it fails closed."
+      "why": "Same reasoning as STATE-03 applied to GOV-04. Cheap, and it fails closed.",
+      "action": "Correlate against the Safe transaction history. If the signer is not one we rotated to, pause() the factory to stop new deposits, then setPogSigner() to a key you control."
     },
     {
       "id": "STATE-05",

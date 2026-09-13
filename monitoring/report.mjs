@@ -333,7 +333,8 @@ async function pageOut(fresh, repage) {
   if (!PAGER_ON) {
     console.log(`NO PAGER CONFIGURED: ${fresh.length} new and ${repage.length} unacknowledged P0 ` +
       `finding(s) were written down and nobody was woken. Set PAGER_TELEGRAM_TOKEN and ` +
-      `PAGER_TELEGRAM_CHAT. ONCHAIN_MONITORING.md §7.3.`)
+      `PAGER_TELEGRAM_CHAT as repository secrets. An issue is not a notification ` +
+      `unless someone is subscribed to it.`)
     return
   }
 

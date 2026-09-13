@@ -10,7 +10,7 @@
  * again. That failure is invisible precisely when it matters, because "no
  * alerts" reads the same as "nothing wrong".
  *
- * Three things are verified:
+ * Five things are verified:
  *   1. Every event named in alerts.json still exists on the named contract,
  *      with exactly the parameter types the signature claims.
  *   2. Every topic0 equals keccak256 of that signature (via `cast sig-event`,
@@ -24,6 +24,10 @@
  *      removing GOV-05 and muting PlatformSwapFeePaid left four sentences
  *      claiming 25 alerts and 21 muted events against a file holding 24 and 22.
  *      Checks 1-3 all passed throughout, because none of them reads the docs.
+ *   5. Every repo file named by a `playbook`, `action`, or severity string is
+ *      actually on disk. A playbook is only worth what it resolves to at 3am,
+ *      and these drifted twice: once to the wrong section, once to a document
+ *      that had been deleted outright.
  *
  * Usage (from repository root, after `forge build`):
  *     node scripts/verifyAlertTopics.js
@@ -164,6 +168,52 @@ const actual = {
     P2: sevCount.P2 || 0,
     P3: sevCount.P3 || 0,
 };
+
+// ─── 5. No playbook or action points at a file that is not there ─────────────
+//
+// This file's own header used to note that playbook targets were unchecked and
+// that "nothing mechanical stops them drifting again". They drifted again. The
+// first time, eleven pointed at the wrong section; the second time, every one of
+// them pointed at an incident doc that had been deleted from the repo, so a
+// responder paged at 3am would have been handed a path that does not resolve.
+//
+// Only repo-relative paths are checkable. `tosh-status/` lives in another
+// repository and is allowed through by name, which is a hole — but a narrow and
+// visible one, rather than the whole class being unchecked.
+
+const REFERENCE = /\b((?:docs|src|test|scripts|monitoring|script)\/[\w./-]+\.(?:md|sol|mjs|js|ts|json))/g;
+const EXTERNAL_OK = /^tosh-status\//;
+
+const responders = [
+    ...alerts.map((a) => ({ id: a.id, text: [a.playbook, a.action] })),
+    ...(config.stateChecks || []).map((s) => ({ id: s.id, text: [s.playbook, s.action] })),
+];
+
+for (const { id, text } of responders) {
+    for (const field of text) {
+        if (typeof field !== 'string') continue;
+        for (const [, ref] of field.matchAll(REFERENCE)) {
+            if (EXTERNAL_OK.test(ref)) continue;
+            if (!fs.existsSync(path.join(REPO_ROOT, ref))) {
+                fail(
+                    `${id}: playbook/action points at "${ref}", which is not in the repo. ` +
+                        `A responder following this alert lands on nothing.`,
+                );
+            }
+        }
+    }
+}
+
+// Severity prose is read by whoever is deciding whether to wake someone up, so
+// it is held to the same standard as the per-alert playbooks.
+for (const [sev, prose] of Object.entries(config.severities || {})) {
+    for (const [, ref] of String(prose).matchAll(REFERENCE)) {
+        if (EXTERNAL_OK.test(ref)) continue;
+        if (!fs.existsSync(path.join(REPO_ROOT, ref))) {
+            fail(`severities.${sev} points at "${ref}", which is not in the repo.`);
+        }
+    }
+}
 
 // ─── Report ──────────────────────────────────────────────────────────────────
 

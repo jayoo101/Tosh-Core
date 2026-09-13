@@ -10,8 +10,12 @@
  * availability and costs coupling: nothing in this repository can see the page
  * change, and nothing over there can see this playbook change.
  *
- * Both halves of Step 4 assert that the paused wording is identical in the two
- * places, and say so in prose to whoever edits either one. Prose does not hold.
+ * The paused wording has to be identical in both places, and used to say so in
+ * prose to whoever edited either one. Prose does not hold, and this file has now
+ * been on both sides of that lesson: the incident document holding the canonical
+ * wording was deleted on 2026-09-13 and check 2 silently degraded to "the page
+ * has a paused block", which nothing could fail. The wording is pinned in this
+ * file now.
  * The same class of drift already happened once inside this repository, where
  * `docs/` claimed 25 alerts against a config holding 24 for as long as nobody
  * counted, and once across documents, where a dead path to
@@ -21,9 +25,9 @@
  * Four things are checked:
  *   1. The page is reachable at all. It is a production dependency of the P0
  *      playbook, and "it was up when I last looked by hand" is not a property.
- *   2. Its `paused` copy is word-for-word the blockquote in Step 4. A
- *      responder reads both under time pressure; if they disagree, the one
- *      that is wrong is unknowable at exactly the wrong moment.
+ *   2. Its `paused` copy is word-for-word `EXPECTED_PAUSED_COPY` below. A
+ *      responder and a user read the page under time pressure; wording nobody
+ *      approved is not detectable by looking at it.
  *   3. The manual-interaction guide the page links still resolves. §6b hands
  *      that URL to users mid-outage, and it returned 404 to them for as long
  *      as the guide sat in this private repository.
@@ -49,6 +53,26 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const PAGE_URL  = 'https://jayoo101.github.io/tosh-status/'
 const GUIDE_URL = 'https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md'
 const PAUSED_SELECTOR = '0x5c975abb' // keccak("paused()")[0:4]
+
+/** The approved paused announcement, pinned here so a change to it has to be a
+ *  deliberate edit to this file rather than a quiet edit to the page.
+ *
+ *  This used to be compared against Step 4 of an incident-response document.
+ *  That document was removed from the repo on 2026-09-13, and the comparison
+ *  went with it: the check kept extracting the page's copy and then only
+ *  asserted it was non-empty, while the success line still announced that it
+ *  "matches Step 4 verbatim". Any page with a parseable `paused:` block passed.
+ *  That is the same presence-without-use failure the chain-read check below
+ *  describes in its own comment, arrived at by deletion instead of by design.
+ *
+ *  Pinning the text here rather than re-deriving it from the page is the whole
+ *  point — a guard that reads its expectation from the thing it is guarding
+ *  cannot fail. Three claims matter and are why this is worth pinning at all:
+ *  that deposits remain refundable, that a security report is being
+ *  investigated, and the 30-minute update commitment. */
+const EXPECTED_PAUSED_COPY = 'Tosh Protocol is currently paused while we investigate a security '
+  + 'report. Existing deposits remain refundable. We will update this page '
+  + 'within 30 minutes.'
 
 const drift = []
 const unreachable = []
@@ -109,7 +133,7 @@ if (LOCAL) {
   }
 }
 
-// ── 2. The paused copy matches Step 4 word for word ─────────────────────────
+// ── 2. The paused copy matches the approved announcement word for word ──────
 if (html) {
   // The page holds it as a concatenation:
   //     paused: 'first part '
@@ -125,6 +149,14 @@ if (html) {
       'could not find the `paused` copy in the page source. Either the COPY '
       + 'table was restructured or the page is no longer the file this guard '
       + 'was written against — check it by hand before trusting either.')
+  } else if (pageCopy !== normalize(EXPECTED_PAUSED_COPY)) {
+    drift.push(
+      'the paused announcement on the page is not the approved wording.\n'
+      + `      page:     ${pageCopy}\n`
+      + `      expected: ${normalize(EXPECTED_PAUSED_COPY)}\n`
+      + '      If the page is right, update EXPECTED_PAUSED_COPY in this guard in '
+      + 'the same commit. If the guard is right, the page is telling users '
+      + 'something nobody approved during an incident.')
   }
 
   // ── 4. The page still reads the chain ─────────────────────────────────────
@@ -375,8 +407,9 @@ if (drift.length) process.exitCode = 1
 else if (unreachable.length) process.exitCode = 2
 else {
 console.log(
-  '[checkStatusPage] OK — page is up, its paused copy matches Step 4 verbatim, '
-  + 'it still reads paused() from the chain, and the guide §6b links resolves.')
+  '[checkStatusPage] OK — page is up, its paused copy matches the approved '
+  + 'wording verbatim, it still reads paused() from the chain, and the guide '
+  + '§6b links resolves.')
 console.log(
   `[checkStatusPage] chain: page names ${STATUS_PAGE_CHAIN}, mainnet deploy `
   + `${mainnetDeployed ? 'RECORDED' : 'not yet recorded'} — cutover check `

@@ -319,8 +319,13 @@ on a Tosh pool will attempt a **piggyback buyback**:
 - **Size.** $\max(1\text{ ETH},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
 - **Rotation.** `BATCH_SIZE` = 3 spreads the spend across pools, advancing
   `LEGS_PER_POKE` = 1 per poke in round-robin order.
-- **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, a 10% band
-  anchored to the pool's own TWAP.
+- **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, anchored to the
+  pool's own TWAP. The name is not decoration: the bound is stated in **sqrt**
+  terms, so 1000 bps lets the sqrt price fall to 90% of the TWAP's, and price
+  goes as the square — $0.9^2 = 0.81$, so it is roughly a **19% band in price**,
+  not 10%. Both this and `SPEND_BPS` above happen to be 1000, and they do not
+  mean the same thing. The looseness is deliberate; `src/ToshLadderTreasury.sol`
+  argues the trade at the constant.
 - **Gas defence, and the backstop it needs.** If the transaction has less than
   `PIGGYBACK_MIN_GAS` = 260,000 left, the protocol skips the buyback so the
   user's own trade always completes. Because skipping means trading alone no

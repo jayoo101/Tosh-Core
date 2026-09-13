@@ -158,10 +158,20 @@ jobs:
       # `--match-contract ToshV5ForkTest`. So the floor is the only thing here
       # that notices if they are deleted, which is the argument for raising it
       # in the same commit rather than leaving four tests below an unmoved one.
+      #
+      # 367 -> 373 on 2026-09-13: the six `test_projectReferral_*` /
+      # `test_referralSplit_*` / `test_canBindProjectReferral_*` tests in
+      # `ToshV5.t.sol`, which cover the per-project referral carve and the
+      # truncation case where the two slots must still sum to it. Found by
+      # audit, not by CI: the floor had sat at 367 against a suite of 373, so
+      # six tests could have been deleted without turning anything red. In the
+      # same window `test_probeG3_immatureTwapLeavesTheBuybackUnbounded` became
+      # `test_probeG3_immatureTwapIsRefusedAtListing` when the TWAP gate reached
+      # chain, which is a rename and moves the count by nothing.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=367
+          floor=373
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

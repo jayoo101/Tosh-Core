@@ -539,7 +539,7 @@ Tosh-Core/
 ├── script/                     # Foundry deploy + verification scripts
 ├── scripts/                    # Node tooling: salt miner, ABI sync, launch audit, guards
 ├── monitoring/                 # alerts.json + watcher
-├── docs/                       # Whitepaper, PRD, security, monitoring, runbooks
+├── docs/                       # This file. Protocol overview is README.md, disclosure is SECURITY.md
 ├── soat-frontend/              # Next.js dApp
 └── foundry.toml
 ```
