@@ -88,6 +88,13 @@ scripts/.q1-state.json
 scripts/.q1-request.json
 scripts/.q1-signatures.json
 
+# PoG rate rotation working files (scripts/rotateGasRate.mjs). Same reasoning as
+# the drill files above: the request is reproducible and the signatures are other
+# people's. The request also carries a live `expiresAt`, so a committed copy
+# would be a stale instruction that looks current.
+scripts/.rate-request.json
+scripts/.rate-signatures.json
+
 # Real Safe signer addresses + their proof-of-control signatures (PM-D4).
 # Template is safe-owners.example.json.
 safe-owners.json

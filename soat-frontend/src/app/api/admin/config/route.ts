@@ -9,16 +9,52 @@
  *
  *  1. On-chain owner signature  (default, strongest)
  *     Body: { newRate, nonce, expiresAt, signature }
- *     • signature is an EIP-191 sig over the canonical message:
- *         `Tosh Admin Config Update
- *          rate:      <newRate>
- *          nonce:     <nonce>
- *          expiresAt: <unix-seconds>`
- *     • Server recovers the signer address from the signature, then reads
- *       `ToshFactory.owner()` over the configured RPC.  Update is accepted
- *       only when `recovered === owner`.
- *     • Per-process monotonic `nonce` blocks replay; `expiresAt` (≤ 5 min in
- *       the future) keeps the signed window tight.
+ *     • signature is an EIP-191 sig over the canonical message built by
+ *       `lib/adminConfigMessage.ts` — the single copy of that format, shared
+ *       with the admin panel, this route's tests and the CLI script.
+ *     • Server reads `ToshFactory.owner()` over the configured RPC, then asks
+ *       whether the signature authorises THAT address — an ECDSA recovery when
+ *       the owner is an EOA, ERC-1271 `isValidSignature` when it is a contract.
+ *       Both arms go through one `verifyMessage` call on the public client.
+ *     • Replay is blocked by a monotonic `nonce` held in the shared store
+ *       (`app/lib/adminNonce.ts`); `expiresAt` bounds freshness, sized by the
+ *       owner's shape (`SIGNATURE_WINDOW_SEC`).
+ *
+ *     WHY THE CONTRACT ARM IS LOAD BEARING, NOT DEFENSIVE POLISH
+ *
+ *     This used to `recoverMessageAddress` and compare the result to `owner()`.
+ *     That works only while the owner is an EOA. `transferOwnership` moved the
+ *     factory to a 2-of-3 Gnosis Safe, and a Safe cannot produce an ECDSA
+ *     signature over anything: it is a contract, so a recovery returns whichever
+ *     signer's EOA held the pen and that address is never the Safe. Every
+ *     well-formed request therefore 403'd, for every possible input.
+ *
+ *     Combined with `ADMIN_SECRET` being pinned `absent` in
+ *     `scripts/checkSecretStore.mjs` — on the stated grounds that the signature
+ *     path is "the posture we want" — the endpoint had no reachable arm at all.
+ *     The exchange rate is documented in `app/lib/pogQuota.ts` as the dial an
+ *     owner turns to throttle allocations, and it was frozen at its seeded
+ *     value: production answered `lastSeenNonce: 0`, meaning no rotation had
+ *     ever succeeded. Found by trying to use it, 2026-09-13.
+ *
+ *     ACCEPTING THE SIGNATURE WAS NOT ENOUGH TO MAKE THE DIAL TURN
+ *
+ *     The 1271 arm above landed first and the endpoint was still unusable, for
+ *     two reasons that had nothing to do with signature verification and were
+ *     found the same way — by trying to use it:
+ *
+ *       • The window was five minutes for everyone. A Safe signature is two
+ *         confirmations from two people on two devices; the instruction expired
+ *         before the second owner opened their phone. Fixed by sizing the window
+ *         to the owner's shape, which in turn required persisting the nonce —
+ *         see `SIGNATURE_WINDOW_SEC` and `app/lib/adminNonce.ts`.
+ *
+ *       • Nothing in the browser can connect a Safe. `providers.tsx` registers
+ *         `injected()` and nothing else, so `useAccount().address` is always an
+ *         extension EOA — never the owner the server now checks against. The
+ *         admin panel therefore cannot produce a valid signature no matter how
+ *         correct it is, and says so instead of offering a button that 403s; the
+ *         working path is `scripts/rotateGasRate.mjs`.
  *
  *  2. Shared-secret header (fallback)
  *     Header: `Authorization: Bearer <ADMIN_SECRET>`
@@ -59,6 +95,16 @@ import {
   getGasToSatoRate,
   setGasToSatoRate,
 } from '@/app/lib/gasToSatoRate'
+import {
+  adminNonceBackendKind,
+  claimAdminNonce,
+  lastSeenAdminNonce,
+  MAX_ADMIN_NONCE,
+} from '@/app/lib/adminNonce'
+import {
+  buildAdminConfigMessage,
+  SIGNATURE_WINDOW_SEC,
+} from '@/lib/adminConfigMessage'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HARDENING POLICIES
@@ -86,30 +132,17 @@ export async function OPTIONS(req: NextRequest) {
   return corsPreflight(req, CORS_OPTS)
 }
 
-// ─── In-memory state (resets on server restart) ──────────────────────────────
-let lastSeenNonce: bigint = 0n           // monotonic replay guard
-
 // ─── Config ──────────────────────────────────────────────────────────────────
 const ADMIN_SECRET     = process.env.ADMIN_SECRET            ?? ''
 const FACTORY_ADDRESS  = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
 
-/** Max future drift allowed on `expiresAt` (seconds). 5 minutes is enough for
- *  honest clock skew while keeping the signed window tight. */
-const MAX_SIGNATURE_WINDOW_SEC = 5 * 60
+// The replay guard lives in `app/lib/adminNonce.ts`. It used to be a
+// module-scoped `let` here, annotated "resets on server restart" — see that
+// file's header for why both the per-instance and the reset-to-zero halves of
+// that were the reason this endpoint's signing window had to stay too short for
+// a Safe to satisfy.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Build the exact message that the owner must sign (kept in sync with the
- *  client-side `signMessage` call).  Any change here is a breaking protocol
- *  change for the admin UI. */
-function buildSignableMessage(rate: number, nonce: bigint, expiresAt: number): string {
-  return (
-    `Tosh Admin Config Update\n` +
-    `rate:      ${rate}\n` +
-    `nonce:     ${nonce.toString()}\n` +
-    `expiresAt: ${expiresAt}`
-  )
-}
 
 /**
  * Reject values that are not secrets.
@@ -189,6 +222,121 @@ async function readChainOwner(): Promise<Address | null> {
   }
 }
 
+/**
+ * Three outcomes, because collapsing them loses the one that matters.
+ *
+ * `unavailable` is not `rejected`: an RPC that could not answer means the check
+ * was never performed, and reporting that as "you are not the owner" sends an
+ * admin to look at their wallet while the fault is in the network. Same
+ * reasoning as `readChainOwner` returning null rather than throwing.
+ */
+type SignatureVerdict = 'ok' | 'rejected' | 'unavailable'
+
+/**
+ * Does `signature` authorise `owner` over `message`?
+ *
+ * One call covers both signer shapes: `verifyMessage` on a public client does an
+ * ECDSA recovery for an EOA and an ERC-1271 `isValidSignature` call for a
+ * contract. See this file's header for why the contract arm is what makes the
+ * endpoint reachable at all.
+ */
+async function ownerSignatureVerdict(
+  owner: Address,
+  message: string,
+  signature: Hex,
+): Promise<SignatureVerdict> {
+  try {
+    const valid = await serverPublicClient().verifyMessage({
+      address: owner,
+      message,
+      signature,
+    })
+    return valid ? 'ok' : 'rejected'
+  } catch (err) {
+    console.error('[admin/config] verifyMessage could not run:', err)
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'admin/config', stage: 'ownerSignatureVerdict', owner },
+    })
+    return 'unavailable'
+  }
+}
+
+/**
+ * The EOA behind a rejected signature, for the log line only.
+ *
+ * Never used to authorise anything — that is `ownerSignatureVerdict`'s job. It
+ * exists because "signature does not authorise the owner" with no second address
+ * in it is the same debugging dead end for a Safe signer as for an EOA one: the
+ * usual cause is the wrong wallet selected, and naming it is the whole fix.
+ * Returns null for a signature that does not even recover, which is a different
+ * mistake and should not be dressed up as an address.
+ */
+async function recoveredForDiagnostics(message: string, signature: Hex): Promise<Address | null> {
+  try {
+    return await recoverMessageAddress({ message, signature })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Is the owner an EOA or a contract?
+ *
+ * This decides how long a signed instruction may remain valid, which is not a
+ * cosmetic difference: an EOA signs once, in one wallet, in one gesture, while a
+ * 2-of-3 Safe needs confirmations from two people who are not in the same room.
+ * See `SIGNATURE_WINDOW_SEC` for the full reasoning.
+ *
+ * Deliberately derived from `getCode` rather than from configuration. An
+ * `owner()` that changes shape — `transferOwnership` from the deploy EOA to the
+ * Safe, which is exactly what happened here — must move the window with it
+ * without anybody remembering to edit an env var, because the failure mode of
+ * forgetting is an endpoint that no longer has a reachable arm.
+ *
+ * Null means the question could not be answered, and the caller turns that into
+ * a 503 rather than guessing. Guessing `eoa` would hand a Safe operator a
+ * "signature expired" during an RPC blip; guessing `contract` would silently
+ * widen the window on an EOA deployment.
+ */
+type OwnerShape = 'eoa' | 'contract'
+
+async function readOwnerShape(owner: Address): Promise<OwnerShape | null> {
+  try {
+    const code = await serverPublicClient().getCode({ address: owner })
+    return code && code !== '0x' ? 'contract' : 'eoa'
+  } catch (err) {
+    console.error('[admin/config] getCode failed, cannot size the signature window:', err)
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'admin/config', stage: 'readOwnerShape', owner },
+    })
+    return null
+  }
+}
+
+/**
+ * How far ahead of now `expiresAt` may sit, given who is signing.
+ *
+ * The long contract window is licensed by the nonce being persisted, not by the
+ * owner being a contract — so if the shared store is absent, this falls back to
+ * the tight window even for a Safe. That combination leaves the Safe path
+ * unsatisfiable again, which is a worse outcome than a wide window but a better
+ * one than an open replay window, and it is reported in the rejection below
+ * instead of presenting as an inexplicable clock complaint.
+ */
+function signatureWindowFor(shape: OwnerShape): {
+  seconds: number
+  degraded: boolean
+} {
+  if (shape === 'eoa') return { seconds: SIGNATURE_WINDOW_SEC.eoa, degraded: false }
+  const shared = adminNonceBackendKind() === 'redis'
+  return {
+    seconds: shared ? SIGNATURE_WINDOW_SEC.contract : SIGNATURE_WINDOW_SEC.eoa,
+    degraded: !shared,
+  }
+}
+
 // Centralized CORS wrapper — every return path uses this.
 function corsify(req: NextRequest, res: NextResponse) {
   return applyCors(res, req, CORS_OPTS)
@@ -209,8 +357,12 @@ export async function GET(req: NextRequest) {
     req,
     NextResponse.json({
       globalGasToSatoRate: await getGasToSatoRate(),
-      lastSeenNonce: lastSeenNonce.toString(),
+      lastSeenNonce: (await lastSeenAdminNonce()).toString(),
       rateStore: gasToSatoRateBackendKind(),
+      // Distinct from `rateStore` because the two can disagree, and this one is
+      // the difference between a real replay guard and a decorative one. It also
+      // tells an operator which signing window POST will enforce for a Safe.
+      nonceStore: adminNonceBackendKind(),
       rateLimitStore: rateLimitBackendKind(),
     })
   )
@@ -285,47 +437,40 @@ export async function POST(req: NextRequest) {
   } catch {
     return corsify(req, NextResponse.json({ error: 'nonce parse failed' }, { status: 400 }))
   }
-
-  // Anti-replay: nonce must strictly increase
-  if (nonce <= lastSeenNonce) {
+  if (nonce <= 0n || nonce > MAX_ADMIN_NONCE) {
+    // Bounded because the shared guard compares through a Lua `tonumber`, which
+    // is a double: past 2^53 adjacent nonces compare equal and monotonicity
+    // stops holding. Refusing is the only honest answer, since accepting would
+    // silently disable the replay guard at the top of the range.
     return corsify(
       req,
       NextResponse.json(
-        { error: `nonce ${nonce} is stale; must exceed ${lastSeenNonce}` },
-        { status: 409 }
-      )
-    )
-  }
-
-  // Expiry window
-  const now = Math.floor(Date.now() / 1000)
-  if (rawExpires < now) {
-    return corsify(req, NextResponse.json({ error: 'signature expired' }, { status: 401 }))
-  }
-  if (rawExpires - now > MAX_SIGNATURE_WINDOW_SEC) {
-    return corsify(
-      req,
-      NextResponse.json(
-        { error: `expiresAt too far in the future (max ${MAX_SIGNATURE_WINDOW_SEC}s ahead)` },
+        { error: `nonce must be between 1 and ${MAX_ADMIN_NONCE} (use Date.now())` },
         { status: 400 }
       )
     )
   }
 
-  // Recover signer
-  const message = buildSignableMessage(newRate, nonce, rawExpires)
-  let recovered: Address
-  try {
-    recovered = await recoverMessageAddress({
-      message,
-      signature: signature as Hex,
-    })
-  } catch (err) {
-    console.error('[admin/config] signature recovery failed:', err)
-    return corsify(req, NextResponse.json({ error: 'Invalid signature' }, { status: 401 }))
+  // A cheap, friendly rejection for the common replay. It is NOT the guard —
+  // that is the atomic claim after verification — because a check here followed
+  // by a write there is a race, and because burning nonce space before the
+  // signature is checked would let an unauthenticated caller lock the real owner
+  // out by submitting one enormous nonce.
+  const seen = await lastSeenAdminNonce()
+  if (nonce <= seen) {
+    return corsify(
+      req,
+      NextResponse.json(
+        { error: `nonce ${nonce} is stale; must exceed ${seen}` },
+        { status: 409 }
+      )
+    )
   }
 
-  // On-chain owner check
+  // Owner first, then the signature against it. This order is required, not
+  // stylistic: an ERC-1271 check is a call INTO the owner, so there is nothing
+  // to verify until the address is known. The owner's shape also sizes the
+  // expiry window below, which is the second reason this cannot move later.
   const owner = await readChainOwner()
   if (!owner) {
     return corsify(
@@ -336,22 +481,98 @@ export async function POST(req: NextRequest) {
       )
     )
   }
-  if (recovered.toLowerCase() !== owner.toLowerCase()) {
-    console.warn('[admin/config] unauthorized signer', { recovered, owner })
+
+  const shape = await readOwnerShape(owner)
+  if (!shape) {
     return corsify(
       req,
       NextResponse.json(
-        { error: 'Signer is not the on-chain factory owner' },
+        { error: 'Could not determine whether the owner is a contract — RPC unavailable' },
+        { status: 503 }
+      )
+    )
+  }
+
+  // Expiry window
+  const now = Math.floor(Date.now() / 1000)
+  if (rawExpires < now) {
+    return corsify(req, NextResponse.json({ error: 'signature expired' }, { status: 401 }))
+  }
+  const window = signatureWindowFor(shape)
+  if (rawExpires - now > window.seconds) {
+    return corsify(
+      req,
+      NextResponse.json(
+        {
+          error: `expiresAt too far in the future (max ${window.seconds}s ahead for a ${shape} owner)`,
+          // Without this, an operator collecting Safe signatures over an hour
+          // sees a bare clock complaint and has no way to learn that the cause
+          // is an unconfigured Upstash rather than their own arithmetic.
+          ...(window.degraded && {
+            hint:
+              'The long multi-signature window needs a shared nonce store. Set ' +
+              'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or the window ' +
+              'stays at the single-signer value because the replay guard would not ' +
+              'survive a restart.',
+          }),
+        },
+        { status: 400 }
+      )
+    )
+  }
+
+  const message = buildAdminConfigMessage(newRate, nonce, rawExpires)
+  const verdict = await ownerSignatureVerdict(owner, message, signature as Hex)
+
+  if (verdict === 'unavailable') {
+    return corsify(
+      req,
+      NextResponse.json(
+        { error: 'Could not verify the signature against the owner — RPC unavailable' },
+        { status: 503 }
+      )
+    )
+  }
+  if (verdict === 'rejected') {
+    console.warn('[admin/config] unauthorized signer', {
+      owner,
+      ownerShape: shape,
+      recovered: await recoveredForDiagnostics(message, signature as Hex),
+    })
+    return corsify(
+      req,
+      NextResponse.json(
+        { error: 'Signature does not authorise the on-chain factory owner' },
         { status: 403 }
       )
     )
   }
 
-  // Commit nonce *before* applying so a concurrent retry is rejected.
-  lastSeenNonce = nonce
+  // Claim the nonce *before* applying, and atomically, so a concurrent retry of
+  // the same payload loses the race rather than both landing.
+  const claim = await claimAdminNonce(nonce)
+  if (claim === 'unavailable') {
+    return corsify(
+      req,
+      NextResponse.json(
+        { error: 'Could not record the nonce — refusing to apply without a replay guard' },
+        { status: 503 }
+      )
+    )
+  }
+  if (claim === 'replayed') {
+    return corsify(
+      req,
+      NextResponse.json({ error: `nonce ${nonce} was already used` }, { status: 409 })
+    )
+  }
+
+  // `signer` is the owner, not a recovered EOA. For a Safe those differ, and the
+  // authority that was actually checked is the owner — reporting the EOA that
+  // happened to hold the pen would name a wallet with no standing here.
   return corsify(
     req,
-    await applyUpdate({ newRate, authMethod: 'owner-signature', signer: recovered, nonce })
+    await applyUpdate({ newRate, authMethod: 'owner-signature', signer: owner, nonce })
   )
 }
 

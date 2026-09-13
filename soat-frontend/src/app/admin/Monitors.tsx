@@ -2,12 +2,13 @@
 
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useReadContract, useSignMessage } from 'wagmi'
+import { useBytecode, useReadContract, useSignMessage } from 'wagmi'
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
 import {
   ActionButton, useActionGate, revertOrder,
   toshToast, isUserRejection, shortErrorMessage,
 } from '@/components/ui'
+import { buildAdminConfigMessage, SIGNATURE_WINDOW_SEC } from '@/lib/adminConfigMessage'
 import { Section, ScopeNote, Field } from './shared'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,14 +74,15 @@ export function InitcodeHashMonitor() {
   )
 }
 
-export function buildAdminConfigMessage(rate: number, nonce: bigint, expiresAt: number): string {
-  return (
-    `Tosh Admin Config Update\n` +
-    `rate:      ${rate}\n` +
-    `nonce:     ${nonce.toString()}\n` +
-    `expiresAt: ${expiresAt}`
-  )
-}
+/**
+ * How long this panel gives itself to get the signature to the server.
+ *
+ * An injected wallet signs in one gesture, so this is generous already; the
+ * `min` is there so that lowering `SIGNATURE_WINDOW_SEC.eoa` on the server can
+ * never leave the panel asking for a window the server refuses — a mismatch that
+ * would surface as a 400 about clocks.
+ */
+const CLIENT_TTL_SEC = Math.min(120, SIGNATURE_WINDOW_SEC.eoa)
 
 export function ExchangeRatePanel() {
   const [rateInput, setRateInput] = useState('')
@@ -88,13 +90,23 @@ export function ExchangeRatePanel() {
 
   const { signMessageAsync } = useSignMessage()
 
+  // Whether this panel can work at all depends on what kind of address owns the
+  // factory, so it has to ask. See the `owner-is-a-contract` blocker below.
+  const { data: owner } = useReadContract({
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'owner',
+  })
+  const { data: ownerCode, isLoading: shapeLoading } = useBytecode({
+    address: owner as `0x${string}` | undefined,
+  })
+  const ownerIsContract = Boolean(ownerCode && ownerCode !== '0x')
+
   const rate  = parseFloat(rateInput)
   const armed = !isNaN(rate) && rate > 0
 
   const handleUpdate = useCallback(async () => {
     if (!armed) return
     const nonce     = BigInt(Date.now())
-    const expiresAt = Math.floor(Date.now() / 1000) + 120
+    const expiresAt = Math.floor(Date.now() / 1000) + CLIENT_TTL_SEC
     const msg       = buildAdminConfigMessage(rate, nonce, expiresAt)
 
     setBusy(true)
@@ -126,15 +138,40 @@ export function ExchangeRatePanel() {
     onAct: () => { void handleUpdate() },
     tx: { isBusy: busy },
     requiresNetwork: false,
-    blockersInRevertOrder: revertOrder({
-      id: 'rate-invalid',
-      active: !armed,
-      label: rateInput.trim() === '' ? 'Enter a rate' : '[not_a_positive_number]',
-      reason: rateInput.trim() === ''
-        ? 'Type the new quota-per-gas rate above.'
-        : 'The rate must be a positive number.',
-      tone: rateInput.trim() === '' ? 'neutral' : 'danger',
-    }),
+    blockersInRevertOrder: revertOrder(
+      // First, because nothing the operator types can clear it. A contract owner
+      // — the 2-of-3 Safe — cannot sign here: `providers.tsx` registers only
+      // `injected()`, so the wallet behind `signMessageAsync` is always an
+      // extension EOA, and the server checks the signature against the owner.
+      // The request would be well-formed and 403 every time. Saying so beats
+      // offering a button whose only outcome is that.
+      {
+        id: 'owner-is-a-contract',
+        active: ownerIsContract,
+        label: '[owner_is_a_safe]',
+        reason:
+          'The factory owner is a contract, and a browser wallet cannot sign for ' +
+          'it. Rotate the rate with `node scripts/rotateGasRate.mjs` instead — it ' +
+          'collects the two owner signatures off-line and submits them here.',
+        tone: 'warn',
+      },
+      {
+        id: 'owner-shape-unknown',
+        active: !ownerIsContract && shapeLoading,
+        label: 'Checking owner…',
+        reason: 'Reading whether the factory owner is an EOA or a contract.',
+        tone: 'neutral',
+      },
+      {
+        id: 'rate-invalid',
+        active: !armed,
+        label: rateInput.trim() === '' ? 'Enter a rate' : '[not_a_positive_number]',
+        reason: rateInput.trim() === ''
+          ? 'Type the new quota-per-gas rate above.'
+          : 'The rate must be a positive number.',
+        tone: rateInput.trim() === '' ? 'neutral' : 'danger',
+      },
+    ),
   })
 
   return (
@@ -155,6 +192,13 @@ export function ExchangeRatePanel() {
         This one never touches the chain. It is an owner-signed instruction to the
         backend, so it costs no gas and leaves no on-chain trace — and it is only
         as trustworthy as the API server holding the other end.
+        {ownerIsContract && (
+          <>
+            {' '}The owner here is a contract, so this panel is read-only in
+            practice: use <code>scripts/rotateGasRate.mjs</code>, which asks the
+            Safe owners for signatures and posts the assembled result.
+          </>
+        )}
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />
