@@ -167,7 +167,7 @@ abstract contract RehearsalBase is Script {
     ///      chain — but it does mean the simulation cannot prove anything about
     ///      `_blockNumber()`, which is why RH-F2 is asserted afterwards against
     ///      the mined receipt rather than here. Same trade recorded for the
-    ///      fork suite in docs/ROBINHOOD_MIGRATION.md §5.3.
+    ///      fork suite against the public 4663 endpoint.
     ///
     ///      Seeded from `block.number` because Foundry takes that from the
     ///      RPC's `eth_blockNumber`, which on an Orbit chain is the L2 height —

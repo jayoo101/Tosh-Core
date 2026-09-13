@@ -1,6 +1,6 @@
 /**
  * Groups a Slither JSON report by impact, confidence and detector, so a run
- * can be compared against the triage recorded in `docs/SECURITY_AUDIT.md` §5.6
+ * can be compared against the triage recorded in `slither-baseline.json`
  * rather than re-read from the top.
  *
  * Reading 70 findings linearly is how a real one gets filed behind the

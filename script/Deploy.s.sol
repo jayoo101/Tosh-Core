@@ -16,7 +16,7 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 // production; it performs the Ownable2Step transfer to a Safe.
 //
 // Retargeted from Base Sepolia (84532) to Robinhood Chain testnet (46630) — see
-// docs/ROBINHOOD_MIGRATION.md, RH-C3.  The V4 addresses are identical on 46630
+// Robinhood testnet (46630).  The V4 addresses are identical on 46630
 // and 4663, so a rehearsal here exercises the mainnet address book unchanged.
 //
 // Verification is Blockscout, not Etherscan: chain 46630 is served by neither

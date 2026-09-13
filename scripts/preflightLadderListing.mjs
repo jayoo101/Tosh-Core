@@ -4,7 +4,7 @@
  * ──────────────────────────
  * Run this before signing an `addLadderToken` transaction on the Safe.
  *
- * `SECURITY_AUDIT.md` §2.3 accepts one exposure on the grounds that it is held
+ * SECURITY.md accepts one residual on the grounds that it is held
  * shut by an operational rule: do not list a token until its TWAP matures,
  * because `_buybackSqrtFloor` treats a zero reading as "no reference, fill
  * unbounded" and a token listed inside its first `TWAP_WINDOW` therefore has no

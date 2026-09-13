@@ -1,7 +1,7 @@
 /**
  * What opening a project costs the creator, in gas.
  *
- * PM-F8 in `docs/PRE_MAINNET_CHECKLIST.md`: quote the cost before the creator
+ * Quote the cost before the creator
  * signs. The launch fee alone is a misleading number — it is the smaller half
  * of the bill at any realistic L1 gas price.
  *

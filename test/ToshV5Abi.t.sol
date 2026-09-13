@@ -165,7 +165,7 @@ contract ToshV5AbiTest is Test {
 ///         live pool.
 ///
 ///         Slither's `missing-inheritance` names three of these (see
-///         `docs/SECURITY_AUDIT.md` §5.7).  Inheriting the interfaces would be
+///         `slither-baseline.json`).  Inheriting the interfaces would be
 ///         the compiler-enforced fix, but it perturbs the hook implementation's
 ///         creation code, which moves the implementation address on redeploy —
 ///         and the implementation address is inside the EIP-1167 clone initcode

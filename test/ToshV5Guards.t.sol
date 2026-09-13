@@ -746,7 +746,7 @@ contract ToshV5GuardsTest is Test {
     ///   `_nextSpendAmount` is `virtual` so that `test/probe/PiggybackGasProbe.sol`
     ///   can subclass it with a threshold a testnet can reach — the only way to
     ///   execute the piggyback branch on a chain where nobody has a spare ETH,
-    ///   and how RH-B4 was finally measured (`docs/ROBINHOOD_MIGRATION.md` §F.7).
+    ///   and how RH-B4 was finally measured on chain 4663.
     ///
     ///   The keyword costs production nothing today: the runtime bytecode is
     ///   byte-identical with and without it. But "nothing overrides this" is a

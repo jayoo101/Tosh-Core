@@ -1,15 +1,13 @@
 /**
  * observability.ts — the one seam every error report goes through.
  * ───────────────────────────────────────────────────────────────────────────
- *  Pre-mainnet item #26 — PM-E1 in `docs/PRE_MAINNET_CHECKLIST.md`.  Until this
- *  existed, `app/error.tsx` logged to the browser console in dev and dropped
- *  the error entirely in production: a user hit a broken page and nobody found
- *  out.
+ *  Until this existed, `app/error.tsx` logged to the browser console in dev
+ *  and dropped the error entirely in production: a user hit a broken page and
+ *  nobody found out.
  *
- *  This file is only the FRONTEND half of #26.  The on-chain half — Defender /
- *  Tenderly alerts on the factory's `Paused` / `OwnershipTransferred` /
- *  `PogSignerUpdated` events — is PM-E2 and is still open.  Do not read a
- *  working Sentry install as "monitoring is done".
+ *  This file is only the frontend half. On-chain events are watched by
+ *  `monitoring/watch.mjs`. Do not read a working Sentry install as
+ *  "monitoring is done".
  *
  *  Design notes
  *  ────────────
@@ -23,10 +21,9 @@
  *    boundaries — a monitoring failure must not become the thing that breaks
  *    the fallback UI.
  *
- *  NOT covered here: on-chain alerting.  Paused / OwnershipTransferred /
- *  PogSignerUpdated on the factory are watched by Defender or Tenderly, which
- *  is dashboard configuration rather than application code.  See
- *  `docs/INCIDENT_RESPONSE.md` for the alert list and routing.
+ *  NOT covered here: on-chain alerting. Paused / OwnershipTransferred /
+ *  PogSignerUpdated are in `monitoring/alerts.json` and watched by
+ *  `monitoring/watch.mjs`.
  */
 
 import * as Sentry from '@sentry/nextjs'

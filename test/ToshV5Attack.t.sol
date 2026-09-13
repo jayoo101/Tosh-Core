@@ -575,8 +575,8 @@ contract ToshV5AttackTest is Test {
     // The argument below was accepted rather than answered.  `addLadderToken`
     // now reads `twapSqrtPriceX96()` itself and reverts `TwapNotMature` unless
     // it answers non-zero, so the state arm A used to drive cannot be entered
-    // through the only door that reaches it.  `SECURITY_AUDIT.md` §2.3 records
-    // the trade this replaced.
+    // through the only door that reaches it. SECURITY.md records the residual
+    // this replaced.
     //
     // What arm A used to measure, kept because it is the reason the gate exists
     // and not a historical curiosity: one pool parked 1500 bps out, the full

@@ -19,7 +19,7 @@ const Toaster = dynamic<ToasterProps>(
 )
 
 // ─── Multi-RPC fallback ─────────────────────────────────────────────────────
-// Pre-mainnet item #24 (PM-F2 in `docs/PRE_MAINNET_CHECKLIST.md`): a single
+// A single
 // hard-coded HTTP endpoint is a single point of
 // failure.  Robinhood Chain's public endpoint is rate-limited and carries no
 // SLA, so it throttles and transiently 5xxs like any other.  `fallback()`

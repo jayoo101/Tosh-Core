@@ -1091,11 +1091,9 @@ export default function GenesisConsole() {
                       choosing, when it is a factory dial that the choice above
                       it does not affect at all.
 
-                      TODO(v0-audit §B1) went with it: the mock puts an editable
-                      "Genesis target" here, and the note explaining why ours is
-                      a readout was itself most of the clutter. It stays out
-                      because `defaultSoftCap` is not the creator's to type, and
-                      an input the contract ignores is worse than no input. */}
+                      The mock has an editable "Genesis target" here. It stays
+                      out because `defaultSoftCap` is not the creator's to type,
+                      and an input the contract ignores is worse than no input. */}
                 </div>
 
                 {/* NO PER-WINDOW BLURB. The selected one rendered under this

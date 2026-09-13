@@ -10,7 +10,7 @@
  * sign from, or with a transposed character. Nothing detects that at Safe
  * creation — `setup()` accepts any address, including one nobody can sign for.
  * You find out the first time you need two signatures in sixty seconds, which
- * per `INCIDENT_RESPONSE.md` §2 is during a P0 with funds at risk.
+ * is during a P0 with funds at risk.
  *
  * A signature is the only evidence that distinguishes "an address they own" from
  * "an address they typed". It costs each candidate one click and no gas.

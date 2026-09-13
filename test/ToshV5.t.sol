@@ -2360,7 +2360,7 @@ contract ToshV5Test is Test {
     /// @notice The piggyback mutex has two layers and the suite only ever
     ///         reached one. This reaches the other.
     ///
-    /// @dev    `SECURITY_AUDIT.md` §5.7 flagged the gap against itself: every
+    /// @dev    A 2026-09 sweep flagged the gap against itself: every
     ///         ladder token is a Tosh token, so each leg swaps through another
     ///         Tosh pool, whose hook reads `piggybackActive()` in `beforeSwap`
     ///         and goes passive BEFORE poking us. That outer layer returns
@@ -3227,7 +3227,7 @@ contract ToshV5Test is Test {
         //
         // Measured on Robinhood 46630 at 156,153 for the same leg — 4.8 % above
         // the figure this run computes — so the chain the constant ships to is
-        // the tighter of the two. `docs/ROBINHOOD_MIGRATION.md` §F.7.
+        // the tighter of the two.
         assertGe(
             trigger.PIGGYBACK_MIN_GAS(),
             trigger.PIGGYBACK_TAIL_RESERVE() + legCost,

@@ -1,4 +1,4 @@
-// Drill harness for INCIDENT_RESPONSE.md §8.2 — the mainnet Step 1 path.
+// Drill harness for the mainnet Step 1 path: Safe → pause() / acceptOwnership.
 //
 // The 2026-09-04 rehearsal proved a Safe can make an arbitrary contract call on
 // this chain, but it deliberately called `paused()` — a view — so it changed no

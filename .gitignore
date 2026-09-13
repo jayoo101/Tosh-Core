@@ -48,12 +48,12 @@ next-env.d.ts
 # ─── Static analysis output ──────────────────────────────────────────────────
 # `slither --json` is ~8 MB of AST-derived detail that regenerates in ~15 s and
 # goes stale the moment a contract changes. The triage that matters lives in
-# docs/SECURITY_AUDIT.md §5.7; reproduce the raw report with the command
-# recorded there.
+# slither-baseline.json; reproduce the raw report with
+# `slither src --json slither.json`.
 slither.json
 slither-run.txt
 # Ad-hoc dumps under other names. Two of these — 12.5 MB and 9 MB — were
-# sitting untracked while §5.7 claimed the raw JSON was ignored, i.e. one
+# sitting untracked while the triage claimed the raw JSON was ignored, i.e. one
 # `git add .` from a 21 MB commit.
 .slither-*.json
 slither-*.log
@@ -93,7 +93,7 @@ Thumbs.db
 scripts/.drill-state.json
 
 # Q1 drill working files: the Safe address and timings are published in
-# INCIDENT_RESPONSE.md §8.3 once the run is scored, but the collected
+# the drill log once the run is scored, but the collected
 # signatures are other people's and have no business in git.
 scripts/.q1-state.json
 scripts/.q1-request.json

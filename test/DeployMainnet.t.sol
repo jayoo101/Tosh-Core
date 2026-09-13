@@ -19,7 +19,7 @@ import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 
 contract DeployMainnetTest is Test {
     /// @dev Robinhood Chain — the chain this script is meant for
-    ///      (docs/ROBINHOOD_MIGRATION.md). This constant has tracked three
+    ///      (chain 4663). This constant has tracked three
     ///      answers now: 8453, then 1, now 4663. That churn is the argument for
     ///      the guard being chain-agnostic and env-driven rather than hard-coded
     ///      in the script — the value here only has to agree with what

@@ -5,7 +5,7 @@
     "verifyOwnerSafe.mjs.",
     "",
     "HOW TO COLLECT THIS. Send each candidate two links:",
-    "  · docs/SIGNER_BRIEF.md — what the role is and what the key can do",
+    "  · SECURITY.md — what the Safe can and cannot do, and the no-withdraw guarantee",
     "  · https://jayoo101.github.io/tosh-status/sign/ — one button",
     "",
     "That page exists because MetaMask has no 'sign a message' button in its",

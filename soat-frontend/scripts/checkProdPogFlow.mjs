@@ -24,8 +24,8 @@
  *   500         the key in Vercel Production does not derive to
  *               `factory.pogSigner()`. Nothing signed with it would ever be
  *               accepted by `registerPoG`, and before that comparison existed
- *               this probe returned 403 in exactly this case (SECURITY_AUDIT.md
- *               §5.37). The production key is write-only, so this is the only
+ *               this probe returned 403 in exactly this case. The production
+ *               key is write-only, so this is the only
  *               check that can see the value actually in use.
  *
  * Budgets, deliberately respected: POST /api/pog-scan is a 3-token bucket

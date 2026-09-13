@@ -22,8 +22,7 @@ const MAX_POG_LIMIT_TYPED = '1000000'
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
  *
  * Each of these three panels refuses a value the factory would revert on, and
- * until now none of them had a test — SECURITY_AUDIT.md §5.14 recorded exactly
- * that, and the reason it was recorded rather than fixed is that the suite had no
+ * until now none of them had a test — recorded as a gap because the suite had no
  * way to render a component at all.
  *
  * What is being pinned is not "the constant is 10 ether" (the guard covers the

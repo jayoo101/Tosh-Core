@@ -976,7 +976,7 @@ contract ToshInvariantHandler is Test {
 }
 
 /// @notice Stateful invariant suite for the three load-bearing claims in
-///         `docs/SECURITY_AUDIT.md` §2.2.
+///         SECURITY.md.
 ///
 /// @dev    The 252 tests in the rest of `test/` are unit and integration tests:
 ///         each one asserts a property under a sequence *the author chose*.

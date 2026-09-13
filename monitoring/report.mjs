@@ -3,7 +3,7 @@
  *
  * `watch.mjs` deliberately stops at stdout — "a pager wired to a monitor that
  * mis-detects is worse than no pager", and detection had to be right first.
- * Detection has now been rehearsed (ONCHAIN_MONITORING.md §7.2), so this is the
+ * Detection has now been rehearsed, so this is the
  * sink. It is a separate process rather than a flag on the watcher for the same
  * reason the watcher is run-once: the command CI runs is the command a human
  * can run, and a delivery bug cannot take detection down with it.
@@ -49,8 +49,8 @@ const FILE = argv.find(a => !a.startsWith('--'))
  * went public with it — issues are not code and appear in no diff, so this is
  * easy to miss — and a watcher that files there is publishing the protocol's
  * live weak state to everyone at the moment it is weakest. STATE-07 is the
- * sharp case: it fires exactly during the window SECURITY_AUDIT.md §2.3 leaves
- * unbounded, and alerts.json is now public too, so the alert supplies the
+ * sharp case: it fires during the residual unbounded-buyback window disclosed
+ * in SECURITY.md, and alerts.json is now public too, so the alert supplies the
  * timing and the repository supplies the method.
  *
  * `WATCH_ISSUE_REPO` takes precedence over `GITHUB_REPOSITORY`, which Actions
@@ -64,12 +64,12 @@ const TOKEN = process.env.GITHUB_TOKEN
 const RUN_URL = process.env.WATCH_RUN_URL || ''
 
 /* The push channel, which is the half of PM-E2 that filing issues never was.
- * `ONCHAIN_MONITORING.md` §7.3: "an issue is not a notification unless someone
- * has repository notifications on and reads them out of hours; a P0 filed at
- * 03:00 into an inbox nobody watches has been detected and not reported."
+ * An issue is not a notification unless someone has repository notifications
+ * on and reads them out of hours; a P0 filed at 03:00 into an inbox nobody
+ * watches has been detected and not reported.
  *
- * Telegram rather than a paging vendor because `INCIDENT_RESPONSE.md` §1
- * already names Signal/Telegram as the incident channel, so this reaches the
+ * Telegram rather than a paging vendor because the incident channel is already
+ * Signal/Telegram, so this reaches the
  * signers where they have already agreed to be reached, and because it costs
  * nothing — a paid tier would be a standing bill against a protocol whose
  * reservoir is measured in hundredths of an ETH.

@@ -2,7 +2,7 @@
  * Capability probe for a monitoring RPC endpoint, and a survey of what the
  * catalogue actually matches on that chain.
  *
- * `docs/ONCHAIN_MONITORING.md` §7 names two capabilities a monitor needs, and
+ * Two capabilities a monitor needs, and
  * the first is the one a node can refuse: `eth_getLogs` filtered by topic0 with
  * NO address, because hook addresses are unbounded and unknowable ahead of time
  * (§2.1). Providers variously cap the block range, require an address, or

@@ -265,7 +265,7 @@ export function assertPogBandCoherent(): void {
       `PoG band incoherent: ${POG_GAS_CAP_WEI} wei of gas at the seeded rate `
       + `${DEFAULT_GAS_TO_ETH_RATE} yields ${atCap} wei, but MAX_ALLOC_ETH_WEI is `
       + `${MAX_ALLOC_ETH_WEI}. Cap, ceiling and ToshFactory.maxPogAllocationLimit `
-      + 'are one decision in three places — see docs/PRE_MAINNET_CHECKLIST.md §6.4.')
+      + 'are one decision in three places.')
   }
   // The deadline band, checked here for the same reason the allocation band is:
   // it is a relationship between numbers that live apart, and it drifted once.

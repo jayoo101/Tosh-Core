@@ -243,10 +243,10 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               {fmtEth(p.totalEth)} ETH
             </div>
           </div>
-          {/* TODO(v0-audit §A): the mock puts a 24h delta here. There is no
-              price feed behind this app, so there is nothing to compute one
-              from. The slot is kept so the card's proportions survive a later
-              fix, and it says what it is rather than showing a number. */}
+          {/* There is no price feed behind this app, so there is nothing to
+              compute a 24h delta from. The slot says that rather than showing
+              a number — on a screen about money, a plausible placeholder is
+              read as a quote. */}
           <span className="font-mono text-micro text-text-quiet">no price feed</span>
         </div>
       )}

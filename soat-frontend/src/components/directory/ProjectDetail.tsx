@@ -55,7 +55,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
    *
    * There are no tags to render: the `projects` table has no tags column and
    * nothing on chain carries any, so the row is omitted rather than filled with
-   * something plausible. TODO(v0-audit §A).
+   * something plausible. A blank is honest; a invented tag row would not be.
    */
   const about = desc ? (
     <Card interactive={false}>

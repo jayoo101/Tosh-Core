@@ -318,7 +318,7 @@ console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)
 // remaining-for-D4/E4 nag: "a contact channel for each signer" / "how you wake
 // two of the three at 03:00". That closed 2026-09-08: §1 names Encrypted
 // Signal / Telegram and points at the offline vault; there are no placeholders.
-// C1_RUNBOOK.md §0 has you run this script on deploy day. A remaining-line for
+// This script ran on deploy day. A remaining-line for
 // a closed row is the same failure as the drill nag: it would send you to
 // organise work that is already done. Handles in the vault are an operator
 // obligation this script cannot see, and it does not pretend to.

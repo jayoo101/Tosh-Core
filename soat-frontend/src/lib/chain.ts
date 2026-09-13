@@ -11,7 +11,7 @@ import { foundry, robinhood, robinhoodTestnet } from 'viem/chains'
  *
  * The default is the public TESTNET, not production: an unset variable should
  * land somewhere harmless, and of the two that is the one where a mistake costs
- * nothing.  See docs/ROBINHOOD_MIGRATION.md.
+ * nothing. Production is chain 4663; the public testnet is 46630.
  */
 function parseChainId(): number {
   const raw = process.env.NEXT_PUBLIC_CHAIN_ID
@@ -75,7 +75,7 @@ export const targetChain: Chain = resolveTargetChain()
  * decision used to be written twice — here, and again inline in
  * `onchainNonce.ts` as `chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID`.
  * Two copies of one allowlist is the shape that let the PoG deadline drift; see
- * docs/SECURITY_AUDIT.md §5.14.
+ * the PoG deadline drift in SECURITY.md.
  */
 const SUPPORTED_POG_CHAIN_IDS: readonly number[] =
   process.env.NODE_ENV !== 'production' && TARGET_CHAIN_ID !== FOUNDRY_CHAIN_ID

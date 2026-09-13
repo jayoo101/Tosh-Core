@@ -99,8 +99,7 @@ export function lpScanCoverageLabel(): string | undefined {
  * this scan did not merely return a short window on mainnet — it threw partway
  * through and landed in the `catch` below, every time, leaving discovery to the
  * localStorage cache alone while the panel reported a degraded RPC. The same
- * limit took the on-chain watcher blind for a full pass; see
- * docs/ONCHAIN_MONITORING.md and SECURITY_AUDIT.md §5.28, where 250 ms was the
+ * limit took the on-chain watcher blind for a full pass. 250 ms is the
  * interval measured to be clean.
  */
 const LOG_MIN_INTERVAL_MS = 250

@@ -1,7 +1,6 @@
 /**
  * rateLimitStore.ts — the counter behind `applyRateLimit`.
  * ───────────────────────────────────────────────────────────────────────────
- *  PM-F5 in `docs/PRE_MAINNET_CHECKLIST.md`.
  *
  *  `apiGuard.ts` shipped with an in-process token bucket and a note saying to
  *  swap it for Redis before multi-instance deployment. This is that swap, done

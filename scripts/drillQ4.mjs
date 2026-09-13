@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// INCIDENT_RESPONSE §Q4 — red-team drill against forged PoG attestations.
+// Q4 — red-team drill against forged PoG attestations.
 //
 // ── What Q4 asks for ────────────────────────────────────────────────────────
 //
@@ -12,7 +12,7 @@
 //
 //   That criterion is new. Until 2026-09-05 the pass condition read "all
 //   attempts fail at `_verifyPoGSignature`", naming a function that has never
-//   existed — see SECURITY_AUDIT.md §5.12. You cannot watch calls fail at a
+//   existed. You cannot watch calls fail at a
 //   function that is not there, so the drill was unrunnable as specified. This
 //   harness is the criterion made executable.
 //

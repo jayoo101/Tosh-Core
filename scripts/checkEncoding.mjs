@@ -27,9 +27,9 @@ import { join, extname } from 'node:path'
 
 /** `docs` is here because it is the highest-density em-dash surface in the
  *  repository — the prose documents use them constantly — and it was the one
- *  place the first version of this guard did not look.  The targeted rules
- *  below are what make that safe: `docs/PRD-v5.0.md` is a Chinese document and
- *  passes, because the rules match mangled punctuation rather than CJK. */
+ *  place the first version of this guard did not look. The targeted rules
+ *  below match mangled punctuation rather than CJK, so a Chinese draft in
+ *  `docs/` (if one returns) would still pass. */
 const ROOTS = ['src', 'test', 'script', 'docs', 'soat-frontend/src', 'soat-frontend/scripts']
 const EXTS = new Set(['.sol', '.ts', '.tsx', '.js', '.mjs', '.json', '.md'])
 

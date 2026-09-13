@@ -22,8 +22,8 @@ import {IPoolManager} from "../../lib/v4-core/src/interfaces/IPoolManager.sol";
 ///   the code that consumes them is unreachable.
 ///
 ///   A Foundry fork does not close the gap either: it replays ArbOS state on a
-///   vanilla EVM, so it reproduces the Ethereum number with extra steps. See
-///   `docs/ROBINHOOD_MIGRATION.md` §5.3.
+///   vanilla EVM, so it reproduces the Ethereum number with extra steps. The
+///   public 4663 endpoint is what this probe talks to instead.
 ///
 ///   Hence this: the real `ToshLadderTreasury`, deployed against the real
 ///   PoolManager and a real launched pool, with the arming threshold — and only

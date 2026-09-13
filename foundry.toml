@@ -11,7 +11,7 @@ optimizer_runs = 200
 # `tstore`/`tload` pair, so Cancun is a correctness requirement rather than a
 # default worth drifting on — and it was previously only true because 0.8.26
 # happens to default to it. Verified supported on the deployment target: ArbOS
-# 116 round-trips TSTORE/TLOAD (docs/ROBINHOOD_MIGRATION.md §1.2).
+# 116 round-trips TSTORE/TLOAD on Robinhood Chain (4663).
 evm_version = "cancun"
 
 # ---------------------------------------------------------------------------
@@ -115,12 +115,14 @@ runs = 256
 # soak.yml` instead. It was raised to 250 on 2026-09-06 and moved back out the
 # same day, for a reason worth keeping: CI runs this suite twice, plain and
 # --isolate, so depth 250 took CI from 7m27s to 13m12s — nearly double, on every
-# push, in a private repository where Actions minutes are billed. The depth
-# evidence below is real and the knee is genuinely 250; what it does not justify
-# is paying for it per push rather than per day.
+# push. The repository is public now and those minutes are free, but the time
+# is still paid in review latency: a 13-minute signal on every push is worse
+# than a 7-minute one plus a daily soak. The depth evidence below is real and
+# the knee is genuinely 250; what it does not justify is waiting for it on
+# every push.
 #
 # Everything from here to the end of this block is the measurement, kept because
-# it is the argument for what soak.yml runs. From SECURITY_AUDIT.md §5.19,
+# it is the argument for what soak.yml runs. Measured 2026-09,
 # measured on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one sample per
 # depth, reading afterInvariant()'s counters:
 #
@@ -199,8 +201,7 @@ lint_on_build = false
 # ---------------------------------------------------------------------------
 #
 # `robinhood` is the production target (chain 4663) and `robinhood_testnet`
-# (46630) is where every rehearsal runs — see docs/ROBINHOOD_MIGRATION.md, which
-# supersedes the PM-B1 "Ethereum L1" decision in docs/PRE_MAINNET_CHECKLIST.md §2.
+# (46630) is where every rehearsal runs. Production is chain 4663.
 #
 # `robinhood` also serves `ToshV5Fork.t.sol`, which reads `ROBINHOOD_RPC`
 # directly rather than by alias — the fork suite now targets the chain we ship

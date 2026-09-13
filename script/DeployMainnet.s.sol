@@ -15,14 +15,12 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //    • No MockSATO and no faucet — v5.0 is ETH-native end to end and the
 //      factory has no SATO wiring at all.
 //    • Logs the live `hookInitcodeHash` so the frontend salt miner can be
-//      regenerated against the mainnet build (item #23 on the pre-mainnet
-//      checklist = PM-C6 in docs/PRE_MAINNET_CHECKLIST.md).
+//      regenerated against the mainnet build.
 //    • Two-step transferOwnership reminder — production MUST hand off to a
 //      Gnosis Safe multisig before any users transact.
 //
-//  TARGET CHAIN: Robinhood Chain, chain id 4663 (docs/ROBINHOOD_MIGRATION.md,
-//  which supersedes the PM-B1 "Ethereum L1" decision in
-//  docs/PRE_MAINNET_CHECKLIST.md §2).  This header has now been wrong twice —
+//  TARGET CHAIN: Robinhood Chain, chain id 4663.  This header has now been
+//  wrong twice —
 //  it read "8453 = Base" before it read "1 = Ethereum" — and the reason it
 //  never mattered is worth keeping: the script refuses to run unless
 //  `block.chainid` equals whatever `TARGET_CHAIN_ID` says, so a stale comment
@@ -38,7 +36,7 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //    TARGET_CHAIN_ID       — chain this run is authorised for (4663 = Robinhood)
 //    V4_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
 //    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
-//                            (docs/PRE_MAINNET_CHECKLIST.md §4.1). The private
+//                            — a NEW EOA, not reused from testnet. The private
 //                            key lives in Vercel Production, not in this file.
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
@@ -190,7 +188,7 @@ contract DeployMainnetScript is Script {
         console2.log("");
         console2.log("CRITICAL NEXT STEPS:");
         console2.log("  (Full checklist, with the evidence each step needs before it");
-        console2.log("   counts as done: docs/PRE_MAINNET_CHECKLIST.md gate C.)");
+        console2.log("   counts as done: SECURITY.md and docs/DEVELOPMENT.md.)");
         console2.log("  1. Have the Gnosis Safe call acceptOwnership() on BOTH the");
         console2.log("     factory and the ladder treasury -- until that happens the");
         console2.log("     deployer EOA still owns them.");

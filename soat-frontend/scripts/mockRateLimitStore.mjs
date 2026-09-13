@@ -4,7 +4,7 @@
  * ──────────────────────
  * A stand-in for the Upstash Redis REST pipeline API, so the shared rate-limit
  * backend in `src/app/lib/rateLimitStore.ts` can be exercised without an
- * account. PM-F5 in `docs/PRE_MAINNET_CHECKLIST.md`.
+ * account.
  *
  * This exists because the interesting states of a shared rate limiter are the
  * ones you cannot reach with the default config: the shared counter actually

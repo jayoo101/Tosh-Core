@@ -16,7 +16,7 @@
  * printing "Safe to set BOTH of these in .env.production". Nothing then checks
  * that they were set, or set to that. And `DeployMainnet.s.sol` will accept any
  * two non-zero, distinct, mutually different addresses — including a personal
- * EOA, which is the failure PRE_MAINNET_CHECKLIST.md PM-C9 names in as many
+ * EOA, which is the failure a personal-EOA treasury would be: named in as many
  * words: "the deploy script asserts only that it is non-zero and differs from
  * the deployer and the PoG signer, so a personal EOA passes and is then
  * permanent."

@@ -43,7 +43,7 @@ contract ForkArbSys {
 /// @notice Fork suite — the whole launch lifecycle against the **deployed**
 ///         Uniswap V4 singleton on Robinhood Chain (4663).
 ///
-/// @dev    This closes the gap stated in `docs/SECURITY_AUDIT.md` §4: every
+/// @dev    This closes a gap every other suite had: every
 ///         other suite runs against a `PoolManager` this repository compiles
 ///         and deploys itself. That is the same source, but it is not the same
 ///         bytecode, and it is never the same surrounding state. What only a

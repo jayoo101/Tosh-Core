@@ -10,8 +10,7 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 /*//////////////////////////////////////////////////////////////////////////
 //  RecomputeInitcodeHash.s.sol
 //
-//  Pre-mainnet item #23 (PM-C6 in docs/PRE_MAINNET_CHECKLIST.md, where the
-//  numbering is defined) — Live-reads the freshly-deployed factory's
+//  Live-reads the freshly-deployed factory's
 //  `getLiveHookInitcodeHash()` and `HOOK_CREATION_CODEHASH` so the
 //  published record can be reseated against the production build, and
 //  asserts the latter against this tree's creation bytecode.
@@ -43,15 +42,15 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //  The script does NOT broadcast — it only reads.  There is no frontend
 //  file to paste the JSON into. A previous version of this header named
 //  `soat-frontend/src/app/lib/factoryDeployments.ts`; that file does not
-//  exist, which is the same defect INCIDENT_RESPONSE.md §2 Step 1 already
+//  exist, which is the same defect a dead path in an old playbook already
 //  had to correct once. The launch page reads `factory.hookInitcodeHash(...)`
 //  from chain and mines against that. The JSON is the published record —
-//  commit it (docs/SECURITY_AUDIT.md is where the sibling VerifyDeployment
-//  snapshot lives) and never hardcode it in tooling that could instead
+//  commit it (the sibling VerifyDeployment snapshot lives next to this
+//  script) and never hardcode it in tooling that could instead
 //  ask the factory.
 //
 //  On-demand, not CI. This script talks to a live RPC. The 4663 public
-//  endpoint rate-limits a tight request loop (SECURITY_AUDIT.md §5.28),
+//  endpoint rate-limits a tight request loop,
 //  and putting that on every push is how the mainnet watcher reported
 //  success while blind. Run it when a deployment needs a fingerprint,
 //  not on every commit.
