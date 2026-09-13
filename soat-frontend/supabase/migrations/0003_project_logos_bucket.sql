@@ -1,9 +1,29 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- project-logos — storage for token artwork, and the policies that decide who
--- may write it.
+-- project-logos — the storage bucket for token artwork.
+--
+-- This file is the one that makes uploads work. The optional `storage.objects`
+-- policies are in `0003b_project_logos_objects_policies.sql`.
 --
 -- Run once against a fresh production project, in the SQL editor or via
 -- `supabase db push`. It is safe to re-run.
+--
+-- ── This file used to be unrunnable, which is why it never ran ─────────────
+--
+-- Until 2026-09-13 it also carried `CREATE POLICY` and `COMMENT ON TABLE`
+-- against `storage.objects`. That table is owned by `supabase_storage_admin`,
+-- not by the `postgres` role the dashboard SQL editor connects as, so the
+-- editor answers `ERROR: 42501: must be owner of table objects` — and because
+-- it runs the script as one transaction, the `storage.buckets` INSERT above it
+-- rolled back too. The file therefore could not be applied by the one route an
+-- operator would reach for, and it had not been: production answered
+-- `NoSuchBucket`, `POST /api/projects/logo` returned 502 for every upload by
+-- everybody, and nothing in the test suite or the guards noticed, because
+-- nothing checks whether a migration in this directory reached the database.
+--
+-- Those statements now live in `0003b_project_logos_objects_policies.sql`,
+-- which is defence in depth and NOT required for uploads to work — see that
+-- file's header. `npm run check:storage` probes the deployed bucket, so the
+-- drift that hid this is now detectable from a clean checkout.
 --
 -- ── Why this file exists ───────────────────────────────────────────────────
 --
@@ -63,26 +83,7 @@ ON CONFLICT (id) DO UPDATE
       file_size_limit    = EXCLUDED.file_size_limit,
       allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- `storage.objects` already has RLS enabled by Supabase; these policies scope
--- to this bucket and leave every other bucket's rules untouched.
-
-DROP POLICY IF EXISTS project_logos_public_read ON storage.objects;
-CREATE POLICY project_logos_public_read
-  ON storage.objects
-  FOR SELECT
-  TO anon, authenticated
-  USING (bucket_id = 'project-logos');
-
--- Deliberately no INSERT, UPDATE or DELETE policy for `anon` or
--- `authenticated`. Under RLS a missing policy denies, so this is not an
--- omission to be tidied up later — it is the rule. Adding one re-opens the
--- open file host described above.
-
-DROP POLICY IF EXISTS project_logos_anon_write   ON storage.objects;
-DROP POLICY IF EXISTS project_logos_anon_update  ON storage.objects;
-DROP POLICY IF EXISTS project_logos_anon_delete  ON storage.objects;
-
-COMMENT ON TABLE storage.objects IS
-  'Supabase storage objects. The project-logos bucket is written only by '
-  'POST /api/projects/logo under the service role, which caps size and sniffs '
-  'magic bytes; see soat-frontend/supabase/migrations/0003_project_logos_bucket.sql.';
+-- Nothing below this line. The `storage.objects` policies moved to
+-- `0003b_project_logos_objects_policies.sql` so that this file — the one that
+-- actually decides whether uploads work — can be applied from the dashboard SQL
+-- editor without hitting a permission error on a different table.

@@ -21,6 +21,7 @@
     "guard:supabase": "node scripts/checkSupabase.mjs",
     "check:upstash": "node scripts/checkUpstash.mjs",
     "check:supabase": "node scripts/checkSupabaseRls.mjs",
+    "check:storage": "node scripts/checkSupabaseStorage.mjs",
     "check:sentry": "node scripts/checkSentry.mjs",
     "check:secrets": "node scripts/checkSecretStore.mjs",
     "check:pog": "node scripts/checkProdPogFlow.mjs",
