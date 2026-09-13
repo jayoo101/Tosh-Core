@@ -5821,3 +5821,268 @@ key, so deleting it broke a guard; the preflight now reads `DEPLOYER_ADDRESS`, a
 the two findings share a shape, which is that a value nobody could check and a
 secret nobody could delete were both being held in place by the convenience of a
 script rather than by a requirement.*
+
+### 5.38 Thirty-fourth sweep — a dial with no reachable arm, a migration that could not be pasted, and a guard layer whose failures were unreadable
+
+Three findings, all of the same species: a capability the repository describes in
+detail and production does not have. None of them is a vulnerability. All three
+are the shape where documentation and behaviour disagree and nothing in the tree
+is in a position to notice.
+
+**First finding — the PoG exchange rate could not be changed by anyone.**
+`admin/config/route.ts` offered two arms. Arm 2 is an `ADMIN_SECRET` bearer token,
+which `checkSecretStore.mjs` pins at tier `absent` on the stated grounds that the
+signature path is the posture we want. Arm 1 recovered an EOA from an EIP-191
+signature and required it to equal `factory.owner()`.
+
+`transferOwnership` moved the factory to the 2-of-3 Safe
+`0x2953957774482efA660921df85A1E7634ccfe27A` — recorded in §5.37 as evidence the
+deploy key commands nothing. A Safe cannot produce an ECDSA signature over
+anything: it is a contract, so a recovery returns whichever signer's EOA held the
+pen, and that address is never the Safe. Arm 1 therefore could not be satisfied by
+any input, and with arm 2 off by policy the endpoint had no reachable arm at all.
+
+The rate is not decoration. `pogQuota.ts` documents it as the dial an owner turns
+to throttle allocations, `sign-allocation` reads it live so client and server
+agree on the same number, and it is the only lever that responds to a PoG
+allocation being mispriced without a redeploy. Production answered
+`lastSeenNonce: 0`, which is the endpoint stating that no rotation had ever
+succeeded.
+
+Two things kept it quiet. There was no test file for the route — so "the dial is
+documented" and "the dial can be turned" were free to be different facts — and
+both of the two arms being shut is a state no single-arm test would report. It was
+found by trying to use it while adjusting a soft cap for an end-to-end test, which
+is the only way it could have been found.
+
+Fixed by asking the right question. `verifyMessage` on a public client dispatches
+on the account: ECDSA recovery for an EOA, ERC-1271 `isValidSignature` for a
+contract. One call now covers both shapes, so the EOA arm survives a future
+`transferOwnership` back to a key. Three details are load-bearing:
+
+* The owner read moved **ahead** of the signature check, because an ERC-1271
+  verification is a call *into* the owner and there is nothing to verify against
+  until the address is known.
+* Verification has three outcomes, not two. An RPC that could not answer returns
+  **503**, not 403. Collapsing them tells an admin to go look at their wallet
+  during a network fault — the same reasoning that already had `readChainOwner`
+  return null rather than throw.
+* The audit log credits the **owner**, not the recovered EOA. For a Safe those
+  differ, and the EOA has no standing here; the recovery survives only to name a
+  wrong-wallet mistake in the rejection log, where being wrong is harmless.
+
+Ten tests now cover it, and the load-bearing one is the case that used to be
+impossible: 1271 says yes while the recovered EOA is not and cannot be the owner.
+
+**And that fix did not make the dial turnable.** Accepting the signature was
+necessary and not sufficient, which was established the only way it could be — by
+trying to rotate the rate after the ERC-1271 arm had landed and finding that
+production still answered `lastSeenNonce: 0`. Two further blockers, neither of
+them about signature verification:
+
+* **The window was five minutes for everybody.** A Safe signature is not one
+  gesture; it is confirmations from two people on two devices, and the elapsed
+  time between the first and the second is however long it takes to reach a
+  human. The instruction expired before the second owner opened their phone, so
+  the ERC-1271 arm was reachable in principle and unsatisfiable in practice. The
+  window is now sized to the owner's shape (`SIGNATURE_WINDOW_SEC`), derived from
+  `getCode` rather than from configuration so that a `transferOwnership` moves it
+  without anyone remembering to.
+
+  Widening it required fixing something else first. Replay was nominally guarded
+  by a monotonic nonce, but that nonce was a module-scoped `let` annotated
+  "resets on server restart" — per instance, and zero after every deploy or cold
+  start. With the counter at zero the *expiry* was the only thing refusing an old
+  captured payload, so a long window would have been a rate-downgrade window: an
+  attacker who once observed a signed "set the rate to X" could re-apply it and
+  silently revert a later, deliberate rotation. The nonce now lives in the shared
+  store (`app/lib/adminNonce.ts`) and is claimed with an atomic compare-and-set,
+  so it is genuinely monotonic across instances and restarts. The long window is
+  granted only while that store is present, and the rejection says so rather than
+  presenting as a complaint about clocks.
+
+* **Nothing in the browser can connect a Safe.** `providers.tsx` registers
+  `injected()` and nothing else, so `useAccount().address` is always an extension
+  EOA — never the owner the server now checks against. The admin panel could not
+  produce a valid signature no matter how correct its code was, and the owner gate
+  on the page compares against `factory.owner()`, so the Safe could not even reach
+  it. `ExchangeRatePanel` now detects a contract owner and blocks with an
+  explanation instead of offering a button whose only outcome is a 403.
+
+  The working path is `scripts/rotateGasRate.mjs`, which follows the precedent
+  `drillQ1.mjs` established for `SafeTx` — the same `normalize` and `pack`, for
+  the same reasons. Two cross-checks run before anybody is interrupted, both
+  read-only and free: `request` computes the `SafeMessage` hash locally *and*
+  against the Safe's own `getMessageHash`, refusing to continue if they differ,
+  and also probes that the deployed fallback handler answers
+  `isValidSignature(bytes32,bytes)` at all. `verify` then packs the collected
+  signatures and static-calls that same entry point — the exact question the
+  server will ask — so a pass means `submit` cannot fail for signature reasons.
+  All three checks were run against the real 2-of-3 on 4663: the local hash
+  matched the contract's, and the ERC-1271 probe returned `Hash not approved`,
+  which is the reachability confirmation.
+
+A fourth copy of the signed-message template was avoided rather than added. The
+format had existed in three places — the route, the admin panel, and the route's
+own test — each carrying a comment claiming it was kept in sync by hand, with
+nothing comparing them; the test's said a divergence "should fail loudly", which
+it could not. All three now import `lib/adminConfigMessage.ts`, and the CLI parses
+that module rather than holding a copy, with a test asserting the parse is
+byte-identical to the export.
+
+**Second finding — every logo upload had returned 502 since the feature shipped.**
+`0003_project_logos_bucket.sql` had never been applied. Supabase storage answered
+`NoSuchBucket`, so `POST /api/projects/logo` returned 502 "Could not store that
+image" for every upload by every user from 2026-09-11 (`dd633a7`) to 2026-09-13 —
+while the route was correct, its tests were green, `npm run verify` was green and
+`check:supabase` was green. Nothing in this repository asked whether a file in
+`supabase/migrations/` had ever reached a database.
+
+The failure is worth stating precisely, because it is a failure of the *fix*
+procedure and not of the code. The migration ended with `CREATE POLICY` and
+`COMMENT ON TABLE` against `storage.objects`, which is owned by
+`supabase_storage_admin`. The dashboard SQL editor connects as `postgres` and
+answers `ERROR: 42501: must be owner of table objects` — and it runs a script as
+one transaction, so the `storage.buckets` INSERT above those statements **rolled
+back with them**. An operator pasting the file saw a permission error about a
+table they were not thinking about and got no bucket. The migration was not
+skipped; it was unrunnable by the one route anybody would reach for.
+
+Those statements now live in `0003b_project_logos_objects_policies.sql`, labelled
+optional because they are: reads resolve because the bucket is `public = true`,
+and writes come from the route under `service_role`, which is BYPASSRLS and needs
+no policy. They are a second statement of the same rule at row level, worth having
+and not worth blocking a bucket on. `0003` is now nothing but the INSERT, and both
+files carry headers explaining which is which and how to apply the optional one
+(`supabase db push`, the Storage UI, or `psql` as the storage owner).
+
+**Third finding, which is why the second lasted — the guard layer had no opinion
+on migrations, and the obvious guard would have been silent.** `check:storage`
+(`checkSupabaseStorage.mjs`) is the missing check: it probes the deployed bucket
+and compares it to what the migration declares. Two decisions in it matter more
+than the check itself.
+
+The bucket-existence assertion needs **no credentials**. The first draft required
+`SUPABASE_SERVICE_ROLE_KEY` to read bucket metadata — and that key is deliberately
+Vercel-only, absent from every local file by the same policy as §5.37's deploy
+key. That draft would have failed with "key not set" on every machine that has
+this repository, which is indistinguishable from passing and is precisely the
+silence that let the original bug live for two days. A guard that cannot run in
+the posture the project deploys in is not a guard. The public object endpoint
+discriminates the two 404s in its `code` field — `NoSuchKey` means the bucket is
+there, `NoSuchBucket` means it is not — so the assertion this script exists for
+needs nothing at all. The four richer checks (bucket settings against the
+migration, `LOGO_MAX_BYTES` against `file_size_limit`, the mime restriction probed
+with an SVG rather than read from a column, and upload-then-keyless-read) degrade
+to named skips instead of failing, and the summary lists what was not verified,
+because a run that checked two things and says so is useful and one that implies
+it checked six is not. Verified on both paths: the real bucket passes and exits 0;
+a bucket name that does not exist fails with the three fix routes and exits 1.
+
+The second decision came from that negative test. `fail()` had called
+`process.exit(1)`, copied from its siblings — and on Node 24 / Windows, exiting
+after a `fetch` aborts inside libuv:
+
+```
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76
+```
+
+The undici socket is still open, `process.exit` tears the loop down under it, and
+the run ends at exit code **0xC0000409** with a C assertion printed after the
+diagnostic. The FAIL message scrolls away, the exit code is not 1, and a genuine
+finding about the project presents as a crash in the tool. Confirmed with a
+minimal reproduction rather than inferred: `fetch` then `process.exit(1)` aborts;
+`fetch` then `process.exitCode = 1` and a natural drain exits 1 cleanly in under a
+second.
+
+`fail()` now throws a `CheckFailed` sentinel routed to `process.exitCode = 1` by an
+`uncaughtException` / `unhandledRejection` pair. Both events, because a top-level
+`throw` in a module that used top-level `await` escapes module evaluation and which
+event it arrives as depends on where it happened — leaving either unhandled
+restores the crash, since Node's own fatal path is what calls `exit` with sockets
+open. A throw rather than a return value because every one of the ~40 call sites is
+written on the assumption that nothing after it runs, which `process.exit()` gave
+for free; the one that got missed would carry on and read a variable the failure
+had just proved unusable.
+
+**All five affected scripts share one copy of that**, `scripts/lib/checkExit.mjs`,
+rather than four paraphrases of the same reasoning. Four of them —
+`checkUpstash.mjs`, `checkSentry.mjs`, `checkSupabaseRls.mjs` and `check:storage`
+itself — had the identical throwing `fail()` and the identical broken failure
+path. Verified on the case that actually crashed: a `fail()` reached **after** a
+completed fetch, forced by pointing `check:upstash` at a host that answers 405,
+which now ends with the FAIL message as the last thing on screen, no assertion,
+no stack, exit code 1.
+
+The fifth was found by counting. This section's first draft said "five siblings"
+in one paragraph and "all four scripts" in the next, and the discrepancy was real:
+`checkDeployedChain.mjs` also combines `fetch` with an explicit exit and had been
+left out. It reproduced immediately —
+`node scripts/checkDeployedChain.mjs --url https://example.com`, a URL that fails
+the check after a completed fetch, ended at 0xC0000409 with the assertion printed
+over the FAIL line, which is the §5.37/PM-C7 diagnostic this file exists to
+deliver being destroyed by its own exit. It needed a different repair, not the
+same one: its `fail()` only increments a counter — deliberately, so one run
+reports every incoherent address rather than the first — so there is no
+mid-flight stop to model and nothing for `CheckFailed` to carry. It takes
+`installFailureExit()` for its unguarded fetches and `process.exitCode` for the
+verdict. Now exits 1 with the FAIL line visible, 0 on a coherent deployment, and
+1 with a printed cause on an unreachable host.
+
+That the count was recoverable from the prose is the only reason this was caught,
+and it is a weak reason. Nothing asserts that a script combining `fetch` with
+`process.exit` has been converted; the next one added will have the same bug and
+the same silence.
+
+The next ones were already there. The same count, run one directory up, found six
+more in `scripts/` — `checkBlockscoutKey`, `checkStatusPage`, `checkFooterLinks`,
+`checkDrillPage`, `drillQ1`, `verifyOwnerSafe` — every exit after the first
+`fetch` sitting past the completed request. `checkDrillPage` had already hit the
+crash locally and converted its 404 arm; the other five had not, and they are
+the tools reached for when something is already on fire. The module moved to
+the repository root (`scripts/lib/checkExit.mjs`) so both trees share one copy;
+`soat-frontend/scripts/lib/checkExit.mjs` is a re-export. Exit codes other than
+1 (`2` = the check could not run) are preserved: `CheckFailed` takes an optional
+code, and collecting scripts still set `process.exitCode` directly.
+
+Two things that conversion surfaced and did not fix. `checkUpstash.mjs` wraps its
+`fetch` in no `try`, so an unreachable host prints a raw undici error object where
+its siblings print a sentence about paused projects and DNS; it exits 1 either way,
+so this is legibility rather than correctness. `checkDeployedChain.mjs` is the same,
+and now prints its cause through `installFailureExit` rather than through libuv.
+And `check:upstash` fails on a clean checkout for the same reason the first draft of
+`check:storage` would have — `UPSTASH_REDIS_REST_TOKEN` is Vercel-only by PM-D3 —
+except that it fails **loudly** rather than silently, which is the acceptable half
+of that trade.
+
+*2026-09-13 — §5.38 records the thirty-fourth sweep, which came out of trying to
+use two things the repository documents. Its first finding is that
+`/api/admin/config` had no reachable authorisation arm: the owner is a Safe, a
+Safe cannot sign EIP-191, and the recovered-EOA comparison could not hold for any
+input, so the PoG exchange rate had never been rotated in production and there was
+no test file to say otherwise. Fixed with `verifyMessage`, which covers ERC-1271
+and EOA in one call, plus a 503-not-403 split for a verification that could not be
+performed — and then found to still be unturnable, because a flat five-minute
+window cannot span two human confirmations and no browser connector can connect a
+Safe at all. The window is now sized to the owner's shape, which required moving
+the replay nonce into the shared store to keep the wider window from becoming a
+rate-downgrade window, and the rotation has a CLI path
+(`scripts/rotateGasRate.mjs`) whose hash derivation is verified against the real
+2-of-3 before any signature is requested. Its second is that `0003_project_logos_bucket.sql` had never been
+applied — 502 on every logo upload for two days — because `CREATE POLICY` on
+`storage.objects` fails 42501 in the dashboard SQL editor and took the bucket
+INSERT down with it in the same transaction; the policies moved to an optional
+`0003b`. Its third is the reason the second lasted: nothing checked whether a
+migration had reached a database, and the natural version of that check would have
+required a Vercel-only key and been silent on every developer machine, so the
+assertion it exists for now runs with no credentials. A fourth finding came out of
+testing the third's failure path: `process.exit(1)` after a `fetch` aborts inside
+libuv on Node 24 / Windows, so every `check:*` script ended a real finding at exit
+code 0xC0000409 with a C assertion over the diagnostic — eleven affected scripts
+now share the repository-root `scripts/lib/checkExit.mjs` and exit cleanly, the
+fifth of them found because this section's own two paragraphs disagreed on how
+many there were, and the next six because the same count one directory up had
+the same pairing. The
+through-line with §5.37 is the same one, one turn further along — there, a value
+nobody could check and a secret nobody could delete; here, a dial nobody could turn,
+a migration nobody could paste, and guards whose failures nobody could read.*

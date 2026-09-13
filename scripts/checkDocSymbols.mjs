@@ -149,6 +149,14 @@ const ALLOW = new Map([
   // `b938da7`. Cost is nil in the usual direction — `src/` gaining a `d0220e2`
   // string would not falsify a statement about which commit was deployed.
   ['d0220e2', 'the 2026-09-08 deploy commit — a git object, not a code symbol; artefact recoverable from b938da7'],
+  // Same category, and cited for the same kind of reason. §5.38 and PM-F7 both
+  // state how long every logo upload had been returning 502, and that duration is
+  // only checkable if the commit that shipped the feature is named — "since the
+  // feature shipped" is the sort of claim that quietly becomes wrong.
+  //
+  // Cost is nil in the usual direction: `src/` gaining a `dd633a7` string would
+  // not falsify a statement about when a commit landed.
+  ['dd633a7', 'the 2026-09-11 logo-upload commit — a git object, not a code symbol; dates the §5.38 outage window'],
   // Two error names that never existed. §5.35 first offered them as errors whose
   // selectors are absent from the deployed treasury bytecode, which was true and
   // worthless: they are absent because nothing declares them. The real names are

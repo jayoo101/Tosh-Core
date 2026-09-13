@@ -636,9 +636,38 @@ that no row classifies is a finding, so a variable cannot be added to
 Production without someone deciding what it is; and `ADMIN_SECRET` is
 classified `absent`, so setting it is also a finding. That last one is not
 pedantry: unset, `POST /api/admin/config` has no bearer path at all and the
-recovered-signature-equals-`factory.owner()` check is the only way in. Filling
-the variable because its name looks like a gap re-opens a shared-secret route
-to a privileged endpoint. The unclassified direction has now fired for real
+owner-signature check is the only way in. Filling the variable because its name
+looks like a gap re-opens a shared-secret route to a privileged endpoint.
+
+> **Corrected 2026-09-13.** This paragraph used to describe that check as
+> `recovered-signature-equals-factory.owner()`, and while `ADMIN_SECRET` being
+> `absent` is still right, the pair of claims added up to something false: the
+> owner is the 2-of-3 Safe `0x2953957774482efA660921df85A1E7634ccfe27A`, a Safe
+> cannot produce an EIP-191 signature, and a recovered EOA can therefore never
+> equal it. With the bearer arm off by policy the endpoint had **no reachable arm
+> at all** — production answered `lastSeenNonce: 0`, meaning the PoG exchange rate
+> had never once been rotated. The route now verifies through `verifyMessage`,
+> which covers ERC-1271 for a contract owner and ECDSA for an EOA in one call, so
+> the sentence above is true again and the reason to leave `ADMIN_SECRET` unset is
+> a real alternative rather than a closed door. `SECURITY_AUDIT.md` §5.38.
+>
+> **Extended the same day.** Accepting the signature turned out to be necessary
+> and not sufficient, so "the only way in" was still nobody's way in for two more
+> reasons. The expiry window was five minutes for every signer, which no 2-of-3
+> can meet — two people, two devices — so the window is now sized to the owner's
+> shape, and because that widening would otherwise have created a
+> rate-downgrade replay window, the monotonic nonce moved from a per-instance
+> `let` into the shared Upstash store with an atomic claim. **The long window is
+> granted only while that store is reachable**, which makes
+> `UPSTASH_REDIS_REST_*` a dependency of the rate dial and not just of the rate
+> value; `GET /api/admin/config` now reports `nonceStore` so this is checkable
+> from outside. Separately, no browser connector can connect a Safe at all —
+> `providers.tsx` registers `injected()` only — so the admin panel is
+> structurally incapable of signing as the owner and now says so. Rotations go
+> through `node scripts/rotateGasRate.mjs`, which verifies its hash derivation
+> against the real Safe before asking anyone to sign.
+
+The unclassified direction has now fired for real
 twice: first `MONITOR_RPC` on 2026-09-05, then `NEXT_PUBLIC_RPC_URL` on
 2026-09-08 when PM-C7 cut Vercel Production over to chain 4663. The second
 is `config` because the prefix inlines it into the browser; today's value is
@@ -1296,6 +1325,65 @@ is PM-D3.
 > laptop would put that ocean in front of every production request instead. The
 > script said "slow" on its first run for exactly this reason and no longer
 > grades what it cannot situate.
+
+##### 0003 — the bucket that was never created, and the check that would have said so
+
+Found 2026-09-13 by uploading a logo. Every upload had returned 502 "Could not
+store that image" since the feature shipped on 2026-09-11 (`dd633a7`): storage
+answered `NoSuchBucket`, because `0003_project_logos_bucket.sql` had never been
+applied. The route was correct, its tests were green, `npm run verify` was green
+and `npm run check:supabase` was green. **Nothing in this repository asked whether
+a file in `supabase/migrations/` had ever reached a database** — 0001 and 0002 are
+covered only because `checkSupabaseRls.mjs` happens to probe the table they
+create, and storage had no equivalent.
+
+The reason it was never applied is the part to keep. The migration ended with
+`CREATE POLICY` and `COMMENT ON TABLE` against `storage.objects`, which is owned
+by `supabase_storage_admin`; the dashboard SQL editor connects as `postgres` and
+answers `ERROR: 42501: must be owner of table objects`. The editor runs a script
+as **one transaction**, so the `storage.buckets` INSERT above those statements
+rolled back with them. Pasting the file produced a permission error about a table
+the operator was not thinking about, and no bucket. It was not skipped; it was
+unrunnable by the only route anyone would take.
+
+Split accordingly. `0003` is now the bucket INSERT alone — the part that decides
+whether uploads work — and the policies moved to
+`0003b_project_logos_objects_policies.sql`, labelled optional because they are:
+reads resolve from `public = true`, and the route writes as `service_role`, which
+is BYPASSRLS and needs no policy. They are a second statement of the same rule at
+row level, worth having and not worth blocking a bucket on. Apply them with
+`supabase db push`, the Storage UI, or `psql` as the storage owner; skipping them
+costs the backstop and nothing else.
+
+**`npm run check:storage` is the missing guard**, and its shape matters more than
+its existence. The bucket-existence assertion runs with **no credentials at all**.
+The obvious version needed `SUPABASE_SERVICE_ROLE_KEY` to read bucket metadata —
+and PM-D3 keeps that key Vercel-only, absent from every local file, so that
+version would have reported "key not set" on every machine that has this
+repository. Indistinguishable from passing, and exactly the silence being fixed.
+The public object endpoint discriminates the two 404s in its `code` field
+(`NoSuchKey` = bucket present, `NoSuchBucket` = absent), so the load-bearing check
+needs nothing. Four richer assertions — bucket settings against the migration,
+`LOGO_MAX_BYTES` against `file_size_limit`, the mime restriction probed with an
+SVG rather than read from a column, and upload-then-keyless-read — degrade to named
+skips, and the summary lists what went unverified.
+
+Green against the live project: bucket present, anon upload refused with 400. The
+absent-bucket path was verified too, and produced a second finding —
+`fail()`'s `process.exit(1)` after a `fetch` aborts inside libuv on Node 24 /
+Windows, so the exit code was `0xC0000409` and a C assertion buried the diagnostic.
+`checkUpstash.mjs`, `checkSentry.mjs` and `checkSupabaseRls.mjs` had the identical
+`fail()`, and `checkDeployedChain.mjs` reached the same crash through a single
+`process.exit()` at the end of its live arm. The same pairing then turned up in
+six scripts one directory up (`checkBlockscoutKey`, `checkStatusPage`,
+`checkFooterLinks`, `checkDrillPage`, `drillQ1`, `verifyOwnerSafe`). All eleven
+now go through the repository-root `scripts/lib/checkExit.mjs` and exit with the
+finding as the last thing printed. **Until this was fixed, the exit code of every
+network-touching `check:*` script on a real failure was not 1** — worth knowing
+before wiring any of them into CI, and the reason to check the exit code of a new
+one deliberately rather than assuming it. Nothing asserts this property; the next
+script that pairs `fetch` with `process.exit` will reintroduce it silently.
+`SECURITY_AUDIT.md` §5.38.
 
 ---
 
