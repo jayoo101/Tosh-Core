@@ -210,10 +210,22 @@ jobs:
       # the ceilings §5.10 had declined to add, so both dials gained boundary and
       # wei/ether-slip tests, plus one pinning that the new upper blocker did not
       # shadow the zero blocker that keeps `createLaunch` alive.
+      #
+      # 188 -> 290 on 2026-09-14, and the size of that jump is the finding. The
+      # floor was never raised as the suite grew, so it had stopped being a
+      # guard: 102 tests — every API route suite among them — could have stopped
+      # being collected with this step still green, which is the exact failure it
+      # was written to catch. Raise it in the same commit as any addition.
+      #
+      # 290 is the COLLECTED total, which is what the parser below reads: 286
+      # that run plus the 4 in `gasHistory.live.test.ts`. Those 4 are collected
+      # and reported skipped, because `describe.runIf(POG_LIVE_SCAN === '1')`
+      # gates them and CI does not set it — so the number does not move when
+      # somebody runs the live scan by hand.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=188
+          floor=290
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
@@ -277,22 +289,46 @@ jobs:
       # the audit endpoint with 503, and a gate that fails on somebody else's
       # outage is a gate people learn to re-run without reading -- which is
       # exactly how the nine advisories this exists to catch would slip past.
-      # Unreachable is a warning; findings stay fatal.
+      #
+      # Retried since 2026-09-13, and only on the unreachable branch. Three
+      # attempts recover a blip. After that the step fails: a green check and
+      # a skipped advisory report used to be the same colour, which is the
+      # hole this gate exists to close. A real 503 storm will go red and ask
+      # for a re-run; that is louder than a silent skip, and it is the trade.
+      #
+      # Findings are never retried. They are deterministic against a lockfile, so
+      # a second look would cost 20 seconds to reach the same answer, and a gate
+      # that retries a real failure is one attempt away from being a flaky gate.
       - name: npm audit (fail on high or critical)
         run: |
           # Actions runs this with `set -e`, so capture the status through an
           # AND-OR list rather than a bare `$?`, which the -e would act on
           # before the next line could read it.
-          out=$(npm audit --audit-level=high 2>&1) && code=0 || code=$?
-          printf '%s\n' "$out"
+          unreachable='audit endpoint returned an error|Service Unavailable|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up'
+          attempts=3
+          attempt=1
 
-          if [ "$code" -eq 0 ]; then
-            exit 0
-          fi
+          while : ; do
+            out=$(npm audit --audit-level=high 2>&1) && code=0 || code=$?
 
-          if printf '%s' "$out" | grep -qE 'audit endpoint returned an error|Service Unavailable|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up'; then
-            echo "::warning::npm's audit endpoint was unreachable, so advisories were NOT checked on this run."
-            exit 0
-          fi
+            if [ "$code" -eq 0 ]; then
+              printf '%s\n' "$out"
+              exit 0
+            fi
 
-          exit "$code"
+            if ! printf '%s' "$out" | grep -qE "$unreachable"; then
+              # Real advisories. Fatal on the first look, by design.
+              printf '%s\n' "$out"
+              exit "$code"
+            fi
+
+            if [ "$attempt" -ge "$attempts" ]; then
+              printf '%s\n' "$out"
+              echo "::error::npm's audit endpoint was unreachable on all $attempts attempts, so advisories were NOT checked on this run. A green check here would be the same shape as a clean advisory report."
+              exit 1
+            fi
+
+            echo "attempt $attempt/$attempts: audit endpoint unreachable, retrying in $(( attempt * 10 ))s"
+            sleep "$(( attempt * 10 ))"
+            attempt=$(( attempt + 1 ))
+          done
