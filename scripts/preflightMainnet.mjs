@@ -56,14 +56,35 @@ const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.co
 /** Mirrored in `soat-frontend/src/lib/contracts.ts`, parsed rather than retyped. */
 const CONTRACTS_TS = path.join(REPO, 'soat-frontend', 'src', 'lib', 'contracts.ts')
 
-const ROLES = [
-  'PRIVATE_KEY',
+const ADDRESS_ROLES = [
   'TARGET_CHAIN_ID',
   'V4_POOL_MANAGER',
   'POG_SIGNER_ADDRESS',
   'PLATFORM_TREASURY',
   'PROD_OWNER_SAFE',
 ]
+
+/**
+ * The deployer, by address if it is offered and by key only if it is not.
+ *
+ * `PRIVATE_KEY` was the sole way this script knew the deployer, and it wanted
+ * exactly one thing from it: `new ethers.Wallet(pk).address`. So a pre-broadcast
+ * *check* — a script whose entire job is to read state and refuse — was loading
+ * the mainnet deploy key into process memory to compute a public value, and it
+ * was the reason `PRIVATE_KEY` had to stay in plaintext in `.env.production`
+ * after the deploy it was needed for. `checkSecretStore.mjs` inventories that
+ * name at tier `absent` and reports it on every run; this script was what made
+ * the finding unactionable, since removing the key broke the preflight.
+ *
+ * `DEPLOYER_ADDRESS` is preferred, and when both are present they are compared
+ * rather than one silently winning: `forge script --private-key` broadcasts from
+ * the KEY, so an address that disagrees would have this script check one wallet
+ * and the broadcast sign from another — and check 6 prints a fund-this-address
+ * instruction, which is the same money-instruction hazard check 0b exists for.
+ */
+const DEPLOYER_VARS = ['DEPLOYER_ADDRESS', 'PRIVATE_KEY']
+
+const ROLES = [...DEPLOYER_VARS, ...ADDRESS_ROLES]
 
 const failures = []
 const notes = []
@@ -107,13 +128,35 @@ if (!fs.existsSync(ENV_PROD)) {
 console.log('[preflight] PM-C1 pre-broadcast checks, ordered by permanence\n')
 console.log('roles, and where each came from:')
 const roleEnv = loadRoleEnv(ROLES)
-reportRoleEnv(ROLES, roleEnv)
 
-if (roleEnv.missing.length) {
+// Which of the two names the deployer arrived under, so that the gates below can
+// speak about the one in use rather than about both.
+const deployerVar = process.env.DEPLOYER_ADDRESS ? 'DEPLOYER_ADDRESS'
+  : process.env.PRIVATE_KEY ? 'PRIVATE_KEY'
+    : null
+
+const missingRoles = ADDRESS_ROLES.filter(k => !process.env[k])
+if (!deployerVar) missingRoles.push('DEPLOYER_ADDRESS (or PRIVATE_KEY)')
+
+// Reported over the resolved set rather than over ROLES, which holds both
+// deployer names. `reportRoleEnv` renders anything missing as "the checks that
+// depend on those are SKIPPED, not passed" — true of an absent role, and a lie
+// about an absent `PRIVATE_KEY` once `DEPLOYER_ADDRESS` has answered for the
+// deployer. Nothing is skipped in that case, and the whole point of the change is
+// that the key's absence is the state to aim at, not a degraded one.
+reportRoleEnv(
+  [deployerVar ?? 'DEPLOYER_ADDRESS', ...ADDRESS_ROLES],
+  { source: roleEnv.source, missing: missingRoles },
+)
+
+if (missingRoles.length) {
   cannotRun(
-    `${roleEnv.missing.length} role var(s) still unset or left as a REPLACE_ME placeholder: `
-    + `${roleEnv.missing.join(', ')}.\n`
-    + '            Every check below depends on these, so none of them ran.',
+    `${missingRoles.length} role var(s) still unset or left as a REPLACE_ME placeholder: `
+    + `${missingRoles.join(', ')}.\n`
+    + '            Every check below depends on these, so none of them ran.\n'
+    + '            DEPLOYER_ADDRESS is the deployer EOA as an address. Set that in\n'
+    + '            preference to PRIVATE_KEY: nothing here needs to sign, and a key\n'
+    + '            that is not in the file cannot leak from it.',
   )
 }
 
@@ -137,7 +180,8 @@ if (roleEnv.missing.length) {
 // Note also that the existing protection lived only in the `!existsSync` branch
 // above — it lapsed the moment the file was created, which is the very thing
 // that branch tells you to do.
-const strayed = ROLES.filter(k => roleEnv.source[k] !== '.env.production')
+const strayed = [...ADDRESS_ROLES, deployerVar]
+  .filter(k => roleEnv.source[k] !== '.env.production')
 if (strayed.length) {
   cannotRun(
     `${strayed.length} role var(s) did not come from .env.production: `
@@ -168,7 +212,24 @@ if (net.chainId !== targetChainId) {
   )
 }
 
-const deployer = new ethers.Wallet(process.env.PRIVATE_KEY).address
+const deployer = deployerVar === 'DEPLOYER_ADDRESS'
+  ? ethers.getAddress(process.env.DEPLOYER_ADDRESS)
+  : new ethers.Wallet(process.env.PRIVATE_KEY).address
+
+// Both names present is allowed, disagreeing is not. The broadcast signs from the
+// key, so this script would otherwise report on a wallet that never signs.
+if (process.env.DEPLOYER_ADDRESS && process.env.PRIVATE_KEY) {
+  const fromKey = new ethers.Wallet(process.env.PRIVATE_KEY).address
+  if (fromKey !== deployer) {
+    cannotRun(
+      `DEPLOYER_ADDRESS is ${deployer} but PRIVATE_KEY derives ${fromKey}.\n`
+      + '            forge script --private-key signs from the KEY, so every check\n'
+      + '            below would describe a wallet that does not broadcast — and\n'
+      + '            check 6 names an address to send real ETH to.\n'
+      + '            Delete whichever is stale. Prefer keeping DEPLOYER_ADDRESS.',
+    )
+  }
+}
 const platformTreasury = ethers.getAddress(process.env.PLATFORM_TREASURY)
 const prodOwnerSafe = ethers.getAddress(process.env.PROD_OWNER_SAFE)
 const pogSigner = ethers.getAddress(process.env.POG_SIGNER_ADDRESS)

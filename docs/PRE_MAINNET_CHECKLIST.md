@@ -1751,6 +1751,35 @@ below, in the order it actually blocks.
 > happen, because a guard that says "these agree" is only as good as the read,
 > and only a real attestation proves the key can sign one.
 >
+> **The identity gap is closed, and it did not need the walkthrough — 2026-09-13.**
+> The server now makes the same comparison the client was making, in the place
+> where refusing it means something: `sign-allocation` reads `factory.pogSigner()`
+> alongside the nonce it already read, and returns 500 with a Sentry report if the
+> configured key derives to anything else. That is the enforcement half the
+> paragraph above says it lacks — the client guard can be ignored by any client
+> and falls open on an unreadable read, whereas this one cannot be reached around
+> and fails closed.
+>
+> What actually retires the walkthrough, though, is **where** the check sits. It
+> runs before `readScannedGas`, so it is ahead of the 409 that was refusing the
+> ephemeral-wallet probe. The two paragraphs above are both organised around one
+> constraint — that identity could only be proven by a real attestation, which
+> needs genuine gas history, which is why this was a human errand — and that
+> constraint was an artefact of the comparison happening after the eligibility
+> floor. Move it in front and a throwaway key with no history, no funds and no
+> launch proves identity by the status it gets: **409 now means the key in Vercel
+> Production derives to `factory.pogSigner()`**, because a key that does not would
+> have been refused one stage earlier. Verified that way on 2026-09-13 against
+> `toshx.xyz`; the probe is `npm run check:pog`
+> (`soat-frontend/scripts/checkProdPogFlow.mjs`), which had been sitting
+> uncommitted and is now the recorded way to re-check this.
+>
+> This is the third read in the digest to be moved from configuration to chain,
+> after the nonce and the factory address, and the reason is the same each time:
+> the value was being taken on the word of an environment variable that no guard
+> script can audit, because the production key is write-only in Vercel. A check
+> that can only run where the key is has to run at signing time.
+>
 > **Two facts about that first launch, established 2026-09-10 because both were
 > assumed wrongly first.** The `launchFee` — **0.01 ETH** since 2026-09-10,
 > lowered from 0.1 by the owner Safe and not by a source edit (see the note

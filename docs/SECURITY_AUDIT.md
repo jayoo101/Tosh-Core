@@ -5718,3 +5718,106 @@ disproves §7.3's open hypothesis, 0.269 passes/hour under a 15-minute cron
 against 0.27 under an hourly one, making the cadence knob inert and the real
 detection latency a 3.3 h median with a 7.2 h worst case, which `WATCHER-05` now
 states on every pass rather than leaving to be inferred.*
+
+### 5.37 Thirty-third sweep — the signing key was never compared to the signer, and the check that would prove it sat behind the check that refused the probe
+
+The finding is one line of absence. `loadOracleAccount()` in
+`sign-allocation/route.ts` read `POG_SIGNER_PRIVATE_KEY`, confirmed that viem
+would **parse** it, and signed. Nothing compared the address it derives to
+`factory.pogSigner()`, which is the only address `registerPoG` will accept.
+
+A key that parses but belongs to somewhere else is therefore not a failure the
+server can have. It is a failure the **users** have: the attestation is
+well-formed, the route answers 200, the client submits it, and
+`ToshFactory.sol:603` reverts on the recovered signer. Every depositor pays gas
+to discover a deployment fault, under an error that names the signature rather
+than the configuration, and no server-side signal is produced at all. Of the
+things that can go wrong in this repository, "returns success while charging
+every user to fail" is close to the worst shape, because it is indistinguishable
+from the users being at fault.
+
+Put next to the other five fields of the digest, the omission is stark. `nonce`
+is read live from chain, and `onchainNonce.ts`'s own header explains why in these
+exact terms — a stale one means "the user pays gas to revert". `contract_` is
+pinned to `FACTORY_ADDRESS`. `chainId` is checked against the allow-list.
+`sender` and `maxAlloc` come from an authenticated scan. Signer identity was the
+one input still taken on the word of an environment variable — and the one that
+cannot be audited from outside the runtime, because the production key is
+write-only in Vercel, so no guard script and no CI job can ever see the value in
+use. A check on it can only run where the key is.
+
+**Not the first attempt at it, and the reason the first was not enough.** The
+same comparison was added client-side on 2026-09-10 (`PRE_MAINNET_CHECKLIST.md`,
+PM-D1 walkthrough): `PogScanButton` reads `pogSigner()` and refuses to send when
+it disagrees with the `issuer` the route returns. That note is honest about its
+two limits — it is diagnosis and not enforcement, since any client can ignore it,
+and it deliberately falls **open** when `issuer` is absent or the read fails, so
+as never to block a user the chain would accept. Both limits are right for a
+client. Neither is acceptable as the only copy of the check, which is what it was
+for three days. The server copy fails closed and cannot be reached around.
+
+**The part worth recording is where it goes.** The check runs before
+`readScannedGas`, and that placement retires a manual step rather than adding a
+gate. Two paragraphs of the PM-D1 walkthrough are built on the premise that
+identity could be proven only by a real attestation, hence only by a wallet with
+genuine cross-chain gas history, hence only by a human — and that premise was an
+artefact of the comparison living *after* the eligibility floor. Ahead of it, the
+status code carries the answer: an ephemeral in-memory key with no history, no
+funds and no launch gets **409 "no completed gas scan"** if the key is right and
+**500** if it is not, because a mismatch is refused a stage earlier. The probe
+that §PM-D1 says "cannot show identity" now shows it, unchanged. A check moved
+in front of a refusal is worth more than the same check behind it.
+
+**Second finding, the same question asked of the second item on that list.** The
+other key said to need the operator was `PRIVATE_KEY`, the mainnet deployer,
+sitting in plaintext in the repository-root `.env.production` as the single
+remaining `check:secrets` finding — "delete it and rotate, not delete only".
+Asking what made *that* unactionable produced this: `preflightMainnet.mjs:171`
+was `new ethers.Wallet(process.env.PRIVATE_KEY).address`.
+
+A pre-broadcast script whose entire job is to read state and refuse was loading
+the mainnet deploy key into process memory to compute a **public** value. The
+momentary exposure is the smaller half. The larger half is that this was the only
+remaining reason the key had to stay in the file after the deploy it was needed
+for: delete the line and the preflight stops running, so the finding could be
+read but not acted on. `check:secrets` has inventoried the name at tier `absent`
+and reported it on every run, and the thing making its instruction impossible to
+follow was another guard in the same repository.
+
+`DEPLOYER_ADDRESS` now answers for the deployer, `PRIVATE_KEY` is consulted only
+if it is absent, and when both are present they are compared rather than one
+winning silently — `forge script --private-key` broadcasts from the key while the
+checks would read the address, and check 6 prints a fund-this-address
+instruction, which is the money-instruction hazard check 0b already exists for.
+Verified on all three paths: address alone runs the full preflight with no key
+present anywhere, the two disagreeing refuses and names both, neither refuses and
+names both options.
+
+Two things the sweep corrected while there. `C1_RUNBOOK.md` §7 claimed the
+plaintext `PRIVATE_KEY` copies were "both cleared", which was true when written
+and false now: the 2026-09-12 redeploy needed the key and it was refilled, the
+deployer's nonce having walked from 11 at C1 to 18. That is not a violation — the
+broadcast does need it — it is a broadcast with no cleanup, and the cleanup is
+what was impossible. And the residual authority was measured rather than assumed:
+factory and ladder-treasury `owner()` are both the Safe
+`0x2953957774482efA660921df85A1E7634ccfe27A`, both `pendingOwner()` are zero, so
+what the key still commands is its own balance and nothing else.
+
+*2026-09-13 — §5.37 records the thirty-third sweep, which came out of asking what
+the top item on a "needs the operator, carries real risk" list was actually
+waiting for. Its finding is that `sign-allocation` validated that the PoG signing
+key parses and never that it is the key the factory accepts, so a wrong-but-valid
+key would answer 200 and revert every depositor's registration with nothing
+recorded server-side. Fixed by reading `factory.pogSigner()` alongside the nonce
+already read — parallel, so it costs no round trip — and refusing with a Sentry
+report on disagreement. Recorded alongside it: the client-side guard added
+2026-09-10 was diagnosis that fails open, not enforcement; and because the new
+check sits ahead of the eligibility floor, the ephemeral-wallet probe that could
+not prove identity now proves it, which closed the last manual step of PM-D1
+without the funded wallet it had been waiting on. Its second finding is that the
+only remaining `check:secrets` failure — a plaintext mainnet deploy key — was
+unactionable because `preflightMainnet.mjs` derived the deployer address from that
+key, so deleting it broke a guard; the preflight now reads `DEPLOYER_ADDRESS`, and
+the two findings share a shape, which is that a value nobody could check and a
+secret nobody could delete were both being held in place by the convenience of a
+script rather than by a requirement.*
