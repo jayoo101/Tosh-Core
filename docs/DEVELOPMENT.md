@@ -327,6 +327,50 @@ storage via `extsload`, not through the app's read path.
 
 ---
 
+## On-chain monitor
+
+`monitoring/watch.mjs` is run-once. `.github/workflows/watch.yml` is the host:
+it resumes from branch `watcher-state`, files findings, and persists the
+checkpoint. Two facts that are not knobs on that workflow:
+
+**GitHub's scheduler is not a cadence.** Measured 2026-09-13, a cron asking
+for four passes an hour delivered 0.269. Changing the interval from hourly to
+every 15 minutes moved that rate from 0.27 to 0.269. The `schedule:` entry is
+leftover best-effort. The detection interval is whatever hits
+`repository_dispatch` of type `watch`.
+
+`POST/GET /api/watch-ping` is that button. It does not run the watcher — the
+checkpoint must stay on `watcher-state` under the workflow's concurrency
+group. It posts the dispatch. Auth is `Authorization: Bearer <CRON_SECRET>`
+(or `x-cron-secret`). Vercel Hobby can only cron the route daily
+(`vercel.json` does that at 06:11 UTC). A 15-minute bar needs a host that is
+not Hobby and not GitHub's pool:
+
+```bash
+# every 15 minutes, from cron-job.org or a laptop
+curl -H "Authorization: Bearer $CRON_SECRET" https://toshx.xyz/api/watch-ping
+
+# same dispatch, no Vercel in the path
+node scripts/pingWatch.mjs
+```
+
+Set `CRON_SECRET` and `WATCH_DISPATCH_TOKEN` on the Vercel project as
+Sensitive. The token is a fine-grained PAT with Actions: write on
+`jayoo101/Tosh-Core` — a different PAT from `ALERT_REPO_TOKEN` (that one files
+into `tosh-alerts`). Unset, the route refuses rather than firing an
+unauthenticated dispatch.
+
+**The public 4663 RPC 429s on the seventh identical `eth_getLogs`.** A pass
+that issued one request per topic0 walked into that ceiling; workflow run
+`34196807435` missed P0 governance logs that way. The watcher now ORs topic0s
+into three queries (factory, treasury, address-less hook events). 250 ms
+pacing plus adaptive backoff after a 429 absorbs a transient. They do not
+remove the ceiling. A keyed URL in `MONITOR_RPC` does. `watch.mjs` prints
+that on stderr when the secret still points at
+`rpc.mainnet.chain.robinhood.com`.
+
+---
+
 ## Hook salt mining
 
 Uniswap V4 encodes hook permissions in the hook's own address. Combined mask

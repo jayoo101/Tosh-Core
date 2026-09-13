@@ -34,11 +34,27 @@ are written down rather than glossed:
   finding is pushed to a phone rather than left in an issue inbox nobody
   watches at 03:00, so that specific gap is closed. The one above it is not:
   this host does not meet the 15-minute detection criterion, and the gap has a
-  number rather than a hedge — across
-  the 157 hours the schedule was measured, GitHub delivered **27%** of the
-  passes the cron asked for. A pass that never runs pages nobody, so the honest
-  claim is that the protocol will notice, write it down and push it, on a
-  schedule we do not control. The push also reaches one phone, not a rotation.
+  number rather than a hedge. Measured twice, and the second measurement is the
+  one that settles it: over 157 hours at an hourly cron, GitHub delivered 27% of
+  the passes asked for; over the next 193.5 hours at a cron asking four times an
+  hour, it delivered **7%**. Read the rate rather than the percentage —
+  **0.269 passes per hour, against 0.27 at the hourly cron.** Asking four times
+  as often changed nothing, so the interval is not a detection knob on this
+  host and no cron setting here produces an upper bound. Observed gaps between
+  passes ran 2.1 h at the closest and 7.2 h at the widest.
+- The workflow therefore also accepts an external trigger
+  (`repository_dispatch`, via `/api/watch-ping`), so the cadence can come from a
+  host that is not GitHub's shared scheduler. **Treat that as unproven until it
+  has been measured the way the cron was.** What is claimed today is only that
+  the ceiling is no longer structural; a pass that never runs still pages
+  nobody. The push also reaches one phone, not a rotation.
+- The public chain-4663 RPC rate-limits the monitor: identical `eth_getLogs`
+  calls are refused from the seventh onward. That cost one real detection — on
+  the 2026-09-08 mainnet cutover every log query was refused, the run stayed
+  green, and seven P0 governance events in that window went unread. A pass now
+  issues three queries rather than one per event, which is under the measured
+  ceiling, and a fully blind pass is loud instead of green. Neither change
+  removes the ceiling; a keyed endpoint does.
 - The incident commander and comms lead are the same person.
 - Halting requires 2-of-3 signatures on Safe
   `0x2953957774482efA660921df85A1E7634ccfe27A`, so the binding constraint is
