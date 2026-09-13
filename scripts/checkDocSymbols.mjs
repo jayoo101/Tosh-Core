@@ -77,6 +77,13 @@ const DOC_DIR = join(REPO, 'docs');
 //   Both were ungated while four less operational documents were not. Adding
 //   them cost three ALLOW entries and found no drift — which is the good
 //   outcome, not a reason it was not worth doing.
+//   The same argument reaches the README, added 2026-09-13 when it became the
+//   protocol spec rather than a build guide. It is now the most symbol-dense
+//   document in the repository and the first one an outside reader opens, so a
+//   dangling name there is read by more people than a dangling name anywhere
+//   else. Note what this does NOT cover: `isCandidate` drops
+//   SCREAMING_SNAKE_CASE, so the ~35 Solidity constants in its appendix B are
+//   still ungated here and were checked against `src/` by hand.
 const DOCS = [
   'SECURITY_AUDIT.md',
   'INCIDENT_RESPONSE.md',
@@ -85,6 +92,8 @@ const DOCS = [
   'C1_RUNBOOK.md',
   'PRE_MAINNET_CHECKLIST.md',
   'SIGNER_BRIEF.md',
+  'DEVELOPMENT.md',
+  '../README.md',
 ];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
@@ -133,6 +142,10 @@ const ALLOW = new Map([
   ['_headers', 'asserted ABSENT — §5.1 proves no Cloudflare/Netlify edge config exists'],
   ['webSocket', 'asserted ABSENT — §5.1 proves no viem webSocket() transport is used'],
   ['master', 'a git branch name in the submodule pin table, not a code symbol'],
+  // Foundry's own installer, named in DEVELOPMENT.md's toolchain table. An
+  // external binary the reader is told to run, in the same category as `master`:
+  // it is a command, not a symbol this tree could ever contain.
+  ['foundryup', "Foundry's installer command, not a symbol in this repository"],
   // A git commit sha, same category as `master`: an object name, not a symbol.
   //
   // Worth recording WHY it only started dangling on 2026-09-12, because the

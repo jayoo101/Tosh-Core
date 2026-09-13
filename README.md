@@ -1,524 +1,635 @@
 # Tosh Protocol
 
+**A Phase-1.5 fair-launch protocol built on Proof-of-Gas and a Uniswap v4 hook.**
+
 [![tests](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml/badge.svg)](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**An ETH-native fair-launch protocol built on Uniswap V4.**
-
-Every project gets its own V4 hook as its launch engine. Genesis funding, real
-pool creation, primary issuance and the deflationary flywheel all run inside one
-set of on-chain rules — no platform token, no team pre-mine, and no path for the
-operator to move anyone's funds.
-
-**[Whitepaper](docs/WHITEPAPER_zh.md)** · **[toshx.xyz](https://toshx.xyz)** ·
-**[Security policy](SECURITY.md)** · **[Product spec](docs/PRD-v5.0.md)**
-
 | | |
 |---|---|
-| Network | Robinhood Chain — chain `4663` (Arbitrum Orbit L2, ETH-denominated gas) |
-| Factory | [`0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892`](https://explorer.mainnet.chain.robinhood.com/address/0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892) |
-| Treasury | [`0x255722226720914eF5B2CD54647f21f584BD4Ea2`](https://explorer.mainnet.chain.robinhood.com/address/0x255722226720914eF5B2CD54647f21f584BD4Ea2) |
-| Governance | 2-of-3 Gnosis Safe, `Ownable2Step` on both singletons |
-| Supply per project | 21,000,000 hard cap, enforced on every mint |
-| Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
-| Verification | Sourcify + Blockscout, independently, on all five contracts |
-| Tests | 373 across 15 suites, including stateful invariants and adversarial probes |
-| Toolchain | Foundry · Next.js + wagmi + viem · Node |
+| Version | v5.0 |
+| Date | 2026-09-13 |
+| Network | Robinhood Chain — chain ID `4663`, an Arbitrum Orbit L2 |
+| Site | [toshx.xyz](https://toshx.xyz) |
+| Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |
 
-> There is no platform token. Launch fees, genesis deposits and shelf purchases
-> are all native ETH. Notes mentioning `MockSATO`, `harvestAndBurn`, graduation
-> or the `0x2200` hook mask describe v3.4/v4.x and no longer apply.
+**[Development guide](docs/DEVELOPMENT.md)** · **[中文白皮书](docs/WHITEPAPER_zh.md)** ·
+**[Security policy](SECURITY.md)** · **[Product spec](docs/PRD-v5.0.md)**
 
----
+### On verifiability
 
-## What the protocol guarantees
-
-These are structural properties, not policies — each one is a consequence of
-code that exists or code that is absent, and each is checkable from chain.
-
-**Depositors always have a way out.** If the soft cap is missed, or if the
-creator never calls `launch()` within the 7-day `LAUNCH_WINDOW`, every depositor
-reclaims 100% of their ETH with no penalty. "Raised the money and vanished" is
-not a state that can trap funds.
-
-**The pool opens above what depositors paid.** The 55/45 split of genesis supply
-makes the opening price exactly 1.10× the depositors' average cost, and shelf 0
-sits a further 5% above that. This is arithmetic, not a target price — a test
-pins the identity, so changing the split or the referral rate fails the suite
-rather than quietly shipping a different premium.
-
-**Nobody holds a pre-mine.** `launch()` mints only the 8.4M genesis block. The
-remaining 12.6M is minted shelf by shelf as it sells.
-
-**Genesis liquidity cannot be withdrawn — by anyone.** V4 keys positions to
-their creator; the genesis position belongs to the hook, and the hook has no
-code path that removes liquidity. The lock comes from ownership plus absence,
-not from a callback that could be edited. Third-party LPs use their own
-positions and come and go freely.
-
-**The treasury cannot be drained.** `ToshLadderTreasury` has no `withdraw`, no
-`sweep`, no `rescue` and no `delegatecall`. Its only outbound path buys on a
-Tosh pool and sends the tokens to `0xdead`. The owner chooses which tokens are
-in the buyback rotation; the owner cannot choose where the ETH goes.
-
-**Contracts are not upgradeable.** `ToshToken` never grants
-`DEFAULT_ADMIN_ROLE`, so `MINTER_ROLE` is frozen on the project's hook forever.
-No proxy, no `migrateMinter`. Unsold ladder supply can never be re-minted
-somewhere else.
-
-**Phase 2 cannot be minted down into the pool.** Three independent gates: a mint
-may not share a block with a swap, the reference price is `min(spot, TWAP)`, and
-a shelf only unlocks within 105% of that reference. `launch()` arms the
-same-block lock itself, so the launch block is shut deterministically rather
-than by boundary arithmetic.
+This document describes a protocol that is deployed on a production chain, open
+source, and checkable line by line against `src/` and a read-only RPC. It is not
+an investment pitch and it is not marketing copy. Every mechanism, parameter and
+identity below is tied to a specific state variable or function signature. Where
+the code does not implement something, this document does not claim it.
 
 ---
 
-## Economics
+## Abstract
 
-### Supply
+The native use case for a public blockchain is permissionless, censorship-resistant
+capital formation. The way tokens actually get issued has polarised into two
+failure modes, and neither serves the people funding the project.
 
-| Bucket | Constant | Amount | Share |
-|---|---|---|---|
-| Hard cap | `MAX_SUPPLY` | 21,000,000 | 100% |
-| Genesis | `GENESIS_SUPPLY` | 8,400,000 | 40% |
-| ├ claimed pro rata by depositors | `GENESIS_CLAIM_SUPPLY` | 4,620,000 | 55% of genesis |
-| └ seeded full-range into the pool | `GENESIS_LP_SUPPLY` | 3,780,000 | 45% of genesis |
-| Shelf ladder | `BONDING_MAX` | 12,600,000 | 60% |
+**Primary markets — ICOs and private rounds.** The team holds pre-mined supply,
+the raise carries no on-chain constraints, and abandonment is routine.
 
-8,400,000 + 12,600,000 = 21,000,000. A fully sold ladder lands exactly on the
-cap rather than approaching it.
+**Secondary markets — pure bonding curves and pump venues.** Allocation goes to
+whoever can spin up the most fresh wallets. The curve fills, and only then does
+the project "graduate" into a real pool. What happens in between is a zero-sum
+race that MEV bots are better equipped to win than the people it is nominally for.
 
-### Pricing
+Tosh proposes a third shape, **Phase 1.5** — continuous fundraising in which
+primary issuance and a real secondary pool are live at the same time:
+
+$$\text{Phase 1.5} \;=\; \underbrace{\text{Uniswap v4 full-range pool}}_{\text{secondary price discovery}} \;\parallel\; \underbrace{4{,}000 \text{ discrete shelves}}_{\text{primary supply, minted on demand}}$$
+
+Four properties follow from that, and each is a consequence of code that exists
+or code that is deliberately absent:
+
+**The pool exists before the secondary market does.** A real Uniswap v4 pool is
+created atomically in the same call that closes genesis. There is no structural
+gap between "trading on a curve" and "a pool exists".
+
+**Fairness is priced in historical gas, not identity.** Gas already burned is the
+one quantity on an EVM network that cannot be minted, cannot be borrowed with a
+flash loan, and cannot be manufactured at zero marginal cost. Tosh sizes genesis
+allocation from an address's historical gas spend and clamps it with an on-chain
+per-wallet ceiling, which attacks the economics of a sybil farm rather than
+trying to detect one.
+
+**Primary issuance is decoupled from the pool but constrained by it.** The
+remaining 60% of supply is split into 4,000 discrete price shelves, minted on
+demand, and each shelf unlocks only when the secondary market has risen to meet
+it. Primary issuance can never undercut the pool.
+
+**The treasury is a one-way valve.** `ToshLadderTreasury` has no withdraw, no
+sweep, no rescue and no `delegatecall`. Its only outbound path buys tokens on a
+Tosh pool and sends them to `0xdead`.
+
+---
+
+## 1. Failure modes, and what Phase 1.5 changes
+
+### 1.1 What goes wrong today
+
+**Sybil extraction at zero marginal cost.** Whether a launchpad allocates
+first-come-first-served or by invitation, a script can generate tens of thousands
+of fresh addresses in milliseconds, take the whole allocation, and sell it back
+to retail higher up.
+
+**Pre-mined supply.** Many projects mint 100% of supply at launch, which leaves
+the team holding a large low-cost or zero-cost position it can sell into the
+market at any time.
+
+**Cheap-end curve farming.** Speculators mint in bulk at the cheap end of a
+curve, often with borrowed capital, and dump into a thin pool a moment later.
+
+**Genesis participants underwater at open.** Plenty of launchpads set the opening
+price with no binding relationship to what depositors paid, which produces the
+absurd outcome that the earliest supporters are down on day one.
+
+**Locked liquidity, and no way for anyone else to make markets.** Burning the LP
+position to a dead address is common, and it means third-party market makers
+cannot provide liquidity and the pool's own trading fees accrue to a position
+nobody can ever claim.
+
+### 1.2 The Phase-1.5 model
+
+Tosh puts a primary issuance shelf and a real secondary pool under one state
+machine:
+
+**The pool goes first.** Genesis proceeds fund a full-range Uniswap v4 position,
+which gives the token real two-sided depth from its first block.
+
+**Supply is minted on demand, as it climbs.** Shelf tokens do not exist on chain
+until somebody buys them, so no address ever holds 100% of supply. Shelves unlock
+on a fixed geometric step as the market rises; 99% of the proceeds go straight to
+the project to fund continued work, and 1% goes to the protocol treasury.
+
+**Issuance is bounded by the market in both directions.** A shelf opens only when
+
+$$\text{shelfP0} \times \text{STEP}^i \;\le\; \min(\text{spot},\ \text{TWAP}) \times 1.05$$
+
+so the primary channel cannot sell below the pool and cannot be walked up by a
+manufactured price.
+
+---
+
+## 2. Proof-of-Gas
+
+### 2.1 Why historical gas is the honest scarce resource
+
+Every other sybil control in common use fails somewhere specific:
+
+| Control | How it fails |
+|---|---|
+| Centralised KYC | Invades privacy, and has a mature black market in rented identities |
+| Token staking | Becomes a capital privilege that whales dominate by construction |
+| First-come-first-served | Becomes a contest between private RPCs and sandwich bots |
+
+The axiom Tosh works from is narrower and harder to game: **a genuinely active
+wallet has, at some point, irreversibly paid validators to include its
+transactions.** That spend is gone. It cannot be borrowed, refunded, or faked in
+bulk.
+
+### 2.2 How the quota is computed and enforced
 
 ```
-p0      = lpEth / GENESIS_LP_SUPPLY          pool opening price
-shelfP0 = p0 × 1.05                          first shelf
-shelf i = shelfP0 × TIER_STEP^i              4000 shelves, +0.19025% each, 2000× end to end
+                  ┌───────────────────────────────┐
+                  │   participant requests quota  │
+                  └───────────────┬───────────────┘
+                                  │ signed request
+                                  ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                  historical gas-spend indexer                     │
+│      (Ethereum · Arbitrum · Optimism · Base · Robinhood)          │
+└─────────────────────────────────┬─────────────────────────────────┘
+                                  │
+                                  ▼
+                      [ gas-floor check ]
+                                  │
+          ┌───────────────────────┴───────────────────────┐
+          │                                               │
+   lifetime gas < 0.05 ETH                        lifetime gas ≥ 0.05 ETH
+   (POG_GAS_FLOOR_WEI)                                    │
+          │                                               ▼
+          ▼                                     [ size the quota ]
+      [ refused ]                     alloc = f(gas spent) × globalGasToSatoRate
+                                                          │
+                                                          ▼
+                                          [ ON-CHAIN per-wallet clamp ]
+                                    maxAlloc = min(alloc, maxPogAllocationLimit)
+                                                          │
+                                                          ▼
+                                        [ EIP-191 verification, then deposit ]
 ```
 
-`TIER_STEP_E18 = 1_001_902_508_266_805_824`, chosen so the last shelf is exactly
-2000× the first. Prices are evaluated in closed form by fast exponentiation, not
-by 4000 successive multiplications, so there is no accumulated truncation drift.
+**1 · The floor (`POG_GAS_FLOOR_WEI` = 0.05 ETH).** The oracle sums the
+requesting wallet's real gas spend across major chains. Fresh wallets and
+bulk-generated airdrop farms fall below the floor and are refused.
 
-A shelf unlocks only when `shelfP0 × STEP^i ≤ min(spot, TWAP) × 1.05`.
-`SHELF_PREMIUM_BPS` and `PRICE_CEILING_BPS` are deliberately the same `10500`,
-so the two 1.05 factors cancel and the condition carries no magic number.
+Worth stating precisely, because it is a trust boundary rather than an invariant:
+this floor lives in the off-chain oracle (`soat-frontend/src/app/lib/pogQuota.ts`),
+not in the factory. What the *contract* enforces is the clamp below.
 
-### Fees
+**2 · The on-chain ceiling (`maxPogAllocationLimit` = 0.1 ETH).** Gas history
+establishes that an address is real; it does not buy unlimited allocation. A
+wallet that has burned 100 ETH in fees still deposits at most 0.1 ETH in genesis,
+because the factory clamps whatever the oracle signed. That ceiling is what
+disperses the opening float across hundreds or thousands of organic addresses
+instead of a handful of large ones.
 
-| Fee | Rate | Destination |
+**3 · The attacker's cost inverts.** Suppose a farm wants 100 genesis slots:
+
+| | Cost to obtain 100 slots | Allocation unlocked |
 |---|---|---|
-| Launch fee | `launchFee()` — currently **0.01 ETH** | `ladderTreasury` (buyback fuel) |
-| Shelf proceeds | 99% | `projectAdmin` |
-| Shelf platform cut | 1% | `ladderTreasury` |
-| Referral commission | 10% of each deposit | referrer(s), or the treasury if unbound |
-| Swap tax — buy | 1.00% of the ETH input | 0.70% → `ladderTreasury`, 0.30% → `platformTreasury` |
-| Swap tax — sell | 1.00% of the token input | burned to `0xdead`, not split |
-| Pool fee | 0.30% | third-party LPs, settled natively by V4 |
-| **Total trader friction** | **1.30%** | 0.30% LPs + 0.70% burn + 0.30% platform |
+| Conventional launchpad | ~0, generate 100 keypairs | whatever the cap allows |
+| Tosh | 100 × 0.05 = **5 ETH** genuinely burned in fees first | 100 × 0.1 = 10 ETH |
 
-The launch fee is an owner-tunable parameter with a `MAX_LAUNCH_FEE` = 10 ETH
-ceiling and zero permitted; read `launchFee()` rather than trusting this table.
+The attacker must sink 5 ETH in unrecoverable fees to unlock 10 ETH of
+allocation. The 50% is spent before any position is taken and cannot be recovered
+by selling, which removes the profit from the sybil model rather than policing it.
 
-**The 0.30% platform cut is the one fee not committed to buy-and-burn.** It is
-platform operating revenue, it applies to the buy leg only, and
-`platformTreasury` is an immutable constructor argument with no setter —
-redirecting it requires deploying a new factory. Paying the platform on the sell
-leg would mean paying it in each project's own token, leaving it holding
-illiquid positions in tokens it is supposed to be neutral about.
+**4 · Replay protection.** The attestation is EIP-191 over a six-field tuple:
 
-### Referrals
+$$\text{digest} = \text{keccak256}\big(\text{abi.encode}(\text{sender},\ \text{maxAlloc},\ \text{nonce},\ \text{deadline},\ \text{factory},\ \text{chainId})\big)$$
 
-10% of each genesis deposit is carved off — always exactly 10%, which is what
-keeps the opening premium a structural constant rather than a function of who
-referred whom. The same 10% splits across two slots:
-
-| Slot | Share of the carve | Of the deposit | Binding |
-|---|---|---|---|
-| Project referrer | 80% (`PROJECT_REFERRAL_SHARE_BPS`) | 8% | once per wallet, per project |
-| Lifetime referrer | the remaining 20% | 2% | once per wallet, platform-wide, permanent |
-
-The split is expressed as a share of the carve rather than of the deposit, which
-is what lets it be retuned without touching `REFERRAL_BPS` — and therefore
-without moving the opening premium.
-
-`deposit` takes one referrer argument and offers it to both registries; each
-accepts only if its own slot is empty. Bindings are permanent, a stale link is
-silently ignored rather than reverting, and self-referral is ignored. An empty
-slot sends its leg to the treasury as buyback fuel. Commission accrues at
-deposit and unlocks at `launch()`; a failed genesis refunds depositors in full
-and never pays commission.
+Because the factory hashes with its own `address(this)` and `block.chainid`, a
+signature naming another factory or another chain cannot be recovered at this
+one. The signing route reads the live on-chain nonce and ignores any the caller
+supplies.
 
 ---
 
-## Architecture
+## 3. Architecture
 
-Two platform singletons; one hook and one token per project.
+Two platform singletons per chain. Each project gets a CREATE2-derived pair of
+EIP-1167 minimal clones.
 
 ```
-ToshFactory  ──creates──▶  ToshToken + ToshLaunchpadHook   (one pair per project)
-     │                              │
-     │ launch fee, 1% shelf cut,    │ 0.70% of the 1.00% buy-side tax
-     │ orphaned referral commission │
-     ▼                              ▼
-        ToshLadderTreasury  ──buy & burn──▶  0xdead
-
-                                    │ the other 0.30% of the buy-side tax
-                                    ▼
-                            platformTreasury   (platform revenue)
+ToshFactory (0x2920ca7E…) ──────────► ToshLadderTreasury (0x25572222…)
+   ├─ createLaunch / PoG verification      ├─ revenue in: launch fee, shelf cut,
+   ├─ genesis deposit gateway              │  buy-side tax, orphaned commission
+   │  and two-tier referral ledger         └─ only way out ──► 0xdead (buy & burn)
+   └─ cooldown / blacklist / pause
+          │
+          │ CREATE2 (EIP-1167 minimal clone, 121 bytes)
+          ▼
+ToshLaunchpadHook (one per project) ──► Uniswap v4 PoolManager (0x8366a39C…)
+   ├─ Phase 1: deposit / refund / launch    └─ real full-range ETH ⇄ token pool
+   ├─ Phase 2: 4,000 shelves / genesis claims
+   └─ v4 callbacks: beforeSwap / afterSwap
+          │
+          │ mint()  [exclusive MINTER_ROLE]
+          ▼
+ToshToken (one per project)
+   ├─ hard cap: 21,000,000
+   └─ DEFAULT_ADMIN_ROLE is never granted to anyone
 ```
 
 | Contract | Instances | Responsibility |
 |---|---|---|
-| `ToshFactory` | one per chain | `createLaunch` (CREATE2), `registerPoG`, genesis deposit gateway, referral graph, blacklist / cooldown / pause |
-| `ToshLadderTreasury` | one per chain | receives four revenue pipes, curates the buyback roster, `autoPiggybackBuyback` / `pokeBuyback`, `_buyAndBurn` → `0xdead` |
-| `ToshLaunchpadHook` | one per project | Phase 1 deposit / refund / launch; Phase 2 shelf mint / claims; V4 callbacks; hook-local TWAP oracle |
-| `ToshToken` | one per project | ERC-20, hard cap checked on every mint, minted only by its own hook |
-
-Hooks are deployed as EIP-1167 clones (121 bytes) at CREATE2 addresses, which is
-what makes one dedicated hook per project affordable. Per-project rules are
-frozen as immutables at deployment.
-
-| Role | Who | Can do |
-|---|---|---|
-| Platform owner | Safe | pause new launches, curate the buyback roster, tune caps and fees, halt shelf minting for ≤ 7 days |
-| `creator` | EOA | call `launch()` on their own project |
-| `projectAdmin` | EOA / Safe | receive 99% of shelf proceeds; may rotate itself |
-| Genesis depositor | anyone eligible | deposit in Phase 1, claim after launch, or refund |
-| Referrer | anyone | earn commission on deposits bound to them |
-| Retail LP | anyone | add and remove liquidity in the project pool |
+| `ToshFactory` | one per chain | `createLaunch`, `registerPoG`, deposit routing, the project and lifetime referral graph, and the global safety controls |
+| `ToshLadderTreasury` | one per chain | One-way valve. Collects four revenue streams, buys on the project's own pool, and burns to `0xdead` |
+| `ToshLaunchpadHook` | one per project | The whole per-project lifecycle state machine, and the Uniswap v4 callbacks |
+| `ToshToken` | one per project | Standard ERC-20, hard cap 21,000,000, mint authority exclusive to its hook, no admin backdoor |
 
 ---
 
-## Lifecycle
+## 4. Lifecycle
 
-**Create.** `createLaunch(name, symbol, projectTreasury, projectAdmin, rawSalt,
-expectedFee, genesisDuration)` reserves the name/symbol pair and CREATE2-deploys
-the hook at a mined address. `expectedFee` is the caller's slippage cap against
-the owner moving `launchFee` underneath them.
+### 4.1 Phase 1 · Genesis
 
-**Phase 1 — genesis.** Depositors call `factory.deposit(hook, referrer)` with
-native ETH. The window is a hard deadline chosen at creation; the soft cap is a
-floor, not a ceiling, so a round keeps accepting deposits for its whole window
-after the cap is met.
+The creator pays the launch fee and picks a fundraising window:
 
-| Option | Value |
+| Option | Duration |
 |---|---|
 | `DURATION_FAST` | 3 hours |
-| `DURATION_STANDARD` | 24 hours (default) |
+| `DURATION_STANDARD` | 24 hours |
 | `DURATION_SLOW` | 72 hours |
 
-**Launch.** After the deadline the `creator` calls `hook.launch()`, which splits
-the raise, mints the genesis block, initialises the pool, locks full-range
-liquidity, seeds the oracle and shuts Phase 2 for the launch block. Nothing is
-automatic — if the creator never calls it, `refund()` opens once `LAUNCH_WINDOW`
-(7 days) lapses.
+The soft cap is written into the hook from the factory's `defaultSoftCap` at
+creation time and cannot go below the production floor
+`MIN_SOFT_CAP_PROD` = 0.01 ETH.
 
-**Failure paths.** `refund()` opens when the soft cap was missed at the
-deadline, or when the 7-day launch window expires without a launch. Use the
-`canRefund()` view rather than re-deriving the condition.
+**Two refund guarantees, both at 100% of principal with no penalty:**
 
-**Phase 2 — shelf ladder.** `mintBondingCurve(tokenAmount)` buys from the active
-shelf at its fixed price, sweeping up to `MAX_TIERS_PER_TX` (32) shelves in one
-call. `quoteMint` mirrors every check and returns the exact cost; overpayment is
-refunded.
+1. At the deadline, `totalEthDeposited < softCap()`.
+2. The soft cap was met, but nobody called `launch()` within the `LAUNCH_WINDOW`
+   of 7 days that follows.
 
-**Claims.** Genesis depositors call `claimGenesis()` after launch; referrers call
-`claimReferralReward()` per project, or use the aggregated ledger at
-`/referrals`.
+Either condition opens `refund()`, and a depositor recovers their full original
+deposit. Use the `canRefund()` view rather than re-deriving the condition.
 
-**Buyback.** Once the treasury holds `TRIGGER_STEP` (1 ETH) the reservoir is
-armed and `max(1 ETH, 10% of balance)` is due. One poke spends
-`spend / BATCH_SIZE` on one roster token in round-robin order and sends it to
-`0xdead`, under a TWAP-relative floor
-(`MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000). Two things poke it:
+### 4.2 Phase 2 · The pool and the shelves
 
-- **`afterSwap`, when the trade can afford it** — gated on
-  `gasleft() >= PIGGYBACK_MIN_GAS` and capped at
-  `gasleft() - PIGGYBACK_TAIL_RESERVE`, so a swap always keeps enough gas to
-  finish. Without the gate, the trade whose own tax armed the reservoir paid for
-  the whole cycle, every cycle.
-- **`pokeBuyback()`, from anyone** — the liveness backstop, since the gas gate
-  means trading alone no longer guarantees the reservoir empties. It moves no ETH
-  to the caller and chooses nothing but the timing: venue comes from the hook,
-  size from the balance, order from the cursor, price floor from the same TWAP.
+Once genesis has closed, the soft cap is met, and the 7-day window has not
+lapsed, the creator calls `launch()`. That call does the following in a strict
+atomic order:
 
-A skipped poke emits nothing, because skipping is the common case and logging it
-would bill every trader for the privilege. `STATE-06` in
-`monitoring/alerts.json` polls for the resulting silence instead.
+**Reserve the commission.** 10% of the raise is carved off for referrals whether
+or not anyone was referred, leaving `lpEth` to seed the pool.
 
----
+**Fix the anchors.** The opening price is $p_0 = \text{lpEth} / \text{GENESIS\_LP\_SUPPLY}$,
+and the shelf ladder starts one notch above it at $\text{shelfP0} = p_0 \times 1.05$.
 
-## Eligibility: Proof-of-Gas
+**Mint the genesis block** — `GENESIS_SUPPLY`, 8,400,000 tokens:
 
-Genesis deposits are quota-gated. The oracle sums an address's historical gas
-spend across Ethereum, Arbitrum, Optimism, Base and Robinhood; below
-`POG_GAS_FLOOR_WEI` (0.05 ETH) it is refused, and above it the quota is
-converted at the live rate and clamped on-chain by `maxPogAllocationLimit()`
-(0.1 ETH) regardless of what the oracle signed.
+- **45% (3,780,000)** goes straight into a full-range Uniswap v4 position: tick
+  range ±887,200, fee 0.30% (`POOL_FEE` = 3000), `TICK_SPACING` = 200.
+- **55% (4,620,000)** stays in the hook for genesis depositors to withdraw pro
+  rata via `claimGenesis()`.
 
-`registerPoG(maxAlloc, deadline, nonce, signature)` consumes an EIP-191
-signature over:
+**Arm the same-block lock.** `lastSwapBlock = block.number` is recorded, which
+shuts shelf purchases for the launch block itself.
 
-```
-keccak256(abi.encode(sender, maxAlloc, nonce, deadline, factory, chainId))
-```
+**Sweep orphaned commission.** Any referral share that never bound is moved to
+the treasury as buyback fuel.
 
-All six fields are signed, and the factory hashes with `address(this)`, so a
-signature naming another factory cannot be recovered at this one.
-`POST /api/sign-allocation` ignores any caller-supplied nonce and reads the live
-on-chain nonce before signing, so a replay cannot be arranged by asking for a
-convenient one.
+#### The 4,000-shelf ladder
 
-This anchors the cost of "one fresh wallet, one fresh quota" to gas an attacker
-has already burned on major chains — a history that cannot be fabricated.
+The ladder is not an approximation of a continuous curve. It is 4,000 discrete
+price levels evaluated in closed form by fast exponentiation, so there is no
+accumulated truncation drift across the range.
 
-Quotas are a platform-wide budget spent across all projects, refilling once per
-`quotaWindowDuration`. Refunds never credit back. Lowering
-`maxPogAllocationLimit` does not claw back quotas already issued.
-`cooldownDuration` is a separate per-(wallet, hook) throttle.
-
----
-
-## Build and test
-
-| Tool | Min version | Notes |
+| Constant | Value | Meaning |
 |---|---|---|
-| Foundry | `1.7.1` | `forge`, `cast`, `anvil` — via `foundryup` |
-| Node.js | `>= 20` | frontend, PoG oracle, tooling |
+| `TIER_COUNT` | 4,000 | number of shelves |
+| `TIER_SIZE` | 3,150 tokens | fixed allocation per shelf |
+| `BONDING_MAX` | 12,600,000 | 4,000 × 3,150 — exactly 60% of supply |
+| `TIER_STEP_E18` | 1.001902508266805824 | +0.19025% per shelf |
+| ladder span | 2,000× | first shelf to last |
+| `MAX_TIERS_PER_TX` | 32 | shelves one call may sweep |
 
-```bash
-forge install
-forge build
-forge test
-forge test --isolate
-```
+Shelf $i$ is purchasable only while
 
-Expected: **373 passing** in both runs. CI runs both.
+$$\text{shelfP0} \times \text{STEP}^i \;\le\; \min(\text{spot},\ \text{TWAP}) \times 1.05$$
 
-The second run is not redundant. `forge test` bills a whole test as one
-transaction, so storage warmed in setup stays warm and later calls look cheaper
-than they would on chain; `--isolate` charges each call the way a real
-transaction does. Two bugs here were only visible under it — a clone funded with
-`transfer()`, whose 2300-gas stipend cannot cover the proxy's delegatecall, and
-the piggyback gas gate, whose entire job is to compare a live gas figure against
-a constant.
+Note that `SHELF_PREMIUM_BPS` and `PRICE_CEILING_BPS` are both `10500`
+deliberately: the two 1.05 factors cancel, so the condition carries no magic
+number. Of the proceeds, 99% goes to `projectAdmin` and 1%
+(`PLATFORM_TAX_BPS`) to the treasury. Shelf tokens are minted at purchase.
 
-After any contract change, re-sync the frontend ABIs:
+### 4.3 Phase 3 · The deflation engine
 
-```bash
-node scripts/extractAbis.js
-```
+Once the treasury's ETH balance reaches `TRIGGER_STEP` = 1 ETH, any `afterSwap`
+on a Tosh pool will attempt a **piggyback buyback**:
 
-`ToshV5AbiTest` fails if you forget.
-
-> **Comment-only edits change the hook's address.** `foundry.toml` leaves
-> `bytecode_hash` at its default, so the solc metadata hash is appended to the
-> deployed bytecode. Editing a natspec line in `ToshLaunchpadHook.sol` — with no
-> change to a single opcode — produces a different initcode hash, a different
-> mined address, and invalidates every previously mined salt. This only bites
-> during development: once deployed, the factory freezes
-> `HOOK_CREATION_CODEHASH` in its constructor. Never hardcode an initcode hash
-> in tooling; always read it from the deployed factory.
-
-### Auditing a live launch
-
-```bash
-node scripts/auditLaunch.mjs <hook address>
-```
-
-Reads a launched hook, its token and its V4 pool, and checks them against the
-arithmetic `launch()` performs — pool state comes out of the PoolManager's
-storage via `extsload`, not through the app's read path.
+- **Size.** $\max(1\text{ ETH},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
+- **Rotation.** `BATCH_SIZE` = 3 spreads the spend across pools, advancing
+  `LEGS_PER_POKE` = 1 per poke in round-robin order.
+- **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, a 10% band
+  anchored to the pool's own TWAP.
+- **Gas defence, and the backstop it needs.** If the transaction has less than
+  `PIGGYBACK_MIN_GAS` = 260,000 left, the protocol skips the buyback so the
+  user's own trade always completes. Because skipping means trading alone no
+  longer guarantees the reservoir drains, anyone may call the permissionless
+  `pokeBuyback()` to advance it. That call moves no ETH to the caller and
+  chooses nothing but the timing.
 
 ---
 
-## Hook salt mining
+## 5. Token economics
 
-Uniswap V4 encodes hook permissions in the hook's own address. Combined mask
-**`0x20CC`**:
+### 5.1 Supply
 
-| Flag | Bit | Why |
-|---|---:|---|
-| `BEFORE_INITIALIZE` | `0x2000` | pool-init front-run defence |
-| `BEFORE_SWAP` | `0x0080` | exact-input tax (specified = input) |
-| `AFTER_SWAP` | `0x0040` | oracle + buyback poke + exact-output tax |
-| `BEFORE_SWAP_RETURNS_DELTA` | `0x0008` | skim the specified (input) side |
-| `AFTER_SWAP_RETURNS_DELTA` | `0x0004` | skim the unspecified (input) side |
+| Tier | Constant | Tokens | Of hard cap | Destination |
+|---|---|---|---|---|
+| Hard cap | `MAX_SUPPLY` | 21,000,000 | 100% | absolute lifetime ceiling |
+| Genesis | `GENESIS_SUPPLY` | 8,400,000 | 40% | minted to the hook by `launch()` |
+| ├ depositor claims | `GENESIS_CLAIM_SUPPLY` | 4,620,000 | 22% | claimed pro rata (55% of genesis) |
+| └ pool liquidity | `GENESIS_LP_SUPPLY` | 3,780,000 | 18% | permanent full-range position (45% of genesis) |
+| Shelf ladder | `BONDING_MAX` | 12,600,000 | 60% | minted on demand in Phase 2 |
 
-Exact-output cannot be taxed in `beforeSwap` — the input is unspecified and its
-size is only known after the swap. Returning a delta from `afterSwap` is what
-charges that input, so a router asking for "N tokens out" still funds the
-treasury instead of burning the output token.
+$$8{,}400{,}000 + 12{,}600{,}000 = 21{,}000{,}000$$
 
-Note what is absent: no liquidity flags. The genesis position stays locked
-through ownership, so a reverting `beforeRemoveLiquidity` would only have
-punished retail LPs for a guarantee the ownership model already provides.
+A fully sold ladder lands exactly on the cap rather than approaching it.
+`DEFAULT_ADMIN_ROLE` is never granted to anyone, and the hook is the only holder
+of `MINTER_ROLE`.
 
-The factory binds the salt to the caller, so nobody can mine an address for
-someone else's launch:
+### 5.2 Where the 10% opening premium comes from
 
-```
-finalSalt = keccak256(abi.encode(creator, rawSalt))
-hookAddr  = CREATE2(factory, finalSalt, hookInitcodeHash)
-require((uint160(hookAddr) & 0x20CC) == 0x20CC);
-```
+Let $R$ be the total ETH raised in genesis. The protocol always carves off 10%
+for referrals, whether or not anyone was referred, so the pool is seeded with
+$0.9R$.
 
-The initcode hash covers a 9-field constructor tuple, so each of these changes
-the address you must mine for:
+Depositors' average cost basis:
 
-```solidity
-bytes32 initHash = factory.hookInitcodeHash(
-    projectTreasury,
-    creator,
-    projectAdmin,
-    factory.defaultSoftCap(),          // snapshotted at createLaunch time
-    factory.maxPogAllocationLimit(),   // snapshotted at createLaunch time
-    genesisDuration                    // 3h / 24h / 72h
-);
-```
+$$P_{\text{raise}} = \frac{R}{\text{GENESIS\_CLAIM\_SUPPLY}} = \frac{R}{4{,}620{,}000}$$
 
-Read `defaultSoftCap` and `maxPogAllocationLimit` **live from the factory**.
-`createLaunch` snapshots whatever they are when the transaction lands, so a salt
-mined against stale caps reverts with `InvalidHookSalt`.
+The pool's opening price:
 
-> `getLiveHookInitcodeHash()` is **not** usable for mining. It substitutes
-> `platformTreasury` for the three address fields as a sentinel, so salts mined
-> against it always revert. It exists only as a reference value for tooling.
-> "Sentinel" describes its role in that function only — `platformTreasury` is a
-> real payout address.
+$$p_0 = \frac{\text{lpEth}}{\text{GENESIS\_LP\_SUPPLY}} = \frac{0.9R}{3{,}780{,}000}$$
 
-```bash
-node scripts/mineHookSalt.js \
-  --factory 0x... --creator 0x... --admin 0x... --treasury 0x... \
-  --duration 86400
-```
+The ratio:
 
-`--duration` accepts `10800`, `86400` or `259200`, and defaults to 24h. In the
-dApp, `soat-frontend/src/app/lib/hookMiner.ts` mines client-side so the user
-signs a single transaction, reading `hookInitcodeHash` from chain rather than
-reconstructing it locally.
+$$\frac{p_0}{P_{\text{raise}}} = \frac{0.9R / 3{,}780{,}000}{R / 4{,}620{,}000} = 0.9 \times \frac{4{,}620{,}000}{3{,}780{,}000} = 0.9 \times \frac{11}{9} = 1.10$$
+
+$R$ cancels. The 10% premium is not a target price anyone chose — it is an
+algebraic consequence of the 55/45 split and the 10% referral carve, and it holds
+at any raise size. Shelf 0 sits a further 5% above the pool, so the primary
+channel opens at $1.10 \times 1.05 = 1.155$ against depositor cost, which is what
+guarantees primary issuance never undercuts the people who funded it.
+
+Because it is a ratio rather than a pair of magnitudes, resizing the genesis block
+leaves the premium at exactly 1.10. Moving the split or the referral rate moves
+it, and a test pins the identity so it cannot be changed silently.
+
+### 5.3 What the 40/60 split does to early sell pressure
+
+Equal-size shelves release $\log(R) / \log(\text{span})$ of the ladder by the time
+the market trades at $R\times$ the ladder base, so the release curve depends on
+the span, not on the ladder's absolute size. At 2×:
+
+| Configuration | Released at 2× | Of genesis supply | Of the tradeable float (4.62M) |
+|---|---|---|---|
+| earlier design — 20/80 + 2000× | 1,533,000 | 36.5% | 33.2% |
+| **current — 40/60 + 2000×** | **1,149,750** | **13.7%** | **24.9%** |
+
+Both denominators are given because they answer different questions. The 13.7%
+column includes the 3.78M sealed in the genesis LP position — supply that exists
+and never trades — so it is the right basis for comparing configurations against
+each other, and the wrong basis for asking what the market must absorb. Against
+the float that actually trades, a doubling still asks the market to take on about
+a quarter of the live supply.
 
 ---
 
-## Deployment
+## 6. Fees
 
-Order matters: the treasury deploys first because the factory takes its address
-as an immutable, then the treasury is pointed back at the factory. `setFactory`
-is **one-shot** — it is what proves a roster token's provenance, so it must
-never become re-pointable.
+| Fee | Rate | Where it goes |
+|---|---|---|
+| Uniswap v4 pool fee | 0.30% | liquidity providers, settled natively by v4 |
+| Swap tax — buy | 1.00% of ETH in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
+| Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
+| Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
+| Launch fee | currently 0.01 ETH | treasury in full |
+| Orphaned commission | the 10% carve, when unbound | treasury at `launch()` |
 
-```bash
-# Robinhood Chain testnet (46630)
-forge script script/Deploy.s.sol:DeployScript \
-  --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast --verify \
-  --verifier blockscout \
-  --verifier-url https://explorer.testnet.chain.robinhood.com/api -vvvv
+**Total trader friction is 1.30%** — 0.30% to LPs, 0.70% to buy-and-burn, 0.30%
+to the platform.
 
-# Local
-anvil
-forge script script/DeployLocal.s.sol:DeployLocal --fork-url http://127.0.0.1:8545 --broadcast
-```
+**Disclosure.** The 30 bps on the buy side (`PLATFORM_SWAP_FEE_BPS`) settles to
+`platformTreasury` as operating revenue and does **not** enter the burn loop. It
+applies to the buy leg only, because a sell's input is the project's own token
+and paying the platform in kind would leave it holding illiquid positions in
+tokens it is meant to be neutral about. `platformTreasury` is an `immutable`
+constructor argument with no setter, so redirecting it requires deploying a new
+factory.
 
-Each script asserts `block.chainid` before broadcasting, so pointing one at the
-wrong RPC aborts instead of deploying. Verification is Blockscout and needs no
-API key — chain 4663 appears on neither Etherscan v2's multichain host nor
-Basescan.
+---
 
-**Production.** `DeployMainnet.s.sol` initiates an `Ownable2Step` transfer to
-`PROD_OWNER_SAFE` for both singletons. The transfer is not complete when the
-script finishes — the Safe must call `acceptOwnership()` on each. Verify with:
+## 7. Referrals
 
-```bash
-forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $RPC
-```
+The 10% carved off at deposit (`REFERRAL_BPS` = 1000) splits into two independent
+slots. The split is expressed as a share of the carve rather than of the deposit,
+which is what lets it be retuned without touching `REFERRAL_BPS` — and therefore
+without moving the opening premium.
 
-Do not announce the factory while `pendingOwner() != address(0)`.
+| Slot | Share of the carve | Of the deposit | Binding |
+|---|---|---|---|
+| Project referrer | 80% (`PROJECT_REFERRAL_SHARE_BPS`) | 8% | written on a wallet's first deposit to that project, permanent for it |
+| Lifetime referrer | the remaining 20% | 2% | written on a wallet's first binding anywhere, permanent platform-wide |
 
-### Robinhood Chain periphery
+**A referrer has to qualify, and the two slots ask for different things.** Both
+require the referrer to hold a registered PoG quota, so farming links costs an
+attestation per throwaway wallet — a cost the oracle can price or refuse, which
+is a cost rather than a wall and is documented as such. The project slot asks for
+one thing more: a live deposit in that same project, read from state before the
+new depositor's own ETH arrives. `canBindProjectReferral` is the read-only mirror
+of that gate, so the UI does not have to reproduce it in TypeScript.
 
-Uniswap deployed V4 here themselves, and **mainnet (4663) and testnet (46630)
-share every address** — so a testnet rehearsal exercises the production address
-book unchanged.
+Self-referral is ignored, and so is a stale link — silently, because this runs
+inside `deposit` and reverting would cost a depositor their transaction over
+somebody else's referral problem. **A failed binding is not sticky:** the slot
+stays empty, so the same wallet's next deposit into the same project tries again
+and binds if the referrer has qualified since.
 
-| Contract | Address |
+**Orphaned commission is captured, not kept.** Any share that never binds moves
+to the treasury at `launch()` as public buyback reserve.
+
+**Commission unlocks only on success.** It accrues at deposit and becomes
+claimable through `claimReferralReward()` once the project reaches Phase 2. If
+genesis fails, the reserve returns to depositors through the refund path and no
+commission is ever paid.
+
+---
+
+## 8. Asset security
+
+### 8.1 The one-way valve
+
+`ToshLadderTreasury` accumulates value and terminates it.
+
+- **In:** launch fees, orphaned commission, the 1% shelf cut, the 70 bps buy-side
+  tax.
+- **Out:** the internal `_buyAndBurn` only. It buys the token through Uniswap v4
+  and sends it to `0xdead`.
+- **Absent by design:** `withdraw`, `sweep`, `rescue`, `delegatecall`. The owner
+  can curate which tokens are in the buyback rotation. The owner cannot move one
+  wei out.
+
+`addLadderToken` also derives the buyback venue from the token's own hook and
+refuses tokens this platform did not launch. Without that, an owner could list a
+token they minted, pair it in a pool only they provide liquidity to, and drain the
+reservoir one trigger at a time.
+
+### 8.2 Genesis liquidity is locked; retail LPs are not
+
+Uniswap v4 keys every position to the address that created it. The genesis
+position belongs to the hook, and the hook exposes no path that calls
+`modifyLiquidity` to reduce it. The lock is a consequence of ownership plus
+absence, not of a callback that could be edited later.
+
+Third-party LPs use their own separate positions, come and go freely, and earn
+the pool's 0.30% fee on their own terms.
+
+---
+
+## 9. Governance
+
+Ownership is the Gnosis Safe `0x2953957774482efA660921df85A1E7634ccfe27A`, a
+2-of-3 threshold. Both the factory and the treasury use OpenZeppelin's
+`Ownable2Step`, so a transfer requires the recipient to call `acceptOwnership()`.
+
+| The owner can | The owner cannot |
 |---|---|
-| V4 PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
-| PositionManager | `0x58daec3116aae6D93017bAAea7749052E8a04fA7` |
-| StateView | `0xF3334192D15450CdD385c8B70e03f9A6bD9E673b` |
-| V4Quoter | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
-| UniversalRouter | `0x8876789976dEcBfCbBbe364623C63652db8C0904` |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 10 ETH, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
+| Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 0.01 ETH) | Change `platformTreasury`, which is `immutable` |
+| Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or ETH from the genesis liquidity position |
+| Pause `createLaunch` and `registerPoG`, or blacklist an address | Use the ladder halt to withhold refunds, genesis claims or commission |
+| Curate the treasury's buyback roster | Grant mint authority to any third party |
+| Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
 
-Each was confirmed by reading its code size on both chains, not by citation. The
-UniversalRouter is stock Uniswap from the `Uniswap/contracts` monorepo, but a
-newer build than Ethereum mainnet's: its `IV4Router.ExactInputSingleParams`
-carries the six-field shape with `minHopPriceX36`. That matters to anything
-hand-encoding router calldata — see [`docs/ROBINHOOD_MIGRATION.md`](docs/ROBINHOOD_MIGRATION.md).
+`pause()` does not close a genesis round that is already open — a raise already
+taking money keeps taking it, because failing by missing the soft cap is the
+designed failure and gating deposits would hand the owner a unilateral veto over
+a project it already accepted money for. A shelf halt can make a buyer miss a
+price. It cannot cost anyone a balance already on the books.
 
----
-
-## Environment
-
-Copy `.env.example` to `.env`. Never commit it.
-
-```dotenv
-PRIVATE_KEY=0x...
-ROBINHOOD_RPC=https://rpc.mainnet.chain.robinhood.com   # also read by the fork suite
-ROBINHOOD_TESTNET_RPC=https://rpc.testnet.chain.robinhood.com
-TARGET_CHAIN_ID=4663
-V4_POOL_MANAGER=0x8366a39CC670B4001A1121B8F6A443A643e40951
-POG_SIGNER_ADDRESS=0x...
-PLATFORM_TREASURY=0x...
-FACTORY_ADDRESS=0x            # filled in after the first deploy
-POG_SIGNER_PRIVATE_KEY=0x...  # backend only
-```
-
-Frontend (`soat-frontend/.env.local`):
-
-```dotenv
-NEXT_PUBLIC_FACTORY_ADDRESS=0x...
-NEXT_PUBLIC_CHAIN_ID=46630           # 4663 for production
-ROBINHOOD_RPC=https://...            # server-side only; where a KEYED endpoint goes
-# NEXT_PUBLIC_RPC_URL=              # leave unset in production; see below
-POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
-```
-
-`NEXT_PUBLIC_CHAIN_ID` must name a chain `src/lib/chain.ts` registers. It throws
-at boot for an unknown id rather than falling back, because a UI silently
-pointed at a chain nobody asked for is worse than one that will not start.
-
-A paid RPC endpoint goes in `ROBINHOOD_RPC` and nowhere else.
-`NEXT_PUBLIC_RPC_URL` is read first by both `providers.tsx` and `serverRpc.ts`,
-so a keyed URL there ships the key in every bundle **and** preempts the
-server-side variable — the paid node stays billed and never called.
-`npm run check:secrets` enforces both halves.
+This is governance, not the absence of governance. The boundaries are real and so
+are the powers.
 
 ---
 
-## Frontend
+## 10. Security posture
 
-```bash
-cd soat-frontend
-npm install
-npm run dev
-```
+### 10.1 What has been verified
 
-| Route | Purpose |
+- **Bytecode.** All five contracts verify on Blockscout as `partial match`, and
+  independently on Sourcify as `match`: the runtime bytecode is byte-identical to
+  this tree, and the difference is the trailing metadata hash, which contains no
+  executable instructions.
+- **Build provenance.** The deployment is pinned to tag `deploy-4663-2026-09-12`.
+  `HOOK_CREATION_CODEHASH` is cross-checked against this tree by
+  `RecomputeInitcodeHash`, which is checkable from chain and from this repository
+  without trusting anyone.
+- **Tests.** 373 tests across 15 suites, covering the lifecycle state machine,
+  the premium identity, the same-block lock, retail LP isolation from the genesis
+  position, and that a ladder halt cannot withhold refunds. CI runs the suite
+  twice — once normally and once under `--isolate`, which charges each call the
+  way a real transaction does.
+- **Audit log.** `docs/SECURITY_AUDIT.md` is maintained in the open and records
+  defects found and closed, including documentation that disagreed with
+  behaviour, monitoring that watched the wrong contract, and paths that only
+  surfaced against real mainnet requests. There has been no third-party audit;
+  see below.
+
+### 10.2 Limits and disclosures
+
+1. **Short operating history.** The mechanisms are in place; they have not been
+   run through a long adversarial period. Read any "therefore X will happen" here
+   as a design claim, not as a historical statistic.
+2. **No third-party audit.** None has been performed. What replaces it is
+   reproducibility: independent verification on two services, a pinned build tag,
+   and a public test suite and audit log.
+3. **Early shelf release.** Around 2×, the ladder releases roughly 24.9% of the
+   live float — see §5.3. Depth has to absorb it. Span and split are parameters,
+   not constants.
+4. **Piggyback buybacks are not guaranteed to be immediate.** Under gas pressure
+   a trade will skip the buyback to protect the user's own transaction, and the
+   reservoir accumulates until someone calls `pokeBuyback()`. That call is
+   permissionless, and `STATE-06` in `monitoring/alerts.json` polls for the
+   armed-but-silent state.
+5. **The platform takes 30 bps on the buy side.** It is operating revenue and it
+   is the one fee not committed to burn — see §6. The recipient is immutable with
+   no setter.
+6. **PoG depends on off-chain infrastructure.** Eligibility relies on gas-history
+   indexing and Blockscout API quota. Exhausting the window temporarily refuses
+   *new* registrations; quotas already issued, deposits already made, and the
+   refund path are unaffected.
+7. **Single-chain deployment.** Liveness and finality are inherited from
+   Robinhood Chain and its Arbitrum Orbit sequencer. That chain's mainnet went
+   live in July 2026.
+8. **Governance is a multisig, not a burned key.** The powers in §9 are real. What
+   they exclude is any path that moves user funds.
+
+---
+
+## Appendix A · Current mainnet deployment
+
+Tag `deploy-4663-2026-09-12`, block 61056709, Robinhood Chain (`4663`).
+
+| Component | Address |
 |---|---|
-| `/` | Directory and genesis dashboard |
-| `/launch` | Create a launch — duration picker, client-side salt mining |
-| `/projects` | All launches |
-| `/projects/<addr>` | Project terminal: deposit, launch, mint, claim, LP |
-| `/referrals` | Aggregated referral ledger and per-project claims |
-| `/admin` | Owner command center |
+| `ToshFactory` | [`0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892`](https://explorer.mainnet.chain.robinhood.com/address/0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892) |
+| `ToshLadderTreasury` | [`0x255722226720914eF5B2CD54647f21f584BD4Ea2`](https://explorer.mainnet.chain.robinhood.com/address/0x255722226720914eF5B2CD54647f21f584BD4Ea2) |
+| Governance Safe (2-of-3) | [`0x2953957774482efA660921df85A1E7634ccfe27A`](https://explorer.mainnet.chain.robinhood.com/address/0x2953957774482efA660921df85A1E7634ccfe27A) |
+| Uniswap v4 PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
 
-```bash
-npx tsc --noEmit
-npx eslint src --ext .ts,.tsx
-npm run test
-```
+`LaunchCreated` has topic0
+`0x857f6038583a34516f405db6cc1a1112e32e20ddd3d9a5297662fbc7f730d3fc`, over the
+signature `LaunchCreated(uint256,address,address,address,string,string)`.
+
+The earlier pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7` — is retired and is no longer the
+platform. It still exists and still holds a small buyback reservoir with no
+withdraw path.
+
+---
+
+## Appendix B · Constants
+
+| Constant | Value | Where | Meaning |
+|---|---|---|---|
+| `MAX_SUPPLY` | 21,000,000 | `ToshToken` | absolute per-project ceiling |
+| `GENESIS_SUPPLY` | 8,400,000 | `ToshLaunchpadHook` | minted at `launch()` — 40% of cap |
+| `GENESIS_CLAIM_SUPPLY` | 4,620,000 | `ToshLaunchpadHook` | depositor claims — 55% of genesis |
+| `GENESIS_LP_SUPPLY` | 3,780,000 | `ToshLaunchpadHook` | full-range pool seed — 45% of genesis |
+| `TIER_COUNT` | 4,000 | `ToshLaunchpadHook` | shelves in the ladder |
+| `TIER_SIZE` | 3,150 | `ToshLaunchpadHook` | tokens per shelf |
+| `BONDING_MAX` | 12,600,000 | `ToshLaunchpadHook` | ladder total — 60% of cap |
+| `TIER_STEP_E18` | 1.001902508266805824 | `ToshLaunchpadHook` | price step per shelf |
+| `REFERRAL_BPS` | 1000 | `ToshLaunchpadHook` | total referral carve — 10% |
+| `PROJECT_REFERRAL_SHARE_BPS` | 8000 | `ToshLaunchpadHook` | project referrer's share of the carve — 80% |
+| `TAX_BPS` | 100 | `ToshLaunchpadHook` | swap tax — 1.00% |
+| `PLATFORM_SWAP_FEE_BPS` | 30 | `ToshLaunchpadHook` | platform's share of the buy-side tax |
+| `PLATFORM_TAX_BPS` | 100 | `ToshLaunchpadHook` | treasury's share of shelf proceeds — 1.00% |
+| `POOL_FEE` | 3000 | `ToshLaunchpadHook` | native v4 pool fee — 0.30% |
+| `TICK_SPACING` | 200 | `ToshLaunchpadHook` | pool tick spacing |
+| `SHELF_PREMIUM_BPS` | 10500 | `ToshLaunchpadHook` | shelf base premium — 105% |
+| `PRICE_CEILING_BPS` | 10500 | `ToshLaunchpadHook` | shelf unlock ceiling — 105% |
+| `TWAP_WINDOW` | 1800 s | `ToshLaunchpadHook` | oracle window, and its manipulation depth |
+| `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open |
+| `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
+| `PIGGYBACK_MIN_GAS` | 260,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
+| `MIN_SOFT_CAP_PROD` | 0.01 ETH | `ToshFactory` | production floor for the default soft cap |
+| `MAX_LAUNCH_FEE` | 10 ETH | `ToshFactory` | ceiling on the launch fee |
+| `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
+| `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |
+| `TRIGGER_STEP` | 1 ETH | `ToshLadderTreasury` | balance that arms a buyback |
+| `SPEND_BPS` | 1000 | `ToshLadderTreasury` | share of balance spent per cycle — 10% |
+| `BATCH_SIZE` | 3 | `ToshLadderTreasury` | pools a cycle is spread across |
+| `LEGS_PER_POKE` | 1 | `ToshLadderTreasury` | legs advanced per poke |
+| `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | `ToshLadderTreasury` | buyback slippage band against TWAP |
+| `POG_GAS_FLOOR_WEI` | 0.05 ETH | off-chain oracle (`pogQuota.ts`) | lifetime gas required to qualify |
+| `maxPogAllocationLimit` | 0.1 ETH | `ToshFactory` | **on-chain** per-wallet genesis clamp |
+
+The last two rows are the trust boundary worth reading carefully: the gas floor
+is an off-chain policy the oracle applies, while the per-wallet clamp is enforced
+by the contract regardless of what the oracle signed.
 
 ---
 
@@ -526,61 +637,16 @@ npm run test
 
 | Document | What it covers |
 |---|---|
-| [`docs/WHITEPAPER_zh.md`](docs/WHITEPAPER_zh.md) | The protocol, its economics, its guarantees and its tradeoffs |
-| [`docs/PRD-v5.0.md`](docs/PRD-v5.0.md) | Product spec and state machine, reverse-extracted from source, with the D1–D4 accepted risks |
-| [`SECURITY.md`](SECURITY.md) | Reporting channel, scope, verification anchors, and what the response process can honestly promise |
-| [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) | Running audit log: trust model, test coverage, and every finding closed to date |
-| [`docs/ONCHAIN_MONITORING.md`](docs/ONCHAIN_MONITORING.md) | What is alerted on and why; config-as-code in `monitoring/alerts.json`, CI-guarded against drift |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, deploy, environment, hook salt mining, guards, troubleshooting |
+| [`docs/WHITEPAPER_zh.md`](docs/WHITEPAPER_zh.md) | 中文白皮书 |
+| [`docs/PRD-v5.0.md`](docs/PRD-v5.0.md) | Product spec and state machine, reverse-extracted from source |
+| [`SECURITY.md`](SECURITY.md) | Reporting channel, scope, and verification anchors |
+| [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) | Running audit log |
+| [`docs/ONCHAIN_MONITORING.md`](docs/ONCHAIN_MONITORING.md) | What is alerted on, and why |
 | [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Playbooks for when something is already wrong |
-| [`docs/ROBINHOOD_MIGRATION.md`](docs/ROBINHOOD_MIGRATION.md) | What moving to an Arbitrum Orbit L2 took — chiefly that `block.number` is the L1 height, so the hook reads `ArbSys` |
-| [`tosh-status/MANUAL_INTERACTION.md`](https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md) | Driving the protocol with `cast` when the frontend is down; lives in the status-page repo so it stays reachable during an outage |
+| [`docs/ROBINHOOD_MIGRATION.md`](docs/ROBINHOOD_MIGRATION.md) | What moving to an Arbitrum Orbit L2 took |
 
-Design tradeoffs and accepted risks are stated in the whitepaper's final section
-and in `PRD-v5.0.md` §11, rather than being left for a reader to discover.
-
----
-
-## Repository layout
-
-```
-Tosh-Core/
-├── src/
-│   ├── ToshFactory.sol         # Platform singleton: PoG, referrals, launches, deposits
-│   ├── ToshLaunchpadHook.sol   # Per-project V4 hook: genesis, pool, shelf ladder, tax
-│   ├── ToshLadderTreasury.sol  # Platform-wide buyback reservoir (one-way valve)
-│   ├── ToshToken.sol           # ERC-20, minted on demand by its hook only
-│   └── libraries/              # HookDeployLib · HookMiner · ToshCloneLib
-├── test/                       # 373 tests, incl. stateful invariants and test_probe* adversarial cases
-├── script/                     # Foundry deploy + verification scripts
-├── scripts/                    # Node tooling: salt miner, ABI sync, launch audit, guards
-├── monitoring/                 # alerts.json + watcher
-├── docs/                       # Whitepaper, PRD, security, monitoring, runbooks
-├── soat-frontend/              # Next.js dApp
-└── foundry.toml
-```
-
----
-
-## Troubleshooting
-
-| Symptom | Cause and fix |
-|---|---|
-| `createLaunch` reverts `InvalidHookSalt` | Salt mined against stale `defaultSoftCap` / `maxPogAllocationLimit` / duration. Re-read live values and re-mine. |
-| `createLaunch` reverts `FeeChanged` | Owner moved `launchFee` past your `expectedFee` cap. Re-read and retry. |
-| `createLaunch` reverts `NameTaken` | Name/symbol already reserved. If that round died, `releaseAbandonedName(hook)` frees it. |
-| `mintBondingCurve` reverts `NotLaunched` | The creator has not called `launch()` yet. |
-| `mintBondingCurve` reverts `SameBlockMintForbidden` | A swap landed in this block. Wait one block. |
-| `mintBondingCurve` reverts on the price gate | The market has not risen to meet the shelf. This is the gate working. |
-| `launch` reverts `LaunchWindowExpired` | More than 7 days since the deadline; depositors can `refund()`. |
-| `deposit` reverts `QuotaExceeded` | Platform-wide PoG budget spent for this window. Wait out `quotaWindowDuration`. |
-| `deposit` reverts `PerWalletCapExceeded` | Per-project cap snapshotted at creation, separate from the PoG budget. |
-| `addLadderToken` reverts `TokenNotLaunchedHere` | Only tokens launched by the bound factory can be listed. |
-| `addLadderToken` reverts `InvalidPoolKey` / `PoolNotLaunched` | The hook exists but has not run `launch()`, so there is no pool yet. |
-| `addLadderToken` reverts `TwapNotMature` | The pool's TWAP has not matured; listing is refused until it answers. |
-| Treasury holds ≥ 1 ETH and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
-| `pokeBuyback` reverts `NotArmed` | Reservoir below `TRIGGER_STEP`, or the roster is empty. |
-| `pokeBuyback` reverts `PiggybackInProgress` | A buyback is already mid-flight in this call stack. Retry after it settles. |
-| Every swap on a pool reverts | Check `treasury.factory()` is wired. This now degrades to skipped buybacks rather than bricking pools. |
+If this document and the source disagree, the source wins.
 
 ---
 
