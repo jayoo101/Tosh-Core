@@ -178,8 +178,13 @@ export function PublishListingPanel({
       {
         id: 'no-tx-hash',
         active: !hashUsable,
-        label: 'Launch transaction needed',
-        reason: 'Paste the transaction that created this launch — the signature has to name it.',
+        // Not "launch transaction". This panel can sit directly above the
+        // sidebar's own launch panel, where `launch()` is a real pending action
+        // — and a creator reading "launch transaction needed" next to a
+        // "Trigger launch" button reads it as a precondition on that, which it
+        // is not. The word has to name the transaction that ALREADY happened.
+        label: 'Creating transaction needed',
+        reason: 'Paste the createLaunch transaction that brought this project on chain — the signature has to name it.',
         tone: 'neutral',
       },
       {
@@ -203,6 +208,18 @@ export function PublishListingPanel({
         Until this is done, {symbol} appears in the directory with a letter
         sigil and no description, because everything below is held off chain and
         the registry has no row for it yet.
+      </p>
+
+      {/* This panel renders on any phase, including one where `launch()` is
+          waiting on this same creator a column away. Its heading is about the
+          directory and its button used to say "launch transaction needed", so
+          the pair read as a checklist — finish the form, then you may launch.
+          Nothing here gates anything on chain, and the only place to say so is
+          next to the form itself. */}
+      <p className="mt-gap-tight text-note leading-relaxed text-text-tertiary">
+        This is a directory listing and nothing more. Deposits, refunds and
+        triggering the launch all read the chain directly — none of them wait on
+        this, and none of them change if you never publish it.
       </p>
 
       <div className="mt-gap flex flex-col gap-gap">
@@ -232,11 +249,11 @@ export function PublishListingPanel({
             answered from a different index. */}
         {tx.status === 'manual' && (
           <Field
-            label="Launch transaction"
+            label="Creating transaction"
             value={manualHash}
             onValueChange={setManualHash}
             placeholder="0x…"
-            hint="We could not find it from the chain. Copy the createLaunch transaction hash from your wallet history or the explorer."
+            hint="We could not find it from the chain. Copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer."
           />
         )}
       </div>
