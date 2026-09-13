@@ -178,13 +178,8 @@ export function PublishListingPanel({
       {
         id: 'no-tx-hash',
         active: !hashUsable,
-        // Not "launch transaction". This panel can sit directly above the
-        // sidebar's own launch panel, where `launch()` is a real pending action
-        // — and a creator reading "launch transaction needed" next to a
-        // "Trigger launch" button reads it as a precondition on that, which it
-        // is not. The word has to name the transaction that ALREADY happened.
-        label: 'Creating transaction needed',
-        reason: 'Paste the createLaunch transaction that brought this project on chain — the signature has to name it.',
+        label: 'Launch transaction needed',
+        reason: 'Paste the transaction that created this launch — the signature has to name it.',
         tone: 'neutral',
       },
       {
@@ -210,16 +205,14 @@ export function PublishListingPanel({
         the registry has no row for it yet.
       </p>
 
-      {/* This panel renders on any phase, including one where `launch()` is
-          waiting on this same creator a column away. Its heading is about the
-          directory and its button used to say "launch transaction needed", so
-          the pair read as a checklist — finish the form, then you may launch.
-          Nothing here gates anything on chain, and the only place to say so is
-          next to the form itself. */}
-      <p className="mt-gap-tight text-note leading-relaxed text-text-tertiary">
-        This is a directory listing and nothing more. Deposits, refunds and
-        triggering the launch all read the chain directly — none of them wait on
-        this, and none of them change if you never publish it.
+      {/* Stated because the card is warn-toned and sits above the hero, which
+          during the launch window reads as a step that has to be cleared before
+          the pool can be triggered. It is not one, and a creator should not have
+          to infer that from "no gas". */}
+      <p className="mt-gap text-note leading-relaxed text-text-secondary">
+        It gates nothing. Everything below is off-chain metadata, so triggering
+        the pool, deposits, refunds and the ladder behave identically whether
+        this is filled in now, later, or long after launch.
       </p>
 
       <div className="mt-gap flex flex-col gap-gap">
@@ -243,17 +236,19 @@ export function PublishListingPanel({
           <Field label="Telegram" value={telegram} onValueChange={setTelegram} placeholder="https://t.me/…" />
         </div>
 
-        {/* Only when the chain could not be asked. A creator who can see this
-            field is a creator whose RPC will not serve the log — pointing them
-            at an explorer is the honest fallback, and it is the same question
-            answered from a different index. */}
+        {/* Only when the lookup did not answer, and the hint does not say why
+            because this cannot tell: the lookup is rate limited to six calls,
+            it 503s when no endpoint will serve the log, and this state also
+            survives on a tab that was mounted before either was true. Naming
+            one of those would be a guess printed as a diagnosis — and the
+            explorer answers the same question regardless of which it was. */}
         {tx.status === 'manual' && (
           <Field
-            label="Creating transaction"
+            label="Launch transaction"
             value={manualHash}
             onValueChange={setManualHash}
             placeholder="0x…"
-            hint="We could not find it from the chain. Copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer."
+            hint="We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash from your wallet history or the explorer."
           />
         )}
       </div>
