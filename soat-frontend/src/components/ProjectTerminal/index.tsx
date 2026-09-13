@@ -400,9 +400,25 @@ export default function ProjectTerminal({ project, about, header }: {
                 LP panel, as a three-paragraph explainer of the pool fee, the
                 swap tax and the shelf split. Every figure on it is a platform
                 constant — 1.30%, 99%, full-range — identical for every
-                project and already restated on the LP panel's own subtitle
-                (`full range · 0.30% pool fee accrues to LPs`). A card that
-                cannot change between projects is not a project page.
+                project. A card that cannot change between projects is not a
+                project page.
+
+                That reasoning stands. The sentence that used to follow it did
+                not: it said all three figures were "already restated on the LP
+                panel's own subtitle (`full range · 0.30% pool fee accrues to
+                LPs`)". That subtitle carries full-range and the 0.30% POOL fee;
+                the 99% is on the trust pipeline; and 1.30% is nowhere in the
+                tree — `TAX_BPS` is exported from contracts.ts and read by no
+                component, so the hook's 1.00% swap toll and the 1.00% sell-side
+                burn are not stated to a user anywhere. Audited 2026-09-13.
+
+                Left that way DELIBERATELY, decided the same day, because there
+                is no swap surface in this app to understate a price on: the
+                panels are genesis, shelf, LP, refund and referral, and nothing
+                here routes a V4 trade. The warning in contracts.ts is about a
+                trade UI quoting 0.30%, which does not exist. If one is ever
+                built, that warning applies to it and this note is the reason
+                the figure is not already at hand.
 
                 It is not replaced by a second About. The About slot is
                 already rendered above this column, once, from the registry
