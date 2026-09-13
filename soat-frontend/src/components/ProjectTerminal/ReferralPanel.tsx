@@ -8,6 +8,7 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
+import type { Phase } from './phase'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
@@ -56,9 +57,11 @@ const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
 // `isConnected` is gone from the props: the gate resolves wallet state itself,
 // so threading it in only gave this panel a second, staler copy of it.
 export function ReferralPanel({
-  hookAddress, symbol, userAddress, refetch,
+  hookAddress, symbol, userAddress, refetch, phase,
 }: {
   hookAddress: Address
+  /** Which half of this panel's job is live. See the early return below. */
+  phase:       Phase
   /** Goes into `?p=` so the link lands on this project. Advisory — `/r/[code]`
    *  falls back to the directory when it cannot resolve a ticker, so the
    *  placeholder symbol the terminal substitutes when the registry has no name
@@ -133,6 +136,23 @@ export function ReferralPanel({
       tone: 'neutral',
     }),
   })
+
+  // This panel does two jobs and they belong to different phases. Sharing a link
+  // only means something while deposits are open, so outside genesis the card is
+  // an explanation of a programme that can no longer be entered on this project
+  // — which is what it was doing on a launched page, three cards tall, reading
+  // "0 ETH · Nothing to claim".
+  //
+  // The exception is not cosmetic. Commission accrues at deposit and unlocks at
+  // `launch()`, so `bonding` is the FIRST phase in which it can be withdrawn.
+  // Hiding unconditionally would remove the claim button from the project page at
+  // the exact moment the money became claimable, leaving `/referrals` as the only
+  // route to it. So it hides when there is nothing to collect, and stays for a
+  // wallet that is owed something.
+  //
+  // Placed after every hook rather than at the top: the reads decide the answer,
+  // and returning before them would change the hook order between phases.
+  if (phase !== 'genesis' && claimable === 0n) return null
 
   return (
     <Card

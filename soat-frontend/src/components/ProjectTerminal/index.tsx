@@ -474,6 +474,7 @@ export default function ProjectTerminal({ project, about, header }: {
             hookAddress={hookAddress}
             symbol={symbol}
             userAddress={userAddress}
+            phase={phase}
             refetch={() => { void refetch() }}
           />
         )}
