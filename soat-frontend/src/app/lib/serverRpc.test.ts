@@ -146,6 +146,46 @@ describe('serverRpcUrl — NEXT_PUBLIC_RPC_URL is the chain-agnostic override', 
   })
 })
 
+describe('publicFallbackClient — a second opinion, never a second chain', () => {
+  it('dials this chain\'s public endpoint when the deployment is configured elsewhere', async () => {
+    const { publicFallbackClient } = await load({
+      NEXT_PUBLIC_CHAIN_ID: MAINNET,
+      NEXT_PUBLIC_RPC_URL: 'https://nd-471-397-430.example/key',
+    })
+    const client = publicFallbackClient()
+    expect(client?.chain?.id).toBe(4663)
+    expect(client?.transport.url).toBe(MAINNET_URL)
+  })
+
+  it('is null when the configured endpoint already IS the public one', async () => {
+    // Otherwise a caller reads a second identical answer to a second identical
+    // request as new information, and a real absence looks like two failures.
+    const { publicFallbackClient } = await load({
+      NEXT_PUBLIC_CHAIN_ID: MAINNET,
+      NEXT_PUBLIC_RPC_URL: MAINNET_URL,
+    })
+    expect(publicFallbackClient()).toBeNull()
+  })
+
+  it('is null when nothing was configured, for the same reason', async () => {
+    const { publicFallbackClient } = await load({ NEXT_PUBLIC_CHAIN_ID: MAINNET })
+    expect(publicFallbackClient()).toBeNull()
+  })
+
+  it('never hands out another chain\'s public endpoint', async () => {
+    // The invariant this whole module exists for, restated for the new arm: a
+    // fallback is only ever the asked-for chain's own endpoint.
+    const { publicFallbackClient } = await load({
+      NEXT_PUBLIC_CHAIN_ID: MAINNET,
+      NEXT_PUBLIC_RPC_URL: 'https://keyed.example/mainnet',
+      ROBINHOOD_TESTNET_RPC: 'https://keyed.example/testnet',
+    })
+    expect(publicFallbackClient()?.transport.url).toBe(MAINNET_URL)
+    expect(publicFallbackClient(46630)?.transport.url).toBe(TESTNET_URL)
+    expect(publicFallbackClient(46630)?.chain?.id).toBe(46630)
+  })
+})
+
 describe('serverPublicClient — chain and transport cannot disagree', () => {
   it('binds the client to the chain whose endpoint it dialled', async () => {
     // The original defect was structural: `chain:` and `transport:` were chosen

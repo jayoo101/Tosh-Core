@@ -137,6 +137,46 @@ export function serverPublicClient(chainId: number = TARGET_CHAIN_ID): PublicCli
   return client
 }
 
+const publicClientCache = new Map<number, PublicClient>()
+
+/**
+ * The same chain, reached through its own public endpoint instead of whatever
+ * this deployment was configured with.
+ *
+ * For reads where the configured endpoint can be *capable of less* than the
+ * public one rather than wrong. Historical `eth_getLogs` is the case in hand: a
+ * non-archive node serves current state perfectly and cannot answer for a log
+ * from last week, so a provider that is the right choice for every other read
+ * in this app is the wrong one for that single query.
+ *
+ * `null` when the configured endpoint already IS the public one, so a caller
+ * cannot repeat an identical request and read the second identical answer as
+ * new information.
+ *
+ * Restricted to reads of already-public data, and it is deliberately NOT what
+ * `assertServerChain` probes — that guards endpoints whose answers authorise
+ * something, and this one is chosen by us rather than configured, so the chain
+ * is fixed by construction. Widening this to an authenticating read would
+ * reintroduce exactly the cross-chain confusion this module exists to prevent.
+ */
+export function publicFallbackClient(chainId: number = TARGET_CHAIN_ID): PublicClient | null {
+  const url = PUBLIC_FALLBACK[chainId]
+  if (!url || url === serverRpcUrl(chainId)) return null
+
+  const cached = publicClientCache.get(chainId)
+  if (cached) return cached
+
+  const chain = chainId === TARGET_CHAIN_ID ? targetChain : CHAINS_BY_ID[chainId]
+  if (!chain) return null
+
+  const client = createPublicClient({
+    chain,
+    transport: http(url, { timeout: 6_000 }),
+  }) as PublicClient
+  publicClientCache.set(chainId, client)
+  return client
+}
+
 /**
  * Cached per endpoint: the answer cannot change without a redeploy, and the
  * auth-critical callers run on the hot path of a user-facing POST.

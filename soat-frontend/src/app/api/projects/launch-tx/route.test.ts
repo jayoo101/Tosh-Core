@@ -22,8 +22,10 @@ const TX = '0x14b37467062e3295123ab033d1a8e9abed20ca210c3a4998d7016756d8637493'
 
 interface Calls {
   reads:    string[]
-  /** One entry per `eth_getLogs`, as `[fromBlock, toBlock]` verbatim. */
+  /** One entry per `eth_getLogs` on the CONFIGURED endpoint, `[from, to]` verbatim. */
   scans:    [string, string][]
+  /** The same, for the public endpoint the route consults second. */
+  publicScans: [string, string][]
   blocks:   bigint[]
 }
 
@@ -35,14 +37,28 @@ let creator: string | null
 let fullRangeError: Error | null
 /** Which windowed scans should return the log. `'all'` includes the full range. */
 let logVisibleIn: 'all' | 'window' | 'none'
+/**
+ * What the public endpoint serves, and whether there is one at all — `'absent'`
+ * is the deployment already pointed at the public URL, where a second identical
+ * request would only produce a second identical answer.
+ */
+let publicLogVisibleIn: 'all' | 'window' | 'none' | 'absent'
 
 const HEAD = 61_795_000n
 /** genesisDeadline - genesisDuration, i.e. the creation timestamp. */
 const CREATED_AT = 1_789_283_281n
 
-vi.mock('@/app/lib/serverRpc', () => ({
-  assertServerChain: async () => chainOk,
-  serverPublicClient: () => ({
+/**
+ * One endpoint. The two the route consults differ only in what they serve and
+ * where their scans are recorded, so asserting on `publicScans` proves which
+ * endpoint answered rather than merely that something did.
+ */
+function endpoint(
+  log: () => 'all' | 'window' | 'none',
+  scans: () => [string, string][],
+  rangeError: () => Error | null,
+) {
+  return {
     readContract: async ({ functionName }: { functionName: string }) => {
       calls.reads.push(functionName)
       if (functionName === 'creator') {
@@ -62,25 +78,43 @@ vi.mock('@/app/lib/serverRpc', () => ({
     },
     request: async ({ params }: { params: [{ fromBlock: string; toBlock: string }] }) => {
       const { fromBlock, toBlock } = params[0]
-      calls.scans.push([fromBlock, toBlock])
+      scans().push([fromBlock, toBlock])
       const isFullRange = fromBlock === '0x0' && toBlock === 'latest'
-      if (isFullRange && fullRangeError) throw fullRangeError
-      if (logVisibleIn === 'none') return []
-      if (logVisibleIn === 'window' && isFullRange) return []
+      const err = rangeError()
+      if (isFullRange && err) throw err
+      if (log() === 'none') return []
+      if (log() === 'window' && isFullRange) return []
       return [{ transactionHash: TX }]
     },
-  }),
+  }
+}
+
+vi.mock('@/app/lib/serverRpc', () => ({
+  assertServerChain: async () => chainOk,
+  serverPublicClient: () => endpoint(
+    () => logVisibleIn,
+    () => calls.scans,
+    () => fullRangeError,
+  ),
+  publicFallbackClient: () => publicLogVisibleIn === 'absent' ? null : endpoint(
+    () => publicLogVisibleIn as 'all' | 'window' | 'none',
+    () => calls.publicScans,
+    () => null,
+  ),
 }))
 
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
-  calls = { reads: [], scans: [], blocks: [] }
+  calls = { reads: [], scans: [], publicScans: [], blocks: [] }
   chainOk = true
   creator = CREATOR
   fullRangeError = null
   logVisibleIn = 'all'
+  // Default to there being no second endpoint, so each test that involves one
+  // says so, and the rest assert the configured endpoint's behaviour alone.
+  publicLogVisibleIn = 'absent'
 })
 
 afterEach(() => {
@@ -175,6 +209,40 @@ describe('GET /api/projects/launch-tx', () => {
     expect(calls.scans).toHaveLength(2)
     expect(calls.scans[0]).toEqual(['0x0', 'latest'])
     expect(calls.scans[1][1]).not.toBe('latest')
+  })
+
+  it('asks the public endpoint when the configured one serves no logs at all', async () => {
+    // The production failure. A non-archive node answers `creator()` and every
+    // other read in this app, and has no `LaunchCreated` log from last week —
+    // which at the call site is indistinguishable from the launch not existing.
+    logVisibleIn = 'none'
+    publicLogVisibleIn = 'all'
+
+    const res = await get(HOOK)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ txHash: TX, creator: CREATOR })
+
+    // Both legs were spent on the configured endpoint before moving on, and the
+    // answer demonstrably came from the second one.
+    expect(calls.scans).toHaveLength(2)
+    expect(calls.publicScans).toEqual([['0x0', 'latest']])
+  })
+
+  it('does not ask the public endpoint when the configured one already answered', async () => {
+    publicLogVisibleIn = 'all'
+    const res = await get(HOOK)
+    expect(res.status).toBe(200)
+    // A second opinion on a question already answered is pure latency, and this
+    // route's fast path is the common one.
+    expect(calls.publicScans).toEqual([])
+  })
+
+  it('answers 503 when neither endpoint can serve the log', async () => {
+    logVisibleIn = 'none'
+    publicLogVisibleIn = 'none'
+    const res = await get(HOOK)
+    expect(res.status).toBe(503)
+    expect(calls.publicScans).toHaveLength(2)
   })
 
   it('answers 503, uncacheable, when the hook is real but the log cannot be found', async () => {

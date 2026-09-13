@@ -25,11 +25,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { encodeEventTopics } from 'viem'
-import type { Address, Hex } from 'viem'
+import type { Address, Hex, PublicClient } from 'viem'
 
 import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI } from '@/lib/contracts'
 import { applyCors, applyRateLimit, corsPreflight } from '@/app/lib/apiGuard'
-import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
+import { assertServerChain, publicFallbackClient, serverPublicClient } from '@/app/lib/serverRpc'
 import { reportError } from '@/lib/observability'
 
 const CORS_OPTS = { methods: ['GET', 'OPTIONS'] as const } as const
@@ -79,9 +79,7 @@ const SCAN_MARGIN = 5_000n
  * STATE (an `eth_getCode` at an old block fails) but retains headers to block
  * one, so a bisection over timestamps works where one over `getCode` does not.
  */
-async function creationBlock(hook: Address): Promise<bigint> {
-  const client = serverPublicClient()
-
+async function creationBlock(client: PublicClient, hook: Address): Promise<bigint> {
   const [deadline, duration, head] = await Promise.all([
     client.readContract({ address: hook, abi: HOOK_ABI, functionName: 'genesisDeadline' }) as Promise<bigint>,
     client.readContract({ address: hook, abi: HOOK_ABI, functionName: 'genesisDuration' }) as Promise<bigint>,
@@ -109,8 +107,12 @@ async function creationBlock(hook: Address): Promise<bigint> {
  * to drift from `ToshFactory.sol` while still compiling. Nothing needs decoding
  * either: `transactionHash` is the whole answer, and it is on the raw log.
  */
-async function scan(hook: Address, fromBlock: bigint, toBlock: bigint | 'latest'): Promise<Hex | null> {
-  const client = serverPublicClient()
+async function scan(
+  client: PublicClient,
+  hook: Address,
+  fromBlock: bigint,
+  toBlock: bigint | 'latest',
+): Promise<Hex | null> {
   const topics = encodeEventTopics({
     abi: FACTORY_ABI,
     eventName: 'LaunchCreated',
@@ -128,6 +130,57 @@ async function scan(hook: Address, fromBlock: bigint, toBlock: bigint | 'latest'
   } as never) as { transactionHash: Hex }[]
 
   return logs[0]?.transactionHash ?? null
+}
+
+/**
+ * Both shapes of provider limit, in the order that costs least when it works.
+ *
+ * Throws only from the windowed leg, so a caller that catches gets one failure
+ * to report per endpoint rather than one per query.
+ */
+async function sweep(client: PublicClient, hook: Address, via: string): Promise<Hex | null> {
+  // The whole chain in one query. The `hook` topic is indexed, so a provider
+  // that serves logs from an index answers this in well under a second even
+  // over 60M blocks, and it needs no estimate to be correct.
+  try {
+    const hit = await scan(client, hook, 0n, 'latest')
+    if (hit) return hit
+  } catch (err) {
+    // Many providers cap the block span of a single `eth_getLogs`. That is a
+    // limit on the request, not on the chain, so this is not yet an answer.
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'projects/launch-tx', stage: 'scan-whole-chain', via, hook },
+    })
+  }
+
+  // Reached both when the query above threw and when it returned nothing, and
+  // the second case is why this is not an `else`: a provider that clamps an
+  // over-wide range instead of rejecting it answers an empty set, which is
+  // indistinguishable from "no such log" at the call site. Treating empty as
+  // final would strand exactly the creators this route exists for, on exactly
+  // the providers most likely to serve them.
+  const est = await creationBlock(client, hook)
+  const from = est > SCAN_MARGIN ? est - SCAN_MARGIN : 0n
+  return scan(client, hook, from, est + SCAN_MARGIN)
+}
+
+/**
+ * The configured endpoint, then this chain's public one if it is a different
+ * host.
+ *
+ * The second is not redundancy against an endpoint being down — it is for an
+ * endpoint that is up, correct, and serving less. A non-archive node answers
+ * every other read in this app perfectly and cannot produce a `LaunchCreated`
+ * log from last week, which is indistinguishable here from the launch not
+ * existing. That is worth a second opinion from a node known to keep them,
+ * for one read of data that is public in every explorer.
+ */
+function endpoints(): [string, PublicClient][] {
+  const list: [string, PublicClient][] = [['configured', serverPublicClient()]]
+  const fallback = publicFallbackClient()
+  if (fallback) list.push(['public', fallback])
+  return list
 }
 
 type Resolution =
@@ -154,39 +207,16 @@ async function resolve(hook: Address): Promise<Resolution> {
   if (cached) return { status: 'found', txHash: cached, creator }
 
   let txHash: Hex | null = null
-
-  // The whole chain in one query. The `hook` topic is indexed, so a provider
-  // that serves logs from an index answers this in well under a second even
-  // over 60M blocks, and it needs no estimate to be correct.
-  try {
-    txHash = await scan(hook, 0n, 'latest')
-  } catch (err) {
-    // Many providers cap the block span of a single `eth_getLogs`. That is a
-    // limit on the request, not on the chain, so this is not yet an answer.
-    reportError(err, {
-      surface: 'api-route',
-      extra: { route: 'projects/launch-tx', stage: 'scan-whole-chain', hook },
-    })
-  }
-
-  // Reached both when the query above threw and when it returned nothing, and
-  // the second case is why this is not an `else`: a provider that clamps an
-  // over-wide range instead of rejecting it answers an empty set, which is
-  // indistinguishable from "no such log" at the call site. Treating empty as
-  // final would strand exactly the creators this route exists for, on exactly
-  // the providers most likely to serve them.
-  if (!txHash) {
+  for (const [via, endpoint] of endpoints()) {
     try {
-      const est = await creationBlock(hook)
-      const from = est > SCAN_MARGIN ? est - SCAN_MARGIN : 0n
-      txHash = await scan(hook, from, est + SCAN_MARGIN)
+      txHash = await sweep(endpoint, hook, via)
     } catch (err) {
       reportError(err, {
         surface: 'api-route',
-        extra: { route: 'projects/launch-tx', stage: 'scan-window', hook },
+        extra: { route: 'projects/launch-tx', stage: 'scan-window', via, hook },
       })
-      return { status: 'unavailable' }
     }
+    if (txHash) break
   }
 
   // A hook whose `creator()` answered but whose creating log cannot be found is
@@ -194,11 +224,11 @@ async function resolve(hook: Address): Promise<Resolution> {
   // there. Retrying against a fuller node can change the answer, so this must
   // not be cached or reported as an absence.
   //
-  // Reported without an exception because nothing threw: both scans were served
-  // and both came back empty. That combination is the one failure here with no
-  // stack to point at, so without this it is invisible — which is how it went
-  // unnoticed that this route answered 503 for a launch whose log the public RPC
-  // returns in under a second.
+  // Reported without an exception because nothing need have thrown: every scan
+  // may have been served and every one come back empty. That combination is the
+  // one failure here with no stack to point at, so without this it is invisible
+  // — which is how it went unnoticed that this route answered 503 for a launch
+  // whose log the public RPC returns in under a second.
   if (!txHash) {
     reportError(new Error('LaunchCreated log not served for a hook that answered creator()'), {
       surface: 'api-route',
