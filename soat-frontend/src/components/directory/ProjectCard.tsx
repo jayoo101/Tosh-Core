@@ -32,7 +32,7 @@ import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtEth } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
 import type { ProjectRow } from '@/app/lib/supabase'
-import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
+import { CLOCK_UNSYNCED, formatCountdown, useNowSec } from '@/components/ui'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
 
@@ -137,12 +137,27 @@ function coarse(seconds: number): string {
  * what is still ticking for it is the creator's window to call `launch()`,
  * after which refunds open to everyone.
  */
-function Remaining({ deadline, tab }: { deadline: bigint; tab: DirectoryProject['tab'] }) {
+function Remaining({
+  deadline, tab, precise = false,
+}: {
+  deadline: bigint
+  tab: DirectoryProject['tab']
+  /** Feature card: tick seconds. Grid cards stay at the two-unit form. */
+  precise?: boolean
+}) {
   const nowSec = useNowSec()
   if (nowSec === CLOCK_UNSYNCED) return <span>&nbsp;</span>
 
   const target = tab === 'launching' ? deadline + LAUNCH_WINDOW_SECONDS : deadline
-  return <span>ends in {coarse(Number(target) - nowSec)}</span>
+  const left = Number(target) - nowSec
+  if (precise) {
+    return (
+      <span className="font-mono tabular-nums text-brand">
+        {left <= 0 ? 'closed' : formatCountdown(left)}
+      </span>
+    )
+  }
+  return <span>ends in {coarse(left)}</span>
 }
 
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
@@ -346,11 +361,19 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               <span className="font-mono tabular-nums text-text-primary">
                 {fmtEth(p.totalEth)} ETH
               </span>
-              <span>target {fmtEth(p.softCap)}</span>
+              <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-pill bg-surface-hover">
               <div className="tosh-gradient-bg h-full rounded-pill" style={{ width: `${pct}%` }} />
             </div>
+            <div className="mt-1.5 font-mono text-micro text-text-tertiary">
+              target {fmtEth(p.softCap)}
+            </div>
+          </div>
+        ) : p.tab === 'launching' ? (
+          <div className="flex items-center justify-between gap-gap rounded-input border border-warning/30 bg-warning/5 px-3 py-2 font-mono text-micro uppercase text-warning">
+            <span>waiting on creator</span>
+            <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-card border-t border-border-subtle pt-4">
