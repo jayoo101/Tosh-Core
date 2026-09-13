@@ -854,12 +854,12 @@ status page**, so this step is a matter of pointing at it rather than
 assembling anything mid-incident.
 
 > **Why that guide is not in this repository.** It used to be
-> `docs/MANUAL_INTERACTION.md` here, which made this step unexecutable: this
-> repository is private, so the URL returned 404 to exactly the users the step
-> exists to help. All 463 lines of it are user-facing and none of it is
-> operator-only, so it moved to the public status-page repository, which is
-> also the host least likely to be down at the same time as the app. There is
-> no second copy to drift.
+> `docs/MANUAL_INTERACTION.md` here, and it moved for two reasons that still
+> hold now that this repository is public. All 463 lines of it are user-facing
+> and none of it is operator-only, so it belongs with the other user-facing
+> surface; and the status-page repository is the host least likely to be down at
+> the same time as the app, which is precisely when this link gets sent. There
+> is no second copy to drift.
 
 ---
 

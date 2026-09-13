@@ -61,6 +61,17 @@ slither-*.log
 # set that scripts/checkSlitherFindings.mjs gates §5.7 against. It is ~20 KB,
 # it is the thing a re-run is compared to, and it has to be in the tree.
 
+# ─── Captured tool output ────────────────────────────────────────────────────
+# Redirected stdout from forge/tsc/eslint runs. Four of these were tracked —
+# including a `check.txt` whose entire content was the word "hi" — so a public
+# clone shipped one machine's console scrollback. Every one regenerates from the
+# command that made it, and a committed copy is stale from the next commit on.
+gasreport.txt
+tsc-out.txt
+lint-out.txt
+check.txt
+*-out.txt
+
 # ─── Local scratch ───────────────────────────────────────────────────────────
 # Anvil fork snapshots and one-off scratch files from debugging sessions.
 .fork-*.json

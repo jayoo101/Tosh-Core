@@ -18,7 +18,7 @@ Please do not open a public issue for anything that could put funds at risk.
 
 **What to include.** A description of the flaw, the contract and function, and
 — if you have one — a Foundry test that reproduces it. The test is worth more
-than the prose; `test/` carries 357 tests across 13 files, 17 of them
+than the prose; `test/` carries 373 tests across 13 files, 17 of them
 adversarial `test_probe*` cases, and one of those —
 `test_probeG3_immatureTwapIsRefusedAtListing` in
 `test/ToshV5Attack.t.sol` — is the model for what a useful report looks like.

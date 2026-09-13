@@ -77,12 +77,16 @@ script is that rule, checked against the chain instead of remembered. Nothing
 is lost by waiting — an unlisted token costs the treasury nothing, and the
 window closes on the clock by itself.
 
-Newer deployments enforce this in the contract, and the script tells you which
-kind you are looking at. The treasury holding the live reservoir is the older
-kind and cannot be upgraded to the newer one, so for that one your signature
-and this script are the whole control. `SECURITY_AUDIT.md` §2.3 is the full
-account, including our own view that holding it this way is weaker than fixing
-it in code.
+**Since 2026-09-12 the contract enforces this itself.** The live treasury
+(`0x255722226720914eF5B2CD54647f21f584BD4Ea2`) is built from source in which
+`addLadderToken` reads the pool's TWAP and reverts `TwapNotMature` unless it
+answers, so a listing inside the 30-minute window is refused on chain rather
+than by your discipline. Run the script anyway: it tells you which kind of
+treasury you are pointed at, and a rule checked twice costs seconds. The
+predecessor treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` never got the
+gate and never can — it is no longer the platform, and it owns nothing you
+would be asked to sign for. `SECURITY_AUDIT.md` §2.3 is the full account,
+including our own view of the trade while it was still held off chain.
 
 If you want to verify any of this rather than take our word for it, the
 contracts are source-verified on the explorer and the function list above is
@@ -162,13 +166,19 @@ now is more useful than discovering it during one.
 
 This document was the recruiting input to **PM-D4**, which closed once three
 reachable signers existed, the Safe was built, and §1 named the channel (handles
-in the offline vault, not in this repository). Ownership of the factory and
-treasury still moves to the Safe
-(**PM-C2** — mechanism already rehearsed end to end on the test network), and
-the factory address can be announced publicly (**PM-C3**, which is deliberately
-gated behind that transfer, so nobody is handed a contract whose original
-deployer can still control it).
+in the offline vault, not in this repository).
 
-Until C2 the brake is a single key held by one person, which is exactly the
-arrangement `PRD-v5.0.md` §11 D2 names as voiding its own decision to ship
-without a timelock.
+**PM-C2 has since closed too, and that changes what your key is.** Both
+singletons are now owned by the Safe — checkable in one call each:
+
+```
+cast call 0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892 "owner()(address)"        # factory
+cast call 0x255722226720914eF5B2CD54647f21f584BD4Ea2 "owner()(address)"        # treasury
+cast call 0x2953957774482efA660921df85A1E7634ccfe27A "getThreshold()(uint256)" # 2
+```
+
+Both answer with the Safe, and `pendingOwner()` is zero on both, so the
+`Ownable2Step` handoff is complete rather than queued. The brake is therefore a
+two-of-three signature and no longer a single key held by one person — which is
+the arrangement `PRD-v5.0.md` §11 D2 required in exchange for shipping without a
+timelock. Your signature is one of the three that makes that true.
