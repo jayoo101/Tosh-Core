@@ -116,9 +116,21 @@ Remove-Variable key
 主网密钥放在了命令行上,而命令行正是 shell 历史记录的东西。活的 PoG 密钥就是这么
 泄露的(`SECURITY_AUDIT.md` §5.32)。
 
-机器侧的检查在第 4 步。`preflightMainnet.mjs` 会从 `.env.production` 的
-`PRIVATE_KEY` 推导出部署者,并断言它与 PoG 签名者、Safe 和金库都不同 —— 也就是
-`requireDistinctRoles` 会在广播中途做的那四条断言。
+机器侧的检查在第 4 步。`preflightMainnet.mjs` 断言部署者与 PoG 签名者、Safe 和
+金库都不同 —— 也就是 `requireDistinctRoles` 会在广播中途做的那四条断言。
+
+**它读的是 `DEPLOYER_ADDRESS`,不再是 `PRIVATE_KEY`(2026-09-13 起)。** 在那之前
+它做的是 `new ethers.Wallet(process.env.PRIVATE_KEY).address`:一个纯读、纯拒绝的
+预检脚本,为了算出一个**公开**值而把主网部署密钥载入进程内存。真正的代价不在那一
+瞬间,而在之后 —— 它是这把密钥在广播结束后仍然必须留在 `.env.production` 里的唯一
+理由,因为删掉它预检就跑不起来了。`check:secrets` 把这个名字定级为 `absent` 并且每
+次运行都报它,而让这条 finding 无法执行的正是这个脚本本身。
+
+所以现在的规矩是:`DEPLOYER_ADDRESS` 常设,`PRIVATE_KEY` **只在真正要跑
+`forge script --private-key` 的那段时间里存在**,广播一结束就把余额扫走、把那行删
+掉。两个都填时脚本会比对它们是否一致而不是让其中一个默默胜出 —— 广播是用**密钥**
+签的,而检查读的是**地址**,不一致就意味着包括"给这个地址打钱"在内的每一项检查都在
+描述一个永远不会签名的钱包。
 
 ## 2. 生成 PoG 签名者 EOA
 
@@ -360,6 +372,26 @@ git 历史里已经把漏掉 `set -a` 这件事称为"它里面第二条错的�
    (`SECURITY_AUDIT.md` §5.32)。D3 从它那里继承了一件残留:两个仓库根文件里
    的明文 `PRIVATE_KEY`,现已都清除,而让 `check:secrets` 在此期间保持绿色的
    那两个缺口也已关闭(`PRE_MAINNET_CHECKLIST.md` §5.2)。
+
+   > **"现已都清除"在写下时是真的,现在不是 —— 更正于 2026-09-13。**
+   > `check:secrets` 今天是 **1 条 finding**,不是 31/31 全绿,而那一条就是
+   > 根目录 `.env.production` 里的 `PRIVATE_KEY`。它不是当初漏掉的那一份:
+   > 2026-09-12 的重新部署需要它,于是它被重新填了回来(部署者 nonce 从 C1
+   > 结束时的 11 走到了现在的 18)。这不是违规操作 —— 广播确实需要那把密钥。
+   > 是**广播之后没有收尾**。
+   >
+   > 收尾在今天变得可做,而在今天之前不可做:让它无法执行的是
+   > `preflightMainnet.mjs` 自己要靠这把密钥推导部署者地址(见 §1),所以删掉
+   > 密钥等于弄坏预检。现在预检读 `DEPLOYER_ADDRESS`,这把密钥在链上和脚本里
+   > 都不再有任何功能:工厂与 ladder 金库的 owner 都是 Safe
+   > `0x2953957774482efA660921df85A1E7634ccfe27A`,`pendingOwner` 均为零地址,
+   > 这个 EOA 除了残余余额之外一无所有。
+   >
+   > 顺带记下一件 `check:secrets` 明确点名而非默默放过的事:
+   > `LAUNCH_CREATOR_PRIVATE_KEY` 也明文躺在同一个文件里。它是
+   > `local-only` 级,所以那是它预期的状态而不是 finding —— 但明文静态存储的
+   > 含义不变:一次磁盘镜像、一次异地备份、一个文件同步客户端,任一都会把它变成
+   > 暴露。
 8. **PM-E2 —— 重新指向那一半已完成。** 四个 `MONITOR_*` GitHub 变量都持有主网
    值,2026-09-11 核对过:`MONITOR_FACTORY` 是规范工厂,`MONITOR_TREASURY` 是
    规范金库,`MONITOR_EXPECTED_OWNER` 是所有者 Safe,而
