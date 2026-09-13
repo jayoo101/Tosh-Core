@@ -168,14 +168,25 @@ jobs:
       # Every suite here is mutation-tested — the original defect was
       # reintroduced and the tests were confirmed to fail — so they pin
       # behaviour rather than merely covering lines.
+      #
+      # `scripts/` carries its own package.json, and one of the suites below
+      # spawns `rotateGasRate.mjs template` to prove the CLI parses the signed
+      # message out of this tree rather than keeping its own copy. Without this
+      # step that test failed on a missing `ethers` — a red check that named the
+      # dependency instead of the drift it exists to catch, which is the same as
+      # not having the check.
+      - name: Install script dependencies
+        working-directory: scripts
+        run: npm ci
+
       - name: Server behaviour tests
         run: |
           set -euo pipefail
           npm test 2>&1 | tee /tmp/vitest.log
 
       # The Foundry job has had a floor guard since it was written; this side
-      # never did, and SECURITY_AUDIT.md §5.13 and §5.14 both recorded the
-      # asymmetry rather than closing it.
+      # never did, and two separate reviews recorded the asymmetry rather than
+      # closing it.
       #
       # It is not redundant with the tests passing. A suite that stops being
       # collected — a renamed file that no longer matches the include glob, a
@@ -258,7 +269,7 @@ jobs:
       # The tree was at zero high/critical advisories when this gate was added,
       # held there by the `overrides` block in package.json. The gate exists so
       # that going back to nine is a red check rather than something someone
-      # notices by chance months later. See docs/SECURITY_AUDIT.md §5.1.
+      # notices by chance months later.
       #
       # `npm audit` exits non-zero for two unrelated reasons: it found
       # advisories, or it could not reach the registry to look. Only the first
