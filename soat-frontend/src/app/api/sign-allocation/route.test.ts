@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { privateKeyToAccount } from 'viem/accounts'
 
 /**
  * Two properties of the attestation the oracle signs, both of which were
@@ -25,7 +26,16 @@ vi.mock('viem', async (importOriginal) => {
   return { ...actual, verifyMessage: async () => authRecovers }
 })
 
-vi.mock('@/app/lib/onchainNonce', () => ({ fetchPogNonce: async () => 0n }))
+/**
+ * `pogSigner` is what the factory will accept, so by default it answers with the
+ * address `TEST_PK` derives — the agreeing case, which is the precondition for
+ * every other assertion here rather than the thing one of them measures.
+ */
+let onchainSigner: string
+vi.mock('@/app/lib/onchainNonce', () => ({
+  fetchPogNonce:  async () => 0n,
+  fetchPogSigner: async () => onchainSigner,
+}))
 vi.mock('@/lib/observability', () => ({ reportError: () => {} }))
 
 /**
@@ -68,6 +78,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', FACTORY)
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('POG_SIGNER_PRIVATE_KEY', TEST_PK)
+  onchainSigner = privateKeyToAccount(TEST_PK as `0x${string}`).address
   // Keep the limiter and the rate store in-process.
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
   vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', undefined as unknown as string)
@@ -131,6 +142,23 @@ describe('POST /api/sign-allocation — what ends up in the digest', () => {
     const res = await post({ contractAddress: '0x000000000000000000000000000000000000dEaD' })
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/factory/i)
+  })
+
+  it('refuses to sign with a key the factory will not accept', async () => {
+    // The failure this replaces was not a rejection, it was a 200. A key that
+    // parses but belongs to another address signs a well-formed attestation, so
+    // the route answered success and `registerPoG` reverted on the recovered
+    // signer — every user paying gas to discover a server misconfiguration,
+    // with nothing server-side recording one.
+    //
+    // It is worth checking on every request, not at boot, because the
+    // production key is write-only in Vercel: no guard script and no CI job can
+    // read the value in use, so signing time is the only place the comparison
+    // can happen at all.
+    onchainSigner = '0x000000000000000000000000000000000000dEaD'
+    const res = await post()
+    expect(res.status).toBe(500)
+    expect((await res.json()).error).toMatch(/misconfigured/i)
   })
 
   it('still rejects a well-formed request whose wallet auth does not recover', async () => {

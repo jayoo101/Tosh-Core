@@ -47,7 +47,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 
-import { fetchPogNonce } from '@/app/lib/onchainNonce'
+import { fetchPogNonce, fetchPogSigner } from '@/app/lib/onchainNonce'
 import { reportError } from '@/lib/observability'
 import {
   FACTORY_ADDRESS,
@@ -336,24 +336,64 @@ export async function POST(req: Request) {
   const { account, err } = loadOracleAccount()
   if (!account) return corsify(req, clientError(err, 500))
 
-  // ── Live on-chain nonce sync ─────────────────────────────────────────
+  // ── Live on-chain reads: nonce, and who the factory will accept ──────
+  //
+  // Paired rather than sequential because the signer read must not cost the
+  // route a second round trip: it is the same host, and `Promise.all` makes the
+  // added latency the difference between one call and the slower of two.
   let onchainNonce: bigint
+  let onchainSigner: Address
   try {
-    onchainNonce = await fetchPogNonce(
-      contractAddress as Address,
-      userAddress     as Address,
-      chainId,
-    )
+    ;[onchainNonce, onchainSigner] = await Promise.all([
+      fetchPogNonce(
+        contractAddress as Address,
+        userAddress     as Address,
+        chainId,
+      ),
+      fetchPogSigner(contractAddress as Address, chainId),
+    ])
   } catch (e) {
-    console.error('[sign-allocation] Failed to fetch on-chain nonce', e)
+    console.error('[sign-allocation] Failed to read factory state', e)
     // Every PoG registration dies here when the RPC is unreachable, and the
     // user-facing text ("try again") is indistinguishable from a blip. Without
     // this report a total outage of the signing path looks like silence (#26).
     reportError(e, {
       surface: 'api-route',
-      extra: { route: 'POST /api/sign-allocation', stage: 'fetchPogNonce', chainId },
+      extra: { route: 'POST /api/sign-allocation', stage: 'factoryReads', chainId },
     })
     return corsify(req, clientError('Unable to sync nonce from chain — try again', 503))
+  }
+
+  // ── The key is the key the factory accepts ───────────────────────────
+  //
+  // Refusing costs the caller a 500 and nothing else. Signing costs the caller
+  // gas: the attestation would be well-formed, the client would submit it, and
+  // `registerPoG` would recover an address that is not `pogSigner` and revert.
+  // So on a wrong key this is the difference between a route that is down and a
+  // route that is quietly charging every user to fail, and the second one is
+  // indistinguishable from the users being at fault.
+  //
+  // Fail-closed on mismatch, but note the asymmetry with the block above: an
+  // unreadable factory is not evidence of a bad key, and it already returns 503
+  // there. Only a definite disagreement lands here.
+  if (onchainSigner.toLowerCase() !== account.address.toLowerCase()) {
+    console.error(
+      `[sign-allocation] POG signer key mismatch: configured key derives ` +
+      `${account.address}, factory ${contractAddress} expects ${onchainSigner}`,
+    )
+    reportError(new Error('POG signer key does not match factory.pogSigner()'), {
+      surface: 'api-route',
+      extra: {
+        route: 'POST /api/sign-allocation',
+        stage: 'signerIdentity',
+        chainId,
+        configured: account.address,
+        expected: onchainSigner,
+      },
+    })
+    return corsify(req, clientError(
+      'Signing oracle is misconfigured — allocations are unavailable', 500,
+    ))
   }
 
   // ── Proof-of-Gas allocation derivation ───────────────────────────────

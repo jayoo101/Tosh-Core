@@ -23,6 +23,7 @@
     "check:supabase": "node scripts/checkSupabaseRls.mjs",
     "check:sentry": "node scripts/checkSentry.mjs",
     "check:secrets": "node scripts/checkSecretStore.mjs",
+    "check:pog": "node scripts/checkProdPogFlow.mjs",
     "check:blockscout": "node ../scripts/checkBlockscoutKey.mjs",
     "check:doc-symbols": "node ../scripts/checkDocSymbols.mjs",
     "guard:v4math": "node scripts/runTsGuard.mjs scripts/checkV4Math.ts",

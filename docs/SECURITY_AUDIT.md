@@ -5718,3 +5718,65 @@ disproves §7.3's open hypothesis, 0.269 passes/hour under a 15-minute cron
 against 0.27 under an hourly one, making the cadence knob inert and the real
 detection latency a 3.3 h median with a 7.2 h worst case, which `WATCHER-05` now
 states on every pass rather than leaving to be inferred.*
+
+### 5.37 Thirty-third sweep — the signing key was never compared to the signer, and the check that would prove it sat behind the check that refused the probe
+
+The finding is one line of absence. `loadOracleAccount()` in
+`sign-allocation/route.ts` read `POG_SIGNER_PRIVATE_KEY`, confirmed that viem
+would **parse** it, and signed. Nothing compared the address it derives to
+`factory.pogSigner()`, which is the only address `registerPoG` will accept.
+
+A key that parses but belongs to somewhere else is therefore not a failure the
+server can have. It is a failure the **users** have: the attestation is
+well-formed, the route answers 200, the client submits it, and
+`ToshFactory.sol:603` reverts on the recovered signer. Every depositor pays gas
+to discover a deployment fault, under an error that names the signature rather
+than the configuration, and no server-side signal is produced at all. Of the
+things that can go wrong in this repository, "returns success while charging
+every user to fail" is close to the worst shape, because it is indistinguishable
+from the users being at fault.
+
+Put next to the other five fields of the digest, the omission is stark. `nonce`
+is read live from chain, and `onchainNonce.ts`'s own header explains why in these
+exact terms — a stale one means "the user pays gas to revert". `contract_` is
+pinned to `FACTORY_ADDRESS`. `chainId` is checked against the allow-list.
+`sender` and `maxAlloc` come from an authenticated scan. Signer identity was the
+one input still taken on the word of an environment variable — and the one that
+cannot be audited from outside the runtime, because the production key is
+write-only in Vercel, so no guard script and no CI job can ever see the value in
+use. A check on it can only run where the key is.
+
+**Not the first attempt at it, and the reason the first was not enough.** The
+same comparison was added client-side on 2026-09-10 (`PRE_MAINNET_CHECKLIST.md`,
+PM-D1 walkthrough): `PogScanButton` reads `pogSigner()` and refuses to send when
+it disagrees with the `issuer` the route returns. That note is honest about its
+two limits — it is diagnosis and not enforcement, since any client can ignore it,
+and it deliberately falls **open** when `issuer` is absent or the read fails, so
+as never to block a user the chain would accept. Both limits are right for a
+client. Neither is acceptable as the only copy of the check, which is what it was
+for three days. The server copy fails closed and cannot be reached around.
+
+**The part worth recording is where it goes.** The check runs before
+`readScannedGas`, and that placement retires a manual step rather than adding a
+gate. Two paragraphs of the PM-D1 walkthrough are built on the premise that
+identity could be proven only by a real attestation, hence only by a wallet with
+genuine cross-chain gas history, hence only by a human — and that premise was an
+artefact of the comparison living *after* the eligibility floor. Ahead of it, the
+status code carries the answer: an ephemeral in-memory key with no history, no
+funds and no launch gets **409 "no completed gas scan"** if the key is right and
+**500** if it is not, because a mismatch is refused a stage earlier. The probe
+that §PM-D1 says "cannot show identity" now shows it, unchanged. A check moved
+in front of a refusal is worth more than the same check behind it.
+
+*2026-09-13 — §5.37 records the thirty-third sweep, which came out of asking what
+the top item on a "needs the operator, carries real risk" list was actually
+waiting for. Its finding is that `sign-allocation` validated that the PoG signing
+key parses and never that it is the key the factory accepts, so a wrong-but-valid
+key would answer 200 and revert every depositor's registration with nothing
+recorded server-side. Fixed by reading `factory.pogSigner()` alongside the nonce
+already read — parallel, so it costs no round trip — and refusing with a Sentry
+report on disagreement. Recorded alongside it: the client-side guard added
+2026-09-10 was diagnosis that fails open, not enforcement; and because the new
+check sits ahead of the eligibility floor, the ephemeral-wallet probe that could
+not prove identity now proves it, which closed the last manual step of PM-D1
+without the funded wallet it had been waiting on.*
