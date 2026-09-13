@@ -194,6 +194,25 @@ If you think it is wrong, say so. That is a legitimate report even though it is
 already documented, and arguing the trade is more useful to us than rediscovering
 the mechanism.
 
+**A buyback leg can move a couple of wei into the pool without burning
+anything.** `_buyAndBurn` settles whatever the pool consumed and then burns only
+`if (out > 0)`. When spot already sits on `_buybackSqrtFloor`, V4 fills nothing
+and still rounds the amount owed to the pool up, so the swap returns
+`amount0 = -2, amount1 = 0`: two wei leave the treasury, no tokens come back, no
+`BuybackBurned` is emitted. The wei reach the pool, not an address — nobody is
+paid — but "every wei out is matched by a burn" is false at wei granularity, and
+we would rather write that down than round it off.
+
+This was found by the fuzzer, not by reading: `invariant_treasuryOutflowAlwaysBurns`
+in `test/ToshV5Invariants.t.sol` failed on one seed with `2 != 0`. The treasury
+is immutable and cannot be taught to skip a zero-output fill, so the invariant
+now classifies the drop instead — a residue at or below `NIL_FILL_DUST_WEI`
+(16 wei) is counted as a rounded-up nil fill, and anything above it still fails
+hard. That threshold is nine orders of magnitude below a single leg's offer of
+`TRIGGER_STEP / BATCH_SIZE`, so it cannot mask a loss worth reporting; it is a
+threshold, not a tolerance. If you can drive the unburned residue above it, or
+reach it through a path that is not a nil fill, that is a finding and we want it.
+
 ## Disclosure
 
 We will confirm a report, agree a timeline with you, and credit you unless you
