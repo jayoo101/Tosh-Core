@@ -6086,3 +6086,76 @@ the same pairing. The
 through-line with §5.37 is the same one, one turn further along — there, a value
 nobody could check and a secret nobody could delete; here, a dial nobody could turn,
 a migration nobody could paste, and guards whose failures nobody could read.*
+
+### 5.39 Thirty-fifth sweep — the recovery path answered 503 for the one launch it was written to recover
+
+§5.38 ended with three capabilities the repository described and production did not
+have. This is the fourth, and it is the recovery path added in the same session:
+`GET /api/projects/launch-tx`, which finds a launch's creating transaction from its
+`LaunchCreated` log so a creator whose listing never published can prove which
+launch is theirs. On its first real request, for the mainnet `fat frog` hook
+`0x0fbC9c29E9E6eFD390a4CaEb886b6b6fcEa7AdFE`, production answered
+`503 could not read the creating transaction from the chain`. Not once — every
+time, in 0.74–1.38 seconds.
+
+**The timing was the finding.** The route's fallback locates the creating block by
+bisecting block timestamps, which is ~26 *sequential* `getBlock` calls over 61.8M
+blocks. A sub-second 503 cannot contain that, so the fallback was not running. And
+the same query, run locally against this chain's public endpoint with the same
+factory address and the same `encodeEventTopics` output, returned the log in under
+a second — txHash `0x14b37467…6d8637493`, matching what had already been verified
+by hand. `checkDeployedChain.mjs --url https://toshx.xyz` confirmed the deployment
+targets chain 4663 and the current factory, so the request was well-formed and the
+answer existed.
+
+**First defect: the fallback was reachable only from a `catch`.** Providers that
+cap the block span of a single `eth_getLogs` reject an over-wide range, and that
+rejection was the only path into the windowed scan. A provider that *clamps* the
+range instead of rejecting it answers an empty set — which at the call site is
+indistinguishable from "no such log" — and empty fell straight through to the
+`unavailable` return without the window ever being tried. The window scan was
+skipped in precisely the case it was written for.
+
+**Second defect, underneath it: the configured endpoint serves no historical logs
+at all.** Fixing the first did not change the answer, which narrowed it further.
+The endpoint answers `creator()`, `genesisDeadline()`, `genesisDuration()` and
+every other read this app performs, and does not hold a `LaunchCreated` log from
+last week — the behaviour of a non-archive node, which is what the free tier of
+the provider chosen in §5.38's RPC work deploys. Correct, healthy, and serving
+*less*, in the one way this route depends on. The route now consults this chain's
+own public endpoint after the configured one has spent both its legs, for a single
+read of data that is public in every explorer.
+
+`publicFallbackClient` keeps `serverRpc.ts`'s invariant rather than working around
+it: it returns the asked-for chain's own public URL or nothing, chain and transport
+still chosen by one expression, and **null when the deployment is already pointed
+there** — otherwise a second identical request answers a second identical time and
+a real absence reads as two independent failures. It is deliberately outside what
+`assertServerChain` probes, because that guard exists for endpoints whose answers
+authorise something; this one is chosen by us, not configured, so its chain is
+fixed by construction. Widening it to an authenticating read would reintroduce the
+cross-chain confusion that module exists to prevent.
+
+**Why it stayed quiet is the part worth keeping.** Every arm of the resolver
+funnelled into a bare `catch {}`. Sentry received nothing, so a 503 carried no
+stack, no stage and no endpoint — the failure was not merely unfixed but
+*undiagnosable*, and the one shape it actually took throws no exception at all:
+every scan served, every scan empty. That case now reports explicitly, with a
+constructed error, because it is the only failure here with nothing to point at.
+The route's own test file had covered the range-capped provider that *throws*,
+which is the failure a reader imagines, and not the one that clamps.
+
+It also stayed quiet because it was harmless. `PublishListingPanel` falls through
+to a paste field when the lookup fails, so no launch was ever unrecoverable — only
+harder to recover than designed, and by an amount no user would report. A recovery
+path that degrades politely is a recovery path whose failure nobody mentions.
+
+*Sweep note: found by probing production to unblock a manual backfill, not by
+reading the code — the route had never run against a real launch, and the sweep
+that added it could not have caught this. The through-line with §5.38 is exact:
+there, three capabilities the tree described and production lacked; here, a fourth,
+written in the same session, describing a chain read the configured endpoint would
+not serve. The new part is the mechanism of silence. §5.38's guards were unreadable
+because a crash ate the diagnostic; this one was unreadable because there was never
+a diagnostic to eat.*
+
