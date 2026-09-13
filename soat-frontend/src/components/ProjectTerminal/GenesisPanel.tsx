@@ -14,6 +14,7 @@ import {
 import { fmt, fmtFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { PogScanButton } from './PogScanButton'
+import { DepositSuccessDialog } from './DepositSuccessDialog'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENESIS PANEL  ·  Phase 1
@@ -54,6 +55,18 @@ export interface GenesisProps {
 
 export function GenesisPanel(p: GenesisProps) {
   const [amount, setAmount] = useState('')
+
+  /**
+   * This wallet's stake once the confirmed deposit is counted, or `null` while
+   * there is nothing to celebrate.
+   *
+   * Carried as the figure rather than as a boolean because `p.userDeposited`
+   * cannot answer the question at the moment the dialog opens: it comes off the
+   * terminal's 12s bulk poll, and the refetch that will update it has only just
+   * been asked for. Adding the amount that was just sent is exact and needs no
+   * round trip.
+   */
+  const [stakeAfterDeposit, setStakeAfterDeposit] = useState<bigint | null>(null)
 
   const amountWei = (() => {
     const t = amount.trim()
@@ -119,7 +132,12 @@ export function GenesisPanel(p: GenesisProps) {
     isBusy: txBusy,
   } = useTxAction({
     action: 'deposit',
-    onConfirmed: () => { p.refetch(); setAmount('') },
+    onConfirmed: () => {
+      // Before `setAmount('')` clears the field this reads from.
+      setStakeAfterDeposit(p.userDeposited + (amountWei > 0n ? amountWei : 0n))
+      p.refetch()
+      setAmount('')
+    },
   })
 
   const submitDeposit = useCallback(() => {
@@ -353,6 +371,14 @@ export function GenesisPanel(p: GenesisProps) {
           )}
         </div>
       </Card>
+
+      <DepositSuccessDialog
+        open={stakeAfterDeposit !== null}
+        onClose={() => setStakeAfterDeposit(null)}
+        userAddress={p.userAddress}
+        symbol={p.symbol}
+        deposited={stakeAfterDeposit ?? 0n}
+      />
     </div>
   )
 }

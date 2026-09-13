@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
+import Link from 'next/link'
 import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
@@ -7,11 +8,11 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
-import { buildReferralLink, buildShortReferralLink, useReferralCode } from '@/lib/useReferral'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
+import { ReferralLinkBox, useReferralLink } from './referralLink'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
  *  `toFixed` would print "10.0%" and they are quoted as prose. */
@@ -66,8 +67,6 @@ export function ReferralPanel({
   userAddress: Address | undefined
   refetch:     () => void
 }) {
-  const [copied, setCopied] = useState(false)
-
   const { data: claimableRaw, refetch: refetchClaimable } = useReadContract({
     address:      hookAddress,
     abi:          HOOK_ABI,
@@ -117,30 +116,10 @@ export function ReferralPanel({
     })
   }, [hookAddress, send])
 
-  // The short code when there is one, the long `?ref=<address>` URL otherwise.
-  // Both bind identically — `/r/<code>` redirects to exactly the long form —
-  // so this is a choice about how the link READS, and there is no state in
-  // which the panel has nothing to offer. While the code is in flight the long
-  // link is shown rather than a spinner: a link that is present and ugly is
-  // more useful than a box that might become a link.
-  const { code } = useReferralCode(userAddress)
-  const link = code
-    ? buildShortReferralLink(code, symbol)
-    : userAddress ? buildReferralLink(userAddress) : ''
-
-  const handleCopy = useCallback(() => {
-    if (!link) return
-    void navigator.clipboard?.writeText(link).then(
-      () => setCopied(true),
-      () => setCopied(false),
-    )
-  }, [link])
-
-  useEffect(() => {
-    if (!copied) return
-    const id = setTimeout(() => setCopied(false), 2_000)
-    return () => clearTimeout(id)
-  }, [copied])
+  // Short code when there is one, long `?ref=<address>` URL otherwise — see
+  // `referralLink.tsx`, which also owns the copy button, because the
+  // deposit-confirmed dialog shows the same link and must not derive it twice.
+  const link = useReferralLink(userAddress, symbol)
 
   const gate = useActionGate({
     action: 'claim commission',
@@ -172,47 +151,46 @@ export function ReferralPanel({
 
       <ActionButton gate={gate} />
 
-      {link && (
-        <div className="border border-border-subtle flex flex-col gap-2 px-4 py-3">
-          <span className="font-mono text-label text-text-tertiary">YOUR REFERRAL LINK</span>
-          <p className="font-mono text-note text-text-secondary break-all leading-relaxed">{link}</p>
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="self-start px-3 py-1.5 border border-border-subtle text-text-tertiary text-label
-                       tracking-[0.32em] uppercase font-bold
-                       hover:border-brand hover:text-brand
-                       transition-colors duration-150"
-          >
-            {copied ? 'copied' : 'copy'}
-          </button>
-          <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-            {'// '}The first link a wallet arrives on through this project binds it to you
-            here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
-            used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
-            Both bindings are permanent, and self-referral is ignored by the factory.
+      {/* The claim above is this project's only. `/referrals` is the same call
+          against every project at once, which is what a sharer with more than
+          one actually needs — and it had no entry point outside the site
+          footer. */}
+      <Link
+        href="/referrals"
+        className="font-mono text-label tracking-wider text-text-tertiary
+                   underline decoration-dotted underline-offset-2
+                   transition-colors hover:text-brand"
+      >
+        {'→ '}Commission across every project
+      </Link>
+
+      <ReferralLinkBox link={link}>
+        <p className="text-label text-text-quiet tracking-wider leading-relaxed">
+          {'// '}The first link a wallet arrives on through this project binds it to you
+          here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
+          used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
+          Both bindings are permanent, and self-referral is ignored by the factory.
+        </p>
+        {!hasAttestation && (
+          <p className="text-label text-danger tracking-wider leading-relaxed">
+            {'// '}This link will not pay at all yet. A referrer needs their own PoG
+            attestation, so register PoG before sharing — until then a deposit
+            made through it still goes through, but the whole {REFERRAL_PCT}% falls
+            through to the buyback reservoir instead of accruing to you, and
+            neither binding is made.
           </p>
-          {!hasAttestation && (
-            <p className="text-label text-danger tracking-wider leading-relaxed">
-              {'// '}This link will not pay at all yet. A referrer needs their own PoG
-              attestation, so register PoG before sharing — until then a deposit
-              made through it still goes through, but the whole {REFERRAL_PCT}% falls
-              through to the buyback reservoir instead of accruing to you, and
-              neither binding is made.
-            </p>
-          )}
-          {hasAttestation && !projectLegIsLive && (
-            <p className="text-label text-warning tracking-wider leading-relaxed">
-              {'// '}This link pays you {LIFETIME_PCT}% but not the {PROJECT_PCT}%. The
-              project leg only binds to a referrer who already holds a deposit in this
-              project, and you do not — so deposit here before sharing, or that
-              {' '}{PROJECT_PCT}% goes to the buyback reservoir instead of to you. Deposits
-              made through your link in the meantime still succeed, and the binding is
-              retried on each one, so it starts paying as soon as you have staked.
-            </p>
-          )}
-        </div>
-      )}
+        )}
+        {hasAttestation && !projectLegIsLive && (
+          <p className="text-label text-warning tracking-wider leading-relaxed">
+            {'// '}This link pays you {LIFETIME_PCT}% but not the {PROJECT_PCT}%. The
+            project leg only binds to a referrer who already holds a deposit in this
+            project, and you do not — so deposit here before sharing, or that
+            {' '}{PROJECT_PCT}% goes to the buyback reservoir instead of to you. Deposits
+            made through your link in the meantime still succeed, and the binding is
+            retried on each one, so it starts paying as soon as you have staked.
+          </p>
+        )}
+      </ReferralLinkBox>
     </Card>
   )
 }

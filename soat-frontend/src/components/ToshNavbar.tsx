@@ -21,7 +21,7 @@ const WalletPip = dynamic(
 )
 
 /**
- * Two routes, and the reference design's third is deliberately not one.
+ * Three routes. The reference design's fourth ("How it works") is still not one.
  *
  * THERE IS NO "HOW IT WORKS" ENTRY. It was `/#how-it-works`, then briefly a
  * `/docs` page, and it is now neither. A documentation route has to describe
@@ -32,17 +32,26 @@ const WalletPip = dynamic(
  * needs it is already scrolling. When the mechanics settle, a real route can
  * come back; a page that restates them today is a liability, not a feature.
  *
+ * `/referrals` is a different kind of third. It is not documentation: it is
+ * the only place a wallet can see every project's commission and claim it.
+ * Leaving it in the footer (and, later, only in the connected-wallet drawer)
+ * meant a depositor who had just earned the 8 % project leg could not find
+ * the desk. The drawer stays, because commission is keyed to an address; the
+ * navbar is how an unconnected visitor learns the desk exists.
+ *
  * "AGENT DIRECTORY" WAS `/`. The directory used to live inline on the landing
  * page, so the landing page was the directory. It has its own route now, with
  * the filtering and sorting that do not belong on a landing page, and the home
  * page keeps a teaser that links here. The wordmark is the way home.
  *
- * Both entries survive to 390px. With the optional third gone there is no
- * longer anything here that may drop, so the render below has no width branch.
+ * Three labels do not fit at 390px next to CONNECT. `Agent Directory` sheds
+ * its first word below `sm`, which is the 52px the bar actually needed; the
+ * other two labels stay in full because they are the short ones.
  */
 const NAV = [
-  { href: '/projects', label: 'Agent Directory', exact: false },
-  { href: '/launch',   label: 'Launch',          exact: false },
+  { href: '/projects',  label: 'Directory',  full: 'Agent Directory', exact: false },
+  { href: '/launch',    label: 'Launch',     full: 'Launch',          exact: false },
+  { href: '/referrals', label: 'Referrals',  full: 'Referrals',       exact: false },
 ] as const
 
 /** MeritX Navbar — sticky, wallet drawer via WalletPip. Hidden on /admin. */
@@ -86,11 +95,12 @@ export function ToshNavbar() {
             {CHAIN_BYLINE}
           </span>
 
-          {/* Not `hidden sm:flex` as a block: /launch and the directory are the
-              two things a visitor came to do, and /launch has no other way in,
-              so both must survive to 390px. */}
+          {/* Not `hidden sm:flex` as a block: /launch has no other way in, and
+              /referrals was invisible for exactly as long as it lived only
+              below the fold. All three survive to 390px; Directory is the one
+              that shortens (see NAV). */}
           <div className="flex items-center gap-1 min-w-0">
-            {NAV.map(({ href, label, exact }) => {
+            {NAV.map(({ href, label, full, exact }) => {
               const active = exact ? pathname === href : pathname?.startsWith(href)
               return (
                 <Link
@@ -101,7 +111,12 @@ export function ToshNavbar() {
                       ? 'text-brand bg-brand/10'
                       : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}`}
                 >
-                  {label}
+                  {full === label ? label : (
+                    <>
+                      <span className="sm:hidden">{label}</span>
+                      <span className="hidden sm:inline">{full}</span>
+                    </>
+                  )}
                 </Link>
               )
             })}

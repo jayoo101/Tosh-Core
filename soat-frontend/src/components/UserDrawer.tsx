@@ -45,6 +45,8 @@
  */
 
 import { useCallback, useEffect, useMemo } from 'react'
+import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
 import {
   useAccount,
   useDisconnect,
@@ -459,6 +461,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
             }
             onClaimed={refetchAll}
           />
+          <ReferralLedgerLink onNavigate={onClose} />
         </div>
 
         <DrawerFooter />
@@ -547,6 +550,38 @@ function DrawerHeader({
         </button>
       </div>
     </header>
+  )
+}
+
+/**
+ * The address-keyed way into `/referrals`.
+ *
+ * The page enumerates every project holding commission for this wallet and
+ * claims each one. The navbar now names the route so an unconnected visitor
+ * can find it; this row is still here because commission is keyed to an
+ * address, and every other panel in the drawer is already about the
+ * connected one. Closing the drawer on navigate is the point of `onNavigate`.
+ */
+function ReferralLedgerLink({ onNavigate }: { onNavigate: () => void }) {
+  return (
+    <section className="px-4 pb-4 pt-2">
+      <Link
+        href="/referrals"
+        onClick={onNavigate}
+        className="flex items-center justify-between gap-3 rounded-xl border border-border-subtle/70
+                   bg-surface-card/50 p-4 transition-colors hover:border-brand/40"
+      >
+        <span className="min-w-0">
+          <span className="block font-mono text-micro font-bold tracking-widest text-brand/70">
+            REFERRAL LEDGER
+          </span>
+          <span className="mt-1 block text-note text-text-secondary">
+            Commission from every project, and the claims
+          </span>
+        </span>
+        <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-text-tertiary" />
+      </Link>
+    </section>
   )
 }
 
