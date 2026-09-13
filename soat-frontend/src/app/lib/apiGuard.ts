@@ -1,8 +1,7 @@
 /**
  * apiGuard.ts  —  Production hardening primitives for Next.js Route Handlers
  * ───────────────────────────────────────────────────────────────────────────
- *  Pre-mainnet item #6 — now PM-F1 in `docs/PRE_MAINNET_CHECKLIST.md`, which is
- *  where the numbering is actually defined.  Provides three composable
+ *  Provides three composable
  *  primitives that every public API route under `src/app/api/**` should adopt:
  *
  *    • `applyCors(res, req, opts)`   — closed-by-default CORS allow-list,
@@ -186,8 +185,10 @@ const TRUSTED_PROXY_HOPS = (() => {
  * `x-vercel-forwarded-for` and `true-client-ip` and calling them "the only
  * unspoofable options". A header is only unspoofable if the edge that sets it
  * is actually in front, and this app deploys to Vercel with no Cloudflare:
- * `.vercel/project.json` names the project, there is no `vercel.json`, no
- * `wrangler.toml`, and no Cloudflare configuration anywhere in the tree.
+ * `.vercel/project.json` names the project, `vercel.json` only registers the
+ * watch-ping cron (it is not an edge config and does not put another proxy
+ * in front), there is no `wrangler.toml`, and no Cloudflare configuration
+ * anywhere in the tree.
  *
  * Vercel sets `x-vercel-forwarded-for` and normalises `x-forwarded-for`. It
  * does not set, strip, or overwrite Cloudflare's headers — so `cf-connecting-ip`

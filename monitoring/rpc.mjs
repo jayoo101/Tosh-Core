@@ -55,9 +55,14 @@ export function createRpc(url, {
   let seq = 0
   let tail = Promise.resolve()
   let lastStartedAt = 0
+  // A 429 means 250 ms is no longer enough for the rest of this process.
+  // Staying at the measured interval after the limiter has already fired is
+  // how a pass burned its remaining retries on the next identical call.
+  let intervalMs = minIntervalMs
+  const MAX_INTERVAL_MS = 4_000
 
   async function once(method, params) {
-    const wait = minIntervalMs - (Date.now() - lastStartedAt)
+    const wait = intervalMs - (Date.now() - lastStartedAt)
     if (wait > 0) await sleep(wait)
     lastStartedAt = Date.now()
 
@@ -101,6 +106,7 @@ export function createRpc(url, {
         } catch (err) {
           lastErr = err
           if (!err.rateLimited || attempt === maxRetries) throw err
+          intervalMs = Math.min(Math.max(intervalMs * 2, backoffMs), MAX_INTERVAL_MS)
           await sleep(backoffMs * (2 ** attempt))
         }
       }
@@ -112,7 +118,7 @@ export function createRpc(url, {
     return run
   }
 
-  rpc.minIntervalMs = minIntervalMs
+  Object.defineProperty(rpc, 'minIntervalMs', { get: () => intervalMs })
   rpc.maxRetries = maxRetries
   rpc.measuredAgainst = `${MEASURED_ENDPOINT} on ${MEASURED_ON}`
   return rpc

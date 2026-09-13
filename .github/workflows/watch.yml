@@ -1,11 +1,10 @@
 # The scheduler and sink for PM-E2. `monitoring/watch.mjs` was built run-once
 # precisely so the host could be decided later; this is that decision.
 #
-# Read `docs/ONCHAIN_MONITORING.md` §7.3 for what this host is and is not before
-# relying on it. In short: findings are pushed to a pager as of 2026-09-11, and
-# the schedule underneath is still best-effort — GitHub delivered 27% of the
-# passes the hourly cron asked for over the 157 hours it was measured across.
-# Delivery was the half that could be fixed from here. Cadence is not.
+# Findings are pushed to a pager as of 2026-09-11, and the schedule underneath
+# is still best-effort — GitHub delivered 27% of the passes the hourly cron
+# asked for over the 157 hours it was measured across. Delivery was the half
+# that could be fixed from here. Cadence is not.
 #
 # Re-measured 2026-09-13, after the cadence below went to every 15 minutes:
 # 52 scheduled runs over 193.5 h against an expected 774, so 7%. The rate is the
@@ -17,6 +16,12 @@
 # widest. `WATCHER-05` in `monitoring/watch.mjs` now reports the gap on every
 # pass, because until it did, the only failure mode this host has was invisible
 # from inside it.
+#
+# The `schedule:` interval is therefore leftover best-effort, not a detection
+# bound. Tightening it again will not move 0.269. The bound is the interval of
+# whatever hits `repository_dispatch` via `/api/watch-ping` — a host that is
+# not this pool. Vercel Hobby can only cron that route daily; a 15-minute bar
+# needs an external pinger (cron-job.org or `scripts/pingWatch.mjs`).
 
 name: Watch
 
@@ -38,16 +43,15 @@ on:
   # Actions minutes are free on public repositories, so the reason for hourly no
   # longer exists and the cadence goes to every 15 minutes — which is what
   # `alerts.json` says three of the state checks warrant, and four times more
-  # often than STATE-07 was being asked the one question that guards
-  # `SECURITY_AUDIT.md` §2.3.
+  # often than STATE-07 was being asked the one question that guards the
+  # unbounded-buyback residual in SECURITY.md.
   #
-  # This still does not make the cadence a guarantee, and §7.3's verdict is
-  # unchanged: scheduled workflows are best-effort, delays of tens of minutes
-  # are routine, and the 15-minute bar in `INCIDENT_RESPONSE.md` §8 Q4 is NOT
-  # met by this host at any cron setting. What closes that is the pager, not the
-  # frequency. Minutes offset from the hour on purpose — `0 * * * *` is the
-  # busiest slot on the shared pool and odd minutes are measurably less
-  # contended.
+  # This still does not make the cadence a guarantee: scheduled workflows are
+  # best-effort, delays of tens of minutes are routine, and a 15-minute
+  # detection bar is NOT met by this host at any cron setting. What closes
+  # that is the pager, not the frequency. Minutes offset from the hour on
+  # purpose — `0 * * * *` is the busiest slot on the shared pool and odd
+  # minutes are measurably less contended.
   schedule:
     - cron: '7,22,37,52 * * * *'
 
@@ -60,6 +64,13 @@ on:
         description: 'Scan and print only — file no issues, persist no checkpoint'
         type: boolean
         default: false
+
+  # GitHub's own schedule delivered 0.269 passes/hour against a cron asking
+  # for four. Tightening the interval bought nothing. This event is how a
+  # host that is not GitHub's scheduler — Vercel cron, cron-job.org, a
+  # laptop — starts the same job. `/api/watch-ping` is the public button.
+  repository_dispatch:
+    types: [watch]
 
 # Two passes must not interleave: both would resume from the same checkpoint,
 # scan the same window, and race to push it back — duplicate findings, and
@@ -145,6 +156,14 @@ jobs:
           MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
           MONITOR_EXPECTED_POG_SIGNER: ${{ vars.MONITOR_EXPECTED_POG_SIGNER }}
           MONITOR_KEEPER_ADDRESS: ${{ vars.MONITOR_KEEPER_ADDRESS }}
+          # WATCHER-05's threshold, in minutes. A variable rather than a
+          # constant because the right value depends on which host is actually
+          # delivering passes, and that is an operational measurement rather
+          # than a code fact. Unset expands to '' and watch.mjs falls back to
+          # 480 — above the widest gap GitHub's scheduler has been observed to
+          # produce. Once an external pinger is measured, lower it here; see the
+          # WATCHER-05 block in watch.mjs for why not before.
+          MONITOR_MAX_RUN_GAP_MIN: ${{ vars.MONITOR_MAX_RUN_GAP_MIN }}
           # Through the environment, never interpolated into the script body.
           # `${{ inputs.since }}` expanded inline is a shell injection from a
           # field anyone with write access can type into.
@@ -215,6 +234,37 @@ jobs:
       # if we had only turned the job red. Cancelled runs and dry runs still
       # skip. A crash before `code=` is written is treated as not-2, and
       # report.mjs is a no-op on an empty file.
+      # The filing token's expiry is documented three ways below: in prose, in
+      # the persist step's guard, and here as a value something can act on. Only
+      # the last one can warn BEFORE it bites. Without it the whole design works
+      # but you learn about the lapse on the day it costs you a window: filing
+      # 401s, the job goes red, the checkpoint holds, and the next pass after a
+      # rotation rescans. That is safe and it is loud, and it is still three
+      # weeks later than the moment you could have acted.
+      #
+      # This step now FAILS when the date has passed. Until 2026-09-13 it only
+      # annotated, so a scheduled run stayed green through expiry and the next
+      # filing 401 just stopped writing findings — which reads as "nothing to
+      # report". A second red on a run that is about to 401 anyway is the
+      # cheaper of the two mistakes.
+      #
+      # The date lives in `monitoring/alert-token-expires`, not here. Rotating
+      # the PAT means updating that file in the same commit. GitHub exposes no
+      # API for a fine-grained token's expiry, so this is a hand-kept mirror.
+      # A stale date fails early, which is annoying and visible rather than quiet.
+      - name: Check how long the alert-filing token has left
+        if: ${{ always() && !cancelled() && inputs.dry != true }}
+        env:
+          TOKEN_PRESENT: ${{ secrets.ALERT_REPO_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$TOKEN_PRESENT" != "true" ]; then
+            echo "ALERT_REPO_TOKEN is unset, so filing uses the built-in GITHUB_TOKEN."
+            echo "That one is minted per run and cannot expire. Nothing to watch here."
+            exit 0
+          fi
+          node scripts/checkAlertTokenExpiry.mjs
+
       - name: File findings as issues
         id: file
         if: ${{ always() && !cancelled() && inputs.dry != true && steps.scan.outputs.code != '2' }}
@@ -225,10 +275,9 @@ jobs:
           # it — issues are not code and show up in no diff, which is why that
           # consequence is easy to miss. A watcher filing here publishes the
           # protocol's weak state at the moment it is weakest, and STATE-07 is
-          # the sharp case: it fires during exactly the window
-          # SECURITY_AUDIT.md §2.3 leaves unbounded, and alerts.json is public
-          # too, so the alert would supply the timing and the repository the
-          # method.
+          # the sharp case: it fires during the residual unbounded-buyback
+          # window disclosed in SECURITY.md, and alerts.json is public too, so
+          # the alert would supply the timing and the repository the method.
           #
           # The sink's NAME is a secret, not a `vars` variable. On a public
           # repository a variable would advertise that a private sink exists
@@ -240,18 +289,15 @@ jobs:
           # ALERT_REPO_TOKEN is a fine-grained PAT on jayoo101/tosh-alerts with
           # Issues: read and write and Metadata: read — exactly the five calls
           # report.mjs makes and nothing else. Issued 2026-09-11 for 90 days, so
-          # it EXPIRES 2026-12-10. On that day this job goes red with
-          # `delivery failed: GET /repos/… → 401` and stops persisting the
-          # checkpoint, which is the designed behaviour and not a bug to
-          # investigate: rotate the token and the pass that follows rescans the
-          # window it skipped. The date is written here because the alternative
-          # is someone debugging the alerting path on the one day it is only
-          # telling them its credential lapsed.
+          # it expires on the date in `monitoring/alert-token-expires`. On that
+          # day this job goes red — first from the expiry check, then from
+          # `delivery failed: GET /repos/… → 401` — and stops persisting the
+          # checkpoint. Rotate the token, rewrite that file, and the pass that
+          # follows rescans the window it skipped.
           GITHUB_TOKEN: ${{ secrets.ALERT_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           WATCH_ISSUE_REPO: ${{ secrets.ALERT_REPO }}
           # The push half of PM-E2. Unset, `report.mjs` files issues exactly as
-          # before and says on every pass that nobody is being woken, which is
-          # the state `ONCHAIN_MONITORING.md` §7.3 describes.
+          # before and says on every pass that nobody is being woken.
           #
           # Set, an unacknowledged P0 pages on EVERY pass until its issue is
           # closed or labelled `acked` — so at this cron, every 15 minutes.

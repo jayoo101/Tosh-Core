@@ -1,11 +1,11 @@
 /**
  * The PM-E2 watcher: turns `monitoring/alerts.json` into an actual monitor.
  *
- * `docs/ONCHAIN_MONITORING.md` §7 says the config is provider-neutral because
- * no two vendors agree on a format, and names the two capabilities an importer
- * must check for. Both turned out to be available on the chain's own RPC —
- * `monitoring/probeRpc.mjs` measures them — which makes a vendor optional
- * rather than load-bearing. This is the direct implementation.
+ * The config is provider-neutral because no two vendors agree on a format.
+ * The two capabilities an importer must check for both turned out to be
+ * available on the chain's own RPC — `monitoring/probeRpc.mjs` measures them —
+ * which makes a vendor optional rather than load-bearing. This is the direct
+ * implementation.
  *
  * ── Run-once, by design ─────────────────────────────────────────────────────
  *
@@ -44,6 +44,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRpc } from './rpc.mjs'
+import { buildLogQueries, matchLog } from './logQueries.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
@@ -302,7 +303,22 @@ state.treasury = TREASURY
  * every single pass — §6's noise budget spent in full on a condition nobody can
  * act on, taking the P0s with it. 8 h is above the widest gap observed, so this
  * fires when the schedule has stopped rather than when it is merely as bad as
- * usual. Raise it if the platform gets worse; do not lower it to the cron.
+ * usual.
+ *
+ * 8 h is right only while GitHub's scheduler is the only host. Once
+ * `repository_dispatch` (see watch.yml and /api/watch-ping) is delivering a
+ * cadence somebody has actually measured, this becomes the wrong number in the
+ * other direction: a pinger that dies goes unreported for a third of a day,
+ * which is most of what the second trigger was for. Lower it to a small
+ * multiple of the pinger's real interval THEN — via the
+ * `MONITOR_MAX_RUN_GAP_MIN` variable, not an edit here — and not before, or it
+ * fires on every pass. Raise it if the platform gets worse.
+ *
+ * `lastRunEvent` is what makes that measurement possible at all. Without it the
+ * gap is the only record of the schedule, and the gap cannot say WHICH host
+ * closed it — so "the pinger is working" and "the cron happened to fire" are
+ * the same observation. SECURITY.md calls the dispatch cadence unproven; this
+ * field is what will prove or disprove it.
  *
  * P1 and paging: a monitor that has not run for a third of a day is an outage of
  * the monitor, which is the same claim WATCHER-03 and -04 page for. It cannot
@@ -310,6 +326,9 @@ state.treasury = TREASURY
  * length produces one page.
  */
 const RUN_GAP_LIMIT_MIN = Number(process.env.MONITOR_MAX_RUN_GAP_MIN || 480)
+// Set by Actions on every run; 'local' when a human runs the command.
+const RUN_EVENT = process.env.GITHUB_EVENT_NAME || 'local'
+const prevRunEvent = state.lastRunEvent || null
 const prevRun = state.lastRun ? Date.parse(state.lastRun) : NaN
 const runGapMin = Number.isFinite(prevRun) ? (Date.now() - prevRun) / 60_000 : null
 if (runGapMin != null && runGapMin > RUN_GAP_LIMIT_MIN) {
@@ -317,10 +336,16 @@ if (runGapMin != null && runGapMin > RUN_GAP_LIMIT_MIN) {
     `${(runGapMin / 60).toFixed(1)} h since the previous pass (${state.lastRun}), over the ` +
     `${(RUN_GAP_LIMIT_MIN / 60).toFixed(1)} h limit. Nothing in that window was watched until ` +
     `now, so anything this pass reports may have been true for up to that long — read every ` +
-    `finding below as "first seen now", not "happened now". The schedule is best-effort and ` +
-    `not ours to fix (ONCHAIN_MONITORING.md §7.3); what this says is that it stopped rather ` +
-    `than merely ran late.`,
-    { gapMinutes: Math.round(runGapMin), limitMinutes: RUN_GAP_LIMIT_MIN })
+    `finding below as "first seen now", not "happened now". The previous pass was started by ` +
+    `${prevRunEvent || 'an unrecorded trigger'} and this one by ${RUN_EVENT}; if neither is ` +
+    `repository_dispatch then no host outside GitHub's scheduler is running this, which is the ` +
+    `gap that made the window this wide.`,
+    {
+      gapMinutes: Math.round(runGapMin),
+      limitMinutes: RUN_GAP_LIMIT_MIN,
+      event: RUN_EVENT,
+      previousEvent: prevRunEvent || undefined,
+    })
 }
 
 // A window wider than the node will answer gets split. 1,000,000 blocks was
@@ -372,105 +397,90 @@ if (head - from > MAX_SPAN) {
 
 const addressFor = { ToshFactory: FACTORY, ToshLadderTreasury: TREASURY }
 
-// Grouped so one getLogs serves every alert sharing a scope. The address-less
-// group is the one §2.1 requires and the one a fixed-address monitor cannot
-// express: hooks are CREATE2'd per project and unknowable in advance.
-const anyAddress = CONFIG.alerts.filter(a => a.scope === 'any-address')
-const scoped = CONFIG.alerts.filter(a => a.scope !== 'any-address')
-
-const byTopic = new Map()
-for (const a of [...anyAddress, ...scoped]) {
-  if (!byTopic.has(a.topic0)) byTopic.set(a.topic0, [])
-  byTopic.get(a.topic0).push(a)
-}
-
+// One getLogs per address (and one address-less query for hook events).
+// Per-topic0 queries walked the public endpoint into its 429 ceiling; OR-ing
+// topic0s under an address filter is what the node already accepts as a
+// single wide window. See monitoring/logQueries.mjs.
+const logQueries = buildLogQueries(CONFIG.alerts, addressFor)
 const LAUNCH_CREATED = CONFIG.alerts.find(a => a.event.startsWith('LaunchCreated'))
 
 let logsSeen = 0
 let logQueriesAttempted = 0
 let logQueriesSucceeded = 0
-for (const [topic0, alerts] of byTopic) {
-  const wantsAnyAddress = alerts.some(a => a.scope === 'any-address')
-  const addresses = wantsAnyAddress
-    ? [null]
-    : [...new Set(alerts.map(a => addressFor[a.contract]).filter(Boolean))]
+for (const query of logQueries) {
+  const filter = {
+    fromBlock: hex(from),
+    toBlock: hex(head),
+    topics: query.topics,
+  }
+  if (query.address) filter.address = query.address
 
-  for (const address of addresses) {
-    const filter = { fromBlock: hex(from), toBlock: hex(head), topics: [topic0] }
-    if (address) filter.address = address
+  let logs
+  logQueriesAttempted++
+  try {
+    logs = await rpc('eth_getLogs', [filter])
+  } catch (err) {
+    /* WATCHER-02 used to be page: false for every failed getLogs.
+     *
+     * That is the same failure shape WATCHER-03 was written to stop: a
+     * monitor that scanned nothing, reported a finding that does not page,
+     * and left the job green. The 2026-09-08 mainnet cutover (workflow run
+     * 34196807435) did exactly this. Every eth_getLogs 429'd, each landing
+     * as a non-paging WATCHER-02; the one paging finding was WATCHER-03,
+     * the expected cutover notice; report.mjs filed that one issue and the
+     * Actions run went green. Independently, the same window contained
+     * seven logs mapping to GOV-01/02/03/06/07 — all P0. Nobody was told.
+     *
+     * The rule, chosen against §6's noise budget rather than as "page on
+     * any RPC hiccup":
+     *
+     *   - Retry is what absorbs a transient 429. That lives in rpc.mjs.
+     *     This branch is after those retries are exhausted.
+     *   - If the skipped query's alerts include any P0, this pages. An
+     *     unchecked P0 is an outage of the monitor, not a gap to print.
+     *   - P1/P2-only queries that fail still record WATCHER-02, still do
+     *     not page. A PARAM-02 miss every cycle would spend the budget
+     *     that exists to keep the P0s unmuted.
+     *   - A pass that completed zero log queries is WATCHER-04 below,
+     *     which always pages: zero logs after a total skip is a blind
+     *     monitor, not a quiet chain. One finding, not one per topic, so
+     *     a fully wedged endpoint does not also storm the issue tracker.
+     */
+    const blindsP0 = query.alerts.some(a => a.severity === 'P0')
+    record('WATCHER-02', 'P1', blindsP0,
+      `eth_getLogs failed for ${query.address || 'any-address'} ` +
+      `(${query.alerts.map(a => a.id).join(', ')}): ${err.message}. ` +
+      `These alerts were NOT checked this pass.`,
+      { alerts: query.alerts.map(a => a.id) })
+    continue
+  }
+  logQueriesSucceeded++
+  logsSeen += logs.length
 
-    let logs
-    logQueriesAttempted++
-    try {
-      logs = await rpc('eth_getLogs', [filter])
-    } catch (err) {
-      /* WATCHER-02 used to be page: false for every failed getLogs.
-       *
-       * That is the same failure shape WATCHER-03 was written to stop: a
-       * monitor that scanned nothing, reported a finding that does not page,
-       * and left the job green. The 2026-09-08 mainnet cutover (workflow run
-       * 34196807435) did exactly this. Every eth_getLogs 429'd, each landing
-       * as a non-paging WATCHER-02; the one paging finding was WATCHER-03,
-       * the expected cutover notice; report.mjs filed that one issue and the
-       * Actions run went green. Independently, the same window contained
-       * seven logs mapping to GOV-01/02/03/06/07 — all P0. Nobody was told.
-       *
-       * The rule, chosen against §6's noise budget rather than as "page on
-       * any RPC hiccup":
-       *
-       *   - Retry is what absorbs a transient 429. That lives in rpc.mjs.
-       *     This branch is after those retries are exhausted.
-       *   - If the skipped topic's alerts include any P0, this pages. An
-       *     unchecked P0 is an outage of the monitor, not a gap to print.
-       *   - P1/P2-only topics that fail still record WATCHER-02, still do
-       *     not page. A PARAM-02 miss every cycle would spend the budget
-       *     that exists to keep the P0s unmuted.
-       *   - A pass that completed zero log queries is WATCHER-04 below,
-       *     which always pages: zero logs after a total skip is a blind
-       *     monitor, not a quiet chain. One finding, not one per topic, so
-       *     a fully wedged endpoint does not also storm the issue tracker.
-       */
-      const affected = address
-        ? alerts.filter(a => a.scope === 'any-address' || addressFor[a.contract] === address)
-        : alerts
-      const blindsP0 = affected.some(a => a.severity === 'P0')
-      record('WATCHER-02', 'P1', blindsP0,
-        `eth_getLogs failed for topic ${topic0}: ${err.message}. These alerts were NOT checked this pass.`,
-        { alerts: affected.map(a => a.id) })
-      continue
-    }
-    logQueriesSucceeded++
-    logsSeen += logs.length
+  for (const log of logs) {
+    const owner = matchLog(query, log, addressFor)
+    if (!owner) continue
 
-    for (const log of logs) {
-      // An address-less filter matches any contract that shares the signature.
-      // For hook events that is the point; for the rest it would be noise, so
-      // scoped alerts only accept their own contract.
-      const owner = alerts.find(a =>
-        a.scope === 'any-address' || addressFor[a.contract] === log.address.toLowerCase())
-      if (!owner) continue
+    record(owner.id, owner.severity, owner.page === true,
+      `${owner.event.split('(')[0]} at ${log.address}`,
+      {
+        block: Number(log.blockNumber),
+        tx: log.transactionHash,
+        playbook: owner.playbook || undefined,
+        correlate: /^(GOV-|SWITCH-0[12])/.test(owner.id) || undefined,
+      })
 
-      record(owner.id, owner.severity, owner.page === true,
-        `${owner.event.split('(')[0]} at ${log.address}`,
-        {
-          block: Number(log.blockNumber),
-          tx: log.transactionHash,
-          playbook: owner.playbook || undefined,
-          correlate: /^(GOV-|SWITCH-0[12])/.test(owner.id) || undefined,
-        })
-
-      if (LAUNCH_CREATED && topic0 === LAUNCH_CREATED.topic0) {
-        // LaunchCreated(uint256 indexed launchId, address indexed token,
-        //               address indexed hook, address creator, string, string)
-        //
-        // All three of launchId, token and hook are indexed, so they are in
-        // topics[1..3] and the data holds `creator` followed by string offsets.
-        // Reading the hook out of the data instead yields the deployer address
-        // and two ABI offsets, which is what the first draft did: the harvest
-        // silently produced nothing and STATE-01 had no hooks to poll.
-        const hook = asAddress(log.topics[3])
-        if (isHookAddress(hook) && !state.hooks.includes(hook)) state.hooks.push(hook)
-      }
+    if (LAUNCH_CREATED && String(owner.topic0).toLowerCase() === String(LAUNCH_CREATED.topic0).toLowerCase()) {
+      // LaunchCreated(uint256 indexed launchId, address indexed token,
+      //               address indexed hook, address creator, string, string)
+      //
+      // All three of launchId, token and hook are indexed, so they are in
+      // topics[1..3] and the data holds `creator` followed by string offsets.
+      // Reading the hook out of the data instead yields the deployer address
+      // and two ABI offsets, which is what the first draft did: the harvest
+      // silently produced nothing and STATE-01 had no hooks to poll.
+      const hook = asAddress(log.topics[3])
+      if (isHookAddress(hook) && !state.hooks.includes(hook)) state.hooks.push(hook)
     }
   }
 }
@@ -528,7 +538,7 @@ try {
    * from the Safe — and the only trace was a line in a log nobody reads.
    *
    * The precedent is the sweep that added this: two MONITOR_* variables went
-   * STALE and four days of green passes said nothing (SECURITY_AUDIT.md §5.36).
+   * STALE and four days of green passes said nothing.
    * A MONITOR_* variable going ABSENT is the same failure with a wider blast
    * radius, because a stale expectation still compares against something.
    *
@@ -790,6 +800,10 @@ const fullyBlind = logQueriesAttempted > 0 && logQueriesSucceeded === 0
 const blindedP0 = findings.some(f => f.id === 'WATCHER-02' && f.page)
 if (!fullyBlind && !blindedP0) state.lastBlock = head
 state.lastRun = new Date().toISOString()
+// Which trigger delivered this pass. Written even on a blind pass: the question
+// "is anything other than the cron running this" is about the schedule, not
+// about whether the scan could read the chain.
+state.lastRunEvent = RUN_EVENT
 // Written as a pair, always. A balance without the address it was read from is
 // what let a variable edit look like a drain; the two must not be able to drift.
 if (treasuryBalance != null) {
@@ -806,18 +820,27 @@ for (const f of findings) console.log(JSON.stringify(f))
 const paging = findings.filter(f => f.page)
 console.error(
   `\n[watch] chain ${chainId} · blocks ${from.toLocaleString()}-${head.toLocaleString()} · ` +
-  `${logsSeen} log(s) · ${state.hooks.length} hook(s) known · ` +
+  `${logsSeen} log(s) in ${logQueriesSucceeded}/${logQueriesAttempted} getLogs · ` +
+  `${state.hooks.length} hook(s) known · ` +
   `${findings.length} finding(s), ${paging.length} paging`
 )
+if (/rpc\.mainnet\.chain\.robinhood\.com/i.test(RPC)) {
+  console.error(
+    '        MONITOR_RPC is the public 4663 endpoint. It 429s on the seventh ' +
+    'identical call; a keyed URL in that secret is what removes the ceiling.',
+  )
+}
 // Printed on every pass, not only when WATCHER-05 fires. The threshold answers
 // "has the schedule stopped"; this line is the only place the cadence the host
 // actually delivers gets written down, and it is what a later measurement of it
 // will be read against.
 console.error(
   runGapMin == null
-    ? '        first pass on this checkpoint — no previous run to measure a gap against'
+    ? `        first pass on this checkpoint — no previous run to measure a gap against ` +
+      `(started by ${RUN_EVENT})`
     : `        ${(runGapMin / 60).toFixed(1)} h since the previous pass ` +
-      `(cron asks for 0.25 h; WATCHER-05 fires past ${(RUN_GAP_LIMIT_MIN / 60).toFixed(1)} h)`
+      `(${prevRunEvent || 'trigger unrecorded'} → ${RUN_EVENT}; ` +
+      `WATCHER-05 fires past ${(RUN_GAP_LIMIT_MIN / 60).toFixed(1)} h)`
 )
 if (gaps.length > 0) {
   console.error(`        ${gaps.length} check(s) ran without being able to check:`)

@@ -1,5 +1,5 @@
 /**
- * Tests for STATE-07 in watch.mjs.  Run by hand:  node monitoring/state07.test.mjs
+ * Tests for STATE-07 in watch.mjs.  Run:  node monitoring/state07.test.mjs
  *
  * ── Why this file is committed when no other harness in this repository is ──
  *
@@ -20,11 +20,22 @@
  * Case 4 is the load-bearing one: it restores the pre-§5.11 structure and shows
  * what that missed, so the assertions cannot pass vacuously.
  *
- * NOT a CI gate.  It runs the real script, which reaches an RPC for every check
- * other than the stubbed ones, and takes roughly a minute.  Like
- * `soat-frontend/scripts/checkSecretStore.mjs`, this is an operator command.
+ * Not on the push path, and for a reason rather than by neglect: it runs the real
+ * script five times, every selector the stub does not intercept still reaches an
+ * RPC, and that endpoint 429s on the seventh identical request.  Gating pushes on
+ * it would be slow and would put load on the thing the monitor depends on.
+ *
+ * It runs daily in `soak.yml` instead.  Until 2026-09-13 it ran only when
+ * somebody remembered to type the command, which for a harness guarding the one
+ * control holding the unbounded-buyback risk shut is not a schedule.
+ *
+ * One consequence of running the real script: if the RPC is unreachable
+ * outright, watch.mjs can exit before STATE-07 is reached, and this fails for a
+ * reason unrelated to STATE-07.  Soak gates no merges, so that costs attention
+ * rather than velocity.
  */
 import { readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
 const SRC = new URL('./watch.mjs', import.meta.url)
@@ -69,10 +80,24 @@ const stub = (opts = {}) => `async function call(to, signature, suffix = '') {
 /** The structure as it was before the fix, for the final case. */
 const OLD_BLOCK_MARKER = 'try {\n  const count = Number(BigInt(await call(TREASURY, \'ladderTokenCount()\')))'
 
+/* `fileURLToPath`, and no `shell: true`. Both halves were a Windows-only hack
+ * that would have failed on the runner this harness is scheduled on:
+ * `new URL(...).pathname.slice(1)` turns `/C:/…` into `C:/…`, which is what
+ * Windows needs, and turns POSIX `/home/runner/…` into `home/runner/…` — a
+ * RELATIVE path, resolved against the repo root, pointing nowhere. The harness
+ * would then produce no findings and every assertion below would fail for a
+ * reason that has nothing to do with STATE-07, which is the outcome this file's
+ * own header warns about. Never observed because the soak step that runs it is
+ * newer than the code.
+ *
+ * Dropping `shell: true` is the same fix twice: it is what made the path a
+ * shell word in the first place, and it is what Node ≥22 warns about (DEP0190)
+ * for passing unescaped args through a shell. There is no shell feature in use
+ * here — one executable, three literal arguments. */
 function run(source) {
   writeFileSync(COPY, source)
-  const r = spawnSync('node', [new URL(COPY).pathname.slice(1), '--dry', '--since', '1'], {
-    encoding: 'utf8', shell: true, maxBuffer: 32 * 1024 * 1024,
+  const r = spawnSync(process.execPath, [fileURLToPath(COPY), '--dry', '--since', '1'], {
+    encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
     env: {
       ...process.env,
       MONITOR_FACTORY: '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA',

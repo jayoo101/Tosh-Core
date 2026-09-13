@@ -46,7 +46,7 @@
  * absent-tier names must now be absent or empty in the local dotenv files in
  * both `soat-frontend/` and the repo root -- the root because that is where
  * `forge script` runs and therefore where a deploy key lands, which is the
- * gap PRE_MAINNET_CHECKLIST.md 5.2 found after this scan had been green for
+ * gap a 2026-09 laptop-copy sweep found after this scan had been green for
  * weeks. Presence of a non-empty assignment is the entire signal: values
  * are never read for comparison and never printed. If no such file is
  * present — the CI case, because `.env.local` is gitignored — that absence
@@ -77,6 +77,19 @@ const FRONTEND_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  *              dotenv — an operator signing key with no server-side use. The
  *              finding is inverted: presence in Vercel or GitHub is the
  *              incident, and a copy on the operator's machine is the point.
+ * `optional-pair`
+ *              turns a feature on, and needs its `pairedWith` partner to do it.
+ *              Absent is a pass; present-and-Sensitive is a pass; HALF is the
+ *              finding. Added 2026-09-14 for the two /api/watch-ping names.
+ *              `secret` was wrong for them in a way worth naming: it asserts a
+ *              Vercel row exists, so an operator who has not wired the second
+ *              scheduler yet reads a red pre-launch check for a feature that is
+ *              off by design and degrades safely (the route answers 503). A
+ *              check that is red for "not configured" is a check somebody makes
+ *              green with a dummy value, which is strictly worse than the gap.
+ *              Half-configured is the state that actually misleads: with
+ *              CRON_SECRET alone the route authenticates a ping and starts
+ *              nothing, so the pinger looks wired and the cadence never moves.
  *
  * That last tier was added on 2026-09-11 because the two keys it now covers
  * fitted no existing one, and so had been classified nowhere at all. `secret`
@@ -112,6 +125,24 @@ const INVENTORY = {
   SENTRY_AUTH_TOKEN: {
     tier: 'secret',
     why: 'org:ci scope — uploads source maps and cuts releases against the Sentry org.',
+  },
+  CRON_SECRET: {
+    tier: 'optional-pair',
+    pairedWith: 'WATCH_DISPATCH_TOKEN',
+    why: 'Shared secret on GET/POST /api/watch-ping. Vercel cron sends it as '
+       + 'Authorization: Bearer when this name is set. Unset, the route refuses rather '
+       + 'than firing an unauthenticated Actions dispatch. A leak spends Actions minutes; '
+       + 'the concurrency group on watch.yml already serialises them.',
+  },
+  WATCH_DISPATCH_TOKEN: {
+    tier: 'optional-pair',
+    pairedWith: 'CRON_SECRET',
+    why: 'Fine-grained PAT with Actions: write on jayoo101/Tosh-Core. /api/watch-ping '
+       + 'uses it to POST repository_dispatch=watch — the scheduler GitHub\'s own cron '
+       + 'is not, because that pool delivered 0.269 passes/hour no matter the interval. '
+       + 'Not ALERT_REPO_TOKEN: that one files into tosh-alerts and has no Actions scope '
+       + 'here. Contents:write is not required; GITHUB_TOKEN inside the job persists the '
+       + 'checkpoint.',
   },
   BLOCKSCOUT_API_KEY: {
     tier: 'secret',
@@ -214,20 +245,21 @@ const INVENTORY = {
     why: 'A fine-grained PAT on jayoo101/tosh-alerts with Issues:write. It exists because this '
        + 'repository went public on 2026-09-11 and the issue tracker went public with it, so the '
        + 'watcher files findings into a private repo instead — meaning this token is what keeps '
-       + 'unpublished on-chain findings unpublished. It EXPIRES 2026-12-10 (issued for 90 days); '
-       + 'watch.yml documents the date in place because the day it lapses, `assertSinkReachable` '
-       + 'turns the job red with a 401 and the checkpoint deliberately stops advancing. Unset '
+       + 'unpublished on-chain findings unpublished. It expires on the date in '
+       + '`monitoring/alert-token-expires` (issued for 90 days). The day it lapses, '
+       + '`scripts/checkAlertTokenExpiry.mjs` turns CI red and filing 401s; the checkpoint '
+       + 'deliberately stops advancing. Unset '
        + 'falls back to the per-run secrets.GITHUB_TOKEN and this repository, which is the old '
        + 'behaviour and now the wrong sink.',
   },
   PAGER_TELEGRAM_TOKEN: {
     tier: 'ci',
     why: 'A Telegram bot token. With PAGER_TELEGRAM_CHAT it turns report.mjs from a notifier into '
-       + 'a pager that pushes every P0 into the channel INCIDENT_RESPONSE.md §1 names as the '
-       + 'incident channel. Holding it means being able to post into that channel as the pager — '
-       + 'so a leak is not only eavesdropping, it is forging incident traffic to the signers. '
-       + 'MUST be set through the stdin prompt, never `gh secret set --body`: SECURITY_AUDIT.md '
-       + '§5.32\'s live PoG key leak happened exactly that way, via shell history.',
+       + 'a pager that pushes every P0 into the operators\' Telegram channel. Holding it means '
+       + 'being able to post into that channel as the pager — so a leak is not only eavesdropping, '
+       + 'it is forging incident traffic to the signers. MUST be set through the stdin prompt, '
+       + 'never `gh secret set --body`: a live PoG key leak happened exactly that way, via shell '
+       + 'history.',
   },
   ALERT_REPO: {
     tier: 'ci',
@@ -274,17 +306,17 @@ const INVENTORY = {
        + 'is set -- which is exactly what makes it dangerous: rotating the primary leaves a '
        + 'superseded key behind, in a store, readable, and this file would still report every '
        + 'row green because it never asked about a name it did not carry. That is the shape of '
-       + 'SECURITY_AUDIT.md 5.31, where the check was green throughout because it never asked '
+       + 'the 2026-09-10 sweep, where the check was green throughout because it never asked '
        + 'whether a copy existed. One name for the key, and it is the primary.',
   },
   PRIVATE_KEY: {
     tier: 'absent',
     why: 'The bare Foundry name for a deploy key, and the one this repository actually used -- '
-       + 'SECURITY_AUDIT.md 5.31 records destroying it from .env.production. Nothing in the '
+       + 'a 2026-09 sweep records destroying it from .env.production. Nothing in the '
        + 'application reads it; it exists only for `forge script --private-key`, which is a '
-       + 'terminal operation and not a deployment variable. Carried here because 5.31 and the '
+       + 'terminal operation and not a deployment variable. Carried here because that sweep and the '
        + 'POG_PRIVATE_KEY row above are the same lesson twice and this was the third instance: '
-       + 'PRE_MAINNET_CHECKLIST.md 5.2 found a plaintext PRIVATE_KEY in a repo-root '
+       + 'a laptop-copy check found a plaintext PRIVATE_KEY in a repo-root '
        + '.env.bak-premigration that every green run had missed, because a check that does not '
        + 'carry a name cannot report on it. A deploy key is the strictly worse leak -- it owns '
        + 'contracts rather than signing quota.',
@@ -363,6 +395,34 @@ for (const [name, spec] of Object.entries(INVENTORY)) {
       )
     } else {
       lines.push(`${ICON.ok} ${name} — in no remote store, as intended`)
+    }
+    continue
+  }
+
+  // Absent or fully present; never half. The partner is read from the live
+  // stores rather than from a running tally, so the two rows report the same
+  // verdict whichever order the inventory is iterated in.
+  if (spec.tier === 'optional-pair') {
+    const partner = spec.pairedWith
+    const partnerLive = live.get(partner)
+
+    if (!inVercel && !partnerLive) {
+      lines.push(`${ICON.ok} ${name} — unset, and so is ${partner}: the feature is off, which is a valid state`)
+    } else if (!inVercel) {
+      lines.push(`${ICON.bad} ${name} — missing while ${partner} is set, so the pair is half-configured`)
+      findings.push(
+        `${name} is not set in Vercel production but ${partner} is. ${spec.why} `
+        + `Half of this pair is the one state that misleads: set both, or remove both.`,
+      )
+    } else if (inVercel.type !== 'sensitive') {
+      lines.push(`${ICON.bad} ${name} — stored as "${inVercel.type}", which any collaborator can read back`)
+      findings.push(
+        `${name} is readable. ${spec.why} `
+        + `Re-add it as a Sensitive variable: vercel env rm ${name} production, then `
+        + `vercel env add ${name} production and choose Sensitive. Treat the old value as exposed and rotate it.`,
+      )
+    } else {
+      lines.push(`${ICON.ok} ${name} — sensitive (write-only), paired with ${partner}`)
     }
     continue
   }
@@ -482,7 +542,7 @@ for (const name of unclassifiedCiVar) {
 // Two directories, not one. This read `FRONTEND_ROOT` alone until 2026-09-10,
 // which meant the repo root was never opened -- and the repo root is where
 // `forge script` is run from, so it is exactly where a deploy key lands.
-// PRE_MAINNET_CHECKLIST.md 5.2 found a plaintext `PRIVATE_KEY` sitting in
+// A 2026-09 laptop-copy sweep found a plaintext `PRIVATE_KEY` sitting in
 // `.env.bak-premigration` one level above this scan, dormant only because no
 // loader looks for that filename. Scoping a laptop-copy check to the
 // application package assumes secrets only ever land where the application
@@ -532,8 +592,14 @@ function hasNonEmptyAssignment(text, name) {
 // store" is not satisfied by being missing from Vercel while sitting in a
 // dotenv on the machine that deploys -- that is the more likely of the two
 // places for it to be, not the less.
+// `optional-pair` is scanned here on the same terms as `secret`, even though the
+// remote half of it is allowed to be absent. Being optional is a statement about
+// whether the FEATURE is on, not about how the credential is stored: a PAT with
+// Actions: write and the shared secret that fires it both belong in Vercel, and
+// `scripts/pingWatch.mjs` reads them from the shell environment, which needs no
+// file on disk.
 const localScanNames = Object.entries(INVENTORY)
-  .filter(([, spec]) => spec.tier === 'secret' || spec.tier === 'absent')
+  .filter(([, spec]) => ['secret', 'absent', 'optional-pair'].includes(spec.tier))
   .map(([name]) => name)
 
 // `local-only` names are counted here and reported below rather than failed:

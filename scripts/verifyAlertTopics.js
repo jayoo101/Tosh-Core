@@ -215,6 +215,74 @@ for (const [sev, prose] of Object.entries(config.severities || {})) {
     }
 }
 
+// ─── 6. Every § names a document, and that document exists ───────────────────
+//
+// Check 5 resolves paths, so it only sees a reference that still names its
+// document AND writes it with a directory prefix. Two shapes slip past it, and
+// the deleted incident and audit docs left both behind:
+//
+//   "escalates to §5"            names no document at all
+//   "SECURITY_AUDIT.md §5.11"    names one, but with no `docs/` prefix, so
+//                                check 5's path pattern never matches it
+//
+// `why` was outside check 5's reach as well — only `playbook` and `action` were
+// read, on the theory that `why` is background rather than instruction. That
+// stopped being true the moment a `why` carried an escalation step.
+//
+// A § is worth exactly what the document beside it resolves to, so that is what
+// is asserted: find the document named before each §, and require it to be on
+// disk or allowlisted as external. `tosh-status/MANUAL_INTERACTION.md §4` is
+// the legitimate case and must keep working — it is the offline-interaction
+// guide, it lives in the status repo on purpose so it stays reachable during an
+// outage, and three alerts point a user at it.
+
+const SECTION_REF = /§\s*[\w.]+/g;
+const DOC_NAME = /([\w./-]+\.md)/g;
+
+const proseFields = [
+    ...alerts.flatMap((a) => [
+        { id: a.id, field: 'playbook', text: a.playbook },
+        { id: a.id, field: 'action', text: a.action },
+        { id: a.id, field: 'why', text: a.why },
+    ]),
+    ...(config.stateChecks || []).flatMap((s) => [
+        { id: s.id, field: 'playbook', text: s.playbook },
+        { id: s.id, field: 'action', text: s.action },
+        { id: s.id, field: 'why', text: s.why },
+    ]),
+    ...Object.entries(config.severities || {}).map(([sev, text]) => ({
+        id: `severities.${sev}`,
+        field: 'prose',
+        text,
+    })),
+];
+
+for (const { id, field, text } of proseFields) {
+    if (typeof text !== 'string') continue;
+    for (const m of text.matchAll(SECTION_REF)) {
+        // The nearest .md named before this §. Nearest rather than first,
+        // because a long `why` can cite several documents.
+        const before = text.slice(0, m.index);
+        const named = [...before.matchAll(DOC_NAME)].pop();
+        if (!named) {
+            fail(
+                `${id}: ${field} cites "${m[0]}" without naming a document, so it resolves to ` +
+                    `nothing. Write the step out instead — a responder reading this at 3am has ` +
+                    `no section to turn to.`,
+            );
+            continue;
+        }
+        const doc = named[1];
+        if (EXTERNAL_OK.test(doc)) continue;
+        if (!fs.existsSync(path.join(REPO_ROOT, doc))) {
+            fail(
+                `${id}: ${field} cites "${doc} ${m[0]}", and ${doc} is not in the repo. ` +
+                    `The section number outlived the document.`,
+            );
+        }
+    }
+}
+
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 if (!castAvailable) {

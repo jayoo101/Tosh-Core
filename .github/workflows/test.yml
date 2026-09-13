@@ -98,7 +98,7 @@ jobs:
       #
       # 336 -> 335 on 2026-09-03: `test_hookBytecode_inSyncWithArtifact` was
       # deleted with the constant it pinned, which nothing imported. See
-      # PRE_MAINNET_CHECKLIST.md §6.2. This guard is the counter-example to that
+      # a checklist item that used to name the same deletion. This guard is the counter-example to that
       # one — it caught the deletion on the first push and said what to do about
       # it, because it measures the suite rather than restating it.
       #
@@ -116,7 +116,7 @@ jobs:
       #
       # 349 -> 350 on 2026-09-04:
       # `test_piggyback_innerMutexHoldsAgainstAReentrantLadderHook`, which
-      # closes the coverage gap SECURITY_AUDIT.md §5.7 had recorded against
+      # closes the coverage gap a 2026-09 sweep had recorded against
       # itself — `_runPiggyback`'s own mutex check was reached by no test.
       #
       # 350 -> 351 on 2026-09-05:
@@ -335,9 +335,23 @@ jobs:
       # never firing again, which is invisible because "no alerts" looks exactly
       # like "nothing wrong". This also fails when a NEW event is added without
       # anyone deciding whether it should page, since an unclassified event is
-      # an unmonitored one. See docs/ONCHAIN_MONITORING.md §5.
+      # an unmonitored one. scripts/verifyAlertTopics.js is the check.
       - name: Check on-chain alert config matches the contracts
         run: node scripts/verifyAlertTopics.js
+
+      # Grouping by address (and one address-less query) is what keeps a pass
+      # under the public RPC's 7th-identical-call 429. A new alert that lands
+      # in a fourth group, or a shared topic0 that gets OR-mixed across
+      # contracts, re-opens the 2026-09-08 miss. This is offline.
+      - name: Check watcher log queries stay under the public-RPC ceiling
+        run: node monitoring/logQueries.test.mjs
+
+      # The watcher files findings with a PAT whose expiry GitHub will not
+      # tell us. The date is a hand-kept file; this step fails inside 21 days
+      # so a push goes red before the cron does. Rotate the PAT and rewrite
+      # monitoring/alert-token-expires in the same commit.
+      - name: Check the alert-filing token is not about to expire
+        run: node scripts/checkAlertTokenExpiry.mjs --soon-is-fatal
 
       # The PoG attestation digest is built three times — Solidity verifies it,
       # viem signs it in production, ethers signs it for operators — with
@@ -410,11 +424,11 @@ jobs:
       - name: Check the site's external links resolve and name this repo
         run: node scripts/checkFooterLinks.mjs
 
-      # The §5.12 sweep found SECURITY_AUDIT §1.2 scoping in a function called
+      # A 2026-09 sweep found a scope paragraph naming a function called
       # `_verifyPoGSignature` that has never existed — the PoG signature check
       # is inline in `registerPoG`. A stale name in a scope paragraph is a
-      # nuisance; the same name in INCIDENT_RESPONSE §Q4, as the red-team
-      # drill's PASS CRITERION, is a control nobody could check, because you
+      # nuisance; the same name as the red-team
+      # drill's PASS CRITERION is a control nobody could check, because you
       # cannot watch calls fail at a function that does not exist. The same
       # probe found `mintFromShelf` for `mintBondingCurve` in the invariant
       # notes. Two in one pass, in prose no compiler reads, is a class of drift.
@@ -425,7 +439,7 @@ jobs:
       - name: Check the docs name only symbols that exist
         run: node scripts/checkDocSymbols.mjs
 
-      # SECURITY_AUDIT §2.5 is the auditor's map of every narrowing cast in
+      # The lint baseline is the map of every narrowing cast in
       # `src/` and the bound each one rests on. It was hand-maintained, and by
       # 2026-09-04 it had rotted in the way that is hardest to notice: it
       # carried a `uint48` row `forge lint` no longer reports AND was missing a
@@ -436,7 +450,7 @@ jobs:
       # A count would not have caught that. This pins the SET, keyed by source
       # text rather than by line number, so inserting a comment above a cast is
       # invisible to it and a cast appearing or vanishing is not. It also fails
-      # if §2.5's prose contradicts the tool, which is the half that rotted.
+      # if the baseline contradicts the tool, which is the half that rotted.
       #
       # Needs Foundry, not npm — it shells out to `forge lint src --json` and
       # imports nothing. That is why it sits above the npm install rather than
@@ -444,7 +458,7 @@ jobs:
       - name: Check the narrowing-cast triage matches forge lint
         run: node scripts/checkLintFindings.mjs
 
-      # SECURITY_AUDIT §5.7 is the same artefact as §2.5, three times the size:
+      # The Slither baseline is the same artefact as the lint one, three times the size:
       # 71 Slither findings, each with a written disposition, all maintained by
       # hand. Running the tool on 2026-09-04 found both failure modes at once.
       #

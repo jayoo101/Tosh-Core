@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/watch-ping",
+      "schedule": "11 6 * * *"
+    }
+  ]
+}

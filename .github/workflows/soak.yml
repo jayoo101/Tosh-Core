@@ -1,54 +1,59 @@
 # The deep search that `foundry.toml` deliberately does not carry.
 #
-# Read SECURITY_AUDIT.md §5.19 first. The short version: the invariant depth knee
-# is 250, raising `foundry.toml` to 250 took `test.yml` from 7m27s to 13m12s
-# because it runs the suite twice, and this repository is private so Actions
-# minutes are billed. So `test.yml` keeps depth 100 for the fast signal on every
-# push, and the deeper search runs here once a day instead.
+# The invariant depth knee is 250, and raising `foundry.toml` to 250 took
+# `test.yml` from 7m27s to 13m12s because it runs the suite twice. So `test.yml`
+# keeps depth 100 for the fast signal on every push, and the deeper search runs
+# here on its own clock.
 #
 # What this is NOT: a replacement for `test.yml`. It runs the same predicates,
 # harder. Two orders of magnitude more search cannot find a property nobody
-# wrote, which is the sentence §0.1 spends a page on.
+# wrote.
 
 name: Soak
 
 permissions: {}
 
 on:
-  # Weekly, and offset from both the hour and the busy top-of-hour slot for the
+  # Daily, and offset from both the hour and the busy top-of-hour slot for the
   # same reason watch.yml is: scheduled workflows queue on a shared pool and
   # `0 * * * *` is its worst minute. 05:23 UTC is off-peak for this pool and
-  # nobody is waiting on the result, which is the whole point of moving it here.
+  # nobody is waiting on the result, which is the whole point of running it here
+  # rather than on the push path.
   #
-  # This was daily until 2026-09-11, when the allowance the previous wording
-  # anticipated actually bound. The account's 2,000 included minutes were gone
-  # by day 11 of the cycle and every job stopped starting: a private repository
-  # whose Actions budget is $0 with "stop usage" set refuses to run rather than
-  # bill, and the resulting annotation names a failed payment first, which is
-  # not what had happened. Daily was ~1,420 of those minutes at the measured
-  # 47m14s per run, against ~720 for watch.yml and the remainder on
+  # Daily until 2026-09-11, weekly until 2026-09-13, daily again now. The middle
+  # period had one cause and it has gone away. The account's 2,000 included
+  # minutes were exhausted by day 11 of the cycle and every job stopped starting:
+  # a PRIVATE repository whose Actions budget is $0 with "stop usage" set refuses
+  # to run rather than bill, and the resulting annotation names a failed payment
+  # first, which is not what had happened. Daily was ~1,420 of those minutes at
+  # the measured 47m14s per run, against ~720 for watch.yml and the rest on
   # push-triggered CI.
   #
-  # So the instruction that wording left behind — change THIS LINE rather than
-  # the depths below — is the one followed here. The depths are untouched and
-  # are still what SECURITY_AUDIT.md §5.19 measured and argued for; only how
-  # often they run moved, because nobody is waiting on a soak. Weekly at the
-  # same depth is ~200 min/month.
+  # This repository is public, and GitHub does not bill standard-runner minutes
+  # for public repositories at all, so the ceiling that forced weekly no longer
+  # exists. Restoring daily buys seven times the search for nothing. The trade
+  # reverses the moment the repository goes private — that decision has to come
+  # back here, because the same 1,420 min/month lands on a 2,000-minute
+  # allowance that watch.yml is already spending half of.
+  #
+  # The depths below are untouched, as they were through both changes. Only how
+  # often they run has ever moved, because nobody is waiting on a soak.
   schedule:
-    - cron: '23 5 * * 0'
+    - cron: '23 5 * * *'
 
-  # The one-off in §5.19 was 512 x 2500 and took 46 min locally. Do not put that
-  # on the cron. Measured, not extrapolated: the nightly defaults below cost
-  # 47m14s of billed time per run (build 171s, invariants 1787s, fuzz 819s), and
-  # the one-off is 5x their invariant work. It is reachable here on demand
-  # instead, which is what these inputs are for.
+  # One one-off search at 512 x 2500 took 46 min locally. Do not put that on the
+  # cron. Measured, not extrapolated: the defaults below cost 47m14s per run
+  # (build 171s, invariants 1787s, fuzz 819s), and that one-off is 5x their
+  # invariant work. It is reachable here on demand instead, which is what these
+  # inputs are for.
   #
   # That 47 min was itself estimated at ~21 min beforehand, from a local-to-CI
   # factor of 5.4x measured on a different configuration. The real factor for the
   # invariant step is ~11.5x, because this runner has a couple of cores where a
   # workstation parallelises nine invariant tests properly. Sizing anything here
-  # from a local timing will under-count by about half — §5.19 lists this as the
-  # sixth instance of that same mistake in one exercise.
+  # from a local timing will under-count by about half. That was the sixth time
+  # the same mistake was made in a single exercise, which is why it is written
+  # down here rather than remembered.
   workflow_dispatch:
     inputs:
       invariant_runs:
@@ -106,9 +111,9 @@ jobs:
       #
       # `runs` is raised as well as `depth`. Depth decides how far into the state
       # machine one sequence gets; runs decides how many sequences are tried.
-      # §5.19's coverage correction came from reading one run's counters as if
-      # they described the suite, and more runs is the only thing that makes the
-      # sampled counters below worth anything at all.
+      # The coverage correction behind these settings came from reading one run's
+      # counters as if they described the whole suite, and more runs is the only
+      # thing that makes the sampled counters below worth anything at all.
       - name: Invariants (deep)
         env:
           FOUNDRY_INVARIANT_RUNS: ${{ inputs.invariant_runs || '256' }}
@@ -133,12 +138,46 @@ jobs:
           forge test --match-test testFuzz_ \
             | tee "$RUNNER_TEMP/fuzz.log"
 
+      # STATE-07 is the only automated check on a rule the contracts do not
+      # enforce: `_buybackSqrtFloor` falls back to an unbounded price floor, and
+      # the natspec that kept that fallback says the operational rule is the only
+      # thing holding it. `alerts.json` answers that a rule nobody checks is not
+      # a control. A control nobody TESTS is not a control either, and this
+      # harness exists because the check could once be silenced entirely by one
+      # failing call without paging anyone.
+      #
+      # It lives here rather than in test.yml, and that is not laziness. It runs
+      # the real watch.mjs five times with a stubbed `call()`; every selector the
+      # stub does not intercept still reaches an RPC, so it costs about a minute
+      # and five passes of load on the same public endpoint the monitor depends
+      # on — which 429s on the seventh identical request. On the push path that
+      # would be both slow and self-defeating.
+      #
+      # Consequence worth knowing before reading a red: if the RPC is unreachable
+      # outright, watch.mjs can exit before STATE-07 is reached and this fails for
+      # a reason that has nothing to do with STATE-07. Soak gates no merges, so
+      # that costs attention rather than velocity. The alternative on offer was
+      # running only when somebody remembered to, which is what it did until now.
+      #
+      # MONITOR_RPC is passed for the reason the paragraph above assumes it is:
+      # without it `watch.mjs` falls back to the hardcoded TESTNET endpoint, so
+      # the harness exercised a different node from the one the monitor reads and
+      # the cost described above was never actually paid. The harness supplies its
+      # own MONITOR_FACTORY / MONITOR_TREASURY, so only the endpoint comes from
+      # here. Unset, this still runs — against testnet, as it did before.
+      - name: STATE-07 harness
+        if: always()
+        env:
+          MONITOR_RPC: ${{ secrets.MONITOR_RPC }}
+        run: node monitoring/state07.test.mjs
+
       # The counters are the only evidence for whether a run was vacuous, and
-      # §5.19 is a record of how badly they can be misread: `afterInvariant()`
+      # this is a record of how badly they can be misread: `afterInvariant()`
       # logs the LAST run only, one sample out of `runs`. They are surfaced here
       # because a green soak whose handler reverted into every `catch` block is
       # indistinguishable from a green soak that worked — but they are labelled,
-      # so nobody repeats the three retracted conclusions in §5.19.
+      # so nobody repeats the three conclusions that had to be retracted after
+      # being drawn from exactly this output.
       - name: Summary
         if: always()
         run: |
