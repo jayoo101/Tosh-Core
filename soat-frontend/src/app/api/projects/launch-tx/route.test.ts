@@ -158,6 +158,25 @@ describe('GET /api/projects/launch-tx', () => {
     expect(from).toBeLessThan(to)
   })
 
+  it('falls back to the window when the whole-chain scan is served but comes back empty', async () => {
+    // The capped provider that does not say so. Rejecting an over-wide range is
+    // one behaviour; silently clamping it and answering an empty set is another,
+    // and the second is indistinguishable from "no such log" at the call site.
+    // Treating empty as final stranded exactly the creators this route is for:
+    // production answered 503 for a hook whose log the public RPC returns in
+    // under a second, and the window scan below would have found it.
+    fullRangeError = null
+    logVisibleIn = 'window'
+
+    const res = await get(HOOK)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ txHash: TX, creator: CREATOR })
+
+    expect(calls.scans).toHaveLength(2)
+    expect(calls.scans[0]).toEqual(['0x0', 'latest'])
+    expect(calls.scans[1][1]).not.toBe('latest')
+  })
+
   it('answers 503, uncacheable, when the hook is real but the log cannot be found', async () => {
     // The distinction this route turns on. `creator()` answered, so the launch
     // exists; the log not being served is the RPC's limit, and a 404 here would

@@ -30,6 +30,7 @@ import type { Address, Hex } from 'viem'
 import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI } from '@/lib/contracts'
 import { applyCors, applyRateLimit, corsPreflight } from '@/app/lib/apiGuard'
 import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
+import { reportError } from '@/lib/observability'
 
 const CORS_OPTS = { methods: ['GET', 'OPTIONS'] as const } as const
 
@@ -153,20 +154,37 @@ async function resolve(hook: Address): Promise<Resolution> {
   if (cached) return { status: 'found', txHash: cached, creator }
 
   let txHash: Hex | null = null
+
+  // The whole chain in one query. The `hook` topic is indexed, so a provider
+  // that serves logs from an index answers this in well under a second even
+  // over 60M blocks, and it needs no estimate to be correct.
   try {
-    // The whole chain in one query. The `hook` topic is indexed, so a provider
-    // that serves logs from an index answers this in well under a second even
-    // over 60M blocks, and it needs no estimate to be correct.
     txHash = await scan(hook, 0n, 'latest')
-  } catch {
-    // Many providers cap the block span of a single `eth_getLogs` and reject
-    // the query above outright. That is a limit on the request, not on the
-    // chain, so fall back to a narrow window around where the launch must be.
+  } catch (err) {
+    // Many providers cap the block span of a single `eth_getLogs`. That is a
+    // limit on the request, not on the chain, so this is not yet an answer.
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'projects/launch-tx', stage: 'scan-whole-chain', hook },
+    })
+  }
+
+  // Reached both when the query above threw and when it returned nothing, and
+  // the second case is why this is not an `else`: a provider that clamps an
+  // over-wide range instead of rejecting it answers an empty set, which is
+  // indistinguishable from "no such log" at the call site. Treating empty as
+  // final would strand exactly the creators this route exists for, on exactly
+  // the providers most likely to serve them.
+  if (!txHash) {
     try {
       const est = await creationBlock(hook)
       const from = est > SCAN_MARGIN ? est - SCAN_MARGIN : 0n
       txHash = await scan(hook, from, est + SCAN_MARGIN)
-    } catch {
+    } catch (err) {
+      reportError(err, {
+        surface: 'api-route',
+        extra: { route: 'projects/launch-tx', stage: 'scan-window', hook },
+      })
       return { status: 'unavailable' }
     }
   }
@@ -175,7 +193,19 @@ async function resolve(hook: Address): Promise<Resolution> {
   // a gap in what the RPC will serve, not evidence that the launch is not
   // there. Retrying against a fuller node can change the answer, so this must
   // not be cached or reported as an absence.
-  if (!txHash) return { status: 'unavailable' }
+  //
+  // Reported without an exception because nothing threw: both scans were served
+  // and both came back empty. That combination is the one failure here with no
+  // stack to point at, so without this it is invisible — which is how it went
+  // unnoticed that this route answered 503 for a launch whose log the public RPC
+  // returns in under a second.
+  if (!txHash) {
+    reportError(new Error('LaunchCreated log not served for a hook that answered creator()'), {
+      surface: 'api-route',
+      extra: { route: 'projects/launch-tx', stage: 'both-scans-empty', hook },
+    })
+    return { status: 'unavailable' }
+  }
 
   if (RESOLVED.size >= RESOLVED_MAX) RESOLVED.clear()
   RESOLVED.set(hook.toLowerCase(), txHash)
