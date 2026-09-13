@@ -34,6 +34,7 @@ import type { ProjectRow } from '@/app/lib/supabase'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX, TIER_COUNT, TIER_SIZE,
 } from '@/lib/contracts'
+import { isUnlisted } from '@/lib/projectRow'
 import { useBoundReferrer } from '@/lib/useReferral'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
@@ -80,6 +81,13 @@ const BondingBuyPanel = dynamic(
 )
 const LiquidityPanel = dynamic(
   () => import('./LiquidityPanel').then(m => m.LiquidityPanel),
+  { loading: panelFallback },
+)
+// Rendered for one wallet on a launch whose registry write did not land, which
+// is the rarest surface in the app — and it pulls in the launch form's logo
+// uploader and the attestation builder. Everyone else should not pay for it.
+const PublishListingPanel = dynamic(
+  () => import('./PublishListingPanel').then(m => m.PublishListingPanel),
   { loading: panelFallback },
 )
 
@@ -330,6 +338,21 @@ export default function ProjectTerminal({ project, about, header }: {
   const grid = (
     <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="@container flex min-w-0 flex-col gap-6">
+        {/* Above the hero, and in the reading column rather than the action
+            one. It breaks this file's own "signatures go right" rule on
+            purpose: the rule sorts panels a visitor chooses between, and this
+            is an unfinished step in the creator's own launch that they are
+            otherwise given no indication of. It is also a five-field form,
+            which the 360px track cannot hold. It disappears for good the
+            moment the row exists. */}
+        {isCreator && isUnlisted(project) && (
+          <PublishListingPanel
+            hookAddress={hookAddress}
+            name={project.name}
+            symbol={symbol}
+          />
+        )}
+
         <div className="rounded-panel border border-border-subtle bg-surface-card p-card">
           <HeroStats
             phase={phase}
@@ -426,6 +449,34 @@ export default function ProjectTerminal({ project, about, header }: {
         {/* Pre-trading only, as in the mock: once the pool is open all three
             steps are done and the rail says nothing the ladder does not. */}
         {phase !== 'bonding' && <LifecycleTracker phase={phase} />}
+
+        {/* MOVED OUT OF THE ACTION COLUMN, where it sat last under the deposit
+            box and was the panel people reported not noticing. Two reasons it
+            belongs here instead.
+ 
+            It lost that placement's argument: the sidebar is for panels that
+            ask for a signature about THIS project, and it stays in view while
+            the reading column scrolls. The referral desk's own claim button is
+            dark for almost everyone who sees it — commission accrues only from
+            deposits made through your link and unlocks only at launch — so for
+            a first-time visitor it is not an action, it is an explanation of a
+            programme they have not entered yet.
+ 
+            And it was competing for the one slot that matters. In genesis the
+            sidebar's job is the deposit box; a second card below it, taller
+            than the box itself, pushed the referral link to where it only
+            existed after a scroll past the thing the page is for. Here it
+            follows the lifecycle rail, which is the point where a reader has
+            finished asking what happens next and can be told how to bring
+            somebody with them. */}
+        {wConnected && (
+          <ReferralPanel
+            hookAddress={hookAddress}
+            symbol={symbol}
+            userAddress={userAddress}
+            refetch={() => { void refetch() }}
+          />
+        )}
       </div>
 
       {/* The action column. Everything that asks for a signature lives here and
@@ -471,15 +522,6 @@ export default function ProjectTerminal({ project, about, header }: {
           <RefundPanel
             hookAddress={hookAddress}
             ethDeposited={userEthDeposited}
-            refetch={() => { void refetch() }}
-          />
-        )}
-
-        {wConnected && (
-          <ReferralPanel
-            hookAddress={hookAddress}
-            symbol={symbol}
-            userAddress={userAddress}
             refetch={() => { void refetch() }}
           />
         )}

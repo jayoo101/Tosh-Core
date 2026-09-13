@@ -653,8 +653,9 @@ export default function GenesisConsole() {
         }
       } catch { /* fallback */ }
 
-      // Do not wait on another RPC before leaving this page. Logs plus the
-      // CREATE2 prediction are enough; `launches(count-1)` only backfills.
+      // Logs plus the CREATE2 prediction are enough to name the destination;
+      // `launches(count-1)` below only backfills the token address when the
+      // receipt's logs could not be parsed.
       hookAddress = hookAddress ?? snap.predictedHook
       const destination = tokenAddress ?? hookAddress
       if (!destination) {
@@ -677,8 +678,36 @@ export default function GenesisConsole() {
         description:   snap.description?.trim() || null,
         created_at:    new Date().toISOString(),
       })
-      toshToast.success('Launch confirmed — opening your project')
-      router.push(`/projects/${destination}`)
+      // The `launches(count-1)` backfill runs BEFORE the redirect now, for the
+      // same reason the publish below does: after `router.push` this component
+      // is unmounted and whatever it had left to do does not happen.
+      if (!tokenAddress && publicClient) {
+        try {
+          const count = await publicClient.readContract({
+            address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchCount',
+          }) as bigint
+          if (count > 0n) {
+            const l = await publicClient.readContract({
+              address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches', args: [count - 1n],
+            }) as readonly [string, string, string, bigint]
+            rememberProject({
+              id:            l[0],
+              chain_id:      TARGET_CHAIN_ID,
+              tx_hash:       hash,
+              token_address: l[0],
+              hook_address:  l[1],
+              name:          snap.name,
+              symbol:        snap.symbol,
+              logo_url:      snap.logoUrl || null,
+              website:       snap.website || null,
+              twitter:       snap.twitter || null,
+              telegram:      snap.telegram || null,
+              description:   snap.description?.trim() || null,
+              created_at:    new Date().toISOString(),
+            })
+          }
+        } catch { /* the predicted hook is enough to open the page on */ }
+      }
 
       // A second wallet prompt, right after the launch, and it is worth being
       // clear about why the cheaper option was rejected. The registry row is
@@ -731,38 +760,33 @@ export default function GenesisConsole() {
         setSyncState('done')
       }
 
-      // Declining costs the listing, not the launch: the token exists on chain
-      // either way, and `rememberProject` above has already put it in this
-      // browser's cache, so the redirect lands on a populated page regardless.
-      void publish().catch(() => { setSyncState('error') })
-
-      if (!tokenAddress && publicClient) {
-        try {
-          const count = await publicClient.readContract({
-            address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchCount',
-          }) as bigint
-          if (count > 0n) {
-            const l = await publicClient.readContract({
-              address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches', args: [count - 1n],
-            }) as readonly [string, string, string, bigint]
-            rememberProject({
-              id:            l[0],
-              chain_id:      TARGET_CHAIN_ID,
-              tx_hash:       hash,
-              token_address: l[0],
-              hook_address:  l[1],
-              name:          snap.name,
-              symbol:        snap.symbol,
-              logo_url:      snap.logoUrl || null,
-              website:       snap.website || null,
-              twitter:       snap.twitter || null,
-              telegram:      snap.telegram || null,
-              description:   snap.description?.trim() || null,
-              created_at:    new Date().toISOString(),
-            })
-          }
-        } catch { /* page already opened on the predicted hook */ }
+      // AWAITED, AND THE REDIRECT WAITS ON IT. This used to be
+      // `void publish().catch(...)` fired immediately after `router.push`, on
+      // the reasoning that declining costs the listing and not the launch. That
+      // reasoning holds; the ordering did not. `router.push` unmounts this
+      // component, which took the wallet prompt and the POST down with it — so
+      // the common case was not "the creator declined" but "the creator was
+      // never asked", and every launch published from this page lost its logo,
+      // its links and its description to a chain-only fallback row. The failure
+      // was silent twice over: `setSyncState('error')` writes to a page nobody
+      // is looking at any more.
+      //
+      // So the signature prompt now happens while the creator is still on the
+      // page that explains why it is being asked for, and the redirect is the
+      // last thing that happens.
+      try {
+        await publish()
+      } catch {
+        setSyncState('error')
+        toshToast.error(
+          'Launch confirmed, but the listing was not published. Open your ' +
+          'project and use Publish listing to finish it.',
+          { duration: 10_000 },
+        )
       }
+
+      toshToast.success('Launch confirmed — opening your project')
+      router.push(`/projects/${destination}`)
     }
     void sync()
   }, [isConfirmed, hash, receipt, publicClient, router, signMessageAsync])
@@ -1388,7 +1412,7 @@ export default function GenesisConsole() {
                   </a>
                   {syncState === 'syncing' && ' · sign to list in the directory'}
                   {syncState === 'done' && ' · directory synced'}
-                  {syncState === 'error' && ' · directory sync deferred'}
+                  {syncState === 'error' && ' · not listed — finish from the project page'}
                 </p>
               )}
 
