@@ -42,6 +42,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const REPO_ROOT  = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(REPO_ROOT, 'soat-frontend', 'src', 'components')
@@ -170,15 +173,13 @@ if (githubLinks.length === 0) {
 if (bad.length > 0) {
   console.error('[checkFooterLinks] BAD LINK')
   for (const b of bad) console.error(`  — ${b}`)
-  process.exit(1)
-}
-
-if (unreachable.length > 0) {
+  process.exitCode = 1
+} else if (unreachable.length > 0) {
   console.error('[checkFooterLinks] could not answer — network, not drift:')
   for (const u of unreachable) console.error(`  — ${u}`)
-  process.exit(2)
-}
-
+  process.exitCode = 2
+} else {
 console.log(
   `[checkFooterLinks] OK — ${links.length} external link(s) in src/components `
   + `resolve, and the GitHub link is ${originSlug}.`)
+}

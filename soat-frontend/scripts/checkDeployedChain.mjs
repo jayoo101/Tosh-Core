@@ -63,6 +63,14 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, basename, dirname, relative } from 'node:path'
+import { installFailureExit } from './lib/checkExit.mjs'
+
+// Registered before the first await, which is what makes it useful: the live
+// arm's `fetch` calls are not individually guarded, so a DNS failure or a reset
+// connection escapes module evaluation with sockets still open — and Node's own
+// fatal path calls `exit` from there, which is the crash described in
+// `lib/checkExit.mjs`. This turns that into `exit 1` with a printed stack.
+installFailureExit()
 
 const BROADCAST = join('..', 'broadcast')
 const TRACKED = new Set(['ToshFactory', 'ToshLadderTreasury'])
@@ -367,4 +375,17 @@ console.log(
     ? '\nTarget chain and contract addresses agree.'
     : `\n${failures} failure(s) — see FAIL lines above.`,
 )
-process.exit(failures === 0 ? 0 : 1)
+
+// `exitCode` and a natural drain, NOT `process.exit()`. This was the last
+// `check:*` script still exiting explicitly after a `fetch`, and it still
+// reproduced the crash the other four were converted to avoid: run the live arm
+// against a host that fails the check and Node aborted inside libuv with
+// `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`, ending at
+// 0xC0000409 with the FAIL line scrolled off behind a C assertion. The
+// diagnostic this file exists to deliver was the thing the exit destroyed. See
+// `lib/checkExit.mjs` for the mechanism and the measurement.
+//
+// Setting it is enough: `fail()` here only increments a counter, so unlike its
+// four siblings this script has no mid-flight stop to model, and there is
+// nothing left to run once the summary above has printed.
+process.exitCode = failures === 0 ? 0 : 1

@@ -29,6 +29,9 @@
 import fs from 'node:fs'
 import { ethers } from 'ethers'
 import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const MAINNET_ID = 4663n
 const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
@@ -115,7 +118,7 @@ async function estimatePlainEth(to, from) {
 
 if (net.chainId !== MAINNET_ID) {
   console.error(`✗ connected to chain ${net.chainId}, expected ${MAINNET_ID}.`)
-  process.exit(1)
+  throw new CheckFailed(`connected to chain ${net.chainId}`)
 }
 
 const safe = new ethers.Contract(ethers.getAddress(safeAddr), SAFE_ABI, provider)
@@ -123,7 +126,7 @@ const safe = new ethers.Contract(ethers.getAddress(safeAddr), SAFE_ABI, provider
 // ── 1. It exists and is a Safe ────────────────────────────────────────────────
 if ((await provider.getCode(safeAddr)) === '0x') {
   console.error(`✗ no code at ${safeAddr} on chain ${net.chainId}.`)
-  process.exit(1)
+  throw new CheckFailed(`no code at ${safeAddr}`)
 }
 
 const owners = (await safe.getOwners()).map(a => ethers.getAddress(a))
@@ -298,14 +301,12 @@ if (problems.length) {
     console.error('\n  also could not determine (not a finding that the Safe is unfit):\n')
     for (const u of unknowns) console.error('  · ' + u)
   }
-  process.exit(1)
-}
-if (unknowns.length) {
+  process.exitCode = 1
+} else if (unknowns.length) {
   console.error('\n✗ could not finish the check. This is not a pass, and not a finding that the Safe is unfit:\n')
   for (const u of unknowns) console.error('  · ' + u)
-  process.exit(2)
-}
-
+  process.exitCode = 2
+} else {
 console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, accepts ETH.')
 console.log('\n  Safe to set BOTH of these in .env.production:')
 console.log(`    PROD_OWNER_SAFE=${ethers.getAddress(safeAddr)}`)
@@ -321,3 +322,4 @@ console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)
 // a closed row is the same failure as the drill nag: it would send you to
 // organise work that is already done. Handles in the vault are an operator
 // obligation this script cannot see, and it does not pretend to.
+}

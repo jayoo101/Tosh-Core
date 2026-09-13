@@ -21,6 +21,9 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const ENV_FILE = '.env.local'
 const KEY = `tosh:rl:diagnostic:${Date.now()}`
@@ -52,10 +55,11 @@ loadEnvFile(ENV_FILE)
 const url = (process.env.UPSTASH_REDIS_REST_URL ?? '').replace(/\/+$/, '')
 const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? ''
 
+/** Report and stop. Throws rather than exiting — see `lib/checkExit.mjs`. */
 function fail(message, detail) {
   console.log(`\nFAIL  ${message}`)
   if (detail) console.log(detail)
-  process.exit(1)
+  throw new CheckFailed(message)
 }
 
 if (!url || !token) {

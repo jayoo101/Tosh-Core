@@ -40,6 +40,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PLAYBOOK  = path.join(REPO_ROOT, 'docs', 'INCIDENT_RESPONSE.md')
@@ -393,9 +396,9 @@ if (unreachable.length) {
   console.error('  This is not a pass. It means the check did not run.')
 }
 
-if (drift.length) process.exit(1)
-if (unreachable.length) process.exit(2)
-
+if (drift.length) process.exitCode = 1
+else if (unreachable.length) process.exitCode = 2
+else {
 console.log(
   '[checkStatusPage] OK — page is up, its paused copy matches Step 4 verbatim, '
   + 'it still reads paused() from the chain, and the guide §6b links resolves.')
@@ -403,3 +406,4 @@ console.log(
   `[checkStatusPage] chain: page names ${STATUS_PAGE_CHAIN}, mainnet deploy `
   + `${mainnetDeployed ? 'RECORDED' : 'not yet recorded'} — cutover check `
   + `${mainnetDeployed ? 'active' : 'inactive, will activate at PM-C1'}.`)
+}

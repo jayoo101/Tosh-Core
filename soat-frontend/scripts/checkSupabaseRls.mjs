@@ -32,6 +32,9 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs'
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const ENV_FILE = '.env.local'
 const TIMEOUT_MS = 8_000
@@ -66,10 +69,11 @@ const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '')
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
 
+/** Report and stop. Throws rather than exiting — see `lib/checkExit.mjs`. */
 function fail(message, detail) {
   console.log(`\nFAIL  ${message}`)
   if (detail) console.log(detail)
-  process.exit(1)
+  throw new CheckFailed(message)
 }
 
 if (!url || !anonKey) {

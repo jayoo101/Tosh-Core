@@ -46,6 +46,9 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
 const PRO = 'https://api.blockscout.com'
@@ -284,9 +287,8 @@ const broken = results.filter(r => !r.usable)
 if (broken.length === 0) {
   console.log('All five chains readable on both dialects. This key is usable.')
   console.log('Set BLOCKSCOUT_API_KEY in the deployment environment.')
-  process.exit(0)
-}
-
+  process.exitCode = 0
+} else {
 // Severity follows `required` in gasHistory.ts, not the count of broken chains.
 //
 // This block used to end "Every chain must succeed for a total to be a total",
@@ -315,9 +317,8 @@ if (fatal.length) {
   console.log('  scan rather than reporting a smaller wallet, so no allocation can be')
   console.log('  issued at all while this stands. Fix the key or the tier before')
   console.log('  deploying; do not ship a partial scan.')
-  process.exit(1)
-}
-
+  process.exitCode = 1
+} else {
 // Optional-only. Degraded, and the degradation is bounded and downward.
 console.log(`WARN — ${degraded.map(r => r.chain).join(', ')} unreadable, but not required.`)
 console.log('')
@@ -331,5 +332,7 @@ console.log('')
 console.log('  Exit 0 deliberately: this is the failure mode gasHistory.ts chose when it')
 console.log('  set `required: false`, on the argument that while 4663 was fatal its')
 console.log('  indexer\'s uptime WAS the uptime of genesis allocation. Blocking a deploy')
-console.log('  on it would reinstate exactly the coupling that decision removed.')
-process.exit(0)
+  console.log('  on it would reinstate exactly the coupling that decision removed.')
+process.exitCode = 0
+}
+}

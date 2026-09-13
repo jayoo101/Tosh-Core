@@ -48,6 +48,9 @@
 
 import { ethers } from 'ethers'
 import fs from 'node:fs'
+import { installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com'
 const TESTNET_ID = 46630n
@@ -448,4 +451,7 @@ const run = async () => {
       console.log(`steps:    ${STEPS.map(s => s.key).join(', ')}`)
   }
 }
-run().catch(e => { console.error('✗ ' + (e.shortMessage || e.message)); process.exit(1) })
+run().catch(e => {
+  console.error('✗ ' + (e.shortMessage || e.message))
+  process.exitCode = 1
+})

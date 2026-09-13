@@ -32,6 +32,9 @@
 
 import fs from 'node:fs'
 import { ethers } from 'ethers'
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const PAGE_URL = 'https://jayoo101.github.io/tosh-status/drill/'
 const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com'
@@ -151,7 +154,7 @@ const provider = new ethers.JsonRpcProvider(RPC)
 const net = await provider.getNetwork()
 if (net.chainId !== TESTNET_ID) {
   console.error(`[checkDrillPage] FAIL — RPC is chain ${net.chainId}, expected ${TESTNET_ID}`)
-  process.exit(1)
+  throw new CheckFailed(`RPC is chain ${net.chainId}`)
 }
 
 const safeC = new ethers.Contract(safe, [
@@ -164,7 +167,7 @@ const safeC = new ethers.Contract(safe, [
 
 if (await provider.getCode(safe) === '0x') {
   console.error(`[checkDrillPage] FAIL — no contract at ${safe} on chain ${TESTNET_ID}`)
-  process.exit(1)
+  throw new CheckFailed(`no contract at ${safe}`)
 }
 
 const [owners, threshold, version, liveNonce] = await Promise.all([

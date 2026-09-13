@@ -40,6 +40,9 @@
 
 import { readFileSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+
+installFailureExit()
 
 const ENV_FILE = '.env.local'
 const INGEST_DEADLINE_MS = 15_000
@@ -66,10 +69,11 @@ function loadEnvFile(path) {
 
 loadEnvFile(ENV_FILE)
 
+/** Report and stop. Throws rather than exiting — see `lib/checkExit.mjs`. */
 function fail(message, detail) {
   console.log(`\nFAIL  ${message}`)
   if (detail) console.log(detail)
-  process.exit(1)
+  throw new CheckFailed(message)
 }
 
 const publicDsn = (process.env.NEXT_PUBLIC_SENTRY_DSN ?? '').trim()
