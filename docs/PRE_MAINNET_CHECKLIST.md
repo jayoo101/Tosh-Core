@@ -1769,10 +1769,27 @@ below, in the order it actually blocks.
 > floor. Move it in front and a throwaway key with no history, no funds and no
 > launch proves identity by the status it gets: **409 now means the key in Vercel
 > Production derives to `factory.pogSigner()`**, because a key that does not would
-> have been refused one stage earlier. Verified that way on 2026-09-13 against
-> `toshx.xyz`; the probe is `npm run check:pog`
-> (`soat-frontend/scripts/checkProdPogFlow.mjs`), which had been sitting
-> uncommitted and is now the recorded way to re-check this.
+> have been refused one stage earlier.
+>
+> **Measured, 2026-09-13, and the answer is that the key is right.** `npm run
+> check:pog` (`soat-frontend/scripts/checkProdPogFlow.mjs`, which had been sitting
+> uncommitted and is now the recorded way to re-check this) against `toshx.xyz`
+> from an ephemeral wallet `0xf67162be…`: `POST /api/sign-allocation` returned
+> **403 "Gas history below the minimum for an allocation"** with `floorWei`
+> 5×10¹⁶. The floor is what refused it, and the floor is downstream of the signer
+> comparison, so the key in Vercel Production derives to `factory.pogSigner()`
+> `0x9A1a8C7b…`. One limit stated rather than glossed: a 403 was also the old
+> behaviour, so this reading is proof of identity **given** that the live
+> deployment is the merge commit — Vercel reported success on `7291881`, which is
+> what makes the inference sound.
+>
+> Two things the same run establishes in passing. All five PoG chains answered —
+> Ethereum, Arbitrum, Optimism, Base and Robinhood, none `unavailable` — so the
+> Blockscout wiring is live on every chain the scan needs, and the open question
+> about that key is volume (PM-F rows) rather than reachability. And the three
+> negative cases each failed for their own reason and not for a shared one: 401 on
+> a stale auth window, 401 on a signature that does not recover to `userAddress`,
+> 400 on the retired factory.
 >
 > This is the third read in the digest to be moved from configuration to chain,
 > after the nonce and the factory address, and the reason is the same each time:
