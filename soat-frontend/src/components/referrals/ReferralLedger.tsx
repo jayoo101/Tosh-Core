@@ -296,9 +296,15 @@ export function ReferralLedger() {
                   to the buyback reservoir instead of to you. The {LIFETIME_PCT}% lifetime
                   leg has no such condition.
                 </p>
+                {/* Names genesis specifically because that is where the desk now
+                    is. It used to render on every phase, which made this line
+                    true of any project page and also sent people to get a link
+                    for a raise that had already closed. */}
                 <p className="text-text-tertiary">
-                  Each project page carries its own referral desk with the link and a live
-                  read on whether it will pay there.{' '}
+                  Any project still in genesis carries its own referral desk, with the link
+                  and a live read on whether it will pay there. It is not on launched
+                  projects, because a link cannot earn on a raise that has closed — the
+                  claim for one that already earned is here, on this page.{' '}
                   <Link href="/projects" className="text-brand hover:underline">
                     Browse projects
                   </Link>
