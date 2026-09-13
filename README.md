@@ -13,8 +13,7 @@
 | Site | [toshx.xyz](https://toshx.xyz) |
 | Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |
 
-**[Development guide](docs/DEVELOPMENT.md)** · **[中文白皮书](docs/WHITEPAPER_zh.md)** ·
-**[Security policy](SECURITY.md)** · **[Product spec](docs/PRD-v5.0.md)**
+**[Development guide](docs/DEVELOPMENT.md)** · **[Security policy](SECURITY.md)**
 
 ### On verifiability
 
@@ -531,11 +530,9 @@ are the powers.
   position, and that a ladder halt cannot withhold refunds. CI runs the suite
   twice — once normally and once under `--isolate`, which charges each call the
   way a real transaction does.
-- **Audit log.** `docs/SECURITY_AUDIT.md` is maintained in the open and records
-  defects found and closed, including documentation that disagreed with
-  behaviour, monitoring that watched the wrong contract, and paths that only
-  surfaced against real mainnet requests. There has been no third-party audit;
-  see below.
+- **Static analysis, pinned.** `forge lint` and Slither both run in CI against
+  committed baselines, so a finding cannot start or stop firing without somebody
+  deciding about it. There has been no third-party audit; see below.
 
 ### 10.2 Limits and disclosures
 
@@ -638,13 +635,7 @@ by the contract regardless of what the oracle signed.
 | Document | What it covers |
 |---|---|
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, deploy, environment, hook salt mining, guards, troubleshooting |
-| [`docs/WHITEPAPER_zh.md`](docs/WHITEPAPER_zh.md) | 中文白皮书 |
-| [`docs/PRD-v5.0.md`](docs/PRD-v5.0.md) | Product spec and state machine, reverse-extracted from source |
 | [`SECURITY.md`](SECURITY.md) | Reporting channel, scope, and verification anchors |
-| [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) | Running audit log |
-| [`docs/ONCHAIN_MONITORING.md`](docs/ONCHAIN_MONITORING.md) | What is alerted on, and why |
-| [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) | Playbooks for when something is already wrong |
-| [`docs/ROBINHOOD_MIGRATION.md`](docs/ROBINHOOD_MIGRATION.md) | What moving to an Arbitrum Orbit L2 took |
 
 If this document and the source disagree, the source wins.
 

@@ -154,9 +154,9 @@ jobs:
             echo
             echo '#### afterInvariant() counters — ONE sample each, not suite coverage'
             echo
-            echo 'These log the last run only. Do not read a zero as "never reached";'
-            echo 'see SECURITY_AUDIT.md §5.19, which retracts three conclusions drawn'
-            echo 'from exactly that mistake.'
+            echo 'These log the last run only. Do not read a zero as "never reached":'
+            echo 'a counter that never incremented and a counter whose run never'
+            echo 'reached it look identical here.'
             echo
             echo '```'
             grep -E '^  (hooks|ok |ladder )' "$RUNNER_TEMP/invariants.log" 2>/dev/null | head -40 || echo 'no counters captured'

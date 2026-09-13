@@ -3,9 +3,8 @@
 How to build, test, deploy and operate this repository. For what the protocol
 *is* and why it is built this way, read the [README](../README.md).
 
-**[README / protocol spec](../README.md)** · **[中文白皮书](WHITEPAPER_zh.md)** ·
-**[toshx.xyz](https://toshx.xyz)** · **[Security policy](../SECURITY.md)** ·
-**[Product spec](PRD-v5.0.md)**
+**[README / protocol spec](../README.md)** · **[toshx.xyz](https://toshx.xyz)** ·
+**[Security policy](../SECURITY.md)**
 
 | | |
 |---|---|
@@ -449,7 +448,7 @@ Each was confirmed by reading its code size on both chains, not by citation. The
 UniversalRouter is stock Uniswap from the `Uniswap/contracts` monorepo, but a
 newer build than Ethereum mainnet's: its `IV4Router.ExactInputSingleParams`
 carries the six-field shape with `minHopPriceX36`. That matters to anything
-hand-encoding router calldata — see [`ROBINHOOD_MIGRATION.md`](ROBINHOOD_MIGRATION.md).
+hand-encoding router calldata.
 
 ---
 
@@ -520,17 +519,9 @@ npm run test
 
 | Document | What it covers |
 |---|---|
-| [`WHITEPAPER_zh.md`](WHITEPAPER_zh.md) | The protocol, its economics, its guarantees and its tradeoffs |
-| [`PRD-v5.0.md`](PRD-v5.0.md) | Product spec and state machine, reverse-extracted from source, with the D1–D4 accepted risks |
+| [`README.md`](../README.md) | The protocol spec: economics, lifecycle, fees, governance, and the design tradeoffs |
 | [`SECURITY.md`](../SECURITY.md) | Reporting channel, scope, verification anchors, and what the response process can honestly promise |
-| [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md) | Running audit log: trust model, test coverage, and every finding closed to date |
-| [`ONCHAIN_MONITORING.md`](ONCHAIN_MONITORING.md) | What is alerted on and why; config-as-code in `monitoring/alerts.json`, CI-guarded against drift |
-| [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) | Playbooks for when something is already wrong |
-| [`ROBINHOOD_MIGRATION.md`](ROBINHOOD_MIGRATION.md) | What moving to an Arbitrum Orbit L2 took — chiefly that `block.number` is the L1 height, so the hook reads `ArbSys` |
 | [`tosh-status/MANUAL_INTERACTION.md`](https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md) | Driving the protocol with `cast` when the frontend is down; lives in the status-page repo so it stays reachable during an outage |
-
-Design tradeoffs and accepted risks are stated in the whitepaper's final section
-and in `PRD-v5.0.md` §11, rather than being left for a reader to discover.
 
 ---
 

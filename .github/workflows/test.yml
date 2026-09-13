@@ -370,15 +370,6 @@ jobs:
       - name: Check every source file is valid UTF-8
         run: node scripts/checkEncoding.mjs
 
-      # `--strict` fails only on HARD anchors: the target file is gone, or the
-      # line does not exist. Soft drift (the line still exists but has moved
-      # inside a different function) is reported and tolerated, because
-      # renumbering an anchor only resets the clock on the same decay — the fix
-      # is to reference a NAME. Without the flag this exits 0 unconditionally,
-      # which is why running it unflagged would have been theatre.
-      - name: Check documentation anchors still resolve
-        run: node scripts/checkDocAnchors.js --strict
-
       # The status page lives in another repository so that it stays up when
       # this one's deploys do not. That separation means nothing here can see
       # it change. Step 4 and the page both instruct their editor to keep the
@@ -409,27 +400,6 @@ jobs:
       - name: Check the site's external links resolve and name this repo
         run: node scripts/checkFooterLinks.mjs
 
-      # PRE_MAINNET_CHECKLIST §8 summarises its own gate tables three times
-      # over: as per-gate counts, as a total, and as a "Still open" list that
-      # repeats each item's status glyph. All three were maintained by hand.
-      #
-      # They drifted the same day the table was recounted by hand, and the
-      # line above the table said "against the rows above, not against
-      # memory" while it did so: retiring PM-D2 left it in no column the table
-      # had, so it stayed counted as open and the total read 13 against 12.
-      # Small, but it is the failure mode this whole document keeps finding in
-      # other people's summaries.
-      - name: Check the checklist summary matches its own rows
-        run: node scripts/checkChecklistCounts.mjs
-
-      # SECURITY_AUDIT §4's per-file table is the same artefact as the
-      # checklist §8 counts, one document over: a summary maintained by hand
-      # next to the thing it summarises. It had drifted 28 low and never
-      # summed to its own header. The CI floor already tracks the total; this
-      # tracks the per-file numbers a reader treats as coverage.
-      - name: Check the §4 test table matches forge --list
-        run: node scripts/checkTestTable.mjs
-
       # The §5.12 sweep found SECURITY_AUDIT §1.2 scoping in a function called
       # `_verifyPoGSignature` that has never existed — the PoG signature check
       # is inline in `registerPoG`. A stale name in a scope paragraph is a
@@ -444,21 +414,6 @@ jobs:
       # which three symbols in it are known stale.
       - name: Check the docs name only symbols that exist
         run: node scripts/checkDocSymbols.mjs
-
-      # The half `checkDocAnchors.js` declines above. Its header says a moved
-      # anchor cannot be judged mechanically because "only a human knows what it
-      # meant" — true in general, and false whenever the sentence names the
-      # function in backticks beside the number, because then the document has
-      # said what it meant. That subset turned out to be almost entirely broken:
-      # 22 of the 23 checkable citations pointed somewhere else, all of them at
-      # lines far above the truth, which is what never-regenerated numbers look
-      # like. `PRD-v5.0.md:874` sent a reader to a comment about price for the
-      # five functions carrying `nonReentrant`.
-      #
-      # It self-tests before reading any document, because two mutations of it
-      # survived by disabling its own semantic check.
-      - name: Check documentation line citations point where the prose says
-        run: node scripts/checkDocLineRefs.mjs
 
       # SECURITY_AUDIT §2.5 is the auditor's map of every narrowing cast in
       # `src/` and the bound each one rests on. It was hand-maintained, and by

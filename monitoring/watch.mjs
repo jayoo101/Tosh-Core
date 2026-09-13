@@ -514,12 +514,12 @@ try {
   const pending = asAddress(await call(FACTORY, 'pendingOwner()'))
   if (EXPECTED_OWNER && owner !== EXPECTED_OWNER) {
     record('STATE-03', sev('STATE-03'), true,
-      `factory.owner() is ${owner}, expected ${EXPECTED_OWNER}`, { playbook: 'docs/INCIDENT_RESPONSE.md §5' })
+      `factory.owner() is ${owner}, expected ${EXPECTED_OWNER}`, { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised' })
   }
   if (pending !== '0x' + '0'.repeat(40)) {
     record('STATE-03', sev('STATE-03'), true,
       `factory.pendingOwner() is ${pending} — a transfer is mid-flight and can still be abandoned`,
-      { playbook: 'docs/INCIDENT_RESPONSE.md §5' })
+      { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised' })
   }
   /* Paging, not a gap, since 2026-09-13. A gap prints in the summary of a run
    * that is otherwise green, and this workflow's own comment says nobody opens
@@ -540,7 +540,7 @@ try {
       `STATE-03 cannot detect ownership moving away from the Safe — the P0 this check exists ` +
       `for. The chain currently answers ${owner}; if that is correct, set the variable to it. ` +
       `Until then this pass is not evidence that ownership is intact.`,
-      { playbook: 'docs/INCIDENT_RESPONSE.md §5', observedOwner: owner })
+      { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised', observedOwner: owner })
   }
 } catch (err) {
   record('STATE-03', 'P1', false, `ownership check failed: ${err.message}`)
@@ -634,7 +634,7 @@ try {
         `${(Number(treasuryBalance) / 1e18).toFixed(6)} ETH` +
         (spent ? ' — a buyback in this window explains it, confirm the amounts match'
                : ' with NO buyback event in this window'),
-        { playbook: 'docs/INCIDENT_RESPONSE.md §2', correlate: true })
+        { playbook: 'treasury: correlate the fall against buyback events in the same window before assuming a leak', correlate: true })
     }
   }
 
@@ -712,14 +712,14 @@ try {
           `(${err.message}). _buybackSqrtFloor catches that and falls back to UNBOUNDED, which ` +
           `is the same absent bound as a zero reading — treat this exactly like the zero case, ` +
           `and additionally ask why the hook stopped answering.`,
-          { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
+          { playbook: 'STATE-07: removeLadderToken, wait for the TWAP to mature, then re-add' })
         continue
       }
       if (twap === 0n) {
         record('STATE-07', sev('STATE-07'), pages('STATE-07'),
           `Ladder token ${token} has twapSqrtPriceX96() == 0 on hook ${hook}: the buyback's ` +
           `anti-sandwich bound is ABSENT, not loose. Remove it from the ladder until the TWAP matures.`,
-          { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
+          { playbook: 'STATE-07: removeLadderToken, wait for the TWAP to mature, then re-add' })
       }
     } catch (err) {
       // Could not even resolve this entry to a hook. Name the index, because the
@@ -727,7 +727,7 @@ try {
       record('STATE-07', sev('STATE-07'), pages('STATE-07'),
         `Ladder token at index ${i} of ${count} could not be checked (${err.message}), so ` +
         `whether its buyback bound exists is UNKNOWN. Every other index was still checked.`,
-        { playbook: 'docs/ONCHAIN_MONITORING.md §4 STATE-07' })
+        { playbook: 'STATE-07: removeLadderToken, wait for the TWAP to mature, then re-add' })
     }
   }
   if (count === 0) gap('STATE-07', 'no ladder tokens listed, so there is nothing to price-bound yet')

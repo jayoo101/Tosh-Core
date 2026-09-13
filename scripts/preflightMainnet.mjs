@@ -265,10 +265,9 @@ const ownerCode = await codeOf(prodOwnerSafe)
 if (ownerCode === '0x') {
   fail(
     'PROD_OWNER_SAFE has no code — it is an EOA',
-    'Ownership is recoverable in principle, but an EOA owner voids PRD-v5.0.md §11 D2, '
-    + 'which declines a timelock on treasury curation specifically because the owner is '
-    + 'a 2/N Safe. D2 review trigger (1) says a single-EOA owner lapses that decision and '
-    + 'a timelock must be added immediately.',
+    'Ownership is recoverable in principle, but a timelock on treasury curation was '
+    + 'declined specifically because the owner is a 2/N Safe. A single-EOA owner lapses '
+    + 'that decision and a timelock must be added immediately.',
     'Set PROD_OWNER_SAFE to the 2-of-3 Safe in .env.production.',
   )
 } else {

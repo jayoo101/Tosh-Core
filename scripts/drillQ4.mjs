@@ -443,7 +443,7 @@ async function main() {
     console.log('  cross-contract domain separation. The only genuine attestation on this');
     console.log('  deployment is expired and the TTL gate precedes the signature check, so');
     console.log('  no single-field isolation is reachable from public data. Those live in');
-    console.log('  SECURITY_AUDIT.md §5.12 and test/ToshV5Factory.t.sol.');
+    console.log('  test/ToshV5Factory.t.sol.');
   }
   console.log('═'.repeat(78));
 

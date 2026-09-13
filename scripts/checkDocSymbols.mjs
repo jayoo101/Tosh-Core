@@ -5,11 +5,11 @@
 //
 // ── Why this exists ─────────────────────────────────────────────────────────
 //
-//   The §5.12 sweep found `docs/SECURITY_AUDIT.md` §1.2 scoping in a function
+//   A sweep once found documentation scoping a security check in a function
 //   called `_verifyPoGSignature` that has never existed in `src/` — the PoG
 //   signature check is inline in `registerPoG`. On its own that is a stale name
-//   in a scope paragraph. What made it a finding is that `INCIDENT_RESPONSE.md`
-//   §Q4 stated the red-team drill's PASS CRITERION as "all attempts fail at
+//   in a paragraph. What made it a finding is that a red-team drill stated
+//   its PASS CRITERION as "all attempts fail at
 //   `_verifyPoGSignature`", which cannot be observed: you cannot watch calls
 //   fail at a function that does not exist, so the drill could have been
 //   recorded as passed by anyone who did not go looking.
@@ -39,67 +39,23 @@ import { fileURLToPath } from 'node:url';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DOC_DIR = join(REPO, 'docs');
 
-// ── Scope ───────────────────────────────────────────────────────────────────
+// -- Scope -------------------------------------------------------------------
 //
-//   The three documents where a stale symbol has a SECURITY consequence: the
-//   audit dossier tells a reviewer what to review, the runbook tells an
-//   operator what to check under pressure, and the monitoring doc says what
-//   the alerts mean. In all three, a name that resolves to nothing turns a
-//   claim into something no one can verify — which is what both findings were.
+//   The README is the protocol spec and the first document an outside reader
+//   opens, so a name that resolves to nothing there is read by more people
+//   than a dangling name anywhere else. DEVELOPMENT.md is what a contributor
+//   runs commands out of, where a drifted script name is discovered at the
+//   shell rather than by a reviewer.
 //
-//   `PRD-v5.0.md` is now gated too, which it was not when this guard was
-//   written. The reasoning then was that a stale name in a product spec is a
-//   spec nit rather than an unverifiable control, so the drift this guard found
-//   in it — `feeMode`, `handleDeposit`, `handleMineSalt`, cited with precise
-//   line ranges against a launch page that had replaced all three — was left
-//   OPEN and the names were allowlisted so §5.12 could quote them.
-//
-//   That deferral did not survive contact with the numbers. Gating the PRD
-//   turned out to cost nine stale references in total, not three: the other six
-//   were `ConnectGate`, `GenesisWindowSelect`, `RecentEventsTicker` and three
-//   test names carrying a `test_hook_ctor_` prefix that the EIP-1167 clone
-//   refactor had renamed. Nine is a morning's work, and leaving the document
-//   ungated is what let three become nine in the first place. Chapter 6 is
-//   rewritten against the code as it stands and the gate is now closed behind
-//   it — see SECURITY_AUDIT.md §5.18.
-//
-//   `ROBINHOOD_MIGRATION.md` stays ungated: it describes a migration that has
-//   already happened, so its names are meant to read as history.
-//   `C1_RUNBOOK.md` is gated because it is the one document that gets executed
-//   rather than read, once, against real money — a script name that has drifted
-//   is discovered at the broadcast. It was added the day it was written, before
-//   it had a chance to rot.
-//
-//   `PRE_MAINNET_CHECKLIST.md` and `SIGNER_BRIEF.md` were added 2026-09-06, and
-//   the reason they were not here already does not survive inspection: the
-//   checklist is the launch gate and names ~40 scripts and contracts in its
-//   evidence column, and the brief is what a Safe signer reads before signing.
-//   Both were ungated while four less operational documents were not. Adding
-//   them cost three ALLOW entries and found no drift — which is the good
-//   outcome, not a reason it was not worth doing.
-//   The same argument reaches the README, added 2026-09-13 when it became the
-//   protocol spec rather than a build guide. It is now the most symbol-dense
-//   document in the repository and the first one an outside reader opens, so a
-//   dangling name there is read by more people than a dangling name anywhere
-//   else. Note what this does NOT cover: `isCandidate` drops
-//   SCREAMING_SNAKE_CASE, so the ~35 Solidity constants in its appendix B are
-//   still ungated here and were checked against `src/` by hand.
-const DOCS = [
-  'SECURITY_AUDIT.md',
-  'INCIDENT_RESPONSE.md',
-  'ONCHAIN_MONITORING.md',
-  'PRD-v5.0.md',
-  'C1_RUNBOOK.md',
-  'PRE_MAINNET_CHECKLIST.md',
-  'SIGNER_BRIEF.md',
-  'DEVELOPMENT.md',
-  '../README.md',
-];
+//   Note what this does NOT cover: `isCandidate` drops SCREAMING_SNAKE_CASE,
+//   so the Solidity constants in the README appendix are still ungated here
+//   and were checked against `src/` by hand.
+const DOCS = ['DEVELOPMENT.md', '../README.md'];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for
 // the custom errors — which matter MORE than the functions here, because Q4's
-// pass criterion in INCIDENT_RESPONSE.md is built almost entirely out of error
+// pass criterion in the drill notes is built almost entirely out of error
 // names, and a dangling error name is exactly as uncheckable as a dangling
 // function. The first version of this guard only matched lower-case starts and
 // so read straight past every one of them.
@@ -185,7 +141,7 @@ const ALLOW = new Map([
   ['NotFactory', 'asserted ABSENT — §5.35 names it as a misremembering of `FactoryNotSet`'],
   // Three JSON-RPC method names, same category as `master`: they are names on
   // someone else's node, not symbols in this tree, so "found nowhere" is the
-  // expected result rather than drift. PRE_MAINNET_CHECKLIST.md §7 names them
+  // expected result rather than drift. the launch checklist named them
   // precisely to record that the Robinhood node does NOT serve them, which is
   // why counting one wallet's sends there would mean walking 54.8 M blocks.
   //

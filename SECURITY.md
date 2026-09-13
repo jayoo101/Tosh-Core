@@ -25,16 +25,16 @@ adversarial `test_probe*` cases, and one of those —
 
 ## What we can honestly promise
 
-`docs/INCIDENT_RESPONSE.md` §0 sets internal severity targets — P0 acknowledged
-in 5 minutes, halted in 15. **Those are targets for an incident already
-detected, and they are not a commitment to an external reporter.** The reasons
+Internal severity targets are P0 acknowledged in 5 minutes, halted in 15.
+**Those are targets for an incident already detected, and they are not a
+commitment to an external reporter.** The reasons
 are written down rather than glossed:
 
 - The on-chain monitor is a GitHub Actions workflow. Since 2026-09-11 a paging
   finding is pushed to a phone rather than left in an issue inbox nobody
   watches at 03:00, so that specific gap is closed. The one above it is not:
-  `docs/ONCHAIN_MONITORING.md` §7.3 states plainly that this host does not meet
-  the 15-minute detection criterion, and now states it with a number — across
+  this host does not meet the 15-minute detection criterion, and the gap has a
+  number rather than a hedge — across
   the 157 hours the schedule was measured, GitHub delivered **27%** of the
   passes the cron asked for. A pass that never runs pages nobody, so the honest
   claim is that the protocol will notice, write it down and push it, on a
@@ -118,14 +118,14 @@ against it are welcome as history but are not live findings.
 
 - **Private keys that appear in this repository's git history.** They are test
   and rehearsal keys. All of them are revoked: none holds any role in the live
-  deployment, and `docs/C1_RUNBOOK.md` §4.1 bans their reuse. History was
+  deployment, and their reuse is banned. History was
   deliberately *not* rewritten, because the commit that the verified mainnet
   bytecode was built from is the anchor that lets anyone reproduce the build,
   and rewriting history would break every hash in that chain. Reporting one of
   these keys is not a finding.
 - Anything reachable only by an owner key acting against its own interest.
-  Ownership is a 2-of-3 Safe; "the owner could rug" is understood and is what
-  the Safe and `docs/PRD-v5.0.md` §11 D2 exist to discuss.
+  Ownership is a 2-of-3 Safe; "the owner could rug" is understood, and the
+  threshold is the answer to it.
 - Denial of service against the public RPC endpoint, or against the free-tier
   third-party services the monitoring uses.
 
@@ -134,8 +134,7 @@ against it are welcome as history but are not live findings.
 We would rather you spend your time on something new, so here is the issue we
 already know about, stated as the audit states it.
 
-`docs/SECURITY_AUDIT.md` §2.3, row *"ACCEPTED, HELD OFF CHAIN — buyback is
-unbounded in a pool's first 1800 s"*: `_buybackSqrtFloor` returns
+**Buyback was unbounded in a pool's first 1800 s.** `_buybackSqrtFloor` returns
 `MIN_SQRT_PRICE + 1` — no bound at all — for exactly the window between a pool's
 `launch()` and `TWAP_WINDOW` elapsing, because `twapSqrtPriceX96()` reads 0 until
 then. During that window a listed token has no anti-sandwich control, on the
@@ -165,8 +164,8 @@ commit, the factory's `HOOK_CREATION_CODEHASH` matches this tree, the treasury's
 runtime differs from this tree's build only in the bytes of the `poolManager`
 immutable, and Sourcify has independently recompiled this source and matched it
 against the deployed runtime — but nobody has watched the gate fire, because
-reaching it needs a launched pool with an immature TWAP and the new factory has
-launched nothing yet. Provenance from four directions is still provenance; it
+reaching it needs a token listed on the new treasury and none has been listed
+(`ladderTokenCount()` reads 0). Provenance from four directions is still provenance; it
 says the right code is there, not that it was seen to work. Second, the gate fires **once, at listing**, while
 `_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a
 healthy getter whose getter later reverts still buys unbounded. That residual is

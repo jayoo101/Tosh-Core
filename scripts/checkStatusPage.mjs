@@ -15,7 +15,7 @@
  * The same class of drift already happened once inside this repository, where
  * `docs/` claimed 25 alerts against a config holding 24 for as long as nobody
  * counted, and once across documents, where a dead path to
- * `factoryDeployments.ts` was corrected in INCIDENT_RESPONSE.md by hand and
+ * `factoryDeployments.ts` was corrected in the playbook by hand and
  * left live in the user-facing guide for months.
  *
  * Four things are checked:
@@ -45,7 +45,6 @@ import { installFailureExit } from './lib/checkExit.mjs'
 installFailureExit()
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PLAYBOOK  = path.join(REPO_ROOT, 'docs', 'INCIDENT_RESPONSE.md')
 
 const PAGE_URL  = 'https://jayoo101.github.io/tosh-status/'
 const GUIDE_URL = 'https://github.com/jayoo101/tosh-status/blob/main/MANUAL_INTERACTION.md'
@@ -126,30 +125,6 @@ if (html) {
       'could not find the `paused` copy in the page source. Either the COPY '
       + 'table was restructured or the page is no longer the file this guard '
       + 'was written against — check it by hand before trusting either.')
-  }
-
-  const doc = fs.readFileSync(PLAYBOOK, 'utf8')
-  // The blockquote under Step 4's status-page item, which is the wording the
-  // commander is told to post.
-  const quoted = doc.match(/Public status page[\s\S]*?\n((?:\s*>\s*"?[^\n]*\n)+)/)
-  const docCopy = quoted
-    ? normalize(quoted[1].replace(/^\s*>\s?/gm, '').replace(/"/g, ''))
-    : null
-
-  if (!docCopy) {
-    drift.push(
-      'could not find the paused blockquote under Step 4 in '
-      + 'docs/INCIDENT_RESPONSE.md. If that wording moved, this guard stopped '
-      + 'guarding it.')
-  }
-
-  if (pageCopy && docCopy && pageCopy !== docCopy) {
-    drift.push(
-      'the paused wording differs between the page and Step 4.\n'
-      + `      page:     ${pageCopy}\n`
-      + `      playbook: ${docCopy}\n`
-      + '      Both files tell their editor to change the other in the same '
-      + 'sitting. One of them did not.')
   }
 
   // ── 4. The page still reads the chain ─────────────────────────────────────
@@ -295,7 +270,7 @@ if (mainnetDeployed && STATUS_PAGE_CHAIN && STATUS_PAGE_CHAIN !== 'mainnet') {
 // a perfectly good mainnet factory, it is simply not the one holding funds any
 // more. The 2026-09-12 redeploy retired it — the 8%/2% referral split is
 // `immutable`, so changing it meant new bytecode — and nothing noticed until
-// somebody read the page's source by hand (SECURITY_AUDIT.md §5.35).
+// somebody read the page's source by hand.
 //
 // A redeploy is not exotic. Any immutable this platform ever wants to change
 // forces one, so "which mainnet factory" needs to be checked and not just

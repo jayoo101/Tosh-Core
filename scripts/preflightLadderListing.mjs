@@ -284,7 +284,7 @@ if (problems.length) {
   }
   console.error('\n  If a listing is already live and premature, the recovery is '
     + '`removeLadderToken(token)` via the Safe, wait for maturity, re-add '
-    + '(PRE_MAINNET_CHECKLIST.md, STATE-07 action).')
+    + '(the STATE-07 action).')
   process.exit(1)
 }
 

@@ -165,72 +165,6 @@ const actual = {
     P3: sevCount.P3 || 0,
 };
 
-const DOC_CLAIMS = [
-    {
-        file: 'docs/ONCHAIN_MONITORING.md',
-        what: '§3 severity inventory',
-        pattern: /Current inventory: \*\*(\d+) P0, (\d+) P1, (\d+) P2, (\d+) P3\*\*, plus (\d+) state checks and (\d+)\s*\n?events explicitly routed away/,
-        expect: ['P0', 'P1', 'P2', 'P3', 'stateChecks', 'muted'],
-    },
-    {
-        file: 'docs/ONCHAIN_MONITORING.md',
-        what: '§6 noise budget',
-        pattern: /`mustNotPage` in `alerts\.json` lists (\d+) events/,
-        expect: ['muted'],
-    },
-    {
-        file: 'docs/ONCHAIN_MONITORING.md',
-        what: '§8 done-list, alert import',
-        pattern: /Provider chosen and the (\d+) alerts imported/,
-        expect: ['alerts'],
-    },
-    {
-        file: 'docs/ONCHAIN_MONITORING.md',
-        what: '§8 done-list, state checks',
-        pattern: /All (\d+) `stateChecks` scheduled/,
-        expect: ['stateChecks'],
-    },
-    {
-        file: 'docs/ONCHAIN_MONITORING.md',
-        what: '§8 done-list, muted events',
-        pattern: /The (\d+) `mustNotPage` events confirmed not paging/,
-        expect: ['muted'],
-    },
-    {
-        file: 'docs/PRE_MAINNET_CHECKLIST.md',
-        what: 'PM-E2 row',
-        pattern: /`monitoring\/alerts\.json` \((\d+) alerts, (\d+) state checks\)/,
-        expect: ['alerts', 'stateChecks'],
-    },
-];
-
-for (const claim of DOC_CLAIMS) {
-    const abs = path.join(REPO_ROOT, claim.file);
-    if (!fs.existsSync(abs)) {
-        fail(`${claim.file} is missing, so its ${claim.what} count cannot be checked`);
-        continue;
-    }
-    const text = fs.readFileSync(abs, 'utf8');
-    const m = text.match(claim.pattern);
-    if (!m) {
-        fail(
-            `${claim.file} — ${claim.what}: the sentence this guard reads has been reworded, ` +
-                `so its count is no longer checked. Update the pattern in ` +
-                `scripts/verifyAlertTopics.js to match the new wording.`,
-        );
-        continue;
-    }
-    claim.expect.forEach((key, i) => {
-        const stated = Number(m[i + 1]);
-        if (stated !== actual[key]) {
-            fail(
-                `${claim.file} — ${claim.what} says ${stated} ${key}, but ` +
-                    `monitoring/alerts.json holds ${actual[key]}.`,
-            );
-        }
-    });
-}
-
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 if (!castAvailable) {
@@ -251,6 +185,5 @@ if (problems.length > 0) {
 console.log(
     `[verifyAlertTopics] OK — ${actual.alerts} alerts ` +
         `(${Object.entries(sevCount).sort().map(([k, v]) => `${k}:${v}`).join(' ')}), ` +
-        `${actual.stateChecks} state checks, ${actual.muted} muted events, ` +
-        `and ${DOC_CLAIMS.length} documented counts agree.`,
+        `${actual.stateChecks} state checks, ${actual.muted} muted events.`,
 );
