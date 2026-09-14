@@ -573,7 +573,7 @@ is where the data is. Both stores every API route touches live in AWS
 
 | Dependency | Region | How to re-check |
 |---|---|---|
-| Supabase | `ap-northeast-1` | Project Settings → General → Region |
+| Supabase | `ap-northeast-1` | Project Settings → General → Region — on the project `NEXT_PUBLIC_SUPABASE_URL` names, which is not the only one in that org |
 | Upstash | `ap-northeast-1` | resolve the REST hostname, match the IP against `ip-ranges.amazonaws.com` |
 
 Vercel defaults new projects to `iad1` (Washington D.C.) on the assumption that
@@ -583,11 +583,39 @@ round trip and once for the query. `/api/projects` budgets
 `REGISTRY_READ_DEADLINE_MS` (1200 ms in production) for the directory read;
 a trans-Pacific round trip plus a cold TLS handshake spent that budget before
 Postgres was reached, and roughly a third of production calls returned 503
-`registry unreachable`. Moving the functions to the data removed both hops.
+`registry unreachable`. Moving the functions to the data removed both hops:
+p90 over the live endpoint went from 2111 ms to 562 ms and the 503s stopped.
+That measurement, rather than the dashboard reading above, is what actually
+establishes the two are co-located.
 
 If either store is ever migrated, move this region with it. The failure mode is
 not an error at the boundary — it is an intermittent timeout that looks like the
 database is down.
+
+### Hosting tier
+
+On 2026-09-14 a project in the same Supabase org was found paused, with the
+dashboard offering Pro as the remedy — so that org is on the free tier. Confirm
+which plan backs the project this deployment actually reads
+(`NEXT_PUBLIC_SUPABASE_URL` names it) before trusting anything below, because
+the free tier caps three things that surface as site outages rather than as
+billing warnings:
+
+| Limit | What it looks like from outside |
+|---|---|
+| Pauses after about a week with no activity | Postgres stops. `/api/projects` 503s on every request until someone resumes it from the dashboard. |
+| Small shared instance | Query latency climbs back past `REGISTRY_READ_DEADLINE_MS`. Identical symptom to the region bug above, and the region fix cannot help a second time — the function is already co-located. |
+| Metered storage egress | Project logos are served straight from `…supabase.co/storage/…`, so they draw on the same allowance the database does. |
+
+The pause is the one worth naming, because it is the only failure here that
+arrives during quiet periods rather than busy ones, and quiet is exactly when
+nobody is watching. Note also that the directory degrades rather than dies:
+`useDirectoryProjects` enumerates launches from the factory on chain and treats
+the registry as an overlay, so a stopped database costs logos, descriptions and
+links — not the listing itself.
+
+Current plan limits are on Supabase's pricing page; they move, so read them
+there rather than trusting a number copied into this file.
 
 ---
 
