@@ -161,8 +161,8 @@ jobs:
           # delivering passes, and that is an operational measurement rather
           # than a code fact. Unset expands to '' and watch.mjs falls back to
           # 480 — above the widest gap GitHub's scheduler has been observed to
-          # produce. Once an external pinger is measured, lower it here; see the
-          # WATCHER-05 block in watch.mjs for why not before.
+          # produce. Set to 60 on 2026-09-14, once the external pinger had been
+          # measured holding 15 min; see the WATCHER-05 block in watch.mjs.
           MONITOR_MAX_RUN_GAP_MIN: ${{ vars.MONITOR_MAX_RUN_GAP_MIN }}
           # Through the environment, never interpolated into the script body.
           # `${{ inputs.since }}` expanded inline is a shell injection from a

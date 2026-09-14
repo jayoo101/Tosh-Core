@@ -305,20 +305,24 @@ state.treasury = TREASURY
  * fires when the schedule has stopped rather than when it is merely as bad as
  * usual.
  *
- * 8 h is right only while GitHub's scheduler is the only host. Once
- * `repository_dispatch` (see watch.yml and /api/watch-ping) is delivering a
- * cadence somebody has actually measured, this becomes the wrong number in the
- * other direction: a pinger that dies goes unreported for a third of a day,
- * which is most of what the second trigger was for. Lower it to a small
- * multiple of the pinger's real interval THEN — via the
- * `MONITOR_MAX_RUN_GAP_MIN` variable, not an edit here — and not before, or it
- * fires on every pass. Raise it if the platform gets worse.
+ * 8 h was right only while GitHub's scheduler was the only host. That stopped
+ * being the case on 2026-09-14, when `repository_dispatch` (see watch.yml and
+ * /api/watch-ping) started arriving: three consecutive gaps of 15.3, 14.7 and
+ * 15.1 min against a requested 15 — a cadence the cron never held once across
+ * the 193.5 h above. Leaving the threshold at 8 h with a pinger that good
+ * inverts the problem, because a pinger that dies then goes unreported for a
+ * third of a day, which is most of what the second trigger was for.
+ * `MONITOR_MAX_RUN_GAP_MIN` is therefore set to 60 in repository variables:
+ * three missed pings before it speaks, detection within the hour instead of a
+ * third of a day, and enough headroom for the queueing delay a dispatch still
+ * inherits from Actions. Raise it if the platform gets worse. Tighten it
+ * toward 45 once the pinger has a week behind it rather than an hour — the
+ * sample it is set from is four passes long.
  *
- * `lastRunEvent` is what makes that measurement possible at all. Without it the
+ * `lastRunEvent` is what made that measurement possible at all. Without it the
  * gap is the only record of the schedule, and the gap cannot say WHICH host
  * closed it — so "the pinger is working" and "the cron happened to fire" are
- * the same observation. SECURITY.md calls the dispatch cadence unproven; this
- * field is what will prove or disprove it.
+ * the same observation.
  *
  * P1 and paging: a monitor that has not run for a third of a day is an outage of
  * the monitor, which is the same claim WATCHER-03 and -04 page for. It cannot

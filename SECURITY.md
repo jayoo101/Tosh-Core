@@ -44,10 +44,14 @@ are written down rather than glossed:
   passes ran 2.1 h at the closest and 7.2 h at the widest.
 - The workflow therefore also accepts an external trigger
   (`repository_dispatch`, via `/api/watch-ping`), so the cadence can come from a
-  host that is not GitHub's shared scheduler. **Treat that as unproven until it
-  has been measured the way the cron was.** What is claimed today is only that
-  the ceiling is no longer structural; a pass that never runs still pages
-  nobody. The push also reaches one phone, not a rotation.
+  host that is not GitHub's shared scheduler. First measurement, 2026-09-14:
+  three consecutive gaps of 15.3, 14.7 and 15.1 minutes against a requested 15 —
+  a cadence the cron did not hold once in 193.5 hours. **That is four passes, not
+  193.5 hours. It is enough to set a threshold from and not enough to claim the
+  15-minute criterion is met.** What stops it from being an assertion here is
+  WATCHER-05: the gap between passes is now checked from inside the monitor and
+  pages if an hour goes by without one. A pass that never runs still pages
+  nobody, and the push reaches one phone, not a rotation.
 - The public chain-4663 RPC rate-limits the monitor: identical `eth_getLogs`
   calls are refused from the seventh onward. That cost one real detection — on
   the 2026-09-08 mainnet cutover every log query was refused, the run stayed
