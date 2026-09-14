@@ -1,5 +1,3 @@
-import Link from 'next/link'
-
 import { CHAIN_BYLINE } from '@/lib/contracts'
 
 /**
@@ -17,23 +15,6 @@ export function SiteFooter() {
           <span className="text-title text-text-primary tracking-tighter">
             Tosh<span className="text-brand"> Protocol</span>
           </span>
-          <Link
-            href="/launch"
-            className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
-          >
-            Launch
-          </Link>
-          <Link
-            href="/referrals"
-            className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
-          >
-            Referrals
-          </Link>
-          {/* The reference footer carries "How it works" between these two.
-              There is no route to point it at — see the NAV comment in
-              ToshNavbar for why that page was removed rather than kept — and a
-              footer link to an anchor on one specific page is worse than no
-              link, so the slot is closed rather than filled. */}
           {/* The repository, not an organisation. This read
               `github.com/tosh-protocol` until 2026-09-12 — a plausible name for
               an org that has never existed, so the one link on the site that
@@ -46,6 +27,17 @@ export function SiteFooter() {
             className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
           >
             GitHub
+          </a>
+          {/* Written in x.com's own canonical casing, which is what its oEmbed
+              endpoint returns for this handle, so a reader who copies the link
+              gets the same URL X would have given them. */}
+          <a
+            href="https://x.com/ToshProtocol"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+          >
+            X
           </a>
         </div>
         <span className="font-mono text-label text-text-quiet">

@@ -4,7 +4,8 @@
  * ────────────────────
  * Resolves the external links the site shows its users.
  *
- * There is currently one, and it was wrong. `SiteFooter.tsx` pointed "GitHub"
+ * There was exactly one when this was written, and it was wrong. `SiteFooter.tsx`
+ * pointed "GitHub"
  * at `github.com/tosh-protocol` — a plausible name for an organisation that has
  * never existed — so the single link on the site that invites a reader to stop
  * trusting us and read the source answered 404 instead. It shipped that way,
@@ -17,7 +18,7 @@
  * never re-read, and both looked exactly like working links. The cheap defence
  * is not review, it is a request.
  *
- * Two things are checked, and the second is the one with teeth:
+ * Three things are checked, and the first is the weakest of them:
  *   1. Every external href in the frontend's components resolves. A 404 here is
  *      worse than no link — a dead source link reads as a project with
  *      something to hide, which is the precise opposite of why it is there.
@@ -26,6 +27,16 @@
  *      enough: `github.com/tosh-protocol` would have passed check 1 the moment
  *      somebody registered that name, while still not being the source of the
  *      site the reader is standing on.
+ *   3. Any x.com handle is a real account. Check 1 cannot be trusted to tell —
+ *      that host answered 200 for one invented handle and 404 for another
+ *      minutes apart — so the same "resolves but is not the right thing" gap
+ *      that check 2 closes for GitHub was open for the X link the day it was
+ *      added, and open intermittently, which is the harder kind to notice.
+ *
+ * Checks 2 and 3 both exist because reachability is the easy half. Each one
+ * asks a source that can actually distinguish the right target from a
+ * plausible-looking wrong one: `git remote` for the first, X's own oEmbed
+ * lookup for the second.
  *
  * Only `src/components` is scanned, deliberately. `src/app` and the tests are
  * full of `https://tosh.test/...` and `https://cdn.test/logo.png` fixtures and
@@ -165,6 +176,62 @@ if (githubLinks.length === 0) {
         + 'A link that merely resolves is not enough — the previous value was an '
         + 'organisation that does not exist, and would have started passing a '
         + 'reachability check the day somebody else registered the name.')
+    }
+  }
+}
+
+// ── 3. The X handles are real accounts ──────────────────────────────────────
+//
+// Check 1 cannot be relied on here. x.com is a single-page app, and what it
+// answers for a handle nobody has registered is not consistent: measured
+// 2026-09-14, one invented handle came back 200 with a *larger* body than the
+// real profile, while a second came back 404 minutes later. So check 1 will
+// sometimes catch a typo in the footer and sometimes report OK on it, and which
+// one you get is not a property of the link. A check that passes intermittently
+// on a broken link is worse than no check, because its green is quoted.
+//
+// The oEmbed endpoint is a real lookup and 404s on an unknown handle. It is
+// also a third party that can rate-limit or block a CI runner, and exit 2 is a
+// red build here, so this must not be able to redden a build for any reason
+// except a genuinely dead handle. Hence the control: X's own account proves the
+// endpoint is answering truthfully before a 404 on ours is believed. If the
+// control does not come back clean — blocked, rate-limited, endpoint retired —
+// the check reports nothing rather than guessing.
+const X_PROFILE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?$/i
+const oembed = (handle) =>
+  fetch(`https://publish.twitter.com/oembed?url=https://twitter.com/${handle}`)
+
+const xHandles = links
+  .map(l => ({ ...l, handle: l.url.match(X_PROFILE)?.[1] }))
+  .filter(l => l.handle)
+
+if (xHandles.length > 0) {
+  let controlOk = false
+  try {
+    controlOk = (await oembed('X')).status === 200
+  } catch { /* treated as "cannot ask" below */ }
+
+  if (!controlOk) {
+    console.warn(
+      '[checkFooterLinks] skipped the X handle check: the oEmbed control lookup '
+      + 'did not answer 200, so a 404 on our own handle would not mean anything. '
+      + `${xHandles.length} x.com link(s) got reachability only, which for this `
+      + 'host is no check at all.')
+  } else {
+    for (const { url, file, handle } of xHandles) {
+      try {
+        const res = await oembed(handle)
+        if (res.status === 404) {
+          bad.push(
+            `${url} (in ${file}) is not a real account: the oEmbed lookup — `
+            + 'which just confirmed X\'s own account, so it is answering — says '
+            + 'this handle does not exist. Do not read anything into whether '
+            + 'check 1 above also flagged it; that host is inconsistent about '
+            + 'missing handles, which is why this check exists.')
+        }
+      } catch (err) {
+        unreachable.push(`oEmbed lookup for @${handle} — ${err.message}`)
+      }
     }
   }
 }
