@@ -145,7 +145,10 @@ const INVENTORY = {
        + 'token scoped that way authenticates and is then refused, which reaches the '
        + 'operator as a 502 from a ping that looked accepted. Not ALERT_REPO_TOKEN: that '
        + 'one files into tosh-alerts. Nothing beyond Contents is needed; GITHUB_TOKEN '
-       + 'inside the job persists the checkpoint.',
+       + 'inside the job persists the checkpoint. Expires on the date in '
+       + '`monitoring/watch-dispatch-token-expires`; `scripts/checkTokenExpiry.mjs` goes '
+       + 'red 21 days out, because the lapse itself is silent — findings keep filing and '
+       + 'only the cadence quietly halves back to GitHub\'s cron.',
   },
   BLOCKSCOUT_API_KEY: {
     tier: 'secret',
@@ -250,7 +253,7 @@ const INVENTORY = {
        + 'watcher files findings into a private repo instead — meaning this token is what keeps '
        + 'unpublished on-chain findings unpublished. It expires on the date in '
        + '`monitoring/alert-token-expires` (issued for 90 days). The day it lapses, '
-       + '`scripts/checkAlertTokenExpiry.mjs` turns CI red and filing 401s; the checkpoint '
+       + '`scripts/checkTokenExpiry.mjs` turns CI red and filing 401s; the checkpoint '
        + 'deliberately stops advancing. Unset '
        + 'falls back to the per-run secrets.GITHUB_TOKEN and this repository, which is the old '
        + 'behaviour and now the wrong sink.',

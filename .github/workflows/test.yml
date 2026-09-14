@@ -347,11 +347,16 @@ jobs:
         run: node monitoring/logQueries.test.mjs
 
       # The watcher files findings with a PAT whose expiry GitHub will not
-      # tell us. The date is a hand-kept file; this step fails inside 21 days
-      # so a push goes red before the cron does. Rotate the PAT and rewrite
-      # monitoring/alert-token-expires in the same commit.
-      - name: Check the alert-filing token is not about to expire
-        run: node scripts/checkAlertTokenExpiry.mjs --soon-is-fatal
+      # tell us. The dates are hand-kept files; this step fails inside 21 days
+      # so a push goes red before a cron does. Rotate the PAT and rewrite its
+      # date file in the same commit.
+      #
+      # Two tokens, and both fail into a state that reads as "nothing to
+      # report": ALERT_REPO_TOKEN stops filing findings, WATCH_DISPATCH_TOKEN
+      # stops the pinger and drops the cadence back to GitHub's own cron. This
+      # is the only place either date is checked on the push path.
+      - name: Check the hand-kept token expiries
+        run: node scripts/checkTokenExpiry.mjs --soon-is-fatal
 
       # The PoG attestation digest is built three times — Solidity verifies it,
       # viem signs it in production, ethers signs it for operators — with

@@ -263,7 +263,10 @@ jobs:
             echo "That one is minted per run and cannot expire. Nothing to watch here."
             exit 0
           fi
-          node scripts/checkAlertTokenExpiry.mjs
+          # Named explicitly: the guard above is about THIS token, and the
+          # other date the script knows about belongs to a Vercel variable
+          # this job never reads.
+          node scripts/checkTokenExpiry.mjs ALERT_REPO_TOKEN
 
       - name: File findings as issues
         id: file
