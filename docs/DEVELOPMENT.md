@@ -355,10 +355,18 @@ node scripts/pingWatch.mjs
 ```
 
 Set `CRON_SECRET` and `WATCH_DISPATCH_TOKEN` on the Vercel project as
-Sensitive. The token is a fine-grained PAT with Actions: write on
+Sensitive. The token is a fine-grained PAT with **Contents: write** on
 `jayoo101/Tosh-Core` — a different PAT from `ALERT_REPO_TOKEN` (that one files
 into `tosh-alerts`). Unset, the route refuses rather than firing an
 unauthenticated dispatch.
+
+Contents, not Actions, and the names invite the opposite guess. GitHub splits
+the two dispatch endpoints across permissions: `repository_dispatch`, which
+this route posts, is `POST /repos/{owner}/{repo}/dispatches` under Contents,
+while Actions: write buys `POST .../actions/workflows/{id}/dispatches`, which
+is `workflow_dispatch` — a different trigger this route never calls. A token
+granted Actions: write authenticates, is refused by GitHub, and surfaces as
+`/api/watch-ping` returning 502 while the ping itself looks accepted.
 
 **The public 4663 RPC 429s on the seventh identical `eth_getLogs`.** A pass
 that issued one request per topic0 walked into that ceiling; workflow run

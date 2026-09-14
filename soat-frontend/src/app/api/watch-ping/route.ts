@@ -151,8 +151,20 @@ async function ping(req: NextRequest): Promise<NextResponse> {
         surface: 'api-route',
         extra: { route: '/api/watch-ping', repo, status: res.status },
       })
+      // The hint names a permission, not a value, and only for the statuses
+      // that mean "GitHub read the token and said no". Without it this 502 is
+      // the end of the trail for whoever is holding the pinger: the ping was
+      // accepted, so every field they control looks right.
+      const hint =
+        res.status === 403 || res.status === 404
+          ? 'WATCH_DISPATCH_TOKEN was refused. repository_dispatch needs Contents: write; '
+            + 'Actions: write is the workflow_dispatch endpoint and grants nothing here.'
+          : res.status === 422
+            ? 'The token is fine. watch.yml on the default branch has no repository_dispatch trigger.'
+            : undefined
+
       return NextResponse.json(
-        { error: 'dispatch failed', status: res.status },
+        { error: 'dispatch failed', status: res.status, ...(hint ? { hint } : {}) },
         { status: 502 },
       )
     }

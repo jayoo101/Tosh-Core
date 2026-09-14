@@ -222,7 +222,13 @@ jobs:
       # It cannot be checked from outside without them — the whole point is
       # that the status code is the only signal a third-party pinger shows.
       #
-      # 293 is the COLLECTED total, which is what the parser below reads: 289
+      # 293 -> 297: the 502 branch now names which of two opposite repairs the
+      # operator needs, and four tests pin it. That branch fired in production
+      # on 2026-09-14 carrying nothing but a status code, which is how a token
+      # holding the wrong permission and a workflow missing its trigger reached
+      # the pinger as the same event.
+      #
+      # 297 is the COLLECTED total, which is what the parser below reads: 293
       # that run plus the 4 in `gasHistory.live.test.ts`. Those 4 are collected
       # and reported skipped, because `describe.runIf(POG_LIVE_SCAN === '1')`
       # gates them and CI does not set it — so the number does not move when
@@ -230,7 +236,7 @@ jobs:
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=293
+          floor=297
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

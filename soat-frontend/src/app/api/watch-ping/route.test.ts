@@ -88,4 +88,32 @@ describe('/api/watch-ping', () => {
     const res = await GET(req({ authorization: 'Bearer test-cron' }))
     expect(res.status).toBe(502)
   })
+
+  // The 502 that actually happened in production, on 2026-09-14: the token was
+  // granted Actions: write, which is the workflow_dispatch endpoint. Every
+  // field the operator controls looked right, so the status alone ended the
+  // trail. GitHub answers 404 as well as 403 here, because it hides
+  // repositories a token cannot see.
+  it.each([403, 404])('names the permission when GitHub refuses with %i', async (status) => {
+    dispatch.mockResolvedValue(new Response('', { status }))
+    const res = await GET(req({ authorization: 'Bearer test-cron' }))
+    expect(res.status).toBe(502)
+    const body = await res.json()
+    expect(body.hint).toContain('Contents: write')
+    expect(body.hint).toContain('Actions: write')
+  })
+
+  // 422 is the opposite repair, and reads identically from the pinger.
+  it('points at the default branch, not the token, on 422', async () => {
+    dispatch.mockResolvedValue(new Response('', { status: 422 }))
+    const body = await (await GET(req({ authorization: 'Bearer test-cron' }))).json()
+    expect(body.hint).toContain('repository_dispatch')
+    expect(body.hint).not.toContain('Contents: write')
+  })
+
+  it('adds no hint to a status that does not name a repair', async () => {
+    dispatch.mockResolvedValue(new Response('', { status: 500 }))
+    const body = await (await GET(req({ authorization: 'Bearer test-cron' }))).json()
+    expect(body.hint).toBeUndefined()
+  })
 })

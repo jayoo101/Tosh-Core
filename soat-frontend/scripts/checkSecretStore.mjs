@@ -137,12 +137,15 @@ const INVENTORY = {
   WATCH_DISPATCH_TOKEN: {
     tier: 'optional-pair',
     pairedWith: 'CRON_SECRET',
-    why: 'Fine-grained PAT with Actions: write on jayoo101/Tosh-Core. /api/watch-ping '
+    why: 'Fine-grained PAT with Contents: write on jayoo101/Tosh-Core. /api/watch-ping '
        + 'uses it to POST repository_dispatch=watch — the scheduler GitHub\'s own cron '
        + 'is not, because that pool delivered 0.269 passes/hour no matter the interval. '
-       + 'Not ALERT_REPO_TOKEN: that one files into tosh-alerts and has no Actions scope '
-       + 'here. Contents:write is not required; GITHUB_TOKEN inside the job persists the '
-       + 'checkpoint.',
+       + 'Contents, not Actions: GitHub files POST /repos/{o}/{r}/dispatches under '
+       + 'Contents, and Actions: write buys the workflow_dispatch endpoint instead — a '
+       + 'token scoped that way authenticates and is then refused, which reaches the '
+       + 'operator as a 502 from a ping that looked accepted. Not ALERT_REPO_TOKEN: that '
+       + 'one files into tosh-alerts. Nothing beyond Contents is needed; GITHUB_TOKEN '
+       + 'inside the job persists the checkpoint.',
   },
   BLOCKSCOUT_API_KEY: {
     tier: 'secret',
