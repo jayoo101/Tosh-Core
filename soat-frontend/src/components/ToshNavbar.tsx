@@ -3,7 +3,6 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3 } from 'lucide-react'
 
 import { CHAIN_BYLINE } from '@/lib/contracts'
 
@@ -68,7 +67,11 @@ export function ToshNavbar() {
       <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-3 sm:px-6">
         <div className="flex items-center gap-3 min-w-0 sm:gap-5">
           <Link href="/" className="flex items-center gap-2 text-title text-text-primary tracking-tighter hover:opacity-90 transition-opacity shrink-0">
-            <BarChart3 size={16} className="text-brand shrink-0" />
+            {/* `alt` is empty on purpose. The span below already gives this
+                link its accessible name, so naming the image as well would
+                have a screen reader announce "ToshX" twice. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand-mark.png" alt="" width={16} height={16} className="shrink-0" />
             {/* One element, not `Tosh<span>X</span>`. A bare text node inside a
                 flex container becomes its own anonymous flex item, so the
                 `gap-2` that spaces the icon was also spacing the wordmark and
