@@ -34,9 +34,35 @@ describe('/api/watch-ping', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
-  it('rejects a missing or wrong secret', async () => {
-    expect((await GET(req())).status).toBe(401)
-    expect((await GET(req({ authorization: 'Bearer wrong' }))).status).toBe(401)
+  it('answers a missing credential with 401 and names the headers it reads', async () => {
+    const res = await GET(req())
+    expect(res.status).toBe(401)
+    expect(res.headers.get('www-authenticate')).toBe('Bearer')
+    const body = await res.json()
+    expect(body.detail).toContain('x-cron-secret')
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  // The two ways a pinger fails have to be told apart from the outside, where
+  // the only signal is the status code.
+  it('answers a credential that was read but does not match with 403, not 401', async () => {
+    const res = await GET(req({ authorization: 'Bearer wrong' }))
+    expect(res.status).toBe(403)
+    expect((await GET(req({ 'x-cron-secret': 'wrong' }))).status).toBe(403)
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  // cron-job.org's Authentication fields send Basic, not Bearer, so this reads
+  // as "no credential" however carefully the operator typed the secret.
+  it('names the scheme when the authorization header is not Bearer', async () => {
+    const res = await GET(req({ authorization: 'Basic dXNlcjpwYXNz' }))
+    expect(res.status).toBe(401)
+    expect((await res.json()).detail).toContain('Basic')
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('treats a blank x-cron-secret as absent rather than as a mismatch', async () => {
+    expect((await GET(req({ 'x-cron-secret': '   ' }))).status).toBe(401)
     expect(dispatch).not.toHaveBeenCalled()
   })
 

@@ -18,6 +18,14 @@
  * Vercel cron sends the first of those when `CRON_SECRET` is set on the
  * project. Unset, this route refuses rather than firing an unauthenticated
  * dispatch.
+ *
+ * Every refusal is a different repair, so each has its own status:
+ *
+ *   401  nothing this route reads was sent — the pinger has no header
+ *   403  a credential was read and does not match — the value is stale
+ *   502  the ping was accepted; GitHub refused the dispatch (token scope,
+ *        or `repository_dispatch` absent from the default branch)
+ *   503  a credential this route needs is unset on the deployment
  */
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -28,12 +36,33 @@ import { reportError } from '@/lib/observability'
 const PING_LIMIT = { name: 'watch-ping', capacity: 8, refillPerSec: 1 / 15 } as const
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
-function providedSecret(req: NextRequest): string | null {
+/**
+ * A pinger that sends nothing and a pinger that sends the wrong value both
+ * used to get a bare 401, which is one observation for two different repairs
+ * — and the observation is all the operator has, because the pinger is a
+ * third-party form and Vercel's request log keeps status codes, not headers.
+ * cron-job.org's own hint on a 401 ("add an authorization header") argues for
+ * the case that is already handled, so it points away from the other one.
+ *
+ * `scheme` carries the case that costs the most time: cron-job.org's
+ * Authentication fields send `Authorization: Basic <base64>`, which is a
+ * credential the operator can see themselves entering and that this route
+ * does not read. Naming it discloses nothing a reader of this file does not
+ * already have — the header names are three lines up, and the value is never
+ * echoed.
+ */
+type Credential =
+  | { kind: 'sent'; value: string }
+  | { kind: 'absent'; scheme: string | null }
+
+function providedSecret(req: NextRequest): Credential {
   const auth = req.headers.get('authorization')
   const bearer = auth?.match(/^Bearer\s+(.+)$/i)
-  if (bearer?.[1]) return bearer[1].trim()
-  const header = req.headers.get('x-cron-secret')
-  return header?.trim() || null
+  if (bearer?.[1]) return { kind: 'sent', value: bearer[1].trim() }
+  const header = req.headers.get('x-cron-secret')?.trim()
+  if (header) return { kind: 'sent', value: header }
+  const scheme = auth?.trim().split(/\s+/)[0]
+  return { kind: 'absent', scheme: scheme || null }
 }
 
 function secretsEqual(a: string, b: string): boolean {
@@ -67,8 +96,27 @@ async function ping(req: NextRequest): Promise<NextResponse> {
   }
 
   const got = providedSecret(req)
-  if (!got || !secretsEqual(got, expected)) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  if (got.kind === 'absent') {
+    return NextResponse.json(
+      {
+        error: 'no credential',
+        detail: got.scheme
+          ? `The authorization header used the ${got.scheme} scheme. This route reads `
+            + `Bearer, or the x-cron-secret header. HTTP Basic auth fields on a pinger `
+            + `send Basic and will never match.`
+          : 'Send Authorization: Bearer <CRON_SECRET>, or x-cron-secret: <CRON_SECRET>.',
+      },
+      { status: 401, headers: { 'www-authenticate': 'Bearer' } },
+    )
+  }
+
+  // 403, not 401: the credential arrived and was read. A pinger that repeats a
+  // 401 is configured wrong; one that gets 403 is configured and holds a stale
+  // value, and only the second is fixed by rotating CRON_SECRET. Nothing about
+  // the expected value is disclosed — length included, which is why the
+  // comparison below is reached with no length hint returned here.
+  if (!secretsEqual(got.value, expected)) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   if (!REPO_RE.test(repo)) {

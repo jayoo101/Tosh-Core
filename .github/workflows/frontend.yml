@@ -217,7 +217,12 @@ jobs:
       # being collected with this step still green, which is the exact failure it
       # was written to catch. Raise it in the same commit as any addition.
       #
-      # 290 is the COLLECTED total, which is what the parser below reads: 286
+      # 290 -> 293: `/api/watch-ping` now answers a missing credential and a
+      # wrong one differently, and the three added tests pin the distinction.
+      # It cannot be checked from outside without them — the whole point is
+      # that the status code is the only signal a third-party pinger shows.
+      #
+      # 293 is the COLLECTED total, which is what the parser below reads: 289
       # that run plus the 4 in `gasHistory.live.test.ts`. Those 4 are collected
       # and reported skipped, because `describe.runIf(POG_LIVE_SCAN === '1')`
       # gates them and CI does not set it — so the number does not move when
@@ -225,7 +230,7 @@ jobs:
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=290
+          floor=293
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
