@@ -565,6 +565,30 @@ npx eslint src --ext .ts,.tsx
 npm run test
 ```
 
+### Function region
+
+`vercel.json` pins `"regions": ["hnd1"]` (Tokyo). This is not a preference — it
+is where the data is. Both stores every API route touches live in AWS
+`ap-northeast-1`:
+
+| Dependency | Region | How to re-check |
+|---|---|---|
+| Supabase | `ap-northeast-1` | Project Settings → General → Region |
+| Upstash | `ap-northeast-1` | resolve the REST hostname, match the IP against `ip-ranges.amazonaws.com` |
+
+Vercel defaults new projects to `iad1` (Washington D.C.) on the assumption that
+your data is on the US East Coast. Ours is not, and nobody had overridden the
+default, so every request crossed the Pacific twice: once for the rate-limiter
+round trip and once for the query. `/api/projects` budgets
+`REGISTRY_READ_DEADLINE_MS` (1200 ms in production) for the directory read;
+a trans-Pacific round trip plus a cold TLS handshake spent that budget before
+Postgres was reached, and roughly a third of production calls returned 503
+`registry unreachable`. Moving the functions to the data removed both hops.
+
+If either store is ever migrated, move this region with it. The failure mode is
+not an error at the boundary — it is an intermittent timeout that looks like the
+database is down.
+
 ---
 
 ## Documentation

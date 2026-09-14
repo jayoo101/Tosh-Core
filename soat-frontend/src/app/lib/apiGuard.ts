@@ -186,9 +186,9 @@ const TRUSTED_PROXY_HOPS = (() => {
  * unspoofable options". A header is only unspoofable if the edge that sets it
  * is actually in front, and this app deploys to Vercel with no Cloudflare:
  * `.vercel/project.json` names the project, `vercel.json` only registers the
- * watch-ping cron (it is not an edge config and does not put another proxy
- * in front), there is no `wrangler.toml`, and no Cloudflare configuration
- * anywhere in the tree.
+ * watch-ping cron and pins the function region (it is not an edge config and
+ * does not put another proxy in front), there is no `wrangler.toml`, and no
+ * Cloudflare configuration anywhere in the tree.
  *
  * Vercel sets `x-vercel-forwarded-for` and normalises `x-forwarded-for`. It
  * does not set, strip, or overwrite Cloudflare's headers — so `cf-connecting-ip`
