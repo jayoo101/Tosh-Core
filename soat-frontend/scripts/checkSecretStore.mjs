@@ -289,6 +289,15 @@ const INVENTORY = {
   MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
   MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },
   MONITOR_EXPECTED_POG_SIGNER: { tier: 'ci-config', why: 'Public address of the PoG signer; the private half is POG_SIGNER_PRIVATE_KEY.' },
+  MONITOR_MAX_RUN_GAP_MIN: {
+    tier: 'ci-config',
+    why: 'Minutes the watcher tolerates between passes before WATCHER-05 pages. Carries no '
+       + 'credential. Set to 60 on 2026-09-14, down from the 480 default, once /api/watch-ping '
+       + 'had been measured delivering every ~15 minutes: three consecutive misses still stay '
+       + 'quiet, while an outage surfaces eight times sooner than the default allowed. The '
+       + 'number is only defensible against that measurement, so raising it without taking a '
+       + 'fresh one lengthens the blind window rather than reducing noise.',
+  },
 
   // ── Deliberately unset. ──────────────────────────────────────────────────
   MONITOR_KEEPER_ADDRESS: {
