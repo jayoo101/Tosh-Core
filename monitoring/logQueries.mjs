@@ -12,8 +12,11 @@
  * Necessary, and measured 2026-09-15 to be insufficient on its own: from a CI
  * runner all three are refused outright, because that endpoint meters by source
  * IP and a shared runner range is spent before the pass starts. What grouping
- * buys is a pass cheap enough that a keyed endpoint's free tier carries it
- * comfortably. `rpc.mjs` has the measurement and the reasoning.
+ * buys is a pass cheap enough to be affordable on a metered plan — three
+ * requests at 20 CU each, not twenty-odd — which is what the keyed endpoint
+ * `MONITOR_RPC` now points at. It does not buy a free tier: those cap the block
+ * RANGE, not the request count, so collapsing twenty queries into three does not
+ * help with them at all. `rpc.mjs` has the measurements.
  */
 export function buildLogQueries(alerts, addressFor) {
   const groups = new Map()

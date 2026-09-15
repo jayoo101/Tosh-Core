@@ -617,6 +617,36 @@ links — not the listing itself.
 Current plan limits are on Supabase's pricing page; they move, so read them
 there rather than trusting a number copied into this file.
 
+### Watcher RPC
+
+`MONITOR_RPC` is a paid keyed endpoint (dRPC Growth) as of 2026-09-15. It had
+been the public 4663 URL, and half the passes were scanning nothing: every
+`eth_getLogs` refused on the first attempt through all four retries, `eth_call`
+answering normally alongside. `monitoring/rpc.mjs` carries the measurements — the
+short version is that the public endpoint meters by source IP, a GitHub runner
+shares its range with every other runner, and no request interval buys back an
+allowance a neighbour has already spent.
+
+Two things follow that are worth knowing before touching this.
+
+**A free keyed tier is not a substitute, however it is marketed.** A pass needs
+`eth_getLogs` over the ~8,700 blocks it spans, and free tiers cap that range
+rather than the rate: QuickNode Discover at 5 blocks, Alchemy Free at 10, dRPC
+Free refusing 8,700 outright while its error names a 10,000 limit. Chunking is
+not a way around a 10-block cap — it is ~2,600 requests a pass, ~250,000 a day.
+The public endpoint is the only one with no range cap at all, which is why this
+worked for as long as it did and why the failure, when it arrived, looked like
+nothing to do with ranges.
+
+**The watcher now depends on a prepaid balance, which is new.** Credits are
+bought up front and do not expire; a pass costs three `eth_getLogs` plus the
+state reads, at 20 CU each, so $6 of credit is on the order of a year at the
+15-minute cadence. Read the real number off the dRPC dashboard rather than
+trusting that arithmetic. When the balance does run out the monitor goes blind
+again — but not quietly: it is the same refusal shape as before, so WATCHER-04
+fires, the job goes red, and a finding is filed. That is the one reassuring thing
+about this dependency, and it is worth not undoing.
+
 ---
 
 ## Documentation

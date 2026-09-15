@@ -837,8 +837,9 @@ if (/rpc\.mainnet\.chain\.robinhood\.com/i.test(RPC)) {
     '        working throughout. The variable is who asks, not how fast — a GitHub\n' +
     '        runner shares its IP range with every other runner, and no interval buys\n' +
     '        back an allowance a neighbour already spent. A keyed URL is metered per\n' +
-    '        key; Alchemy and QuickNode both cover this chain on a free tier with no\n' +
-    '        card, so the fix costs a signup, not money.',
+    '        key — but not a free one: measured the same day, QuickNode Discover caps\n' +
+    '        eth_getLogs at 5 blocks, Alchemy Free at 10, dRPC Free refuses 8,700, and\n' +
+    '        a pass spans ~8,700. Only a paid tier does this job. See rpc.mjs.',
   )
 }
 // Printed on every pass, not only when WATCHER-05 fires. The threshold answers

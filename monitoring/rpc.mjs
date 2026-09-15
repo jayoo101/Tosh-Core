@@ -27,8 +27,28 @@
  * `MONITOR_RPC_MIN_INTERVAL_MS` upward is the intuitive response and it is
  * wasted work — the knob is deliberately not plumbed into `watch.yml` for that
  * reason. The fix is a keyed endpoint, which is metered per key; Robinhood's own
- * docs call the public one unsuitable for production, and Alchemy and QuickNode
- * both cover chain 4663 on a free tier.
+ * docs call the public one unsuitable for production.
+ *
+ * A keyed FREE tier is not the fix, and this is the part worth writing down
+ * because every provider's marketing implies otherwise. A pass needs
+ * `eth_getLogs` over the ~8,700 blocks it spans, and the free tiers cap that
+ * range rather than the rate. Measured 2026-09-15 against chain 4663:
+ *
+ *   QuickNode Discover  5 blocks   ("limited to a 5 range", code -32615)
+ *   Alchemy Free        10 blocks  (their own docs, Robinhood Mainnet row)
+ *   dRPC Free           refused 8,700 3/3, while reporting a 10,000 limit
+ *
+ * Note the last one: the message names a threshold the endpoint does not apply.
+ * Chunking around a 10-block cap is not a way out either — 870 requests per
+ * group per pass, ~2,600 a pass, ~250,000 a day, which no free allowance covers.
+ * The public endpoint is the only one with NO range cap, which is why it worked
+ * for as long as it did and why the failure, when it came, looked like nothing
+ * about ranges.
+ *
+ * `MONITOR_RPC` is therefore a paid keyed endpoint (dRPC Growth, from
+ * 2026-09-15): same three queries, 3/3 accepted, 81 logs on the first. That
+ * makes the watcher depend on a prepaid balance for the first time — see
+ * `docs/DEVELOPMENT.md` under "Watcher RPC" for what happens when it runs out.
  *
  * What follows still earns its place. It is what makes a *single* caller behave,
  * and the 2026-09-08 incident it was written for was a real one.
