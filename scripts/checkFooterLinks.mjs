@@ -22,16 +22,19 @@
  *   1. Every external href in the frontend's components resolves. A 404 here is
  *      worse than no link — a dead source link reads as a project with
  *      something to hide, which is the precise opposite of why it is there.
+ *      x.com hrefs are exempt and are checked by 3 instead; see there for why.
  *   2. The GitHub link points at *this* repository, resolved from `git remote`
  *      rather than from a constant in this file. A link that resolves is not
  *      enough: `github.com/tosh-protocol` would have passed check 1 the moment
  *      somebody registered that name, while still not being the source of the
  *      site the reader is standing on.
- *   3. Any x.com handle is a real account. Check 1 cannot be trusted to tell —
- *      that host answered 200 for one invented handle and 404 for another
- *      minutes apart — so the same "resolves but is not the right thing" gap
- *      that check 2 closes for GitHub was open for the X link the day it was
- *      added, and open intermittently, which is the harder kind to notice.
+ *   3. Any x.com handle is a real account. Check 1 cannot answer this and is not
+ *      allowed to try: that host returned 200 for one invented handle and 404
+ *      for another minutes apart, then 403 for the *real* one as soon as the
+ *      request came from a CI runner rather than a laptop. So it was capable of
+ *      both halves of a useless check — a green on a dead link, and a red build
+ *      on a live one — and the second is what it actually did, on the commit
+ *      that added the link.
  *
  * Checks 2 and 3 both exist because reachability is the easy half. Each one
  * asks a source that can actually distinguish the right target from a
@@ -126,7 +129,16 @@ if (links.length === 0) {
 }
 
 // ── 1. They resolve ─────────────────────────────────────────────────────────
-for (const { url, file } of links) {
+//
+// x.com is not asked. On 2026-09-14 it served 403 to the GitHub runner for a
+// handle that is real, live, and correct — which this check can only read as a
+// dead link — so the commit that added the X link turned CI red while the link
+// was fine, and the same request from a laptop passed. Reachability against a
+// host that refuses datacentre IPs measures the runner, not the link. Check 3
+// is the real check on these, and it asks an endpoint that answers CI.
+const X_PROFILE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?$/i
+
+for (const { url, file } of links.filter(l => !X_PROFILE.test(l.url))) {
   try {
     await head(url)
   } catch (err) {
@@ -197,13 +209,18 @@ if (githubLinks.length === 0) {
 // endpoint is answering truthfully before a 404 on ours is believed. If the
 // control does not come back clean — blocked, rate-limited, endpoint retired —
 // the check reports nothing rather than guessing.
-const X_PROFILE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?$/i
 const oembed = (handle) =>
   fetch(`https://publish.twitter.com/oembed?url=https://twitter.com/${handle}`)
 
 const xHandles = links
   .map(l => ({ ...l, handle: l.url.match(X_PROFILE)?.[1] }))
   .filter(l => l.handle)
+
+// Counted so the closing line can only claim what was actually established. A
+// handle the control skipped past has had nothing checked at all now that it is
+// out of check 1, and a summary that says otherwise is the failure this file
+// keeps running into.
+let xVerified = 0
 
 if (xHandles.length > 0) {
   let controlOk = false
@@ -228,6 +245,8 @@ if (xHandles.length > 0) {
             + 'this handle does not exist. Do not read anything into whether '
             + 'check 1 above also flagged it; that host is inconsistent about '
             + 'missing handles, which is why this check exists.')
+        } else {
+          xVerified++
         }
       } catch (err) {
         unreachable.push(`oEmbed lookup for @${handle} — ${err.message}`)
@@ -246,7 +265,10 @@ if (bad.length > 0) {
   for (const u of unreachable) console.error(`  — ${u}`)
   process.exitCode = 2
 } else {
+const xNote = xHandles.length === 0
+  ? ''
+  : `, and ${xVerified}/${xHandles.length} X handle(s) exist per oEmbed`
 console.log(
-  `[checkFooterLinks] OK — ${links.length} external link(s) in src/components `
-  + `resolve, and the GitHub link is ${originSlug}.`)
+  `[checkFooterLinks] OK — ${links.length - xHandles.length} external link(s) in `
+  + `src/components resolve, the GitHub link is ${originSlug}${xNote}.`)
 }
