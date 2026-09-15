@@ -13,6 +13,26 @@
  *   - window width is not the constraint — a 1,000,000-block `eth_getLogs`
  *     is accepted, address-scoped and address-less.
  *
+ * Re-measured 2026-09-15, because that model stopped predicting the failures.
+ * Five of ten consecutive CI passes were refused every `eth_getLogs` — all
+ * three, on the first attempt, through four retries — while `eth_call` answered
+ * normally in the same passes. Repeating the watcher's exact three grouped
+ * queries from a laptop: 36/36 accepted, 0 refused, at 250, 1000, 2000 and
+ * 4000 ms spacing alike.
+ *
+ * So the limiter is not counting our requests, and the pacing below cannot fix
+ * this: it is metered per source IP and weighted by method, a GitHub runner
+ * shares its range with every other runner, and the expensive method is the
+ * first to be refused when a neighbour has spent the allowance. Tuning
+ * `MONITOR_RPC_MIN_INTERVAL_MS` upward is the intuitive response and it is
+ * wasted work — the knob is deliberately not plumbed into `watch.yml` for that
+ * reason. The fix is a keyed endpoint, which is metered per key; Robinhood's own
+ * docs call the public one unsuitable for production, and Alchemy and QuickNode
+ * both cover chain 4663 on a free tier.
+ *
+ * What follows still earns its place. It is what makes a *single* caller behave,
+ * and the 2026-09-08 incident it was written for was a real one.
+ *
  * So this transport does two things, and deleting either re-opens the 2026-09-08
  * mainnet-cutover incident (workflow run 34196807435): a 900k-block pass that
  * returned 0 logs, recorded non-paging WATCHER-02 for every topic, filed only

@@ -830,8 +830,15 @@ console.error(
 )
 if (/rpc\.mainnet\.chain\.robinhood\.com/i.test(RPC)) {
   console.error(
-    '        MONITOR_RPC is the public 4663 endpoint. It 429s on the seventh ' +
-    'identical call; a keyed URL in that secret is what removes the ceiling.',
+    '        MONITOR_RPC is the public 4663 endpoint, which Robinhood documents as\n' +
+    '        rate-limited and not for production. Do not try to pace around it: measured\n' +
+    '        2026-09-15, a laptop got 36/36 grouped getLogs accepted at 250 ms spacing\n' +
+    '        while five of ten passes here were refused on the first one, eth_call\n' +
+    '        working throughout. The variable is who asks, not how fast — a GitHub\n' +
+    '        runner shares its IP range with every other runner, and no interval buys\n' +
+    '        back an allowance a neighbour already spent. A keyed URL is metered per\n' +
+    '        key; Alchemy and QuickNode both cover this chain on a free tier with no\n' +
+    '        card, so the fix costs a signup, not money.',
   )
 }
 // Printed on every pass, not only when WATCHER-05 fires. The threshold answers

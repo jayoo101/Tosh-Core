@@ -8,6 +8,12 @@
  * "any") therefore collapses the catalogue to one query per scope: factory,
  * treasury, and the address-less hook events. Three requests sit under the
  * measured ceiling of six; twenty-odd do not.
+ *
+ * Necessary, and measured 2026-09-15 to be insufficient on its own: from a CI
+ * runner all three are refused outright, because that endpoint meters by source
+ * IP and a shared runner range is spent before the pass starts. What grouping
+ * buys is a pass cheap enough that a keyed endpoint's free tier carries it
+ * comfortably. `rpc.mjs` has the measurement and the reasoning.
  */
 export function buildLogQueries(alerts, addressFor) {
   const groups = new Map()
