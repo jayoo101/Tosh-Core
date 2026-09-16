@@ -13,8 +13,9 @@ import {
 } from '@/components/ui'
 import { fmt, fmtFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
-import { PogScanButton } from './PogScanButton'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
+import { GasHistoryDialog } from './GasHistoryDialog'
+import { usePogFlow } from './usePogFlow'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENESIS PANEL  ·  Phase 1
@@ -88,6 +89,15 @@ export function GenesisPanel(p: GenesisProps) {
     : unattested ? 'unattested'
     : onCooldown ? 'cooldown'
     : null
+
+  const pog = usePogFlow({
+    userAddress: p.userAddress,
+    unattested,
+    refetch: p.refetch,
+  })
+
+  const scanEligible = Boolean(pog.scan?.eligible)
+  const scanning = pog.phase === 'scanning'
 
   // One gateway from the raw stamp to anything that formats it, so a permanent
   // ban cannot reach `Date` and throw.  The horizon decides; the formatters
@@ -173,7 +183,11 @@ export function GenesisPanel(p: GenesisProps) {
   const gate = useActionGate({
     action: 'Deposit ETH',
     onAct: submitDeposit,
-    tx: { isPending: isDepositing, isConfirming: isDepositConfirming },
+    tx: {
+      isPending: isDepositing || pog.isPending,
+      isConfirming: isDepositConfirming || pog.isConfirming,
+      isBusy: txBusy || scanning || pog.registering,
+    },
     blockersInRevertOrder: revertOrder(
       {
         id: 'amount-invalid',
@@ -198,9 +212,38 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'unattested',
         active: unattested,
-        label: 'Gas check required',
-        reason: 'This wallet has no gas history on record yet, so it has no deposit limit to spend. Run the scan beside this button to have one written on-chain.',
+        label: scanning
+          ? 'Reading gas history…'
+          : pog.registering
+            ? 'Activating quota…'
+            : scanEligible
+              ? 'Activate deposit quota'
+              : pog.phase === 'failed'
+                ? 'Retry gas check'
+                : pog.phase === 'ready'
+                  ? 'Below gas floor'
+                  : 'Checking gas history…',
+        reason: scanning
+          ? 'Your wallet just connected — reading lifetime gas across five chains. No signature required for this step.'
+          : pog.registering
+            ? 'Writing the deposit quota on-chain.'
+            : scanEligible
+              ? 'Gas history qualifies. Click to sign once and register the quota; Deposit unlocks after that lands.'
+              : pog.phase === 'failed'
+                ? (pog.error ?? 'The gas lookup failed. Click to try again.')
+                : pog.phase === 'ready'
+                  ? `This wallet’s historical gas is below the floor of ${fmt(BigInt(pog.scan!.floorWei))} ETH, so no deposit quota can be sized.`
+                  : 'Waiting for the automatic gas lookup to start.',
         tone: 'warn',
+        resolve: scanning || pog.registering
+          ? undefined
+          : scanEligible
+            ? () => { void pog.registerQuota() }
+            : pog.phase === 'failed'
+              ? () => { void pog.startLookup(true) }
+              : pog.phase === 'ready' && pog.scan
+                ? () => { pog.setDialogOpen(true) }
+                : undefined,
       },
       {
         id: 'cooldown',
@@ -291,15 +334,41 @@ export function GenesisPanel(p: GenesisProps) {
         {unattested && (
           <div className="border border-warning/40 px-4 py-3 flex flex-col gap-1">
             <p className="font-mono text-label tracking-[0.32em] uppercase text-warning">
-              → NO POG ATTESTATION ON FILE
+              {scanning
+                ? '→ READING GAS HISTORY'
+                : scanEligible
+                  ? '→ GAS HISTORY QUALIFIES'
+                  : pog.phase === 'ready'
+                    ? '→ BELOW GAS FLOOR'
+                    : '→ NO POG ATTESTATION ON FILE'}
             </p>
             <p className="font-mono text-note text-text-tertiary leading-relaxed">
-              This wallet has never registered Proof-of-Gas, so it holds no quota to spend —
-              nothing has been consumed here. Run{' '}
-              <span className="text-text-primary">EXECUTE_GAS_PROOF_SCAN</span> below to have the
-              oracle size an allocation from this address&apos;s gas history and write it
-              on-chain; deposits open the moment that lands.
+              {scanning
+                ? <>Connected — looking up this address&apos;s lifetime gas on Ethereum,
+                  Arbitrum, Optimism, Base and Robinhood. No wallet signature is asked
+                  for this read.</>
+                : scanEligible
+                  ? <>Eligible for a deposit quota. Activate it once (signature +
+                    on-chain registration), then Deposit works normally — no separate
+                    gas-scan click.</>
+                  : pog.phase === 'ready' && pog.scan
+                    ? <>Historical gas is {fmt(BigInt(pog.scan.totalGasWei))} ETH against
+                      a floor of {fmt(BigInt(pog.scan.floorWei))} ETH. Open the breakdown
+                      for per-chain figures.</>
+                    : <>This wallet has never registered Proof-of-Gas, so it holds no
+                      quota to spend. The gas lookup starts automatically when you
+                      connect.</>}
             </p>
+            {pog.scan && pog.phase === 'ready' && (
+              <button
+                type="button"
+                onClick={() => pog.setDialogOpen(true)}
+                className="mt-1 self-start font-mono text-label tracking-[0.2em] uppercase
+                           text-brand hover:underline"
+              >
+                View per-chain breakdown
+              </button>
+            )}
           </div>
         )}
 
@@ -362,15 +431,19 @@ export function GenesisPanel(p: GenesisProps) {
 
         <div className="flex gap-3 flex-wrap items-start">
           <ActionButton gate={gate} size="lg" />
-          {p.isConnected && (
-            <PogScanButton
-              userAddress={p.userAddress}
-              hookAddress={p.hookAddress}
-              refetch={p.refetch}
-            />
-          )}
         </div>
       </Card>
+
+      {p.userAddress && (
+        <GasHistoryDialog
+          open={pog.dialogOpen}
+          onClose={() => pog.setDialogOpen(false)}
+          userAddress={p.userAddress}
+          scan={pog.scan}
+          onActivate={unattested && scanEligible ? () => { void pog.registerQuota() } : undefined}
+          activating={pog.registering}
+        />
+      )}
 
       <DepositSuccessDialog
         open={stakeAfterDeposit !== null}

@@ -108,7 +108,7 @@ const ALLOCATION = {
 async function runScan() {
   const ui = mount(<PogScanButton userAddress={USER} hookAddress={HOOK} refetch={vi.fn()} />)
   try {
-    await act(async () => { ui.button('Run gas-proof scan').click() })
+    await act(async () => { ui.button('Activate deposit quota').click() })
     for (let i = 0; i < 20; i++) await act(async () => { await Promise.resolve() })
   } finally {
     ui.unmount()

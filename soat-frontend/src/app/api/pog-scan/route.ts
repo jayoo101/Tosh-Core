@@ -13,15 +13,19 @@
  * `sign-allocation` then reads the finished job instead of doing the work, and
  * refuses to sign if there is not one.
  *
- * WHY POST IS WALLET-AUTHENTICATED AND GET IS NOT
+ * WHY POST MAY BE UNSIGNED, AND GET IS UNSIGNED
  *
  * A scan is the expensive thing this service does: five chains, up to four
- * 10,000-row windows each, against free public endpoints whose goodwill is the
- * only quota we have. An unauthenticated start would let anyone spend it on any
- * address, in bulk, from one connection — a rate limit alone would not help,
- * because every request would be for a different address and so a different
- * cache key. Requiring the same EIP-191 signature `sign-allocation` requires
- * means a caller can only ever spend the budget on a wallet they control.
+ * 10,000-row windows each, against Blockscout credits. The product now starts
+ * that read the moment a wallet connects — before any signature prompt — so
+ * POST no longer requires EIP-191. What bounds the spend instead is the stack
+ * below: per-IP, global hourly, per-address, credit reserve, and the one-hour
+ * result cache. Those were always the real ceilings; keypairs are free, so
+ * wallet auth never stopped a determined caller from rotating addresses.
+ *
+ * A signature is still accepted when present (the deposit path may already
+ * hold one for `sign-allocation`) and is verified the same way. It is not
+ * required to start a read of public fee totals.
  *
  * GET carries no auth because it discloses nothing private: every figure in it
  * is a sum of public transaction fees, readable by anyone with the address.
@@ -122,7 +126,7 @@ const RATE_LIMIT_OPTS = {
  * end of that chain is the failure this file already names: credits exhausted,
  * `CREDIT_RESERVE` refusing, and genesis allocation closed for everybody.
  *
- * Sized so legitimate polling cannot trip it: `PogScanButton` polls every 2 s for
+ * Sized so legitimate polling cannot trip it: the genesis panel polls every 2 s for
  * at most 135 s, so ~0.5 req/s sustained and ~68 per scan. 10/s refill leaves a
  * twentyfold margin and matches what `projects` already calls a cheap read.
  */
@@ -202,8 +206,10 @@ const ADDRESS_SCAN_LIMIT = { capacity: 6, windowMs: 60 * 60 * 1000 } as const
 interface ScanRequestBody {
   userAddress: string
   chainId: number
-  timestamp: number
-  signature: string
+  /** Optional. When both are set they are verified; when absent the scan still
+   *  starts under the rate-limit stack. See the header for why. */
+  timestamp?: number
+  signature?: string
   /** Discard any cached result and read the chains again. The refresh button. */
   force?: boolean
 }
@@ -438,38 +444,38 @@ export async function POST(req: Request) {
   if (!isSupportedPogChain(chainId)) {
     return corsify(req, clientError(`Unsupported chainId ${chainId}`))
   }
-  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
-    return corsify(req, clientError('Invalid timestamp'))
-  }
-  if (typeof signature !== 'string' || !signature.startsWith('0x')) {
-    return corsify(req, clientError('Invalid signature'))
-  }
   if (force !== undefined && typeof force !== 'boolean') {
     return corsify(req, clientError('Invalid force'))
   }
 
-  // Same wallet-auth gate as `sign-allocation`, same domain, same window. A
-  // second scheme would be a second thing to get wrong, and the client already
-  // caches this signature (`pogAuthCache`), so reusing it costs no extra prompt.
-  if (Math.abs(Date.now() - timestamp) >= POG_SESSION_AUTH_TTL_MS) {
-    return corsify(req, clientError('Unauthorized — wallet auth window elapsed', 401))
+  // Auth is optional. Present → verified (same gate as `sign-allocation`).
+  // Absent → the rate-limit stack below is the whole admission control.
+  const hasSig = typeof signature === 'string' && signature.startsWith('0x')
+  const hasTs = typeof timestamp === 'number' && Number.isFinite(timestamp)
+  if (hasSig !== hasTs) {
+    return corsify(req, clientError('timestamp and signature must both be set, or both omitted'))
   }
-  const authMessage = buildPoGScanAuthMessage(userAddress, timestamp)
-  if (!authMessage.startsWith(POG_SCAN_AUTH_DOMAIN)) {
-    return corsify(req, clientError('Server config error: auth domain prefix mismatch', 500))
-  }
-  let authOk = false
-  try {
-    authOk = await verifyMessage({
-      address: userAddress as Address,
-      message: authMessage,
-      signature: signature as `0x${string}`,
-    })
-  } catch {
-    authOk = false
-  }
-  if (!authOk) {
-    return corsify(req, clientError('Unauthorized — auth signature does not recover to userAddress', 401))
+  if (hasSig && hasTs) {
+    if (Math.abs(Date.now() - timestamp!) >= POG_SESSION_AUTH_TTL_MS) {
+      return corsify(req, clientError('Unauthorized — wallet auth window elapsed', 401))
+    }
+    const authMessage = buildPoGScanAuthMessage(userAddress, timestamp!)
+    if (!authMessage.startsWith(POG_SCAN_AUTH_DOMAIN)) {
+      return corsify(req, clientError('Server config error: auth domain prefix mismatch', 500))
+    }
+    let authOk = false
+    try {
+      authOk = await verifyMessage({
+        address: userAddress as Address,
+        message: authMessage,
+        signature: signature as `0x${string}`,
+      })
+    } catch {
+      authOk = false
+    }
+    if (!authOk) {
+      return corsify(req, clientError('Unauthorized — auth signature does not recover to userAddress', 401))
+    }
   }
 
   try {

@@ -94,6 +94,8 @@ describe('PoG chain allowlist', () => {
       'app/lib/onchainNonce.ts',
       'app/api/sign-allocation/route.ts',
       'app/api/pog-scan/route.ts',
+      'components/ProjectTerminal/usePogFlow.ts',
+      'components/ProjectTerminal/pogScanClient.ts',
       'components/ProjectTerminal/PogScanButton.tsx',
     ]
     for (const rel of files) {

@@ -303,11 +303,38 @@ describe('POST /api/pog-scan — what bounds the upstream cost', () => {
     expect(store.get(USER.toLowerCase())?.status).toBe('done')
   })
 
-  it('spends no budget on a request whose wallet auth does not recover', async () => {
+  it('spends no budget when a presented signature does not recover', async () => {
     authRecovers = false
     const res = await post()
     expect(res.status).toBe(401)
     expect(charged).toEqual([])
+    expect(scheduled).toBe(0)
+  })
+
+  it('starts a scan with no signature — gas lookup no longer needs wallet auth', async () => {
+    const { POST } = await import('./route')
+    const res = await POST(new Request('https://tosh.test/api/pog-scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://tosh.test' },
+      body: JSON.stringify({ userAddress: USER, chainId: SUPPORTED_CHAIN }),
+    }))
+    expect(res.status).toBe(202)
+    expect(scheduled).toBe(1)
+    expect(charged).toEqual([GLOBAL_KEY, ADDRESS_KEY])
+  })
+
+  it('rejects a signature without a timestamp (and the reverse)', async () => {
+    const { POST } = await import('./route')
+    const res = await POST(new Request('https://tosh.test/api/pog-scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://tosh.test' },
+      body: JSON.stringify({
+        userAddress: USER,
+        chainId: SUPPORTED_CHAIN,
+        signature: `0x${'ab'.repeat(65)}`,
+      }),
+    }))
+    expect(res.status).toBe(400)
     expect(scheduled).toBe(0)
   })
 })
