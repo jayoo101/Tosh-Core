@@ -97,6 +97,7 @@ describe('PoG chain allowlist', () => {
       'components/ProjectTerminal/usePogFlow.ts',
       'components/ProjectTerminal/pogScanClient.ts',
       'components/ProjectTerminal/PogScanButton.tsx',
+      'components/ProjectTerminal/PogLookupProvider.tsx',
     ]
     for (const rel of files) {
       const text = readFileSync(join(SRC, rel), 'utf8')

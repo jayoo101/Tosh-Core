@@ -2,7 +2,7 @@
 
 /**
  * Manual entry point kept for tests and any surface that still wants an
- * explicit button. Genesis auto-starts the unsigned lookup via `usePogFlow`;
+ * explicit button. The app shell auto-starts the unsigned lookup on connect;
  * this button runs the same path on click (lookup without a signature, then
  * attestation with one).
  */

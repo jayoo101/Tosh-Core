@@ -1,19 +1,20 @@
 'use client'
 
 /**
- * Auto gas lookup + optional on-chain quota registration for genesis.
+ * Auto gas lookup + optional on-chain quota registration.
  *
- * On connect with no PoG attestation: start an unsigned `/api/pog-scan` and open
- * the per-chain dialog when it finishes. Registering quota still needs one
- * EIP-191 message (for `sign-allocation`) and one `registerPoG` transaction —
- * that is custody of the allocation, not of the public fee totals.
+ * A connected wallet starts an unsigned `/api/pog-scan` from the app shell, on
+ * any page — not only the genesis deposit card — and the per-chain dialog opens
+ * as soon as the read begins. Registering quota still needs one EIP-191 message
+ * (for `sign-allocation`) and one `registerPoG` transaction; that is custody of
+ * the allocation, not of the public fee totals.
  *
  * Answer state is stamped with the address it belongs to, so switching wallets
  * cannot flash the previous wallet's figures (same shape as `useReferralCode`).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useChainId, usePublicClient, useSignMessage } from 'wagmi'
+import { useAccount, useChainId, usePublicClient, useSignMessage } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
@@ -43,43 +44,65 @@ type Answer = {
   error: string | null
 }
 
-export function usePogFlow({
-  userAddress,
-  unattested,
-  refetch,
-}: {
-  userAddress: Address | undefined
-  /** Connected, not banned, pogQuota === 0. */
-  unattested: boolean
-  refetch: () => void
-}) {
+const DISMISS_PREFIX = 'tosh:pog-dialog:'
+
+function dialogDismissed(address: string): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_PREFIX + address) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markDialogDismissed(address: string): void {
+  try {
+    sessionStorage.setItem(DISMISS_PREFIX + address, '1')
+  } catch {
+    /* private mode */
+  }
+}
+
+export function usePogFlow() {
+  const { address: userAddress } = useAccount()
   const chainId = useChainId()
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
 
   const [answer, setAnswer] = useState<Answer | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogOpen, setDialogOpenRaw] = useState(false)
   const startedFor = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const refetchListeners = useRef(new Set<() => void>())
 
-  const mine = answer && userAddress && answer.address === userAddress.toLowerCase()
-    ? answer
-    : null
+  const addrKey = userAddress?.toLowerCase() ?? null
+  const mine = answer && addrKey && answer.address === addrKey ? answer : null
   const phase = mine?.phase ?? 'idle'
   const scan = mine?.scan ?? null
   const error = mine?.error ?? null
 
+  const bindRefetch = useCallback((fn: () => void) => {
+    refetchListeners.current.add(fn)
+    return () => { refetchListeners.current.delete(fn) }
+  }, [])
+
   const { send, isPending, isConfirming, isBusy } = useTxAction({
     action: 'register Proof-of-Gas',
     onConfirmed: () => {
-      setDialogOpen(false)
-      refetch()
+      setDialogOpenRaw(false)
+      if (addrKey) markDialogDismissed(addrKey)
+      refetchListeners.current.forEach(fn => fn())
     },
   })
+
+  const setDialogOpen = useCallback((open: boolean) => {
+    setDialogOpenRaw(open)
+    if (!open && addrKey) markDialogDismissed(addrKey)
+  }, [addrKey])
 
   const startLookup = useCallback(async (force = false) => {
     if (!userAddress) return
     const key = userAddress.toLowerCase()
+    const runKey = `${key}:${chainId}`
     if (!isSupportedPogChain(chainId)) {
       setAnswer({
         address: key,
@@ -93,17 +116,21 @@ export function usePogFlow({
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
-    startedFor.current = key
+    startedFor.current = runKey
 
     setAnswer({ address: key, phase: 'scanning', scan: null, error: null })
+    if (!dialogDismissed(key)) setDialogOpenRaw(true)
     try {
       const result = await runUnsignedPogScan(userAddress, chainId, {
         force,
         signal: ac.signal,
       })
-      if (ac.signal.aborted) return
+      if (ac.signal.aborted) {
+        if (startedFor.current === runKey) startedFor.current = null
+        return
+      }
       setAnswer({ address: key, phase: 'ready', scan: result, error: null })
-      setDialogOpen(true)
+      if (!dialogDismissed(key)) setDialogOpenRaw(true)
 
       const missing = result.unavailableChains ?? []
       if (result.truncated) {
@@ -114,20 +141,28 @@ export function usePogFlow({
         )
       }
     } catch (err) {
-      if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
+      if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        if (startedFor.current === runKey) startedFor.current = null
+        return
+      }
       startedFor.current = null
       const msg = err instanceof Error ? err.message : String(err)
       setAnswer({ address: key, phase: 'failed', scan: null, error: msg })
+      if (!dialogDismissed(key)) setDialogOpenRaw(true)
       toshToast.fromError(err)
     }
   }, [userAddress, chainId])
 
   useEffect(() => {
-    if (!userAddress || !unattested) return
-    const key = userAddress.toLowerCase()
-    if (startedFor.current === key) return
+    if (!userAddress) {
+      abortRef.current?.abort()
+      startedFor.current = null
+      return
+    }
+    const runKey = `${userAddress.toLowerCase()}:${chainId}`
+    if (startedFor.current === runKey) return
     void startLookup(false)
-  }, [userAddress, unattested, startLookup])
+  }, [userAddress, chainId, startLookup])
 
   useEffect(() => () => { abortRef.current?.abort() }, [])
 
@@ -198,6 +233,7 @@ export function usePogFlow({
   }, [userAddress, chainId, scan, signMessageAsync, publicClient, send])
 
   return {
+    userAddress: userAddress as Address | undefined,
     phase,
     scan,
     error,
@@ -205,8 +241,11 @@ export function usePogFlow({
     setDialogOpen,
     startLookup,
     registerQuota,
+    bindRefetch,
     registering: isBusy,
     isPending,
     isConfirming,
   }
 }
+
+export type PogFlow = ReturnType<typeof usePogFlow>

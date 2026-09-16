@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { parseUnits, formatUnits, type Address } from 'viem'
 
 import {
@@ -14,8 +14,7 @@ import {
 import { fmt, fmtFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
-import { GasHistoryDialog } from './GasHistoryDialog'
-import { usePogFlow } from './usePogFlow'
+import { usePogLookup } from './PogLookupProvider'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENESIS PANEL  ·  Phase 1
@@ -90,11 +89,9 @@ export function GenesisPanel(p: GenesisProps) {
     : onCooldown ? 'cooldown'
     : null
 
-  const pog = usePogFlow({
-    userAddress: p.userAddress,
-    unattested,
-    refetch: p.refetch,
-  })
+  const pog = usePogLookup()
+  const bindRefetch = pog.bindRefetch
+  useEffect(() => bindRefetch(p.refetch), [bindRefetch, p.refetch])
 
   const scanEligible = Boolean(pog.scan?.eligible)
   const scanning = pog.phase === 'scanning'
@@ -433,17 +430,6 @@ export function GenesisPanel(p: GenesisProps) {
           <ActionButton gate={gate} size="lg" />
         </div>
       </Card>
-
-      {p.userAddress && (
-        <GasHistoryDialog
-          open={pog.dialogOpen}
-          onClose={() => pog.setDialogOpen(false)}
-          userAddress={p.userAddress}
-          scan={pog.scan}
-          onActivate={unattested && scanEligible ? () => { void pog.registerQuota() } : undefined}
-          activating={pog.registering}
-        />
-      )}
 
       <DepositSuccessDialog
         open={stakeAfterDeposit !== null}

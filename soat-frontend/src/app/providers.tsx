@@ -8,6 +8,7 @@ import { foundry } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
 import type { ToasterProps } from 'react-hot-toast'
 import { targetChain, ROBINHOOD_ID, ROBINHOOD_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
+import { PogLookupProvider } from '@/components/ProjectTerminal/PogLookupProvider'
 
 // ssr: false — react-hot-toast maintains an internal toast store; the SSR
 // snapshot of that store never matches the hydration snapshot, producing a
@@ -122,7 +123,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <PogLookupProvider>
+          {children}
+        </PogLookupProvider>
         {/* THE toaster.  Mounted here rather than in layout.tsx for two
             reasons: layout.tsx is a server component, so hosting it there
             would need a second client boundary purely to carry this; and the
