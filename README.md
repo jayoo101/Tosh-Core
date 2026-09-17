@@ -372,7 +372,7 @@ Once the treasury's native balance reaches `TRIGGER_STEP` = 3.5 BNB, any
   mean the same thing. The looseness is deliberate; `src/ToshLadderTreasury.sol`
   argues the trade at the constant.
 - **Gas defence, and the backstop it needs.** If the transaction has less than
-  `PIGGYBACK_MIN_GAS` = 260,000 left, the protocol skips the buyback so the
+  `PIGGYBACK_MIN_GAS` = 270,000 left, the protocol skips the buyback so the
   user's own trade always completes. Because skipping means trading alone no
   longer guarantees the reservoir drains, anyone may call the permissionless
   `pokeBuyback()` to advance it. That call moves no ETH to the caller and
@@ -661,7 +661,7 @@ withdraw path.
 | `TWAP_WINDOW` | 1800 s | `ToshLaunchpadHook` | oracle window, and its manipulation depth |
 | `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open |
 | `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
-| `PIGGYBACK_MIN_GAS` | 260,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
+| `PIGGYBACK_MIN_GAS` | 270,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
 | `MIN_SOFT_CAP_PROD` | 0.035 BNB | `ToshFactory` | production floor for the default soft cap |
 | `MAX_LAUNCH_FEE` | 35 BNB | `ToshFactory` | ceiling on the launch fee |
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |

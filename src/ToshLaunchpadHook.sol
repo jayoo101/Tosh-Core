@@ -615,38 +615,52 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         bands are empty.  Nothing but the floor is defensible, and the
     ///         floor is a measurement, so it has to be re-taken per chain.
     ///
-    ///         **Now measured on the chain this ships to** rather than inferred
-    ///         from Ethereum.  One leg on Robinhood 46630, against the live V4
-    ///         singleton and a real launched pool, costs **156,153** gas — 4.8 %
-    ///         above the 148,986 the same leg measures locally under `--isolate`.
-    ///         The migration's stated worry was that ArbOS accounting would
-    ///         diverge widely from Ethereum's; at 4.8 % it does not.  The floor
-    ///         on 4663 is `100_000 + 156_153 = 256_153`, and this is the next
-    ///         round number above it.
+    ///         **RE-TAKEN FOR PANCAKESWAP INFINITY, and it moved.**  The
+    ///         paragraph above says the floor is a measurement that has to be
+    ///         re-taken per chain; the port changed the AMM as well as the chain,
+    ///         and the leg got dearer.  Measured cold under `--isolate`, one leg
+    ///         is **164,880** gas against 148,986 on Uniswap V4 — the same Vault
+    ///         indirection that cost `launch()` 34k, paid again here.  The floor
+    ///         is `100_000 + 164_880 = 264_880`, and 270,000 is the next round
+    ///         number above it, which is the same rule the previous value used.
     ///
-    ///         156,153 is the dearest of four samples and the right one to size
-    ///         against: it is the first buyback of a newly listed token, which
-    ///         pays ~17k to take that token's `0xdEaD` balance slot from zero.
-    ///         Steady-state legs measured ~139k.  Sizing to the steady state
-    ///         would put the first poke of every new listing back in the waste
-    ///         band.  §F.7 of `docs/ROBINHOOD_MIGRATION.md` has all four samples
-    ///         and the probe contract.
+    ///         ⚠ 260,000 WAS BELOW THIS FLOOR, which is the exact failure the
+    ///           correction above was written about — a gate that admits a poke,
+    ///           forwards 160k and hands one leg less than the 164,880 it needs,
+    ///           then swallows the revert.  It sat there for the duration of the
+    ///           port and only the lower-bound assertion caught it.  The value
+    ///           was correct when it was written and was invalidated by a change
+    ///           somewhere else entirely, which is the argument for that
+    ///           assertion existing rather than for anyone having been careless.
     ///
-    ///         This costs a wallet ~5 points of buffer against the value it
-    ///         replaces, and that is worth stating rather than burying: the
-    ///         engage test reads 20 % where it read 15 % at 230,000.  Some of
-    ///         those apparent engagements were real, so this is a genuine trade
-    ///         and not a free correction.  It is still the right one — the 15 %
-    ///         was measured in Ethereum's accounting, which this contract will
-    ///         never execute in, and under the accounting it WILL execute in the
-    ///         old value sat 26k below the floor.
+    ///         The old Robinhood measurement is worth keeping as history because
+    ///         it is what the shape of this constant was argued from: one leg on
+    ///         46630 against the live V4 singleton cost 156,153 gas, 4.8 % above
+    ///         the local `--isolate` figure, and that 4.8 % is what said ArbOS
+    ///         accounting did not diverge widely from Ethereum's.  BSC needs no
+    ///         such adjustment — it is a plain EVM chain with no L2 gas model —
+    ///         so the local cold measurement stands on its own here, and the
+    ///         on-chain re-measurement to confirm it is owed once 97 is live.
+    ///
+    ///         Sized against the DEAREST leg, not the steady state.  The first
+    ///         buyback of a newly listed token pays ~17k to take that token's
+    ///         `0xdEaD` balance slot from zero; sizing to the steady state would
+    ///         put the first poke of every new listing back in the waste band.
+    ///
+    ///         What it costs a wallet: the engage test reads 10 % under
+    ///         `--isolate` and 20 % plain, against 15 %/45 % before the port.
+    ///         Both improved, because the quote this is compared against grew
+    ///         with the leg while the constant grew less than proportionally.
     ///
     ///         Three tests hold the three edges.
     ///         `test_piggybackStillRidesAProperlyEstimatedSwap` pins the engage
-    ///         side and now asserts BOTH bounds — it is the missing lower bound
-    ///         that let this sit under the floor unnoticed.
+    ///         side and asserts BOTH bounds — it is the lower bound that caught
+    ///         the port, and the upper bound that constrains this to 290,580
+    ///         rather than anything comfortably clear of the floor: the two gas
+    ///         accountings disagree about the leg, so the value has to satisfy
+    ///         the isolated floor and the plain ceiling at once.
     ///         `test_piggybackSkipsRatherThanKillingTheTrade` pins the skip side.
-    uint256 public constant PIGGYBACK_MIN_GAS = 260_000;
+    uint256 public constant PIGGYBACK_MIN_GAS = 270_000;
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Immutables

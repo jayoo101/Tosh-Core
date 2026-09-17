@@ -2859,11 +2859,19 @@ contract ToshV5Test is Test {
     ///         creator who budgets only for the first one is stranded holding a
     ///         funded genesis they cannot open.
     ///
-    ///         ⚠ THE BUDGET WENT UP 34k IN THE INFINITY PORT, from 578,000 to
-    ///           620,000, and the measured figure with it — 612,384 against the
+    ///         ⚠ THE BUDGET WENT UP 82k IN THE INFINITY PORT, from 578,000 to
+    ///           660,000, and the measured figure with it — 655,948 against the
     ///           V4 path's ~577k. This is not a regression to chase down; it is
     ///           what the port costs, and it is raised rather than silently
     ///           relaxed so the number stays a guard.
+    ///
+    ///           ⚠ MEASURE THIS UNDER `--isolate`, WHICH IS WHAT CI RUNS. An
+    ///             earlier pass at this budget read 612,384 from a plain
+    ///             `forge test` and set 620,000 from it; `--isolate` charges the
+    ///             cold storage a real transaction pays and reads 655,948, so
+    ///             that budget was green locally and would have failed CI. The
+    ///             43k gap between the two modes is larger than the headroom any
+    ///             of these budgets carry, so the mode is not a detail.
     ///
     ///           The 34k buys the Vault indirection. V4 settled inside the
     ///           contract that held the balances, so `unlock` → `modifyLiquidity`
@@ -2890,7 +2898,7 @@ contract ToshV5Test is Test {
 
         emit log_named_uint("launch", used);
         emit log_named_uint("was, on Uniswap V4 before the Infinity port", 577_000);
-        assertLt(used, 620_000, "launch path regressed");
+        assertLt(used, 660_000, "launch path regressed");
     }
 
     /// @notice A buy through the pool: the full router-to-hook path a trader
@@ -2956,7 +2964,15 @@ contract ToshV5Test is Test {
         uint256 used = before - gasleft();
 
         emit log_named_uint("swap buy, warm pool", used);
-        assertLt(used, 192_000, "warm swap path regressed");
+        emit log_named_uint("was, on Uniswap V4 before the Infinity port", 192_000);
+
+        // 195,949 under `--isolate`. The smallest rise of any budget in this file
+        // — under 4k — and that is the informative part: the gap to
+        // `test_gas_swapBuy`'s 252,726 barely moved, so the Vault's cost lands on
+        // the warm path and the cold path alike rather than on first-swap
+        // initialisation. The paragraph above says a widening gap means
+        // initialisation is growing; it did not widen.
+        assertLt(used, 200_000, "warm swap path regressed");
     }
 
     /// @notice A single-shelf Phase-2 mint — the ladder's own buy path, which
@@ -3008,10 +3024,19 @@ contract ToshV5Test is Test {
         emit log_named_uint("2 ladder tokens", two);
         emit log_named_uint("3 ladder tokens (BATCH_SIZE)", three);
         emit log_named_uint("was, at 3 legs per poke", 578_809);
+        emit log_named_uint("was, on Uniswap V4 before the Infinity port", 420_000);
 
-        // A second and third listing add bookkeeping, not legs.
+        // A second and third listing add bookkeeping, not legs. The flatness is
+        // the property under test and it survived the port unchanged: 425,932 /
+        // 445,847 / 445,869, so 20k of bookkeeping for the second listing and
+        // 22 gas for the third.
         assertLt(three - one, 40_000, "peak cost must not scale with the ladder length");
-        assertLt(three, 420_000, "armed swap regressed");
+
+        // 445,869 under `--isolate`, up ~26k on the V4 path. Same cause as every
+        // other rise in this file: the leg is a swap, and a swap now settles
+        // through the Vault. Raised to track the measurement rather than left
+        // generous, so the flatness assertion above is not the only live guard.
+        assertLt(three, 450_000, "armed swap regressed");
     }
 
     /// @notice A swap sized for an unarmed pool SURVIVES the reservoir arming:
@@ -3331,9 +3356,9 @@ contract ToshV5Test is Test {
 
         // The hard check is structural rather than a percentage, because the
         // percentage is not comparable across gas accountings: `--isolate`
-        // charges cold storage and measures 15 % here, while plain `forge test`
+        // charges cold storage and measures 10 % here, while plain `forge test`
         // keeps everything warm, which shrinks the quote without shrinking this
-        // absolute constant and measures 45 %.  Asserting a percentage would
+        // absolute constant and measures 20 %.  Asserting a percentage would
         // pin one mode and break the other, as an earlier version did.
         //
         // What IS comparable is the rule the constant is built from — a tail
@@ -3344,6 +3369,16 @@ contract ToshV5Test is Test {
         //
         // `PIGGYBACK_MIN_GAS = 260_000` overshot this by 61k under plain
         // accounting, which is the regression that prompted the check.
+        //
+        // ⚠ THIS BOUND AND THE ONE BELOW NOW BIND FROM OPPOSITE MODES, which is
+        //   the thing to know before touching the constant. The Infinity port
+        //   made a leg dearer, and it did so by different amounts in the two
+        //   accountings — 164,880 cold, 150,580 warm. So the floor below is set
+        //   by `--isolate` and the ceiling here by plain mode, leaving a window
+        //   of [264,880, 290,580] that any admissible value has to sit inside.
+        //   270,000 does. A value chosen to clear the cold floor comfortably
+        //   would breach this ceiling, and the failure would show up in whichever
+        //   mode was not the one it was measured in.
         assertLe(
             trigger.PIGGYBACK_MIN_GAS(),
             trigger.PIGGYBACK_TAIL_RESERVE() + legCost + 40_000,
@@ -3367,9 +3402,18 @@ contract ToshV5Test is Test {
         // merely absent, and absence is what this mechanism looks like when it
         // is working normally on an unarmed reservoir.
         //
-        // Measured on Robinhood 46630 at 156,153 for the same leg — 4.8 % above
-        // the figure this run computes — so the chain the constant ships to is
-        // the tighter of the two.
+        // ⚠ AND IT CAUGHT THE INFINITY PORT, which is the reason to say so here
+        //   rather than leave the paragraph reading like history. The leg went
+        //   from 148,986 to 164,880 while the constant stayed at 260,000, which
+        //   put it 4,880 under the floor — the same silent band described above,
+        //   arrived at from the other direction: nobody lowered the gate, the
+        //   work underneath it got dearer. Every other test in this suite passed.
+        //
+        // Measured on Robinhood 46630 at 156,153 for the same leg on Uniswap V4,
+        // 4.8 % above what the local `--isolate` run computed then. That premium
+        // was ArbOS accounting and does not carry to BSC, so the local cold
+        // figure is the one this now compares against — pending an on-chain
+        // re-measurement once 97 is live.
         assertGe(
             trigger.PIGGYBACK_MIN_GAS(),
             trigger.PIGGYBACK_TAIL_RESERVE() + legCost,

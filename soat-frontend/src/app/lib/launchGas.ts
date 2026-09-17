@@ -15,20 +15,34 @@
  *
  * `test_gas_createLaunch` and `test_gas_launch` in `test/ToshV5.t.sol`, run
  * under `forge test --isolate` (without it Foundry keeps storage warm across a
- * test and understates every figure). Those tests hold budgets 15 % above these
+ * test and understates every figure). Those tests hold budgets above these
  * values, so a change that makes this quote materially wrong fails CI rather
  * than silently under-quoting a creator.
  *
  * They are measured with `gasleft()` deltas, which EXCLUDE the 21,000
  * transaction base and the calldata cost — hence `TX_BASE_GAS` below. Skipping
  * that correction is the easy way to publish a quote that is quietly ~4 % light.
+ *
+ * ⚠ BOTH ROSE IN THE PANCAKESWAP INFINITY PORT, and `launch()` rose by 30 %.
+ *   Infinity settles through a Vault that sits in front of the pool manager, so
+ *   every `sync`/`settle`/`take` is an extra call across a contract boundary
+ *   that Uniswap V4 kept inside one callee.
+ *
+ *   Under-quoting here is the failure that matters, and it is not symmetric with
+ *   over-quoting. `launch()` can only be called by the creator, so a creator who
+ *   budgeted from the old 502,719 and funded their wallet to the wei would be
+ *   left holding a successfully funded genesis they cannot open, with nobody else
+ *   able to open it for them. That is the exact stranding the two-transaction
+ *   quote below exists to prevent, so these numbers have to be re-measured
+ *   whenever the settlement path changes — not only when CI's budgets go red,
+ *   since a budget with headroom stays green while this quote drifts.
  */
 
 /** `test_gas_createLaunch`, `--isolate`. Both clone deployments are in here. */
-export const CREATE_LAUNCH_GAS = 534_011n
+export const CREATE_LAUNCH_GAS = 546_579n
 
 /** `test_gas_launch`, `--isolate`. Pool initialisation and the genesis LP mint. */
-export const LAUNCH_GAS = 502_719n
+export const LAUNCH_GAS = 655_948n
 
 /**
  * Intrinsic cost of any transaction. Calldata is deliberately not modelled: for
