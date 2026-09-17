@@ -18,7 +18,7 @@ import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @notice Stateful handler: the only contract the invariant fuzzer is allowed
 ///         to call.  It drives real user, creator and owner actions against a
@@ -469,7 +469,7 @@ contract ToshInvariantHandler is Test {
         for (uint256 i; i < 20_000; ++i) {
             rawSalt = bytes32(i + feeSlack % 977);
             address predicted =
-                HookMiner.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
+                HookAddress.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
             if (predicted.code.length == 0) {
                 found = true;
                 break;
@@ -1218,7 +1218,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             address predicted =
-                HookMiner.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
+                HookAddress.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
             if (predicted.code.length == 0) {
                 found = true;
                 break;

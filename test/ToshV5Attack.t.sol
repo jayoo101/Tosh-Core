@@ -23,7 +23,7 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @notice RED-TEAM PROBES — adversarial exploration of the v5.0 "Scheme B"
 ///         (8.4 M genesis / 12.6 M ladder) configuration.
@@ -106,7 +106,7 @@ contract ToshV5AttackTest is Test {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
-            address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
+            address predicted = HookAddress.computeAddress(address(factory), finalSalt, initcodeHash);
             if (predicted.code.length == 0) return rawSalt;
         }
         revert("_pickSalt: first 1000 salts are all occupied");

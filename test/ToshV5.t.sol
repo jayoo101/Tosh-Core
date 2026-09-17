@@ -20,7 +20,7 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 
 /// @dev Namespaced storage slot for `ReentrantLadderHook`'s counter. File-level
@@ -155,7 +155,7 @@ contract ToshV5Test is Test {
     ///      carrying the 0x20CC flag mask, because that is where the PoolManager
     ///      read a hook's permissions from. Infinity reads them from
     ///      `getHooksRegistrationBitmap()`, the factory checks no address bits,
-    ///      and `HookMiner.isValidHookAddress` was deleted with the gate.
+    ///      and `HookAddress.isValidHookAddress` was deleted with the gate.
     ///
     ///      The occupancy check is the half that had to survive, and it is doing
     ///      real work here rather than guarding a corner case: every project in
@@ -175,7 +175,7 @@ contract ToshV5Test is Test {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(_creator, rawSalt));
-            if (HookMiner.computeAddress(address(factory), finalSalt, initcodeHash).code.length == 0) return rawSalt;
+            if (HookAddress.computeAddress(address(factory), finalSalt, initcodeHash).code.length == 0) return rawSalt;
         }
         revert("_pickSalt: first 1000 salts are all occupied");
     }

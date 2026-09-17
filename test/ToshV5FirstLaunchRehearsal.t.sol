@@ -12,7 +12,7 @@ import {Currency} from "infinity-core/src/types/Currency.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @notice Rehearsal for the mainnet FIRST launch, against the **deployed**
 ///         factory, at the **0.035 BNB soft-cap floor**.
@@ -171,7 +171,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             address predicted =
-                HookMiner.computeAddress(factoryAddr, keccak256(abi.encode(creator, rawSalt)), initcodeHash);
+                HookAddress.computeAddress(factoryAddr, keccak256(abi.encode(creator, rawSalt)), initcodeHash);
             if (predicted.code.length == 0) return rawSalt;
         }
         revert("_pickSalt: first 1000 salts are all occupied");

@@ -9,7 +9,7 @@
  * `scripts/checkLpActions.ts` and `scripts/checkClMath.ts` were written with
  * `npx tsx` in their usage lines, but `tsx` is not a dependency of this
  * package and never was — so neither guard could be wired into CI, and neither
- * ran for months. That is the same shape as the `checkHookMinerTuple.mjs`
+ * ran for months. That is the same shape as the `checkCloneInitcodeTuple.mjs`
  * incident recorded in .github/workflows/test.yml: a guard that exists but is
  * unreachable is worth nothing.
  *

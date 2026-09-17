@@ -17,7 +17,7 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //
 //  Why this script exists
 //  ──────────────────────
-//  The frontend's `hookMiner.ts` precomputes the (factory, salt, initcode)
+//  The frontend's `hookAddress.ts` precomputes the (factory, salt, initcode)
 //  CREATE2 address.  When `ToshLaunchpadHook.sol` changes — even by a
 //  single bytecode-level peephole — the runtime `initcodeHash` shifts.
 //  Mining against a stale hash produces wrong predicted addresses, and

@@ -19,14 +19,14 @@
  * successfully at an address the UI cannot name — and this script is the only
  * thing that executes the comparison against a real chain.
  *
- * `checkHookMinerTuple.mjs` is the static half: it pins hookMiner.ts to
- * ToshCloneLib's SOURCE. This is the dynamic half: it pins hookMiner.ts to a
+ * `checkCloneInitcodeTuple.mjs` is the static half: it pins hookAddress.ts to
+ * ToshCloneLib's SOURCE. This is the dynamic half: it pins hookAddress.ts to a
  * DEPLOYED factory's answer, then spends real gas proving the prediction. A
  * layout change that both files make consistently would pass the static guard
  * and still be wrong on-chain if the deployed factory is a different build;
  * only this catches that.
  *
- * It imports `soat-frontend/src/app/lib/hookMiner.ts` directly, on purpose.
+ * It imports `soat-frontend/src/app/lib/hookAddress.ts` directly, on purpose.
  * Re-implementing the prediction here would test this file against itself and
  * prove nothing about what the browser does.
  *
@@ -69,7 +69,7 @@ import {
   GENESIS_DURATION_FAST,
   GENESIS_DURATION_STANDARD,
   GENESIS_DURATION_SLOW,
-} from '../soat-frontend/src/app/lib/hookMiner.ts';
+} from '../soat-frontend/src/app/lib/hookAddress.ts';
 
 // Anvil account #0 — published in its startup banner, not a secret.
 const ANVIL_PK = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -173,7 +173,7 @@ async function main() {
   // ── 2. TS prediction vs the live factory ──────────────────────────────────
   const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, softCap, perWalletCap, duration]);
   const localHash = computeHookInitcodeHash(implementation, creator, projectTreasury, softCap, perWalletCap, duration);
-  check('hookMiner.ts initcode hash matches the deployed factory', chainHash === localHash,
+  check('hookAddress.ts initcode hash matches the deployed factory', chainHash === localHash,
     chainHash === localHash ? chainHash : `chain ${chainHash} vs local ${localHash}`);
   if (chainHash !== localHash) {
     console.error('\nThe frontend would predict against a different initcode than the factory builds.');

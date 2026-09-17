@@ -294,9 +294,9 @@ jobs:
       #
       # This guard existed before this step did and was RED: `softCap` was being
       # packed as 32 bytes against Solidity's `uint128`. Nothing ran it, which is
-      # the only reason that shipped. See scripts/checkHookMinerTuple.mjs.
+      # the only reason that shipped. See scripts/checkCloneInitcodeTuple.mjs.
       - name: Check frontend salt miner matches ToshCloneLib
-        run: node scripts/checkHookMinerTuple.mjs
+        run: node scripts/checkCloneInitcodeTuple.mjs
 
       # The UniversalRouter on mainnet predates `lib/v4-periphery`, and
       # `IV4Router.ExactInputSingleParams` has since gained a field INSERTED

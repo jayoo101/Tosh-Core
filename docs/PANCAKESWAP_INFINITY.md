@@ -144,11 +144,11 @@ So this machinery becomes dead code:
 
 | What | Size |
 | --- | --- |
-| `src/libraries/HookMiner.sol` | 119 lines |
+| `src/libraries/HookAddress.sol` | 119 lines |
 | `src/libraries/HookDeployLib.sol` | 79 lines |
-| `scripts/checkHookMinerTuple.mjs` (guard) | 242 lines |
+| `scripts/checkCloneInitcodeTuple.mjs` (guard) | 242 lines |
 | `script/RecomputeInitcodeHash.s.sol` | 4 salt/initcode references |
-| `soat-frontend/src/app/lib/hookMiner.ts` | 6 references |
+| `soat-frontend/src/app/lib/hookAddress.ts` | 6 references |
 | `soat-frontend/src/app/launch/page.tsx` | 8 references |
 | `src/ToshFactory.sol` (`hookInitcodeHash` and callers) | 8 references |
 | `test/ToshV5Factory.t.sol` | 43 references |
@@ -159,6 +159,20 @@ the whole class of "salt mined against stale dials" bugs stops existing. But it
 is a *large* deletion that reaches the launch flow and the frontend, and
 deletions of load-bearing machinery are where regressions hide. Budget it as
 work, not as savings.
+
+**What was actually removed, and what this table got wrong.** The searching went:
+`find`, `isValidHookAddress`, the fourteen flag constants, `InvalidHookSalt`, and
+`scripts/mineHookSalt.js` outright. `HookMiner.sol` is now `HookAddress.sol` and
+keeps `computeAddress` — CREATE2 arithmetic was never Uniswap-specific; only the
+question of which addresses were ACCEPTABLE was.
+
+The guard was the entry this table judged wrongly. `checkHookMinerTuple.mjs` is
+now `checkCloneInitcodeTuple.mjs` and is *more* load-bearing than before, not
+dead: the mask was doubling as the backstop against a clone-layout drift, which
+used to revert `InvalidHookSalt` on every launch and now deploys successfully at
+an address the UI cannot name. Deleting the guard as part of "this machinery"
+would have removed the replacement for the protection at the same time as the
+protection.
 
 A trap for whoever does this: `ICLHooks.sol`'s own doc comment still says the
 pool manager decides callbacks "by inspecting the leading bits of the hooks
@@ -181,7 +195,7 @@ submodule. Its sources import only three non-relative prefixes —
 `src/test/` mocks nothing here imports — and all three are already in the pinned
 list. So it resolves with **no new remapping entry**, `forge config` reports the
 same eight remappings as before, and `foundry.toml` is untouched. Production
-metadata hashes do not move. `scripts/checkHookMinerTuple.mjs` still passes,
+metadata hashes do not move. `scripts/checkCloneInitcodeTuple.mjs` still passes,
 which is the guard that would have noticed if they had.
 
 The spike imports it by relative path (`../lib/infinity-core/src/...`), the same
@@ -237,7 +251,7 @@ There are ~11,965 lines of Solidity tests. They do not transfer for free:
 
 Guards written against Uniswap V4 semantics: `checkV4RouterTuple.mjs` (503),
 `checkLpActionsAbi.mjs` (534), `checkPoolGeometry.mjs` (182),
-`checkHookMinerTuple.mjs` (242, dies per §3.3), `checkPogDigestTuple.mjs` (288).
+`checkCloneInitcodeTuple.mjs` (242, dies per §3.3), `checkPogDigestTuple.mjs` (288).
 
 `checkV4RouterTuple.mjs` deserves specific mention. Its entire argument is that a
 wrong-length tuple at the V4 decoder does not revert, it gets reinterpreted, and

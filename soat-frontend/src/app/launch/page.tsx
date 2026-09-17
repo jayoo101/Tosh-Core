@@ -64,7 +64,7 @@ import {
   GENESIS_DURATION_FAST,
   GENESIS_DURATION_STANDARD,
   GENESIS_DURATION_SLOW,
-} from '../lib/hookMiner'
+} from '../lib/hookAddress'
 import {
   CREATE_LAUNCH_GAS_TOTAL, LAUNCH_GAS_TOTAL, PROJECT_GAS_TOTAL,
   gasCostWei, formatEstimateEth,
@@ -508,7 +508,7 @@ export default function GenesisConsole() {
       // Picked, not ground. `pickHookSalt` returns 32 random bytes and the
       // address they land on; the occupancy check that used to be implicit in the
       // mask search is now explicit, because a salt's only remaining job is to be
-      // unused. See the note at the top of `lib/hookMiner`.
+      // unused. See the note at the top of `lib/hookAddress`.
       //
       // The loop is a formality — a random 32-byte salt colliding needs a
       // deliberate effort — but a bounded retry is cheaper than shipping a path

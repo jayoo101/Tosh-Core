@@ -57,7 +57,7 @@ import {
 } from '../src/lib/contracts'
 import {
   GENESIS_DURATION_FAST, GENESIS_DURATION_STANDARD, GENESIS_DURATION_SLOW,
-} from '../src/app/lib/hookMiner'
+} from '../src/app/lib/hookAddress'
 import { SIG_VALIDITY_SECONDS } from '../src/app/lib/pogQuota'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -244,7 +244,7 @@ for (const f of FIELDS) {
 }
 
 // ─── Second copies of the genesis durations ──────────────────────────────────
-// `hookMiner.ts` keeps its own set, because address prediction needs them as
+// `hookAddress.ts` keeps its own set, because address prediction needs them as
 // bigints. Two copies of three numbers in the same package is how the ladder
 // guard would go green while the launch path stayed broken.
 //
@@ -261,7 +261,7 @@ const PREDICTOR: Array<[string, bigint, bigint]> = [
 for (const [label, predictor, contractsCopy] of PREDICTOR) {
   if (predictor !== contractsCopy) {
     fail(
-      `genesis duration "${label}": hookMiner says ${predictor}, contracts says ${contractsCopy}.\n`
+      `genesis duration "${label}": HookAddress says ${predictor}, contracts says ${contractsCopy}.\n`
       + '    Consequence: the address is predicted against one duration and the launch is '
       + 'submitted with the other, so the hook deploys somewhere the UI cannot name — '
       + 'silently, since there is no permission mask left to reject it.')

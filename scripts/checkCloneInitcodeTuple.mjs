@@ -8,7 +8,7 @@
 // ⚠ THIS GUARD BECAME MORE LOAD-BEARING, NOT LESS, WITH THE INFINITY PORT, and
 //   was very nearly deleted for the opposite reason. It is named for a miner
 //   that no longer exists — Uniswap V4 read a hook's permissions out of its
-//   address, so `hookMiner.ts` searched for a salt whose address carried the
+//   address, so `hookAddress.ts` searched for a salt whose address carried the
 //   0x20CC mask, and this file pinned the initcode that search ran against.
 //
 //   That mask was also the backstop for the failure above. A layout drift
@@ -37,7 +37,7 @@
 // those out of BOTH sources and requires them to agree token for token:
 //
 //   solidity  src/libraries/ToshCloneLib.sol      cloneInitcode()
-//   frontend  soat-frontend/.../hookMiner.ts      computeCloneInitcode()
+//   frontend  soat-frontend/.../hookAddress.ts      computeCloneInitcode()
 //
 // It reads the real literals from the real files rather than comparing either
 // side against a copy kept here — a guard holding its own third copy of the
@@ -55,12 +55,12 @@
 // Together they pin the frontend's prediction to what `createLaunch` will
 // actually deploy; neither one alone is sufficient, so both must stay wired up.
 //
-// Usage:  node scripts/checkHookMinerTuple.mjs
+// Usage:  node scripts/checkCloneInitcodeTuple.mjs
 
 import { readFileSync } from 'node:fs';
 
 const SOL = 'src/libraries/ToshCloneLib.sol';
-const TS = 'soat-frontend/src/app/lib/hookMiner.ts';
+const TS = 'soat-frontend/src/app/lib/hookAddress.ts';
 
 /** Total initcode length asserted by both sides: 10 stub + 45 proxy + 76 args. */
 const EXPECTED_TOTAL_BYTES = 131;
@@ -195,7 +195,7 @@ const tsTokens = parseTypescript(tsList);
 
 if (solTokens.length !== tsTokens.length) {
   failures.push(
-    `initcode field count: Solidity emits ${solTokens.length}, hookMiner.ts emits ${tsTokens.length}\n` +
+    `initcode field count: Solidity emits ${solTokens.length}, hookAddress.ts emits ${tsTokens.length}\n` +
       `        solidity: ${solTokens.join(' | ')}\n` +
       `        frontend: ${tsTokens.join(' | ')}`
   );
@@ -263,4 +263,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('\nhookMiner.ts clone initcode layout is in sync with ToshCloneLib.');
+console.log('\nhookAddress.ts clone initcode layout is in sync with ToshCloneLib.');

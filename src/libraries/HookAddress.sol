@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title HookMiner
+/// @title HookAddress
 /// @notice CREATE2 address prediction for hook clones.
 ///
-///         ── The name is now wrong, and that is deliberate for one commit ────
+///         ── Why there is no miner here ──────────────────────────────────────
 ///
-///         Nothing mines. This library used to grind CREATE2 salts until the
-///         resulting address carried Uniswap V4's permission mask in its low
-///         bits, because that is where V4 read a hook's permissions from. Under
-///         PancakeSwap Infinity permissions come from
-///         `ToshLaunchpadHook.getHooksRegistrationBitmap()`, and
+///         This library used to be called `HookMiner` and it used to grind
+///         CREATE2 salts until the resulting address carried Uniswap V4's
+///         permission mask in its low bits, because that is where V4 read a
+///         hook's permissions from. Under PancakeSwap Infinity permissions come
+///         from `ToshLaunchpadHook.getHooksRegistrationBitmap()`, and
 ///         `CLPoolManager.initialize` refuses a pool whose `PoolKey.parameters`
 ///         disagrees with it — so the permission set is still pinned to the key,
 ///         by equality rather than by address arithmetic, and an address has
 ///         nothing left to encode.
 ///
-///         The file keeps its name only because the test suite is being ported
-///         in parallel and a rename would collide with that work. It should
-///         become `HookAddress` in a commit of its own, once the tests land.
 ///         See docs/PANCAKESWAP_INFINITY.md §3.3.
 ///
 ///         ── What went, and what the removal proves ──────────────────────────
@@ -33,11 +30,20 @@ pragma solidity ^0.8.24;
 ///         mask still mattered. Deleting them makes every remaining caller fail
 ///         to compile, which is the only way to find them all.
 ///
-///         `soat-frontend/src/app/lib/hookMiner.ts` mirrored those constants and
-///         is stale for the same reason. `scripts/checkHookMinerTuple.mjs`
-///         existed to keep the two miners agreeing on the mask; with no mask
-///         there is nothing for it to compare.
-library HookMiner {
+///         `soat-frontend/src/app/lib/hookAddress.ts` dropped its mirror of
+///         those constants for the same reason.
+///
+///         `scripts/checkCloneInitcodeTuple.mjs` — which was
+///         `checkHookMinerTuple.mjs` — was nearly deleted along with them, and
+///         keeping it was the right call for a reason worth stating here rather
+///         than only in its own header: the mask was also the backstop for a
+///         clone-layout drift. Drift re-rolled the predicted address, the
+///         address failed the mask about 31 times in 32, and `createLaunch`
+///         reverted `InvalidHookSalt`. With no mask the same drift now deploys
+///         SUCCESSFULLY, at an address the UI cannot name. That guard and
+///         `e2eLaunchFlow.mjs` are between them the whole of the protection the
+///         mask used to give for free.
+library HookAddress {
     /// @notice The address `deployer` will deploy to for `salt` and
     ///         `initcodeHash`.
     ///

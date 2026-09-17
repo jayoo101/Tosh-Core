@@ -2198,7 +2198,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    V4 encoded permissions in the low bits of the hook's own address,
     ///         so deploying one meant grinding a CREATE2 salt until the address
-    ///         carried the right mask — 0x20CC here, via `HookMiner`. Infinity
+    ///         carried the right mask — 0x20CC here, via `HookAddress`. Infinity
     ///         reads this function instead, and `initialize` compares it against
     ///         the same bitmap repeated in `PoolKey.parameters`, refusing the
     ///         pool if they disagree. So the permission set is still pinned to

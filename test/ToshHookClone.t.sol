@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {ToshCloneLib} from "../src/libraries/ToshCloneLib.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @dev Stands in for the refactored `ToshLaunchpadHook`: reads its per-project
 ///      config through the same library readers the real hook will use, so these
@@ -416,7 +416,7 @@ contract ToshHookCloneTest is Test {
     ///
     ///      PancakeSwap Infinity reads permissions from
     ///      `getHooksRegistrationBitmap()` instead, `ToshFactory` no longer
-    ///      checks any address bits, and `HookMiner.find` /
+    ///      checks any address bits, and `HookAddress.find` /
     ///      `isValidHookAddress` were removed with the gate. Rewriting the test
     ///      to assert the bits anyway would pin a number nothing reads.
     ///
@@ -428,7 +428,7 @@ contract ToshHookCloneTest is Test {
         // Any salt will do now, which is the point — this used to be the output
         // of a 20k-iteration search.
         bytes32 salt = bytes32(uint256(42));
-        address predicted = HookMiner.computeAddress(address(deployer), salt, hash);
+        address predicted = HookAddress.computeAddress(address(deployer), salt, hash);
 
         address actual = deployer.deploy(salt, address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
         assertEq(actual, predicted, "CREATE2 prediction matches deployment");
@@ -445,8 +445,8 @@ contract ToshHookCloneTest is Test {
             ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP + 1, WALLET_CAP, DURATION);
 
         assertTrue(
-            HookMiner.computeAddress(address(deployer), salt, hash)
-                != HookMiner.computeAddress(address(deployer), salt, otherCap),
+            HookAddress.computeAddress(address(deployer), salt, hash)
+                != HookAddress.computeAddress(address(deployer), salt, otherCap),
             "a different soft cap must predict a different address"
         );
     }

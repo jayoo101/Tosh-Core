@@ -10,7 +10,7 @@ import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/Ree
 
 import {ToshToken} from "./ToshToken.sol";
 import {ToshLaunchpadHook} from "./ToshLaunchpadHook.sol";
-import {HookMiner} from "./libraries/HookMiner.sol";
+import {HookAddress} from "./libraries/HookAddress.sol";
 import {HookDeployLib} from "./libraries/HookDeployLib.sol";
 import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 
@@ -1136,7 +1136,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         view
         returns (address)
     {
-        return HookMiner.computeAddress(address(this), keccak256(abi.encode(creator_, rawSalt)), initcodeHash_);
+        return HookAddress.computeAddress(address(this), keccak256(abi.encode(creator_, rawSalt)), initcodeHash_);
     }
 
     /// @dev `projectAdmin` is no longer part of the commitment — see
@@ -1155,7 +1155,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
             hookImplementation, creator_, projectTreasury, softCap, perWalletCap, genesisDuration
         );
         bytes32 finalSalt = keccak256(abi.encode(creator_, rawSalt));
-        return HookMiner.computeAddress(address(this), finalSalt, initcodeHash_) == hook;
+        return HookAddress.computeAddress(address(this), finalSalt, initcodeHash_) == hook;
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────

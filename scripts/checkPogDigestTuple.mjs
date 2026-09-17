@@ -31,7 +31,7 @@
  * Solidity is the ground truth: the field list is PARSED out of `abi.encode`
  * and each expression resolved to its ABI type, rather than restated here. If
  * the contract changes, this guard's expectation changes with it and the TS
- * sides are what go red. That is the `checkHookMinerTuple.mjs` pattern, and it
+ * sides are what go red. That is the `checkCloneInitcodeTuple.mjs` pattern, and it
  * is the whole point — a guard holding two copies of a list it wrote itself
  * agrees with itself forever.
  *

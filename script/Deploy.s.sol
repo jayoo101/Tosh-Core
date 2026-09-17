@@ -175,7 +175,7 @@ contract DeployScript is Script {
         console2.log("       and MUST be passed to createLaunch as expectedSoftCap /");
         console2.log("       expectedWalletCap or it reverts CapsChanged");
         console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
-        console2.log("     predicted    = HookMiner.computeAddress(factory, finalSalt, initcodeHash)");
+        console2.log("     predicted    = HookAddress.computeAddress(factory, finalSalt, initcodeHash)");
         console2.log("     the only test on `predicted` is that it holds no code yet");
         console2.log("4. createLaunch is PAYABLE -- send `launchFee` (default 0.35 BNB) as msg.value.");
         console2.log("5. deposit(hook, referrer) is PAYABLE -- send the native coin, no ERC20 approve.");

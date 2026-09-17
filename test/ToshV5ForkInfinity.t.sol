@@ -125,7 +125,7 @@ contract ToshV5ForkInfinityTest is Test {
 
     // ── The decisive one: no mined address ─────────────────────────────────
 
-    /// @notice The finding that decides whether `src/libraries/HookMiner.sol` and
+    /// @notice The finding that decides whether `src/libraries/HookAddress.sol` and
     ///         everything hanging off it can be deleted.
     ///
     ///         Uniswap V4 reads a hook's permissions out of the low bits of its

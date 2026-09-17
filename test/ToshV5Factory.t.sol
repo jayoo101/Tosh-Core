@@ -9,7 +9,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @notice v5.0 factory surface: PoG, pause, blacklist, createLaunch, ETH deposits,
 ///         eligibility, and CREATE2 helpers.  Uses a dummy PoolManager because
@@ -80,7 +80,7 @@ contract ToshV5FactoryTest is Test {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
-            address predicted = HookMiner.computeAddress(address(factory), finalSalt, initHash);
+            address predicted = HookAddress.computeAddress(address(factory), finalSalt, initHash);
             if (predicted.code.length == 0) return rawSalt;
         }
         revert("_pickSalt: first 1000 salts are all occupied");
@@ -724,7 +724,7 @@ contract ToshV5FactoryTest is Test {
         assertEq(factory.launchCount(), 1);
         assertTrue(factory.registeredHooks(hook));
         assertEq(factory.tokenToHook(token), hook);
-        // Was `assertTrue(HookMiner.isValidHookAddress(hook))`, which asserted
+        // Was `assertTrue(HookAddress.isValidHookAddress(hook))`, which asserted
         // the address carried V4's permission mask. Infinity takes permissions
         // from the hook's bitmap, so the surviving property is that the address
         // is the one the salt predicted.
@@ -1307,7 +1307,7 @@ contract ToshV5FactoryTest is Test {
     /// @dev Rebuilds the initcode byte by byte instead of calling
     ///      `ToshCloneLib`, which would make the assertion a tautology. This
     ///      is the executable spec for the off-chain miner in
-    ///      `soat-frontend/src/app/lib/hookMiner.ts`: any implementation that
+    ///      `soat-frontend/src/app/lib/hookAddress.ts`: any implementation that
     ///      produces these 131 bytes will predict the right address, and any that
     ///      does not will mine salts that fail `InvalidHookSalt`.
     ///

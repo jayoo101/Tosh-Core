@@ -92,8 +92,8 @@ Step "node scripts/checkPoolGeometry.mjs" {
     node scripts/checkPoolGeometry.mjs
 }
 
-Step "node scripts/checkHookMinerTuple.mjs" {
-    node scripts/checkHookMinerTuple.mjs
+Step "node scripts/checkCloneInitcodeTuple.mjs" {
+    node scripts/checkCloneInitcodeTuple.mjs
 }
 
 # The LP panel hand-encodes Infinity posm payloads. This half pins the offsets

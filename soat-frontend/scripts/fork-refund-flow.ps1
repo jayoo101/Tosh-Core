@@ -26,7 +26,7 @@ $initHash = ((cast call $FACTORY "hookInitcodeHash(address,address,address,uint2
 Write-Host "initHash       : $initHash"
 
 # Mine salt using forge inline helper — try simple iteration in PowerShell-friendly format
-# We'll cast a HookMiner call instead.  Actually easier: just iterate i, compute finalSalt, compute addr, check flags.
+# We'll cast a HookAddress call instead.  Actually easier: just iterate i, compute finalSalt, compute addr, check flags.
 # Faster: do it via the predictHookAddress view function.
 
 $found = $false

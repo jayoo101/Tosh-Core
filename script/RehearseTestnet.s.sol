@@ -17,7 +17,7 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
-import {HookMiner} from "../src/libraries/HookMiner.sol";
+import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @dev Minimal view of the deployed UniversalRouter, declared here for the same
 ///      reason `ToshV5Fork.t.sol` declares it: `lib/` carries v4-core and
@@ -348,7 +348,7 @@ contract Phase1Genesis is RehearsalBase {
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(deployer, rawSalt));
-            if (HookMiner.computeAddress(address(factory), finalSalt, initcodeHash).code.length == 0) return rawSalt;
+            if (HookAddress.computeAddress(address(factory), finalSalt, initcodeHash).code.length == 0) return rawSalt;
         }
         revert("first 1000 salts are all occupied - is this the same deployer and config as 1000 prior rehearsals?");
     }

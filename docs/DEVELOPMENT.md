@@ -434,49 +434,72 @@ Note what is absent: no liquidity flags. The genesis position stays locked
 through ownership, so a reverting `beforeRemoveLiquidity` would only have
 punished retail LPs for a guarantee the ownership model already provides.
 
-The factory binds the salt to the caller, so nobody can mine an address for
-someone else's launch:
+### Salts: there is nothing left to mine
+
+Under Uniswap V4 a hook's permissions were read out of the low bits of its own
+address, so a launch had to arrive with a salt whose CREATE2 address carried the
+`0x20CC` mask — about one salt in 32, hence a miner on both the Solidity and the
+frontend side. Infinity asks the contract instead, via
+`getHooksRegistrationBitmap()`, and `CLPoolManager.initialize` refuses a pool
+whose `PoolKey.parameters` disagrees with the answer. The permission set is still
+pinned to the key, by equality rather than by address arithmetic.
+
+So `HookAddress.find`, `isValidHookAddress`, the fourteen flag constants and
+`InvalidHookSalt` are all gone, and so is `scripts/mineHookSalt.js`. A salt's
+only remaining job is to be unused.
+
+The factory still binds it to the caller, which is what stops one creator
+front-running another's predicted address:
 
 ```
 finalSalt = keccak256(abi.encode(creator, rawSalt))
 hookAddr  = CREATE2(factory, finalSalt, hookInitcodeHash)
-require((uint160(hookAddr) & 0x20CC) == 0x20CC);
 ```
 
-The initcode hash covers a 9-field constructor tuple, so each of these changes
-the address you must mine for:
+A hook is a 131-byte EIP-1167 clone, so the initcode hash covers five immutable
+args rather than a nine-field constructor tuple:
 
 ```solidity
 bytes32 initHash = factory.hookInitcodeHash(
     projectTreasury,
     creator,
-    projectAdmin,
     factory.defaultSoftCap(),          // snapshotted at createLaunch time
     factory.maxPogAllocationLimit(),   // snapshotted at createLaunch time
     genesisDuration                    // 3h / 24h / 72h
 );
 ```
 
-Read `defaultSoftCap` and `maxPogAllocationLimit` **live from the factory**.
-`createLaunch` snapshots whatever they are when the transaction lands, so a salt
-mined against stale caps reverts with `InvalidHookSalt`.
+`projectAdmin` is not in it: it is mutable by design and is applied by
+`initializeToken`, after the address is fixed.
 
-> `getLiveHookInitcodeHash()` is **not** usable for mining. It substitutes
-> `platformTreasury` for the three address fields as a sentinel, so salts mined
-> against it always revert. It exists only as a reference value for tooling.
-> "Sentinel" describes its role in that function only — `platformTreasury` is a
-> real payout address.
+Read `defaultSoftCap` and `maxPogAllocationLimit` **live from the factory** and
+pass the same values to `createLaunch` as `expectedSoftCap` / `expectedWalletCap`
+— they are checked for equality and the launch reverts `CapsChanged` otherwise.
+That equality check is now the only thing standing where `InvalidHookSalt` used
+to stand, and it is narrower: see the note below.
 
-```bash
-node scripts/mineHookSalt.js \
-  --factory 0x... --creator 0x... --admin 0x... --treasury 0x... \
-  --duration 86400
-```
+> ⚠ **A wrong initcode layout is now a SILENT failure.** It used to yield a
+> stale prediction whose re-rolled address failed the permission mask, so
+> `createLaunch` reverted on essentially every launch. With no mask the same
+> drift deploys successfully at an address the UI cannot name — the project page,
+> the directory row and the pool link all point at an empty address, and nothing
+> reverted to say so. `scripts/checkCloneInitcodeTuple.mjs` (static) and
+> `scripts/e2eLaunchFlow.mjs` (dynamic) are between them the whole of the
+> protection the mask used to provide for free. Both are wired into
+> `precheck.ps1` and CI; neither may be dropped.
 
-`--duration` accepts `10800`, `86400` or `259200`, and defaults to 24h. In the
-dApp, `soat-frontend/src/app/lib/hookMiner.ts` mines client-side so the user
-signs a single transaction, reading `hookInitcodeHash` from chain rather than
-reconstructing it locally.
+> `getLiveHookInitcodeHash()` substitutes `platformTreasury` for the address
+> fields as a sentinel, so it does not describe any real launch. It exists only
+> as a reference value for tooling. "Sentinel" describes its role in that
+> function only — `platformTreasury` is a real payout address.
+
+In the dApp, `soat-frontend/src/app/lib/hookAddress.ts` picks a random 32-byte
+salt and predicts where it lands, reading `hookInitcodeHash` from chain rather
+than reconstructing it locally. Random rather than counting up from zero: the
+mask used to make an early collision vanishingly unlikely, and without it the
+first free salt for a given creator is `0x00..00` every time, so two launches
+with the same dials and window would predict the same address and the second
+CREATE2 would fail.
 
 ---
 
@@ -707,7 +730,7 @@ Tosh-Core/
 │   ├── ToshLaunchpadHook.sol   # Per-project V4 hook: genesis, pool, shelf ladder, tax
 │   ├── ToshLadderTreasury.sol  # Platform-wide buyback reservoir (one-way valve)
 │   ├── ToshToken.sol           # ERC-20, minted on demand by its hook only
-│   └── libraries/              # HookDeployLib · HookMiner · ToshCloneLib
+│   └── libraries/              # HookDeployLib · HookAddress · ToshCloneLib
 ├── test/                       # 373 tests, incl. stateful invariants and test_probe* adversarial cases
 ├── script/                     # Foundry deploy + verification scripts
 ├── scripts/                    # Node tooling: salt miner, ABI sync, launch audit, guards
