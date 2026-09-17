@@ -15,7 +15,9 @@ import {DeployMainnetScript} from "../script/DeployMainnet.s.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
-import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
+import {Vault} from "infinity-core/src/Vault.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
 
 contract DeployMainnetTest is Test {
     /// @dev Robinhood Chain — the chain this script is meant for
@@ -36,15 +38,22 @@ contract DeployMainnetTest is Test {
     address internal platformTreasury = makeAddr("gnosis-safe-treasury");
     address internal prodOwnerSafe = makeAddr("gnosis-safe-owner");
 
-    PoolManager internal poolManager;
+    Vault internal vault;
+
+    CLPoolManager internal poolManager;
 
     function setUp() public {
         deployer = vm.addr(deployerPk);
 
-        poolManager = new PoolManager(address(this));
+        // Vault first, and the manager registered with it before it may move any
+        // balance. See test/ToshV5.t.sol for the full argument.
+        vault = new Vault();
+        poolManager = new CLPoolManager(IVault(address(vault)));
+        vault.registerApp(address(poolManager));
 
         vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(deployerPk)));
-        vm.setEnv("V4_POOL_MANAGER", vm.toString(address(poolManager)));
+        vm.setEnv("INFINITY_CL_POOL_MANAGER", vm.toString(address(poolManager)));
+        vm.setEnv("INFINITY_VAULT", vm.toString(address(vault)));
         vm.setEnv("POG_SIGNER_ADDRESS", vm.toString(pogSigner));
         vm.setEnv("PLATFORM_TREASURY", vm.toString(platformTreasury));
         vm.setEnv("PROD_OWNER_SAFE", vm.toString(prodOwnerSafe));

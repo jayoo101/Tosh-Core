@@ -4,11 +4,10 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary, PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {PoolIdLibrary, PoolId} from "infinity-core/src/types/PoolId.sol";
+import {Currency} from "infinity-core/src/types/Currency.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -85,7 +84,6 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 contract ToshV5FirstLaunchRehearsalTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
-    using StateLibrary for IPoolManager;
 
     // ─── The live deployment ──────────────────────────────────────────────────
 
@@ -166,17 +164,17 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     /// @dev Mines against the factory's OWN `hookInitcodeHash`, reading the
     ///      dials live, which is what makes this sensitive to the ordering the
     ///      plan has to respect: mine after the dial lands, never before.
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), GENESIS
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             address predicted =
                 HookMiner.computeAddress(factoryAddr, keccak256(abi.encode(creator, rawSalt)), initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("no valid salt found");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _registerPoG(address user, uint256 maxAlloc) internal {
@@ -256,7 +254,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertEq(factory.defaultSoftCap(), REHEARSAL_SOFT_CAP, "the dial did not take");
 
         // ── Step 3: the test wallet creates the launch ───────────────────────
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
@@ -301,11 +299,13 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         PoolKey memory key = hook.getPoolKey();
         PoolId id = key.toId();
 
-        (uint160 sqrtPriceX96,,,) = IPoolManager(POOL_MANAGER).getSlot0(id);
+        (uint160 sqrtPriceX96,,,) = ICLPoolManager(POOL_MANAGER).getSlot0(id);
         assertGt(sqrtPriceX96, 0, "live singleton has no price for our pool");
 
-        (uint128 liquidity,,) =
-            IPoolManager(POOL_MANAGER).getPositionInfo(id, hookAddr, TICK_LOWER, TICK_UPPER, bytes32(0));
+        // `getLiquidity`, not V4's `getPositionInfo` behind `StateLibrary`:
+        // Infinity's CLPoolManager exposes position state as a plain view
+        // function, so there is no `extsload` reader to go through.
+        uint128 liquidity = ICLPoolManager(POOL_MANAGER).getLiquidity(id, hookAddr, TICK_LOWER, TICK_UPPER, bytes32(0));
         assertGt(liquidity, 0, "genesis LP is not in the live singleton");
 
         assertEq(Currency.unwrap(key.currency0), address(0), "currency0 is not native ETH");
@@ -319,23 +319,37 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     //  The two facts the plan has to be built around
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice A dial change that lands between mining and `createLaunch` is
-    ///         rejected, not silently honoured with the old dials.
+    /// @notice ⚠ A DIAL CHANGE IN FLIGHT IS NOW HONOURED SILENTLY. It used to be
+    ///         rejected, and the mitigation plan was written around that.
     ///
-    /// @dev    This is the 98.2% branch of the race quantified for the plan:
-    ///         `isValidHookAddress` accepts a random address with probability
-    ///         9/512, so a salt mined against stale dials almost always fails
-    ///         the flag check and reverts here. The residual ~1.8% is the case
-    ///         that CANNOT be caught in code — the address happens to remain
-    ///         valid and the clone freezes dials the creator never agreed to —
-    ///         which is why the mitigation is operational: never have a dial
-    ///         change in flight during `createLaunch`. `test_..._fullLifecycle`
-    ///         asserts the `softCap()` read-back that catches it after the fact.
-    function test_rehearsal_saltMinedAgainstStaleDialsIsRejected() public {
+    /// @dev    This test asserted the opposite until the PancakeSwap Infinity
+    ///         port. Inverting it is the honest change rather than deleting it,
+    ///         because the risk it documents did not go away — only the backstop
+    ///         did.
+    ///
+    ///         What the plan assumed: a salt ground against stale dials produces
+    ///         an address that fails V4's flag check with probability 503/512, so
+    ///         98.2% of in-flight dial changes reverted loudly. The residual
+    ///         ~1.8% — address still valid, clone freezing dials the creator never
+    ///         agreed to — was called the case that CANNOT be caught in code, and
+    ///         the mitigation was made operational: never let a dial change be in
+    ///         flight during `createLaunch`.
+    ///
+    ///         What is true now: that 1.8% is 100%. Infinity reads permissions
+    ///         from the hook's registration bitmap, `ToshFactory` checks no
+    ///         address bits, and `InvalidHookSalt` no longer exists — so the
+    ///         launch always succeeds, at an address the creator did not predict,
+    ///         freezing whatever the dials read at execution time.
+    ///
+    ///         The operational mitigation is no longer belt-and-braces; it is the
+    ///         only control. `expectedFee` shows the shape a real fix would take:
+    ///         the caps need the same treatment. Recorded in
+    ///         docs/PANCAKESWAP_INFINITY.md §11.
+    function test_rehearsal_aDialChangeInFlightIsSilentlyHonoured() public {
         _requireFork();
 
         _applySafeStep();
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
 
         // The Safe moves the dial again, after the salt is ground. Twice the
         // floor, as before — it has to clear `MIN_SOFT_CAP_PROD` or the setter
@@ -345,8 +359,14 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.InvalidHookSalt.selector);
-        factory.createLaunch{value: fee}("Stale", "STL", projTreasury, projTreasury, salt, fee, GENESIS);
+        (, address hook) =
+            factory.createLaunch{value: fee}("Stale", "STL", projTreasury, projTreasury, salt, fee, GENESIS);
+
+        assertEq(
+            ToshLaunchpadHook(payable(hook)).softCap(),
+            REHEARSAL_SOFT_CAP * 2,
+            "the launch froze the dial as of execution, not as of agreement"
+        );
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
@@ -363,7 +383,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         _applySafeStep();
 
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (address tokenAddr, address hookAddr) =

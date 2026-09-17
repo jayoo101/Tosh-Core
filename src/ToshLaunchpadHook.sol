@@ -2,26 +2,57 @@
 pragma solidity ^0.8.26;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Uniswap V4 core
+// PancakeSwap Infinity core
+//
+// `IPoolManager` is imported for one purpose only: `PoolKey.poolManager` is
+// typed as it, and Infinity requires every key to name the manager that owns
+// the pool. `CLPoolManager` validates that field and reverts
+// `PoolManagerMismatch` on a key naming another manager, which is what stops a
+// concentrated-liquidity key being pointed at the bin manager.
 // ──────────────────────────────────────────────────────────────────────────────
-import {IHooks} from "../lib/v4-core/src/interfaces/IHooks.sol";
-import {IPoolManager} from "../lib/v4-core/src/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "../lib/v4-core/src/interfaces/callback/IUnlockCallback.sol";
-import {PoolKey} from "../lib/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "../lib/v4-core/src/types/PoolId.sol";
-import {Currency, CurrencyLibrary} from "../lib/v4-core/src/types/Currency.sol";
-import {BalanceDelta} from "../lib/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "../lib/v4-core/src/types/BeforeSwapDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "../lib/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "../lib/v4-core/src/libraries/TickMath.sol";
-import {FullMath} from "../lib/v4-core/src/libraries/FullMath.sol";
-import {SafeCast} from "../lib/v4-core/src/libraries/SafeCast.sol";
-import {StateLibrary} from "../lib/v4-core/src/libraries/StateLibrary.sol";
+import {IHooks} from "infinity-core/src/interfaces/IHooks.sol";
+import {IPoolManager} from "infinity-core/src/interfaces/IPoolManager.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {ILockCallback} from "infinity-core/src/interfaces/ILockCallback.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
+import {Currency, CurrencyLibrary} from "infinity-core/src/types/Currency.sol";
+import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "infinity-core/src/types/BeforeSwapDelta.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {FullMath} from "infinity-core/src/pool-cl/libraries/FullMath.sol";
+import {SafeCast} from "infinity-core/src/libraries/SafeCast.sol";
+import {CLPoolParametersHelper} from "infinity-core/src/pool-cl/libraries/CLPoolParametersHelper.sol";
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Uniswap V4 periphery
+// PancakeSwap Infinity concentrated-liquidity pool
+//
+// The permission OFFSETS are the replacement for Uniswap V4's address bits.
+// V4 read a hook's permissions out of the low bits of its own address, which is
+// why this contract used to need a mined CREATE2 salt. Infinity reads them from
+// a bitmap the hook declares in `getHooksRegistrationBitmap()` and the pool key
+// repeats in `parameters`, and refuses the pool if the two disagree — so the
+// miner is gone. See docs/PANCAKESWAP_INFINITY.md §3.3.
 // ──────────────────────────────────────────────────────────────────────────────
-import {LiquidityAmounts} from "../lib/v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {
+    ICLHooks,
+    HOOKS_BEFORE_INITIALIZE_OFFSET,
+    HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET,
+    HOOKS_BEFORE_SWAP_OFFSET,
+    HOOKS_AFTER_SWAP_OFFSET,
+    HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET,
+    HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET
+} from "infinity-core/src/pool-cl/interfaces/ICLHooks.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PancakeSwap Infinity periphery
+//
+// Arithmetically identical to the v4-periphery copy this replaced: the vectors
+// in test/ToshV5LpMathVectors.t.sol are asserted against both, so the genesis
+// position mints the same liquidity it always did.
+// ──────────────────────────────────────────────────────────────────────────────
+import {LiquidityAmounts} from "infinity-periphery/src/pool-cl/libraries/LiquidityAmounts.sol";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // OpenZeppelin
@@ -134,13 +165,23 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///     • `mintBondingCurve()`     : buy from the active shelf at its fixed
 ///                                  price, subject to the anti-spike gate.
 ///
-/// ── Required hook address flags (v5.0) ──────────────────────────────────────
-///   BEFORE_INITIALIZE            = 1 << 13 = 0x2000   pool-init front-run defence
-///   BEFORE_SWAP                  = 1 << 7  = 0x0080   exact-input tax (specified = input)
-///   AFTER_SWAP                   = 1 << 6  = 0x0040   oracle + piggyback + exact-output tax
-///   BEFORE_SWAP_RETURNS_DELTA    = 1 << 3  = 0x0008   skim the specified (input) side
-///   AFTER_SWAP_RETURNS_DELTA     = 1 << 2  = 0x0004   skim the unspecified (input) side
-///   Mask: 0x20CC  (mine via HookMiner / CREATE2)
+/// ── Required hook permissions ───────────────────────────────────────────────
+///   BEFORE_INITIALIZE            offset 0    pool-init front-run defence
+///   BEFORE_ADD_LIQUIDITY         offset 2    gates who may provide liquidity
+///   BEFORE_SWAP                  offset 6    exact-input tax (specified = input)
+///   AFTER_SWAP                   offset 7    oracle + piggyback + exact-output tax
+///   BEFORE_SWAP_RETURNS_DELTA    offset 10   skim the specified (input) side
+///   AFTER_SWAP_RETURNS_DELTA     offset 11   skim the unspecified (input) side
+///
+///   Declared in `getHooksRegistrationBitmap()` and repeated in
+///   `PoolKey.parameters`; `CLPoolManager.initialize` refuses the pool if the
+///   two disagree.
+///
+///   These are OFFSETS into a bitmap, not bits of this contract's address. Under
+///   Uniswap V4 the same permission set was the mask 0x20CC and had to be ground
+///   into the address with a mined CREATE2 salt. PancakeSwap Infinity asks the
+///   contract instead, so the numbering above is Infinity's and bears no
+///   relation to V4's — do not carry the old hex over.
 ///
 ///   Exact-output cannot be taxed in `beforeSwap`: the input is unspecified
 ///   and its size is only known after the swap.  Returning a delta from
@@ -150,11 +191,13 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///   see `beforeRemoveLiquidity` for why the genesis position stays locked
 ///   regardless.
 ///
-contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
+contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
-    using StateLibrary for IPoolManager;
     using SafeERC20 for IERC20;
+    // Writes TICK_SPACING into the pool key's `parameters` word alongside the
+    // permission bitmap. Infinity has no `tickSpacing` field on PoolKey.
+    using CLPoolParametersHelper for bytes32;
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Constants
@@ -616,7 +659,23 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     // from the implementation's code, which is why they cost zero bytes per
     // project and are just as cheap to read as before.
 
-    IPoolManager public immutable poolManager;
+    /// @notice The concentrated-liquidity pool manager: pool state, swaps and
+    ///         liquidity. It calls this contract's callbacks and nothing else
+    ///         may.
+    ICLPoolManager public immutable poolManager;
+
+    /// @notice Where the money is. Infinity splits Uniswap V4's PoolManager in
+    ///         two: the manager owns pool STATE, the Vault owns BALANCES and the
+    ///         lock. So `take`, `settle`, `sync` and `mint` are the Vault's, and
+    ///         the lock this contract takes to seed genesis liquidity is the
+    ///         Vault's lock rather than the manager's.
+    ///
+    ///         Both are immutable and both are checked: the manager is the only
+    ///         permitted callback caller, and the Vault the only permitted
+    ///         `lockAcquired` caller. Conflating them would let either contract
+    ///         drive the other's entry point.
+    IVault public immutable vault;
+
     address public immutable factory;
 
     /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
@@ -949,6 +1008,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     error OnlyPoolManager();
+    error OnlyVault();
     error OnlyFactory();
     error OnlyCreator();
     error NotInitialized();
@@ -1027,13 +1087,28 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      args and are validated in `initializeToken`.
     ///
     ///      This instance is never usable as a hook itself — see `onlyClone`.
-    constructor(address _poolManager, address _factory, address _ladderTreasury, address _platformFeeRecipient) {
+    ///      `_vault` is passed rather than derived. `CLPoolManager` does expose
+    ///      a public `vault()` — it inherits one from `ProtocolFees` — but
+    ///      `ICLPoolManager` does not declare it, so reading it here would mean
+    ///      hand-rolling an interface for a getter this repository cannot pin
+    ///      to the vendored source. Passing both and asserting the relationship
+    ///      in the fork suite keeps the claim measured against the live pair
+    ///      instead of asserted by a local declaration.
+    constructor(
+        address _poolManager,
+        address _vault,
+        address _factory,
+        address _ladderTreasury,
+        address _platformFeeRecipient
+    ) {
         require(_poolManager != address(0), "zero poolManager");
+        require(_vault != address(0), "zero vault");
         require(_factory != address(0), "zero factory");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
         require(_platformFeeRecipient != address(0), "zero platformFeeRecipient");
 
-        poolManager = IPoolManager(_poolManager);
+        poolManager = ICLPoolManager(_poolManager);
+        vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
         platformFeeRecipient = payable(_platformFeeRecipient);
@@ -1108,6 +1183,19 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
+        _;
+    }
+
+    /// @dev The lock callback's guard, and deliberately NOT `onlyPoolManager`.
+    ///
+    ///      Infinity splits V4's PoolManager into a manager that owns pool state
+    ///      and a Vault that owns balances and the lock. `lockAcquired` is
+    ///      re-entered by the VAULT, so guarding it with the manager's address
+    ///      would reject every legitimate call — and guarding it with either
+    ///      address would let the manager, which this contract calls into on
+    ///      every swap, drive the settlement path as well.
+    modifier onlyVault() {
+        if (msg.sender != address(vault)) revert OnlyVault();
         _;
     }
 
@@ -1373,11 +1461,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
         poolManager.initialize(_key(), sqrtPriceX96);
 
-        bytes memory result = poolManager.unlock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpNative));
+        bytes memory result = vault.lock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpNative));
         uint128 liquidity = abi.decode(result, (uint128));
 
         // ── 5. Seed the oracle at the opening tick ────────────────────────────
-        int24 openingTick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
+        int24 openingTick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
         lastTick = openingTick;
         lastObservationTs = uint32(block.timestamp);
         _prevCheckpointTs = uint32(block.timestamp);
@@ -1718,7 +1806,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         returns (bytes4)
     {
         if (sender != address(this)) revert UnauthorizedInitialization();
-        return IHooks.beforeInitialize.selector;
+        return ICLHooks.beforeInitialize.selector;
     }
 
     /// @notice Third-party LPs may withdraw at will — this is an unflagged
@@ -1739,13 +1827,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         `AFTER_SWAP_RETURNS_DELTA` landed) rather than softened into a
     ///         conditional revert.  This override survives only to satisfy
     ///         `IHooks`.
-    function beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external
-        view
-        onlyPoolManager
-        returns (bytes4)
-    {
-        return IHooks.beforeRemoveLiquidity.selector;
+    function beforeRemoveLiquidity(
+        address,
+        PoolKey calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external view onlyPoolManager returns (bytes4) {
+        return ICLHooks.beforeRemoveLiquidity.selector;
     }
 
     /// @notice ASYMMETRIC IN-FLIGHT TAX — 1.0 % of every swap's INPUT, routed
@@ -1782,7 +1870,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///   `amountToSwap = amountSpecified + hookDeltaSpecified`:
     ///     • exact input  (-N): pool trades N − tax, trader still pays N.
     ///   The hook's credit is drained immediately via `take`.
-    function beforeSwap(address sender, PoolKey calldata key, SwapParams calldata params, bytes calldata)
+    function beforeSwap(address sender, PoolKey calldata key, ICLPoolManager.SwapParams calldata params, bytes calldata)
         external
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
@@ -1794,23 +1882,23 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // a buyback is in flight cannot change the answer.  `afterSwap` still
         // asks, which is where an exact-output swap's tax is actually decided.
         if (params.amountSpecified >= 0) {
-            return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+            return (ICLHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
         // Stay passive while the treasury is executing its own buyback —
         // taxing it would recurse and skim the burn itself.
         if (sender == ladderTreasury || _piggybackActive()) {
-            return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+            return (ICLHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
         uint256 input = uint256(-params.amountSpecified);
         uint256 tax = (input * TAX_BPS) / BPS_DENOMINATOR;
         if (tax == 0) {
-            return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+            return (ICLHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
         }
 
         _skimInputTax(key, params.zeroForOne, input, tax);
-        return (IHooks.beforeSwap.selector, toBeforeSwapDelta(SafeCast.toInt128(tax), 0), 0);
+        return (ICLHooks.beforeSwap.selector, toBeforeSwapDelta(SafeCast.toInt128(tax), 0), 0);
     }
 
     /// @notice Stamps the swap block, advances the price oracle, pokes the
@@ -1823,7 +1911,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     function afterSwap(
         address sender,
         PoolKey calldata key,
-        SwapParams calldata params,
+        ICLPoolManager.SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata
     ) external onlyPoolManager returns (bytes4, int128) {
@@ -1854,7 +1942,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // Stay passive while the treasury is executing its own buyback —
         // taxing it would recurse and skim the burn itself.
         if (sender == ladderTreasury || _piggybackActive()) {
-            return (IHooks.afterSwap.selector, int128(0));
+            return (ICLHooks.afterSwap.selector, int128(0));
         }
 
         int128 hookUnspecified;
@@ -1912,7 +2000,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             }
         }
 
-        return (IHooks.afterSwap.selector, hookUnspecified);
+        return (ICLHooks.afterSwap.selector, hookUnspecified);
     }
 
     /// @dev Route `tax` of the input asset: ETH (a buy) splits between the
@@ -1953,7 +2041,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (!nativeIsInput) {
             // Sell leg: not split. The platform takes no share of a project's
             // own token — see `PLATFORM_SWAP_FEE_BPS`.
-            poolManager.take(key.currency1, DEAD_ADDRESS, tax);
+            vault.take(key.currency1, DEAD_ADDRESS, tax);
             emit SellTaxBurned(tax);
             return;
         }
@@ -1970,18 +2058,18 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // `platformCut` does need the guard — it is 0 for that entire first
         // case, and a zero-value `take` would spend gas and emit a fee event
         // reporting nothing.
-        poolManager.take(key.currency0, ladderTreasury, reservoirCut);
+        vault.take(key.currency0, ladderTreasury, reservoirCut);
         emit BuyTaxToTreasury(reservoirCut);
 
         if (platformCut > 0) {
-            poolManager.take(key.currency0, platformFeeRecipient, platformCut);
+            vault.take(key.currency0, platformFeeRecipient, platformCut);
             emit PlatformSwapFeePaid(platformFeeRecipient, platformCut);
         }
     }
 
     /// @dev Exact-output input tax.  Specified is the output; unspecified is
     ///      the input and is negative on `delta` (owed to the pool).
-    function _skimUnspecifiedInput(PoolKey calldata key, SwapParams calldata params, BalanceDelta delta)
+    function _skimUnspecifiedInput(PoolKey calldata key, ICLPoolManager.SwapParams calldata params, BalanceDelta delta)
         internal
         returns (int128 hookUnspecified)
     {
@@ -2005,52 +2093,53 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     function afterInitialize(address, PoolKey calldata, uint160, int24) external pure returns (bytes4) {
-        return IHooks.afterInitialize.selector;
+        return ICLHooks.afterInitialize.selector;
     }
 
-    function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
-        return IHooks.beforeAddLiquidity.selector;
+    function beforeAddLiquidity(
+        address,
+        PoolKey calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external pure returns (bytes4) {
+        return ICLHooks.beforeAddLiquidity.selector;
     }
 
     function afterAddLiquidity(
         address,
         PoolKey calldata,
-        ModifyLiquidityParams calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata,
         BalanceDelta,
         BalanceDelta,
         bytes calldata
     ) external pure returns (bytes4, BalanceDelta) {
-        return (IHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
+        return (ICLHooks.afterAddLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function afterRemoveLiquidity(
         address,
         PoolKey calldata,
-        ModifyLiquidityParams calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata,
         BalanceDelta,
         BalanceDelta,
         bytes calldata
     ) external pure returns (bytes4, BalanceDelta) {
-        return (IHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
+        return (ICLHooks.afterRemoveLiquidity.selector, BalanceDelta.wrap(0));
     }
 
     function beforeDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
-        return IHooks.beforeDonate.selector;
+        return ICLHooks.beforeDonate.selector;
     }
 
     function afterDonate(address, PoolKey calldata, uint256, uint256, bytes calldata) external pure returns (bytes4) {
-        return IHooks.afterDonate.selector;
+        return ICLHooks.afterDonate.selector;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  IUnlockCallback
+    //  ILockCallback
     // ══════════════════════════════════════════════════════════════════════════
 
-    function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
+    function lockAcquired(bytes calldata data) external onlyVault returns (bytes memory) {
         uint8 action = abi.decode(data, (uint8));
 
         if (action == ACTION_ADD_LIQUIDITY) {
@@ -2072,14 +2161,59 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      it took to read, and the three SSTOREs at launch go away entirely.
     ///      `beforeInitialize` is what makes this sound: it permits exactly one
     ///      pool per hook, so there is never a second key this could confuse.
+    ///
+    ///      Two fields here are Infinity's rather than V4's. `poolManager` has
+    ///      to be named in the key — the manager validates it and reverts
+    ///      `PoolManagerMismatch` otherwise — and `tickSpacing` is no longer a
+    ///      field at all: it is packed into `parameters` next to the permission
+    ///      bitmap. Both are derived, so neither adds an SLOAD to the count
+    ///      above.
     function _key() internal view returns (PoolKey memory) {
         return PoolKey({
-            currency0: CurrencyLibrary.ADDRESS_ZERO,
+            currency0: CurrencyLibrary.NATIVE,
             currency1: Currency.wrap(address(projectToken)),
+            hooks: IHooks(address(this)),
+            poolManager: IPoolManager(address(poolManager)),
             fee: POOL_FEE,
-            tickSpacing: TICK_SPACING,
-            hooks: IHooks(address(this))
+            parameters: bytes32(uint256(getHooksRegistrationBitmap())).setTickSpacing(TICK_SPACING)
         });
+    }
+
+    /// @notice Which callbacks Infinity should invoke on this hook, and the
+    ///         replacement for Uniswap V4's mined address.
+    ///
+    /// @dev    V4 encoded permissions in the low bits of the hook's own address,
+    ///         so deploying one meant grinding a CREATE2 salt until the address
+    ///         carried the right mask — 0x20CC here, via `HookMiner`. Infinity
+    ///         reads this function instead, and `initialize` compares it against
+    ///         the same bitmap repeated in `PoolKey.parameters`, refusing the
+    ///         pool if they disagree. So the permission set is still pinned to
+    ///         the key, but by equality rather than by address arithmetic, and
+    ///         there is nothing left to mine.
+    ///
+    ///         The set is unchanged from the V4 mask, and each entry is load-
+    ///         bearing for the same reason it was there:
+    ///
+    ///           BEFORE_INITIALIZE          only this hook may open its pool
+    ///           BEFORE_ADD_LIQUIDITY       gates who may provide liquidity
+    ///           BEFORE_SWAP                takes the exact-input tax
+    ///           AFTER_SWAP                 stamps the block, feeds the oracle
+    ///           BEFORE_SWAP_RETURNS_DELTA  lets beforeSwap move the input
+    ///           AFTER_SWAP_RETURNS_DELTA   lets afterSwap charge exact-output
+    ///
+    ///         BEFORE_REMOVE_LIQUIDITY stays absent, exactly as it was absent
+    ///         from the V4 mask, so third-party LPs withdraw freely; see
+    ///         `beforeRemoveLiquidity` for why the genesis position is locked
+    ///         structurally rather than by a revert.
+    ///         Declared `public` rather than `external` so `_key()` can read it
+    ///         without a self-call: the key has to repeat the bitmap, and the
+    ///         two must come from one expression or they can drift apart.
+    function getHooksRegistrationBitmap() public pure override returns (uint16) {
+        return uint16(
+            (1 << HOOKS_BEFORE_INITIALIZE_OFFSET) | (1 << HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET)
+                | (1 << HOOKS_BEFORE_SWAP_OFFSET) | (1 << HOOKS_AFTER_SWAP_OFFSET)
+                | (1 << HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET) | (1 << HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET)
+        );
     }
 
     /// @dev Settle the full-range genesis position: `lpNative` native ETH plus
@@ -2087,15 +2221,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpNative) internal returns (bytes memory) {
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtPriceX96,
-            TickMath.getSqrtPriceAtTick(TICK_LOWER),
-            TickMath.getSqrtPriceAtTick(TICK_UPPER),
+            TickMath.getSqrtRatioAtTick(TICK_LOWER),
+            TickMath.getSqrtRatioAtTick(TICK_UPPER),
             lpNative,
             GENESIS_LP_SUPPLY
         );
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             _key(),
-            ModifyLiquidityParams({
+            ICLPoolManager.ModifyLiquidityParams({
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
                 liquidityDelta: int256(uint256(liquidity)),
@@ -2110,15 +2244,22 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // currency0 == native ETH
         if (d0 < 0) {
             uint256 owed = uint256(uint128(-d0));
-            poolManager.sync(CurrencyLibrary.ADDRESS_ZERO);
-            poolManager.settle{value: owed}();
+            vault.sync(CurrencyLibrary.NATIVE);
+            vault.settle{value: owed}();
         }
         // currency1 == project token
+        //
+        // The transfer goes to the VAULT, not the pool manager. This is the one
+        // place the Infinity port could not be mechanical: `sync`/`settle` moved
+        // to the Vault, and so did the address that has to physically receive
+        // the tokens. Sending them to the manager instead leaves `settle()`
+        // measuring a balance that never changed, so it credits nothing and the
+        // frame closes with `CurrencyNotSettled()`.
         if (d1 < 0) {
             uint256 owed = uint256(uint128(-d1));
-            poolManager.sync(Currency.wrap(address(projectToken)));
-            IERC20(address(projectToken)).safeTransfer(address(poolManager), owed);
-            poolManager.settle();
+            vault.sync(Currency.wrap(address(projectToken)));
+            IERC20(address(projectToken)).safeTransfer(address(vault), owed);
+            vault.settle();
         }
 
         return abi.encode(liquidity);
@@ -2227,7 +2368,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // other trade, which is the assumption every TWAP of this depth already
         // rests on, and it is the assumption PROBE B measures the price of.
         if (nowTs - lastObservationTs >= TWAP_WINDOW) {
-            return TickMath.getSqrtPriceAtTick(lastTick);
+            return TickMath.getSqrtRatioAtTick(lastTick);
         }
 
         int56 cumNow = tickCumulative + int56(lastTick) * int56(uint56(nowTs - lastObservationTs));
@@ -2242,7 +2383,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (avgTick < TickMath.MIN_TICK) avgTick = TickMath.MIN_TICK;
         if (avgTick > TickMath.MAX_TICK) avgTick = TickMath.MAX_TICK;
 
-        return TickMath.getSqrtPriceAtTick(avgTick);
+        return TickMath.getSqrtRatioAtTick(avgTick);
     }
 
     /// @dev Convert a Q64.96 sqrt price into ETH-wei per whole (1e18) token.

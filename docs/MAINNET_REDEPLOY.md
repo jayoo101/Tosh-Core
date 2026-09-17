@@ -114,7 +114,7 @@ immutable and the money is back with the depositors.
 `POG_SIGNER_ADDRESS` both set to the testnet deployer).
 
 Measured behaviour: **a variable set in the shell wins over `.env`.** Verified
-by injecting `V4_POOL_MANAGER=0x…dEaD` into the session and watching the script
+by injecting `INFINITY_CL_POOL_MANAGER=0x…dEaD` into the session and watching the script
 log `0x…dEaD` instead of `.env`'s value. So exporting the production values is
 sufficient — but only for the variables you actually export. Anything you miss
 falls through to `.env`'s testnet value in silence.

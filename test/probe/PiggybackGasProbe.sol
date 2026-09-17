@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {ToshLadderTreasury} from "../../src/ToshLadderTreasury.sol";
-import {IPoolManager} from "../../lib/v4-core/src/interfaces/IPoolManager.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 
 /// @title  RH-B4 piggyback gas probe
 ///
@@ -84,7 +84,9 @@ contract ProbeTreasury is ToshLadderTreasury {
 
     event ProbeSpendSet(uint256 amount);
 
-    constructor(address _poolManager, address _owner) ToshLadderTreasury(_poolManager, _owner) {}
+    constructor(address _poolManager, address _vault, address _owner)
+        ToshLadderTreasury(_poolManager, _vault, _owner)
+    {}
 
     function setProbeSpend(uint256 amount) external onlyOwner {
         probeSpend = amount;
@@ -101,7 +103,13 @@ contract ProbeTreasury is ToshLadderTreasury {
 /// @notice Opens an unlock frame and measures the poke inside it, which is the
 ///         position a hook's `afterSwap` pokes from.
 contract ProbeGasMeter {
-    IPoolManager public immutable poolManager;
+    /// @dev The VAULT opens the frame, not the pool manager. Infinity moved
+    ///      accounting out of the manager, so `lock` lives here and the callback
+    ///      it makes is `lockAcquired` rather than `unlockCallback`. What is
+    ///      being measured is unchanged — the cost of opening and closing a frame
+    ///      around the poke — but it is now a different contract's cost, so the
+    ///      figure this probe produces is not comparable to the V4 one.
+    IVault public immutable vault;
     ProbeTreasury public immutable treasury;
 
     /// @notice `gasleft()` consumed by `autoPiggybackBuyback` alone. This is the
@@ -113,24 +121,24 @@ contract ProbeGasMeter {
     ///         open and close a frame on this chain.
     uint256 public lastFrameGas;
 
-    error NotPoolManager();
+    error NotVault();
 
     event Measured(uint256 pokeGas, uint256 frameGas);
 
-    constructor(address _poolManager, address payable _treasury) {
-        poolManager = IPoolManager(_poolManager);
+    constructor(address _vault, address payable _treasury) {
+        vault = IVault(_vault);
         treasury = ProbeTreasury(_treasury);
     }
 
     function measure() external {
         uint256 frameStart = gasleft();
-        poolManager.unlock("");
+        vault.lock("");
         lastFrameGas = frameStart - gasleft();
         emit Measured(lastPokeGas, lastFrameGas);
     }
 
-    function unlockCallback(bytes calldata) external returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert NotPoolManager();
+    function lockAcquired(bytes calldata) external returns (bytes memory) {
+        if (msg.sender != address(vault)) revert NotVault();
 
         // Read the counter before and after and nothing in between: an
         // intervening SLOAD or event would be billed to the measurement.

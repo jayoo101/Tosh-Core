@@ -203,7 +203,17 @@ auditable, and it sat ~4% above spot at the time (1 ETH = 3.3624 BNB). The PoG
 band is the exception and is deliberately split across two currencies: the floor
 stays in ETH because it measures ETH gas history, while `maxAllocWei` and `rate`
 move to BNB because they bound a BNB deposit. `pogQuota.ts` carries the full
-argument. The `README.md` attacker-cost recomputation is still outstanding.
+argument.
+
+The `README.md` attacker-cost recomputation is done, and it did not survive as
+the same kind of claim. The old wording — a hundred floor-sitting sybils burn
+2.5 ETH to unlock 1.25 ETH — compared two ETH constants, so the 2:1 margin held
+at any price. The cost side is still ETH gas while the allocation side is now a
+BNB deposit allowance, so the same comparison needs a conversion and moves with
+the ETH/BNB market: exactly 2:1 at the ×3.5 the rate was set against, about
+1.9:1 at the 3.3624 spot above, and narrower still if BNB appreciates. The
+margin is now a design target held by a rotatable dial rather than a property of
+two constants, and the README says so rather than restating the old ratio.
 
 The 21 `totalNativeDeposited`-style identifiers keep working — they are all
 `msg.value` — but every one of them names the wrong asset. That is a rename,

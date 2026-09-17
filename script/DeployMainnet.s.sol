@@ -34,7 +34,7 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //  Required env vars (extend `.env.production` from `.env.example`):
 //    PRIVATE_KEY           — deployer EOA (low-privilege; rotates to Safe)
 //    TARGET_CHAIN_ID       — chain this run is authorised for (4663 = Robinhood)
-//    V4_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
+//    INFINITY_CL_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
 //    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
 //                            — a NEW EOA, not reused from testnet. The private
 //                            key lives in Vercel Production, not in this file.
@@ -103,8 +103,18 @@ contract DeployMainnetScript is Script {
         require(targetChainId != 0, "TARGET_CHAIN_ID unset");
         require(block.chainid == targetChainId, "chain id mismatch: wrong --rpc-url for this deploy");
 
-        address poolManager = vm.envAddress("V4_POOL_MANAGER");
-        require(poolManager != address(0), "V4_POOL_MANAGER unset");
+        address poolManager = vm.envAddress("INFINITY_CL_POOL_MANAGER");
+        require(poolManager != address(0), "INFINITY_CL_POOL_MANAGER unset");
+
+        // Infinity's Vault. Immutable on the factory and on every hook it
+        // deploys, exactly like the manager, and it must be the Vault that
+        // OWNS this manager — `CLPoolManager` and `Vault` each reject the
+        // other's counterparty, so a mismatched pair does not misbehave
+        // quietly, it bricks every launch. Verify the pairing on the target
+        // chain before broadcasting; the fork suite asserts it for the live
+        // pair, but this script cannot.
+        address vault = vm.envAddress("INFINITY_VAULT");
+        require(vault != address(0), "INFINITY_VAULT unset");
 
         address pogSigner = vm.envAddress("POG_SIGNER_ADDRESS");
         require(pogSigner != address(0), "POG_SIGNER_ADDRESS unset");
@@ -150,10 +160,10 @@ contract DeployMainnetScript is Script {
         // the Safe via the same two-step dance as the factory.  The window is
         // harmless: the treasury has no withdraw path at all, so even a fully
         // compromised deployer key could only mis-curate the buyback ladder.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
-        ToshFactory factory = new ToshFactory(poolManager, pogSigner, platformTreasury, address(treasury));
+        ToshFactory factory = new ToshFactory(poolManager, vault, pogSigner, platformTreasury, address(treasury));
         console2.log("ToshFactory deployed      :", address(factory));
 
         // ── 3. Close the treasury <-> factory loop ──────────────────────────

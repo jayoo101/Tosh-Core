@@ -5,17 +5,19 @@ import {Test, console2} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {Vault} from "infinity-core/src/Vault.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
+import {IHooks} from "infinity-core/src/interfaces/IHooks.sol";
+import {ICLHooks} from "infinity-core/src/pool-cl/interfaces/ICLHooks.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {IPoolManager} from "infinity-core/src/interfaces/IPoolManager.sol";
+import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolManagerRouter.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
+import {Currency} from "infinity-core/src/types/Currency.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {CLPoolParametersHelper} from "infinity-core/src/pool-cl/libraries/CLPoolParametersHelper.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -33,7 +35,16 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 contract ToshV5AttackTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
-    using StateLibrary for IPoolManager;
+    using CLPoolParametersHelper for bytes32;
+
+    /// @dev Infinity names these the opposite of V4 and means the opposite by
+    ///      them: V4 took `{takeClaims: false, settleUsingBurn: false}` where
+    ///      this takes `{withdrawTokens: true, settleUsingTransfer: true}`. Both
+    ///      say the same thing — hand over real tokens, settle by transferring
+    ///      them. Reasoned out once in test/ToshV5.t.sol.
+    function _swapSettings() internal pure returns (CLPoolManagerRouter.SwapTestSettings memory) {
+        return CLPoolManagerRouter.SwapTestSettings({withdrawTokens: true, settleUsingTransfer: true});
+    }
 
     address internal admin = makeAddr("admin");
     address internal creator = makeAddr("creator");
@@ -45,9 +56,10 @@ contract ToshV5AttackTest is Test {
     uint256 internal pogSignerPk = 0xBEEF_CAFE;
     address internal pogSigner;
 
-    PoolManager internal poolManager;
-    PoolSwapTest internal swapRouter;
-    PoolModifyLiquidityTest internal liqRouter;
+    Vault internal vault;
+
+    CLPoolManager internal poolManager;
+    CLPoolManagerRouter internal router;
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
@@ -58,13 +70,21 @@ contract ToshV5AttackTest is Test {
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
-        poolManager = new PoolManager(admin);
-        swapRouter = new PoolSwapTest(IPoolManager(address(poolManager)));
-        liqRouter = new PoolModifyLiquidityTest(IPoolManager(address(poolManager)));
+        // Vault first, and the manager registered with it before it may move any
+
+        // balance. See test/ToshV5.t.sol for the full argument.
+
+        vault = new Vault();
+
+        poolManager = new CLPoolManager(IVault(address(vault)));
+
+        vault.registerApp(address(poolManager));
+
+        router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), admin);
-        factory = new ToshFactory(address(poolManager), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
+        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
         ladder.setFactory(address(factory));
         factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -79,17 +99,17 @@ contract ToshV5AttackTest is Test {
 
     // ─── Harness ──────────────────────────────────────────────────────────────
 
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("no salt");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _registerPoG(address user, uint256 maxAlloc) internal {
@@ -105,7 +125,7 @@ contract ToshV5AttackTest is Test {
     /// @dev Create + fund + launch, WITHOUT warping past the launch block, so
     ///      probes can inspect the state of the very block the pool opens in.
     function _launchProject(uint256 raise) internal returns (ToshToken token, ToshLaunchpadHook hook) {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (address t, address h) =
@@ -130,12 +150,12 @@ contract ToshV5AttackTest is Test {
     function _buy(ToshLaunchpadHook hook, address who, uint256 nativeIn) internal {
         PoolKey memory key = hook.getPoolKey();
         vm.prank(who);
-        swapRouter.swap{value: nativeIn}(
+        router.swap{value: nativeIn}(
             key,
-            SwapParams({
-                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         );
     }
@@ -280,7 +300,7 @@ contract ToshV5AttackTest is Test {
         vm.warp(t0 + 14 days + 2000);
         _nextBlock();
 
-        (uint160 spotSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        (uint160 spotSqrt,,,) = poolManager.getSlot0(key.toId());
         uint160 twapSqrt = hook.twapSqrtPriceX96();
 
         console2.log("quiet for (s)   ", uint256(2000));
@@ -445,13 +465,13 @@ contract ToshV5AttackTest is Test {
         console2.log("  bought             ", bought);
 
         vm.startPrank(attacker);
-        token.approve(address(swapRouter), type(uint256).max);
-        swapRouter.swap(
+        token.approve(address(router), type(uint256).max);
+        router.swap(
             key,
-            SwapParams({
-                zeroForOne: false, amountSpecified: -int256(bought), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: false, amountSpecified: -int256(bought), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         );
         vm.stopPrank();
@@ -535,14 +555,16 @@ contract ToshV5AttackTest is Test {
         vm.deal(attacker, offered + 1 ether);
 
         vm.prank(attacker);
-        swapRouter.swap{value: offered}(
+        router.swap{value: offered}(
             key,
-            SwapParams({zeroForOne: true, amountSpecified: -int256(offered), sqrtPriceLimitX96: uint160(targetSqrt)}),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ICLPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -int256(offered), sqrtPriceLimitX96: uint160(targetSqrt)
+            }),
+            _swapSettings(),
             ""
         );
 
-        (uint160 spot,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        (uint160 spot,,,) = poolManager.getSlot0(key.toId());
         assertEq(uint256(spot), targetSqrt, "the limit must park the pool exactly on the requested deviation");
     }
 
@@ -655,7 +677,7 @@ contract ToshV5AttackTest is Test {
     function test_probeG3_immatureTwapIsRefusedAtListing() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
         PoolKey memory key = hook.getPoolKey();
-        (uint160 openingSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(key.toId());
+        (uint160 openingSqrt,,,) = poolManager.getSlot0(key.toId());
         uint256 launchTs = block.timestamp;
 
         // 1500 bps below the opening sqrt price: half again as far out as
@@ -736,13 +758,13 @@ contract ToshV5AttackTest is Test {
         uint256 ethBefore = attacker.balance;
 
         vm.startPrank(attacker);
-        token.approve(address(swapRouter), type(uint256).max);
-        swapRouter.swap(
+        token.approve(address(router), type(uint256).max);
+        router.swap(
             hook.getPoolKey(),
-            SwapParams({
-                zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         );
         vm.stopPrank();
@@ -763,12 +785,26 @@ contract ToshV5AttackTest is Test {
         _nextBlock();
         _buy(hook, alice, 20 ether);
 
+        // The one hand-built PoolKey in the suite, and it gained two members in
+        // the Infinity port. `poolManager` is now named IN the key — the manager
+        // rejects a key that names a different one — and `tickSpacing` moved out
+        // of its own field into the packed `parameters` word alongside the hook
+        // permission bitmap.
+        //
+        // `parameters` carries the tick spacing and nothing else here, which is
+        // exactly right for a hookless pool: with no hook there are no callbacks
+        // to register, so the permission bits are all zero.
         PoolKey memory rogue = PoolKey({
             currency0: Currency.wrap(address(0)),
             currency1: Currency.wrap(address(token)),
+            // `IHooks`, not `ICLHooks`: Infinity's PoolKey is shared by the CL
+            // and Bin managers, so the field is typed to the interface they have
+            // in common. The CL-specific callbacks live in `ICLHooks`, which the
+            // manager casts to after reading the key.
+            hooks: IHooks(address(0)),
+            poolManager: IPoolManager(address(poolManager)),
             fee: 3000,
-            tickSpacing: 60,
-            hooks: IHooks(address(0))
+            parameters: bytes32(0).setTickSpacing(60)
         });
 
         uint256 treasuryBefore = address(ladder).balance;
@@ -776,7 +812,7 @@ contract ToshV5AttackTest is Test {
         // A stranger can open it.  `beforeInitialize` is never consulted,
         // because V4 only calls a hook for pools that name that hook.
         vm.prank(attacker);
-        poolManager.initialize(rogue, TickMath.getSqrtPriceAtTick(0));
+        poolManager.initialize(rogue, TickMath.getSqrtRatioAtTick(0));
         console2.log("rogue hookless ETH/token pool initialised by a stranger");
 
         assertEq(address(ladder).balance, treasuryBefore, "the rogue venue funds no buyback");
@@ -792,10 +828,11 @@ contract ToshV5AttackTest is Test {
         // If this ever stops holding, the exposure is not the lost 1 %: it is
         // that the anti-spike gate is measured against a book that has thinned.
         assertEq(uint256(uint160(address(rogue.hooks))), 0, "the rogue pool is genuinely hookless, by construction");
+        // The VAULT holds it, not the pool manager. Depth is measured by where
+        // the tokens physically are, and in Infinity that is the Vault — the
+        // manager keeps only the accounting.
         assertGt(
-            token.balanceOf(address(poolManager)),
-            0,
-            "the official pool still holds the permanently locked genesis liquidity"
+            token.balanceOf(address(vault)), 0, "the official pool still holds the permanently locked genesis liquidity"
         );
     }
 
@@ -903,7 +940,7 @@ contract ToshV5AttackTest is Test {
     function test_probeJ_referralSelfFarmViaSecondWallet() public {
         address sybil = makeAddr("sybil"); // attacker's own second EOA, never attested
 
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (, address h) = factory.createLaunch{value: fee}("Farm", "FRM", projTreasury, projTreasury, salt, fee, 24 hours);
@@ -932,7 +969,7 @@ contract ToshV5AttackTest is Test {
         _registerPoG(realRef, POG_CAP);
         _registerPoG(alice, POG_CAP);
 
-        bytes32 salt2 = _mineSalt();
+        bytes32 salt2 = _pickSalt();
         vm.prank(creator);
         (, address h2) =
             factory.createLaunch{value: fee}("Farm2", "FR2", projTreasury, projTreasury, salt2, fee, 24 hours);
@@ -1223,13 +1260,13 @@ contract ToshV5AttackTest is Test {
         uint256 bal = token.balanceOf(alice);
         PoolKey memory key = hook.getPoolKey();
         vm.startPrank(alice);
-        token.approve(address(swapRouter), type(uint256).max);
-        swapRouter.swap(
+        token.approve(address(router), type(uint256).max);
+        router.swap(
             key,
-            SwapParams({
-                zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         );
         vm.stopPrank();

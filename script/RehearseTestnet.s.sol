@@ -6,8 +6,12 @@ import "forge-std/console2.sol";
 
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+// Imported rather than restated, unlike `test/ToshV5ForkInfinity.t.sol`, which
+// keeps its own copy so the guard has a handwritten tuple to diff against
+// upstream. A rehearsal wants the opposite: if PancakeSwap reshapes the params,
+// this script should break at compile time rather than encode a stale layout.
+import {ICLRouterBase} from "infinity-periphery/src/pool-cl/interfaces/ICLRouterBase.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -23,25 +27,27 @@ interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
 }
 
-/// @dev Stand-in for the ArbSys precompile, used only by the local simulation
-///      `forge script` runs before it broadcasts. See `_installArbSys`.
-contract SimArbSys {
-    uint256 private _height;
-
-    function arbBlockNumber() external view returns (uint256) {
-        return _height;
-    }
-
-    function setHeight(uint256 h) external {
-        _height = h;
-    }
-}
-
 // ---------------------------------------------------------------------------
-// RH-F1 / RH-F2 — the rehearsal on Robinhood Chain testnet (46630)
+// RH-F1 / RH-F2 — the rehearsal on BSC testnet (97)
 // ---------------------------------------------------------------------------
 // TESTNET ONLY. Rewrites the factory's economic parameters, which is acceptable
-// only because Deploy.s.sol deliberately leaves it EOA-owned on 46630.
+// only because Deploy.s.sol deliberately leaves it EOA-owned on 97.
+//
+// ── What moving off Robinhood Chain deleted from this script ───────────────
+//
+// A `SimArbSys` mock and an `_installArbSys()` that `vm.etch`-ed it over 0x64
+// before every run. Robinhood is an Arbitrum Orbit chain, `block.number` there
+// reports an L1 height, and the hook's same-block lockout has to stamp the L2
+// one — so it called the ArbSys precompile. Foundry's simulation had no such
+// precompile and aborted with `InvalidFEOpcode`, hence the mock.
+//
+// BSC has no ArbSys and no L1/L2 split: `block.number` IS the height, the hook
+// constructor finds nothing at 0x64, sets `_hasArbSys` false, and
+// `_blockNumber()` returns `block.number` directly. The mock and the etch go
+// with it.
+//
+// RH-F2 stays, inverted. It used to prove the ArbSys path was live; it now
+// proves the fallback is, which is the assertion that matters on this chain.
 //
 // ── Why this is two phases and not one ─────────────────────────────────────
 //
@@ -124,17 +130,27 @@ abstract contract RehearsalBase is Script {
     /// under test for a degenerate pool.
     uint256 internal constant REHEARSAL_RAISE = 0.01 ether;
 
-    /// Robinhood Chain's deployed Uniswap V4 periphery. Same constants as
-    /// `test/ToshV5Fork.t.sol` §2.2 — kept in sync by eye, and by the fact that
-    /// a wrong one here simply fails against the live chain in seconds.
-    address internal constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
+    /// PancakeSwap Infinity's UniversalRouter on BSC testnet (97). Table and
+    /// re-check commands in docs/PANCAKESWAP_INFINITY.md §7.
+    ///
+    /// NOT Uniswap's, and the distinction is sharper than it looks: Infinity's
+    /// swap command byte is also 0x10 and its params tuple encodes to the same
+    /// length, so pointing this at a Uniswap router would send calldata that
+    /// passes the length floor and decodes into a different struct. See
+    /// `_buyThroughRouter`.
+    address internal constant UNIVERSAL_ROUTER = 0x87FD5305E6a40F378da124864B2D479c2028BD86;
 
-    /// The ArbSys precompile. Real on chain, mocked in simulation — see
-    /// `_installArbSys`.
-    address internal constant ARB_SYS = address(uint160(100));
-
-    uint8 internal constant CMD_V4_SWAP = 0x10;
-    uint8 internal constant ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
+    // From pancakeswap/infinity-universal-router `Commands.sol` and
+    // infinity-periphery `Actions.sol`.
+    //
+    // Every one of these bytes happens to equal its Uniswap counterpart —
+    // `V4_SWAP` is also 0x10, and the three action bytes are also 0x06 / 0x0c /
+    // 0x0f. That is a coincidence, not compatibility: the PARAMS the swap action
+    // decodes are a different tuple, and the two encode to the same length (see
+    // `_buyThroughRouter`). Identical dispatch bytes are exactly what makes the
+    // mismatch easy to reach.
+    uint8 internal constant CMD_INFI_SWAP = 0x10;
+    uint8 internal constant ACTION_CL_SWAP_EXACT_IN_SINGLE = 0x06;
     uint8 internal constant ACTION_SETTLE_ALL = 0x0c;
     uint8 internal constant ACTION_TAKE_ALL = 0x0f;
 
@@ -144,7 +160,7 @@ abstract contract RehearsalBase is Script {
     ToshLadderTreasury internal treasury;
 
     function _setUp() internal {
-        require(block.chainid == 46630, "RehearseTestnet is Robinhood Chain testnet (46630) only");
+        require(block.chainid == 97, "RehearseTestnet is BSC testnet (97) only");
 
         deployerPk = vm.envUint("PRIVATE_KEY");
         deployer = vm.addr(deployerPk);
@@ -158,37 +174,10 @@ abstract contract RehearsalBase is Script {
         require(factory.owner() == deployer, "deployer does not own the factory");
         require(factory.ladderTreasury() == address(treasury), "factory/treasury are not wired to each other");
 
-        _installArbSys();
-    }
-
-    /// @dev `forge script` simulates the whole sequence locally before it sends
-    ///      anything, and that simulation runs on a vanilla EVM with no notion
-    ///      of Arbitrum precompiles.
-    ///
-    ///      Fetching 0x64 from the RPC does not help. An Orbit chain stores a
-    ///      stub there whose bytecode is literally `0xfe`, and the node
-    ///      intercepts calls to the address rather than executing it. Foundry
-    ///      has nothing to intercept with, so it runs the stub and aborts with
-    ///      `InvalidFEOpcode` — which is exactly how phase 2 failed on its
-    ///      first attempt, after simulating the entire launch correctly right
-    ///      up to the closing `_blockNumber()`.
-    ///
-    ///      `vm.etch` is a local-state cheatcode and is never part of a
-    ///      broadcast, so the transaction that actually lands is unaffected and
-    ///      resolves 0x64 against the real precompile. The mock therefore buys
-    ///      a simulation that completes without weakening what is tested on
-    ///      chain — but it does mean the simulation cannot prove anything about
-    ///      `_blockNumber()`, which is why RH-F2 is asserted afterwards against
-    ///      the mined receipt rather than here. Same trade recorded for the
-    ///      fork suite against the public 4663 endpoint.
-    ///
-    ///      Seeded from `block.number` because Foundry takes that from the
-    ///      RPC's `eth_blockNumber`, which on an Orbit chain is the L2 height —
-    ///      the same quantity ArbSys reports.
-    function _installArbSys() internal {
-        SimArbSys impl = new SimArbSys();
-        vm.etch(ARB_SYS, address(impl).code);
-        SimArbSys(ARB_SYS).setHeight(block.number);
+        // Nothing to install. On Robinhood this is where `_installArbSys()`
+        // etched a mock over 0x64 so the local simulation would not abort on
+        // the Orbit stub's `0xfe` byte. BSC has no precompile there, which is
+        // the case the hook's fallback already handles.
     }
 
     /// @dev The PoG oracle attestation, signed here because on testnet the
@@ -214,27 +203,33 @@ abstract contract RehearsalBase is Script {
         require(factory.registeredHooks(address(hook)), "hook is not registered with this factory");
     }
 
-    /// @dev A native-ETH buy through the deployed UniversalRouter — the path
-    ///      real traffic takes. `zeroForOne` is always true because native ETH
-    ///      sorts to `currency0`, and `minHopPriceX36: 0` disables the router's
-    ///      own per-hop floor so `amountOutMinimum` is the only slippage bound,
-    ///      matching what the frontend sends.
+    /// @dev A native-BNB buy through the deployed Infinity UniversalRouter —
+    ///      the path real traffic takes. `zeroForOne` is always true because the
+    ///      native coin sorts to `currency0`.
     ///
-    ///      The six-field struct is not cosmetic: Robinhood's router is a newer
-    ///      build than Ethereum's and decodes a sixth field here. See §5.1 of
-    ///      the migration doc and `scripts/checkV4RouterTuple.mjs`.
+    ///      The tuple has FIVE fields, and the count is the thing to be careful
+    ///      about. Uniswap's has six: it carries `minHopPriceX36` and its
+    ///      `PoolKey` has five members. Infinity drops that field and its
+    ///      `PoolKey` gains one — it names its own pool manager — so both
+    ///      tuples encode to the same ten head slots and the same `0x160`
+    ///      minimum length. Both decoders are the same raw calldata pointer
+    ///      cast with no check past that floor, so neither can reject the
+    ///      other's calldata on size.
+    ///
+    ///      Sending the wrong one here reverts rather than settling a swap
+    ///      nobody described, but only because Uniswap's `fee` lands on the slot
+    ///      Infinity reads as `poolManager` and that field is validated. One
+    ///      field in one position. `scripts/checkV4RouterTuple.mjs` check 6
+    ///      pins this struct against infinity-periphery, and
+    ///      `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable`
+    ///      measures the near-miss; see docs/PANCAKESWAP_INFINITY.md §10.
     function _buyThroughRouter(PoolKey memory key, uint128 amountIn, uint128 minOut) internal {
-        bytes memory actions = abi.encodePacked(ACTION_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
+        bytes memory actions = abi.encodePacked(ACTION_CL_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
 
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(
-            IV4Router.ExactInputSingleParams({
-                poolKey: key,
-                zeroForOne: true,
-                amountIn: amountIn,
-                amountOutMinimum: minOut,
-                minHopPriceX36: 0,
-                hookData: ""
+            ICLRouterBase.CLSwapExactInputSingleParams({
+                poolKey: key, zeroForOne: true, amountIn: amountIn, amountOutMinimum: minOut, hookData: ""
             })
         );
         params[1] = abi.encode(key.currency0, amountIn);
@@ -244,7 +239,7 @@ abstract contract RehearsalBase is Script {
         inputs[0] = abi.encode(actions, params);
 
         IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_V4_SWAP), inputs, block.timestamp + 600
+            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 600
         );
     }
 
@@ -252,7 +247,7 @@ abstract contract RehearsalBase is Script {
         console2.log("============================================================");
         console2.log(title);
         console2.log("============================================================");
-        console2.log("chain     : 46630 (Robinhood Chain testnet)");
+        console2.log("chain     : 97 (BSC testnet)");
         console2.log("deployer  :", deployer);
         console2.log("factory   :", address(factory));
         console2.log("treasury  :", address(treasury));
@@ -264,7 +259,6 @@ abstract contract RehearsalBase is Script {
 // ═══════════════════════════════════════════════════════════════════════════
 //  Phase 1 — scale the parameters, create the launch, fund genesis
 // ═══════════════════════════════════════════════════════════════════════════
-
 contract Phase1Genesis is RehearsalBase {
     function run() external {
         _setUp();
@@ -273,7 +267,7 @@ contract Phase1Genesis is RehearsalBase {
         vm.startBroadcast(deployerPk);
 
         _scaleParameters();
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         _registerPoG(REHEARSAL_WALLET_CAP);
 
         (address token, address hook) = factory.createLaunch{value: REHEARSAL_LAUNCH_FEE}(
@@ -294,11 +288,14 @@ contract Phase1Genesis is RehearsalBase {
         _report(token, hook);
     }
 
-    /// @dev Order matters and is not obvious: `createLaunch` snapshots
-    ///      `defaultSoftCap` and `maxPogAllocationLimit` into the clone's
-    ///      immutable args, and the salt is mined against those same two
-    ///      values. Mining before the setters land would produce an address the
-    ///      factory then refuses as `InvalidHookSalt`.
+    /// @dev Order still matters, though less violently than it used to.
+    ///      `createLaunch` snapshots `defaultSoftCap` and
+    ///      `maxPogAllocationLimit` into the clone's immutable args, so they are
+    ///      part of the initcode and therefore of the predicted address. Calling
+    ///      these setters after `_pickSalt` would move the address out from
+    ///      under the occupancy check — a stale prediction no longer gets
+    ///      refused outright now that the address-bit gate is gone, so the
+    ///      failure would surface later and less clearly.
     function _scaleParameters() internal {
         require(REHEARSAL_RAISE >= factory.MIN_SOFT_CAP_PROD(), "REHEARSAL_RAISE is below the contract's own floor");
         require(REHEARSAL_SOFT_CAP > REHEARSAL_RAISE, "rehearsal must launch with the soft cap unmet");
@@ -312,19 +309,29 @@ contract Phase1Genesis is RehearsalBase {
         console2.log("maxPogAllocationLimit:", factory.maxPogAllocationLimit());
     }
 
-    /// @dev Runs during simulation only — it is a view loop, so it produces no
-    ///      transactions and the broadcast carries just the mined salt.
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    /// @dev Picks the salt to launch with. Under Uniswap V4 this was a 500k
+    ///      iteration mining loop hunting an address that carried the 0x20CC
+    ///      permission mask; PancakeSwap Infinity takes permissions from the
+    ///      hook's registration bitmap, so the factory accepts any salt and the
+    ///      loop is gone.
+    ///
+    ///      One thing the loop also did has to survive it: rejecting a salt
+    ///      whose address is already occupied. CREATE2 into a non-empty address
+    ///      fails, and `ToshFactory` derives its salt from
+    ///      `keccak256(creator, rawSalt)` — so a rehearsal re-run by the same
+    ///      deployer, with the same parameters, predicts the address its own
+    ///      previous run already deployed to. Walking `rawSalt` forward until
+    ///      the address is empty is what makes the rehearsal repeatable.
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash =
             factory.hookInitcodeHash(deployer, deployer, REHEARSAL_SOFT_CAP, REHEARSAL_WALLET_CAP, GENESIS_WINDOW);
 
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(deployer, rawSalt));
-            address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (HookMiner.computeAddress(address(factory), finalSalt, initcodeHash).code.length == 0) return rawSalt;
         }
-        revert("no valid salt found in 500k attempts");
+        revert("first 1000 salts are all occupied - is this the same deployer and config as 1000 prior rehearsals?");
     }
 
     function _report(address token, address hook) internal view {
@@ -351,7 +358,6 @@ contract Phase1Genesis is RehearsalBase {
 // ═══════════════════════════════════════════════════════════════════════════
 //  Phase 2 — launch, and observe the things only a real chain can show
 // ═══════════════════════════════════════════════════════════════════════════
-
 contract Phase2Launch is RehearsalBase {
     function run() external {
         _setUp();
@@ -394,16 +400,26 @@ contract Phase2Launch is RehearsalBase {
     ///      number in this whole rehearsal that could not have been checked
     ///      anywhere else.
     ///
-    ///      `launch()` stamps it via `_blockNumber()`. On an Orbit chain the
-    ///      `NUMBER` opcode returns the **L1** height — around 25.8 M — while
-    ///      this chain's own head is around 108 M. If the stamp comes back in
-    ///      the L1 range then `_blockNumber()` is not reading ArbSys, the
-    ///      flash-loan lockout is comparing two different clocks, and it would
-    ///      never once fire in production.
+    ///      `launch()` stamps it via `_blockNumber()`, and the lockout later
+    ///      compares that stamp against a fresh call to the same function. The
+    ///      failure this catches is the two disagreeing about which clock they
+    ///      are on — if they do, the same-block lockout never fires once in
+    ///      production.
     ///
-    ///      Every test of this until now supplied its own ArbSys with
-    ///      `vm.etch`, including the fork suite. This is the first time the real
-    ///      precompile answers.
+    ///      ⚠THE ASSERTION INVERTED WHEN WE LEFT ROBINHOOD, and it had to. On
+    ///      that Orbit chain `NUMBER` returned an L1 height around 25.8 M while
+    ///      the chain's own head was around 108 M, so the two clocks were
+    ///      separated by 80 M and a magnitude test told them apart:
+    ///      `stamped > 50_000_000` meant ArbSys had answered.
+    ///
+    ///      That test would now pass for the wrong reason. BSC has one clock and
+    ///      its head is already past 60 M, so the old threshold is satisfied by
+    ///      `block.number` alone — it would report success without checking
+    ///      anything. What is provable here instead is equality: with
+    ///      `_hasArbSys` false the stamp must be the chain's own height, so it
+    ///      may only trail `head` by the blocks mined since `launch()` landed.
+    ///      A stamp that is far behind, ahead, or zero means `_blockNumber()` is
+    ///      not returning `block.number`.
     function _report(ToshLaunchpadHook hook, ToshToken token) internal view {
         uint256 stamped = hook.lastSwapBlock();
         uint256 head = block.number;
@@ -422,8 +438,15 @@ contract Phase2Launch is RehearsalBase {
 
         // Deliberately a hard failure rather than a printed warning. A rehearsal
         // that reports the wrong clock and exits 0 is how this ships broken.
-        require(stamped > 50_000_000, "lastSwapBlock looks like an L1 height -- _blockNumber() is NOT reading ArbSys");
-        console2.log("  -> L2 height. ArbSys path confirmed against the real precompile.");
+        //
+        // The window is generous on purpose: `launch()` and this read are
+        // separate transactions, and BSC mines every 750 ms, so some drift is
+        // expected and means nothing. A mismatched clock would be off by orders
+        // of magnitude, not by a handful of blocks.
+        require(stamped != 0, "lastSwapBlock is 0 -- launch() never stamped it");
+        require(stamped <= head, "lastSwapBlock is ahead of the chain head -- _blockNumber() is not reading this chain");
+        require(head - stamped < 10_000, "lastSwapBlock trails the head too far -- _blockNumber() is on another clock");
+        console2.log("  -> matches this chain's height. No-ArbSys fallback confirmed on BSC.");
         console2.log("------------------------------------------------------------");
         console2.log("maxMintable() right now:", hook.maxMintable());
         console2.log("(0 is expected and correct -- launch() closed the launch block.)");
@@ -435,9 +458,8 @@ contract Phase2Launch is RehearsalBase {
 // ═══════════════════════════════════════════════════════════════════════════
 //  Phase 3 — a real buy through the deployed UniversalRouter
 // ═══════════════════════════════════════════════════════════════════════════
-
 /// @dev Two jobs. It is the first swap this platform has ever sent through
-///      Robinhood's own router, and it is what lifts spot off `p0` so the
+///      PancakeSwap Infinity's router, and it is what lifts spot off `p0` so the
 ///      ladder's price gate can open — the gate is a strict `>`, and at launch
 ///      `spot == p0` up to sqrt truncation, so shelf 0 sits exactly ON it and
 ///      nothing is mintable until the market moves.
@@ -488,11 +510,15 @@ contract Phase3Buy is RehearsalBase {
         console2.log("lastSwapBlock re-armed to :", stamped);
         console2.log("maxMintable() this block  :", hook.maxMintable());
         console2.log("(0 again -- the swap just re-armed the lockout. That is RH-F2:");
-        console2.log(" on a 100 ms chain the next block is 100 ms away, not 10.7 s,");
-        console2.log(" which is only true because _blockNumber() reads ArbSys.)");
+        console2.log(" the stamp tracks this chain's own height, so the lockout");
+        console2.log(" clears on BSC's next 750 ms block rather than never.)");
         console2.log("------------------------------------------------------------");
         require(received > 0, "router returned no tokens");
-        require(stamped > 50_000_000, "lastSwapBlock looks like an L1 height after the swap");
+        require(stamped != 0, "lastSwapBlock is 0 after the swap -- afterSwap never stamped it");
+        require(
+            stamped <= block.number && block.number - stamped < 10_000,
+            "lastSwapBlock does not track this chain's height after the swap"
+        );
         console2.log("Next: Phase4Ladder");
         console2.log("============================================================");
     }
@@ -501,7 +527,6 @@ contract Phase3Buy is RehearsalBase {
 // ═══════════════════════════════════════════════════════════════════════════
 //  Phase 4 — mint off the ladder, then deploy the reservoir
 // ═══════════════════════════════════════════════════════════════════════════
-
 contract Phase4Ladder is RehearsalBase {
     function run() external {
         _setUp();

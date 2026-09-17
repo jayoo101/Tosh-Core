@@ -33,8 +33,15 @@ import {ToshLaunchpadHook} from "../ToshLaunchpadHook.sol";
 ///   shape completely — from `creationCode ++ abi.encode(9 args)` to a 131-byte
 ///   clone stub — so any off-chain miner must be regenerated against
 ///   `ToshFactory.hookInitcodeHash`, which now takes five arguments rather than
-///   six. A hash computed the old way yields a CREATE2 prediction that fails
-///   `InvalidHookSalt`.
+///   six. A hash computed the old way yields a CREATE2 prediction that does not
+///   match the address the launch deploys to.
+///
+/// ⚠ AND NOTHING MINES ANY MORE. The PancakeSwap Infinity port removed the
+///   address-bit gate entirely: permissions come from
+///   `ToshLaunchpadHook.getHooksRegistrationBitmap()`, validated against
+///   `PoolKey.parameters` at `initialize`, so any salt is acceptable. The
+///   initcode hash is still how a caller PREDICTS an address; it is no longer
+///   something to grind against.
 library HookDeployLib {
     /// @notice Deploy the one shared hook implementation that every project's
     ///         clone delegates to.
@@ -54,7 +61,13 @@ library HookDeployLib {
     ///         address carries no V4 permission bits and nothing needs to predict
     ///         it. Clones commit to it by baking it into their own runtime.
     ///
-    /// @param poolManager      Uniswap V4 PoolManager.
+    /// @param poolManager      PancakeSwap Infinity CLPoolManager: pool state,
+    ///                         swaps, liquidity, and the only permitted caller
+    ///                         of the hook's callbacks.
+    /// @param vault            PancakeSwap Infinity Vault: balances and the
+    ///                         lock. Passed separately because Infinity splits
+    ///                         V4's PoolManager in two; see the hook's
+    ///                         constructor for why it is not derived.
     /// @param ladderTreasury   Platform buyback reservoir; takes the 70 bps
     ///                         reservoir share of the buy-side tax.
     /// @param platformTreasury Platform maintenance cut recipient; takes the
@@ -63,11 +76,11 @@ library HookDeployLib {
     ///                         the factory holds the same address immutably —
     ///                         see `ToshFactory.platformTreasury` on M-2.
     /// @return impl            The shared implementation.
-    function deployImplementation(address poolManager, address ladderTreasury, address platformTreasury)
+    function deployImplementation(address poolManager, address vault, address ladderTreasury, address platformTreasury)
         external
         returns (address impl)
     {
-        impl = address(new ToshLaunchpadHook(poolManager, address(this), ladderTreasury, platformTreasury));
+        impl = address(new ToshLaunchpadHook(poolManager, vault, address(this), ladderTreasury, platformTreasury));
     }
 
     /// @notice keccak256 of ToshLaunchpadHook.creationCode.

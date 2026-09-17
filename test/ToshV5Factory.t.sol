@@ -31,11 +31,17 @@ contract ToshV5FactoryTest is Test {
     ToshFactory internal factory;
     address internal mockPoolManager = makeAddr("poolManager");
 
+    /// @dev A second mock, because Infinity split what V4 did in one contract:
+    ///      the CL pool manager runs the pool, the Vault holds every balance,
+    ///      and the factory takes both so it can pass them to each hook it
+    ///      deploys. These tests never call through either, so mocks suffice.
+    address internal mockVault = makeAddr("vault");
+
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
         vm.startPrank(admin);
-        factory = new ToshFactory(mockPoolManager, pogSigner, treasury, ladder);
+        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder);
         factory.setMaxPogAllocationLimit(1000 ether);
         vm.stopPrank();
 
@@ -63,45 +69,38 @@ contract ToshV5FactoryTest is Test {
         factory.registerPoG(maxAlloc, deadline, nonce, _buildPoGSig(user, maxAlloc, nonce, deadline));
     }
 
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
-        return _mineSalt(24 hours);
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
+        return _pickSalt(24 hours);
     }
 
-    function _mineSalt(uint256 duration) internal view returns (bytes32 rawSalt) {
+    function _pickSalt(uint256 duration) internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), duration
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("_mineSalt: none found");
-    }
-
-    function _mineInvalidSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
-        for (uint256 i; i < 500_000; ++i) {
-            rawSalt = bytes32(i);
-            bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
-            address predicted = HookMiner.computeAddress(address(factory), finalSalt, initHash);
-            if (!HookMiner.isValidHookAddress(predicted)) return rawSalt;
-        }
-        revert("_mineInvalidSalt: none found");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _createLaunch(string memory n, string memory s) internal returns (address token, address hook) {
         return _createLaunch(n, s, 24 hours);
     }
 
+    /// @dev The salt the most recent `_createLaunch` used, so a test can check
+    ///      the deployed address against its prediction without replicating the
+    ///      helper.
+    bytes32 internal _lastSalt;
+
     function _createLaunch(string memory n, string memory s, uint256 duration)
         internal
         returns (address token, address hook)
     {
-        bytes32 salt = _mineSalt(duration);
+        bytes32 salt = _pickSalt(duration);
+        _lastSalt = salt;
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (token, hook) = factory.createLaunch{value: fee}(n, s, projTreasury, projTreasury, salt, fee, duration);
@@ -132,7 +131,7 @@ contract ToshV5FactoryTest is Test {
     ///         Mining is excluded on purpose — the salt is ground off-chain and
     ///         the creator pays nothing for it.
     function test_createLaunch_gasStaysUnderBudget() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
@@ -150,22 +149,22 @@ contract ToshV5FactoryTest is Test {
 
     function test_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshFactory(address(0), pogSigner, treasury, ladder);
+        new ToshFactory(address(0), mockVault, pogSigner, treasury, ladder);
     }
 
     function test_ctor_revertsOnZeroPogSigner() public {
         vm.expectRevert(bytes("zero pogSigner"));
-        new ToshFactory(mockPoolManager, address(0), treasury, ladder);
+        new ToshFactory(mockPoolManager, mockVault, address(0), treasury, ladder);
     }
 
     function test_ctor_revertsOnZeroTreasury() public {
         vm.expectRevert(bytes("zero platformTreasury"));
-        new ToshFactory(mockPoolManager, pogSigner, address(0), ladder);
+        new ToshFactory(mockPoolManager, mockVault, pogSigner, address(0), ladder);
     }
 
     function test_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshFactory(mockPoolManager, pogSigner, treasury, payable(address(0)));
+        new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, payable(address(0)));
     }
 
     function test_ctor_wiresImmutables() public view {
@@ -600,7 +599,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_pause_blocksCreateLaunch() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(admin);
         factory.pause();
@@ -634,7 +633,7 @@ contract ToshV5FactoryTest is Test {
     function test_pause_stillBlocksNewLaunchesAndNewQuota() public {
         _register(user1, 0.05 ether); // registered before the pause
 
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
 
         vm.prank(admin);
@@ -703,30 +702,61 @@ contract ToshV5FactoryTest is Test {
         assertEq(factory.launchCount(), 1);
         assertTrue(factory.registeredHooks(hook));
         assertEq(factory.tokenToHook(token), hook);
-        assertTrue(HookMiner.isValidHookAddress(hook));
+        // Was `assertTrue(HookMiner.isValidHookAddress(hook))`, which asserted
+        // the address carried V4's permission mask. Infinity takes permissions
+        // from the hook's bitmap, so the surviving property is that the address
+        // is the one the salt predicted.
+        assertTrue(
+            factory.verifyHookDeployment(
+                hook,
+                creator,
+                projTreasury,
+                factory.defaultSoftCap(),
+                factory.maxPogAllocationLimit(),
+                24 hours,
+                _lastSalt
+            ),
+            "the deployed hook is at the address its salt predicted"
+        );
         assertEq(ToshToken(token).hook(), hook);
         assertEq(address(_h(hook).projectToken()), token);
         assertEq(_h(hook).perWalletCap(), factory.maxPogAllocationLimit());
     }
 
     function test_createLaunch_revertsOnUnderpayment() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
         factory.createLaunch{value: fee - 1}("Short", "SHT", projTreasury, projTreasury, salt, fee, 24 hours);
     }
 
-    function test_createLaunch_rejectsInvalidSalt() public {
-        bytes32 bad = _mineInvalidSalt();
+    /// @notice ⚠ `test_createLaunch_rejectsInvalidSalt` WAS DELETED HERE, along
+    ///         with the `_mineInvalidSalt` helper that fed it.
+    ///
+    ///         There is no such thing as an invalid salt any more. The test
+    ///         searched for a salt whose CREATE2 address lacked V4's permission
+    ///         mask and asserted `InvalidHookSalt`; PancakeSwap Infinity reads
+    ///         permissions from the hook's bitmap, so every salt is acceptable
+    ///         and the error is gone from the factory.
+    ///
+    ///         Nothing replaces it, because there is no remaining property to
+    ///         assert: a salt's only job now is to be free, and
+    ///         `test_createLaunch_deploysContracts` already checks that the one
+    ///         used lands where it was predicted to.
+    function test_anySaltIsAcceptedNow() public {
+        // Including salts the old gate would have rejected outright. 0 is the
+        // sharpest case: `_pickSalt` starts its search there, so under V4 this
+        // was overwhelmingly a rejected value.
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.InvalidHookSalt.selector);
-        factory.createLaunch{value: fee}("Bad", "BAD", projTreasury, projTreasury, bad, fee, 24 hours);
+        (, address hook) =
+            factory.createLaunch{value: fee}("Any", "ANY", projTreasury, projTreasury, bytes32(0), fee, 24 hours);
+        assertTrue(hook != address(0), "a launch on a salt V4 would have refused");
     }
 
     function test_createLaunch_revertsWhenFeeBumpedAboveExpected() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 stale = factory.launchFee();
         vm.prank(admin);
         factory.setLaunchFee(stale + 1);
@@ -736,7 +766,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_createLaunch_revertsForZeroProjectAdmin() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InvalidAdmin.selector);
@@ -744,7 +774,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_createLaunch_rejectsEmptyName() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
@@ -752,7 +782,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_createLaunch_rejectsEmptySymbol() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
@@ -761,7 +791,7 @@ contract ToshV5FactoryTest is Test {
 
     function test_createLaunch_rejectsDuplicateNamePair() public {
         _createLaunch("Same", "SAM");
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.NameTaken.selector);
@@ -821,7 +851,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_createLaunch_rejectsZeroProjectTreasury() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(bytes("zero treasury"));
@@ -835,37 +865,50 @@ contract ToshV5FactoryTest is Test {
         assertTrue(token != address(0));
     }
 
-    function test_createLaunch_revertsWhenSoftCapRotatedAfterMining() public {
-        bytes32 salt = _mineSalt();
+    /// @notice ⚠ A ROTATED SOFT CAP NO LONGER STOPS THE LAUNCH. This test
+    ///         records that, and it is a behaviour REGRESSION rather than a
+    ///         rename.
+    ///
+    /// @dev    It replaces `test_createLaunch_revertsWhenSoftCapRotatedAfterMining`,
+    ///         which asserted `InvalidHookSalt` when the platform owner rotated
+    ///         `defaultSoftCap` between a creator predicting their hook address
+    ///         and their transaction landing.
+    ///
+    ///         That revert was never a deliberate guard. It fell out of the
+    ///         address-bit gate: rotating the cap changed the initcode, which
+    ///         re-rolled the CREATE2 address, which then failed V4's mask about
+    ///         96% of the time. The creator got a loud failure by accident.
+    ///
+    ///         Removing the gate removed the accident. `createLaunch` still
+    ///         snapshots whatever `defaultSoftCap` reads at call time into the
+    ///         clone, and now nothing objects — the launch succeeds, at a
+    ///         different address than predicted, with economics the creator did
+    ///         not agree to. `expectedFee` guards the fee against exactly this
+    ///         race; the caps have no equivalent.
+    ///
+    ///         Asserted here as the current truth rather than papered over, so
+    ///         the gap is visible and this test is what breaks when a real guard
+    ///         is added. See docs/PANCAKESWAP_INFINITY.md §11.
+    function test_createLaunch_silentlyAcceptsARotatedSoftCap() public {
+        bytes32 salt = _pickSalt();
+        uint256 predictedCap = factory.defaultSoftCap();
+        address predicted = factory.predictHookAddress(
+            creator,
+            salt,
+            factory.hookInitcodeHash(projTreasury, creator, predictedCap, factory.maxPogAllocationLimit(), 24 hours)
+        );
 
-        // Rotating the cap changes the initcode hash and so the CREATE2
-        // address — but `isValidHookAddress` is a SUBSET test on the flag bits,
-        // so a re-rolled address still carries the required four about 3.5% of
-        // the time.  Hard-coding one replacement cap therefore made this assert
-        // on a coin flip that any bytecode change could lose.  Search the cap
-        // space instead, so the test is about the binding it claims to test.
-        uint256 rotated = _softCapThatInvalidates(salt);
-
+        uint256 rotated = predictedCap + 1 ether;
         vm.prank(admin);
         factory.setDefaultSoftCap(rotated);
+
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.InvalidHookSalt.selector);
-        factory.createLaunch{value: fee}("Rot", "ROT", projTreasury, projTreasury, salt, fee, 24 hours);
-    }
+        (, address hook) =
+            factory.createLaunch{value: fee}("Rot", "ROT", projTreasury, projTreasury, salt, fee, 24 hours);
 
-    /// @dev A soft cap under which `salt` no longer lands on a valid hook
-    ///      address.  Terminates on the first candidate ~96% of the time.
-    function _softCapThatInvalidates(bytes32 salt) internal view returns (uint256) {
-        bytes32 finalSalt = keccak256(abi.encode(creator, salt));
-        for (uint256 cap = 2 ether; cap < 2 ether + 1000; ++cap) {
-            bytes32 initHash =
-                factory.hookInitcodeHash(projTreasury, creator, cap, factory.maxPogAllocationLimit(), 24 hours);
-            if (!HookMiner.isValidHookAddress(HookMiner.computeAddress(address(factory), finalSalt, initHash))) {
-                return cap;
-            }
-        }
-        revert("_softCapThatInvalidates: none found");
+        assertTrue(hook != predicted, "the rotation moved the address out from under the prediction");
+        assertEq(_h(hook).softCap(), rotated, "and the launch took the rotated cap, not the agreed one");
     }
 
     function test_createLaunch_fundsLadderTreasury() public {
@@ -1078,7 +1121,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_predictHookAddress_matchesActual() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         bytes32 initHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
@@ -1090,7 +1133,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_verifyHookDeployment_true() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
@@ -1116,7 +1159,7 @@ contract ToshV5FactoryTest is Test {
     }
 
     function test_verifyHookDeployment_falseForMismatchedSalt() public {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
@@ -1210,38 +1253,39 @@ contract ToshV5FactoryTest is Test {
         assertTrue(fast != slow, "3h and 72h hash differently");
     }
 
-    /// @dev A salt mined for one window must not deploy under another, otherwise
-    ///      a creator could advertise 72 h and ship 3 h.
-    function test_createLaunch_rejectsSaltMinedForAnotherWindow() public {
-        // A salt is window-specific because duration is in the initcode hash.
-        // The usual outcome is InvalidHookSalt, but ~1/32 of salts that fit
-        // window A also fit window B by chance (five required flag bits).
-        // Search for a pair that actually diverges, otherwise the test is
-        // asserting a coincidence rather than the CREATE2 binding.
+    /// @notice One salt, two windows, two addresses.
+    ///
+    /// @dev    Replaces `test_createLaunch_rejectsSaltMinedForAnotherWindow`,
+    ///         which expected `InvalidHookSalt` when a salt prepared for the 72 h
+    ///         window was spent on the 3 h one. As in
+    ///         `test_createLaunch_silentlyAcceptsARotatedSoftCap`, that revert
+    ///         was a side effect of V4's address-bit gate and went with it.
+    ///
+    ///         Losing it costs less here, and the reason is worth stating: the
+    ///         window is a named argument to `createLaunch`, not something the
+    ///         salt decides. A creator who asks for 3 h gets 3 h. The old test's
+    ///         stated fear — "a creator could advertise 72 h and ship 3 h" — was
+    ///         never held off by the salt; it is held off by the argument being
+    ///         explicit and by `initializeToken` refusing unlisted values.
+    ///
+    ///         What the salt does decide is the address, and that binding does
+    ///         still hold. `test_hookInitcodeHash_isWindowSpecific` above proves
+    ///         the two windows hash differently; this proves the difference
+    ///         reaches the deployed address, which is what makes
+    ///         `verifyHookDeployment` able to tell a 3 h launch from a 72 h one.
+    function test_predictedAddressIsWindowSpecific() public view {
         uint256 soft = factory.defaultSoftCap();
         uint256 cap = factory.maxPogAllocationLimit();
-        bytes32 hashSlow = factory.hookInitcodeHash(projTreasury, creator, soft, cap, 72 hours);
-        bytes32 hashFast = factory.hookInitcodeHash(projTreasury, creator, soft, cap, 3 hours);
+        bytes32 salt = bytes32(uint256(7));
 
-        bytes32 saltForSlow;
-        bool found;
-        for (uint256 i; i < 500_000; ++i) {
-            bytes32 raw = bytes32(i);
-            bytes32 finalSalt = keccak256(abi.encode(creator, raw));
-            address slowAddr = HookMiner.computeAddress(address(factory), finalSalt, hashSlow);
-            address fastAddr = HookMiner.computeAddress(address(factory), finalSalt, hashFast);
-            if (HookMiner.isValidHookAddress(slowAddr) && !HookMiner.isValidHookAddress(fastAddr)) {
-                saltForSlow = raw;
-                found = true;
-                break;
-            }
-        }
-        require(found, "no cross-window salt");
+        address slow = factory.predictHookAddress(
+            creator, salt, factory.hookInitcodeHash(projTreasury, creator, soft, cap, 72 hours)
+        );
+        address fast = factory.predictHookAddress(
+            creator, salt, factory.hookInitcodeHash(projTreasury, creator, soft, cap, 3 hours)
+        );
 
-        uint256 fee = factory.launchFee();
-        vm.prank(creator);
-        vm.expectRevert(ToshFactory.InvalidHookSalt.selector);
-        factory.createLaunch{value: fee}("Swap", "SWP", projTreasury, projTreasury, saltForSlow, fee, 3 hours);
+        assertTrue(slow != fast, "the same salt under two windows must predict two addresses");
     }
 
     /// @dev An unlisted window is rejected by `initializeToken`, which reverts the
@@ -1255,7 +1299,7 @@ contract ToshV5FactoryTest is Test {
     ///      happens one step later, on the hook's own terms, and says what is
     ///      actually wrong.
     function test_createLaunch_rejectsUnlistedWindow() public {
-        bytes32 salt = _mineSalt(12 hours);
+        bytes32 salt = _pickSalt(12 hours);
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);

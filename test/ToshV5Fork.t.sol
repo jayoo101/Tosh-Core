@@ -5,12 +5,15 @@ import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary, PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
-import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {PoolIdLibrary, PoolId} from "infinity-core/src/types/PoolId.sol";
+import {Currency} from "infinity-core/src/types/Currency.sol";
+// Imported rather than restated, unlike `test/ToshV5ForkInfinity.t.sol`, which
+// keeps its own copy so `scripts/checkV4RouterTuple.mjs` has a handwritten tuple
+// to diff against upstream. A fork test wants the opposite: if PancakeSwap
+// reshapes the params, this should break at compile time.
+import {ICLRouterBase} from "infinity-periphery/src/pool-cl/interfaces/ICLRouterBase.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -87,21 +90,26 @@ contract ForkArbSys {
 contract ToshV5ForkTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
-    using StateLibrary for IPoolManager;
 
     // ─── The live deployment ──────────────────────────────────────────────────
     //
-    // Sourced from Robinhood's own docs and confirmed on Blockscout, then
-    // checked against the chain itself by
-    // `test_fork_liveAddressesAreTheOnesWeShipTo` — the one source that cannot
-    // be out of date. These must stay equal to `soat-frontend/src/lib/
-    // contracts.ts` and to §2.2 of the checklist.
+    // PancakeSwap Infinity on BSC mainnet (56). Sourced from PancakeSwap's
+    // developer docs, tabulated in docs/PANCAKESWAP_INFINITY.md §7, and checked
+    // against the chain itself by `test_fork_liveAddressesAreTheOnesWeShipTo` —
+    // the one source that cannot be out of date. These must stay equal to
+    // `soat-frontend/src/lib/contracts.ts`.
+    //
+    // ⚠ THESE USED TO BE UNISWAP V4 ON ROBINHOOD CHAIN (4663). Every address
+    //   changed, and one is new: `VAULT`. Infinity splits what V4's PoolManager
+    //   did in one contract — the CL manager runs the pool, the Vault holds every
+    //   balance — so a fork test that only knows the manager cannot settle
+    //   anything.
 
-    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
+    address internal constant POOL_MANAGER = 0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b;
+    address internal constant VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
+    address internal constant UNIVERSAL_ROUTER = 0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB;
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-    address internal constant POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
-    address internal constant STATE_VIEW = 0xF3334192D15450CdD385c8B70e03f9A6bD9E673b;
+    address internal constant POSITION_MANAGER = 0x55f4c8abA71A1e923edC303eb4fEfF14608cC226;
 
     /// @dev The ArbSys precompile. Read for its code length before being etched
     ///      over, because that length is what production actually branches on.
@@ -124,8 +132,8 @@ contract ToshV5ForkTest is Test {
     // reordered tuple is still valid calldata and the router would misread every
     // field after `poolKey` rather than revert.
 
-    uint8 internal constant CMD_V4_SWAP = 0x10;
-    uint8 internal constant ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
+    uint8 internal constant CMD_INFI_SWAP = 0x10;
+    uint8 internal constant ACTION_CL_SWAP_EXACT_IN_SINGLE = 0x06;
     uint8 internal constant ACTION_SETTLE_ALL = 0x0c;
     uint8 internal constant ACTION_TAKE_ALL = 0x0f;
 
@@ -157,7 +165,7 @@ contract ToshV5ForkTest is Test {
     uint256 internal liveArbSysCodeLength;
 
     function setUp() public {
-        string memory rpc = vm.envOr("ROBINHOOD_RPC", string(""));
+        string memory rpc = vm.envOr("BSC_RPC", string(""));
         if (bytes(rpc).length == 0) return;
 
         // Unpinned. See the contract docstring — the public endpoint cannot
@@ -165,13 +173,15 @@ contract ToshV5ForkTest is Test {
         vm.createSelectFork(rpc);
         forked = true;
 
-        _installArbSys();
+        // No `_installArbSys()`. BSC has no such precompile, which is the branch
+        // the hook's constructor takes when it finds nothing at 0x64 — so this
+        // fork exercises the fallback rather than needing a mock to get past it.
 
         pogSigner = vm.addr(pogSignerPk);
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(POOL_MANAGER, admin);
-        factory = new ToshFactory(POOL_MANAGER, pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin);
+        factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder));
         ladder.setFactory(address(factory));
 
         factory.setDefaultSoftCap(SOFT_CAP);
@@ -225,17 +235,17 @@ contract ToshV5ForkTest is Test {
     //  is to be an independent second opinion.
     // ══════════════════════════════════════════════════════════════════════════
 
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("no valid salt found");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _registerPoG(address user) internal {
@@ -249,7 +259,7 @@ contract ToshV5ForkTest is Test {
     }
 
     function _createProject() internal returns (ToshToken token, ToshLaunchpadHook hook) {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (address t, address h) =
@@ -286,20 +296,27 @@ contract ToshV5ForkTest is Test {
     function test_fork_liveAddressesAreTheOnesWeShipTo() public {
         _requireFork();
 
-        assertGt(POOL_MANAGER.code.length, 0, "no PoolManager at the cutover address");
+        assertGt(POOL_MANAGER.code.length, 0, "no CLPoolManager at the cutover address");
+        assertGt(VAULT.code.length, 0, "no Vault at the cutover address");
         assertGt(UNIVERSAL_ROUTER.code.length, 0, "no UniversalRouter at the cutover address");
         assertGt(PERMIT2.code.length, 0, "no Permit2 at the cutover address");
-        assertGt(POSITION_MANAGER.code.length, 0, "no PositionManager at the cutover address");
-        assertGt(STATE_VIEW.code.length, 0, "no StateView at the cutover address");
+        assertGt(POSITION_MANAGER.code.length, 0, "no CLPositionManager at the cutover address");
 
-        // The singleton is a 24 KB contract, not a proxy or a stub someone
-        // squatted the address with. It is in fact byte-for-byte the same
-        // length as Ethereum's, which is the cheapest available evidence that
-        // Robinhood runs the same v4-core build this repository compiles
-        // against — the periphery is where the two chains diverged.
-        assertEq(POOL_MANAGER.code.length, 24_009, "PoolManager is not the v4-core build we compile against");
+        // ⚠ A BYTECODE-LENGTH ASSERTION WAS REMOVED HERE, and replaced by a
+        //   stronger one rather than re-measured.
+        //
+        //   It read `assertEq(POOL_MANAGER.code.length, 24_009)`, and its
+        //   argument was that Robinhood's V4 singleton being byte-identical in
+        //   length to Ethereum's was cheap evidence of the same v4-core build.
+        //   Carrying that idea over would mean pinning Infinity's own length,
+        //   which proves nothing: there is no second deployment to agree with.
+        //
+        //   What is checkable here, and was not on V4, is that the two contracts
+        //   we depend on agree about each other. The manager names its Vault
+        //   immutably, so a squatted or mismatched address cannot satisfy this.
+        assertEq(address(ICLPoolManager(POOL_MANAGER).vault()), VAULT, "the manager does not name this Vault");
 
-        assertEq(block.chainid, 4663, "fork is not Robinhood Chain");
+        assertEq(block.chainid, 56, "fork is not BSC mainnet");
     }
 
     /// @notice `ArbSys` is registered at `0x64` on this chain.
@@ -344,11 +361,14 @@ contract ToshV5ForkTest is Test {
         PoolKey memory key = hook.getPoolKey();
         PoolId id = key.toId();
 
-        (uint160 sqrtPriceX96,,,) = IPoolManager(POOL_MANAGER).getSlot0(id);
+        (uint160 sqrtPriceX96,,,) = ICLPoolManager(POOL_MANAGER).getSlot0(id);
         assertGt(sqrtPriceX96, 0, "live singleton has no price for our pool");
 
-        (uint128 liquidity,,) =
-            IPoolManager(POOL_MANAGER).getPositionInfo(id, address(hook), TICK_LOWER, TICK_UPPER, bytes32(0));
+        // `getLiquidity`, not V4's `getPositionInfo` behind `StateLibrary`:
+        // Infinity's CLPoolManager exposes position state as a plain view
+        // function, so there is no `extsload` reader to go through.
+        uint128 liquidity =
+            ICLPoolManager(POOL_MANAGER).getLiquidity(id, address(hook), TICK_LOWER, TICK_UPPER, bytes32(0));
         assertGt(liquidity, 0, "genesis LP is not in the live singleton");
 
         // The hook holds the position, and nothing can withdraw it: there is no
@@ -373,7 +393,7 @@ contract ToshV5ForkTest is Test {
         (, ToshLaunchpadHook hook) = _createProject();
         PoolId id = hook.getPoolKey().toId();
 
-        (uint160 before,,,) = IPoolManager(POOL_MANAGER).getSlot0(id);
+        (uint160 before,,,) = ICLPoolManager(POOL_MANAGER).getSlot0(id);
         assertEq(before, 0, "the live singleton already has a pool at our id");
     }
 
@@ -391,33 +411,21 @@ contract ToshV5ForkTest is Test {
     ///      Returns the calldata rather than firing it so a caller that needs
     ///      `vm.expectRevert` can put the cheatcode immediately before the call
     ///      instead of behind a helper's `vm.prank`.
+    /// @dev ⚠ THE FOUR-ARGUMENT OVERLOAD IS GONE, and with it the ability to set
+    ///      `minHopPriceX36`. Infinity's tuple has no such field, so there is
+    ///      nothing to vary — `amountOutMinimum` is the only slippage bound the
+    ///      router offers, which is what the frontend sends anyway.
     function _buyInputs(PoolKey memory key, uint128 amountIn, uint128 minOut)
         internal
         pure
         returns (bytes[] memory inputs)
     {
-        // `minHopPriceX36: 0` disables the router's own per-hop price floor,
-        // leaving `amountOutMinimum` as the only slippage bound — which is what
-        // the slippage test below is about, and what the frontend sends.
-        return _buyInputs(key, amountIn, minOut, 0);
-    }
-
-    function _buyInputs(PoolKey memory key, uint128 amountIn, uint128 minOut, uint256 minHopPriceX36)
-        internal
-        pure
-        returns (bytes[] memory inputs)
-    {
-        bytes memory actions = abi.encodePacked(ACTION_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
+        bytes memory actions = abi.encodePacked(ACTION_CL_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
 
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(
-            IV4Router.ExactInputSingleParams({
-                poolKey: key,
-                zeroForOne: true,
-                amountIn: amountIn,
-                amountOutMinimum: minOut,
-                minHopPriceX36: minHopPriceX36,
-                hookData: ""
+            ICLRouterBase.CLSwapExactInputSingleParams({
+                poolKey: key, zeroForOne: true, amountIn: amountIn, amountOutMinimum: minOut, hookData: ""
             })
         );
         params[1] = abi.encode(key.currency0, amountIn);
@@ -431,7 +439,7 @@ contract ToshV5ForkTest is Test {
         bytes[] memory inputs = _buyInputs(key, amountIn, minOut);
         vm.prank(trader);
         IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_V4_SWAP), inputs, block.timestamp + 60
+            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60
         );
     }
 
@@ -439,7 +447,7 @@ contract ToshV5ForkTest is Test {
     ///         real traffic takes.
     ///
     /// @dev    This is the second half of the §4 gap. Every other swap in this
-    ///         repository goes through v4-core's `PoolSwapTest`, a test double
+    ///         repository goes through v4-core's `CLPoolManagerRouter`, a test double
     ///         that calls `unlock` directly. The UniversalRouter reaches the
     ///         same `swap` through its own command dispatcher, its own delta
     ///         settlement and its own slippage accounting — and our hook takes
@@ -539,56 +547,27 @@ contract ToshV5ForkTest is Test {
         vm.prank(trader);
         vm.expectRevert();
         IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_V4_SWAP), inputs, block.timestamp + 60
+            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60
         );
     }
 
-    /// @notice The deployed router really does read a sixth field where we put
-    ///         `minHopPriceX36`, so the six-field struct we encode with is the
-    ///         layout it decodes with.
-    ///
-    /// @dev    This is the only test in the file that pins the ABI, and it is
-    ///         here because the obvious candidates do not. Encoding the OLD
-    ///         five-field struct against this router passes every other test in
-    ///         this file, which is worth understanding rather than shrugging at:
-    ///
-    ///           - the router's decoder is a raw calldata pointer cast with no
-    ///             length check, so a short tuple is not rejected, it is
-    ///             reinterpreted;
-    ///           - the word it then reads as `minHopPriceX36` is the five-field
-    ///             encoding's `hookData` offset, `0x120` — nonzero, so the price
-    ///             check runs, but 288 in X36 fixed point is 4.2e-9 and every
-    ///             real price clears it;
-    ///           - the word it reads as the `hookData` offset is that tail's
-    ///             length, `0`, which points back at the head, whose first word
-    ///             is `currency0`. Ours is native ETH, so it reads `0` and
-    ///             decodes an empty `hookData` — correctly, by luck. A pool with
-    ///             an ERC20 as `currency0` would read an address as a length and
-    ///             die. Every pool this project creates is ETH-paired.
-    ///
-    ///         Three coincidences, all of them contingent on facts about our
-    ///         calldata rather than on the encoding being right. So `> 0 tokens`
-    ///         and `exactly 100 bps` are true under both layouts and cannot tell
-    ///         them apart. Forcing the field to a bound nothing can satisfy can:
-    ///         a revert here means the router read OUR word 9, at the offset the
-    ///         six-field layout puts it.
-    ///
-    ///         `type(uint256).max` rather than something merely large because
-    ///         the comparison is against `amountOut * 1e36 / amountIn`, which
-    ///         for a token priced in the billions per ETH lands around 1e45 —
-    ///         well past `uint128` and not a number to eyeball.
-    function test_fork_deployedRouterReadsTheSixthField() public {
-        _requireFork();
-
-        (, ToshLaunchpadHook hook) = _launchProject();
-
-        uint128 amountIn = 0.05 ether;
-        bytes[] memory inputs = _buyInputs(hook.getPoolKey(), amountIn, 0, type(uint256).max);
-
-        vm.prank(trader);
-        vm.expectRevert();
-        IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_V4_SWAP), inputs, block.timestamp + 60
-        );
-    }
+    // ⚠ `test_fork_deployedRouterReadsTheSixthField` WAS DELETED HERE, and it is
+    //   worth saying why it is not replaced in this file.
+    //
+    //   It forced `minHopPriceX36` to `type(uint256).max` and expected a revert,
+    //   which proved the deployed router read word 9 at the offset the six-field
+    //   Uniswap layout puts it. Infinity's tuple has no `minHopPriceX36`, so
+    //   there is no field to force and no sixth word to find.
+    //
+    //   The question it answered — does the deployed router decode the layout we
+    //   encode? — still needs answering, and it is answered in
+    //   `test/ToshV5ForkInfinity.t.sol` by two tests written for the harder case
+    //   the port created. The Uniswap and Infinity tuples encode to the SAME ten
+    //   head slots and the same `0x160` length floor, because Infinity drops
+    //   `minHopPriceX36` exactly as its `PoolKey` gains a member. Neither
+    //   decoder's length check can therefore reject the other's calldata, which
+    //   is a sharper trap than the one this test was built for.
+    //   `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable` measures
+    //   the near-miss; `scripts/checkV4RouterTuple.mjs` check 6 pins it. See
+    //   docs/PANCAKESWAP_INFINITY.md §10.
 }

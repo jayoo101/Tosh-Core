@@ -58,7 +58,7 @@ const CONTRACTS_TS = path.join(REPO, 'soat-frontend', 'src', 'lib', 'contracts.t
 
 const ADDRESS_ROLES = [
   'TARGET_CHAIN_ID',
-  'V4_POOL_MANAGER',
+  'INFINITY_CL_POOL_MANAGER',
   'POG_SIGNER_ADDRESS',
   'PLATFORM_TREASURY',
   'PROD_OWNER_SAFE',
@@ -233,7 +233,7 @@ if (process.env.DEPLOYER_ADDRESS && process.env.PRIVATE_KEY) {
 const platformTreasury = ethers.getAddress(process.env.PLATFORM_TREASURY)
 const prodOwnerSafe = ethers.getAddress(process.env.PROD_OWNER_SAFE)
 const pogSigner = ethers.getAddress(process.env.POG_SIGNER_ADDRESS)
-const poolManager = ethers.getAddress(process.env.V4_POOL_MANAGER)
+const poolManager = ethers.getAddress(process.env.INFINITY_CL_POOL_MANAGER)
 
 console.log(`chain ${net.chainId} via ${RPC}`)
 console.log(`deployer ${deployer}\n`)
@@ -328,25 +328,25 @@ for (const [ok, label] of distinct) {
   }
 }
 
-// ── 6. V4_POOL_MANAGER: has code, and agrees with the frontend's copy ────────
+// ── 6. INFINITY_CL_POOL_MANAGER: has code, and agrees with the frontend's copy ────────
 //
 // contracts.ts hardcodes POOL_MANAGER and says why it is deliberately not
 // env-bound: a wrong one silently mis-computes every hook's CREATE2 address.
 // That makes it two independent declarations of one address with nothing
 // comparing them — the same shape as the mirrored-constant drift that
 // checkContractConstants.ts exists for, but across the deploy env boundary.
-console.log('\n5. silent mis-derivation — V4_POOL_MANAGER')
+console.log('\n5. silent mis-derivation — INFINITY_CL_POOL_MANAGER')
 const pmCode = await codeOf(poolManager)
 if (pmCode === '0x') {
   fail(
-    'V4_POOL_MANAGER has no code on this chain',
+    'INFINITY_CL_POOL_MANAGER has no code on this chain',
     'Every hook is CREATE2-deployed against this address and every pool is opened on it. '
     + 'A wrong or stale value produces a factory that reverts on the first createLaunch, '
     + 'or worse, mines hook addresses against a PoolManager that does not exist.',
-    'Set V4_POOL_MANAGER to the Uniswap V4 PoolManager on this chain.',
+    'Set INFINITY_CL_POOL_MANAGER to the Uniswap V4 PoolManager on this chain.',
   )
 } else {
-  pass('V4_POOL_MANAGER is a contract', `${(pmCode.length - 2) / 2} bytes`)
+  pass('INFINITY_CL_POOL_MANAGER is a contract', `${(pmCode.length - 2) / 2} bytes`)
 
   let mirrored = null
   try {
@@ -357,7 +357,7 @@ if (pmCode === '0x') {
   }
   if (mirrored && ethers.getAddress(mirrored) !== poolManager) {
     fail(
-      'V4_POOL_MANAGER disagrees with the frontend',
+      'INFINITY_CL_POOL_MANAGER disagrees with the frontend',
       `.env.production says ${poolManager}; contracts.ts hardcodes ${ethers.getAddress(mirrored)}. `
       + 'The frontend derives every hook address by CREATE2 against its own copy, so the two '
       + 'must agree or the UI will look up hooks the factory never deployed. contracts.ts '

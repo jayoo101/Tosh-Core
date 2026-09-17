@@ -51,6 +51,11 @@ export const FACTORY_ABI = [
         "internalType": "address"
       },
       {
+        "name": "_vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "_pogSigner",
         "type": "address",
         "internalType": "address"
@@ -1230,6 +1235,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "vault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "verifyHookDeployment",
     "inputs": [
       {
@@ -1763,11 +1781,6 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "InvalidHookSalt",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidPogLimit",
     "inputs": []
   },
@@ -1881,6 +1894,11 @@ export const HOOK_ABI = [
     "inputs": [
       {
         "name": "_poolManager",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_vault",
         "type": "address",
         "internalType": "address"
       },
@@ -2256,26 +2274,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ModifyLiquidityParams",
+        "internalType": "struct ICLPoolManager.ModifyLiquidityParams",
         "components": [
           {
             "name": "tickLower",
@@ -2354,19 +2377,24 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -2420,19 +2448,24 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -2481,26 +2514,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ModifyLiquidityParams",
+        "internalType": "struct ICLPoolManager.ModifyLiquidityParams",
         "components": [
           {
             "name": "tickLower",
@@ -2579,26 +2617,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct SwapParams",
+        "internalType": "struct ICLPoolManager.SwapParams",
         "components": [
           {
             "name": "zeroForOne",
@@ -2667,26 +2710,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ModifyLiquidityParams",
+        "internalType": "struct ICLPoolManager.ModifyLiquidityParams",
         "components": [
           {
             "name": "tickLower",
@@ -2750,19 +2798,24 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -2816,19 +2869,24 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -2872,26 +2930,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ModifyLiquidityParams",
+        "internalType": "struct ICLPoolManager.ModifyLiquidityParams",
         "components": [
           {
             "name": "tickLower",
@@ -2955,26 +3018,31 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
       {
         "name": "params",
         "type": "tuple",
-        "internalType": "struct SwapParams",
+        "internalType": "struct ICLPoolManager.SwapParams",
         "components": [
           {
             "name": "zeroForOne",
@@ -3225,6 +3293,19 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "getHooksRegistrationBitmap",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "getPoolKey",
     "inputs": [],
     "outputs": [
@@ -3244,19 +3325,24 @@ export const HOOK_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -3451,6 +3537,25 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "lockAcquired",
+    "inputs": [
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "maxMintable",
     "inputs": [],
     "outputs": [
@@ -3573,7 +3678,7 @@ export const HOOK_ABI = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract IPoolManager"
+        "internalType": "contract ICLPoolManager"
       }
     ],
     "stateMutability": "view"
@@ -3901,22 +4006,16 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "unlockCallback",
-    "inputs": [
-      {
-        "name": "data",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
+    "name": "vault",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
+        "type": "address",
+        "internalType": "contract IVault"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -4338,6 +4437,28 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "InvalidSqrtRatio",
+    "inputs": [
+      {
+        "name": "sqrtPriceX96",
+        "type": "uint160",
+        "internalType": "uint160"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidTick",
+    "inputs": [
+      {
+        "name": "tick",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "LadderExhausted",
     "inputs": []
   },
@@ -4398,12 +4519,22 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "OnlyVault",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PerWalletCapExceeded",
     "inputs": []
   },
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflow",
     "inputs": []
   },
   {
@@ -4460,6 +4591,11 @@ export const TREASURY_ABI = [
     "inputs": [
       {
         "name": "_poolManager",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_vault",
         "type": "address",
         "internalType": "address"
       },
@@ -4651,19 +4787,24 @@ export const TREASURY_ABI = [
             "internalType": "Currency"
           },
           {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          },
+          {
+            "name": "poolManager",
+            "type": "address",
+            "internalType": "contract IPoolManager"
+          },
+          {
             "name": "fee",
             "type": "uint24",
             "internalType": "uint24"
           },
           {
-            "name": "tickSpacing",
-            "type": "int24",
-            "internalType": "int24"
-          },
-          {
-            "name": "hooks",
-            "type": "address",
-            "internalType": "contract IHooks"
+            "name": "parameters",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       }
@@ -4720,6 +4861,25 @@ export const TREASURY_ABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lockAcquired",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -4788,7 +4948,7 @@ export const TREASURY_ABI = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract IPoolManager"
+        "internalType": "contract ICLPoolManager"
       }
     ],
     "stateMutability": "view"
@@ -4841,25 +5001,6 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
-    "name": "unlockCallback",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "untilNextTrigger",
     "inputs": [],
     "outputs": [
@@ -4867,6 +5008,19 @@ export const TREASURY_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vault",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IVault"
       }
     ],
     "stateMutability": "view"
@@ -5075,12 +5229,12 @@ export const TREASURY_ABI = [
   },
   {
     "type": "error",
-    "name": "OnlyPoolManager",
+    "name": "OnlySelf",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "OnlySelf",
+    "name": "OnlyVault",
     "inputs": []
   },
   {

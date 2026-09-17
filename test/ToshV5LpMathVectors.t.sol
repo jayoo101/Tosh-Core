@@ -3,9 +3,9 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
-import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {SqrtPriceMath} from "infinity-core/src/pool-cl/libraries/SqrtPriceMath.sol";
+import {LiquidityAmounts} from "infinity-periphery/src/pool-cl/libraries/LiquidityAmounts.sol";
 
 import {TickMath as InfinityTickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 import {SqrtPriceMath as InfinitySqrtPriceMath} from "infinity-core/src/pool-cl/libraries/SqrtPriceMath.sol";
@@ -128,14 +128,14 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         assertEq(
-            uint256(TickMath.getSqrtPriceAtTick(lower)),
+            uint256(TickMath.getSqrtRatioAtTick(lower)),
             v.sqrtLower,
-            "vector sqrtLower: TickMath.getSqrtPriceAtTick(TICK_LOWER) moved"
+            "vector sqrtLower: TickMath.getSqrtRatioAtTick(TICK_LOWER) moved"
         );
         assertEq(
-            uint256(TickMath.getSqrtPriceAtTick(upper)),
+            uint256(TickMath.getSqrtRatioAtTick(upper)),
             v.sqrtUpper,
-            "vector sqrtUpper: TickMath.getSqrtPriceAtTick(TICK_UPPER) moved"
+            "vector sqrtUpper: TickMath.getSqrtRatioAtTick(TICK_UPPER) moved"
         );
     }
 
@@ -144,7 +144,7 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            v.sqrtP, TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), v.nativeIn, v.tokenIn
+            v.sqrtP, TickMath.getSqrtRatioAtTick(lower), TickMath.getSqrtRatioAtTick(upper), v.nativeIn, v.tokenIn
         );
 
         assertEq(uint256(liquidity), v.liquidity, "vector liquidity: LiquidityAmounts.getLiquidityForAmounts moved");
@@ -159,12 +159,12 @@ contract ToshV5LpMathVectorsTest is Test {
         uint128 liquidity = uint128(v.liquidity);
 
         assertEq(
-            SqrtPriceMath.getAmount0Delta(v.sqrtP, TickMath.getSqrtPriceAtTick(upper), liquidity, false),
+            SqrtPriceMath.getAmount0Delta(v.sqrtP, TickMath.getSqrtRatioAtTick(upper), liquidity, false),
             v.amount0,
             "vector amount0: SqrtPriceMath.getAmount0Delta(roundDown) moved"
         );
         assertEq(
-            SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(lower), v.sqrtP, liquidity, false),
+            SqrtPriceMath.getAmount1Delta(TickMath.getSqrtRatioAtTick(lower), v.sqrtP, liquidity, false),
             v.amount1,
             "vector amount1: SqrtPriceMath.getAmount1Delta(roundDown) moved"
         );
@@ -179,10 +179,10 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity =
-            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtPriceAtTick(upper), v.nativeIn);
+            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtRatioAtTick(upper), v.nativeIn);
 
         assertEq(
-            SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(lower), v.sqrtP, liquidity, true),
+            SqrtPriceMath.getAmount1Delta(TickMath.getSqrtRatioAtTick(lower), v.sqrtP, liquidity, true),
             v.pairedToken,
             "vector pairedToken: getAmount1Delta(roundUp) off the ETH leg moved"
         );

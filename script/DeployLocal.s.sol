@@ -15,10 +15,16 @@ contract DeployLocal is Script {
         // owned by everyone.  Refuse to broadcast outside a local devnet.
         require(block.chainid == 31337 || block.chainid == 1337, "DeployLocal is for anvil (31337/1337) only");
 
-        // Uniswap V4 PoolManager. Override with a real fork address when you
-        // want launches to actually initialise a pool; the stub is fine for
-        // exercising factory-level flows (PoG, referral binding, eligibility).
-        address poolManager = vm.envOr("V4_POOL_MANAGER", address(1));
+        // PancakeSwap Infinity's CLPoolManager and Vault. Override both with
+        // real fork addresses when you want launches to actually initialise a
+        // pool; the stubs are fine for exercising factory-level flows (PoG,
+        // referral binding, eligibility), which never reach the AMM.
+        //
+        // Distinct stub values on purpose. They are separate contracts under
+        // Infinity, and a single stub used for both would let a wiring mistake
+        // that conflates them pass here and fail only on a real chain.
+        address poolManager = vm.envOr("INFINITY_CL_POOL_MANAGER", address(1));
+        address vault = vm.envOr("INFINITY_VAULT", address(2));
 
         // REQUIRED even on anvil, and deliberately not defaulted to `deployer`.
         //
@@ -37,11 +43,12 @@ contract DeployLocal is Script {
         vm.startBroadcast(deployerPk);
 
         // Treasury first — the factory needs its address at construction time.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
         console.log("ToshLadderTreasury deployed at:", address(treasury));
 
         ToshFactory factory = new ToshFactory(
-            poolManager, // _poolManager
+            poolManager, // _poolManager      (Infinity CLPoolManager)
+            vault, // _vault            (Infinity Vault)
             deployer, // _pogSigner        (deployer signs PoG attestations)
             platformTreasury, // _platformTreasury (0.30 % of every buy, immutable)
             address(treasury) // _ladderTreasury

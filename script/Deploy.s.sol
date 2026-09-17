@@ -24,7 +24,7 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 //
 // Required env vars (copy .env.example -> .env and fill in):
 //   PRIVATE_KEY          -- deployer wallet private key (must hold testnet ETH)
-//   V4_POOL_MANAGER      -- Uniswap V4 PoolManager (0x8366a3...e40951)
+//   INFINITY_CL_POOL_MANAGER      -- Uniswap V4 PoolManager (0x8366a3...e40951)
 //   POG_SIGNER_ADDRESS   -- address whose private key signs PoG attestations
 //   PLATFORM_TREASURY    -- recipient of the 0.30 % platform cut of every buy.
 //                           NO DEFAULT, and immutable once deployed: see below.
@@ -43,11 +43,26 @@ contract DeployScript is Script {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPk);
 
-        // The manifest below claims Robinhood testnet; make that true rather
-        // than decorative, so a stale --rpc-url cannot quietly deploy elsewhere.
-        require(block.chainid == 46630, "Deploy.s.sol is Robinhood Chain testnet (46630) only");
+        // The manifest below claims BSC testnet; make that true rather than
+        // decorative, so a stale --rpc-url cannot quietly deploy elsewhere.
+        //
+        // 97 rather than 46630 since the PancakeSwap Infinity port: Infinity is
+        // deployed on BSC testnet, which is the whole reason for the move —
+        // Uniswap V4 never shipped there, so the previous target could only ever
+        // be rehearsed against a mainnet fork.
+        require(block.chainid == 97, "Deploy.s.sol is BNB Smart Chain testnet (97) only");
 
-        address poolManager = vm.envAddress("V4_POOL_MANAGER");
+        address poolManager = vm.envAddress("INFINITY_CL_POOL_MANAGER");
+
+        // Infinity splits Uniswap V4's PoolManager in two: the manager owns
+        // pool state, the Vault owns balances and the lock. Both addresses are
+        // immutable on the factory and on every hook it deploys, and a mismatched
+        // pair is not a config error but a redeployment — `CLPoolManager` and
+        // `Vault` each reject the other's counterparty, so a wrong pairing
+        // bricks every launch rather than misbehaving quietly.
+        address vault = vm.envAddress("INFINITY_VAULT");
+        require(vault != address(0), "INFINITY_VAULT unset");
+
         address pogSigner = vm.envOr("POG_SIGNER_ADDRESS", deployer);
 
         // REQUIRED, no default.  This used to be `vm.envOr(..., deployer)`,
@@ -68,10 +83,11 @@ contract DeployScript is Script {
         require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
 
         console2.log("============================================================");
-        console2.log("Tosh Fair Launchpad v5.0 -- Robinhood Chain testnet Deployment");
+        console2.log("Tosh Fair Launchpad v5.0 -- BNB Smart Chain testnet Deployment");
         console2.log("============================================================");
         console2.log("Deployer         :", deployer);
-        console2.log("V4 PoolManager   :", poolManager);
+        console2.log("CLPoolManager    :", poolManager);
+        console2.log("Vault            :", vault);
         console2.log("PoG Signer       :", pogSigner);
         console2.log("Platform Treasury (0.30% of buys, IMMUTABLE):", platformTreasury);
         console2.log("------------------------------------------------------------");
@@ -81,12 +97,13 @@ contract DeployScript is Script {
         // ── 1. ToshLadderTreasury ─────────────────────────────────────────────
         // Must exist BEFORE the factory: the factory takes its address as an
         // immutable constructor argument, and every hook inherits it from there.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
         // ── 2. ToshFactory ────────────────────────────────────────────────────
         ToshFactory factory = new ToshFactory(
-            poolManager, // _poolManager      (Uniswap V4)
+            poolManager, // _poolManager      (Infinity CLPoolManager)
+            vault, // _vault            (Infinity Vault)
             pogSigner, // _pogSigner        (PoG oracle backend)
             platformTreasury, // _platformTreasury
             address(treasury) // _ladderTreasury   (buyback reservoir)

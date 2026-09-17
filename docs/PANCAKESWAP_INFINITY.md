@@ -516,3 +516,82 @@ assumptions became derived rather than written down:
 Negative-tested in the way the mistake would actually happen — copying the V4
 fork test's tuple, `minHopPriceX36` and all, into the Infinity spike. The guard
 rejects it.
+
+## 11 · What the port cost, found by porting the tests
+
+The suite is green again — 364 passing, 0 failing, 4 skipped, against 261/102
+when it first compiled. Three of the things that fixed it are worth keeping a
+record of, because two were real defects in the contracts and one is a defect the
+port introduced and has not closed.
+
+### 11.1 The settlement transfer went to the wrong contract
+
+`_addInitialLiquidity` synced and settled against the Vault but transferred the
+project tokens to the *pool manager*. `settle()` then measured a balance that had
+not changed, credited nothing, and the frame closed with `CurrencyNotSettled()`.
+
+This one line accounted for 178 of the 190 initial failure reports — roughly 89
+tests, across every suite that launches a project. It is the clearest example of
+why the mechanical substitution pass was not sufficient on its own: `sync` and
+`settle` moved to the Vault and were renamed accordingly, but the *address the
+tokens are physically sent to* is an argument, not a receiver, so no rename
+touched it. Nothing about the code looked wrong.
+
+### 11.2 The treasury's callback guarded the wrong caller
+
+`ToshLadderTreasury.lockAcquired` still rejected everyone but the pool manager,
+which under Infinity means rejecting the Vault — the only caller that can
+legitimately arrive. Every piggyback path reverted with `OnlyPoolManager()`. The
+error is now `OnlyVault()`, matching the hook.
+
+The hook's equivalent guard had already been switched during the port; the
+treasury's had not, and no test caught the asymmetry until the settlement fix
+above unblocked the paths that reach it. `ToshV5Guards` now has
+`test_lockAcquired_rejectsEvenThePoolManager`, which pins the distinction
+directly rather than relying on a launch path to expose it.
+
+### 11.3 ⚠ Config rotation in flight is no longer refused
+
+This is not fixed, and it is the one item on this list that needs a decision.
+
+Deleting the address-bit gate deleted an accidental guard. Under Uniswap V4, a
+creator predicted their hook address from the dials as they read at quote time;
+if the platform owner rotated `defaultSoftCap` or `maxPogAllocationLimit` before
+the transaction landed, the initcode changed, the address re-rolled, and the new
+address failed the `0x20CC` mask with probability 503/512. About 98% of in-flight
+rotations therefore reverted loudly with `InvalidHookSalt`.
+
+`test_rehearsal_saltMinedAgainstStaleDialsIsRejected` asserted exactly that, and
+the mitigation plan was written around it: the residual ~2% was called the case
+that cannot be caught in code, and the operational rule — never let a dial change
+be in flight during `createLaunch` — was the cover for it.
+
+Infinity reads permissions from the hook's registration bitmap. `ToshFactory`
+checks no address bits, `InvalidHookSalt` is gone, and every salt is valid. So
+the residual 2% is now 100%: the launch succeeds at an address the creator did
+not predict, with whatever dials read at execution time frozen into the clone.
+The operational rule is no longer a backstop for a rare case; it is the only
+control over the general one.
+
+Two tests now assert this as the current truth rather than papering over it —
+`ToshV5Factory.test_createLaunch_silentlyAcceptsARotatedSoftCap` and
+`ToshV5FirstLaunchRehearsal.test_rehearsal_aDialChangeInFlightIsSilentlyHonoured`.
+They are what should break when a real guard is added.
+
+The shape of that guard already exists in the same function: `createLaunch` takes
+`expectedFee` and reverts `FeeChanged()` when the fee moved underneath the
+caller. The caps want the same treatment. That is an ABI change and a frontend
+change, so it is a decision rather than a cleanup.
+
+### 11.4 Launch got 34k more expensive
+
+`hook.launch()` measures 612,384 gas against ~577,000 on the V4 path, and the
+budget in `test_gas_launch` moved from 578,000 to 620,000 to match. The 34k is
+the Vault indirection: `vault.lock` calls back into the hook, the hook calls
+`poolManager.modifyLiquidity`, the manager calls back into the Vault to account
+the delta, and the hook makes two further round trips to `sync`/`settle` each
+currency. Calls that were internal to one contract now cross a boundary.
+
+It falls on the creator once, and at 1 gwei on BSC it is about 0.000034 BNB. The
+budget was raised rather than removed so it stays a guard.
+

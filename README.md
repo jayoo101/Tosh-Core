@@ -169,32 +169,62 @@ bulk.
 requesting wallet's real gas spend across major chains. Fresh wallets and
 bulk-generated airdrop farms fall below the floor and are refused.
 
+That figure is in ETH, and it is still in ETH now that deposits settle in BNB.
+This is deliberate rather than a leftover. The floor is a threshold on gas
+already paid to Ethereum, Arbitrum, Optimism and Base, all of which settle in
+ETH, and what the settlement chain's own coin is worth has no bearing on how
+much gas a wallet has historically burned. Rescaling it along with the
+BNB-denominated dials would have raised the eligibility bar by the same factor
+while reading as nothing more than a rename. Everything on the *deposit* side of
+Proof-of-Gas — the ceiling below, and the quota the rate grants — is BNB, so the
+rate is BNB of quota per 1 ETH of gas and carries a currency conversion as well
+as a policy choice. `soat-frontend/src/app/lib/pogQuota.ts` states the same
+split at the constants, and `docs/BSC_MIGRATION.md` §6 records why it was made.
+
 Worth stating precisely, because it is a trust boundary rather than an invariant:
 this floor lives in the off-chain oracle (`soat-frontend/src/app/lib/pogQuota.ts`
 seeds it, `pogParams.ts` holds the live value), not in the factory. What the
 *contract* enforces is the clamp below.
 
-**2 · The on-chain ceiling (`maxPogAllocationLimit` = 0.5 ETH).** Gas history
+**2 · The on-chain ceiling (`maxPogAllocationLimit` = 1.75 BNB).** Gas history
 establishes that an address is real; it does not buy unlimited allocation. A
-wallet that has burned 100 ETH in fees still deposits at most 0.5 ETH in genesis,
-because the factory clamps whatever the oracle signed. That ceiling is what
-disperses the opening float across hundreds or thousands of organic addresses
-instead of a handful of large ones.
+wallet that has burned 100 ETH in fees still deposits at most 1.75 BNB in
+genesis, because the factory clamps whatever the oracle signed. That ceiling is
+what disperses the opening float across hundreds or thousands of organic
+addresses instead of a handful of large ones.
 
-At the seeded rate of 0.5 ETH of quota per 1 ETH of historical gas, the ceiling
+At the seeded rate of 1.75 BNB of quota per 1 ETH of historical gas, the ceiling
 binds from 1 ETH of lifetime gas upward, and more history past that point buys
-nothing.
+nothing. That 1 ETH is where the gate sat before deposits moved to BNB as well:
+the ceiling and the rate were rescaled by the same factor, and the gas at which
+the rate first reaches the ceiling is their quotient, so it did not move.
 
 **3 · The attacker's cost inverts.** Suppose a farm wants 100 genesis slots:
 
 | | Cost to obtain 100 slots | Allocation unlocked |
 |---|---|---|
 | Conventional launchpad | ~0, generate 100 keypairs | whatever the cap allows |
-| Tosh | 100 × 0.025 = **2.5 ETH** genuinely burned in fees first | 100 × 0.0125 = 1.25 ETH |
+| Tosh | 100 × 0.025 ETH = **2.5 ETH** genuinely burned in fees first | 100 × 0.04375 BNB = 4.375 BNB |
 
-A wallet sitting exactly on the floor earns half of what the floor cost it, so a
-hundred minimum-viable sybils burn 2.5 ETH to unlock 1.25 ETH of allocation.
-Buying the full 0.5 ETH ceiling per wallet costs 1 ETH of real gas per wallet.
+The two columns are in different currencies, for the reason given in point 1:
+the left is gas already paid on ETH-settled chains and the right is a BNB
+deposit allowance, so putting them side by side takes a conversion. The rate was
+set against 3.5 BNB to the ETH, at which 4.375 BNB is 1.25 ETH — a wallet
+sitting exactly on the floor earns half of what the floor cost it, and a hundred
+minimum-viable sybils burn 2.5 ETH of gas to unlock the equivalent of 1.25 ETH
+of allocation. Buying the full 1.75 BNB ceiling per wallet costs 1 ETH of real
+gas per wallet, and that one figure needs no conversion at all: the cap is the
+ceiling divided by the rate, and dividing BNB by BNB-per-ETH lands back in ETH.
+
+Read the 2:1 as a design margin rather than as arithmetic. It was arithmetic
+while both sides were ETH — a fixed property of two constants, true at any
+price. Now it is a ratio between two currencies and it moves with theirs: at
+3.3624 BNB to the ETH, spot on the day the conversion factor was chosen, the
+same hundred sybils burn 2.5 ETH to unlock about 1.30 ETH of allowance, so the
+margin is nearer 1.9:1 than 2:1, and it narrows further if BNB appreciates
+against ETH. The rate is the dial that restores it and it rotates without a
+redeploy, which makes this a number to keep watching rather than a redeployment.
+
 Either way the fees are spent before any position is taken and cannot be
 recovered by selling, which removes the profit from the sybil model rather than
 policing it.
@@ -265,7 +295,7 @@ The creator pays the launch fee and picks a fundraising window:
 
 The soft cap is written into the hook from the factory's `defaultSoftCap` at
 creation time and cannot go below the production floor
-`MIN_SOFT_CAP_PROD` = 0.01 ETH.
+`MIN_SOFT_CAP_PROD` = 0.035 BNB.
 
 **Two refund guarantees, both at 100% of principal with no penalty:**
 
@@ -328,10 +358,10 @@ number. Of the proceeds, 99% goes to `projectAdmin` and 1%
 
 ### 4.3 Phase 3 · The deflation engine
 
-Once the treasury's ETH balance reaches `TRIGGER_STEP` = 1 ETH, any `afterSwap`
-on a Tosh pool will attempt a **piggyback buyback**:
+Once the treasury's native balance reaches `TRIGGER_STEP` = 3.5 BNB, any
+`afterSwap` on a Tosh pool will attempt a **piggyback buyback**:
 
-- **Size.** $\max(1\text{ ETH},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
+- **Size.** $\max(3.5\text{ BNB},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
 - **Rotation.** `BATCH_SIZE` = 3 spreads the spend across pools, advancing
   `LEGS_PER_POKE` = 1 per poke in round-robin order.
 - **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, anchored to the
@@ -424,7 +454,7 @@ a quarter of the live supply.
 | Swap tax — buy | 1.00% of ETH in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
 | Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
 | Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
-| Launch fee | currently 0.01 ETH | treasury in full |
+| Launch fee | currently 0.35 BNB | treasury in full |
 | Orphaned commission | the 10% carve, when unbound | treasury at `launch()` |
 
 **Total trader friction is 1.30%** — 0.30% to LPs, 0.70% to buy-and-burn, 0.30%
@@ -515,8 +545,8 @@ Ownership is the Gnosis Safe `0x2953957774482efA660921df85A1E7634ccfe27A`, a
 
 | The owner can | The owner cannot |
 |---|---|
-| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 10 ETH, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
-| Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 0.01 ETH) | Change `platformTreasury`, which is `immutable` |
+| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 35 BNB, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
+| Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 0.035 BNB) | Change `platformTreasury`, which is `immutable` |
 | Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or ETH from the genesis liquidity position |
 | Pause `createLaunch` and `registerPoG`, or blacklist an address | Use the ladder halt to withhold refunds, genesis claims or commission |
 | Curate the treasury's buyback roster | Grant mint authority to any third party |
@@ -632,19 +662,19 @@ withdraw path.
 | `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open |
 | `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
 | `PIGGYBACK_MIN_GAS` | 260,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
-| `MIN_SOFT_CAP_PROD` | 0.01 ETH | `ToshFactory` | production floor for the default soft cap |
-| `MAX_LAUNCH_FEE` | 10 ETH | `ToshFactory` | ceiling on the launch fee |
+| `MIN_SOFT_CAP_PROD` | 0.035 BNB | `ToshFactory` | production floor for the default soft cap |
+| `MAX_LAUNCH_FEE` | 35 BNB | `ToshFactory` | ceiling on the launch fee |
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
 | `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |
-| `TRIGGER_STEP` | 1 ETH | `ToshLadderTreasury` | balance that arms a buyback |
+| `TRIGGER_STEP` | 3.5 BNB | `ToshLadderTreasury` | balance that arms a buyback |
 | `SPEND_BPS` | 1000 | `ToshLadderTreasury` | share of balance spent per cycle — 10% |
 | `BATCH_SIZE` | 3 | `ToshLadderTreasury` | pools a cycle is spread across |
 | `LEGS_PER_POKE` | 1 | `ToshLadderTreasury` | legs advanced per poke |
 | `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | `ToshLadderTreasury` | buyback slippage band against TWAP |
-| `DEFAULT_POG_GAS_FLOOR_WEI` | 0.025 ETH | off-chain oracle (`pogQuota.ts` seed) | lifetime gas required to qualify |
-| `DEFAULT_GAS_TO_ETH_RATE` | 0.5 | off-chain oracle (`pogQuota.ts` seed) | quota granted per 1 ETH of historical gas |
-| `DEFAULT_POG_MAX_ALLOC_WEI` | 0.5 ETH | off-chain oracle (`pogQuota.ts` seed) | ceiling the oracle signs against |
-| `maxPogAllocationLimit` | 0.5 ETH | `ToshFactory` | **on-chain** per-wallet genesis clamp |
+| `DEFAULT_POG_GAS_FLOOR_WEI` | 0.025 ETH | off-chain oracle (`pogQuota.ts` seed) | lifetime gas required to qualify — ETH, not BNB, and see below |
+| `DEFAULT_GAS_TO_ALLOC_RATE` | 1.75 | off-chain oracle (`pogQuota.ts` seed) | BNB of quota granted per 1 ETH of historical gas |
+| `DEFAULT_POG_MAX_ALLOC_WEI` | 1.75 BNB | off-chain oracle (`pogQuota.ts` seed) | ceiling the oracle signs against |
+| `maxPogAllocationLimit` | 1.75 BNB | `ToshFactory` | **on-chain** per-wallet genesis clamp |
 
 The last four rows are the trust boundary worth reading carefully: the floor,
 rate, and off-chain ceiling are owner-tunable policy the oracle applies — the
@@ -652,6 +682,14 @@ three values above are seeds, and the live band lives in `pogParams.ts` — whil
 the per-wallet clamp is enforced by the contract regardless of what the oracle
 signed. Keep the on-chain dial at or above the off-chain ceiling; the admin
 endpoint enforces that direction.
+
+They are also not all in one currency, which is the other thing to read
+carefully. The floor is ETH because it measures gas spent on ETH-settled chains;
+the two ceilings are BNB because they bound a deposit; and the rate is the term
+that crosses between them, so it is neither dimensionless nor a typo. §2.2
+argues the split. The rate constant was called `DEFAULT_GAS_TO_ETH_RATE` while
+both sides were ETH, and that name is kept as a deprecated alias so existing
+callers still resolve.
 
 ---
 

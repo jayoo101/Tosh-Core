@@ -6,13 +6,14 @@ import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {Vault} from "infinity-core/src/Vault.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolManagerRouter.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {Currency} from "infinity-core/src/types/Currency.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -40,9 +41,18 @@ import {HookMiner} from "../src/libraries/HookMiner.sol";
 contract ToshInvariantHandler is Test {
     using MessageHashUtils for bytes32;
 
+    /// @dev Infinity names these the opposite of V4 and means the opposite by
+    ///      them: V4 took `{takeClaims: false, settleUsingBurn: false}` where
+    ///      this takes `{withdrawTokens: true, settleUsingTransfer: true}`. Both
+    ///      say the same thing — hand over real tokens, settle by transferring
+    ///      them. Reasoned out once in test/ToshV5.t.sol.
+    function _swapSettings() internal pure returns (CLPoolManagerRouter.SwapTestSettings memory) {
+        return CLPoolManagerRouter.SwapTestSettings({withdrawTokens: true, settleUsingTransfer: true});
+    }
+
     ToshFactory public immutable factory;
     ToshLadderTreasury public immutable ladder;
-    PoolSwapTest public immutable swapRouter;
+    CLPoolManagerRouter public immutable router;
     address public immutable admin;
     address public immutable creator;
     address public immutable projTreasury;
@@ -193,7 +203,7 @@ contract ToshInvariantHandler is Test {
     constructor(
         ToshFactory _factory,
         ToshLadderTreasury _ladder,
-        PoolSwapTest _swapRouter,
+        CLPoolManagerRouter _router,
         address _admin,
         address _creator,
         address _projTreasury,
@@ -203,7 +213,7 @@ contract ToshInvariantHandler is Test {
     ) {
         factory = _factory;
         ladder = _ladder;
-        swapRouter = _swapRouter;
+        router = _router;
         admin = _admin;
         creator = _creator;
         projTreasury = _projTreasury;
@@ -460,7 +470,7 @@ contract ToshInvariantHandler is Test {
             rawSalt = bytes32(i + feeSlack % 977);
             address predicted =
                 HookMiner.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) {
+            if (predicted.code.length == 0) {
                 found = true;
                 break;
             }
@@ -608,12 +618,12 @@ contract ToshInvariantHandler is Test {
         uint256 burnedBefore = _totalBurned();
 
         vm.prank(who);
-        try swapRouter.swap{value: nativeIn}(
+        try router.swap{value: nativeIn}(
             key,
-            SwapParams({
-                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         ) {
             ++okSwapBuy;
@@ -737,13 +747,13 @@ contract ToshInvariantHandler is Test {
         uint256 burnedBefore = _totalBurned();
 
         vm.startPrank(who);
-        token.approve(address(swapRouter), type(uint256).max);
-        try swapRouter.swap(
+        token.approve(address(router), type(uint256).max);
+        try router.swap(
             key,
-            SwapParams({
-                zeroForOne: false, amountSpecified: -int256(tokensIn), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: false, amountSpecified: -int256(tokensIn), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         ) {
             ++okSwapSell;
@@ -1000,8 +1010,10 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     uint256 internal pogSignerPk = 0xBEEF_CAFE;
     address internal pogSigner;
 
-    PoolManager internal poolManager;
-    PoolSwapTest internal swapRouter;
+    Vault internal vault;
+
+    CLPoolManager internal poolManager;
+    CLPoolManagerRouter internal router;
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
@@ -1031,12 +1043,16 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
-        poolManager = new PoolManager(admin);
-        swapRouter = new PoolSwapTest(IPoolManager(address(poolManager)));
+        // Vault first, and the manager registered with it before it may move any
+        // balance. See test/ToshV5.t.sol for the full argument.
+        vault = new Vault();
+        poolManager = new CLPoolManager(IVault(address(vault)));
+        vault.registerApp(address(poolManager));
+        router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), admin);
-        factory = new ToshFactory(address(poolManager), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
+        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
         ladder.setFactory(address(factory));
 
         factory.setDefaultSoftCap(SOFT_CAP);
@@ -1082,9 +1098,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             hooks.push(_createProject(durs[i]));
         }
 
-        handler = new ToshInvariantHandler(
-            factory, ladder, swapRouter, admin, creator, projTreasury, pogSignerPk, hooks, actors
-        );
+        handler =
+            new ToshInvariantHandler(factory, ladder, router, admin, creator, projTreasury, pogSignerPk, hooks, actors);
 
         // Restrict the fuzzer to the handler, then to the handler's action
         // surface. Without the selector list it also burns calls on the ghost
@@ -1196,11 +1211,11 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
         bytes32 rawSalt;
         bool found;
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             address predicted =
                 HookMiner.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) {
+            if (predicted.code.length == 0) {
                 found = true;
                 break;
             }

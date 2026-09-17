@@ -4,11 +4,12 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {Vault} from "infinity-core/src/Vault.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolManagerRouter.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
@@ -49,8 +50,10 @@ abstract contract ArbSysHarness is Test {
     uint256 internal pogSignerPk = 0xBEEF_CAFE;
     address internal pogSigner;
 
-    PoolManager internal poolManager;
-    PoolSwapTest internal swapRouter;
+    Vault internal vault;
+
+    CLPoolManager internal poolManager;
+    CLPoolManagerRouter internal router;
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
@@ -72,14 +75,23 @@ abstract contract ArbSysHarness is Test {
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
-        poolManager = new PoolManager(admin);
-        swapRouter = new PoolSwapTest(IPoolManager(address(poolManager)));
+        // Vault first, and the manager registered with it before it may move any
+
+        // balance. See test/ToshV5.t.sol for the full argument.
+
+        vault = new Vault();
+
+        poolManager = new CLPoolManager(IVault(address(vault)));
+
+        vault.registerApp(address(poolManager));
+
+        router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
         _installArbSys();
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), admin);
-        factory = new ToshFactory(address(poolManager), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
+        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
         ladder.setFactory(address(factory));
         factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -119,17 +131,17 @@ abstract contract ArbSysHarness is Test {
 
     // ─── Launch fixture ───────────────────────────────────────────────────────
 
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initcodeHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("_mineSalt: no valid salt found");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _registerPoG(address user, uint256 maxAlloc) internal {
@@ -143,7 +155,7 @@ abstract contract ArbSysHarness is Test {
     }
 
     function _launchProject() internal returns (ToshLaunchpadHook hook) {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
 
         vm.prank(creator);
@@ -160,14 +172,25 @@ abstract contract ArbSysHarness is Test {
         hook.launch();
     }
 
+    /// @dev Infinity names these the opposite of V4 and means the opposite by
+    ///      them: V4 took `{takeClaims: false, settleUsingBurn: false}` where
+    ///      this takes `{withdrawTokens: true, settleUsingTransfer: true}`. Both
+    ///      say the same thing — hand over real tokens, settle by transferring
+    ///      them. Copying the old `false, false` across would have left every
+    ///      swap settling through claim tokens this suite never mints. Reasoned
+    ///      out once in test/ToshV5.t.sol.
+    function _swapSettings() internal pure returns (CLPoolManagerRouter.SwapTestSettings memory) {
+        return CLPoolManagerRouter.SwapTestSettings({withdrawTokens: true, settleUsingTransfer: true});
+    }
+
     function _swapBuy(ToshLaunchpadHook hook, uint256 nativeIn) internal {
         vm.prank(trader);
-        swapRouter.swap{value: nativeIn}(
+        router.swap{value: nativeIn}(
             hook.getPoolKey(),
-            SwapParams({
-                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            ICLPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            _swapSettings(),
             ""
         );
     }

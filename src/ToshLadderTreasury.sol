@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {IPoolManager} from "../lib/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "../lib/v4-core/src/types/PoolKey.sol";
-import {Currency, CurrencyLibrary} from "../lib/v4-core/src/types/Currency.sol";
-import {BalanceDelta} from "../lib/v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "../lib/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "../lib/v4-core/src/libraries/TickMath.sol";
-import {TransientStateLibrary} from "../lib/v4-core/src/libraries/TransientStateLibrary.sol";
+// PancakeSwap Infinity. Two of the V4 imports this replaced do not have
+// equivalents because they no longer have a job: `TransientStateLibrary` read
+// the in-flight delta out of V4's transient storage by `extsload`, and the Vault
+// exposes the same number as a plain `currencyDelta(settler, currency)` getter.
+import {IHooks} from "infinity-core/src/interfaces/IHooks.sol";
+import {IPoolManager} from "infinity-core/src/interfaces/IPoolManager.sol";
+import {IVault} from "infinity-core/src/interfaces/IVault.sol";
+import {ILockCallback} from "infinity-core/src/interfaces/ILockCallback.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {Currency, CurrencyLibrary} from "infinity-core/src/types/Currency.sol";
+import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";
+import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 
 import {Ownable2Step} from "../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -78,14 +84,13 @@ import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.so
 ///
 ///   `autoPiggybackBuyback()` is invoked from a hook's `afterSwap`, i.e. while
 ///   the PoolManager is ALREADY unlocked by some third-party router.  We
-///   therefore do NOT call `poolManager.unlock()` (that would revert with
+///   therefore do NOT call `vault.lock()` (that would revert with
 ///   `AlreadyUnlocked`); we call `swap` / `settle` / `take` directly and the
 ///   resulting deltas are attributed to `address(this)` and zeroed out before
 ///   we return.
 ///
 contract ToshLadderTreasury is Ownable2Step {
     using CurrencyLibrary for Currency;
-    using TransientStateLibrary for IPoolManager;
 
     // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -174,7 +179,13 @@ contract ToshLadderTreasury is Ownable2Step {
 
     // ─── Immutables ───────────────────────────────────────────────────────────
 
-    IPoolManager public immutable poolManager;
+    /// @notice Pool state and the swap entry point.
+    ICLPoolManager public immutable poolManager;
+
+    /// @notice Balances and the lock. Infinity splits V4's PoolManager in two,
+    ///         so the buyback takes the VAULT's lock and settles against the
+    ///         Vault, while the swap itself still goes to the manager.
+    IVault public immutable vault;
 
     // ─── State ────────────────────────────────────────────────────────────────
 
@@ -230,16 +241,24 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      clock alone, within `TWAP_WINDOW` of `launch()`.
     error TwapNotMature();
     error InvalidPoolKey();
-    error OnlyPoolManager();
+    /// @dev Was `OnlyPoolManager`. Renamed with the guard it belongs to: the
+    ///      frame this rejects unauthorised entry into is the Vault's now.
+    error OnlyVault();
     /// @dev `pokeBuyback` called with nothing to deploy.
     error NotArmed();
     error PiggybackInProgress();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _poolManager, address _owner) Ownable(_owner) {
-        if (_poolManager == address(0) || _owner == address(0)) revert ZeroAddress();
-        poolManager = IPoolManager(_poolManager);
+    /// @dev `_vault` is passed rather than read off the manager for the same
+    ///      reason as in `ToshLaunchpadHook`: `CLPoolManager` inherits a public
+    ///      `vault()` from `ProtocolFees`, but `ICLPoolManager` does not declare
+    ///      it, and hand-rolling an interface for a getter would put a claim
+    ///      about the live pair into a local declaration instead of a test.
+    constructor(address _poolManager, address _vault, address _owner) Ownable(_owner) {
+        if (_poolManager == address(0) || _vault == address(0) || _owner == address(0)) revert ZeroAddress();
+        poolManager = ICLPoolManager(_poolManager);
+        vault = IVault(_vault);
     }
 
     // ─── Funding ──────────────────────────────────────────────────────────────
@@ -408,7 +427,7 @@ contract ToshLadderTreasury is Ownable2Step {
         // ETH must be currency0 and `token` must be currency1, otherwise the
         // hard-wired `zeroForOne = true` buy direction in `_buyAndBurn` would
         // swap the wrong way round.
-        if (!key.currency0.isAddressZero()) revert InvalidPoolKey();
+        if (!key.currency0.isNative()) revert InvalidPoolKey();
         if (Currency.unwrap(key.currency1) != token) revert InvalidPoolKey();
         if (address(key.hooks) != hook) revert InvalidPoolKey();
 
@@ -464,7 +483,11 @@ contract ToshLadderTreasury is Ownable2Step {
         // hook only ever calls this from `afterSwap`, so it always is — the
         // check is here because this is the one entry point whose caller we do
         // not control the surroundings of.
-        if (!poolManager.isUnlocked()) return;
+        // V4 answered this with `poolManager.isUnlocked()`. Infinity's Vault
+        // holds the lock and names its holder instead, and a zero locker is
+        // the same statement: nobody is inside a lock, so there is no swap for
+        // the buyback to ride and settling against the Vault would revert.
+        if (vault.getLocker() == address(0)) return;
 
         _runPiggyback();
     }
@@ -497,13 +520,17 @@ contract ToshLadderTreasury is Ownable2Step {
         if (ladderTokens.length == 0) revert NotArmed();
 
         // Opens our own frame, since there is no swap to borrow one from.
-        poolManager.unlock("");
+        vault.lock("");
     }
 
-    /// @dev V4 calls this back only on the address that called `unlock`, so
+    /// @dev The Vault calls this back only on the address that called `lock`, so
     ///      reaching here means `pokeBuyback` above put us here.
-    function unlockCallback(bytes calldata) external returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert OnlyPoolManager();
+    ///
+    ///      Guarded against the VAULT, not the pool manager. Infinity moved the
+    ///      frame — `lock` is the Vault's — so checking the manager here rejects
+    ///      the only caller that can legitimately arrive.
+    function lockAcquired(bytes calldata) external returns (bytes memory) {
+        if (msg.sender != address(vault)) revert OnlyVault();
         _runPiggyback();
         return "";
     }
@@ -590,7 +617,7 @@ contract ToshLadderTreasury is Ownable2Step {
 
         BalanceDelta delta = poolManager.swap(
             key,
-            SwapParams({
+            ICLPoolManager.SwapParams({
                 zeroForOne: true, // ETH (currency0) → token (currency1)
                 amountSpecified: -int256(nativeIn), // negative == exact input
                 sqrtPriceLimitX96: _buybackSqrtFloor(key)
@@ -620,14 +647,14 @@ contract ToshLadderTreasury is Ownable2Step {
             // exist at the V4 interface level — and because the alternative,
             // omitting the sync, breaks our own settle in the far more common
             // case where an outer frame left an ERC-20 latched.
-            poolManager.sync(CurrencyLibrary.ADDRESS_ZERO);
-            poolManager.settle{value: spent}();
+            vault.sync(CurrencyLibrary.NATIVE);
+            vault.settle{value: spent}();
         }
 
         int128 out = delta.amount1();
         if (out > 0) {
             uint256 bought = uint256(uint128(out));
-            poolManager.take(key.currency1, DEAD_ADDRESS, bought);
+            vault.take(key.currency1, DEAD_ADDRESS, bought);
             emit BuybackBurned(token, spent, bought);
         }
     }
@@ -695,7 +722,7 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      `unbounded` anyway.  It is kept because it is the only place the
     ///      branch can be NAMED, and an unnamed branch cannot carry this note.
     function _buybackSqrtFloor(PoolKey memory key) internal view returns (uint160) {
-        uint160 unbounded = TickMath.MIN_SQRT_PRICE + 1;
+        uint160 unbounded = TickMath.MIN_SQRT_RATIO + 1;
 
         try IToshHookTwap(address(key.hooks)).twapSqrtPriceX96() returns (uint160 twapSqrt) {
             if (twapSqrt == 0) return unbounded;

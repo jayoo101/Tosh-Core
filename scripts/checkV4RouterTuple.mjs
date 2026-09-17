@@ -126,7 +126,7 @@ import { join, relative, sep } from 'node:path';
  * same vendored struct against the same build, so check 1 runs once per entry
  * rather than picking one and hoping the other followed.
  */
-const FORK_TESTS = ['test/ToshV5Fork.t.sol', 'test/ToshV5ForkBsc.t.sol'];
+const FORK_TESTS = ['test/ToshV5ForkInfinity.t.sol'];
 const IV4ROUTER = 'lib/v4-periphery/src/interfaces/IV4Router.sol';
 
 /**
@@ -135,7 +135,7 @@ const IV4ROUTER = 'lib/v4-periphery/src/interfaces/IV4Router.sol';
  * address is written down anywhere — see check 5.
  */
 const OLD_BSC_ROUTER = '0x1906c1d672b88cD1B9aC7593301cA990F94Eae07';
-const OLD_BSC_ROUTER_HOME = 'test/ToshV5ForkBsc.t.sol';
+const OLD_BSC_ROUTER_HOME = 'test/ToshV5ForkInfinity.t.sol';
 const DECODER = 'lib/v4-periphery/src/libraries/CalldataDecoder.sol';
 
 /**

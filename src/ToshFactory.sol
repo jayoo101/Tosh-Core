@@ -160,6 +160,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     address public immutable poolManager;
 
+    /// @notice PancakeSwap Infinity Vault: balances and the lock. Held beside
+    ///         the manager because Infinity needs both, and passed on to every
+    ///         hook implementation this factory deploys.
+    address public immutable vault;
+
     /// @notice Platform buyback reservoir; receives every launch fee.
     address payable public immutable ladderTreasury;
 
@@ -401,7 +406,6 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error SignatureExpired();
     error SignatureTooLong();
     error HookNotRegistered();
-    error InvalidHookSalt();
     error DeployFailed();
     error ZeroAmount();
     error InvalidAdmin();
@@ -430,15 +434,26 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
-    constructor(address _poolManager, address _pogSigner, address _platformTreasury, address _ladderTreasury)
-        Ownable(msg.sender)
-    {
+    /// @dev `_vault` arrived with the PancakeSwap Infinity port. Infinity splits
+    ///      Uniswap V4's PoolManager into a manager that owns pool state and a
+    ///      Vault that owns balances and the lock, so every contract that
+    ///      settles needs both addresses. The factory holds them only to pass
+    ///      them to the hook implementation it deploys below.
+    constructor(
+        address _poolManager,
+        address _vault,
+        address _pogSigner,
+        address _platformTreasury,
+        address _ladderTreasury
+    ) Ownable(msg.sender) {
         require(_poolManager != address(0), "zero poolManager");
+        require(_vault != address(0), "zero vault");
         require(_pogSigner != address(0), "zero pogSigner");
         require(_platformTreasury != address(0), "zero platformTreasury");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
 
         poolManager = _poolManager;
+        vault = _vault;
         pogSigner = _pogSigner;
         platformTreasury = _platformTreasury;
         ladderTreasury = payable(_ladderTreasury);
@@ -448,7 +463,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // Deploying the implementation here is what lets it hold `factory` as an
         // ordinary immutable: the library call is a DELEGATECALL, so
         // `address(this)` inside it is this factory, mid-construction.
-        hookImplementation = HookDeployLib.deployImplementation(_poolManager, _ladderTreasury, _platformTreasury);
+        hookImplementation =
+            HookDeployLib.deployImplementation(_poolManager, _vault, _ladderTreasury, _platformTreasury);
         tokenImplementation = address(new ToshToken(address(this)));
     }
 
@@ -829,11 +845,31 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 launchSoftCap = defaultSoftCap;
         uint256 launchWalletCap = maxPogAllocationLimit;
 
-        bytes32 initHash = ToshCloneLib.initcodeHash(
-            hookImplementation, msg.sender, projectTreasury, launchSoftCap, launchWalletCap, genesisDuration
-        );
-        address predictedHook = HookMiner.computeAddress(address(this), finalSalt, initHash);
-        if (!HookMiner.isValidHookAddress(predictedHook)) revert InvalidHookSalt();
+        // NO ADDRESS-BIT GATE, and its absence is the PancakeSwap Infinity port
+        // rather than an omission.
+        //
+        // Uniswap V4 read a hook's permissions out of the low bits of its own
+        // address, so this line used to be a real check: `isValidHookAddress`
+        // refused any salt whose CREATE2 address did not carry the 0x20CC mask,
+        // and a launch therefore had to arrive with a MINED salt. Infinity reads
+        // permissions from `ToshLaunchpadHook.getHooksRegistrationBitmap()` and
+        // makes `CLPoolManager.initialize` refuse a pool whose
+        // `PoolKey.parameters` disagrees with it. The permission set is still
+        // pinned to the key — by equality now, rather than by address
+        // arithmetic — so there is nothing left for an address to encode and
+        // nothing left to mine.
+        //
+        // `finalSalt` stays, and it is not vestigial: it keeps the deployment
+        // address deterministic and binds it to `msg.sender`, which is what
+        // stops one creator front-running another's predicted address. It is
+        // simply a free choice now instead of a mining target, so `hookSalt`
+        // can be any value the caller likes.
+        //
+        // The local initcode hash went with the gate. It existed only to be
+        // checked here; `hookInitcodeHash` and `verifyHookDeployment` below
+        // recompute their own from the caller's arguments, so off-chain tooling
+        // can still predict and verify an address — it just no longer has to
+        // grind for one.
 
         hook = ToshCloneLib.deployHook(
             finalSalt, hookImplementation, msg.sender, projectTreasury, launchSoftCap, launchWalletCap, genesisDuration
@@ -1002,16 +1038,27 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         return launches.length;
     }
 
-    /// @notice The value an off-chain miner must hash salts against.
+    /// @notice The initcode hash a caller predicts a hook's address from.
+    ///
+    /// @dev    NO LONGER A MINING INPUT, because nothing mines. Under Uniswap
+    ///         V4 a launch had to arrive with a salt whose CREATE2 address
+    ///         carried the permission mask in its low bits, and this was the
+    ///         value to grind against. PancakeSwap Infinity takes permissions
+    ///         from `getHooksRegistrationBitmap()` instead, so `createLaunch`
+    ///         accepts any salt and `InvalidHookSalt` is gone.
+    ///
+    ///         What this is still for: predicting the address a given salt will
+    ///         produce, which the launch UI shows before the transaction and
+    ///         `verifyHookDeployment` checks after it.
     ///
     /// @dev    ⚠ `projectAdmin` USED TO BE AN ARGUMENT HERE AND NO LONGER IS.
     ///         It was a hook constructor argument and therefore part of the
     ///         initcode; it is now set by `initializeToken` and is not committed
     ///         to by the hook's address.  Nothing was lost — `changeProjectAdmin`
     ///         always let it rotate, so the address only ever pinned its initial
-    ///         value — but a miner still passing six arguments will silently hash
-    ///         the wrong tuple and every salt it finds will fail
-    ///         `InvalidHookSalt`.
+    ///         value — but a caller still passing six arguments will silently
+    ///         hash the wrong tuple and predict an address the launch will not
+    ///         deploy to.
     function hookInitcodeHash(
         address projectTreasury,
         address creator_,
@@ -1028,11 +1075,10 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///      choice, so there is no single "live" initcode hash any more; this
     ///      keeps the 24 h default answerable for existing tooling.
     ///
-    ///      ⚠ NOT A MINING INPUT.  `platformTreasury` stands in for both
-    ///      `projectTreasury` and `creator`, neither of which a real launch
-    ///      shares.  `createLaunch` recomputes the hash from the caller's actual
-    ///      addresses, so a salt mined against this value fails
-    ///      `InvalidHookSalt` every time.  Mine against `hookInitcodeHash`.
+    ///      ⚠ NOT AN ADDRESS-PREDICTION INPUT.  `platformTreasury` stands in
+    ///      for both `projectTreasury` and `creator`, neither of which a real
+    ///      launch shares, so an address predicted from this value is never the
+    ///      address a launch deploys to.  Use `hookInitcodeHash` for that.
     ///      Its value is as a build fingerprint: it changes iff the
     ///      implementation address or the platform's soft-cap / wallet-cap dials
     ///      changed.

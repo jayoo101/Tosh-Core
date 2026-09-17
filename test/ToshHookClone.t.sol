@@ -132,12 +132,17 @@ contract CloneDeployer {
     function deployFullHookMeasured(
         bytes32 salt,
         address poolManager,
+        address vault,
         address ladderTreasury,
         address platformFeeRecipient
     ) external returns (address deployed, uint256 gasUsed) {
+        // Five constructor arguments, not four. `vault` was added by the
+        // PancakeSwap Infinity port, and a mismatch here does not fail loudly:
+        // the constructor's zero-address `require` reverts, CREATE2 returns
+        // address(0), and only the caller's own assertion notices.
         bytes memory initcode = abi.encodePacked(
             type(ToshLaunchpadHook).creationCode,
-            abi.encode(poolManager, address(this), ladderTreasury, platformFeeRecipient)
+            abi.encode(poolManager, vault, address(this), ladderTreasury, platformFeeRecipient)
         );
         uint256 before = gasleft();
         assembly {
@@ -397,29 +402,53 @@ contract ToshHookCloneTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Salt mining still works over the new initcode
+    //  Address prediction over the new initcode
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @dev The address must still carry the 0x20CC flag bits. Mining difficulty
-    ///      is a property of the mask (5 bits → ~1 in 32 salts), not of the
-    ///      initcode, so shrinking the initcode must not change reachability —
-    ///      only the hash it is mined against.
-    function test_saltMiningFindsValidHookAddressForClone() public view {
+    /// @dev ⚠ A TEST WAS DELETED HERE, not ported.
+    ///
+    ///      `test_saltMiningFindsValidHookAddressForClone` asserted that a
+    ///      mined salt yields an address carrying the 0x20CC flag bits, and
+    ///      that shrinking the initcode to a clone stub had not made those bits
+    ///      harder to reach. Under Uniswap V4 that was a real property: the
+    ///      PoolManager read a hook's permissions out of its address, so an
+    ///      unminable mask would have made the clone undeployable.
+    ///
+    ///      PancakeSwap Infinity reads permissions from
+    ///      `getHooksRegistrationBitmap()` instead, `ToshFactory` no longer
+    ///      checks any address bits, and `HookMiner.find` /
+    ///      `isValidHookAddress` were removed with the gate. Rewriting the test
+    ///      to assert the bits anyway would pin a number nothing reads.
+    ///
+    ///      What survives the deletion is below, and it is the half that was
+    ///      always load-bearing.
+    function test_predictedSaltMatchesTheDeployedAddress() public {
         bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
 
-        (bytes32 salt, address predicted) = HookMiner.find(address(deployer), hash, 1, 20_000);
-
-        assertTrue(HookMiner.isValidHookAddress(predicted), "mined address carries required flags");
-        assertEq(uint160(predicted) & 0x20CC, 0x20CC, "0x20CC bits set");
-        assertTrue(salt != bytes32(0));
-    }
-
-    function test_minedSaltPredictsTheDeployedAddress() public {
-        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
-        (bytes32 salt, address predicted) = HookMiner.find(address(deployer), hash, 1, 20_000);
+        // Any salt will do now, which is the point — this used to be the output
+        // of a 20k-iteration search.
+        bytes32 salt = bytes32(uint256(42));
+        address predicted = HookMiner.computeAddress(address(deployer), salt, hash);
 
         address actual = deployer.deploy(salt, address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
         assertEq(actual, predicted, "CREATE2 prediction matches deployment");
+    }
+
+    /// @dev The prediction has to stay sensitive to the initcode, or
+    ///      `ToshFactory.verifyHookDeployment` would confirm hooks it never
+    ///      deployed. Same salt, one differing constructor argument, different
+    ///      address.
+    function test_predictionTracksTheInitcode() public view {
+        bytes32 salt = bytes32(uint256(42));
+        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
+        bytes32 otherCap =
+            ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP + 1, WALLET_CAP, DURATION);
+
+        assertTrue(
+            HookMiner.computeAddress(address(deployer), salt, hash)
+                != HookMiner.computeAddress(address(deployer), salt, otherCap),
+            "a different soft cap must predict a different address"
+        );
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -431,8 +460,9 @@ contract ToshHookCloneTest is Test {
             bytes32(uint256(100)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
         );
 
-        (address fullHook, uint256 fullGas) =
-            deployer.deployFullHookMeasured(bytes32(uint256(101)), address(0x1111), address(0x3333), address(0x4444));
+        (address fullHook, uint256 fullGas) = deployer.deployFullHookMeasured(
+            bytes32(uint256(101)), address(0x1111), address(0x2222), address(0x3333), address(0x4444)
+        );
 
         assertTrue(fullHook != address(0), "the full deploy must actually have landed");
 
@@ -471,8 +501,9 @@ contract ToshHookCloneTest is Test {
     function test_deployComponentOfCreateLaunch() public {
         uint256 MEASURED_CREATE_LAUNCH = 5_016_031;
 
-        (, uint256 hookFull) =
-            deployer.deployFullHookMeasured(bytes32(uint256(200)), address(0x1111), address(0x3333), address(0x4444));
+        (, uint256 hookFull) = deployer.deployFullHookMeasured(
+            bytes32(uint256(200)), address(0x1111), address(0x2222), address(0x3333), address(0x4444)
+        );
         (, uint256 hookClone) = deployer.deployMeasured(
             bytes32(uint256(201)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
         );

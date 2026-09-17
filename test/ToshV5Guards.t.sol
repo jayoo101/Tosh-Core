@@ -5,10 +5,19 @@ import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {
+    ICLHooks,
+    HOOKS_BEFORE_INITIALIZE_OFFSET,
+    HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET,
+    HOOKS_BEFORE_REMOVE_LIQUIDITY_OFFSET,
+    HOOKS_BEFORE_SWAP_OFFSET,
+    HOOKS_AFTER_SWAP_OFFSET,
+    HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET,
+    HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET
+} from "infinity-core/src/pool-cl/interfaces/ICLHooks.sol";
+import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
@@ -28,6 +37,12 @@ contract ToshV5GuardsTest is Test {
     address internal projTreasury = makeAddr("projTreasury");
     address payable internal ladder = payable(makeAddr("ladder"));
     address internal mockPoolManager = makeAddr("poolManager");
+
+    /// @dev A second mock, because Infinity split what V4 did in one contract.
+    ///      The manager still drives the hook callbacks this file pranks; the
+    ///      Vault holds the balances and is what `lockAcquired` now checks
+    ///      against, where V4's `unlockCallback` checked the manager.
+    address internal mockVault = makeAddr("vault");
 
     uint256 internal pogSignerPk = 0xC0FFEE;
     address internal pogSigner;
@@ -50,7 +65,7 @@ contract ToshV5GuardsTest is Test {
         pogSigner = vm.addr(pogSignerPk);
 
         vm.startPrank(admin);
-        factory = new ToshFactory(mockPoolManager, pogSigner, treasury, ladder);
+        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder);
         factory.setMaxPogAllocationLimit(1000 ether);
         vm.stopPrank();
 
@@ -62,7 +77,7 @@ contract ToshV5GuardsTest is Test {
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
 
-        implAsSelf = new ToshLaunchpadHook(mockPoolManager, address(this), ladder, treasury);
+        implAsSelf = new ToshLaunchpadHook(mockPoolManager, mockVault, address(this), ladder, treasury);
     }
 
     function _buildPoGSig(address user, uint256 maxAlloc, uint256 nonce, uint256 deadline)
@@ -83,21 +98,21 @@ contract ToshV5GuardsTest is Test {
         factory.registerPoG(maxAlloc, deadline, nonce, _buildPoGSig(user, maxAlloc, nonce, deadline));
     }
 
-    function _mineSalt() internal view returns (bytes32 rawSalt) {
+    function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initHash = factory.hookInitcodeHash(
             projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
         );
-        for (uint256 i; i < 500_000; ++i) {
+        for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
             address predicted = HookMiner.computeAddress(address(factory), finalSalt, initHash);
-            if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
+            if (predicted.code.length == 0) return rawSalt;
         }
-        revert("_mineSalt: none found");
+        revert("_pickSalt: first 1000 salts are all occupied");
     }
 
     function _createLaunch(string memory n, string memory s) internal returns (address t, address h) {
-        bytes32 salt = _mineSalt();
+        bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         (t, h) = factory.createLaunch{value: fee}(n, s, projTreasury, projTreasury, salt, fee, 24 hours);
@@ -107,12 +122,12 @@ contract ToshV5GuardsTest is Test {
         return hook.getPoolKey();
     }
 
-    function _liqParams() internal pure returns (ModifyLiquidityParams memory) {
-        return ModifyLiquidityParams({tickLower: 0, tickUpper: 0, liquidityDelta: 0, salt: bytes32(0)});
+    function _liqParams() internal pure returns (ICLPoolManager.ModifyLiquidityParams memory) {
+        return ICLPoolManager.ModifyLiquidityParams({tickLower: 0, tickUpper: 0, liquidityDelta: 0, salt: bytes32(0)});
     }
 
-    function _swapParams() internal pure returns (SwapParams memory) {
-        return SwapParams({zeroForOne: true, amountSpecified: 0, sqrtPriceLimitX96: 0});
+    function _swapParams() internal pure returns (ICLPoolManager.SwapParams memory) {
+        return ICLPoolManager.SwapParams({zeroForOne: true, amountSpecified: 0, sqrtPriceLimitX96: 0});
     }
 
     /// @dev A project hook, uninitialised: a clone of `implAsSelf` carrying the
@@ -140,17 +155,17 @@ contract ToshV5GuardsTest is Test {
 
     function test_hook_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshLaunchpadHook(address(0), address(factory), ladder, treasury);
+        new ToshLaunchpadHook(address(0), mockVault, address(factory), ladder, treasury);
     }
 
     function test_hook_ctor_revertsOnZeroFactory() public {
         vm.expectRevert(bytes("zero factory"));
-        new ToshLaunchpadHook(mockPoolManager, address(0), ladder, treasury);
+        new ToshLaunchpadHook(mockPoolManager, mockVault, address(0), ladder, treasury);
     }
 
     function test_hook_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshLaunchpadHook(mockPoolManager, address(factory), payable(address(0)), treasury);
+        new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), payable(address(0)), treasury);
     }
 
     /// @dev `platformFeeRecipient` is on a money path — it takes
@@ -160,7 +175,7 @@ contract ToshV5GuardsTest is Test {
     ///      exactly like `ladderTreasury`.
     function test_hook_ctor_revertsOnZeroPlatformFeeRecipient() public {
         vm.expectRevert(bytes("zero platformFeeRecipient"));
-        new ToshLaunchpadHook(mockPoolManager, address(factory), ladder, address(0));
+        new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), ladder, address(0));
     }
 
     function test_hook_windowConstantsAreThreeTwentyFourSeventyTwo() public view {
@@ -212,10 +227,48 @@ contract ToshV5GuardsTest is Test {
         assertEq(embedded, factory.hookImplementation(), "delegates to the factory's implementation");
     }
 
-    function test_hookMiner_requiredFlagsAre0x20CC() public view {
-        uint160 mask = 0x20CC;
-        assertEq(uint160(address(hook)) & mask, mask);
-        assertTrue(HookMiner.isValidHookAddress(address(hook)));
+    /// @notice The permission set is declared, not encoded in the address.
+    ///
+    /// @dev    ⚠ REPLACES `test_hookMiner_requiredFlagsAre0x20CC`, which
+    ///         asserted `uint160(address(hook)) & 0x20CC == 0x20CC`.
+    ///
+    ///         That test could not be ported, only replaced. Uniswap V4 read a
+    ///         hook's permissions out of its address, so the mask WAS the
+    ///         permission set and pinning it was pinning behaviour. PancakeSwap
+    ///         Infinity asks the contract, and `CLPoolManager.initialize`
+    ///         refuses a pool whose `PoolKey.parameters` disagrees with the
+    ///         answer. Keeping the old assertion would have pinned 0x20CC
+    ///         against an address that no longer carries it, for a reader that
+    ///         no longer exists.
+    ///
+    ///         What is worth pinning is the same fact in its new location: that
+    ///         the hook still claims exactly the six callbacks it implements.
+    ///         Six, not five — `BEFORE_ADD_LIQUIDITY` is registered here and was
+    ///         absent from the V4 mask, because Infinity requires a hook to
+    ///         declare a callback it means to gate.
+    function test_hooksRegistrationBitmapNamesExactlyTheImplementedCallbacks() public view {
+        uint16 bitmap = hook.getHooksRegistrationBitmap();
+
+        assertTrue(bitmap & (1 << HOOKS_BEFORE_INITIALIZE_OFFSET) != 0, "beforeInitialize");
+        assertTrue(bitmap & (1 << HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET) != 0, "beforeAddLiquidity");
+        assertTrue(bitmap & (1 << HOOKS_BEFORE_SWAP_OFFSET) != 0, "beforeSwap");
+        assertTrue(bitmap & (1 << HOOKS_AFTER_SWAP_OFFSET) != 0, "afterSwap");
+        assertTrue(bitmap & (1 << HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET) != 0, "beforeSwap returns a delta");
+        assertTrue(bitmap & (1 << HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET) != 0, "afterSwap returns a delta");
+
+        // Exact, not a subset, and deliberately a LITERAL rather than the same
+        // OR-expression the hook builds. Rebuilding it here from the same
+        // constants would restate the source instead of pinning it: a change to
+        // the hook copied into the test would pass. 0xCC5 is bits 0, 2, 6, 7, 10
+        // and 11, and it is the Infinity-side counterpart of the 0x20CC this test
+        // replaced — a magic number checked in on purpose so that moving it
+        // requires saying so.
+        assertEq(bitmap, uint16(0xCC5), "the bitmap claims exactly these six and nothing else");
+
+        // `beforeRemoveLiquidity` above all must stay unclaimed: claiming it
+        // would put the hook in the path of every retail LP withdrawal, and the
+        // genesis position needs no callback to stay locked.
+        assertTrue(bitmap & (1 << HOOKS_BEFORE_REMOVE_LIQUIDITY_OFFSET) == 0, "beforeRemoveLiquidity stays unclaimed");
     }
 
     // ── initializeToken ───────────────────────────────────────────────────────
@@ -520,18 +573,34 @@ contract ToshV5GuardsTest is Test {
         assertEq(token.MAX_SUPPLY(), 21_000_000e18);
     }
 
-    // ── unlockCallback / IHooks ───────────────────────────────────────────────
+    // ── lockAcquired / ICLHooks ───────────────────────────────────────────────
+    //
+    // Two callers, not one, and the split is the point. `lockAcquired` is the
+    // Vault's callback and answers only to the Vault; the `beforeX`/`afterX`
+    // hooks are the pool manager's and answer only to it. Under Uniswap V4 both
+    // belonged to the same contract, so both tests below pranked the same
+    // address and either guard would have caught either mistake. They no longer
+    // would.
 
-    function test_unlockCallback_revertsUnknownAction() public {
-        vm.prank(mockPoolManager);
+    function test_lockAcquired_revertsUnknownAction() public {
+        vm.prank(mockVault);
         vm.expectRevert(ToshLaunchpadHook.UnknownAction.selector);
-        hook.unlockCallback(abi.encode(uint8(99)));
+        hook.lockAcquired(abi.encode(uint8(99)));
     }
 
-    function test_unlockCallback_rejectsNonPoolManager() public {
+    function test_lockAcquired_rejectsNonVault() public {
         vm.prank(user1);
-        vm.expectRevert(ToshLaunchpadHook.OnlyPoolManager.selector);
-        hook.unlockCallback(abi.encode(uint8(1)));
+        vm.expectRevert(ToshLaunchpadHook.OnlyVault.selector);
+        hook.lockAcquired(abi.encode(uint8(1)));
+    }
+
+    /// @dev The pool manager is not the Vault, and this is the test that would
+    ///      have caught the port getting it backwards. `mockPoolManager` is a
+    ///      legitimate caller for every other callback in this file.
+    function test_lockAcquired_rejectsEvenThePoolManager() public {
+        vm.prank(mockPoolManager);
+        vm.expectRevert(ToshLaunchpadHook.OnlyVault.selector);
+        hook.lockAcquired(abi.encode(uint8(1)));
     }
 
     function test_beforeInitialize_revertsForNonPoolManager() public {
@@ -550,7 +619,7 @@ contract ToshV5GuardsTest is Test {
 
     function test_beforeSwap_rejectsNonPoolManager() public {
         PoolKey memory k = _emptyKey();
-        SwapParams memory p = _swapParams();
+        ICLPoolManager.SwapParams memory p = _swapParams();
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyPoolManager.selector);
         hook.beforeSwap(address(0), k, p, "");
@@ -558,7 +627,7 @@ contract ToshV5GuardsTest is Test {
 
     function test_afterSwap_rejectsNonPoolManager() public {
         PoolKey memory k = _emptyKey();
-        SwapParams memory p = _swapParams();
+        ICLPoolManager.SwapParams memory p = _swapParams();
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyPoolManager.selector);
         hook.afterSwap(address(0), k, p, BalanceDelta.wrap(0), "");
@@ -566,7 +635,7 @@ contract ToshV5GuardsTest is Test {
 
     function test_beforeRemoveLiquidity_rejectsNonPoolManager() public {
         PoolKey memory k = _emptyKey();
-        ModifyLiquidityParams memory p = _liqParams();
+        ICLPoolManager.ModifyLiquidityParams memory p = _liqParams();
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyPoolManager.selector);
         hook.beforeRemoveLiquidity(address(this), k, p, "");
@@ -574,40 +643,42 @@ contract ToshV5GuardsTest is Test {
 
     function test_beforeRemoveLiquidity_passthroughForPoolManager() public {
         PoolKey memory k = _emptyKey();
-        ModifyLiquidityParams memory p = _liqParams();
+        ICLPoolManager.ModifyLiquidityParams memory p = _liqParams();
         vm.prank(mockPoolManager);
         bytes4 s = hook.beforeRemoveLiquidity(address(this), k, p, "");
-        assertEq(s, IHooks.beforeRemoveLiquidity.selector);
+        assertEq(s, ICLHooks.beforeRemoveLiquidity.selector);
     }
 
     function test_ihooks_afterInitialize_returnsSelector() public view {
-        assertEq(hook.afterInitialize(address(0), _emptyKey(), 0, 0), IHooks.afterInitialize.selector);
+        assertEq(hook.afterInitialize(address(0), _emptyKey(), 0, 0), ICLHooks.afterInitialize.selector);
     }
 
     function test_ihooks_beforeAddLiquidity_returnsSelector() public view {
-        assertEq(hook.beforeAddLiquidity(address(0), _emptyKey(), _liqParams(), ""), IHooks.beforeAddLiquidity.selector);
+        assertEq(
+            hook.beforeAddLiquidity(address(0), _emptyKey(), _liqParams(), ""), ICLHooks.beforeAddLiquidity.selector
+        );
     }
 
     function test_ihooks_afterAddLiquidity_returnsSelector() public view {
         (bytes4 s,) = hook.afterAddLiquidity(
             address(0), _emptyKey(), _liqParams(), BalanceDelta.wrap(0), BalanceDelta.wrap(0), ""
         );
-        assertEq(s, IHooks.afterAddLiquidity.selector);
+        assertEq(s, ICLHooks.afterAddLiquidity.selector);
     }
 
     function test_ihooks_afterRemoveLiquidity_returnsSelector() public view {
         (bytes4 s,) = hook.afterRemoveLiquidity(
             address(0), _emptyKey(), _liqParams(), BalanceDelta.wrap(0), BalanceDelta.wrap(0), ""
         );
-        assertEq(s, IHooks.afterRemoveLiquidity.selector);
+        assertEq(s, ICLHooks.afterRemoveLiquidity.selector);
     }
 
     function test_ihooks_beforeDonate_returnsSelector() public view {
-        assertEq(hook.beforeDonate(address(0), _emptyKey(), 0, 0, ""), IHooks.beforeDonate.selector);
+        assertEq(hook.beforeDonate(address(0), _emptyKey(), 0, 0, ""), ICLHooks.beforeDonate.selector);
     }
 
     function test_ihooks_afterDonate_returnsSelector() public view {
-        assertEq(hook.afterDonate(address(0), _emptyKey(), 0, 0, ""), IHooks.afterDonate.selector);
+        assertEq(hook.afterDonate(address(0), _emptyKey(), 0, 0, ""), ICLHooks.afterDonate.selector);
     }
 
     // ── ToshToken ─────────────────────────────────────────────────────────────
@@ -758,7 +829,7 @@ contract ToshV5GuardsTest is Test {
     ///   to ask whether a function was overridden, and an override that
     ///   reproduces this behaviour exactly is not the thing worth catching.
     function test_nextSpendAmountIsNotOverridden() public {
-        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(this));
+        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(0xCAFE), address(this));
 
         uint256 step = t.TRIGGER_STEP();
 
