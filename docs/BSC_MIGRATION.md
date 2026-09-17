@@ -7,6 +7,20 @@ Everything in this document was read from chain or from the vendor's own
 documentation on 2026-09-17. Where a figure was measured, the measurement is
 stated so it can be re-run rather than trusted.
 
+> **§1 and §2 are no longer arguments.** `test/ToshV5ForkBsc.t.sol` runs the
+> whole lifecycle against a BSC mainnet fork — mine a salt, create, deposit,
+> launch into the live singleton, then buy through the deployed router — and
+> **all 9 tests pass with no change to any contract**. Run it with
+> `$env:BSC_RPC="https://bsc-dataseed1.bnbchain.org"; forge test --match-path
+> test/ToshV5ForkBsc.t.sol`. It skips without the variable, so CI is unaffected.
+>
+> What that run settles, as opposed to argues: the hook's `_hasArbSys` fallback
+> is the branch that executes (the suite needs no `_installArbSys` at all, and
+> its absence is the evidence); BSC's live 24,009-byte singleton accepts a hook
+> address our miner produced and holds the genesis liquidity; and the router
+> reads the sixth field, so the tuple layout is measured rather than inferred
+> from a bytecode diff.
+
 ---
 
 ## 1. The contract layer is nearly free
@@ -68,10 +82,18 @@ not rejected — it is reinterpreted. The swap succeeds, the amounts are right,
 the results look correct. Wiring the wrong BSC router is therefore a bug with no
 symptom until a hook stops receiving its data.
 
-Actions: point `checkV4RouterTuple.mjs` at chain 56 and the 2.1.1 address, and
-re-run `test_fork_deployedRouterReadsTheSixthField` against a BSC fork. The
-guard's premise — that agreement is two versions happening to line up, not a
-property of the world — is unchanged and still worth keeping.
+`test_forkBsc_deployedRouterReadsTheSixthField` confirms this against the chain:
+forcing the sixth field to a bound nothing can satisfy makes the deployed router
+revert, which it can only do if it read our word 9 at the offset the six-field
+layout puts it. The bytecode diff said "probably"; that test says "yes".
+
+`test_forkBsc_theOtherRouterIsADifferentBuild` pins the choice between the two
+addresses, so it is a failing test rather than a comment if someone reaches for
+"the BSC Universal Router" and gets the 19,499-byte one.
+
+Remaining action: point `scripts/checkV4RouterTuple.mjs` at chain 56 and the
+2.1.1 address. The guard's premise — that agreement is two versions happening to
+line up, not a property of the world — is unchanged and still worth keeping.
 
 ---
 
