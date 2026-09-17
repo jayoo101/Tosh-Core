@@ -102,8 +102,12 @@ contract ToshV5FactoryTest is Test {
         bytes32 salt = _pickSalt(duration);
         _lastSalt = salt;
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (token, hook) = factory.createLaunch{value: fee}(n, s, projTreasury, projTreasury, salt, fee, duration);
+        (token, hook) = factory.createLaunch{value: fee}(
+            n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, duration
+        );
     }
 
     function _h(address hook) internal pure returns (ToshLaunchpadHook) {
@@ -136,7 +140,17 @@ contract ToshV5FactoryTest is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch{value: fee}("Budget", "BGT", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Budget",
+            "BGT",
+            projTreasury,
+            projTreasury,
+            salt,
+            fee,
+            factory.defaultSoftCap(),
+            factory.maxPogAllocationLimit(),
+            24 hours
+        );
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch gas", used);
@@ -603,9 +617,13 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(admin);
         factory.pause();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch{value: fee}("P", "P", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "P", "P", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @notice A pause stops the platform taking on new projects; it must not
@@ -639,9 +657,13 @@ contract ToshV5FactoryTest is Test {
         vm.prank(admin);
         factory.pause();
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch{value: fee}("New", "NEW", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "New", "NEW", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
 
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user2);
@@ -726,9 +748,13 @@ contract ToshV5FactoryTest is Test {
     function test_createLaunch_revertsOnUnderpayment() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
-        factory.createLaunch{value: fee - 1}("Short", "SHT", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee - 1}(
+            "Short", "SHT", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @notice ⚠ `test_createLaunch_rejectsInvalidSalt` WAS DELETED HERE, along
@@ -749,9 +775,12 @@ contract ToshV5FactoryTest is Test {
         // sharpest case: `_pickSalt` starts its search there, so under V4 this
         // was overwhelmingly a rejected value.
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) =
-            factory.createLaunch{value: fee}("Any", "ANY", projTreasury, projTreasury, bytes32(0), fee, 24 hours);
+        (, address hook) = factory.createLaunch{value: fee}(
+            "Any", "ANY", projTreasury, projTreasury, bytes32(0), fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         assertTrue(hook != address(0), "a launch on a salt V4 would have refused");
     }
 
@@ -760,42 +789,62 @@ contract ToshV5FactoryTest is Test {
         uint256 stale = factory.launchFee();
         vm.prank(admin);
         factory.setLaunchFee(stale + 1);
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch{value: stale + 1 ether}("Tok", "TOK", projTreasury, projTreasury, salt, stale, 24 hours);
+        factory.createLaunch{value: stale + 1 ether}(
+            "Tok", "TOK", projTreasury, projTreasury, salt, stale, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_revertsForZeroProjectAdmin() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InvalidAdmin.selector);
-        factory.createLaunch{value: fee}("Tok", "TOK", projTreasury, address(0), salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Tok", "TOK", projTreasury, address(0), salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_rejectsEmptyName() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch{value: fee}("", "TOK", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "", "TOK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_rejectsEmptySymbol() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch{value: fee}("Tok", "", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Tok", "", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_rejectsDuplicateNamePair() public {
         _createLaunch("Same", "SAM");
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.NameTaken.selector);
-        factory.createLaunch{value: fee}("Same", "SAM", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Same", "SAM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_allowsDifferentNameSamePrefix() public {
@@ -853,9 +902,13 @@ contract ToshV5FactoryTest is Test {
     function test_createLaunch_rejectsZeroProjectTreasury() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(bytes("zero treasury"));
-        factory.createLaunch{value: fee}("Tok", "TOK", address(0), projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Tok", "TOK", address(0), projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_succeedsWhenFeeIsZero() public {
@@ -865,50 +918,109 @@ contract ToshV5FactoryTest is Test {
         assertTrue(token != address(0));
     }
 
-    /// @notice ⚠ A ROTATED SOFT CAP NO LONGER STOPS THE LAUNCH. This test
-    ///         records that, and it is a behaviour REGRESSION rather than a
-    ///         rename.
+    /// @notice A rotated soft cap stops the launch, by an explicit guard rather
+    ///         than a side effect.
     ///
-    /// @dev    It replaces `test_createLaunch_revertsWhenSoftCapRotatedAfterMining`,
-    ///         which asserted `InvalidHookSalt` when the platform owner rotated
-    ///         `defaultSoftCap` between a creator predicting their hook address
-    ///         and their transaction landing.
+    /// @dev    Descends from `test_createLaunch_revertsWhenSoftCapRotatedAfterMining`
+    ///         and reaches the same OUTCOME by a different mechanism, which is
+    ///         worth stating because the mechanism was the whole problem.
     ///
-    ///         That revert was never a deliberate guard. It fell out of the
-    ///         address-bit gate: rotating the cap changed the initcode, which
-    ///         re-rolled the CREATE2 address, which then failed V4's mask about
-    ///         96% of the time. The creator got a loud failure by accident.
+    ///         The old revert was `InvalidHookSalt`, and it was never a
+    ///         deliberate guard. It fell out of Uniswap V4's address-bit gate:
+    ///         rotating the cap changed the initcode, re-rolled the CREATE2
+    ///         address, and the new address then failed the permission mask about
+    ///         96% of the time. The creator got a loud failure by accident — and
+    ///         the other ~4% got a silent one.
     ///
-    ///         Removing the gate removed the accident. `createLaunch` still
-    ///         snapshots whatever `defaultSoftCap` reads at call time into the
-    ///         clone, and now nothing objects — the launch succeeds, at a
-    ///         different address than predicted, with economics the creator did
-    ///         not agree to. `expectedFee` guards the fee against exactly this
-    ///         race; the caps have no equivalent.
+    ///         The PancakeSwap Infinity port removed the gate, which removed the
+    ///         accident, and for a while every rotation was silently honoured.
+    ///         The guard is now `CapsChanged`, checked against arguments the
+    ///         caller supplies, so it catches 100% rather than 96% and does not
+    ///         lean on address arithmetic to do it. See
+    ///         docs/PANCAKESWAP_INFINITY.md §11.3.
     ///
-    ///         Asserted here as the current truth rather than papered over, so
-    ///         the gap is visible and this test is what breaks when a real guard
-    ///         is added. See docs/PANCAKESWAP_INFINITY.md §11.
-    function test_createLaunch_silentlyAcceptsARotatedSoftCap() public {
+    ///         `expectedSoftCap` is a STALE local here rather than a live read.
+    ///         Every other call site in this file reads live, which is what a
+    ///         caller should do; this one holds the value from before the
+    ///         rotation, because that is the situation being tested.
+    function test_createLaunch_refusesARotatedSoftCap() public {
         bytes32 salt = _pickSalt();
-        uint256 predictedCap = factory.defaultSoftCap();
-        address predicted = factory.predictHookAddress(
-            creator,
-            salt,
-            factory.hookInitcodeHash(projTreasury, creator, predictedCap, factory.maxPogAllocationLimit(), 24 hours)
-        );
+        uint256 agreedCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
 
-        uint256 rotated = predictedCap + 1 ether;
         vm.prank(admin);
-        factory.setDefaultSoftCap(rotated);
+        factory.setDefaultSoftCap(agreedCap + 1 ether);
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        (, address hook) =
-            factory.createLaunch{value: fee}("Rot", "ROT", projTreasury, projTreasury, salt, fee, 24 hours);
+        vm.expectRevert(ToshFactory.CapsChanged.selector);
+        factory.createLaunch{value: fee}(
+            "Rot", "ROT", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
+    }
 
-        assertTrue(hook != predicted, "the rotation moved the address out from under the prediction");
-        assertEq(_h(hook).softCap(), rotated, "and the launch took the rotated cap, not the agreed one");
+    /// @dev The wallet cap is the other half of the same guard, and it gets its
+    ///      own test because the two dials have separate setters — a guard that
+    ///      watched only the soft cap would look right and be half blind.
+    function test_createLaunch_refusesARotatedWalletCap() public {
+        bytes32 salt = _pickSalt();
+        uint256 agreedCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(agreedWalletCap - 1);
+
+        uint256 fee = factory.launchFee();
+        vm.prank(creator);
+        vm.expectRevert(ToshFactory.CapsChanged.selector);
+        factory.createLaunch{value: fee}(
+            "Rot2", "RT2", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
+    }
+
+    /// @dev Exact, not a bound, and this is what separates the caps from
+    ///      `expectedFee`. A fee that moved DOWN leaves the caller better off, so
+    ///      that guard is one-sided. A cap that moved in the caller's favour
+    ///      still re-rolls the address they predicted, so there is no direction
+    ///      in which a mismatch is harmless and equality is the only useful test.
+    function test_createLaunch_refusesEvenAFavourableRotation() public {
+        bytes32 salt = _pickSalt();
+        uint256 agreedCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        // Upward: a larger per-wallet allowance is strictly better for anyone
+        // depositing into this project.
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(agreedWalletCap + 1);
+
+        uint256 fee = factory.launchFee();
+        vm.prank(creator);
+        vm.expectRevert(ToshFactory.CapsChanged.selector);
+        factory.createLaunch{value: fee}(
+            "Fav", "FAV", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
+    }
+
+    /// @dev And the address the guard protects really is the one the caller
+    ///      predicted, which is the property that makes passing the dials worth
+    ///      the two extra arguments.
+    function test_createLaunch_landsWhereTheAgreedDialsPredicted() public {
+        bytes32 salt = _pickSalt();
+        uint256 agreedCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        address predicted = factory.predictHookAddress(
+            creator, salt, factory.hookInitcodeHash(projTreasury, creator, agreedCap, agreedWalletCap, 24 hours)
+        );
+
+        uint256 fee = factory.launchFee();
+        vm.prank(creator);
+        (, address hook) = factory.createLaunch{value: fee}(
+            "Pred", "PRD", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
+
+        assertEq(hook, predicted, "the launch landed where the agreed dials predicted");
+        assertEq(_h(hook).softCap(), agreedCap, "and froze the cap that was agreed to");
     }
 
     function test_createLaunch_fundsLadderTreasury() public {
@@ -1127,16 +1239,24 @@ contract ToshV5FactoryTest is Test {
         );
         address predicted = factory.predictHookAddress(creator, salt, initHash);
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
+        (, address hook) = factory.createLaunch{value: fee}(
+            "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         assertEq(predicted, hook);
     }
 
     function test_verifyHookDeployment_true() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
+        (, address hook) = factory.createLaunch{value: fee}(
+            "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         assertTrue(
             factory.verifyHookDeployment(
                 hook, creator, projTreasury, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours, salt
@@ -1161,8 +1281,12 @@ contract ToshV5FactoryTest is Test {
     function test_verifyHookDeployment_falseForMismatchedSalt() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}("A", "A", projTreasury, projTreasury, salt, fee, 24 hours);
+        (, address hook) = factory.createLaunch{value: fee}(
+            "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         assertFalse(
             factory.verifyHookDeployment(
                 hook,
@@ -1302,9 +1426,13 @@ contract ToshV5FactoryTest is Test {
         bytes32 salt = _pickSalt(12 hours);
         uint256 fee = factory.launchFee();
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
-        factory.createLaunch{value: fee}("Odd", "ODD", projTreasury, projTreasury, salt, fee, 12 hours);
+        factory.createLaunch{value: fee}(
+            "Odd", "ODD", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 12 hours
+        );
     }
 
     /// @dev `getLiveHookInitcodeHash` hard-codes 24 h because Solidity will not

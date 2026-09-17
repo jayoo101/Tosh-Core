@@ -261,9 +261,12 @@ contract ToshV5ForkTest is Test {
     function _createProject() internal returns (ToshToken token, ToshLaunchpadHook hook) {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) =
-            factory.createLaunch{value: fee}("ForkTest", "FRK", projTreasury, projTreasury, salt, fee, 24 hours);
+        (address t, address h) = factory.createLaunch{value: fee}(
+            "ForkTest", "FRK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         return (ToshToken(t), ToshLaunchpadHook(payable(h)));
     }
 

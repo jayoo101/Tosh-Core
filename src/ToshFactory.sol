@@ -429,6 +429,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error InsufficientLaunchFee();
     /// @notice Owner raised `launchFee` above the caller's slippage cap.
     error FeeChanged();
+    /// @notice `defaultSoftCap` or `maxPogAllocationLimit` moved between the
+    ///         caller reading them and this launch executing.
+    ///
+    /// @dev    Replaces what `InvalidHookSalt` used to catch by accident. See
+    ///         `createLaunch`'s `expectedSoftCap` parameter.
+    error CapsChanged();
     /// @notice Native-ETH transfer to a treasury or refund recipient failed.
     error NativeTransferFailed();
 
@@ -811,6 +817,29 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     /// @param  expectedFee Slippage cap on `launchFee`; pass the value read in
     ///                     the same block to prevent an owner fee-bump front-run.
+    /// @param  expectedSoftCap Exact `defaultSoftCap` the caller agreed to.
+    /// @param  expectedWalletCap Exact `maxPogAllocationLimit` the caller agreed
+    ///                     to.
+    ///
+    ///                     ⚠ THESE TWO ARE EXACT, NOT CAPS, and unlike
+    ///                       `expectedFee` there is no direction in which a
+    ///                       mismatch is harmless. A fee that moved DOWN still
+    ///                       leaves the caller better off, so that one is a
+    ///                       bound. A soft cap that moved in either direction
+    ///                       changes the project's economics AND re-rolls the
+    ///                       CREATE2 address the caller predicted, so equality is
+    ///                       the only useful test.
+    ///
+    ///                     They exist because the PancakeSwap Infinity port
+    ///                     removed the thing that used to catch this by accident.
+    ///                     Uniswap V4 required a MINED salt, so a dial rotated
+    ///                     between quote and execution re-rolled the address into
+    ///                     one that failed the permission mask about 98% of the
+    ///                     time, and the launch reverted. Infinity takes
+    ///                     permissions from the hook's own bitmap, every salt is
+    ///                     valid, and the launch would otherwise succeed silently
+    ///                     at an unpredicted address with dials the caller never
+    ///                     agreed to. See docs/PANCAKESWAP_INFINITY.md §11.3.
     /// @param  genesisDuration Genesis window length.  Must be one of the hook's
     ///                     three allowed rungs (3 h / 24 h / 72 h) —
     ///                     `initializeToken` rejects anything else, and because
@@ -824,6 +853,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         address projectAdmin,
         bytes32 hookSalt,
         uint256 expectedFee,
+        uint256 expectedSoftCap,
+        uint256 expectedWalletCap,
         uint256 genesisDuration
     ) external payable whenNotPaused nonReentrant returns (address token, address hook) {
         require(projectTreasury != address(0), "zero treasury");
@@ -844,6 +875,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // economics are fixed even if the platform owner retunes the globals.
         uint256 launchSoftCap = defaultSoftCap;
         uint256 launchWalletCap = maxPogAllocationLimit;
+
+        // Read and compared in the same breath as the freeze, deliberately: the
+        // window this closes is between the caller reading the dials and this
+        // line running, so the comparison has to be against the values actually
+        // about to be baked in, not a re-read.
+        if (launchSoftCap != expectedSoftCap || launchWalletCap != expectedWalletCap) revert CapsChanged();
 
         // NO ADDRESS-BIT GATE, and its absence is the PancakeSwap Infinity port
         // rather than an omission.

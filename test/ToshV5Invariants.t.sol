@@ -482,8 +482,12 @@ contract ToshInvariantHandler is Test {
 
         string memory name = string(abi.encodePacked("INV", vm.toString(nameNonce++)));
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        try factory.createLaunch{value: fee}(name, name, projTreasury, projTreasury, rawSalt, fee, dur) returns (
+        try factory.createLaunch{value: fee}(
+            name, name, projTreasury, projTreasury, rawSalt, fee, agreedSoftCap, agreedWalletCap, dur
+        ) returns (
             address, address h
         ) {
             ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
@@ -1223,6 +1227,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         require(found, "_createProject: no valid salt");
 
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         (, address h) = factory.createLaunch{value: fee}(
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
@@ -1231,6 +1237,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             projTreasury,
             rawSalt,
             fee,
+            agreedSoftCap,
+            agreedWalletCap,
             genesisDuration
         );
         hook = ToshLaunchpadHook(payable(h));

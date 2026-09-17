@@ -257,9 +257,12 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) =
-            factory.createLaunch{value: fee}("Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, GENESIS);
+        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
+            "Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
+        );
         ToshToken token = ToshToken(tokenAddr);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(hookAddr));
 
@@ -319,53 +322,48 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     //  The two facts the plan has to be built around
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice ⚠ A DIAL CHANGE IN FLIGHT IS NOW HONOURED SILENTLY. It used to be
-    ///         rejected, and the mitigation plan was written around that.
+    /// @notice A dial change landing between quote and execution is rejected, and
+    ///         now it is rejected on purpose.
     ///
-    /// @dev    This test asserted the opposite until the PancakeSwap Infinity
-    ///         port. Inverting it is the honest change rather than deleting it,
-    ///         because the risk it documents did not go away — only the backstop
-    ///         did.
+    /// @dev    The plan this file was written for quantified the race and
+    ///         accepted a residual: a salt ground against stale dials produced an
+    ///         address that failed Uniswap V4's flag check with probability
+    ///         503/512, so 98.2% of in-flight rotations reverted loudly and the
+    ///         remaining ~1.8% — address still valid, clone freezing dials the
+    ///         creator never agreed to — was called the case that could not be
+    ///         caught in code. The mitigation was operational: never let a dial
+    ///         change be in flight during `createLaunch`.
     ///
-    ///         What the plan assumed: a salt ground against stale dials produces
-    ///         an address that fails V4's flag check with probability 503/512, so
-    ///         98.2% of in-flight dial changes reverted loudly. The residual
-    ///         ~1.8% — address still valid, clone freezing dials the creator never
-    ///         agreed to — was called the case that CANNOT be caught in code, and
-    ///         the mitigation was made operational: never let a dial change be in
-    ///         flight during `createLaunch`.
+    ///         The PancakeSwap Infinity port briefly made that 1.8% into 100%,
+    ///         because permissions moved to the hook's registration bitmap and
+    ///         the address gate — along with `InvalidHookSalt` — went away.
+    ///         `CapsChanged` replaces it deliberately, and the residual is now
+    ///         zero rather than 1.8%: the check is an equality on values the
+    ///         caller supplies, so nothing about it is probabilistic.
     ///
-    ///         What is true now: that 1.8% is 100%. Infinity reads permissions
-    ///         from the hook's registration bitmap, `ToshFactory` checks no
-    ///         address bits, and `InvalidHookSalt` no longer exists — so the
-    ///         launch always succeeds, at an address the creator did not predict,
-    ///         freezing whatever the dials read at execution time.
-    ///
-    ///         The operational mitigation is no longer belt-and-braces; it is the
-    ///         only control. `expectedFee` shows the shape a real fix would take:
-    ///         the caps need the same treatment. Recorded in
-    ///         docs/PANCAKESWAP_INFINITY.md §11.
-    function test_rehearsal_aDialChangeInFlightIsSilentlyHonoured() public {
+    ///         The operational rule is a belt-and-braces measure again rather
+    ///         than the only control. See docs/PANCAKESWAP_INFINITY.md §11.3.
+    function test_rehearsal_aDialChangeInFlightIsRefused() public {
         _requireFork();
 
         _applySafeStep();
         bytes32 salt = _pickSalt();
 
-        // The Safe moves the dial again, after the salt is ground. Twice the
-        // floor, as before — it has to clear `MIN_SOFT_CAP_PROD` or the setter
-        // reverts and the test would pass for the wrong reason.
+        // What the creator read, and what their transaction will carry.
+        uint256 agreedCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        // The Safe moves the dial again, after the quote. Twice the floor, as
+        // before — it has to clear `MIN_SOFT_CAP_PROD` or the setter reverts and
+        // the test would pass for the wrong reason.
         vm.prank(ownerSafe);
         factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP * 2);
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        (, address hook) =
-            factory.createLaunch{value: fee}("Stale", "STL", projTreasury, projTreasury, salt, fee, GENESIS);
-
-        assertEq(
-            ToshLaunchpadHook(payable(hook)).softCap(),
-            REHEARSAL_SOFT_CAP * 2,
-            "the launch froze the dial as of execution, not as of agreement"
+        vm.expectRevert(ToshFactory.CapsChanged.selector);
+        factory.createLaunch{value: fee}(
+            "Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS
         );
     }
 
@@ -385,9 +383,12 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) =
-            factory.createLaunch{value: fee}("Concentration", "CNC", projTreasury, projTreasury, salt, fee, GENESIS);
+        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
+            "Concentration", "CNC", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
+        );
         ToshToken token = ToshToken(tokenAddr);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(hookAddr));
 

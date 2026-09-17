@@ -277,6 +277,12 @@ contract Phase1Genesis is RehearsalBase {
             deployer, // projectAdmin
             salt,
             REHEARSAL_LAUNCH_FEE,
+            // Read live, in the same transaction that spends them. A rehearsal
+            // is exactly the situation these two guard against: the Safe has
+            // been moving dials in the phases above, so passing a value written
+            // down earlier in the script would be the mistake being rehearsed.
+            factory.defaultSoftCap(),
+            factory.maxPogAllocationLimit(),
             GENESIS_WINDOW
         );
 

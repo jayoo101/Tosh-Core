@@ -550,9 +550,10 @@ above unblocked the paths that reach it. `ToshV5Guards` now has
 `test_lockAcquired_rejectsEvenThePoolManager`, which pins the distinction
 directly rather than relying on a launch path to expose it.
 
-### 11.3 ⚠ Config rotation in flight is no longer refused
+### 11.3 Config rotation in flight — broken by the port, then fixed properly
 
-This is not fixed, and it is the one item on this list that needs a decision.
+**Resolved.** `createLaunch` now takes `expectedSoftCap` and `expectedWalletCap`
+and reverts `CapsChanged()` on any mismatch. What follows is why it needed to.
 
 Deleting the address-bit gate deleted an accidental guard. Under Uniswap V4, a
 creator predicted their hook address from the dials as they read at quote time;
@@ -573,15 +574,54 @@ not predict, with whatever dials read at execution time frozen into the clone.
 The operational rule is no longer a backstop for a rare case; it is the only
 control over the general one.
 
-Two tests now assert this as the current truth rather than papering over it —
-`ToshV5Factory.test_createLaunch_silentlyAcceptsARotatedSoftCap` and
-`ToshV5FirstLaunchRehearsal.test_rehearsal_aDialChangeInFlightIsSilentlyHonoured`.
-They are what should break when a real guard is added.
+#### The guard
 
-The shape of that guard already exists in the same function: `createLaunch` takes
-`expectedFee` and reverts `FeeChanged()` when the fee moved underneath the
-caller. The caps want the same treatment. That is an ABI change and a frontend
-change, so it is a decision rather than a cleanup.
+`expectedFee` already showed the shape, and the caps now follow it — with one
+deliberate difference. `expectedFee` is a **bound**: `fee > expectedFee` reverts,
+because a fee that moved down leaves the caller better off. The caps are an
+**equality**, because there is no direction in which a mismatch is harmless. A
+cap that moved in the caller's favour still re-rolls the CREATE2 address they
+predicted, so `test_createLaunch_refusesEvenAFavourableRotation` pins that a
+larger wallet allowance is refused too.
+
+The check sits immediately beside the freeze, reading the same locals that are
+about to be baked into the clone rather than re-reading storage. The window being
+closed is between the caller's read and that freeze, so comparing against
+anything else would leave a gap.
+
+Coverage is four tests in `ToshV5Factory` — soft cap rotated, wallet cap rotated,
+favourable rotation, and the positive case that the launch lands where the agreed
+dials predicted — plus
+`ToshV5FirstLaunchRehearsal.test_rehearsal_aDialChangeInFlightIsRefused` against a
+deployed factory. The two dials have separate setters, which is why they get
+separate tests: a guard watching only `defaultSoftCap` would look right and be
+half blind.
+
+The residual is now zero rather than V4's 1.8%. The old protection was
+probabilistic because it depended on address arithmetic; an equality on
+caller-supplied values is not.
+
+#### A trap worth recording, since it cost a full test run
+
+Threading the two arguments through 35 call sites broke 125 tests in a way that
+pointed everywhere except at the cause:
+
+```solidity
+vm.prank(creator);
+factory.createLaunch{value: fee}(..., factory.defaultSoftCap(), ...);
+```
+
+Arguments evaluate before the call, and `vm.prank` applies to the next call — so
+the prank was spent on `defaultSoftCap()` and `createLaunch` ran as the test
+contract. `finalSalt` includes `msg.sender`, so every launch bound to the wrong
+creator: predictions stopped matching, `OnlyCreator()` fired on every later
+`launch()`, and salts began colliding between tests that used to have distinct
+creators. None of the failure messages mentioned a prank.
+
+This is the second time the same mistake has appeared in this port — the first was
+`_routerInputs` inside a pranked `execute` during the router measurement. The rule
+is simply that a pranked call takes no arguments that are themselves calls. Every
+site now hoists the reads to locals above the prank.
 
 ### 11.4 Launch got 34k more expensive
 

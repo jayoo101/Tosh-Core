@@ -127,9 +127,12 @@ contract ToshV5AttackTest is Test {
     function _launchProject(uint256 raise) internal returns (ToshToken token, ToshLaunchpadHook hook) {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) =
-            factory.createLaunch{value: fee}("Probe", "PRB", projTreasury, projTreasury, salt, fee, 24 hours);
+        (address t, address h) = factory.createLaunch{value: fee}(
+            "Probe", "PRB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
 
@@ -942,8 +945,12 @@ contract ToshV5AttackTest is Test {
 
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}("Farm", "FRM", projTreasury, projTreasury, salt, fee, 24 hours);
+        (, address h) = factory.createLaunch{value: fee}(
+            "Farm", "FRM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
 
         _registerPoG(attacker, POG_CAP);
@@ -970,9 +977,12 @@ contract ToshV5AttackTest is Test {
         _registerPoG(alice, POG_CAP);
 
         bytes32 salt2 = _pickSalt();
+        agreedSoftCap = factory.defaultSoftCap();
+        agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h2) =
-            factory.createLaunch{value: fee}("Farm2", "FR2", projTreasury, projTreasury, salt2, fee, 24 hours);
+        (, address h2) = factory.createLaunch{value: fee}(
+            "Farm2", "FR2", projTreasury, projTreasury, salt2, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
         ToshLaunchpadHook hook2 = ToshLaunchpadHook(payable(h2));
 
         vm.prank(alice);

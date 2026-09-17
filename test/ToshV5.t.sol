@@ -187,9 +187,12 @@ contract ToshV5Test is Test {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) =
-            factory.createLaunch{value: fee}(name, symbol, projTreasury, projTreasury, salt, fee, 24 hours);
+        (address t, address h) = factory.createLaunch{value: fee}(
+            name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
 
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
@@ -405,8 +408,12 @@ contract ToshV5Test is Test {
         uint256 fee = factory.launchFee();
         uint256 before = creator.balance;
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        factory.createLaunch{value: fee + 3 ether}("Over", "OVR", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee + 3 ether}(
+            "Over", "OVR", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
 
         assertEq(before - creator.balance, fee, "overpayment must be refunded");
     }
@@ -415,9 +422,13 @@ contract ToshV5Test is Test {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
-        factory.createLaunch{value: fee - 1}("Under", "UND", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee - 1}(
+            "Under", "UND", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @dev `expectedFee` is a slippage cap: an owner who raises the fee in the
@@ -429,9 +440,13 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         factory.setLaunchFee(quotedFee + 1 ether);
 
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch{value: 5 ether}("Front", "FRT", projTreasury, projTreasury, salt, quotedFee, 24 hours);
+        factory.createLaunch{value: 5 ether}(
+            "Front", "FRT", projTreasury, projTreasury, salt, quotedFee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @notice The live pool key claims exactly the permissions the hook admits
@@ -2818,7 +2833,17 @@ contract ToshV5Test is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch{value: fee}("GasCreate", "GCR", projTreasury, projTreasury, salt, fee, 24 hours);
+        factory.createLaunch{value: fee}(
+            "GasCreate",
+            "GCR",
+            projTreasury,
+            projTreasury,
+            salt,
+            fee,
+            factory.defaultSoftCap(),
+            factory.maxPogAllocationLimit(),
+            24 hours
+        );
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch", used);

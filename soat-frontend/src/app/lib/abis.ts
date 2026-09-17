@@ -275,6 +275,16 @@ export const FACTORY_ABI = [
         "internalType": "uint256"
       },
       {
+        "name": "expectedSoftCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedWalletCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "genesisDuration",
         "type": "uint256",
         "internalType": "uint256"
@@ -1685,6 +1695,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "CapTooLargeToPack",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CapsChanged",
     "inputs": []
   },
   {
