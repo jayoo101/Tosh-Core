@@ -117,18 +117,27 @@ abstract contract RehearsalBase is Script {
     /// progress target rather than a gate, and a rehearsal that fills it
     /// exactly — as this one did while the gate existed — exercises only the
     /// path that worked before the change.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 0.05 ether;
-    uint256 internal constant REHEARSAL_WALLET_CAP = 0.01 ether;
-    uint256 internal constant REHEARSAL_LAUNCH_FEE = 0.001 ether;
+    ///
+    /// ⚠ THESE ARE BNB, and the ×3.5 pass that converted every other denominated
+    ///   constant missed this file. The result was not a wrong number in a log:
+    ///   `REHEARSAL_RAISE` at its old 0.01 fell BELOW the factory's rescaled
+    ///   `MIN_SOFT_CAP_PROD` of 0.035, so phase 1 reverted on its own assertion
+    ///   the first time it was pointed at a real BSC factory. Kept as a note
+    ///   because the ratios below are what the rehearsal is about, and rescaling
+    ///   them one at a time is how those ratios get quietly broken.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 0.175 ether;
+    uint256 internal constant REHEARSAL_WALLET_CAP = 0.035 ether;
+    uint256 internal constant REHEARSAL_LAUNCH_FEE = 0.0035 ether;
 
     /// What one wallet actually deposits: 20 % of the cap.
     ///
     /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`, and asserted against the
-    /// contract in `_scaleParameters` rather than trusted. The floor binds the
-    /// RAISE, not the cap: below it `p0 = lpNative / GENESIS_LP_SUPPLY` truncates
-    /// toward zero. Going lower to widen the shortfall would trade the thing
-    /// under test for a degenerate pool.
-    uint256 internal constant REHEARSAL_RAISE = 0.01 ether;
+    /// contract in `_scaleParameters` rather than trusted — which is what caught
+    /// the missed rescaling above. The floor binds the RAISE, not the cap: below
+    /// it `p0 = lpNative / GENESIS_LP_SUPPLY` truncates toward zero. Going lower
+    /// to widen the shortfall would trade the thing under test for a degenerate
+    /// pool.
+    uint256 internal constant REHEARSAL_RAISE = 0.035 ether;
 
     /// PancakeSwap Infinity's UniversalRouter on BSC testnet (97). Table and
     /// re-check commands in docs/PANCAKESWAP_INFINITY.md §7.
