@@ -28,65 +28,51 @@ interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
 }
 
-/// @dev Stand-in for the `ArbSys` precompile, needed because Foundry does not
-///      have one. See `_installArbSys` for why a fork of an Arbitrum chain
-///      cannot run this suite without it.
-contract ForkArbSys {
-    uint256 private _height;
-
-    function arbBlockNumber() external view returns (uint256) {
-        return _height;
-    }
-
-    function setHeight(uint256 h) external {
-        _height = h;
-    }
-}
-
 /// @notice Fork suite — the whole launch lifecycle against the **deployed**
-///         Uniswap V4 singleton on Robinhood Chain (4663).
+///         PancakeSwap Infinity CL manager and Vault on BSC mainnet (56).
 ///
 /// @dev    This closes a gap every other suite had: every
-///         other suite runs against a `PoolManager` this repository compiles
+///         other suite runs against a manager and Vault this repository compiles
 ///         and deploys itself. That is the same source, but it is not the same
 ///         bytecode, and it is never the same surrounding state. What only a
 ///         fork can answer:
 ///
-///           - the 24,009-byte singleton actually on chain accepts a hook
-///             address our miner produced, under ITS compiled copy of the
-///             flag-validation rules rather than ours;
+///           - the manager actually on chain accepts our hook, under ITS
+///             compiled copy of the permission-bitmap rules rather than ours;
 ///           - `initialize` and the genesis liquidity mint work against a
-///             singleton that already holds live pools, so our pool id cannot
+///             manager that already holds live pools, so our pool id cannot
 ///             collide with and our accounting cannot disturb what is there;
 ///           - the periphery addresses `contracts.ts` ships (§2.2 of the
-///             checklist) are the addresses that are really there;
-///           - `ArbSys` is registered on this chain, which is the fact the
-///             hook's `_hasArbSys` discriminator is built on.
+///             checklist) are the addresses that are really there, and the
+///             manager and Vault name each other;
+///           - `ArbSys` is ABSENT on this chain, which is the fact the hook's
+///             `_hasArbSys` discriminator now has to come out false on.
 ///
-///         **Skips rather than fails when `ROBINHOOD_RPC` is unset**, which is
-///         how CI sees it. A fork suite that goes red on a missing credential
-///         teaches everyone to ignore red.
+///         ⚠ THE FIRST AND LAST OF THOSE BOTH FLIPPED IN THE PORT. This file
+///           used to prove the deployed Uniswap V4 singleton accepted an address
+///           our miner produced under the 0x20CC flag rules, and that Robinhood
+///           registered `ArbSys` at `0x64`. Infinity reads permissions from the
+///           hook rather than its address, and BSC has one clock — so the first
+///           claim has no subject any more and the second is inverted. Neither
+///           was weakened; both are now claims about a different platform.
 ///
-///         ─── Two things about this fork are not faithful, and both are the
-///         tooling's fault rather than a choice ───
+///         **Skips rather than fails when `BSC_RPC` is unset**, which is how CI
+///         sees it. A fork suite that goes red on a missing credential teaches
+///         everyone to ignore red.
 ///
-///         **It is not pinned.** Reproducibility would want a fixed block, and
-///         until the Robinhood cutover this file had one. The public endpoint
-///         will not serve it: state older than a few thousand blocks comes back
-///         `metadata is not found`, and at 100 ms blocks a "few thousand" is
-///         somewhere between two and seventeen minutes of history. Any constant
-///         written here would be dead before it was committed. So the suite
-///         forks the tip, and a failure is a claim about the chain as it was
-///         that morning rather than one anybody else can re-run. Pinning comes
-///         back the day an archive endpoint does — one line, `FORK_BLOCK`.
+///         **It is not pinned**, and this is the one unfaithful thing left. It
+///         had a fixed block until the Robinhood cutover, where the public
+///         endpoint refused to serve one: state older than a few thousand blocks
+///         came back `metadata is not found`. BSC's public endpoints are more
+///         forgiving, so pinning is now a one-line change (`FORK_BLOCK`) that is
+///         worth making and has not been made yet. Until then a failure is a
+///         claim about the chain as it was that morning rather than one anybody
+///         else can re-run.
 ///
-///         **`ArbSys` is mocked.** Foundry's EVM does not implement it. The
-///         fork faithfully fetches the 1-byte stub the chain keeps at `0x64`,
-///         so `_hasArbSys` comes out true, and then `arbBlockNumber()` reverts
-///         because there is nothing behind the stub to answer it. Every test
-///         here would die inside `beforeSwap`. `_installArbSys` etches a real
-///         implementation over the stub, seeded from the forked header — see
-///         there for why the seed is honest and what it still cannot tell us.
+///         Nothing here is mocked any more. The Robinhood era needed a
+///         `ForkArbSys` etched over the chain's 1-byte stub at `0x64`, because a
+///         fork copies the stub but not the node behind it and every test died
+///         inside `beforeSwap`. On BSC there is nothing at `0x64` to work around.
 contract ToshV5ForkTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
@@ -111,8 +97,9 @@ contract ToshV5ForkTest is Test {
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address internal constant POSITION_MANAGER = 0x55f4c8abA71A1e923edC303eb4fEfF14608cC226;
 
-    /// @dev The ArbSys precompile. Read for its code length before being etched
-    ///      over, because that length is what production actually branches on.
+    /// @dev The ArbSys precompile, kept only so its ABSENCE can be asserted:
+    ///      `_hasArbSys` branches on the code length at this address, and on BSC
+    ///      it must find nothing. Nothing etches over it any more.
     address internal constant ARB_SYS = 0x0000000000000000000000000000000000000064;
 
     // ─── UniversalRouter encoding ─────────────────────────────────────────────
@@ -160,10 +147,6 @@ contract ToshV5ForkTest is Test {
 
     bool internal forked;
 
-    /// @dev `ARB_SYS.code.length` as the chain really reports it, captured
-    ///      before the etch replaces it. Asserted on, not just recorded.
-    uint256 internal liveArbSysCodeLength;
-
     function setUp() public {
         string memory rpc = vm.envOr("BSC_RPC", string(""));
         if (bytes(rpc).length == 0) return;
@@ -199,32 +182,7 @@ contract ToshV5ForkTest is Test {
     ///      rather than passed, so a run without an RPC cannot be mistaken for
     ///      evidence that the fork path works.
     function _requireFork() internal {
-        vm.skip(!forked, "ROBINHOOD_RPC unset, see .env.example");
-    }
-
-    /// @dev Give the fork an `ArbSys` that answers, because Foundry will not.
-    ///
-    ///      The chain keeps a one-byte stub at `0x64` so that `extcodesize`
-    ///      reports a contract; the actual `arbBlockNumber()` is served by the
-    ///      node, below the EVM. A fork copies the stub and not the node, which
-    ///      leaves the worst of both: `_hasArbSys` reads true and every call
-    ///      through it reverts.
-    ///
-    ///      Seeded from `block.number`, which is not the arbitrary choice it
-    ///      looks like. On the live chain the `NUMBER` opcode returns the L1
-    ///      height — that difference is the entire reason `_blockNumber()`
-    ///      exists — but Foundry populates it from the forked L2 header, so
-    ///      here it IS the L2 height, and the mock starts life holding the real
-    ///      one. Which means this suite is faithful about the VALUE and mute
-    ///      about the DIVERGENCE: it cannot catch a regression that went back
-    ///      to `block.number`, because in a fork the two agree. That property
-    ///      is `test/ToshV5ArbSys.t.sol`'s job, where the two are forced apart.
-    function _installArbSys() internal {
-        liveArbSysCodeLength = ARB_SYS.code.length;
-
-        ForkArbSys impl = new ForkArbSys();
-        vm.etch(ARB_SYS, address(impl).code);
-        ForkArbSys(ARB_SYS).setHeight(block.number);
+        vm.skip(!forked, "BSC_RPC unset, see .env.example");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -322,23 +280,39 @@ contract ToshV5ForkTest is Test {
         assertEq(block.chainid, 56, "fork is not BSC mainnet");
     }
 
-    /// @notice `ArbSys` is registered at `0x64` on this chain.
+    /// @notice `ArbSys` is NOT registered at `0x64` on this chain, so the hook
+    ///         counts blocks with `block.number`.
     ///
-    /// @dev    The hook decides once, in its constructor, whether to read the
+    /// @dev    ⚠ THIS ASSERTION IS INVERTED FROM WHAT IT SAID ON ROBINHOOD, and
+    ///           inverting it was the point rather than a consequence.
+    ///
+    ///         The hook decides once, in its constructor, whether to read the
     ///         chain's height from `ArbSys` or from `block.number`, and it
-    ///         decides by asking whether `0x64` holds code. Get that wrong on
-    ///         Robinhood and `lastSwapBlock` is stamped in L1 blocks while
-    ///         everything comparing against it counts in L2 blocks — a ~21M
-    ///         gap, and a flash-loan guard that never once fires.
+    ///         decides by asking whether `0x64` holds code. On Robinhood the
+    ///         answer had to be yes: `NUMBER` there returns the L1 height, so a
+    ///         hook that trusted it would stamp `lastSwapBlock` ~21M blocks away
+    ///         from everything comparing against it, and the same-block lockout
+    ///         would never once fire.
     ///
-    ///         Every other test of that branch supplies its own answer via
-    ///         `vm.etch`. This one reads the real chain, before the etch in
-    ///         `_installArbSys` covers it up, so the premise underneath the
-    ///         mocks is checked exactly once against the thing it models.
-    function test_fork_arbSysIsRegisteredOnThisChain() public {
+    ///         BSC has one clock. `block.number` IS the chain's height, there is
+    ///         no precompile at `0x64`, and the discriminator must therefore come
+    ///         out false. That is not a weaker claim than the old one — it is the
+    ///         same claim about a different chain, and it is the premise the
+    ///         lockout now rests on. A future BSC upgrade that put anything at
+    ///         `0x64` would silently route the hook down the Arbitrum branch and
+    ///         make `arbBlockNumber()` the source of truth for a guard that has
+    ///         no business calling it.
+    ///
+    ///         Read live rather than mocked. `ForkArbSys` and `_installArbSys`
+    ///         used to sit in this file to get past the Robinhood stub, and both
+    ///         are gone: there is nothing to etch over, and a mock here would
+    ///         defeat the only test that asks the chain directly.
+    ///         `test/ToshV5ArbSys.t.sol` still forces the two clocks apart, which
+    ///         is where the branch itself is exercised.
+    function test_fork_theChainHasNoArbSysSoTheHookUsesBlockNumber() public {
         _requireFork();
 
-        assertGt(liveArbSysCodeLength, 0, "ArbSys absent: the hook would fall back to L1 block numbers");
+        assertEq(ARB_SYS.code.length, 0, "something lives at 0x64: the hook would read heights from ArbSys");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
