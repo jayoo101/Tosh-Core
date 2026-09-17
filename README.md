@@ -1,6 +1,6 @@
 # Tosh Protocol
 
-**A Phase-1.5 fair-launch protocol built on Proof-of-Gas and a Uniswap v4 hook.**
+**A Phase-1.5 fair-launch protocol built on Proof-of-Gas and a PancakeSwap Infinity hook.**
 
 [![tests](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml/badge.svg)](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -8,8 +8,9 @@
 | | |
 |---|---|
 | Version | v5.0 |
-| Date | 2026-09-13 |
-| Network | Robinhood Chain — chain ID `4663`, an Arbitrum Orbit L2 |
+| Date | 2026-09-17 |
+| Network | Migrating to BNB Smart Chain. Rehearsing on testnet `97`; mainnet `56` **not yet deployed** |
+| Previously | Robinhood Chain `4663` — retired, see Appendix A |
 | Site | [toshx.xyz](https://toshx.xyz) |
 | Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |
 
@@ -17,11 +18,24 @@
 
 ### On verifiability
 
-This document describes a protocol that is deployed on a production chain, open
-source, and checkable line by line against `src/` and a read-only RPC. It is not
-an investment pitch and it is not marketing copy. Every mechanism, parameter and
-identity below is tied to a specific state variable or function signature. Where
-the code does not implement something, this document does not claim it.
+This document describes a protocol that is open source and checkable line by line
+against `src/` and a read-only RPC. It is not an investment pitch and it is not
+marketing copy. Every mechanism, parameter and identity below is tied to a
+specific state variable or function signature. Where the code does not implement
+something, this document does not claim it.
+
+**Read every "is deployed" and "has been verified" below against the migration.**
+This document used to say "deployed on a production chain" without qualification,
+which was true of Robinhood Chain `4663` and is true of nothing today. The
+protocol is mid-move to BNB Smart Chain: the AMM changed with it, from Uniswap V4
+to PancakeSwap Infinity, because BSC has no V4 deployment. Every currency figure
+below is BNB, rescaled ×3.5 from its ETH value — except the Proof-of-Gas floor,
+which stays in ETH on purpose and says so where it appears.
+
+What that costs in confidence is stated rather than glossed. The 4663 deployment
+had verified bytecode on two independent services and a pinned build tag; the BSC
+build has neither yet, because it has not been deployed to `56`. §10.1 marks
+which claims travelled and which did not.
 
 ---
 
@@ -42,12 +56,12 @@ race that MEV bots are better equipped to win than the people it is nominally fo
 Tosh proposes a third shape, **Phase 1.5** — continuous fundraising in which
 primary issuance and a real secondary pool are live at the same time:
 
-$$\text{Phase 1.5} \;=\; \underbrace{\text{Uniswap v4 full-range pool}}_{\text{secondary price discovery}} \;\parallel\; \underbrace{4{,}000 \text{ discrete shelves}}_{\text{primary supply, minted on demand}}$$
+$$\text{Phase 1.5} \;=\; \underbrace{\text{Infinity full-range pool}}_{\text{secondary price discovery}} \;\parallel\; \underbrace{4{,}000 \text{ discrete shelves}}_{\text{primary supply, minted on demand}}$$
 
 Four properties follow from that, and each is a consequence of code that exists
 or code that is deliberately absent:
 
-**The pool exists before the secondary market does.** A real Uniswap v4 pool is
+**The pool exists before the secondary market does.** A real Infinity pool is
 created atomically in the same call that closes genesis. There is no structural
 gap between "trading on a curve" and "a pool exists".
 
@@ -99,7 +113,7 @@ nobody can ever claim.
 Tosh puts a primary issuance shelf and a real secondary pool under one state
 machine:
 
-**The pool goes first.** Genesis proceeds fund a full-range Uniswap v4 position,
+**The pool goes first.** Genesis proceeds fund a full-range Infinity position,
 which gives the token real two-sided depth from its first block.
 
 **Supply is minted on demand, as it climbs.** Shelf tokens do not exist on chain
@@ -164,6 +178,13 @@ bulk.
                                                           ▼
                                         [ EIP-191 verification, then deposit ]
 ```
+
+⚠ **That chain list is current code, and it is one migration behind.** It still
+scans Robinhood `4663` and does not scan BSC `56`, so a wallet's BSC gas history
+earns it nothing today. The cause is transport, not policy: the scanner reads
+Blockscout, and Blockscout does not cover chain 56 at any tier, so BSC needs an
+Etherscan v2 key the project does not yet hold. Listed here rather than quietly
+corrected because the scan set is a live decision, not a typo.
 
 **1 · The floor (`band.floorWei`, seeded at 0.025 ETH).** The oracle sums the
 requesting wallet's real gas spend across major chains. Fresh wallets and
@@ -252,18 +273,19 @@ Two platform singletons per chain. Each project gets a CREATE2-derived pair of
 EIP-1167 minimal clones.
 
 ```
-ToshFactory (0x2920ca7E…) ──────────► ToshLadderTreasury (0x25572222…)
+ToshFactory (0xB224f26a…) ──────────► ToshLadderTreasury (0x79de2226…)
    ├─ createLaunch / PoG verification      ├─ revenue in: launch fee, shelf cut,
    ├─ genesis deposit gateway              │  buy-side tax, orphaned commission
    │  and two-tier referral ledger         └─ only way out ──► 0xdead (buy & burn)
    └─ cooldown / blacklist / pause
           │
-          │ CREATE2 (EIP-1167 minimal clone, 121 bytes)
+          │ CREATE2 (EIP-1167 minimal clone, 131 bytes)
           ▼
-ToshLaunchpadHook (one per project) ──► Uniswap v4 PoolManager (0x8366a39C…)
-   ├─ Phase 1: deposit / refund / launch    └─ real full-range ETH ⇄ token pool
-   ├─ Phase 2: 4,000 shelves / genesis claims
-   └─ v4 callbacks: beforeSwap / afterSwap
+ToshLaunchpadHook (one per project) ──► Infinity CLPoolManager (0x36A12c70…)
+   ├─ Phase 1: deposit / refund / launch    │  runs the pool: full-range BNB ⇄ token
+   ├─ Phase 2: 4,000 shelves / genesis      └─► Infinity Vault (0x2CdB3EC8…)
+   │  claims                                      holds every balance; settlement
+   └─ ICLHooks: beforeSwap / afterSwap             is paid HERE, not to the manager
           │
           │ mint()  [exclusive MINTER_ROLE]
           ▼
@@ -276,7 +298,7 @@ ToshToken (one per project)
 |---|---|---|
 | `ToshFactory` | one per chain | `createLaunch`, `registerPoG`, deposit routing, the project and lifetime referral graph, and the global safety controls |
 | `ToshLadderTreasury` | one per chain | One-way valve. Collects four revenue streams, buys on the project's own pool, and burns to `0xdead` |
-| `ToshLaunchpadHook` | one per project | The whole per-project lifecycle state machine, and the Uniswap v4 callbacks |
+| `ToshLaunchpadHook` | one per project | The whole per-project lifecycle state machine, and the Infinity `ICLHooks` callbacks |
 | `ToshToken` | one per project | Standard ERC-20, hard cap 21,000,000, mint authority exclusive to its hook, no admin backdoor |
 
 ---
@@ -321,7 +343,7 @@ and the shelf ladder starts one notch above it at $\text{shelfP0} = p_0 \times 1
 
 **Mint the genesis block** — `GENESIS_SUPPLY`, 8,400,000 tokens:
 
-- **45% (3,780,000)** goes straight into a full-range Uniswap v4 position: tick
+- **45% (3,780,000)** goes straight into a full-range Infinity position: tick
   range ±887,200, fee 0.30% (`POOL_FEE` = 3000), `TICK_SPACING` = 200.
 - **55% (4,620,000)** stays in the hook for genesis depositors to withdraw pro
   rata via `claimGenesis()`.
@@ -450,7 +472,7 @@ a quarter of the live supply.
 
 | Fee | Rate | Where it goes |
 |---|---|---|
-| Uniswap v4 pool fee | 0.30% | liquidity providers, settled natively by v4 |
+| Infinity pool fee | 0.30% | liquidity providers, settled natively by the AMM |
 | Swap tax — buy | 1.00% of ETH in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
 | Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
 | Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
@@ -514,7 +536,7 @@ commission is ever paid.
 
 - **In:** launch fees, orphaned commission, the 1% shelf cut, the 70 bps buy-side
   tax.
-- **Out:** the internal `_buyAndBurn` only. It buys the token through Uniswap v4
+- **Out:** the internal `_buyAndBurn` only. It buys the token through Infinity
   and sends it to `0xdead`.
 - **Absent by design:** `withdraw`, `sweep`, `rescue`, `delegatecall`. The owner
   can curate which tokens are in the buyback rotation. The owner cannot move one
@@ -527,7 +549,8 @@ reservoir one trigger at a time.
 
 ### 8.2 Genesis liquidity is locked; retail LPs are not
 
-Uniswap v4 keys every position to the address that created it. The genesis
+Infinity keys every position to the address that created it, exactly as Uniswap
+V4 did. The genesis
 position belongs to the hook, and the hook exposes no path that calls
 `modifyLiquidity` to reduce it. The lock is a consequence of ownership plus
 absence, not of a callback that could be edited later.
@@ -567,19 +590,30 @@ are the powers.
 
 ### 10.1 What has been verified
 
-- **Bytecode.** All five contracts verify on Blockscout as `partial match`, and
-  independently on Sourcify as `match`: the runtime bytecode is byte-identical to
-  this tree, and the difference is the trailing metadata hash, which contains no
-  executable instructions.
-- **Build provenance.** The deployment is pinned to tag `deploy-4663-2026-09-12`.
-  `HOOK_CREATION_CODEHASH` is cross-checked against this tree by
-  `RecomputeInitcodeHash`, which is checkable from chain and from this repository
-  without trusting anyone.
-- **Tests.** 373 tests across 15 suites, covering the lifecycle state machine,
-  the premium identity, the same-block lock, retail LP isolation from the genesis
-  position, and that a ladder halt cannot withhold refunds. CI runs the suite
-  twice — once normally and once under `--isolate`, which charges each call the
-  way a real transaction does.
+⚠ **Two of the four items below describe the RETIRED 4663 deployment and have no
+BSC equivalent yet.** They are kept, marked, rather than deleted, because losing
+them is part of the migration's cost and a reader deciding whether to trust this
+build should see the gap rather than an unqualified list.
+
+- **Bytecode — 4663 only.** All five contracts verified on Blockscout as `partial
+  match` and independently on Sourcify as `match`. Nothing on BSC is verified: `56`
+  has no deployment, and verification there is Etherscan v2 rather than Blockscout,
+  which needs an API key the project does not yet hold.
+- **Build provenance — 4663 only.** That deployment was pinned to tag
+  `deploy-4663-2026-09-12`. `HOOK_CREATION_CODEHASH` is still cross-checked against
+  this tree by `RecomputeInitcodeHash`, which is checkable from chain and from this
+  repository without trusting anyone — but there is no BSC tag to pin to yet.
+- **Tests — current.** 387 tests across 16 suites, covering the lifecycle state
+  machine, the premium identity, the same-block lock, retail LP isolation from the
+  genesis position, and that a ladder halt cannot withhold refunds. CI runs the
+  suite twice — once normally and once under `--isolate`, which charges each call
+  the way a real transaction does. The port to Infinity is inside this count, and
+  it found two real bugs: settlement was being paid to the pool manager rather
+  than the Vault, and the treasury's callback still authenticated the manager.
+- **Live-chain rehearsal — current, partial.** The lifecycle has been driven
+  against the real PancakeSwap Infinity deployment on testnet `97`, not only
+  against a fork. Genesis is confirmed; launch, buy and ladder are pending the
+  genesis window.
 - **Static analysis, pinned.** `forge lint` and Slither both run in CI against
   committed baselines, so a finding cannot start or stop firing without somebody
   deciding about it. There has been no third-party audit; see below.
@@ -607,17 +641,28 @@ are the powers.
    indexing and Blockscout API quota. Exhausting the window temporarily refuses
    *new* registrations; quotas already issued, deposits already made, and the
    refund path are unaffected.
-7. **Single-chain deployment.** Liveness and finality are inherited from
-   Robinhood Chain and its Arbitrum Orbit sequencer. That chain's mainnet went
-   live in July 2026.
+7. **Single-chain deployment.** Liveness and finality are inherited from BNB Smart
+   Chain and its validator set. This used to read "Robinhood Chain and its
+   Arbitrum Orbit sequencer", and the difference is not only the name: BSC has no
+   `ArbSys` precompile, so the hook reads `block.number` directly instead of
+   asking for an L2 block height. The same-block lock therefore depends on one
+   clock rather than reconciling two.
 8. **Governance is a multisig, not a burned key.** The powers in §9 are real. What
    they exclude is any path that moves user funds.
 
 ---
 
-## Appendix A · Current mainnet deployment
+## Appendix A · Deployments
 
-Tag `deploy-4663-2026-09-12`, block 61056709, Robinhood Chain (`4663`).
+### A.1 Robinhood Chain `4663` — RETIRED
+
+⚠ **This is no longer the platform, and nothing should be wired to it.** Tag
+`deploy-4663-2026-09-12`, block 61056709.
+
+These are Uniswap V4 hooks, and their factory mined CREATE2 salts against the
+`0x20CC` address mask — a mechanism that does not exist in the current tree, since
+Infinity reads permissions from `getHooksRegistrationBitmap()` instead. The
+addresses are kept recoverable, not operational.
 
 | Component | Address |
 |---|---|
@@ -625,6 +670,11 @@ Tag `deploy-4663-2026-09-12`, block 61056709, Robinhood Chain (`4663`).
 | `ToshLadderTreasury` | [`0x255722226720914eF5B2CD54647f21f584BD4Ea2`](https://explorer.mainnet.chain.robinhood.com/address/0x255722226720914eF5B2CD54647f21f584BD4Ea2) |
 | Governance Safe (2-of-3) | [`0x2953957774482efA660921df85A1E7634ccfe27A`](https://explorer.mainnet.chain.robinhood.com/address/0x2953957774482efA660921df85A1E7634ccfe27A) |
 | Uniswap v4 PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+
+That last row is a Uniswap V4 manager, and it is the reason this appendix cannot
+be read as a template for the BSC one: the current tree talks to an Infinity
+`CLPoolManager` and a separate `Vault`, and no address here has a counterpart
+there.
 
 `LaunchCreated` has topic0
 `0x857f6038583a34516f405db6cc1a1112e32e20ddd3d9a5297662fbc7f730d3fc`, over the
@@ -634,6 +684,32 @@ The earlier pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treas
 `0x99aD248dD15498957B864Fd79917F0E103Aa78F7` — is retired and is no longer the
 platform. It still exists and still holds a small buyback reservoir with no
 withdraw path.
+
+### A.2 BNB Smart Chain testnet `97` — rehearsal in progress
+
+| Component | Address |
+|---|---|
+| `ToshFactory` | `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` |
+| `ToshLadderTreasury` | `0x79de222644E8BBeea6FC55815CCBE9FF136D7674` |
+| Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
+| Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
+
+Two addresses, not one, because Infinity splits what V4's PoolManager did alone:
+the manager runs the pool and the Vault holds every balance. That split is the
+source of both bugs the port surfaced — see §10.1.
+
+⚠ An earlier factory at `0xe94F79A0c44b124b5987Afe55Add16EF0c80FFb2` is abandoned.
+Its immutable `platformTreasury` is Anvil's account #1, whose private key ships
+with Foundry: a leftover shell variable shadowed `.env`, and Foundry lets the
+process environment win. Both deploy scripts now refuse the default test accounts
+outright. Recorded because the address is live, looks ordinary, and would pass
+every invariant check the repository has.
+
+### A.3 BNB Smart Chain mainnet `56` — not deployed
+
+No addresses yet, deliberately. Cutover waits on the `97` rehearsal completing and
+on splitting the single deployer key, which is currently also the PoG signer and
+the immutable platform treasury.
 
 ---
 
