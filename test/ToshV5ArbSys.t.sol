@@ -160,12 +160,12 @@ abstract contract ArbSysHarness is Test {
         hook.launch();
     }
 
-    function _swapBuy(ToshLaunchpadHook hook, uint256 ethIn) internal {
+    function _swapBuy(ToshLaunchpadHook hook, uint256 nativeIn) internal {
         vm.prank(trader);
-        swapRouter.swap{value: ethIn}(
+        swapRouter.swap{value: nativeIn}(
             hook.getPoolKey(),
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""

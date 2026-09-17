@@ -51,7 +51,7 @@ export default function AgentDirectoryHome() {
   const { feature, rest } = useMemo(() => {
     const trending = projects
       .filter(p => p.tab === 'completed' || p.tab === 'live')
-      .sort((a, b) => (a.totalEth === b.totalEth ? 0 : a.totalEth > b.totalEth ? -1 : 1))
+      .sort((a, b) => (a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1))
       .slice(0, 3)
     const [first, ...others] = trending
     return { feature: first, rest: others }

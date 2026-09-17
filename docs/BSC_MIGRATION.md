@@ -197,7 +197,7 @@ an order of magnitude away from 0.5 ETH in value. So:
 - The band is rotatable now without a redeploy, which is what makes getting this
   slightly wrong survivable.
 
-The 21 `totalEthDeposited`-style identifiers keep working — they are all
+The 21 `totalNativeDeposited`-style identifiers keep working — they are all
 `msg.value` — but every one of them names the wrong asset. That is a rename,
 not a behaviour change, and it reaches the ABI and the frontend.
 

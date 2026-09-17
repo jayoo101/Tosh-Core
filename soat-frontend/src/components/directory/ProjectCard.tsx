@@ -223,7 +223,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
             />
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
-            {fmtEth(p.totalEth)} / {fmtEth(p.softCap)} ETH
+            {fmtEth(p.totalNative)} / {fmtEth(p.softCap)} ETH
           </div>
         </div>
       )}
@@ -240,7 +240,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               Raised at genesis
             </div>
             <div className="font-mono text-readout tabular-nums text-text-primary">
-              {fmtEth(p.totalEth)} ETH
+              {fmtEth(p.totalNative)} ETH
             </div>
           </div>
           {/* There is no price feed behind this app, so there is nothing to
@@ -359,7 +359,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div>
             <div className="flex items-center justify-between gap-gap text-note text-text-tertiary">
               <span className="font-mono tabular-nums text-text-primary">
-                {fmtEth(p.totalEth)} ETH
+                {fmtEth(p.totalNative)} ETH
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>
@@ -379,7 +379,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div className="grid grid-cols-3 gap-card border-t border-border-subtle pt-4">
             <div>
               <div className="font-mono text-figure tabular-nums text-text-primary">
-                {fmtEth(p.totalEth)}
+                {fmtEth(p.totalNative)}
               </div>
               <div className="font-mono text-micro uppercase text-text-tertiary">raised eth</div>
             </div>

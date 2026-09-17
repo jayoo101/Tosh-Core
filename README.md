@@ -271,7 +271,7 @@ creation time and cannot go below the production floor
 
 The genesis window always runs to its deadline. At that point the creator may
 call `launch()` with whatever was raised — the soft cap is a progress target,
-not a fail condition. The empty raise (`totalEthDeposited == 0`) cannot seed a
+not a fail condition. The empty raise (`totalNativeDeposited == 0`) cannot seed a
 pool and is the only size `launch()` still rejects.
 
 Refunds open when nobody called `launch()` within the `LAUNCH_WINDOW` of 7 days
@@ -284,9 +284,9 @@ Once genesis has closed and the 7-day window has not lapsed, the creator calls
 `launch()`. That call does the following in a strict atomic order:
 
 **Reserve the commission.** 10% of the raise is carved off for referrals whether
-or not anyone was referred, leaving `lpEth` to seed the pool.
+or not anyone was referred, leaving `lpNative` to seed the pool.
 
-**Fix the anchors.** The opening price is $p_0 = \text{lpEth} / \text{GENESIS\_LP\_SUPPLY}$,
+**Fix the anchors.** The opening price is $p_0 = \text{lpNative} / \text{GENESIS\_LP\_SUPPLY}$,
 and the shelf ladder starts one notch above it at $\text{shelfP0} = p_0 \times 1.05$.
 
 **Mint the genesis block** — `GENESIS_SUPPLY`, 8,400,000 tokens:
@@ -380,7 +380,7 @@ $$P_{\text{raise}} = \frac{R}{\text{GENESIS\_CLAIM\_SUPPLY}} = \frac{R}{4{,}620{
 
 The pool's opening price:
 
-$$p_0 = \frac{\text{lpEth}}{\text{GENESIS\_LP\_SUPPLY}} = \frac{0.9R}{3{,}780{,}000}$$
+$$p_0 = \frac{\text{lpNative}}{\text{GENESIS\_LP\_SUPPLY}} = \frac{0.9R}{3{,}780{,}000}$$
 
 The ratio:
 

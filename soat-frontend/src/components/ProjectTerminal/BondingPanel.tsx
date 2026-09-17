@@ -115,7 +115,7 @@ export function BondingLadderSection() {
 
 export function BondingBuyPanel() {
   const {
-    p, halted, quotable, ethCost, maxEthCost,
+    p, halted, quotable, nativeCost, maxEthCost,
     quoteUnknown, quoteUnavailable, isDust,
     tokenAmount, setTokenAmount, txBusy, amountError, amountHint,
     gate, armed,
@@ -160,7 +160,7 @@ export function BondingBuyPanel() {
               layout="stack"
               className="px-4 py-3"
               label="QUOTED COST"
-              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(ethCost)} ETH`}
+              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(nativeCost)} ETH`}
               tone={quoteUnavailable ? 'warn' : 'ink'}
             />
             <Readout

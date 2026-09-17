@@ -201,14 +201,14 @@ contract ToshLadderTreasury is Ownable2Step {
     event TaxReceived(address indexed from, uint256 amount);
 
     /// @notice Emitted once per piggyback cycle.
-    event PiggybackExecuted(uint256 ethSpent, uint256 tokensServiced, uint256 newCursor);
+    event PiggybackExecuted(uint256 nativeSpent, uint256 tokensServiced, uint256 newCursor);
 
     /// @notice Emitted per ladder token bought and burned.
-    event BuybackBurned(address indexed token, uint256 ethIn, uint256 tokensBurned);
+    event BuybackBurned(address indexed token, uint256 nativeIn, uint256 tokensBurned);
 
     /// @notice Emitted when one leg of a batch reverts.  The cycle continues —
     ///         a single broken pool must never brick platform-wide trading.
-    event BuybackSkipped(address indexed token, uint256 ethIn);
+    event BuybackSkipped(address indexed token, uint256 nativeIn);
 
     // ─── Errors ───────────────────────────────────────────────────────────────
 
@@ -564,16 +564,16 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @notice Single buyback leg.  External ONLY so that `autoPiggybackBuyback`
     ///         can wrap it in `try/catch` for per-token fault isolation; it is
     ///         not reachable by anyone other than this contract.
-    function executeBuyAndBurn(address token, uint256 ethIn) external onlySelf {
-        _buyAndBurn(token, ethIn);
+    function executeBuyAndBurn(address token, uint256 nativeIn) external onlySelf {
+        _buyAndBurn(token, nativeIn);
     }
 
-    /// @dev Market-buy `token` with `ethIn` wei through V4 and send 100 % of the
+    /// @dev Market-buy `token` with `nativeIn` wei through V4 and send 100 % of the
     ///      proceeds to `DEAD_ADDRESS`.
     ///
     ///      Runs inside the caller's existing unlock frame, so the sequence is
     ///      the bare V4 flash-accounting triad:
-    ///        swap  → our delta becomes (-ethIn on currency0, +out on currency1)
+    ///        swap  → our delta becomes (-nativeIn on currency0, +out on currency1)
     ///        settle→ pay the ETH we owe
     ///        take  → collect the tokens straight into 0xdead
     ///
@@ -585,21 +585,21 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      Nothing is stolen from a user, but the reservoir's ETH buys fewer
     ///      tokens to burn and the difference lands in the attacker's pocket,
     ///      so the deflation the tax was collected to deliver is skimmed.
-    function _buyAndBurn(address token, uint256 ethIn) internal {
+    function _buyAndBurn(address token, uint256 nativeIn) internal {
         PoolKey memory key = _poolKeyOf[token];
 
         BalanceDelta delta = poolManager.swap(
             key,
             SwapParams({
                 zeroForOne: true, // ETH (currency0) → token (currency1)
-                amountSpecified: -int256(ethIn), // negative == exact input
+                amountSpecified: -int256(nativeIn), // negative == exact input
                 sqrtPriceLimitX96: _buybackSqrtFloor(key)
             }),
             ""
         );
 
         // Settle exactly what the pool consumed, never the amount offered.  A
-        // binding floor fills only part of `ethIn`, and paying the full amount
+        // binding floor fills only part of `nativeIn`, and paying the full amount
         // would leave this contract holding an unclaimed credit — which fails
         // the unlock frame's all-deltas-zero check and reverts the whole swap
         // for the innocent trader who happened to trigger us.  Whatever goes

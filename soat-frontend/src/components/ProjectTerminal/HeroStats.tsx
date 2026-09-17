@@ -33,7 +33,7 @@ export const PHASE_BADGE: Record<Phase, { label: string; tone: Tone; live: boole
 export function HeroStats({
   phase, symbol,
   p0, currentPrice, shelfP0,
-  totalEthDeposited, softCap,
+  totalNativeDeposited, softCap,
   phase2Minted, bondingMax,
   userEthDeposited,
   windowLabel,
@@ -43,7 +43,7 @@ export function HeroStats({
   p0: bigint
   currentPrice: bigint
   shelfP0: bigint
-  totalEthDeposited: bigint
+  totalNativeDeposited: bigint
   softCap: bigint
   phase2Minted: bigint
   bondingMax: bigint
@@ -62,7 +62,7 @@ export function HeroStats({
     : 'opens at launch'
 
   const raisePct = softCap > 0n
-    ? Number((totalEthDeposited * 10_000n) / softCap) / 100
+    ? Number((totalNativeDeposited * 10_000n) / softCap) / 100
     : 0
   const ladderPct = bondingMax > 0n
     ? Number((phase2Minted * 10_000n) / bondingMax) / 100
@@ -71,7 +71,7 @@ export function HeroStats({
   const pct = progressIsLadder ? ladderPct : raisePct
   const progressCaption = progressIsLadder
     ? `${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`
-    : `${fmt(totalEthDeposited)} / ${fmt(softCap)} ETH`
+    : `${fmt(totalNativeDeposited)} / ${fmt(softCap)} ETH`
 
   const stakeHint =
     phase === 'refund'  ? 'claimable in full'

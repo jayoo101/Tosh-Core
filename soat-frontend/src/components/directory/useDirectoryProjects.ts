@@ -18,7 +18,7 @@ export interface DirectoryProject {
   createdAt:       bigint
   launched:        boolean
   genesisDeadline: bigint
-  totalEth:        bigint
+  totalNative:        bigint
   softCap:         bigint
   symbol:          string
   name:            string
@@ -189,7 +189,7 @@ export function useDirectoryProjects() {
     contracts: launches.flatMap(l => [
       { address: l.hook, abi: HOOK_ABI, functionName: 'launched'          as const },
       { address: l.hook, abi: HOOK_ABI, functionName: 'genesisDeadline'   as const },
-      { address: l.hook, abi: HOOK_ABI, functionName: 'totalEthDeposited' as const },
+      { address: l.hook, abi: HOOK_ABI, functionName: 'totalNativeDeposited' as const },
       { address: l.hook, abi: HOOK_ABI, functionName: 'softCap'           as const },
     ]),
     query: {
@@ -212,17 +212,17 @@ export function useDirectoryProjects() {
       const l = launches[i]
       const launched        = d[off]?.status === 'success' ? (d[off].result as boolean) : false
       const genesisDeadline = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
-      const totalEth        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
+      const totalNative        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
       const softCap         = d[off + 3]?.status === 'success' ? (d[off + 3].result as bigint) : 0n
       const symbol          = ident?.[ioff]?.status === 'success' ? (ident[ioff].result as string) : '???'
       const name            = ident?.[ioff + 1]?.status === 'success' ? (ident[ioff + 1].result as string) : 'Unknown'
       const reg             = registry.get(l.token.toLowerCase())
       const progress        = softCap > 0n
-        ? Math.min(100, Number((totalEth * 10000n) / softCap) / 100)
+        ? Math.min(100, Number((totalNative * 10000n) / softCap) / 100)
         : 0
       out.push({
         ...l,
-        launched, genesisDeadline, totalEth, softCap,
+        launched, genesisDeadline, totalNative, softCap,
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
@@ -243,7 +243,7 @@ export function useDirectoryProjects() {
   // below pure and lets it hold its result until a tab genuinely flips.
   const tabKey = useMemo(
     () => rows
-      .map(r => bucket(r.launched, r.totalEth, r.softCap, r.genesisDeadline, nowSec))
+      .map(r => bucket(r.launched, r.totalNative, r.softCap, r.genesisDeadline, nowSec))
       .join(','),
     [rows, nowSec],
   )

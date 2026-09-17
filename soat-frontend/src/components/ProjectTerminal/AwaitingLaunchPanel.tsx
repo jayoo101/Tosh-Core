@@ -15,12 +15,12 @@ import { fmt } from './format'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AwaitingLaunchPanel({
-  hookAddress, symbol, isCreator, totalEthDeposited, genesisDeadline, nowSec, refetch,
+  hookAddress, symbol, isCreator, totalNativeDeposited, genesisDeadline, nowSec, refetch,
 }: {
   hookAddress:       Address
   symbol:            string
   isCreator:         boolean
-  totalEthDeposited: bigint
+  totalNativeDeposited: bigint
   genesisDeadline:   bigint
   nowSec:            number
   refetch:           () => void
@@ -68,7 +68,7 @@ export function AwaitingLaunchPanel({
       tone={isCreator ? 'ok' : 'default'}
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
-        <Readout label="Raised" value={`${fmt(totalEthDeposited)} ETH`} />
+        <Readout label="Raised" value={`${fmt(totalNativeDeposited)} ETH`} />
         <Readout label="Status" value="Time up · launchable" tone="ok" />
         <Readout label="Window remaining" value={countdown} tone="warn" />
       </div>

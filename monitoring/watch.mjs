@@ -760,7 +760,7 @@ for (const hook of state.hooks) {
      * An abandoned launch that raised nothing is still refundable then, but
      * nobody is owed an announcement. Read the deposited quantity instead of
      * inferring depositors from the refund gate. */
-    const deposited = BigInt(await call(hook, 'totalEthDeposited()'))
+    const deposited = BigInt(await call(hook, 'totalNativeDeposited()'))
     if (deposited === 0n) {
       gap('STATE-01', `${hook} is refundable but raised nothing, so no depositor is owed an announcement`)
       continue
@@ -772,7 +772,7 @@ for (const hook of state.hooks) {
       { playbook: 'tosh-status/MANUAL_INTERACTION.md §4' })
   } catch (err) {
     record('STATE-01', 'P2', false,
-      `canRefund() / totalEthDeposited() failed on ${hook}: ${err.message}`)
+      `canRefund() / totalNativeDeposited() failed on ${hook}: ${err.message}`)
   }
 }
 

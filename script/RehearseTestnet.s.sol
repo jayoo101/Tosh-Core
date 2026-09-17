@@ -119,7 +119,7 @@ abstract contract RehearsalBase is Script {
     ///
     /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`, and asserted against the
     /// contract in `_scaleParameters` rather than trusted. The floor binds the
-    /// RAISE, not the cap: below it `p0 = lpEth / GENESIS_LP_SUPPLY` truncates
+    /// RAISE, not the cap: below it `p0 = lpNative / GENESIS_LP_SUPPLY` truncates
     /// toward zero. Going lower to widen the shortfall would trade the thing
     /// under test for a degenerate pool.
     uint256 internal constant REHEARSAL_RAISE = 0.01 ether;
@@ -337,7 +337,7 @@ contract Phase1Genesis is RehearsalBase {
         console2.log("hook            :", hook);
         console2.log("token           :", token);
         console2.log("softCap         :", h.softCap());
-        console2.log("totalEthDeposited:", h.totalEthDeposited());
+        console2.log("totalNativeDeposited:", h.totalNativeDeposited());
         console2.log("genesisDeadline :", deadline);
         console2.log("seconds to wait :", deadline > block.timestamp ? deadline - block.timestamp : 0);
         console2.log("------------------------------------------------------------");
@@ -373,13 +373,13 @@ contract Phase2Launch is RehearsalBase {
         require(!hook.launched(), "already launched");
 
         // What `launch()` now actually requires, and nothing more. This used to
-        // read `totalEthDeposited() >= softCap()`, which would refuse the very
+        // read `totalNativeDeposited() >= softCap()`, which would refuse the very
         // case the rehearsal exists to prove — the cap is a progress target now
         // and the clock is the gate at both ends.
-        require(hook.totalEthDeposited() > 0, "nothing was raised");
+        require(hook.totalNativeDeposited() > 0, "nothing was raised");
         require(block.timestamp <= deadline + hook.LAUNCH_WINDOW(), "launch window expired -- refunds are open");
 
-        console2.log("raised / soft cap:", hook.totalEthDeposited(), "/", hook.softCap());
+        console2.log("raised / soft cap:", hook.totalNativeDeposited(), "/", hook.softCap());
         console2.log("  launching with the cap UNMET is the behaviour under test.");
 
         vm.startBroadcast(deployerPk);

@@ -86,7 +86,7 @@ cap rather than approaching it.
 ### Pricing
 
 ```
-p0      = lpEth / GENESIS_LP_SUPPLY          pool opening price
+p0      = lpNative / GENESIS_LP_SUPPLY          pool opening price
 shelfP0 = p0 × 1.05                          first shelf
 shelf i = shelfP0 × TIER_STEP^i              4000 shelves, +0.19025% each, 2000× end to end
 ```

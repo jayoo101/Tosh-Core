@@ -233,7 +233,7 @@ export function SoftCapPanel() {
       />
       <ScopeNote tone={belowFloor || aboveCeiling ? 'warn' : 'mute'}>
         The 0.01 ETH floor is a price-truncation guard, not a business rule:
-        p0 = lpEth × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
+        p0 = lpNative × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
         below the floor rounds p0 toward zero. The contract reverts InvalidSoftCap
         below it, so this button stays inert rather than burning gas.
         <br /><br />

@@ -26,7 +26,7 @@ export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
 export function resolvePhase({
   canRefund, launched, genesisDeadline, nowSec,
 }: {
-  totalEthDeposited: bigint
+  totalNativeDeposited: bigint
   softCap:            bigint
   canRefund:          boolean
   launched:           boolean

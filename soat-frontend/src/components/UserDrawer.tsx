@@ -28,7 +28,7 @@
  *                           HH:MM:SS_cs counter that snaps to a fluo
  *                           [ ● ACTIVE_READY ] pip the instant it crosses 0.
  *
- *   [03] PARTICIPATED       For every hook where hook.ethDeposited(user) > 0:
+ *   [03] PARTICIPATED       For every hook where hook.nativeDeposited(user) > 0:
  *        ASSETS               • genesis phase → deposit + raise progress bar
  *                             • curve  phase → claimable pro-rata + lever
  *                                            [ CLAIM_TOKENS ] (→ claimGenesis)
@@ -39,7 +39,7 @@
  *
  *     A. factory.launchCount                          (1 call)
  *     B. factory.launches(i)                          (N calls)
- *     C. hook.ethDeposited(user)                      (N calls, filter > 0)
+ *     C. hook.nativeDeposited(user)                      (N calls, filter > 0)
  *     D. (cooldown + phase + total + softCap + hasClaimed + claimSupply +
  *         erc20.symbol)                              (7 calls × M participated)
  */
@@ -145,7 +145,7 @@ interface LaunchRow {
 }
 
 interface ParticipatedRow extends LaunchRow {
-  ethDeposited: bigint
+  nativeDeposited: bigint
 }
 
 interface HookSnapshot {
@@ -154,7 +154,7 @@ interface HookSnapshot {
   degraded:        boolean
   cooldownEnd:     bigint
   launched:        boolean
-  totalEth:        bigint
+  totalNative:        bigint
   softCap:         bigint
   hasClaimed:      boolean
   genesisClaimSup: bigint
@@ -259,7 +259,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     contracts: address ? launches.map(l => ({
       address:      l.hook,
       abi:          HOOK_ABI,
-      functionName: 'ethDeposited' as const,
+      functionName: 'nativeDeposited' as const,
       args:         [address] as const,
     })) : [],
     query: { enabled: open && Boolean(address) && launches.length > 0 },
@@ -272,7 +272,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       const r = ethDepositedQuery.data[i]
       if (r?.status !== 'success') continue
       const sd = r.result as bigint
-      if (sd > 0n) out.push({ ...launches[i], ethDeposited: sd })
+      if (sd > 0n) out.push({ ...launches[i], nativeDeposited: sd })
     }
     return out
   }, [ethDepositedQuery.data, launches])
@@ -282,7 +282,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     contracts: address ? participated.flatMap(p => [
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd' as const, args: [address, p.hook] as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'launched'              as const },
-      { address: p.hook,          abi: HOOK_ABI,    functionName: 'totalEthDeposited'     as const },
+      { address: p.hook,          abi: HOOK_ABI,    functionName: 'totalNativeDeposited'     as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'softCap'               as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'hasClaimed'            as const, args: [address] as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'GENESIS_CLAIM_SUPPLY'  as const },
@@ -313,16 +313,16 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
 
       const cooldownEnd     = degraded ? 0n    : d[off    ].result as bigint
       const launched        = degraded ? false : d[off + 1].result as boolean
-      const totalEth        = degraded ? 0n    : d[off + 2].result as bigint
+      const totalNative        = degraded ? 0n    : d[off + 2].result as bigint
       const softCap         = degraded ? 0n    : d[off + 3].result as bigint
       const hasClaimed      = degraded ? false : d[off + 4].result as boolean
       const genesisClaimSup = degraded ? 0n    : d[off + 5].result as bigint
       const symbol          = degraded ? '???' : d[off + 6].result as string
       const claimable       =
-        !degraded && launched && !hasClaimed && totalEth > 0n
-          ? (genesisClaimSup * row.ethDeposited) / totalEth
+        !degraded && launched && !hasClaimed && totalNative > 0n
+          ? (genesisClaimSup * row.nativeDeposited) / totalNative
           : 0n
-      out.push({ row, degraded, cooldownEnd, launched, totalEth, softCap, hasClaimed, genesisClaimSup, symbol, claimable })
+      out.push({ row, degraded, cooldownEnd, launched, totalNative, softCap, hasClaimed, genesisClaimSup, symbol, claimable })
     }
     return out
   }, [fullDataQuery.data, participated])
@@ -752,7 +752,7 @@ function AssetRow({
   snapshot:  HookSnapshot
   onClaimed: () => void
 }) {
-  const { row, degraded, launched, totalEth, softCap, hasClaimed, claimable, symbol } = snapshot
+  const { row, degraded, launched, totalNative, softCap, hasClaimed, claimable, symbol } = snapshot
 
   // Routed through useTxAction rather than a bare useWriteContract: this row
   // previously read neither the write error nor the receipt, so a rejected
@@ -772,11 +772,11 @@ function AssetRow({
     })
   }
 
-  // Raise progress is bounded at 100 % even if totalEth over-shoots softCap
+  // Raise progress is bounded at 100 % even if totalNative over-shoots softCap
   // (it can in practice — the contract allows the last deposit to push past
   // the soft cap before sealing genesis).
   const progressPct = softCap > 0n
-    ? Math.min(100, Number((totalEth * 10000n) / softCap) / 100)
+    ? Math.min(100, Number((totalNative * 10000n) / softCap) / 100)
     : 0
 
   return (
@@ -796,9 +796,9 @@ function AssetRow({
         </span>
       </header>
 
-      {/* `ethDeposited` came from an earlier read that succeeded, so it stays
+      {/* `nativeDeposited` came from an earlier read that succeeded, so it stays
           on the degraded row — it is the one number here that is still known. */}
-      <Row label="DEPOSITED" value={`${formatEth(row.ethDeposited)} ETH`} />
+      <Row label="DEPOSITED" value={`${formatEth(row.nativeDeposited)} ETH`} />
 
       {degraded && (
         <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">
@@ -818,7 +818,7 @@ function AssetRow({
                         text-text-tertiary flex items-baseline justify-between gap-2">
             <span>RAISE_PROGRESS</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
-              {formatEth(totalEth)} / {formatEth(softCap)} ({progressPct.toFixed(1)}%)
+              {formatEth(totalNative)} / {formatEth(softCap)} ({progressPct.toFixed(1)}%)
             </span>
           </p>
         </div>

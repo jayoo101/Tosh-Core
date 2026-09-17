@@ -627,7 +627,7 @@ contract ToshV5FactoryTest is Test {
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(hook, address(0));
 
-        assertEq(_h(hook).ethDeposited(user1), 0.01 ether, "a live raise keeps taking deposits while paused");
+        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether, "a live raise keeps taking deposits while paused");
     }
 
     /// @dev The other half of the same rule: no NEW exposure while paused.
@@ -659,7 +659,7 @@ contract ToshV5FactoryTest is Test {
         (, address hook) = _createLaunch("Up", "UP");
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).ethDeposited(user1), 0.01 ether);
+        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
     }
 
     function test_pause_rejectsNonOwner() public {
@@ -882,8 +882,8 @@ contract ToshV5FactoryTest is Test {
         _register(user1, 0.05 ether);
         vm.prank(user1);
         factory.deposit{value: 0.05 ether}(hook, address(0));
-        assertEq(_h(hook).ethDeposited(user1), 0.05 ether);
-        assertEq(_h(hook).totalEthDeposited(), 0.05 ether);
+        assertEq(_h(hook).nativeDeposited(user1), 0.05 ether);
+        assertEq(_h(hook).totalNativeDeposited(), 0.05 ether);
         assertGt(factory.userLaunchCooldownEnd(user1, hook), block.timestamp);
     }
 
@@ -947,7 +947,7 @@ contract ToshV5FactoryTest is Test {
         vm.warp(factory.userLaunchCooldownEnd(user1, hook) + 1);
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).ethDeposited(user1), 0.02 ether);
+        assertEq(_h(hook).nativeDeposited(user1), 0.02 ether);
     }
 
     function test_deposit_rejectsZeroAmount() public {
@@ -987,7 +987,7 @@ contract ToshV5FactoryTest is Test {
         vm.warp(block.timestamp + 1 hours + 1);
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).ethDeposited(user1), 0.01 ether);
+        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
     }
 
     function test_liftBlacklist_immediatelyRestores() public {
@@ -1001,7 +1001,7 @@ contract ToshV5FactoryTest is Test {
         vm.stopPrank();
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).ethDeposited(user1), 0.01 ether);
+        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
     }
 
     function test_blacklist_blocksAttackerAcrossAllHooks() public {

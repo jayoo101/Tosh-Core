@@ -11,12 +11,12 @@ import { fmt } from './format'
 
 
 export function GenesisClaimPanel({
-  hookAddress, symbol, userAddress, ethDeposited, refetch,
+  hookAddress, symbol, userAddress, nativeDeposited, refetch,
 }: {
   hookAddress:  Address
   symbol:       string
   userAddress:  Address | undefined
-  ethDeposited: bigint
+  nativeDeposited: bigint
   refetch:      () => void
 }) {
   const { data: hasClaimedRaw, refetch: refetchClaimed } = useReadContract({
@@ -58,7 +58,7 @@ export function GenesisClaimPanel({
     }),
   })
 
-  if (ethDeposited === 0n || hasClaimed) return null
+  if (nativeDeposited === 0n || hasClaimed) return null
 
   return (
     <Card
@@ -66,7 +66,7 @@ export function GenesisClaimPanel({
       title={`Genesis allocation · ${symbol}`}
       subtitle="Your share of the genesis supply, in proportion to what you deposited. One claim per wallet."
     >
-      <Readout label="Your genesis deposit" value={`${fmt(ethDeposited)} ETH`} />
+      <Readout label="Your genesis deposit" value={`${fmt(nativeDeposited)} ETH`} />
       <ActionButton gate={gate} />
     </Card>
   )

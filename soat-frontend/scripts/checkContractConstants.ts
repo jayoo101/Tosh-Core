@@ -174,7 +174,7 @@ const FIELDS: Field[] = [
   { sol: 'GENESIS_CLAIM_SUPPLY', file: HOOK, ts: GENESIS_CLAIM_SUPPLY, where: 'contracts.GENESIS_CLAIM_SUPPLY',
     cost: 'every claim estimate is wrong, in the direction of over-promising' },
   { sol: 'GENESIS_LP_SUPPLY', file: HOOK, ts: GENESIS_LP_SUPPLY, where: 'contracts.GENESIS_LP_SUPPLY',
-    cost: 'the quoted opening price p0 = lpEth/GENESIS_LP_SUPPLY is wrong' },
+    cost: 'the quoted opening price p0 = lpNative/GENESIS_LP_SUPPLY is wrong' },
   { sol: 'BONDING_MAX', file: HOOK, ts: BONDING_MAX, where: 'contracts.BONDING_MAX',
     cost: 'the ladder progress bar and the mintable ceiling disagree with the hook' },
   { sol: 'TIER_COUNT', file: HOOK, ts: BigInt(TIER_COUNT), where: 'contracts.TIER_COUNT',

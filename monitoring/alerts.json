@@ -370,7 +370,7 @@
       "id": "STATE-01",
       "severity": "P1",
       "cadence": "hourly",
-      "check": "For every hook from LaunchCreated: canRefund() == true AND totalEthDeposited > 0 AND no Refunded event yet",
+      "check": "For every hook from LaunchCreated: canRefund() == true AND totalNativeDeposited > 0 AND no Refunded event yet",
       "why": "Nothing is emitted when the 7-day launch window lapses unused — refund() flips zombieRefundEnabled lazily and launch() starts reverting with LaunchWindowExpired. A round can sit refundable and unannounced. Depositors with a non-zero stake are owed a notification; a zero raise is a gap line, not a finding, because nobody is owed an exit.",
       "action": "Announce refund availability; tosh-status/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it, and the status page already links it."
     },

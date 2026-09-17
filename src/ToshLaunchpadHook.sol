@@ -121,7 +121,7 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///           hook has no code path that removes it.  Third-party LPs use
 ///           their own positions and may enter or exit freely.
 ///         – 10 % is reserved for referral commission / treasury.
-///         – P0 = lpEth / GENESIS_LP_SUPPLY is the pool's opening price.  The
+///         – P0 = lpNative / GENESIS_LP_SUPPLY is the pool's opening price.  The
 ///           45 / 55 genesis split makes that exactly 1.10 × what depositors
 ///           paid, so genesis opens at a 10 % premium by construction.
 ///         – Shelf 0 then sits a further 5 % above P0, i.e. 1.155 × the
@@ -184,7 +184,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         and noting that `REFERRAL_BPS` carves a flat 10 % off every
     ///         deposit — commission when a referrer exists, orphan sweep to the
     ///         treasury when one does not — the pool is always seeded with
-    ///         `lpEth = 0.9 · R`.  So:
+    ///         `lpNative = 0.9 · R`.  So:
     ///
     ///             depositor cost   P_raise = R / 4_620_000
     ///             pool open        p0      = 0.9 · R / 3_780_000
@@ -302,7 +302,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         The sum is held exact by SUBTRACTION, never by a second mulDiv
     ///         — see `deposit`.  Two independent divisions would each round
     ///         down and leave a wei of the commission uncarved, and an
-    ///         uncarved wei does not stay put: it falls into `lpEth`, which is
+    ///         uncarved wei does not stay put: it falls into `lpNative`, which is
     ///         the numerator of `p0`.  One wei of ETH is nothing.  A premium
     ///         that is no longer exactly 10 % is the invariant this contract
     ///         is built around.
@@ -751,8 +751,8 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     // ─── Genesis accounting (all ETH-wei) ─────────────────────────────────────
 
-    uint256 public totalEthDeposited;
-    mapping(address => uint256) public ethDeposited;
+    uint256 public totalNativeDeposited;
+    mapping(address => uint256) public nativeDeposited;
     mapping(address => bool) public genesisShareClaimed;
 
     /// @notice Referral commission accrued per referrer, claimable post-launch.
@@ -885,12 +885,12 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      They are paid different rates, so a log line naming only one of
     ///      them cannot be read without guessing which.
     event Deposited(
-        address indexed user, uint256 ethAmount, address indexed projectReferrer, address indexed lifetimeReferrer
+        address indexed user, uint256 nativeAmount, address indexed projectReferrer, address indexed lifetimeReferrer
     );
-    event Launched(uint256 totalEth, uint256 lpEth, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0);
-    event GenesisFailed(uint256 totalEthRaised);
-    event ZombieRefund(uint256 totalEthRaised);
-    event Refunded(address indexed user, uint256 ethAmount);
+    event Launched(uint256 totalNative, uint256 lpNative, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0);
+    event GenesisFailed(uint256 totalNativeRaised);
+    event ZombieRefund(uint256 totalNativeRaised);
+    event Refunded(address indexed user, uint256 nativeAmount);
     event GenesisShareClaimed(address indexed user, uint256 tokenAllocation);
     /// @notice The project-level leg, `PROJECT_REFERRAL_SHARE_BPS` of the carve.
     event ReferralAccrued(address indexed referrer, address indexed referee, uint256 amount);
@@ -910,7 +910,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     /// @notice Emitted per shelf purchase.
     event TierMinted(
-        address indexed buyer, uint256 indexed tierIndex, uint256 tierPrice, uint256 tokensOut, uint256 ethIn
+        address indexed buyer, uint256 indexed tierIndex, uint256 tierPrice, uint256 tokensOut, uint256 nativeIn
     );
 
     /// @notice Emitted when a shelf sells out and the ladder advances.
@@ -926,14 +926,14 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         the `monitoring/alerts.json` rules do not silently stop
     ///         matching.  What changed is the amount, not the meaning: this was
     ///         always "what the reservoir received".
-    event BuyTaxToTreasury(uint256 ethAmount);
+    event BuyTaxToTreasury(uint256 nativeAmount);
 
     /// @notice Emitted when a buy's ETH-side skim pays the platform's
     ///         maintenance cut to `platformFeeRecipient`.
     ///
     /// @dev    Buys only.  A sell emits `SellTaxBurned` alone, because the sell
     ///         leg is not split — see `PLATFORM_SWAP_FEE_BPS`.
-    event PlatformSwapFeePaid(address indexed recipient, uint256 ethAmount);
+    event PlatformSwapFeePaid(address indexed recipient, uint256 nativeAmount);
 
     /// @notice Emitted when a token-side skim is burned in place at 0xdead.
     ///         Carries the FULL `TAX_BPS` skim; the sell leg is not split.
@@ -978,7 +978,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         `DURATION_STANDARD` / `DURATION_SLOW`.
     error InvalidDuration();
     error Unauthorized();
-    error EthTransferFailed();
+    error NativeTransferFailed();
 
     /// @notice Every shelf has been cleared — Phase 2 issuance is complete.
     error LadderExhausted();
@@ -1249,10 +1249,10 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // Per-project cap, enforced against the snapshot taken at creation so
         // a later platform-wide retune cannot move the goalposts on a round
         // that is already open.
-        if (ethDeposited[user] + amount > perWalletCap()) revert PerWalletCapExceeded();
+        if (nativeDeposited[user] + amount > perWalletCap()) revert PerWalletCapExceeded();
 
-        ethDeposited[user] += amount;
-        totalEthDeposited += amount;
+        nativeDeposited[user] += amount;
+        totalNativeDeposited += amount;
 
         // Carve the referral commission up-front so `launch()` can seed the LP
         // with exactly the non-commission remainder.
@@ -1315,18 +1315,18 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
         require(block.timestamp > genesisDeadline + LAUNCH_WINDOW, "Refund not available");
 
-        uint256 dep = ethDeposited[msg.sender];
+        uint256 dep = nativeDeposited[msg.sender];
         if (dep == 0) revert NoDeposit();
 
         // EFFECTS before INTERACTIONS.
-        ethDeposited[msg.sender] = 0;
+        nativeDeposited[msg.sender] = 0;
 
         if (!zombieRefundEnabled) {
             zombieRefundEnabled = true;
-            emit ZombieRefund(totalEthDeposited);
+            emit ZombieRefund(totalNativeDeposited);
         }
 
-        _sendEth(msg.sender, dep);
+        _sendNative(msg.sender, dep);
         emit Refunded(msg.sender, dep);
     }
 
@@ -1338,13 +1338,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///   2. Split the raise: 90 % → LP, 10 % → referral commission pool.
     ///   3. Forward orphaned commission to the ladder treasury.
     ///   4. Mint 8.4 M tokens; 3.78 M into the LP, 4.62 M held for claims.
-    ///   5. P0 = lpEth / GENESIS_LP_SUPPLY, which is the pool's opening
+    ///   5. P0 = lpNative / GENESIS_LP_SUPPLY, which is the pool's opening
     ///      price and tier 0's shelf price — genesis buyers pay no premium.
     function launch() external initialized nonReentrant {
         if (msg.sender != creator()) revert OnlyCreator();
         if (block.timestamp < genesisDeadline) revert GenesisActive();
         if (launched) revert AlreadyLaunched();
-        if (totalEthDeposited == 0) revert ZeroAmount();
+        if (totalNativeDeposited == 0) revert ZeroAmount();
         if (block.timestamp > genesisDeadline + LAUNCH_WINDOW) revert LaunchWindowExpired();
 
         launched = true;
@@ -1357,11 +1357,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
         // ── 1. Split the raise ────────────────────────────────────────────────
         uint256 commissionPool = totalReferralReserved + orphanReferral;
-        uint256 lpEth = totalEthDeposited - commissionPool;
-        require(lpEth > 0, "no LP eth");
+        uint256 lpNative = totalNativeDeposited - commissionPool;
+        require(lpNative > 0, "no LP eth");
 
         // ── 2. Derive the pool anchor and the ladder base ─────────────────────
-        p0 = (lpEth * 1e18) / GENESIS_LP_SUPPLY;
+        p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY;
         require(p0 > 0, "p0=0");
         shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
 
@@ -1369,11 +1369,11 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         projectToken.mint(address(this), GENESIS_SUPPLY);
 
         // ── 4. Build the ETH/token pool ───────────────────────────────────────
-        uint160 sqrtPriceX96 = _toSqrtPriceX96(lpEth, GENESIS_LP_SUPPLY);
+        uint160 sqrtPriceX96 = _toSqrtPriceX96(lpNative, GENESIS_LP_SUPPLY);
 
         poolManager.initialize(_key(), sqrtPriceX96);
 
-        bytes memory result = poolManager.unlock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpEth));
+        bytes memory result = poolManager.unlock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpNative));
         uint128 liquidity = abi.decode(result, (uint128));
 
         // ── 5. Seed the oracle at the opening tick ────────────────────────────
@@ -1389,7 +1389,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // The gate is `tierPrice > ceiling`, and `shelfP0` and `ceiling` are the
         // SAME expression — `(x * 10500) / 10000` — applied to `p0` and to
         // `min(spot, p0)`.  At launch those two inputs are the same number up to
-        // the truncation in `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken`, so
+        // the truncation in `_toSqrtPriceX96` / `_sqrtPriceToNativePerToken`, so
         // shelf 0 lands EXACTLY ON the boundary and the strict `>` lets it
         // through whenever the round-tripped spot happens to land at or above
         // `p0`.  Which side it lands on is a function of the raise size: a sweep
@@ -1409,21 +1409,21 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (orphanReferral > 0) {
             uint256 orphan = orphanReferral;
             orphanReferral = 0;
-            _sendEth(ladderTreasury, orphan);
+            _sendNative(ladderTreasury, orphan);
             emit OrphanReferralForwarded(orphan);
         }
 
-        emit Launched(totalEthDeposited, lpEth, liquidity, sqrtPriceX96, p0);
+        emit Launched(totalNativeDeposited, lpNative, liquidity, sqrtPriceX96, p0);
     }
 
     /// @notice Claim the pro-rata share of the 4.62 M genesis claim allocation.
     function claimGenesis() external nonReentrant {
         if (!launched) revert NotLaunched();
         if (genesisShareClaimed[msg.sender]) revert AlreadyClaimed();
-        uint256 dep = ethDeposited[msg.sender];
+        uint256 dep = nativeDeposited[msg.sender];
         if (dep == 0) revert NoDeposit();
 
-        uint256 allocation = (GENESIS_CLAIM_SUPPLY * dep) / totalEthDeposited;
+        uint256 allocation = (GENESIS_CLAIM_SUPPLY * dep) / totalNativeDeposited;
 
         genesisShareClaimed[msg.sender] = true;
 
@@ -1450,7 +1450,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         referralAccrued[msg.sender] = 0;
         totalReferralClaimed += amount;
 
-        _sendEth(msg.sender, amount);
+        _sendNative(msg.sender, amount);
         emit ReferralClaimed(msg.sender, amount);
     }
 
@@ -1499,13 +1499,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @param tokenAmount Tokens to buy.  May span several shelves; capped by
     ///                    `maxMintable()`, which folds in both the 105 %
     ///                    ceiling and `MAX_TIERS_PER_TX`.
-    /// @return ethCharged ETH actually spent; any excess `msg.value` is refunded.
+    /// @return nativeCharged ETH actually spent; any excess `msg.value` is refunded.
     function mintBondingCurve(uint256 tokenAmount)
         external
         payable
         initialized
         nonReentrant
-        returns (uint256 ethCharged)
+        returns (uint256 nativeCharged)
     {
         if (!launched) revert NotLaunched();
         if (tokenAmount == 0) revert ZeroAmount();
@@ -1589,15 +1589,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         uint256 platformCut = (cost * PLATFORM_TAX_BPS) / BPS_DENOMINATOR;
         uint256 projectCut = cost - platformCut;
 
-        if (platformCut > 0) _sendEth(ladderTreasury, platformCut);
-        if (projectCut > 0) _sendEth(projectAdmin, projectCut);
+        if (platformCut > 0) _sendNative(ladderTreasury, platformCut);
+        if (projectCut > 0) _sendNative(projectAdmin, projectCut);
 
         projectToken.mint(msg.sender, tokenAmount);
 
         uint256 change = msg.value - cost;
-        if (change > 0) _sendEth(msg.sender, change);
+        if (change > 0) _sendNative(msg.sender, change);
 
-        ethCharged = cost;
+        nativeCharged = cost;
     }
 
     /// @notice Quote the ETH cost of buying `tokenAmount`, sweeping as many
@@ -1610,7 +1610,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         would have to either allocate a per-leg array or be walked twice
     ///         to emit events.  `testFuzz_QuoteMatchesMintAcrossSpans` pins the
     ///         two loops together.
-    function quoteMint(uint256 tokenAmount) external view returns (uint256 ethCost) {
+    function quoteMint(uint256 tokenAmount) external view returns (uint256 nativeCost) {
         if (tokenAmount == 0) return 0;
 
         LadderState memory st = _ladderState;
@@ -1635,7 +1635,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             uint256 take = tokenAmount - filled;
             if (take > room) take = room;
 
-            ethCost += (tierPrice * take) / 1e18;
+            nativeCost += (tierPrice * take) / 1e18;
             filled += take;
             sold += take;
 
@@ -1647,7 +1647,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
             }
         }
 
-        if (ethCost == 0) revert ZeroAmount();
+        if (nativeCost == 0) revert ZeroAmount();
     }
 
     /// @notice Largest order `mintBondingCurve` will accept right now.
@@ -1949,8 +1949,8 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      The subtraction cannot underflow.  `floor(a·30/d) ≤ floor(a·100/d)`
     ///      holds for every non-negative `a` because the numerator is strictly
     ///      smaller, so `platformCut ≤ tax` always.
-    function _skimInputTax(PoolKey calldata key, bool ethIsInput, uint256 input, uint256 tax) internal {
-        if (!ethIsInput) {
+    function _skimInputTax(PoolKey calldata key, bool nativeIsInput, uint256 input, uint256 tax) internal {
+        if (!nativeIsInput) {
             // Sell leg: not split. The platform takes no share of a project's
             // own token — see `PLATFORM_SWAP_FEE_BPS`.
             poolManager.take(key.currency1, DEAD_ADDRESS, tax);
@@ -1988,15 +1988,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // specified is currency0 iff exactInput == zeroForOne.  Exact-output
         // flips that, so unspecified is currency0 (ETH) on a buy and
         // currency1 (token) on a sell.
-        bool ethIsInput = params.zeroForOne;
-        int128 inputDelta = ethIsInput ? delta.amount0() : delta.amount1();
+        bool nativeIsInput = params.zeroForOne;
+        int128 inputDelta = nativeIsInput ? delta.amount0() : delta.amount1();
         if (inputDelta >= 0) return 0;
 
         uint256 input = uint256(uint128(-inputDelta));
         uint256 tax = (input * TAX_BPS) / BPS_DENOMINATOR;
         if (tax == 0) return 0;
 
-        _skimInputTax(key, ethIsInput, input, tax);
+        _skimInputTax(key, nativeIsInput, input, tax);
         return SafeCast.toInt128(tax);
     }
 
@@ -2054,8 +2054,8 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         uint8 action = abi.decode(data, (uint8));
 
         if (action == ACTION_ADD_LIQUIDITY) {
-            (, uint160 sqrtPriceX96, uint256 lpEth) = abi.decode(data, (uint8, uint160, uint256));
-            return _addInitialLiquidity(sqrtPriceX96, lpEth);
+            (, uint160 sqrtPriceX96, uint256 lpNative) = abi.decode(data, (uint8, uint160, uint256));
+            return _addInitialLiquidity(sqrtPriceX96, lpNative);
         }
         revert UnknownAction();
     }
@@ -2082,14 +2082,14 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         });
     }
 
-    /// @dev Settle the full-range genesis position: `lpEth` native ETH plus
+    /// @dev Settle the full-range genesis position: `lpNative` native ETH plus
     ///      GENESIS_LP_SUPPLY tokens.
-    function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpEth) internal returns (bytes memory) {
+    function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpNative) internal returns (bytes memory) {
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtPriceX96,
             TickMath.getSqrtPriceAtTick(TICK_LOWER),
             TickMath.getSqrtPriceAtTick(TICK_UPPER),
-            lpEth,
+            lpNative,
             GENESIS_LP_SUPPLY
         );
 
@@ -2169,7 +2169,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @dev Live pool price in ETH-wei per whole token.
     function _getSpotPrice() internal view returns (uint256) {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(_key().toId());
-        return _sqrtPriceToEthPerToken(sqrtPriceX96);
+        return _sqrtPriceToNativePerToken(sqrtPriceX96);
     }
 
     /// @dev Rolling geometric-mean price in ETH-wei per whole token.  Returns 0
@@ -2177,9 +2177,9 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///      does not treat a short non-zero window as a TWAP either — it caps
     ///      against `p0` until `span >= TWAP_WINDOW`.
     function _getTWAPPrice() internal view returns (uint256) {
-        // `_sqrtPriceToEthPerToken` maps 0 to 0, preserving the "no window yet"
+        // `_sqrtPriceToNativePerToken` maps 0 to 0, preserving the "no window yet"
         // signal the callers already branch on.
-        return _sqrtPriceToEthPerToken(_twapSqrtPriceX96());
+        return _sqrtPriceToNativePerToken(_twapSqrtPriceX96());
     }
 
     /// @dev The TWAP in its native Q64.96 sqrt form, before the lossy
@@ -2248,10 +2248,10 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @dev Convert a Q64.96 sqrt price into ETH-wei per whole (1e18) token.
     ///
     ///      With ETH as currency0: sqrtPriceX96 = sqrt(token/ETH) · 2^96, so
-    ///          ethPerToken = 2^192 / sqrtPriceX96^2
+    ///          nativePerToken = 2^192 / sqrtPriceX96^2
     ///      Evaluated as two `mulDiv` steps because sqrtPriceX96^2 overflows
     ///      uint256 at the top of the tick range.
-    function _sqrtPriceToEthPerToken(uint160 sqrtPriceX96) internal pure returns (uint256) {
+    function _sqrtPriceToNativePerToken(uint160 sqrtPriceX96) internal pure returns (uint256) {
         if (sqrtPriceX96 == 0) return 0;
         uint256 q96 = 1 << 96;
         uint256 inner = FullMath.mulDiv(q96, 1e18, sqrtPriceX96);
@@ -2286,9 +2286,9 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         }
     }
 
-    function _sendEth(address to, uint256 amount) internal {
+    function _sendNative(address to, uint256 amount) internal {
         (bool ok,) = payable(to).call{value: amount}("");
-        if (!ok) revert EthTransferFailed();
+        if (!ok) revert NativeTransferFailed();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -2498,15 +2498,15 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
 
     // ─── v4.x compatibility shims ─────────────────────────────────────────────
 
-    /// @notice Deprecated alias of `ethDeposited`, kept so existing indexers and
+    /// @notice Deprecated alias of `nativeDeposited`, kept so existing indexers and
     ///         the factory's eligibility view keep compiling against v5.0.
     function satoDeposited(address user) external view returns (uint256) {
-        return ethDeposited[user];
+        return nativeDeposited[user];
     }
 
-    /// @notice Deprecated alias of `totalEthDeposited`.
+    /// @notice Deprecated alias of `totalNativeDeposited`.
     function totalSatoDeposited() external view returns (uint256) {
-        return totalEthDeposited;
+        return totalNativeDeposited;
     }
 }
 

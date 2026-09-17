@@ -190,7 +190,7 @@ export default function ProjectTerminal({ project, about, header }: {
   // instantiation depth limit.  Every result below is cast explicitly anyway,
   // so the precise inference was buying nothing.
   const bulkContracts: ContractFunctionParameters[] = hookAddress ? [
-      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'totalEthDeposited' },
+      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'totalNativeDeposited' },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'launched'           },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'p0'                 },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'phase2Minted'       },
@@ -199,7 +199,7 @@ export default function ProjectTerminal({ project, about, header }: {
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'softCap'            },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'BONDING_MAX'        },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'currentBondingPrice'},
-      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'ethDeposited',
+      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'nativeDeposited',
         args: userAddress ? [userAddress] : undefined },
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'pogQuota',
         args: userAddress ? [userAddress] : undefined },
@@ -217,7 +217,7 @@ export default function ProjectTerminal({ project, about, header }: {
     query: { enabled: !!hookAddress, refetchInterval: 12_000 },
   })
 
-  const totalEthDeposited  = (data?.[0]?.result  as bigint  | undefined) ?? 0n
+  const totalNativeDeposited  = (data?.[0]?.result  as bigint  | undefined) ?? 0n
   const launched           = (data?.[1]?.result  as boolean | undefined) ?? false
   const p0                 = (data?.[2]?.result  as bigint  | undefined) ?? 0n
   const phase2Minted       = (data?.[3]?.result  as bigint  | undefined) ?? 0n
@@ -270,7 +270,7 @@ export default function ProjectTerminal({ project, about, header }: {
   const referrer = useBoundReferrer(userAddress, hookAddress)
 
   const phase: Phase = resolvePhase({
-    totalEthDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
+    totalNativeDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
   })
 
   const windowLabel = (() => {
@@ -360,7 +360,7 @@ export default function ProjectTerminal({ project, about, header }: {
             p0={p0}
             currentPrice={currentPrice}
             shelfP0={shelfP0}
-            totalEthDeposited={totalEthDeposited}
+            totalNativeDeposited={totalNativeDeposited}
             softCap={softCap}
             phase2Minted={phase2Minted}
             bondingMax={bondingMax}
@@ -415,7 +415,7 @@ export default function ProjectTerminal({ project, about, header }: {
               hookAddress={hookAddress}
               symbol={symbol}
               userAddress={userAddress}
-              ethDeposited={userEthDeposited}
+              nativeDeposited={userEthDeposited}
               refetch={() => { void refetch() }}
             />
             <BondingLadderSection />
@@ -489,7 +489,7 @@ export default function ProjectTerminal({ project, about, header }: {
             symbol={symbol}
             userAddress={userAddress}
             isConnected={wConnected}
-            totalEthDeposited={totalEthDeposited}
+            totalNativeDeposited={totalNativeDeposited}
             softCap={softCap}
             ethBalance={ethBalance}
             pogQuota={pogQuota}
@@ -510,7 +510,7 @@ export default function ProjectTerminal({ project, about, header }: {
             hookAddress={hookAddress}
             symbol={symbol}
             isCreator={isCreator}
-            totalEthDeposited={totalEthDeposited}
+            totalNativeDeposited={totalNativeDeposited}
             genesisDeadline={genesisDeadline}
             nowSec={nowSec}
             refetch={() => { void refetch() }}
@@ -522,7 +522,7 @@ export default function ProjectTerminal({ project, about, header }: {
         {phase === 'refund' && (
           <RefundPanel
             hookAddress={hookAddress}
-            ethDeposited={userEthDeposited}
+            nativeDeposited={userEthDeposited}
             refetch={() => { void refetch() }}
           />
         )}

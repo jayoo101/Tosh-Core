@@ -102,7 +102,7 @@ describe('LAUNCH FEE dial', () => {
   })
 
   it('refuses one step above the ceiling, naming the revert', () => {
-    const v = verdictFor(<LaunchFeePanel />, '10.000000000000000001')
+    const v = verdictFor(<LaunchFeePanel />, `${MAX_LAUNCH_FEE_LABEL}.000000000000000001`)
     expect(v.label).toBe('[max_launch_fee_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('LaunchFeeTooHigh')

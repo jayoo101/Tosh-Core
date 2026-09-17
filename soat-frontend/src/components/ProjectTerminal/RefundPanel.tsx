@@ -10,10 +10,10 @@ import { fmt } from './format'
 
 
 export function RefundPanel({
-  hookAddress, ethDeposited, refetch,
+  hookAddress, nativeDeposited, refetch,
 }: {
   hookAddress:   Address
-  ethDeposited:  bigint
+  nativeDeposited:  bigint
   refetch:       () => void
 }) {
   const { send, isPending, isConfirming } = useTxAction({
@@ -35,7 +35,7 @@ export function RefundPanel({
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder({
       id: 'no-deposit',
-      active: ethDeposited === 0n,
+      active: nativeDeposited === 0n,
       label: 'Nothing to refund',
       reason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
       tone: 'neutral',
@@ -49,7 +49,7 @@ export function RefundPanel({
       subtitle="The raise missed its floor, or the 7-day window to open trading lapsed. Take back the full amount, no penalty."
       tone="warn"
     >
-      <Readout label="Your deposit" value={`${fmt(ethDeposited)} ETH`} tone="warn" />
+      <Readout label="Your deposit" value={`${fmt(nativeDeposited)} ETH`} tone="warn" />
       <ActionButton gate={gate} size="lg" intent="danger" />
     </Card>
   )

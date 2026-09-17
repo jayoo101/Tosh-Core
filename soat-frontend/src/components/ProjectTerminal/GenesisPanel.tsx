@@ -25,7 +25,7 @@ export interface GenesisProps {
   symbol:             string
   userAddress:        Address | undefined
   isConnected:        boolean
-  totalEthDeposited:  bigint
+  totalNativeDeposited:  bigint
   softCap:            bigint
   ethBalance:         bigint
   pogQuota:           bigint
@@ -114,7 +114,7 @@ export function GenesisPanel(p: GenesisProps) {
   // The soft cap is a progress target, not a ceiling: the hook keeps accepting
   // deposits right up to the deadline. Say so, so clearing the target reads as
   // momentum rather than as a closed door.
-  const oversubscribed = p.softCap > 0n && p.totalEthDeposited >= p.softCap
+  const oversubscribed = p.softCap > 0n && p.totalNativeDeposited >= p.softCap
 
   // The hook rejects `deposit` outright once the window closes, and separately
   // once this wallet's total for THIS project passes the per-project cap.

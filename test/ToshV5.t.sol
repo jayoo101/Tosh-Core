@@ -289,12 +289,12 @@ contract ToshV5Test is Test {
 
     /// @dev ETH -> token. `zeroForOne` because native ETH always sorts to
     ///      `currency0`; buying pushes ETH-per-token up.
-    function _swapBuy(ToshLaunchpadHook hook, address who, uint256 ethIn) internal {
+    function _swapBuy(ToshLaunchpadHook hook, address who, uint256 nativeIn) internal {
         vm.prank(who);
-        swapRouter.swap{value: ethIn}(
+        swapRouter.swap{value: nativeIn}(
             hook.getPoolKey(),
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
@@ -308,8 +308,8 @@ contract ToshV5Test is Test {
     ///      unlocks once the market holds at or above the genesis price.  Buy
     ///      the pool up, then let the new level age into the TWAP so the
     ///      `min()` follows it rather than the pre-move price.
-    function _openLadder(ToshLaunchpadHook hook, uint256 ethIn) internal {
-        _swapBuy(hook, trader, ethIn);
+    function _openLadder(ToshLaunchpadHook hook, uint256 nativeIn) internal {
+        _swapBuy(hook, trader, nativeIn);
         _nextBlock();
         vm.warp(block.timestamp + 1900);
         _swapBuy(hook, trader, 1e14); // roll the oracle checkpoint at the new level
@@ -417,8 +417,8 @@ contract ToshV5Test is Test {
 
         _deposit(alice, hook, 0.4 ether, address(0));
 
-        assertEq(hook.ethDeposited(alice), 0.4 ether);
-        assertEq(hook.totalEthDeposited(), 0.4 ether);
+        assertEq(hook.nativeDeposited(alice), 0.4 ether);
+        assertEq(hook.totalNativeDeposited(), 0.4 ether);
         assertEq(address(hook).balance, 0.4 ether, "hook custodies raised ETH directly");
         assertEq(factory.totalGenesisDeposited(alice), 0.4 ether);
     }
@@ -491,7 +491,7 @@ contract ToshV5Test is Test {
         // The grandfathered round still accepts a deposit far above the new
         // platform-wide cap.
         _deposit(alice, oldProject, 1 ether, address(0));
-        assertEq(oldProject.ethDeposited(alice), 1 ether);
+        assertEq(oldProject.nativeDeposited(alice), 1 ether);
 
         // The same deposit into the newer round is refused.
         vm.prank(alice);
@@ -565,14 +565,14 @@ contract ToshV5Test is Test {
         hook.refund();
 
         assertEq(alice.balance - before, 0.3 ether, "refund must be paid in native ETH");
-        assertEq(hook.ethDeposited(alice), 0);
+        assertEq(hook.nativeDeposited(alice), 0);
     }
 
     function test_launch_succeedsBelowSoftCap() public {
         (, ToshLaunchpadHook hook) = _createProject("Thin", "THN");
         _registerPoG(alice, POG_CAP);
         _deposit(alice, hook, 0.3 ether, address(0));
-        assertLt(hook.totalEthDeposited(), hook.softCap(), "fixture must sit under the progress target");
+        assertLt(hook.totalNativeDeposited(), hook.softCap(), "fixture must sit under the progress target");
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
@@ -776,7 +776,7 @@ contract ToshV5Test is Test {
     ///         `commission * PROJECT_REFERRAL_SHARE_BPS / 10_000` truncates.
     ///         Deriving the second leg with its own mulDiv rather than by
     ///         subtraction loses exactly one wei on this amount — and an
-    ///         uncarved wei does not stay put, it lands in `lpEth`, which is
+    ///         uncarved wei does not stay put, it lands in `lpNative`, which is
     ///         the numerator of `p0`.  This is the test that would catch it.
     function test_referralSplit_sumsToTheCarveOnAmountsThatTruncate() public {
         (, ToshLaunchpadHook hook) = _createProject("Exact", "EXA");
@@ -869,7 +869,7 @@ contract ToshV5Test is Test {
     function test_genesisPremium_isExactlyTenPercent() public {
         (, ToshLaunchpadHook hook) = _launchProject("Premium", "PRM", alice, address(0));
 
-        uint256 raised = hook.totalEthDeposited();
+        uint256 raised = hook.totalNativeDeposited();
         uint256 costPerToken = (raised * 1e18) / hook.GENESIS_CLAIM_SUPPLY();
 
         // Tolerance covers integer-division dust only: the two divisions land
@@ -911,7 +911,7 @@ contract ToshV5Test is Test {
         hook.claimGenesis();
 
         uint256 tokenIn = 10_000e18;
-        uint256 ethIn = 0.01 ether;
+        uint256 nativeIn = 0.01 ether;
         vm.prank(alice);
         token.transfer(bob, tokenIn);
 
@@ -921,7 +921,7 @@ contract ToshV5Test is Test {
             sqrtPriceX96,
             TickMath.getSqrtPriceAtTick(TICK_LOWER),
             TickMath.getSqrtPriceAtTick(TICK_UPPER),
-            ethIn,
+            nativeIn,
             tokenIn
         );
         assertGt(liq, 0);
@@ -930,7 +930,7 @@ contract ToshV5Test is Test {
 
         vm.startPrank(bob);
         token.approve(address(liqRouter), type(uint256).max);
-        liqRouter.modifyLiquidity{value: ethIn}(
+        liqRouter.modifyLiquidity{value: nativeIn}(
             key,
             ModifyLiquidityParams({
                 tickLower: TICK_LOWER, tickUpper: TICK_UPPER, liquidityDelta: int256(uint256(liq)), salt: bytes32(0)
@@ -1263,7 +1263,7 @@ contract ToshV5Test is Test {
     ///   passed, which read as proof of a design property and was not one.
     ///   Whether spot round-trips to just below `p0` (locked) or just above it
     ///   (shelf 0 admitted, 3 150 tokens) is decided by truncation inside
-    ///   `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken` and varies with the
+    ///   `_toSqrtPriceX96` / `_sqrtPriceToNativePerToken` and varies with the
     ///   raise: over 1..12 ETH the old code opened at 10 ETH and locked at the
     ///   other eleven.  A property that holds for one fixture and not its
     ///   neighbours needs the fixture swept, so the lockout is what is being
@@ -1417,7 +1417,7 @@ contract ToshV5Test is Test {
     function test_ladderHalt_cannotHoldAnUnderCapGenesisHostage() public {
         (, ToshLaunchpadHook hook) = _createProject("Strand", "STR");
         _deposit(alice, hook, 0.3 ether, address(0));
-        assertLt(hook.totalEthDeposited(), hook.softCap());
+        assertLt(hook.totalNativeDeposited(), hook.softCap());
 
         uint256 maxHalt = factory.MAX_HALT_DURATION();
         vm.prank(admin);
@@ -1726,18 +1726,18 @@ contract ToshV5Test is Test {
     function test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform() public {
         (, ToshLaunchpadHook hook) = _launchProject("BuyTax", "BTX", alice, address(0));
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
         uint256 before = address(ladder).balance;
         uint256 platformBefore = platformTreasury.balance;
 
-        _swapBuy(hook, trader, ethIn);
+        _swapBuy(hook, trader, nativeIn);
 
         uint256 reservoirCut = address(ladder).balance - before;
         uint256 platformCut = platformTreasury.balance - platformBefore;
 
-        assertEq(reservoirCut, (ethIn * 70) / 10_000, "0.7% of input ETH must reach the reservoir");
-        assertEq(platformCut, (ethIn * 30) / 10_000, "0.3% of input ETH must reach the platform");
-        assertEq(reservoirCut + platformCut, (ethIn * 100) / 10_000, "and together they must be the whole 1.0% tax");
+        assertEq(reservoirCut, (nativeIn * 70) / 10_000, "0.7% of input ETH must reach the reservoir");
+        assertEq(platformCut, (nativeIn * 30) / 10_000, "0.3% of input ETH must reach the platform");
+        assertEq(reservoirCut + platformCut, (nativeIn * 100) / 10_000, "and together they must be the whole 1.0% tax");
     }
 
     /// @dev A CONTRACT platform treasury whose `receive()` costs far more than
@@ -1765,14 +1765,14 @@ contract ToshV5Test is Test {
 
         (, ToshLaunchpadHook hook) = _launchProject("SafeCost", "SFC", alice, address(0));
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
         uint256 platformBefore = platformTreasury.balance;
 
-        _swapBuy(hook, trader, ethIn);
+        _swapBuy(hook, trader, nativeIn);
 
         assertEq(
             platformTreasury.balance - platformBefore,
-            (ethIn * 30) / 10_000,
+            (nativeIn * 30) / 10_000,
             "a Safe-shaped recipient must be paid the same 0.3% as an EOA"
         );
 
@@ -1811,13 +1811,13 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
         PoolKey memory key = hook.getPoolKey();
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
         vm.prank(trader);
         vm.expectRevert();
-        swapRouter.swap{value: ethIn}(
+        swapRouter.swap{value: nativeIn}(
             key,
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
@@ -1872,14 +1872,14 @@ contract ToshV5Test is Test {
             ""
         );
 
-        uint256 ethSpent = ethBefore - address(this).balance;
+        uint256 nativeSpent = ethBefore - address(this).balance;
         uint256 reservoirCut = address(ladder).balance - ladderBefore;
         uint256 platformCut = platformTreasury.balance - platformBefore;
 
         // Exact-output is EXCLUSIVE: the tax is charged on the input the pool
-        // consumed and the trader pays it on top, so the base is `ethSpent`
-        // minus the whole skim, not `ethSpent`.
-        uint256 poolIn = ethSpent - reservoirCut - platformCut;
+        // consumed and the trader pays it on top, so the base is `nativeSpent`
+        // minus the whole skim, not `nativeSpent`.
+        uint256 poolIn = nativeSpent - reservoirCut - platformCut;
 
         assertEq(reservoirCut, (poolIn * 70) / 10_000, "0.7% of the ETH input must reach the reservoir");
         assertEq(platformCut, (poolIn * 30) / 10_000, "0.3% of the ETH input must reach the platform");
@@ -1965,22 +1965,22 @@ contract ToshV5Test is Test {
     function testFuzz_buyTax_splitAlwaysConservesTheCreditedTax(uint256 ethInRaw) public {
         (, ToshLaunchpadHook hook) = _launchProject("FuzzSplit", "FZS", alice, address(0));
 
-        uint256 ethIn = bound(ethInRaw, 1e6, 5 ether);
-        vm.deal(trader, ethIn);
+        uint256 nativeIn = bound(ethInRaw, 1e6, 5 ether);
+        vm.deal(trader, nativeIn);
 
         uint256 ladderBefore = address(ladder).balance;
         uint256 platformBefore = platformTreasury.balance;
 
-        _swapBuy(hook, trader, ethIn);
+        _swapBuy(hook, trader, nativeIn);
 
         uint256 reservoirCut = address(ladder).balance - ladderBefore;
         uint256 platformCut = platformTreasury.balance - platformBefore;
-        uint256 tax = (ethIn * hook.TAX_BPS()) / 10_000;
+        uint256 tax = (nativeIn * hook.TAX_BPS()) / 10_000;
 
         assertEq(reservoirCut + platformCut, tax, "the two cuts must sum to the tax V4 was told about");
-        assertEq(platformCut, (ethIn * hook.PLATFORM_SWAP_FEE_BPS()) / 10_000, "platform takes its own rate");
+        assertEq(platformCut, (nativeIn * hook.PLATFORM_SWAP_FEE_BPS()) / 10_000, "platform takes its own rate");
         assertEq(reservoirCut, tax - platformCut, "reservoir takes the remainder, never its own product");
-        assertGe(reservoirCut, (ethIn * _reservoirBps(hook)) / 10_000, "and dust may only ever favour the buyback");
+        assertGe(reservoirCut, (nativeIn * _reservoirBps(hook)) / 10_000, "and dust may only ever favour the buyback");
     }
 
     /// @notice `PlatformSwapFeePaid` fires on a buy and never on a sell.
@@ -1997,11 +1997,11 @@ contract ToshV5Test is Test {
         vm.prank(alice);
         hook.claimGenesis();
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
 
         vm.expectEmit(true, false, false, true, address(hook));
-        emit ToshLaunchpadHook.PlatformSwapFeePaid(platformTreasury, (ethIn * 30) / 10_000);
-        _swapBuy(hook, trader, ethIn);
+        emit ToshLaunchpadHook.PlatformSwapFeePaid(platformTreasury, (nativeIn * 30) / 10_000);
+        _swapBuy(hook, trader, nativeIn);
 
         // The sell leg must emit `SellTaxBurned` for the FULL skim and no
         // platform event at all.  `recordLogs` rather than a negative
@@ -2044,10 +2044,10 @@ contract ToshV5Test is Test {
     function test_platformCut_doesNotSlowTheBuybackArmingVolume() public {
         (, ToshLaunchpadHook hook) = _launchProject("ArmVol", "AVL", alice, address(0));
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
         uint256 before = address(ladder).balance;
-        vm.deal(trader, ethIn);
-        _swapBuy(hook, trader, ethIn);
+        vm.deal(trader, nativeIn);
+        _swapBuy(hook, trader, nativeIn);
 
         uint256 inflowPerEth = address(ladder).balance - before;
         assertEq(inflowPerEth, 0.007 ether, "the reservoir must still fill at 70 bps of buy volume");
@@ -2113,24 +2113,24 @@ contract ToshV5Test is Test {
         //    mint and the shelf cut never applies to it.
         _nextBlock();
 
-        uint256 ethIn = 1 ether;
+        uint256 nativeIn = 1 ether;
         ladderBefore = address(ladder).balance;
         projectBefore = projTreasury.balance;
         platformBefore = platformTreasury.balance;
 
-        vm.deal(trader, ethIn);
-        _swapBuy(hook, trader, ethIn);
+        vm.deal(trader, nativeIn);
+        _swapBuy(hook, trader, nativeIn);
 
         uint256 reservoirCut = address(ladder).balance - ladderBefore;
         uint256 platformCut = platformTreasury.balance - platformBefore;
 
-        assertEq(reservoirCut + platformCut, (ethIn * hook.TAX_BPS()) / 10_000, "swap tax is 1 % of the SWAP INPUT");
+        assertEq(reservoirCut + platformCut, (nativeIn * hook.TAX_BPS()) / 10_000, "swap tax is 1 % of the SWAP INPUT");
         assertEq(projTreasury.balance, projectBefore, "a swap pays the shelf cut's counterparty nothing");
 
         // The two bases are unrelated quantities: neither figure is derivable
         // from the other, which is the concrete sense in which they never apply
         // to the same wei.
-        assertTrue(cost != ethIn, "fixture: the two bases must actually differ");
+        assertTrue(cost != nativeIn, "fixture: the two bases must actually differ");
         assertTrue(shelfCut != reservoirCut + platformCut, "so the two 1 % charges are different amounts of ETH");
     }
 
@@ -2675,13 +2675,13 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        uint256 ethIn = 0.01 ether;
-        uint256 inflow = (ethIn * _reservoirBps(trigger)) / 10_000;
+        uint256 nativeIn = 0.01 ether;
+        uint256 inflow = (nativeIn * _reservoirBps(trigger)) / 10_000;
         vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow - 1);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
-        _swapBuy(trigger, trader, ethIn);
+        _swapBuy(trigger, trader, nativeIn);
 
         assertEq(
             address(ladder).balance, ladder.TRIGGER_STEP() - 1, "fixture must land the reservoir exactly one wei short"
@@ -3020,8 +3020,8 @@ contract ToshV5Test is Test {
         // 30 bps is `take`n to a different address and never touches this
         // balance, so budgeting against the whole tax would leave the reservoir
         // 30 bps past the trigger before the swap even starts.
-        uint256 ethIn = 0.01 ether;
-        uint256 inflow = (ethIn * _reservoirBps(trigger)) / 10_000;
+        uint256 nativeIn = 0.01 ether;
+        uint256 inflow = (nativeIn * _reservoirBps(trigger)) / 10_000;
         vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
@@ -3031,7 +3031,7 @@ contract ToshV5Test is Test {
             (
                 trigger.getPoolKey(),
                 SwapParams({
-                    zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                    zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
                 }),
                 PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
                 ""
@@ -3046,7 +3046,7 @@ contract ToshV5Test is Test {
         vm.deal(address(ladder), 0);
         vm.prank(trader);
         uint256 before = gasleft();
-        (bool okUnarmed,) = address(swapRouter).call{value: ethIn, gas: 2_000_000}(callData);
+        (bool okUnarmed,) = address(swapRouter).call{value: nativeIn, gas: 2_000_000}(callData);
         uint256 estimate = before - gasleft();
         assertTrue(okUnarmed, "baseline swap must succeed");
         vm.revertToState(snap);
@@ -3054,7 +3054,7 @@ contract ToshV5Test is Test {
         // Sign it with a 15 % buffer on that estimate, which is the tight end of
         // what a wallet attaches.
         vm.prank(trader);
-        (bool okTight,) = address(swapRouter).call{value: ethIn, gas: (estimate * 115) / 100}(callData);
+        (bool okTight,) = address(swapRouter).call{value: nativeIn, gas: (estimate * 115) / 100}(callData);
         assertTrue(okTight, "the tipping trade must settle on its own estimate");
         assertEq(healthy.balanceOf(DEAD), deadBefore, "and must not have been billed for a buyback");
         // The ETH is not lost, only deferred.
@@ -3063,7 +3063,7 @@ contract ToshV5Test is Test {
 
         // The same trade with room carries the cycle instead.
         vm.prank(trader);
-        (bool okFunded,) = address(swapRouter).call{value: ethIn, gas: estimate * 4}(callData);
+        (bool okFunded,) = address(swapRouter).call{value: nativeIn, gas: estimate * 4}(callData);
         assertTrue(okFunded, "with headroom it goes through");
         assertGt(healthy.balanceOf(DEAD), deadBefore, "and picks up the buyback");
     }

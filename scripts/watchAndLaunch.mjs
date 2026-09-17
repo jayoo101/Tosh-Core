@@ -78,7 +78,7 @@ const HOOK_ABI = parseAbi([
   'function creator() view returns (address)',
   'function launched() view returns (bool)',
   'function genesisDeadline() view returns (uint256)',
-  'function totalEthDeposited() view returns (uint256)',
+  'function totalNativeDeposited() view returns (uint256)',
   'function softCap() view returns (uint256)',
   'function LAUNCH_WINDOW() view returns (uint256)',
   'function launch()',
@@ -174,7 +174,7 @@ async function main() {
 
   let lastLine = ''
   for (;;) {
-    const [launched, raised] = await Promise.all([read('launched'), read('totalEthDeposited')])
+    const [launched, raised] = await Promise.all([read('launched'), read('totalNativeDeposited')])
     const now = BigInt((await pub.getBlock()).timestamp)
 
     if (launched) {

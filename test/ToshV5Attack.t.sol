@@ -126,14 +126,14 @@ contract ToshV5AttackTest is Test {
         vm.roll(vm.getBlockNumber() + 1);
     }
 
-    /// @dev Buy `ethIn` worth of token through the real V4 router (exact input).
-    function _buy(ToshLaunchpadHook hook, address who, uint256 ethIn) internal {
+    /// @dev Buy `nativeIn` worth of token through the real V4 router (exact input).
+    function _buy(ToshLaunchpadHook hook, address who, uint256 nativeIn) internal {
         PoolKey memory key = hook.getPoolKey();
         vm.prank(who);
-        swapRouter.swap{value: ethIn}(
+        swapRouter.swap{value: nativeIn}(
             key,
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
@@ -428,9 +428,9 @@ contract ToshV5AttackTest is Test {
         console2.logInt(edge);
     }
 
-    /// @dev Buy `ethIn` of the token then immediately sell the entire position
+    /// @dev Buy `nativeIn` of the token then immediately sell the entire position
     ///      back, in the same block.  Returns the attacker's ETH P&L.
-    function _roundTrip(ToshLaunchpadHook hook, ToshToken token, uint256 ethIn) internal returns (int256) {
+    function _roundTrip(ToshLaunchpadHook hook, ToshToken token, uint256 nativeIn) internal returns (int256) {
         uint256 ethBefore = attacker.balance;
         PoolKey memory key = hook.getPoolKey();
 
@@ -438,7 +438,7 @@ contract ToshV5AttackTest is Test {
         console2.log("  attacker eth       ", ethBefore);
         console2.log("  attacker tok       ", token.balanceOf(attacker));
 
-        _buy(hook, attacker, ethIn);
+        _buy(hook, attacker, nativeIn);
 
         console2.log("  reservoir post-buy ", address(ladder).balance);
         uint256 bought = token.balanceOf(attacker);
@@ -844,7 +844,7 @@ contract ToshV5AttackTest is Test {
     // SAME expression `(x * 10500) / 10000` applied to `p0` and to
     // `min(spot, p0)`.  So the launch block is locked if and only if the
     // round-tripped `spot` lands strictly BELOW `p0`, which is decided by
-    // truncation inside `_toSqrtPriceX96` / `_sqrtPriceToEthPerToken` and varies
+    // truncation inside `_toSqrtPriceX96` / `_sqrtPriceToNativePerToken` and varies
     // with the raise.  Sweep it.
     function test_probeM_launchBlockLockIsRaiseDependent() public {
         uint256 unlockedCount;
@@ -914,7 +914,7 @@ contract ToshV5AttackTest is Test {
         factory.deposit{value: 10 ether}(address(hook), sybil);
 
         // The deposit still succeeds — a rejected binding must never brick one.
-        assertEq(hook.ethDeposited(attacker), 10 ether, "deposit is unaffected");
+        assertEq(hook.nativeDeposited(attacker), 10 ether, "deposit is unaffected");
         assertEq(factory.globalReferrers(attacker), address(0), "unattested referrer does not bind");
         assertEq(hook.referralAccrued(sybil), 0, "and accrues nothing");
         assertEq(hook.orphanReferral(), 1 ether, "the 10 % falls through to buyback fuel");

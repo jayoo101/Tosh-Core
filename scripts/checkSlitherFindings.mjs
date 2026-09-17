@@ -13,7 +13,7 @@
  *
  *   - The table never summed to its own stated total. Its rows came to 68
  *     against a prose figure of 70, because `low-level-calls` (Informational,
- *     x2, the two `_sendEth` helpers) had no row at all. The IMPACT line
+ *     x2, the two `_sendNative` helpers) had no row at all. The IMPACT line
  *     "1 high / 24 medium / 26 low / 19 informational" counted them, so the
  *     two summaries of the same run disagreed with each other and neither was
  *     checked against the third.

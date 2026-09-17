@@ -15,22 +15,8 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookMiner} from "../src/libraries/HookMiner.sol";
 
-/// @dev See `_installArbSys`. Duplicated from `ToshV5Fork.t.sol` on purpose;
-///      that file explains at length why these helpers are not shared.
-contract RehearsalArbSys {
-    uint256 private _height;
-
-    function arbBlockNumber() external view returns (uint256) {
-        return _height;
-    }
-
-    function setHeight(uint256 h) external {
-        _height = h;
-    }
-}
-
 /// @notice Rehearsal for the mainnet FIRST launch, against the **deployed**
-///         factory, at the **0.01 ETH soft-cap floor**.
+///         factory, at the **0.035 BNB soft-cap floor**.
 ///
 /// @dev    ── Why this file exists, when `ToshV5Fork.t.sol` already forks 4663 ──
 ///
@@ -41,7 +27,7 @@ contract RehearsalArbSys {
 ///         `SOFT_CAP = 1 ether`; `ToshV5Invariants` uses 2 and `ToshHookClone`
 ///         uses 5. At the `MIN_SOFT_CAP_PROD` floor only the *arithmetic* is
 ///         covered — `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`
-///         derives `shelfP0 = 2_499_999_999` and a 4,756,270-wei step, but it
+///         derives `shelfP0 = 8_749_999_999` and a 16,646,947-wei step, but it
 ///         does so on a hook it `new`s directly, never through a real genesis.
 ///         The planned mainnet run puts the protocol's permanent launchId 0
 ///         through that path for the first time, with real money. This runs it
@@ -65,39 +51,66 @@ contract RehearsalArbSys {
 ///         key, off-chain, and `scripts/checkPogDigestTuple.mjs` pins the digest
 ///         the two agree on.
 ///
-///         Skips rather than fails when `ROBINHOOD_RPC` is unset, matching
-///         `ToshV5Fork.t.sol` — a fork suite that goes red on a missing
-///         credential teaches everyone to ignore red.
+///         ── What the BNB cutover did to this file ──
+///
+///         It used to bind to the factory deployed on Robinhood Chain 4663,
+///         with that deployment's Safe and signer written in as literals. That
+///         deployment is being left behind, and the rename to neutral coin
+///         naming was what surfaced it: this suite went red on
+///         `totalNativeDeposited()` reverting, because the bytecode at 4663
+///         answers `totalEthDeposited()` and always will. The suite was
+///         correct and the premise had expired.
+///
+///         So it now targets BSC, and the deployed factory it binds to does
+///         not exist yet. `FACTORY` moved from a literal to
+///         `BSC_FACTORY_ADDRESS`, which costs the property the literal was
+///         there for — a mangled env pointing this suite at nothing while it
+///         still passes. That property is bought back a different way:
+///         **unset** skips, but **set and wrong** fails, and
+///         `test_rehearsal_liveFactoryIsWhatWeThinkItIs` checks for code at
+///         the address before anything else depends on it.
+///
+///         `ArbSys` is gone rather than mocked. On 4663 the hook read
+///         `arbBlockNumber()` and Foundry has no such precompile, so this file
+///         etched one. BSC has no `ArbSys` either, and `_hasArbSys` is set from
+///         `ARB_SYS.code.length` at construction — so the fallback to
+///         `block.number` is the real production path here, and etching a mock
+///         would have hidden the one thing worth exercising.
+///         `ToshV5ForkBsc.test_forkBsc_arbSysIsAbsentSoTheFallbackIsWhatRuns`
+///         asserts the absence directly.
+///
+///         Skips rather than fails when `BSC_RPC` or `BSC_FACTORY_ADDRESS` is
+///         unset, matching `ToshV5Fork.t.sol` — a fork suite that goes red on a
+///         missing credential teaches everyone to ignore red.
 contract ToshV5FirstLaunchRehearsalTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
-    // ─── The live deployment, from .env.production ────────────────────────────
-    //
-    // Written as literals, not read from env, so that a mangled `.env` cannot
-    // silently point this suite at nothing and still pass. `.env` currently
-    // carries a stale `FACTORY_ADDRESS` with zero code at it, which is exactly
-    // the accident this guards against.
+    // ─── The live deployment ──────────────────────────────────────────────────
 
-    address internal constant FACTORY = 0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892;
-    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant ARB_SYS = 0x0000000000000000000000000000000000000064;
+    /// @dev Uniswap V4 `PoolManager` on BSC. Still a literal, because unlike the
+    ///      factory this one already exists and is pinned by
+    ///      `ToshV5ForkBsc.t.sol` to the same address.
+    address internal constant POOL_MANAGER = 0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF;
 
-    /// @dev `factory.owner()` — the 2-of-3 Safe. Impersonated directly rather
-    ///      than driven through Safe execution: what is being rehearsed is the
-    ///      factory's response to the call, not the Safe's ability to make it.
-    address internal constant OWNER_SAFE = 0x2953957774482efA660921df85A1E7634ccfe27A;
+    /// @dev Read from `BSC_FACTORY_ADDRESS`; see the contract docstring for what
+    ///      that costs and how it is paid for.
+    address internal factoryAddr;
 
-    /// @dev `factory.pogSigner()` as the chain reports it. Asserted on before
-    ///      being repointed, so that a rotation nobody told this file about
-    ///      shows up here instead of as a mystery `InvalidSignature` on the day.
-    address internal constant LIVE_POG_SIGNER = 0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736;
+    /// @dev `factory.owner()` — the Safe. Read off the chain rather than pinned,
+    ///      because the deployment this binds to has not happened yet, so there
+    ///      is no address to pin. Impersonated directly rather than driven
+    ///      through Safe execution: what is being rehearsed is the factory's
+    ///      response to the call, not the Safe's ability to make it.
+    address internal ownerSafe;
 
     // ─── The rehearsal's own parameters ───────────────────────────────────────
 
-    /// @dev The whole point: `MIN_SOFT_CAP_PROD`, the floor nothing has launched at.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 0.01 ether;
+    /// @dev The whole point: `MIN_SOFT_CAP_PROD`, the floor nothing has launched
+    ///      at. Asserted against the deployed constant rather than trusted, so a
+    ///      factory built from different source than this checkout says so.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 0.035 ether;
 
     /// @dev Enforced on chain by `ToshLaunchpadHook.initializeToken`, which
     ///      rejects anything but the three rungs with `InvalidDuration`. 3 h is
@@ -118,39 +131,33 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     bool internal forked;
 
     function setUp() public {
-        string memory rpc = vm.envOr("ROBINHOOD_RPC", string(""));
-        if (bytes(rpc).length == 0) return;
+        string memory rpc = vm.envOr("BSC_RPC", string(""));
+        factoryAddr = vm.envOr("BSC_FACTORY_ADDRESS", address(0));
+        if (bytes(rpc).length == 0 || factoryAddr == address(0)) return;
 
         vm.createSelectFork(rpc);
         forked = true;
 
-        _installArbSys();
-
-        factory = ToshFactory(payable(FACTORY));
+        // No `ArbSys` etch: BSC does not have the precompile, so the hook's
+        // fallback to `block.number` is what production runs. See the docstring.
+        factory = ToshFactory(payable(factoryAddr));
         rehearsalSigner = vm.addr(rehearsalSignerPk);
+
+        // Read rather than pinned — the Safe for this deployment is whatever
+        // `DeployMainnet` handed ownership to, and this file predates it.
+        ownerSafe = factory.owner();
 
         vm.deal(creator, 1 ether);
     }
 
     function _requireFork() internal {
-        vm.skip(!forked, "ROBINHOOD_RPC unset, see .env.example");
-    }
-
-    /// @dev Foundry has no `ArbSys`, and the chain keeps only a stub at `0x64`
-    ///      whose `arbBlockNumber()` is served below the EVM. A fork copies the
-    ///      stub and not the node, so `_hasArbSys` reads true and then every
-    ///      call through it reverts. See `ToshV5Fork.t.sol::_installArbSys` for
-    ///      the full argument, including what this mock cannot tell us.
-    function _installArbSys() internal {
-        RehearsalArbSys impl = new RehearsalArbSys();
-        vm.etch(ARB_SYS, address(impl).code);
-        RehearsalArbSys(ARB_SYS).setHeight(block.number);
+        vm.skip(!forked, "BSC_RPC or BSC_FACTORY_ADDRESS unset, see .env.example");
     }
 
     /// @dev Step 1 of the plan: the Safe transaction that lowers the dial.
     ///      Repoints the signer in the same breath — see the contract docstring.
     function _applySafeStep() internal {
-        vm.startPrank(OWNER_SAFE);
+        vm.startPrank(ownerSafe);
         factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP);
         factory.setPogSigner(rehearsalSigner);
         vm.stopPrank();
@@ -165,7 +172,8 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         );
         for (uint256 i; i < 500_000; ++i) {
             rawSalt = bytes32(i);
-            address predicted = HookMiner.computeAddress(FACTORY, keccak256(abi.encode(creator, rawSalt)), initcodeHash);
+            address predicted =
+                HookMiner.computeAddress(factoryAddr, keccak256(abi.encode(creator, rawSalt)), initcodeHash);
             if (HookMiner.isValidHookAddress(predicted) && predicted.code.length == 0) return rawSalt;
         }
         revert("no valid salt found");
@@ -175,7 +183,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 nonce = factory.pogNonces(user);
         uint256 deadline = block.timestamp + 1 hours;
         bytes32 digest =
-            keccak256(abi.encode(user, maxAlloc, nonce, deadline, FACTORY, block.chainid)).toEthSignedMessageHash();
+            keccak256(abi.encode(user, maxAlloc, nonce, deadline, factoryAddr, block.chainid)).toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(rehearsalSignerPk, digest);
         vm.prank(user);
         factory.registerPoG(maxAlloc, deadline, nonce, abi.encodePacked(r, s, v));
@@ -190,22 +198,29 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         against.
     ///
     /// @dev    Every later test is conditional on this, so it is asserted rather
-    ///         than assumed. `pogSigner` is included because both `.env` and
-    ///         `.env.production` disagree with the chain about it — the rotation
-    ///         after the previous key leaked was applied on chain and never
-    ///         written back. If it rotates again, this is the line that says so.
+    ///         than assumed.
+    ///
+    ///         The code-length check is what replaces the pinned literal this
+    ///         file used to carry: `BSC_FACTORY_ADDRESS` set to a typo skips
+    ///         nothing and fails here, by name, instead of surfacing four tests
+    ///         later as an unexplained revert.
+    ///
+    ///         `pogSigner` is no longer compared to a pinned address — there is
+    ///         no deployment yet to pin — but it is still asserted non-zero,
+    ///         because a factory whose signer was never set cannot attest and
+    ///         the rehearsal would otherwise repoint it and never notice.
     function test_rehearsal_liveFactoryIsWhatWeThinkItIs() public {
         _requireFork();
 
-        assertEq(block.chainid, 4663, "fork is not Robinhood Chain mainnet");
-        assertGt(FACTORY.code.length, 0, "no factory at the .env.production address");
-        assertEq(factory.owner(), OWNER_SAFE, "factory owner is not the production Safe");
-        assertEq(factory.pogSigner(), LIVE_POG_SIGNER, "pogSigner rotated: signPoG.mjs needs the new key");
+        assertEq(block.chainid, 56, "fork is not BNB Smart Chain mainnet");
+        assertGt(factoryAddr.code.length, 0, "no factory at BSC_FACTORY_ADDRESS");
+        assertGt(POOL_MANAGER.code.length, 0, "no Uniswap V4 PoolManager at the pinned BSC address");
+        assertTrue(ownerSafe != address(0), "factory owner is unset");
+        assertTrue(factory.pogSigner() != address(0), "pogSigner was never set; no attestation can verify");
         assertFalse(factory.paused(), "factory is paused; no launch can be created");
 
         assertEq(factory.MIN_SOFT_CAP_PROD(), REHEARSAL_SOFT_CAP, "the floor moved");
-        assertEq(factory.launchFee(), 0.01 ether, "launch fee moved; re-budget the run");
-        assertEq(factory.maxPogAllocationLimit(), 0.1 ether, "PoG limit moved");
+        assertEq(factory.maxPogAllocationLimit(), 1.75 ether, "PoG limit moved");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -217,17 +232,17 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         initialised pool with the genesis liquidity locked in it.
     ///
     /// @dev    This is the path the mainnet run takes, and the first time it has
-    ///         been executed at a 0.01 ETH raise. The assertions worth reading
+    ///         been executed at a 0.035 BNB raise. The assertions worth reading
     ///         are the two exact ones:
     ///
-    ///           - `totalEthDeposited == softCap()` exactly, which is what makes
+    ///           - `totalNativeDeposited == softCap()` exactly, which is what makes
     ///             `launch()`'s `>=` a boundary rather than a margin. A single
     ///             wei of rounding anywhere in `deposit` would strand the raise
     ///             one wei short of a cap it was supposed to have met, and the
     ///             failure would look like nothing at all until the 7-day
     ///             `LAUNCH_WINDOW` closed.
     ///
-    ///           - `shelfP0 == 2_499_999_999`, the figure
+    ///           - `shelfP0 == 8_749_999_999`, the figure
     ///             `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`
     ///             derives arithmetically from `MIN_SOFT_CAP_PROD`. Asserting it
     ///             here joins that derivation to the deployed bytecode: the unit
@@ -266,7 +281,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         factory.deposit{value: REHEARSAL_SOFT_CAP}(hookAddr, address(0));
 
         assertEq(
-            hook.totalEthDeposited(), hook.softCap(), "a deposit of exactly the cap must register as exactly the cap"
+            hook.totalNativeDeposited(), hook.softCap(), "a deposit of exactly the cap must register as exactly the cap"
         );
 
         // ── Step 6: the creator, and only the creator, launches ──────────────
@@ -297,7 +312,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertEq(Currency.unwrap(key.currency1), address(token), "currency1 is not the project token");
 
         // The ladder base the fuzz suite predicted for this exact raise.
-        assertEq(hook.shelfP0(), 2_499_999_999, "shelfP0 at the floor is not the derived figure");
+        assertEq(hook.shelfP0(), 8_749_999_999, "shelfP0 at the floor is not the derived figure");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -322,9 +337,11 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         _applySafeStep();
         bytes32 salt = _mineSalt();
 
-        // The Safe moves the dial again, after the salt is ground.
-        vm.prank(OWNER_SAFE);
-        factory.setDefaultSoftCap(0.02 ether);
+        // The Safe moves the dial again, after the salt is ground. Twice the
+        // floor, as before — it has to clear `MIN_SOFT_CAP_PROD` or the setter
+        // reverts and the test would pass for the wrong reason.
+        vm.prank(ownerSafe);
+        factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP * 2);
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
@@ -333,7 +350,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
-    ///         tranche: 4,620,000 tokens, 22% of `MAX_SUPPLY`, for 0.01 ETH.
+    ///         tranche: 4,620,000 tokens, 22% of `MAX_SUPPLY`, for 0.035 BNB.
     ///
     /// @dev    Not a defect — the tranche is always pro-rata, so this is what
     ///         "one wallet, one raise" necessarily means. It is asserted because

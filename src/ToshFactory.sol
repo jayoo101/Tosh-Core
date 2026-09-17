@@ -121,9 +121,9 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         not the binding one.
     ///
     ///         The obvious cliff is `p0 = 0`.  The hook derives
-    ///         `p0 = (lpEth * 1e18) / GENESIS_LP_SUPPLY` with
+    ///         `p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY` with
     ///         `GENESIS_LP_SUPPLY = 3.78e24`, so `p0` truncates to zero once
-    ///         `lpEth < 3_780_000` wei — which would collapse the entire tier
+    ///         `lpNative < 3_780_000` wei — which would collapse the entire tier
     ///         ladder to a free-mint zone.  This cliff does have a backstop:
     ///         the hook's `launch()` asserts `p0 > 0`.
     ///
@@ -426,7 +426,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Owner raised `launchFee` above the caller's slippage cap.
     error FeeChanged();
     /// @notice Native-ETH transfer to a treasury or refund recipient failed.
-    error EthTransferFailed();
+    error NativeTransferFailed();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -777,7 +777,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // Read before the caller's own ETH reaches the hook, so this is the
         // referrer's state from an earlier transaction. `referrer != user`
         // above already rules out self-qualification either way.
-        if (ToshLaunchpadHook(payable(hook)).ethDeposited(referrer) == 0) return;
+        if (ToshLaunchpadHook(payable(hook)).nativeDeposited(referrer) == 0) return;
 
         projectReferrers[user][hook] = referrer;
         unchecked {
@@ -856,11 +856,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
         // ── Route the fee to the buyback reservoir, refund any overpayment ────
         if (fee > 0) {
-            _sendEth(ladderTreasury, fee);
+            _sendNative(ladderTreasury, fee);
             emit LaunchFeeForwarded(fee);
         }
         uint256 change = msg.value - fee;
-        if (change > 0) _sendEth(msg.sender, change);
+        if (change > 0) _sendNative(msg.sender, change);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -995,7 +995,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         if (referrer == address(0)) return false;
         if (!registeredHooks[hook]) return false;
         if (pogQuota[referrer] == 0) return false;
-        return ToshLaunchpadHook(payable(hook)).ethDeposited(referrer) > 0;
+        return ToshLaunchpadHook(payable(hook)).nativeDeposited(referrer) > 0;
     }
 
     function launchCount() external view returns (uint256) {
@@ -1098,8 +1098,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         return quotaSpent[user];
     }
 
-    function _sendEth(address to, uint256 amount) internal {
+    function _sendNative(address to, uint256 amount) internal {
         (bool ok,) = payable(to).call{value: amount}("");
-        if (!ok) revert EthTransferFailed();
+        if (!ok) revert NativeTransferFailed();
     }
 }

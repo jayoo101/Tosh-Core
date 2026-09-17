@@ -161,21 +161,21 @@
       "check": "incorrect-equality",
       "impact": "Medium",
       "file": "src/ToshLaunchpadHook.sol",
-      "scope": "ToshLaunchpadHook._sqrtPriceToEthPerToken",
+      "scope": "ToshLaunchpadHook._sqrtPriceToNativePerToken",
       "count": 1
     },
     {
       "check": "low-level-calls",
       "impact": "Informational",
       "file": "src/ToshFactory.sol",
-      "scope": "ToshFactory._sendEth",
+      "scope": "ToshFactory._sendNative",
       "count": 1
     },
     {
       "check": "low-level-calls",
       "impact": "Informational",
       "file": "src/ToshLaunchpadHook.sol",
-      "scope": "ToshLaunchpadHook._sendEth",
+      "scope": "ToshLaunchpadHook._sendNative",
       "count": 1
     },
     {
@@ -322,7 +322,7 @@
       "check": "timestamp",
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
-      "scope": "ToshLaunchpadHook._sqrtPriceToEthPerToken",
+      "scope": "ToshLaunchpadHook._sqrtPriceToNativePerToken",
       "count": 1
     },
     {

@@ -125,7 +125,7 @@ export default function AgentDirectoryPage() {
         out.reverse()
         break
       case 'raised':
-        out.sort((a, b) => (a.totalEth === b.totalEth ? 0 : a.totalEth > b.totalEth ? -1 : 1))
+        out.sort((a, b) => (a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1))
         break
       case 'closing':
         // Phases with no clock sink to the bottom rather than sorting as 0,

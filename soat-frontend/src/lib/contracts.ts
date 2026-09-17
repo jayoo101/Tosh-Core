@@ -270,11 +270,12 @@ export const treasuryContract = {
 
 /**
  * M-01 — minimum acceptable `defaultSoftCap` (mirrors Factory.MIN_SOFT_CAP_PROD).
- * Below this floor `p0 = (lpEth * 1e18) / GENESIS_LP_SUPPLY` truncates to zero.
- *   0.01 ether → 10^16 wei, which keeps p0 around 2.38e9 wei/token.
+ * Below this floor `p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY` truncates to zero.
+ *   0.035 BNB → 3.5 × 10^16 wei, which keeps p0 around 8.3e9 wei/token and
+ *   `shelfP0` at 8,749,999,999 with a 16,646,947-wei first step.
  */
-export const MIN_SOFT_CAP_PROD: bigint = 10n ** 16n
-export const MIN_SOFT_CAP_PROD_LABEL = '0.01'
+export const MIN_SOFT_CAP_PROD: bigint = 35n * 10n ** 15n
+export const MIN_SOFT_CAP_PROD_LABEL = '0.035'
 
 /**
  * Ceiling on `launchFee` (mirrors `Factory.MAX_LAUNCH_FEE`).
@@ -285,8 +286,8 @@ export const MIN_SOFT_CAP_PROD_LABEL = '0.01'
  * bound that lives only on-chain turns that keystroke into a reverted owner
  * transaction instead of an inline refusal.
  */
-export const MAX_LAUNCH_FEE: bigint = 10n * 10n ** 18n
-export const MAX_LAUNCH_FEE_LABEL = '10'
+export const MAX_LAUNCH_FEE: bigint = 35n * 10n ** 18n
+export const MAX_LAUNCH_FEE_LABEL = '35'
 
 /**
  * Ceilings on the other two ETH dials (mirror `Factory.MAX_DEFAULT_SOFT_CAP` and

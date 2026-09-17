@@ -60,7 +60,7 @@ contract ToshV5LpMathVectorsTest is Test {
     ///      the user is asked to approve.
     struct Vectors {
         uint160 sqrtP;
-        uint256 ethIn;
+        uint256 nativeIn;
         uint256 tokenIn;
         uint256 sqrtLower;
         uint256 sqrtUpper;
@@ -74,7 +74,7 @@ contract ToshV5LpMathVectorsTest is Test {
         bytes memory src = bytes(vm.readFile(GUARD));
 
         v.sqrtP = uint160(_numberAfter(src, bytes("const SQRT_P"), "n"));
-        v.ethIn = _numberAfter(src, bytes("const ETH_IN"), "n");
+        v.nativeIn = _numberAfter(src, bytes("const ETH_IN"), "n");
         v.tokenIn = _numberAfter(src, bytes("const TOKEN_IN"), "n");
 
         // Anchored inside the EXPECT literal so a field name that also occurs
@@ -138,7 +138,7 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            v.sqrtP, TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), v.ethIn, v.tokenIn
+            v.sqrtP, TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), v.nativeIn, v.tokenIn
         );
 
         assertEq(uint256(liquidity), v.liquidity, "vector liquidity: LiquidityAmounts.getLiquidityForAmounts moved");
@@ -173,7 +173,7 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity =
-            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtPriceAtTick(upper), v.ethIn);
+            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtPriceAtTick(upper), v.nativeIn);
 
         assertEq(
             SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(lower), v.sqrtP, liquidity, true),

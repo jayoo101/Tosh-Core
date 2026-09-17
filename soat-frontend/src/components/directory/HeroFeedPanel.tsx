@@ -71,7 +71,7 @@ function Row({ project: p, index }: { project: DirectoryProject; index: number }
 
       <span className="flex shrink-0 flex-col items-end">
         <span className="font-mono text-note text-text-primary tabular-nums">
-          {fmtEth(p.totalEth)} ETH
+          {fmtEth(p.totalNative)} ETH
         </span>
         <span className={`font-mono text-micro tabular-nums ${sub.cls}`}>{sub.text}</span>
       </span>
@@ -111,7 +111,7 @@ export function HeroFeedPanel({
 }) {
   // `projects` arrives newest-first from the hook, so this is a slice and not
   // a sort. Ranking it by size would need a figure that is comparable across
-  // phases, and `totalEth` is not one: a finished raise and an open one are
+  // phases, and `totalNative` is not one: a finished raise and an open one are
   // measuring different things.
   const rows = projects.slice(0, ROWS)
   const empty = !loading && rows.length === 0

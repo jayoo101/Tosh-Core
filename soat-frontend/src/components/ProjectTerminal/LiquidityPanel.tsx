@@ -59,7 +59,7 @@ export function LiquidityPanel({
   /** Ticking clock lifted to the parent, so render stays pure. */
   nowSec:       number
 }) {
-  const [ethAmount, setEthAmount] = useState('')
+  const [nativeAmount, setEthAmount] = useState('')
   const [slippageBps, setSlippageBps] = useState(100n)
 
   const { sqrtPriceX96, totalLiquidity } = useLpPoolState(tokenAddress, hookAddress)
@@ -73,7 +73,7 @@ export function LiquidityPanel({
   const poolAmounts = amountsForLiquidity(sqrtPriceX96, totalLiquidity)
 
   const ethWei = (() => {
-    const t = ethAmount.trim()
+    const t = nativeAmount.trim()
     if (!t) return 0n
     try { return parseUnits(t, 18) } catch { return -1n }
   })()
@@ -391,7 +391,7 @@ export function LiquidityPanel({
 
       <Field
         label="ETH TO DEPOSIT"
-        value={ethAmount}
+        value={nativeAmount}
         onValueChange={setEthAmount}
         placeholder="e.g. 0.05"
         inputMode="decimal"

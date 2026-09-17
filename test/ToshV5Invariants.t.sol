@@ -149,7 +149,7 @@ contract ToshInvariantHandler is Test {
     mapping(address => uint256) public ghostBurnFloor;
 
     /// @dev Latches once `canRefund()` has ever been observed true for a hook.
-    ///      Past the genesis deadline `totalEthDeposited` is frozen (deposits
+    ///      Past the genesis deadline `totalNativeDeposited` is frozen (deposits
     ///      are closed and `refund` does not decrement it), so refundability
     ///      must be a one-way door.
     mapping(address => bool) public ghostWasRefundable;
@@ -248,7 +248,7 @@ contract ToshInvariantHandler is Test {
         uint256 start = seed % n;
         for (uint256 k; k < n; ++k) {
             address a = actors[(start + k) % n];
-            if (hook.ethDeposited(a) > 0) return a;
+            if (hook.nativeDeposited(a) > 0) return a;
         }
         return actors[start];
     }
@@ -319,7 +319,7 @@ contract ToshInvariantHandler is Test {
             } else if (phase == 2) {
                 if (
                     !h.launched() && block.timestamp >= h.genesisDeadline()
-                        && block.timestamp <= h.genesisDeadline() + h.LAUNCH_WINDOW() && h.totalEthDeposited() > 0
+                        && block.timestamp <= h.genesisDeadline() + h.LAUNCH_WINDOW() && h.totalNativeDeposited() > 0
                 ) return h;
             } else {
                 if (h.launched()) return h;
@@ -590,13 +590,13 @@ contract ToshInvariantHandler is Test {
     ///         always sorts to `currency0`. Exact input with an unbounded price
     ///         limit, so the whole offer fills and no ETH is left stranded in
     ///         the router.
-    function swapBuy(uint256 actorSeed, uint256 hookSeed, uint256 ethIn) external {
+    function swapBuy(uint256 actorSeed, uint256 hookSeed, uint256 nativeIn) external {
         ToshLaunchpadHook hook = _hookInPhase(hookSeed, 3);
         if (!hook.launched()) return;
 
         address who = _actor(actorSeed);
-        ethIn = bound(ethIn, 0.001 ether, 3 ether);
-        if (who.balance < ethIn) return;
+        nativeIn = bound(nativeIn, 0.001 ether, 3 ether);
+        if (who.balance < nativeIn) return;
 
         // Read the key BEFORE the prank. `vm.prank` applies to the next call of
         // any kind, so an external getter evaluated inside the argument list
@@ -608,10 +608,10 @@ contract ToshInvariantHandler is Test {
         uint256 burnedBefore = _totalBurned();
 
         vm.prank(who);
-        try swapRouter.swap{value: ethIn}(
+        try swapRouter.swap{value: nativeIn}(
             key,
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
@@ -1229,8 +1229,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         outstanding deposit in full, simultaneously.
     ///
     /// @dev    This is the machine-checkable form of the refund promise. It has
-    ///         to be checked against the live `ethDeposited` ledger rather than
-    ///         `totalEthDeposited`, because `refund()` zeroes the former and
+    ///         to be checked against the live `nativeDeposited` ledger rather than
+    ///         `totalNativeDeposited`, because `refund()` zeroes the former and
     ///         deliberately leaves the latter alone as a gross-raise figure.
     ///
     ///         Note what is NOT subtracted: the 10% referral commission. It is
@@ -1248,7 +1248,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             uint256 owed;
             uint256 a = handler.actorCount();
             for (uint256 j; j < a; ++j) {
-                owed += hook.ethDeposited(handler.actors(j));
+                owed += hook.nativeDeposited(handler.actors(j));
             }
 
             assertGe(address(hook).balance, owed, "unlaunched hook cannot cover its outstanding deposits");
@@ -1259,7 +1259,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         stop being refundable.
     ///
     /// @dev    Past the deadline deposits are closed and `refund()` does not
-    ///         decrement `totalEthDeposited`; the zombie term is monotone in
+    ///         decrement `totalNativeDeposited`; the zombie term is monotone in
     ///         time. If it ever went backwards, a depositor who waited would
     ///         find the exit shut.
     function invariant_refundabilityNeverRevokes() public view {
@@ -1293,7 +1293,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             for (uint256 j; j < a; ++j) {
                 address actor = handler.actors(j);
                 assertEq(
-                    hook.ethDeposited(actor),
+                    hook.nativeDeposited(actor),
                     handler.ghostDeposited(address(hook), actor),
                     "deposit ledger diverged from user-driven ghost state"
                 );
@@ -1499,8 +1499,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
         ToshLaunchpadHook h0 = handler.hooks(0);
         address alice = handler.actors(0);
-        assertEq(h0.ethDeposited(alice), handler.ghostDeposited(address(h0), alice), "ghost desynced immediately");
-        assertGt(h0.ethDeposited(alice), 0, "deposit did not reach the hook");
+        assertEq(h0.nativeDeposited(alice), handler.ghostDeposited(address(h0), alice), "ghost desynced immediately");
+        assertGt(h0.nativeDeposited(alice), 0, "deposit did not reach the hook");
 
         // Owner surface must be reachable, or invariant 2.2-1 is untested.
         handler.ownerPause(true);
@@ -1517,7 +1517,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         handler.refund(0, 0);
         assertEq(handler.okRefund(), 1, "handler could not land a refund");
         assertGt(alice.balance, before, "refund paid nothing");
-        assertEq(h0.ethDeposited(alice), 0, "ledger not cleared after refund");
+        assertEq(h0.nativeDeposited(alice), 0, "ledger not cleared after refund");
     }
 
     /// @notice The launch path must also be reachable, or every post-launch
@@ -1529,7 +1529,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             handler.deposit(i, 2, 5 ether, 0);
         }
         ToshLaunchpadHook h2 = handler.hooks(2);
-        assertGe(h2.totalEthDeposited(), SOFT_CAP, "could not fund past the soft cap");
+        assertGe(h2.totalNativeDeposited(), SOFT_CAP, "could not fund past the soft cap");
 
         handler.warpLong(4 days); // past the 72h deadline, inside the 7d window
         handler.launchProject(2);

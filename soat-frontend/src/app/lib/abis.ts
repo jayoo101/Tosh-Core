@@ -1728,11 +1728,6 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "EthTransferFailed",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ExceedsGlobalPogLimit",
     "inputs": []
   },
@@ -1804,6 +1799,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "NameTaken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NativeTransferFailed",
     "inputs": []
   },
   {
@@ -3167,25 +3167,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "ethDeposited",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "factory",
     "inputs": [],
     "outputs": [
@@ -3493,12 +3474,31 @@ export const HOOK_ABI = [
     ],
     "outputs": [
       {
-        "name": "ethCharged",
+        "name": "nativeCharged",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "nativeDeposited",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3629,7 +3629,7 @@ export const HOOK_ABI = [
     ],
     "outputs": [
       {
-        "name": "ethCost",
+        "name": "nativeCost",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3836,7 +3836,7 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "totalEthDeposited",
+    "name": "totalNativeDeposited",
     "inputs": [],
     "outputs": [
       {
@@ -3936,7 +3936,7 @@ export const HOOK_ABI = [
     "name": "BuyTaxToTreasury",
     "inputs": [
       {
-        "name": "ethAmount",
+        "name": "nativeAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -3955,7 +3955,7 @@ export const HOOK_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethAmount",
+        "name": "nativeAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -3980,7 +3980,7 @@ export const HOOK_ABI = [
     "name": "GenesisFailed",
     "inputs": [
       {
-        "name": "totalEthRaised",
+        "name": "totalNativeRaised",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4012,13 +4012,13 @@ export const HOOK_ABI = [
     "name": "Launched",
     "inputs": [
       {
-        "name": "totalEth",
+        "name": "totalNative",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "lpEth",
+        "name": "lpNative",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4106,7 +4106,7 @@ export const HOOK_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethAmount",
+        "name": "nativeAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4188,7 +4188,7 @@ export const HOOK_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethAmount",
+        "name": "nativeAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4257,7 +4257,7 @@ export const HOOK_ABI = [
         "internalType": "uint256"
       },
       {
-        "name": "ethIn",
+        "name": "nativeIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4283,7 +4283,7 @@ export const HOOK_ABI = [
     "name": "ZombieRefund",
     "inputs": [
       {
-        "name": "totalEthRaised",
+        "name": "totalNativeRaised",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4304,11 +4304,6 @@ export const HOOK_ABI = [
   {
     "type": "error",
     "name": "AlreadyLaunched",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EthTransferFailed",
     "inputs": []
   },
   {
@@ -4354,6 +4349,11 @@ export const HOOK_ABI = [
   {
     "type": "error",
     "name": "LaunchWindowExpired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NativeTransferFailed",
     "inputs": []
   },
   {
@@ -4603,7 +4603,7 @@ export const TREASURY_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethIn",
+        "name": "nativeIn",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -4882,7 +4882,7 @@ export const TREASURY_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethIn",
+        "name": "nativeIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -4907,7 +4907,7 @@ export const TREASURY_ABI = [
         "internalType": "address"
       },
       {
-        "name": "ethIn",
+        "name": "nativeIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -5009,7 +5009,7 @@ export const TREASURY_ABI = [
     "name": "PiggybackExecuted",
     "inputs": [
       {
-        "name": "ethSpent",
+        "name": "nativeSpent",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

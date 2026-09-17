@@ -61,20 +61,20 @@ contract ToshV5FuzzTest is Test {
     ///      the gate caps shelves at `1.05 x min(spot, TWAP)`, so the ladder
     ///      opens shut and only lifts once the market holds at or above the
     ///      genesis price.  Buy the pool up, then age the move into the TWAP.
-    function _openLadder(ToshLaunchpadHook hook, uint256 ethIn) internal {
-        _swapBuy(hook, ethIn);
+    function _openLadder(ToshLaunchpadHook hook, uint256 nativeIn) internal {
+        _swapBuy(hook, nativeIn);
         vm.roll(vm.getBlockNumber() + 1);
         vm.warp(block.timestamp + 1900);
         _swapBuy(hook, 1e14);
         vm.roll(vm.getBlockNumber() + 1);
     }
 
-    function _swapBuy(ToshLaunchpadHook hook, uint256 ethIn) internal {
+    function _swapBuy(ToshLaunchpadHook hook, uint256 nativeIn) internal {
         vm.prank(trader);
-        swapRouter.swap{value: ethIn}(
+        swapRouter.swap{value: nativeIn}(
             hook.getPoolKey(),
             SwapParams({
-                zeroForOne: true, amountSpecified: -int256(ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
@@ -240,14 +240,14 @@ contract ToshV5FuzzTest is Test {
         _deposit(u1, hook, d1);
         _deposit(u2, hook, d2);
 
-        uint256 raised = hook.totalEthDeposited();
+        uint256 raised = hook.totalNativeDeposited();
         if (raised < SOFT_CAP) {
             _deposit(makeAddr("fuzzWhale"), hook, SOFT_CAP - raised);
         }
 
         _launch(hook);
 
-        uint256 total = hook.totalEthDeposited();
+        uint256 total = hook.totalNativeDeposited();
         uint256 supply = hook.GENESIS_CLAIM_SUPPLY();
         uint256 expected1 = (supply * d1) / total;
         uint256 expected2 = (supply * d2) / total;

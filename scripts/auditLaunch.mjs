@@ -9,8 +9,8 @@
  * Every expected value here is derived from `ToshLaunchpadHook.launch()`:
  *
  *     commissionPool = totalReferralReserved + orphanReferral
- *     lpEth          = totalEthDeposited - commissionPool
- *     p0             = lpEth * 1e18 / GENESIS_LP_SUPPLY
+ *     lpNative          = totalNativeDeposited - commissionPool
+ *     p0             = lpNative * 1e18 / GENESIS_LP_SUPPLY
  *     shelfP0        = p0 * SHELF_PREMIUM_BPS / 10_000
  *
  * `orphanReferral` is zeroed by `launch()` itself, so the split cannot be
@@ -65,7 +65,7 @@ const HOOK_ABI = [
   'function perWalletCap() view returns (uint256)',
   'function genesisDeadline() view returns (uint256)',
   'function genesisDuration() view returns (uint256)',
-  'function totalEthDeposited() view returns (uint256)',
+  'function totalNativeDeposited() view returns (uint256)',
   'function totalReferralReserved() view returns (uint256)',
   'function totalReferralClaimed() view returns (uint256)',
   'function orphanReferral() view returns (uint256)',
@@ -77,10 +77,10 @@ const HOOK_ABI = [
   'function canRefund() view returns (bool)',
   'function refundEnabled() view returns (bool)',
   'function zombieRefundEnabled() view returns (bool)',
-  'function ethDeposited(address) view returns (uint256)',
+  'function nativeDeposited(address) view returns (uint256)',
   'function genesisShareClaimed(address) view returns (bool)',
   'function referralAccrued(address) view returns (uint256)',
-  'event Launched(uint256 totalEth, uint256 lpEth, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0)',
+  'event Launched(uint256 totalNative, uint256 lpNative, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0)',
   'event OrphanReferralForwarded(uint256 amount)',
   'event GenesisShareClaimed(address indexed user, uint256 tokenAllocation)',
 ]
@@ -116,13 +116,13 @@ const hook = new ethers.Contract(HOOK, HOOK_ABI, provider)
 const [
   launched, tokenInit, tokenAddr, pmAddr, ladderTreasury, platformFee,
   creator, projectTreasury, projectAdmin, softCap, perWalletCap,
-  genesisDeadline, genesisDuration, totalEth, refReserved, refClaimed, orphan,
+  genesisDeadline, genesisDuration, totalNative, refReserved, refClaimed, orphan,
   p0, shelfP0, tierIndex, tierSold, phase2, canRefund, refundEnabled, zombie,
 ] = await Promise.all([
   hook.launched(), hook.tokenInitialized(), hook.projectToken(), hook.poolManager(),
   hook.ladderTreasury(), hook.platformFeeRecipient(), hook.creator(),
   hook.projectTreasury(), hook.projectAdmin(), hook.softCap(), hook.perWalletCap(),
-  hook.genesisDeadline(), hook.genesisDuration(), hook.totalEthDeposited(),
+  hook.genesisDeadline(), hook.genesisDuration(), hook.totalNativeDeposited(),
   hook.totalReferralReserved(), hook.totalReferralClaimed(), hook.orphanReferral(),
   hook.p0(), hook.shelfP0(), hook.currentTierIndex(), hook.currentTierSold(),
   hook.phase2Minted(), hook.canRefund(), hook.refundEnabled(), hook.zombieRefundEnabled(),
@@ -163,32 +163,32 @@ try {
 }
 
 console.log('\nThe raise')
-console.log(`        deposited         ${eth(totalEth)}`)
-console.log(`        soft cap          ${eth(softCap)}  ${totalEth >= softCap ? '(met)' : '(NOT MET)'}`)
+console.log(`        deposited         ${eth(totalNative)}`)
+console.log(`        soft cap          ${eth(softCap)}  ${totalNative >= softCap ? '(met)' : '(NOT MET)'}`)
 console.log(`        per-wallet cap    ${eth(perWalletCap)}`)
 console.log(`        referral reserved ${eth(refReserved)}   claimed ${eth(refClaimed)}`)
 console.log(`        orphan referral   ${eth(orphan)}`)
 
-if (totalEth < softCap) fail('a launched hook whose raise is below its own soft cap')
+if (totalNative < softCap) fail('a launched hook whose raise is below its own soft cap')
 
 // `launch()` zeroes `orphanReferral` after forwarding it, so present state can
 // only reproduce the split if the event says how much was forwarded.
-const orphanAtLaunch = ev ? ev.totalEth - ev.lpEth - refReserved : orphan
-const lpEth = totalEth - (refReserved + orphanAtLaunch)
+const orphanAtLaunch = ev ? ev.totalNative - ev.lpNative - refReserved : orphan
+const lpNative = totalNative - (refReserved + orphanAtLaunch)
 
-console.log('\nThe split  (lpEth = deposited - referralReserved - orphanReferral)')
+console.log('\nThe split  (lpNative = deposited - referralReserved - orphanReferral)')
 if (ev) {
-  expect('Launched.totalEth == totalEthDeposited', ev.totalEth, totalEth, eth)
-  expect('lpEth reconciles with the reserves', ev.lpEth, lpEth, eth)
+  expect('Launched.totalNative == totalNativeDeposited', ev.totalNative, totalNative, eth)
+  expect('lpNative reconciles with the reserves', ev.lpNative, lpNative, eth)
   console.log(`        orphan at launch  ${eth(orphanAtLaunch)}`)
   if (orphan !== 0n) fail(`orphanReferral is ${eth(orphan)} after launch — launch() forwards and zeroes it`)
 }
 
 // ── The anchor prices ────────────────────────────────────────────────────────
-const wantP0 = (lpEth * 10n ** 18n) / GENESIS_LP_SUPPLY
+const wantP0 = (lpNative * 10n ** 18n) / GENESIS_LP_SUPPLY
 const wantShelf = (wantP0 * SHELF_PREMIUM_BPS) / BPS
 
-console.log('\nAnchor prices  (p0 = lpEth / 3.78M, shelfP0 = p0 * 1.05)')
+console.log('\nAnchor prices  (p0 = lpNative / 3.78M, shelfP0 = p0 * 1.05)')
 expect('p0', p0, wantP0, (v) => `${ethers.formatEther(v)} ETH/token`)
 expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatEther(v)} ETH/token`)
 if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatEther(v)} ETH/token`)
@@ -340,11 +340,11 @@ const within = (a, b, pct) => {
   const diff = a > b ? a - b : b - a
   return b === 0n ? a === 0n : diff * 100n <= b * BigInt(pct)
 }
-if (!within(poolEth, lpEth, 2)) {
-  fail(`the pool implies ${eth(poolEth)} of ETH but launch() put in ${eth(lpEth)} — `
+if (!within(poolEth, lpNative, 2)) {
+  fail(`the pool implies ${eth(poolEth)} of ETH but launch() put in ${eth(lpNative)} — `
     + 'the raise did not land in the position it was supposed to')
 } else {
-  console.log(`  ok    pool ETH is the raise less commission     ${eth(lpEth)} expected`)
+  console.log(`  ok    pool ETH is the raise less commission     ${eth(lpNative)} expected`)
 }
 if (!within(poolTokens, pmTokenBal, 2)) {
   notes.push(`reserves derived from L (${tok(poolTokens)}) and the manager's balance `
@@ -370,11 +370,11 @@ if (canRefund) fail('canRefund() is true on a launched hook — depositors could
 
 // ── The creator's own position ───────────────────────────────────────────────
 const [creatorDep, creatorClaimed, creatorRef] = await Promise.all([
-  hook.ethDeposited(creator), hook.genesisShareClaimed(creator), hook.referralAccrued(creator),
+  hook.nativeDeposited(creator), hook.genesisShareClaimed(creator), hook.referralAccrued(creator),
 ])
-const creatorShare = totalEth === 0n ? 0n : (creatorDep * GENESIS_CLAIM_SUPPLY) / totalEth
+const creatorShare = totalNative === 0n ? 0n : (creatorDep * GENESIS_CLAIM_SUPPLY) / totalNative
 console.log(`\nCreator ${creator}`)
-console.log(`        deposited         ${eth(creatorDep)} of ${eth(totalEth)}`)
+console.log(`        deposited         ${eth(creatorDep)} of ${eth(totalNative)}`)
 console.log(`        genesis claim     ${tok(creatorShare)} ${symbol} ${creatorClaimed ? '(claimed)' : '(unclaimed)'}`)
 console.log(`        referral accrued  ${eth(creatorRef)}`)
 

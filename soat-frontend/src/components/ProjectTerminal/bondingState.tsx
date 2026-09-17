@@ -79,7 +79,7 @@ export interface BondingState {
   tokenAmount:    string
   setTokenAmount: (v: string) => void
   quotable:         boolean
-  ethCost:          bigint
+  nativeCost:          bigint
   maxEthCost:       bigint
   quoteUnknown:     boolean
   quoteUnavailable: boolean
@@ -239,15 +239,15 @@ export function BondingStateProvider(
   // ordinary in-flight moment as dust, telling anyone who typed and looked
   // quickly to "raise it until the order is worth a wei".
   const hasQuote = quoteData !== undefined
-  const ethCost = (quoteData as bigint | undefined) ?? 0n
+  const nativeCost = (quoteData as bigint | undefined) ?? 0n
   const quotePending = quotable && !quoteFailed && !hasQuote
   const quoteUnavailable = quotable && quoteFailed
-  const isDust = quotable && !quoteFailed && hasQuote && ethCost === 0n
+  const isDust = quotable && !quoteFailed && hasQuote && nativeCost === 0n
   // `isQuoting` also covers a refetch over a stale figure, which is exactly when
   // showing the old number would be worst: the amount on screen no longer
   // matches the amount typed.
   const quoteUnknown = quotePending || isQuoting
-  const maxEthCost = ethCost === 0n ? 0n : ethCost + (ethCost * SLIPPAGE_BPS) / 10_000n
+  const maxEthCost = nativeCost === 0n ? 0n : nativeCost + (nativeCost * SLIPPAGE_BPS) / 10_000n
   const insufficientBal = maxEthCost > 0n && maxEthCost > p.ethBalance
   const gateLocked = tokenAmountWei > 0n && !unlocked
 
@@ -416,7 +416,7 @@ export function BondingStateProvider(
     p,
     status, unlocked, halted, haltIsGlobal, haltTxt, premiumRaw,
     tokenAmount, setTokenAmount,
-    quotable, ethCost, maxEthCost, quoteUnknown, quoteUnavailable, isDust,
+    quotable, nativeCost, maxEthCost, quoteUnknown, quoteUnavailable, isDust,
     txBusy, amountError, amountHint,
     sameBlockLock, awaitingFirstUnlock,
     gate, armed,
