@@ -217,14 +217,14 @@ contract ToshV5FuzzTest is Test {
         // pricing actually reads. Note it is a wei under 2.5e9 and not exactly
         // `p0 · 1.05` — both divisions floor, so even here the arithmetic gives
         // the wei to the buyer.
-        assertEq(minShelfP0, 2_499_999_999, "smallest reachable ladder base");
+        assertEq(minShelfP0, 8_749_999_999, "smallest reachable ladder base");
 
         assertGe(
             minShelfP0 / 526,
             4_000_000,
             "the reachable minimum must sit millions of times above the break-even, not just above it"
         );
-        assertEq(_firstStepAt(h, minShelfP0), 4_756_270, "step at the reachable minimum");
+        assertEq(_firstStepAt(h, minShelfP0), 16_646_947, "step at the reachable minimum");
     }
 
     /// @dev Pro-rata genesis claims never overshoot GENESIS_CLAIM_SUPPLY.

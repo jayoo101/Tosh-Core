@@ -339,7 +339,7 @@ contract ToshV5Test is Test {
 
     function test_createLaunch_chargesEthFeeAndFundsLadderTreasury() public {
         uint256 fee = factory.launchFee();
-        assertEq(fee, 0.1 ether, "default launch fee should be 0.1 ETH");
+        assertEq(fee, 0.35 ether, "default launch fee should be 0.35 BNB");
 
         uint256 ladderBefore = address(ladder).balance;
         (, ToshLaunchpadHook hook) = _createProject("Matrix", "MTRX");
@@ -2034,7 +2034,7 @@ contract ToshV5Test is Test {
     ///         the tax 70/30" — that the reservoir's existing 70 bps was
     ///         divided rather than the trader's bill raised.  Under that
     ///         reading the reservoir would receive 49 bps, `TRIGGER_STEP` would
-    ///         need ~204 ETH of volume instead of ~143, and the buyback engine
+    ///         need ~715 BNB of volume instead of ~500, and the buyback engine
     ///         would quietly slow by 30 % with no test failing: every existing
     ///         assertion is either about the tax total or about a balance the
     ///         fixture `vm.deal`s directly.
@@ -2054,7 +2054,7 @@ contract ToshV5Test is Test {
 
         // Volume to arm one buyback, rounded up. Unchanged from before the split.
         uint256 volumeToArm = (ladder.TRIGGER_STEP() + inflowPerEth - 1) / inflowPerEth;
-        assertEq(volumeToArm, 143, "arming still takes ~143 ETH of buy volume, exactly as it did at a flat 0.7 %");
+        assertEq(volumeToArm, 500, "arming still takes ~500 BNB of buy volume, exactly as it did at a flat 0.7 %");
     }
 
     /// @notice `TAX_BPS` and `PLATFORM_TAX_BPS` are both 100 and mean entirely
@@ -2222,7 +2222,7 @@ contract ToshV5Test is Test {
         assertEq(ladder.currentCursor(), 0);
 
         // Arm the engine.
-        vm.deal(address(ladder), 1 ether);
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
         assertEq(ladder.untilNextTrigger(), 0, "reservoir should be armed");
 
         uint256 deadB = tokenB.balanceOf(DEAD);
@@ -2241,7 +2241,7 @@ contract ToshV5Test is Test {
         // A slice came out of a pot that was only at the floor, which puts it
         // back under the trigger — so the round pauses here rather than
         // draining the reservoir in one transaction.
-        assertLt(address(ladder).balance, 1 ether, "a floor-sized pot funds one leg, then disarms");
+        assertLt(address(ladder).balance, ladder.TRIGGER_STEP(), "a floor-sized pot funds one leg, then disarms");
         vm.prank(dave);
         vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
         ladder.pokeBuyback();
@@ -2329,8 +2329,9 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         ladder.addLadderToken(address(tokenB));
 
-        // Reservoir holds only launch fees + orphan referrals, well under 1 ETH.
-        assertLt(address(ladder).balance, 1 ether);
+        // Reservoir holds only launch fees + orphan referrals, well under the
+        // trigger.
+        assertLt(address(ladder).balance, ladder.TRIGGER_STEP());
         uint256 deadBefore = tokenB.balanceOf(DEAD);
 
         _swapBuy(trigger, trader, 0.1 ether);
@@ -2360,7 +2361,7 @@ contract ToshV5Test is Test {
         // Break C's delivery leg only.
         vm.mockCallRevert(address(tokenC), abi.encodeWithSelector(IERC20.transfer.selector), "broken token");
 
-        vm.deal(address(ladder), 1 ether);
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = tokenB.balanceOf(DEAD);
 
         // The swap must still succeed.
@@ -2422,7 +2423,7 @@ contract ToshV5Test is Test {
         ReentrantLadderHook hostile = new ReentrantLadderHook(ladder);
         vm.etch(address(hookB), address(hostile).code);
 
-        vm.deal(address(ladder), 1 ether);
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
         uint256 burnedBefore = tokenB.balanceOf(DEAD);
 
         vm.recordLogs();
@@ -2545,7 +2546,7 @@ contract ToshV5Test is Test {
         (uint160 spotSqrt,,,) = IPoolManager(address(poolManager)).getSlot0(victimHook.getPoolKey().toId());
         assertLt(spotSqrt, (uint256(twapSqrt) * 9000) / 10_000, "fixture must clear the 1000bps sqrt bound");
 
-        vm.deal(address(ladder), 1 ether);
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = victim.balanceOf(DEAD);
         uint256 reservoirBefore = address(ladder).balance;
 
@@ -2571,13 +2572,13 @@ contract ToshV5Test is Test {
         _nextBlock();
         assertGt(healthyHook.twapSqrtPriceX96(), 0, "fixture needs an established TWAP");
 
-        vm.deal(address(ladder), 1 ether);
+        vm.deal(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
         _swapBuy(trigger, trader, 0.1 ether);
 
         assertGt(healthy.balanceOf(DEAD), deadBefore, "an honest pool must still be bought and burned");
-        assertLt(address(ladder).balance, 1 ether, "the reservoir must actually spend");
+        assertLt(address(ladder).balance, ladder.TRIGGER_STEP(), "the reservoir must actually spend");
     }
 
     /// @notice The three fields packed into `LadderState` still fit the constants

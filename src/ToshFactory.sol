@@ -57,7 +57,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant MAX_SIG_VALIDITY = 24 hours;
     uint256 public constant MAX_COOLDOWN = 7 days;
 
-    /// @notice Ceiling on `launchFee`, denominated in ETH.
+    /// @notice Ceiling on `launchFee`, denominated in BNB.
     ///
     /// @dev    `setLaunchFee` was the one setter on this contract with no
     ///         validation of any kind — no floor, no ceiling, no zero-check —
@@ -66,37 +66,42 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     ///         The failure it admits is not an exploit, it is an accident with
     ///         no undo short of a second owner transaction: the fee is quoted in
-    ///         wei, and the difference between `0.1 ether` and `0.1e18 ether` is
-    ///         one keystroke in a Safe transaction builder.  Above the ceiling
+    ///         wei, and the difference between `0.35 ether` and `0.35e18 ether`
+    ///         is one keystroke in a Safe transaction builder.  Above the ceiling
     ///         `createLaunch` becomes unaffordable for everyone, which is a
     ///         platform-wide outage produced by a typo rather than by an
     ///         attacker.
     ///
-    ///         Deliberately generous — 100x the 0.1 ETH default — because this
+    ///         Deliberately generous — 100x the 0.35 BNB default — because this
     ///         guards against an order-of-magnitude slip, not against pricing
     ///         judgement.  Zero stays legal: a fee-free platform is a policy
     ///         choice, and `test_setLaunchFee_allowsZero` pins it.
-    uint256 public constant MAX_LAUNCH_FEE = 10 ether;
+    uint256 public constant MAX_LAUNCH_FEE = 35 ether;
 
-    /// @notice Ceilings on the two other ETH-denominated dials, in wei.
+    /// @notice Ceilings on the two other BNB-denominated dials, in wei.
     ///
     /// @dev    Same failure mode as `MAX_LAUNCH_FEE` — a wei-denominated field
     ///         typed into a Safe transaction builder — but deliberately many
     ///         orders of magnitude looser, and the difference is the point.
     ///
-    ///         A launch fee above 10 ETH cannot be a considered choice, so that
+    ///         A launch fee above 35 BNB cannot be a considered choice, so that
     ///         ceiling can double as a sanity bound on pricing judgement.  These
     ///         two have no such comfortable range: this repo's own suites set a
-    ///         1000 ETH per-wallet limit in a fixture and a 300 ETH one to pin
-    ///         `test_registerPoG_noSilentClamp`, and an 8000 ETH soft cap
+    ///         1000-unit per-wallet limit in a fixture and a 300-unit one to pin
+    ///         `test_registerPoG_noSilentClamp`, and an 8000-unit soft cap
     ///         appears in a local rehearsal script.  A tight bound here would
     ///         not be conservative, it would be wrong.
     ///
     ///         So these guard exactly one class of mistake: **unit confusion**.
-    ///         `10 ether` entered as `10e18 ether` is eighteen orders of
-    ///         magnitude, and 1 M ETH is both far above any conceivable raise or
-    ///         wallet cap — roughly 1% of all ETH in existence — and ~1e14 below
-    ///         that slip.  Do not read them as anything more.  In particular a
+    ///         `35 ether` entered as `35e18 ether` is eighteen orders of
+    ///         magnitude, and 1 M BNB is both far above any conceivable raise or
+    ///         wallet cap — well under 1% of BNB's supply, but several thousand
+    ///         times the largest raise this platform could plausibly host — and
+    ///         ~1e14 below that slip.  Do not read them as anything more.
+    ///         Deliberately left at 1 M rather than rescaled with the other
+    ///         dials: these bound a typo, not a value, so the factor that
+    ///         matters is the distance to `1e18 ether` and that is unchanged.
+    ///         In particular a
     ///         `maxPogAllocationLimit` under this ceiling is **not** evidence
     ///         that PoG still limits whales: once the per-wallet cap reaches the
     ///         soft cap a single wallet can fill an entire genesis round, and no
@@ -110,7 +115,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         constant so the two can diverge without a migration.
     uint256 public constant MAX_POG_ALLOCATION_LIMIT = 1_000_000 ether;
 
-    /// @notice Minimum acceptable `defaultSoftCap`, denominated in ETH (v5.0).
+    /// @notice Minimum acceptable `defaultSoftCap`, denominated in BNB (v5.0).
     ///
     /// @dev    Guards two cliffs, and the one this comment used to name alone is
     ///         not the binding one.
@@ -132,14 +137,19 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         Nothing else in the system checks for a flat ladder, so this
     ///         literal is the entire defence.
     ///
-    ///         At 0.01 ETH, `p0` is around 2.38e9 wei/token and `shelfP0`
-    ///         around 2.5e9, where the step is 4,756,270 wei — a margin of
-    ///         4.75 million to one over break-even — while still permitting
+    ///         Both cliffs are pure wei arithmetic and know nothing about what
+    ///         the native coin is worth, which is why the BNB cutover could
+    ///         move this floor without re-deriving them.  `p0` scales linearly
+    ///         with the cap, so raising the floor only ever widens the margin:
+    ///         at the old 0.01 it was around 2.38e9 wei/token with a 4,756,270
+    ///         wei step, and at 0.035 `shelfP0` is 8,749,999,999 with a step of
+    ///         16,646,947 wei — a margin of 16.6 million to one over break-even,
+    ///         3.5x the headroom the ETH figure had — while still permitting
     ///         small testnet raises.  Pinned by
     ///         `test_setDefaultSoftCap_rejectsBelowFloor` and
     ///         `testFuzz_tierPriceAt_strictlyMonotone`; derived in
     ///         `docs/SECURITY_AUDIT.md` §5.11.
-    uint256 public constant MIN_SOFT_CAP_PROD = 0.01 ether;
+    uint256 public constant MIN_SOFT_CAP_PROD = 0.035 ether;
 
     // ─── Immutables ───────────────────────────────────────────────────────────
 
@@ -232,10 +242,10 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         without a cool-off) without that coupling.
     uint256 public quotaWindowDuration = 24 hours;
 
-    /// @notice ETH charged on `createLaunch`. Default: 0.1 ETH (v5.0).
-    uint256 public launchFee = 0.1 ether;
+    /// @notice BNB charged on `createLaunch`. Default: 0.35 BNB (v5.0).
+    uint256 public launchFee = 0.35 ether;
 
-    /// @notice Per-wallet ETH cap. Serves double duty: it ceilings the PoG
+    /// @notice Per-wallet BNB cap. Serves double duty: it ceilings the PoG
     ///         `maxAlloc` an oracle attestation may grant, and it is
     ///         snapshotted into every NEW hook as that project's per-wallet
     ///         deposit limit.
@@ -251,10 +261,17 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         binding half of that pair: an attestation above this value
     ///         reverts `ExceedsGlobalPogLimit`, so the off-chain dial may be
     ///         lowered freely and raised only after this one moves.
-    uint256 public maxPogAllocationLimit = 0.5 ether;
+    ///
+    ///         Note the two dials are no longer in the same currency as the
+    ///         gas history the oracle reads.  `maxAlloc` is BNB because a
+    ///         deposit is BNB; the gas history it is derived from is ETH,
+    ///         because the chains scanned for it settle in ETH.  The rate
+    ///         between them carries the conversion, and
+    ///         `docs/BSC_MIGRATION.md` §6 is where that split is argued.
+    uint256 public maxPogAllocationLimit = 1.75 ether;
 
-    /// @notice Global default soft-cap baked into every NEW hook, in ETH (v5.0).
-    uint256 public defaultSoftCap = 10 ether;
+    /// @notice Global default soft-cap baked into every NEW hook, in BNB (v5.0).
+    uint256 public defaultSoftCap = 35 ether;
 
     // ─── Eligibility maps ─────────────────────────────────────────────────────
 

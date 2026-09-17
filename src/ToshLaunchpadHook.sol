@@ -518,7 +518,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
     ///         equal.  Reading it from the treasury instead would cost the very
     ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 1 ether;
+    uint256 public constant PIGGYBACK_TRIGGER_STEP = 3.5 ether;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.

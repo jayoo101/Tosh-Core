@@ -90,10 +90,17 @@ contract ToshLadderTreasury is Ownable2Step {
     // ─── Constants ────────────────────────────────────────────────────────────
 
     /// @notice Balance threshold that arms a piggyback buyback, and the
-    ///         minimum ETH a cycle will spend.  A fuller reservoir spends
+    ///         minimum BNB a cycle will spend.  A fuller reservoir spends
     ///         `SPEND_BPS` of its balance instead, so ammunition does not
     ///         pile up through quiet trading hours.
-    uint256 public constant TRIGGER_STEP = 1 ether;
+    ///
+    /// @dev    Sized by intent rather than by a spot rate, because it is a
+    ///         constant and a constant outlives the rate that set it.  The
+    ///         question it answers is "how much ammunition is worth one shot,
+    ///         net of the gas to fire it", and 3.5 BNB sits where 1 ETH sat
+    ///         when this was written.  A cheaper trigger spends the reservoir
+    ///         on fees; a dearer one lets it idle.
+    uint256 public constant TRIGGER_STEP = 3.5 ether;
 
     /// @notice Fraction of the reservoir spent per piggyback cycle, in
     ///         basis points.  1000 = 10 %.  Floored at `TRIGGER_STEP`.
