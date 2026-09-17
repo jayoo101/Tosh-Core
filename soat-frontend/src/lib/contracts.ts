@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Tosh Protocol — canonical on-chain bindings (v5.0, ETH-native).
+// Tosh Protocol — canonical on-chain bindings (v5.0, BNB-native, PancakeSwap Infinity).
 //
 // SINGLE SOURCE OF TRUTH for:
 //   • Physical constants (addresses, chain IDs, hard floors mirrored from
@@ -19,20 +19,21 @@
 // ENV WIRING
 // ──────────
 //   NEXT_PUBLIC_FACTORY_ADDRESS     — deployed ToshFactory (required)
-//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 31337, devnet)
-//   NEXT_PUBLIC_POSITION_MANAGER    — V4 posm; BSC address if unset
+//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 97, BSC testnet)
+//   NEXT_PUBLIC_POSITION_MANAGER    — Infinity CLPositionManager; the target
+//                                     chain's address if unset
 //   NEXT_PUBLIC_PERMIT2             — Permit2; canonical address if unset
-//   NEXT_PUBLIC_STATE_VIEW          — V4 StateView; BSC address if unset
 //   POG_SIGNER_PRIVATE_KEY          — server-only PoG oracle key (NEVER expose)
 //   POG_PRIVATE_KEY                 — spec-compliant fallback alias of the above
 //
-//   POOL_MANAGER is deliberately NOT env-bound.  A wrong one silently
-//   mis-CREATE2s every hook, so flipping it is a source change.
+//   CL_POOL_MANAGER is deliberately NOT env-bound.  It is named inside every
+//   `PoolKey` this app encodes, so a wrong one hashes to a pool id that was
+//   never initialised — flipping it is a source change, reviewed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Address } from 'viem'
 import { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI } from '@/app/lib/abis'
-import { envAddress } from '@/lib/chain'
+import { envAddress, TARGET_CHAIN_ID, BSC_ID, BSC_TESTNET_ID } from '@/lib/chain'
 
 export { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI }
 export {
@@ -122,60 +123,91 @@ if (
   )
 }
 
-/** Uniswap V4 PoolManager.  Hard-coded — not env-bound on purpose: a wrong
- *  PoolManager would silently mis-CREATE2 every hook.  Mainnet cutover is a
- *  source change here, reviewed, not an env flip.
+/**
+ * The sentinel a chain with no Infinity deployment resolves to.
  *
- *  ⚠ DEAD CONSTANT, AND THE WARNING ABOVE IT IS NOT TRUE ANY MORE. Nothing in
- *    `src/` reads this. Kept only long enough to be deleted deliberately, and
- *    documented because the paragraph above claims it is load-bearing, which is
- *    exactly the sort of comment that gets a stale value trusted.
- *
- *    Two things stopped being true. It is Uniswap's V4 PoolManager, and this
- *    protocol now runs on PancakeSwap Infinity — so the address names the wrong
- *    AMM. And hook addresses are no longer predicted from it: the launch page
- *    reads `factory.hookInitcodeHash(...)` off the chain, so the prediction
- *    tracks whatever factory is deployed and cannot be desynchronised by a
- *    constant here.
- *
- *    Infinity's manager for the record — `CLPoolManager`, 56
- *    0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b, 97
- *    0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4 — plus a `Vault`, which V4 had no
- *    equivalent of. The contracts take both as constructor arguments; the
- *    frontend needs neither. */
-export const POOL_MANAGER: Address = '0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF'
+ * ⚠ NOT a fallback and never dereferenced on purpose. Reads against it come
+ *   back empty and `toshPoolKey` REFUSES it outright, because the alternative —
+ *   a plausible address for some other chain — is the failure mode this repo
+ *   has already paid for twice (see `POSITION_MANAGER`'s history below and the
+ *   `LADDER_TREASURY` alias warning above). Zero is unmistakably "unset"; a
+ *   real address from the wrong chain is not.
+ */
+const NO_INFINITY_DEPLOYMENT: Address = '0x0000000000000000000000000000000000000000'
 
 /**
- * Uniswap V4 PositionManager — the retail LP entry point.
+ * The target chain's Infinity address, or the zero sentinel if it has none.
  *
- * ⚠ THIS IS THE WRONG AMM AND THE RETAIL LP FEATURE IS CURRENTLY BROKEN. Not a
- *   copy problem; recorded here rather than quietly repointed because fixing it
- *   is a port, not an address swap.
- *
- *   Every pool this protocol creates is now a PancakeSwap Infinity CL pool. This
- *   address is Uniswap's V4 PositionManager, and Uniswap deployed no V4 to BSC
- *   testnet at all — measured, it has NO CODE on 97 (see
- *   docs/PANCAKESWAP_INFINITY.md §7). So `useLpPosition.ts` and
- *   `LiquidityPanel.tsx` are talking to an address with nothing behind it on the
- *   chain this build targets.
- *
- *   Infinity's equivalent is `CLPositionManager`:
- *     56  0x55f4c8abA71A1e923edC303eb4fEfF14608cC226
- *     97  0x77DedB52EC6260daC4011313DBEE09616d30d122
- *
- *   Swapping the address alone would trade a no-code failure for a revert: the
- *   two managers do not share an encoding. `POSM_ABI` and the `modifyLiquidities`
- *   action bytes in `lpAbis.ts` are V4's, and Infinity's take a six-member
- *   `PoolKey` that names its pool manager. The genesis position itself is
- *   unaffected — the hook seeds it directly through the Vault, with no periphery
- *   involved — so this is retail LP only.
- *
- *   The fallback is left pointing at V4 deliberately, so nobody reads a plausible
- *   Infinity address here and concludes the feature works.
+ * ⚠ THE PER-CHAIN TABLE IS THE POINT. This file used to hold one hard-coded
+ *   singleton per periphery contract, and the comment explaining why rested on
+ *   the two chains it then targeted sharing an address — true of the Robinhood
+ *   era, and NOT true of Infinity: 56 and 97 are different deployments at
+ *   different addresses (docs/PANCAKESWAP_INFINITY.md §7). A single constant
+ *   would therefore be right on one chain and silently wrong on the other.
  */
-export const POSITION_MANAGER: Address = envAddress(
+function infinityAddress(byChain: Record<number, Address>): Address {
+  return byChain[TARGET_CHAIN_ID] ?? NO_INFINITY_DEPLOYMENT
+}
+
+/**
+ * Infinity's `CLPoolManager` — the AMM half of what V4 called a PoolManager.
+ *
+ * Hard-coded per chain, not env-bound on purpose, and LOAD-BEARING for two
+ * independent reasons:
+ *
+ *   • It is a MEMBER OF EVERY `PoolKey` this app encodes. Infinity names its
+ *     manager in the key and `CLPoolManager` reverts `PoolManagerMismatch` on a
+ *     key that names someone else, so a wrong value here hashes to a pool id
+ *     that was never initialised and every deposit reverts.
+ *   • It is where pool state reads go. Infinity ships no `StateView`; the
+ *     manager exposes `getSlot0` and `getLiquidity` itself.
+ *
+ * Neither was true of the V4 constant this replaces, which was genuinely dead —
+ * hook addresses stopped being predicted from it when the launch page started
+ * reading `factory.hookInitcodeHash(...)` off the chain. It is not dead now.
+ *
+ * Chain 31337 has no entry: a devnet deploys its own Infinity and there is no
+ * canonical address to name. It resolves to the zero sentinel, which
+ * `toshPoolKey` refuses by name rather than encoding into a well-formed key.
+ */
+export const CL_POOL_MANAGER: Address = infinityAddress({
+  [BSC_ID]:         '0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b',
+  [BSC_TESTNET_ID]: '0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4',
+})
+
+/**
+ * Infinity's `CLPositionManager` — the retail LP entry point.
+ *
+ * ⚠ THIS USED TO BE UNISWAP'S V4 PositionManager, and the retail LP feature was
+ *   broken rather than mislabelled: Uniswap never deployed V4 to BSC testnet, so
+ *   the old default `0x7A4a5c919aE2541AeD11041A1AEeE68f1287f95b` has NO CODE on
+ *   chain 97 (measured; docs/PANCAKESWAP_INFINITY.md §7). Swapping the address
+ *   alone would only have traded a no-code failure for a revert, because the two
+ *   managers do not share an encoding — Infinity's `modifyLiquidities` mint
+ *   params carry a six-member `PoolKey` that names its pool manager and packs
+ *   `tickSpacing` into a `bytes32`. That port is in `clMath.ts` and
+ *   `lpActions.ts`; this address is only its last mile.
+ *
+ *   The genesis position was never affected: the hook seeds it directly through
+ *   the Vault with no periphery involved. This is retail LP only.
+ *
+ * Function names and signatures are unchanged from V4 — `modifyLiquidities`,
+ * `getPoolAndPositionInfo`, `getPositionLiquidity`, plus ERC-721 — so the ABI in
+ * `lpAbis.ts` differs from the old one in exactly one place, the embedded
+ * `PoolKey` tuple.
+ *
+ * The env override stays — it is how a devnet names its own deployment — and it
+ * is written out as the literal `process.env.NEXT_PUBLIC_…` rather than passed
+ * in as a name to look up: Next substitutes those textually at build time, so a
+ * computed key is simply `undefined` in the browser. See
+ * `scripts/checkPublicEnv.mjs`, which enforces it.
+ */
+export const CL_POSITION_MANAGER: Address = envAddress(
   process.env.NEXT_PUBLIC_POSITION_MANAGER,
-  '0x7A4a5c919aE2541AeD11041A1AEeE68f1287f95b',
+  infinityAddress({
+    [BSC_ID]:         '0x55f4c8abA71A1e923edC303eb4fEfF14608cC226',
+    [BSC_TESTNET_ID]: '0x77DedB52EC6260daC4011313DBEE09616d30d122',
+  }),
 )
 
 /** Permit2 — canonical address on every chain, overridable just in case.
@@ -183,19 +215,6 @@ export const POSITION_MANAGER: Address = envAddress(
 export const PERMIT2: Address = envAddress(
   process.env.NEXT_PUBLIC_PERMIT2,
   '0x000000000022D473030F116dDEE9F6B43aC78BA3',
-)
-
-/** V4 StateView — read-only `getSlot0`, so the LP panel can size a deposit
- *  off the real sqrtPriceX96 rather than a derived spot.  BSC mainnet.
- *
- *  ⚠ Same breakage as `POSITION_MANAGER` above, and Infinity has no drop-in
- *    counterpart: it does not ship a `StateView`. `CLPoolManager` exposes pool
- *    state directly, so the port is a call-site change and not a new address.
- *    Left as V4's for the same reason — an honest broken pointer beats a
- *    plausible one. */
-export const STATE_VIEW: Address = envAddress(
-  process.env.NEXT_PUBLIC_STATE_VIEW,
-  '0xd13Dd3D6E93f276FAfc9Db9E6BB47C1180aeE0c4',
 )
 
 /** Full-range bounds, mirroring the hook's genesis position (TICK_SPACING 200). */
@@ -226,8 +245,8 @@ export const PLATFORM_TAX_BPS = 100
  * Mirrored because the project page was disclosing `POOL_FEE` alone: a reader
  * was told trading costs 0.30% when it costs 1.30%, which is not a rounding
  * difference but a fourfold understatement of the fee on a page people trade
- * from. `POOL_FEE` is V4's and goes to liquidity providers; this is the hook's
- * and is stacked on top of it.
+ * from. `POOL_FEE` is the Infinity CL pool's own fee and goes to liquidity
+ * providers; this is the hook's and is stacked on top of it.
  *
  * THE TWO LEGS DO DIFFERENT THINGS WITH IT, which is why the UI cannot
  * describe it as one destination:
@@ -284,13 +303,34 @@ export const PROJECT_REFERRAL_SHARE_BPS = 8000
 export const PROJECT_REFERRAL_BPS = (REFERRAL_BPS * PROJECT_REFERRAL_SHARE_BPS) / 10_000
 export const LIFETIME_REFERRAL_BPS = REFERRAL_BPS - PROJECT_REFERRAL_BPS
 
-/** v4-periphery `Actions` opcodes used by the LP panel. */
-export const V4_ACTIONS = {
-  MINT_POSITION: 0x02,
-  BURN_POSITION: 0x03,
-  SETTLE_PAIR:   0x0d,
-  TAKE_PAIR:     0x11,
-  SWEEP:         0x14,
+/**
+ * infinity-periphery `Actions` opcodes used by the LP panel.
+ *
+ * ⚠ ALL FIVE VALUES ARE NUMERICALLY IDENTICAL TO UNISWAP V4'S — 0x02, 0x03,
+ *   0x0d, 0x11, 0x14 mean CL_MINT_POSITION/MINT_POSITION,
+ *   CL_BURN_POSITION/BURN_POSITION, SETTLE_PAIR, TAKE_PAIR and SWEEP in both
+ *   peripheries. So the packed `actions` string `lpActions.ts` builds is
+ *   BYTE-IDENTICAL whichever AMM it was meant for, and no inspection of a
+ *   payload's opcodes can tell which one it targets.
+ *
+ *   THE RENAME IS THE ONLY SIGNAL A READER GETS. That is why the keys are
+ *   Infinity's spelling rather than V4's, and why
+ *   `scripts/checkLpActionsAbi.mjs` pins them BY NAME against
+ *   `lib/infinity-periphery/src/libraries/Actions.sol`: a check on the values
+ *   alone would pass just as happily against v4-periphery, which is exactly the
+ *   near-miss this file is trying not to repeat (see
+ *   docs/PANCAKESWAP_INFINITY.md §9.3 for the router-tuple version of it).
+ *
+ *   The one structural difference between the two AMMs' payloads is the
+ *   six-member `PoolKey` inside the mint params; see `PoolKeyStruct` in
+ *   `clMath.ts`.
+ */
+export const CL_ACTIONS = {
+  CL_MINT_POSITION: 0x02,
+  CL_BURN_POSITION: 0x03,
+  SETTLE_PAIR:      0x0d,
+  TAKE_PAIR:        0x11,
+  SWEEP:            0x14,
 } as const
 
 

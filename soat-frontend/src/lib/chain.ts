@@ -4,10 +4,11 @@ import { bsc, bscTestnet, foundry } from 'viem/chains'
 /**
  * Settlement chain the UI talks to.
  *
- * `NEXT_PUBLIC_CHAIN_ID` is the switch.  POOL_MANAGER stays a source-code
- * constant in `contracts.ts` (a wrong one silently mis-CREATE2s every hook);
- * everything else — periphery addresses, explorer URLs, wagmi's chain list —
- * follows this id so a mainnet cutover is env, not a rebuild of the UI.
+ * `NEXT_PUBLIC_CHAIN_ID` is the switch.  `CL_POOL_MANAGER` stays a source-code
+ * constant in `contracts.ts` (a wrong one hashes every `PoolKey` to a pool that
+ * was never initialised); everything else — periphery addresses, explorer URLs,
+ * wagmi's chain list — follows this id so a mainnet cutover is env, not a rebuild
+ * of the UI.
  *
  * The default is the PUBLIC TESTNET, chain 97, and it has been all three of
  * these in turn. Recording why, because the reasoning inverted once and would

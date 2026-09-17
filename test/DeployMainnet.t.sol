@@ -20,14 +20,14 @@ import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
 
 contract DeployMainnetTest is Test {
-    /// @dev Robinhood Chain — the chain this script is meant for
-    ///      (chain 4663). This constant has tracked three
-    ///      answers now: 8453, then 1, now 4663. That churn is the argument for
+    /// @dev BNB Smart Chain — the chain this script is meant for
+    ///      (chain 56). This constant has tracked four
+    ///      answers now: 8453, then 1, then 4663, now 56. That churn is the argument for
     ///      the guard being chain-agnostic and env-driven rather than hard-coded
     ///      in the script — the value here only has to agree with what
     ///      production will authorise, and changing targets stays a one-line
     ///      edit in two places instead of a rewrite.
-    uint256 internal constant TARGET_CHAIN = 4663;
+    uint256 internal constant TARGET_CHAIN = 56;
 
     DeployMainnetScript internal script;
 

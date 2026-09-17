@@ -12,29 +12,30 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //  DeployMainnet.s.sol  —  Production-grade deployer
 //
 //  Differences from script/Deploy.s.sol (Base Sepolia helper):
-//    • No MockSATO and no faucet — v5.0 is ETH-native end to end and the
+//    • No MockSATO and no faucet — v5.0 is BNB-native end to end and the
 //      factory has no SATO wiring at all.
-//    • Logs the live `hookInitcodeHash` so the frontend salt miner can be
-//      regenerated against the mainnet build.
+//    • Logs the live `hookInitcodeHash` so the frontend can confirm the clone
+//      initcode against the mainnet build. There is no salt miner: Infinity
+//      registers permissions via `getHooksRegistrationBitmap()`.
 //    • Two-step transferOwnership reminder — production MUST hand off to a
 //      Gnosis Safe multisig before any users transact.
 //
-//  TARGET CHAIN: Robinhood Chain, chain id 4663.  This header has now been
-//  wrong twice —
-//  it read "8453 = Base" before it read "1 = Ethereum" — and the reason it
-//  never mattered is worth keeping: the script refuses to run unless
+//  TARGET CHAIN: BNB Smart Chain, chain id 56.  This header has now been
+//  wrong three times —
+//  it read "8453 = Base" then "1 = Ethereum" then "4663 = Robinhood" — and the
+//  reason it never mattered is worth keeping: the script refuses to run unless
 //  `block.chainid` equals whatever `TARGET_CHAIN_ID` says, so a stale comment
 //  can only send an operator to authorise the wrong chain and waste a broadcast
 //  finding out.  It cannot misdeploy anything.
 //
-//  Verification is Blockscout, not Etherscan.  Chain 4663 is served by neither
-//  Etherscan v2's multichain host nor Basescan, and Blockscout needs no API key,
-//  so ETHERSCAN_API_KEY has dropped out of this path entirely.
+//  Verification is Etherscan v2 (BscScan).  It needs an API key; without one
+//  the broadcast still succeeds and verification is a follow-up.
 //
 //  Required env vars (extend `.env.production` from `.env.example`):
 //    PRIVATE_KEY           — deployer EOA (low-privilege; rotates to Safe)
-//    TARGET_CHAIN_ID       — chain this run is authorised for (4663 = Robinhood)
-//    INFINITY_CL_POOL_MANAGER       — Uniswap V4 PoolManager on the target chain
+//    TARGET_CHAIN_ID       — chain this run is authorised for (56 = BSC)
+//    INFINITY_CL_POOL_MANAGER — PancakeSwap Infinity CLPoolManager on the target
+//    INFINITY_VAULT        — PancakeSwap Infinity Vault (the CL manager's vault())
 //    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
 //                            — a NEW EOA, not reused from testnet. The private
 //                            key lives in Vercel Production, not in this file.
@@ -46,7 +47,7 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //  `source .env.production` alone sets SHELL variables, and this script reads
 //  the ENVIRONMENT via vm.envUint/vm.envAddress, so the values would not reach
 //  it. What would reach it is `.env`, which forge auto-loads and which holds
-//  testnet roles: TARGET_CHAIN_ID=46630, PLATFORM_TREASURY and
+//  testnet roles: TARGET_CHAIN_ID=97, PLATFORM_TREASURY and
 //  POG_SIGNER_ADDRESS both the deployer, and no PROD_OWNER_SAFE at all. That
 //  last one makes it fail loudly rather than deploy wrongly — vm.envAddress
 //  reverts on a missing var — but it fails on deploy day, at the broadcast.

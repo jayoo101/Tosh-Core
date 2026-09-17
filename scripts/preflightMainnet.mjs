@@ -330,20 +330,21 @@ for (const [ok, label] of distinct) {
 
 // ── 6. INFINITY_CL_POOL_MANAGER: has code, and agrees with the frontend's copy ────────
 //
-// contracts.ts hardcodes POOL_MANAGER and says why it is deliberately not
-// env-bound: a wrong one silently mis-computes every hook's CREATE2 address.
-// That makes it two independent declarations of one address with nothing
-// comparing them — the same shape as the mirrored-constant drift that
-// checkContractConstants.ts exists for, but across the deploy env boundary.
+// contracts.ts hardcodes CL_POOL_MANAGER per chain and says why it is
+// deliberately not env-bound: a wrong one hashes every PoolKey to a pool that
+// was never initialised. That makes it two independent declarations of one
+// address with nothing comparing them — the same shape as the mirrored-constant
+// drift that checkContractConstants.ts exists for, but across the deploy env
+// boundary.
 console.log('\n5. silent mis-derivation — INFINITY_CL_POOL_MANAGER')
 const pmCode = await codeOf(poolManager)
 if (pmCode === '0x') {
   fail(
     'INFINITY_CL_POOL_MANAGER has no code on this chain',
-    'Every hook is CREATE2-deployed against this address and every pool is opened on it. '
-    + 'A wrong or stale value produces a factory that reverts on the first createLaunch, '
-    + 'or worse, mines hook addresses against a PoolManager that does not exist.',
-    'Set INFINITY_CL_POOL_MANAGER to the Uniswap V4 PoolManager on this chain.',
+    'Every pool this factory opens is keyed on this address. A wrong or stale value '
+    + 'produces a factory whose createLaunch reverts, or worse, whose PoolKeys hash '
+    + 'to a manager that does not exist.',
+    'Set INFINITY_CL_POOL_MANAGER to the PancakeSwap Infinity CLPoolManager on this chain.',
   )
 } else {
   pass('INFINITY_CL_POOL_MANAGER is a contract', `${(pmCode.length - 2) / 2} bytes`)
@@ -351,22 +352,23 @@ if (pmCode === '0x') {
   let mirrored = null
   try {
     const src = fs.readFileSync(CONTRACTS_TS, 'utf8')
-    mirrored = src.match(/export const POOL_MANAGER\s*:\s*Address\s*=\s*'(0x[0-9a-fA-F]{40})'/)?.[1]
+    const block = src.match(/export const CL_POOL_MANAGER[\s\S]*?infinityAddress\(\{([\s\S]*?)\}\)/)
+    mirrored = block?.[1].match(/\[BSC_ID\]:\s*'(0x[0-9a-fA-F]{40})'/)?.[1]
   } catch {
-    notes.push(`could not read ${path.relative(REPO, CONTRACTS_TS)} to cross-check POOL_MANAGER.`)
+    notes.push(`could not read ${path.relative(REPO, CONTRACTS_TS)} to cross-check CL_POOL_MANAGER.`)
   }
   if (mirrored && ethers.getAddress(mirrored) !== poolManager) {
     fail(
       'INFINITY_CL_POOL_MANAGER disagrees with the frontend',
-      `.env.production says ${poolManager}; contracts.ts hardcodes ${ethers.getAddress(mirrored)}. `
-      + 'The frontend derives every hook address by CREATE2 against its own copy, so the two '
-      + 'must agree or the UI will look up hooks the factory never deployed. contracts.ts '
-      + 'deliberately does not read this from the environment, which is what makes them two '
-      + 'independent declarations with nothing comparing them until now.',
-      'Make .env.production and soat-frontend/src/lib/contracts.ts name the same PoolManager.',
+      `.env.production says ${poolManager}; contracts.ts names ${ethers.getAddress(mirrored)} for chain 56. `
+      + 'The frontend encodes every PoolKey against its own copy, so the two must agree or '
+      + 'every deposit hashes to a pool the factory never opened. contracts.ts deliberately '
+      + 'does not read this from the environment, which is what makes them two independent '
+      + 'declarations with nothing comparing them until now.',
+      'Make .env.production and soat-frontend/src/lib/contracts.ts name the same CLPoolManager.',
     )
   } else if (mirrored) {
-    pass('matches contracts.ts POOL_MANAGER', 'frontend CREATE2 derivation agrees')
+    pass('matches contracts.ts CL_POOL_MANAGER for chain 56', 'frontend PoolKey derivation agrees')
   }
 }
 

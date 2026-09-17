@@ -1,10 +1,10 @@
 /**
  * node scripts/auditLaunch.mjs <hook> [rpc]
  * ─────────────────────────────────────────────────────────────────────────────
- * Reads a launched hook, its token and its v4 pool, and checks the numbers
- * against the arithmetic `launch()` performs — rather than against a screenshot
- * of the app, which reads the same chain through the same assumptions and so
- * cannot disagree with itself.
+ * Reads a launched hook, its token and its Infinity CL pool, and checks the
+ * numbers against the arithmetic `launch()` performs — rather than against a
+ * screenshot of the app, which reads the same chain through the same assumptions
+ * and so cannot disagree with itself.
  *
  * Every expected value here is derived from `ToshLaunchpadHook.launch()`:
  *
@@ -18,9 +18,10 @@
  * as they were, and this reconciles state against the event rather than assuming
  * one of them.
  *
- * Pool state is read straight out of the PoolManager's storage with `extsload`,
- * at the slots `StateLibrary` computes (POOLS_SLOT 6, LIQUIDITY_OFFSET 3). That
- * is deliberately not the app's read path: the point is a second opinion.
+ * Pool state is read from `CLPoolManager.getSlot0` / `getLiquidity` against the
+ * PoolKey the hook itself publishes (`getPoolKey()`). That is deliberately not
+ * the app's reconstructed key: the point is a second opinion, and reconstructing
+ * a five-member V4 key here would hash to a pool that was never initialised.
  */
 
 import { ethers } from 'ethers'
@@ -29,11 +30,14 @@ import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
 installFailureExit()
 
 const HOOK = process.argv[2]
-const RPC = process.argv[3] ?? 'https://rpc.mainnet.chain.robinhood.com'
+const RPC = process.argv[3] ?? process.env.BSC_RPC ?? process.env.BSC_TESTNET_RPC
 
 if (!/^0x[0-9a-fA-F]{40}$/.test(HOOK ?? '')) {
   console.log('usage: node scripts/auditLaunch.mjs <hook> [rpc]')
   throw new CheckFailed('a hook address is required')
+}
+if (!RPC) {
+  throw new CheckFailed('pass an RPC URL or set BSC_RPC / BSC_TESTNET_RPC')
 }
 
 /** Mirrors of the hook's own constants. A drift here is a finding, not a typo. */
@@ -45,17 +49,21 @@ const TIER_SIZE           = 3_150n * 10n ** 18n
 const SHELF_PREMIUM_BPS   = 10_500n
 const BPS                 = 10_000n
 
-const POOL_MANAGER  = '0x8366a39CC670B4001A1121B8F6A443A643e40951'
+const CL_POOL_MANAGERS = {
+  56: '0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b',
+  97: '0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4',
+}
 const POOL_FEE      = 3000
 const TICK_SPACING  = 200
-const POOLS_SLOT    = 6n
-const LIQUIDITY_OFF = 3n
 
 const HOOK_ABI = [
   'function launched() view returns (bool)',
   'function tokenInitialized() view returns (bool)',
   'function projectToken() view returns (address)',
   'function poolManager() view returns (address)',
+  'function vault() view returns (address)',
+  'function getHooksRegistrationBitmap() view returns (uint16)',
+  'function getPoolKey() view returns (tuple(address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters))',
   'function ladderTreasury() view returns (address)',
   'function platformFeeRecipient() view returns (address)',
   'function creator() view returns (address)',
@@ -94,13 +102,16 @@ const ERC20_ABI = [
   'function owner() view returns (address)',
 ]
 
-const PM_ABI = ['function extsload(bytes32) view returns (bytes32)']
+const CL_POOL_ABI = [
+  'function getSlot0(bytes32 id) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
+  'function getLiquidity(bytes32 id) view returns (uint128 liquidity)',
+]
 
 const problems = []
 const notes = []
 const fail = (m) => problems.push(m)
 
-const eth = (v) => `${ethers.formatEther(v)} ETH`
+const eth = (v) => `${ethers.formatEther(v)} native`
 const tok = (v) => Number(ethers.formatUnits(v, 18)).toLocaleString('en-US', { maximumFractionDigits: 4 })
 
 /** Pass/fail on an exact bigint identity, printed either way. */
@@ -142,9 +153,9 @@ console.log(`        project admin     ${projectAdmin}`)
 console.log(`        project treasury  ${projectTreasury}`)
 console.log(`        ladder treasury   ${ladderTreasury}`)
 console.log(`        platform fee to   ${platformFee}`)
-if (pmAddr.toLowerCase() !== POOL_MANAGER.toLowerCase()) {
-  fail(`poolManager() is ${pmAddr}, but contracts.ts hardcodes ${POOL_MANAGER} — `
-    + 'a mismatch here means every hook address was mined against a different manager')
+const knownManagers = Object.values(CL_POOL_MANAGERS).map((a) => a.toLowerCase())
+if (!knownManagers.includes(pmAddr.toLowerCase())) {
+  fail(`poolManager() is ${pmAddr}, which is not the Infinity CLPoolManager on BSC 56 or 97`)
 }
 
 // ── The raise, and the split launch() made of it ─────────────────────────────
@@ -189,21 +200,22 @@ const wantP0 = (lpNative * 10n ** 18n) / GENESIS_LP_SUPPLY
 const wantShelf = (wantP0 * SHELF_PREMIUM_BPS) / BPS
 
 console.log('\nAnchor prices  (p0 = lpNative / 3.78M, shelfP0 = p0 * 1.05)')
-expect('p0', p0, wantP0, (v) => `${ethers.formatEther(v)} ETH/token`)
-expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatEther(v)} ETH/token`)
-if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatEther(v)} ETH/token`)
+expect('p0', p0, wantP0, (v) => `${ethers.formatEther(v)} native/token`)
+expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatEther(v)} native/token`)
+if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatEther(v)} native/token`)
 
 // ── Token supply and where it sits ───────────────────────────────────────────
+const [vaultAddr, poolKey] = await Promise.all([hook.vault(), hook.getPoolKey()])
 const token = new ethers.Contract(tokenAddr, ERC20_ABI, provider)
-const [name, symbol, decimals, supply, hookBal, pmTokenBal] = await Promise.all([
+const [name, symbol, decimals, supply, hookBal, vaultTokenBal] = await Promise.all([
   token.name(), token.symbol(), token.decimals(), token.totalSupply(),
-  token.balanceOf(HOOK), token.balanceOf(POOL_MANAGER),
+  token.balanceOf(HOOK), token.balanceOf(vaultAddr),
 ])
 
 console.log(`\nToken  ${name} (${symbol}), ${decimals} decimals`)
 console.log(`        total supply      ${tok(supply)}`)
 console.log(`        held by hook      ${tok(hookBal)}   (unclaimed genesis)`)
-console.log(`        held by manager   ${tok(pmTokenBal)}   (pool reserves)`)
+console.log(`        held by vault     ${tok(vaultTokenBal)}   (pool reserves)`)
 
 // launch() mints exactly GENESIS_SUPPLY; Phase 2 mints on top of it as shelves
 // sell, so supply is the genesis mint plus whatever the ladder has issued.
@@ -225,7 +237,7 @@ try {
   console.log(`        claims paid        ${tok(claimedSum)} over ${logs.length} claim(s)`)
 
   // Solvency, not equality. `_addInitialLiquidity` derives the token amount from
-  // the liquidity v4 computes for the price, which can round to slightly LESS
+  // the liquidity Infinity computes for the price, which can round to slightly LESS
   // than GENESIS_LP_SUPPLY — so the hook keeps a few wei of dust on top of the
   // claim allocation. Asserting equality would fail on that dust while missing
   // the property that matters: whatever is still owed can still be paid.
@@ -246,64 +258,77 @@ if (hookBal > GENESIS_CLAIM_SUPPLY) {
 }
 console.log(`        unclaimed          ${tok(hookBal)} of ${tok(GENESIS_CLAIM_SUPPLY)}`)
 
-// ── The pool itself, read from the manager's storage ─────────────────────────
-const poolKey = {
-  currency0: ethers.ZeroAddress,   // native ETH sorts first
-  currency1: tokenAddr,
-  fee: POOL_FEE,
-  tickSpacing: TICK_SPACING,
-  hooks: HOOK,
+// ── The pool itself, read from CLPoolManager against the hook's own key ──────
+if (poolKey.poolManager.toLowerCase() !== pmAddr.toLowerCase()) {
+  fail(`getPoolKey().poolManager is ${poolKey.poolManager}, poolManager() is ${pmAddr}`)
 }
-const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-  ['address', 'address', 'uint24', 'int24', 'address'],
-  [poolKey.currency0, poolKey.currency1, poolKey.fee, poolKey.tickSpacing, poolKey.hooks],
-))
-const stateSlot = ethers.keccak256(ethers.concat([poolId, ethers.zeroPadValue(ethers.toBeHex(POOLS_SLOT), 32)]))
-const liqSlot = ethers.toBeHex(BigInt(stateSlot) + LIQUIDITY_OFF, 32)
+if (poolKey.hooks.toLowerCase() !== HOOK.toLowerCase()) {
+  fail(`getPoolKey().hooks is ${poolKey.hooks}, not this hook`)
+}
+if (Number(poolKey.fee) !== POOL_FEE) {
+  fail(`getPoolKey().fee is ${poolKey.fee}, not the ${POOL_FEE} the hook seeds`)
+}
 
-const pm = new ethers.Contract(POOL_MANAGER, PM_ABI, provider)
-const [slot0Raw, liqRaw, pmEth] = await Promise.all([
-  pm.extsload(stateSlot), pm.extsload(liqSlot), provider.getBalance(POOL_MANAGER),
+const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+  ['tuple(address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters)'],
+  [[
+    poolKey.currency0,
+    poolKey.currency1,
+    poolKey.hooks,
+    poolKey.poolManager,
+    poolKey.fee,
+    poolKey.parameters,
+  ]],
+))
+
+const pm = new ethers.Contract(pmAddr, CL_POOL_ABI, provider)
+const [slot0, liquidity, vaultNative] = await Promise.all([
+  pm.getSlot0(poolId),
+  pm.getLiquidity(poolId),
+  provider.getBalance(vaultAddr),
 ])
 
-const slot0 = BigInt(slot0Raw)
-const sqrtPriceX96 = slot0 & ((1n << 160n) - 1n)
-const tickRaw = (slot0 >> 160n) & ((1n << 24n) - 1n)
-const tick = tickRaw >= 1n << 23n ? tickRaw - (1n << 24n) : tickRaw
-const protocolFee = Number((slot0 >> 184n) & ((1n << 24n) - 1n))
-const lpFee = Number((slot0 >> 208n) & ((1n << 24n) - 1n))
-const liquidity = BigInt(liqRaw)
+const sqrtPriceX96 = slot0.sqrtPriceX96
+const tick = slot0.tick
+const protocolFee = Number(slot0.protocolFee)
+const lpFee = Number(slot0.lpFee)
+const tickSpacing = Number((BigInt(poolKey.parameters) >> 16n) & 0xffffffn)
 
 console.log(`\nPool   id ${poolId}`)
-console.log(`        currency0         ${poolKey.currency0} (native ETH)`)
+console.log(`        currency0         ${poolKey.currency0} (native)`)
 console.log(`        currency1         ${poolKey.currency1}`)
-console.log(`        fee / spacing     ${POOL_FEE} / ${TICK_SPACING}`)
+console.log(`        poolManager       ${poolKey.poolManager}`)
+console.log(`        fee / spacing     ${poolKey.fee} / ${tickSpacing}`)
+console.log(`        parameters        ${poolKey.parameters}`)
 console.log(`        sqrtPriceX96      ${sqrtPriceX96}`)
 console.log(`        tick              ${tick}`)
 console.log(`        lpFee             ${lpFee}${lpFee === POOL_FEE ? '' : `  (expected ${POOL_FEE})`}`)
 console.log(`        protocolFee       ${protocolFee}`)
 console.log(`        liquidity         ${liquidity}`)
-console.log(`        manager ETH       ${eth(pmEth)}  (all pools on this manager)`)
+console.log(`        vault native      ${eth(vaultNative)}  (all pools on this Vault)`)
 
 if (sqrtPriceX96 === 0n) {
-  fail('the pool is not initialized: sqrtPriceX96 is 0 at the slot StateLibrary reads. '
-    + 'Either it was never created or the PoolKey derived here is not the one launch() used')
+  fail('the pool is not initialized: getSlot0 returned sqrtPriceX96 0. '
+    + 'Either it was never created or the PoolKey the hook publishes is not the one launch() used')
 }
 if (liquidity === 0n) fail('the pool is initialized but holds no liquidity')
-if (lpFee !== POOL_FEE) fail(`pool lpFee is ${lpFee}, not the ${POOL_FEE} the hook's PoolKey specifies`)
+if (tickSpacing !== TICK_SPACING) {
+  fail(`tickSpacing packed in parameters is ${tickSpacing}, not ${TICK_SPACING}`)
+}
 if (ev) expect('liquidity matches the Launched event', liquidity, ev.lpLiquidity, String)
 
 /**
- * ETH per token, which is the INVERSE of what sqrtPriceX96 encodes here.
+ * native per token, which is the INVERSE of what sqrtPriceX96 encodes here.
  *
- * `currency0` is native ETH, so `(sqrtPriceX96 / 2^96)^2` is currency1 per
- * currency0 — tokens per ETH. Reporting that as "ETH/token" would print a price
- * around 3e8 for a token worth 3e-9 and invite exactly the wrong conclusion.
+ * `currency0` is native, so `(sqrtPriceX96 / 2^96)^2` is currency1 per
+ * currency0 — tokens per native. Reporting that as "native/token" inverted
+ * would print a price around 3e8 for a token worth 3e-9 and invite exactly
+ * the wrong conclusion.
  */
 const Q192 = 1n << 192n
-const tokensPerEth = (sqrtPriceX96 * sqrtPriceX96) >> 192n
-const spot = tokensPerEth === 0n ? 0n : (Q192 * 10n ** 18n) / (sqrtPriceX96 * sqrtPriceX96)
-console.log(`        spot              ${ethers.formatEther(spot)} ETH/token  (${tokensPerEth} per ETH)`)
+const tokensPerNative = (sqrtPriceX96 * sqrtPriceX96) >> 192n
+const spot = tokensPerNative === 0n ? 0n : (Q192 * 10n ** 18n) / (sqrtPriceX96 * sqrtPriceX96)
+console.log(`        spot              ${ethers.formatEther(spot)} native/token  (${tokensPerNative} per native)`)
 
 // The pool price moves the instant anyone trades, so a difference from the
 // opening price is information rather than a fault. Only the direction has to
@@ -313,11 +338,11 @@ if (ev && sqrtPriceX96 !== ev.sqrtPriceX96) {
   const richer = sqrtPriceX96 < ev.sqrtPriceX96
   notes.push(
     `spot has moved ${bps < 0n ? -bps : bps} bps from the opening price: the token is `
-    + `${richer ? 'DEARER' : 'CHEAPER'} in ETH than at launch, which agrees with the pool `
-    + `holding ${tok(GENESIS_LP_SUPPLY - pmTokenBal)} ${symbol} ${pmTokenBal < GENESIS_LP_SUPPLY ? 'less' : 'more'} `
+    + `${richer ? 'DEARER' : 'CHEAPER'} in native than at launch, which agrees with the pool `
+    + `holding ${tok(GENESIS_LP_SUPPLY - vaultTokenBal)} ${symbol} ${vaultTokenBal < GENESIS_LP_SUPPLY ? 'less' : 'more'} `
     + `than the ${tok(GENESIS_LP_SUPPLY)} seeded — someone has ${richer ? 'bought' : 'sold'}`,
   )
-  if (richer !== (pmTokenBal < GENESIS_LP_SUPPLY)) {
+  if (richer !== (vaultTokenBal < GENESIS_LP_SUPPLY)) {
     fail('the price moved one way and the token reserve moved the other — '
       + 'a swap cannot do that, so one of these two reads is not of this pool')
   }
@@ -327,10 +352,10 @@ if (ev && sqrtPriceX96 !== ev.sqrtPriceX96) {
  * Did the raise actually reach the pool?
  *
  * Derived from L and the current price rather than from `balanceOf`, because the
- * PoolManager is shared: its ETH balance is every pool's at once and says nothing
+ * Vault is shared: its native balance is every pool's at once and says nothing
  * about this one. For a position spanning ±887 200 the bounds are far enough out
  * that dropping them costs a fraction of a percent, so this is checked as a
- * magnitude — it answers "the ETH is in there", not "to the wei".
+ * magnitude — it answers "the native is in there", not "to the wei".
  */
 const poolEth = (liquidity << 96n) / sqrtPriceX96
 const poolTokens = (liquidity * sqrtPriceX96) >> 96n
@@ -341,10 +366,10 @@ const within = (a, b, pct) => {
   return b === 0n ? a === 0n : diff * 100n <= b * BigInt(pct)
 }
 if (!within(poolEth, lpNative, 2)) {
-  fail(`the pool implies ${eth(poolEth)} of ETH but launch() put in ${eth(lpNative)} — `
+  fail(`the pool implies ${eth(poolEth)} of native but launch() put in ${eth(lpNative)} — `
     + 'the raise did not land in the position it was supposed to')
 } else {
-  console.log(`  ok    pool ETH is the raise less commission     ${eth(lpNative)} expected`)
+  console.log(`  ok    pool native is the raise less commission     ${eth(lpNative)} expected`)
 }
 if (!within(poolTokens, pmTokenBal, 2)) {
   notes.push(`reserves derived from L (${tok(poolTokens)}) and the manager's balance `
