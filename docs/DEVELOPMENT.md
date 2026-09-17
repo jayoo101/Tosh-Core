@@ -29,10 +29,11 @@ How to build, test, deploy and operate this repository. For what the protocol
 These are structural properties, not policies — each one is a consequence of
 code that exists or code that is absent, and each is checkable from chain.
 
-**Depositors always have a way out.** If the soft cap is missed, or if the
-creator never calls `launch()` within the 7-day `LAUNCH_WINDOW`, every depositor
-reclaims 100% of their ETH with no penalty. "Raised the money and vanished" is
-not a state that can trap funds.
+**Depositors always have a way out.** If the creator never calls `launch()`
+within the 7-day `LAUNCH_WINDOW` after genesis closes, every depositor reclaims
+100% of their ETH with no penalty. Missing the raise target does not fail the
+round — time-up is what opens `launch()`, with whatever was raised. "Raised the
+money and vanished" is not a state that can trap funds.
 
 **The pool opens above what depositors paid.** The 55/45 split of genesis supply
 makes the opening price exactly 1.10× the depositors' average cost, and shelf 0
@@ -208,8 +209,8 @@ liquidity, seeds the oracle and shuts Phase 2 for the launch block. Nothing is
 automatic — if the creator never calls it, `refund()` opens once `LAUNCH_WINDOW`
 (7 days) lapses.
 
-**Failure paths.** `refund()` opens when the soft cap was missed at the
-deadline, or when the 7-day launch window expires without a launch. Use the
+**Failure paths.** `refund()` opens only when the 7-day launch window expires
+without a launch. Missing the raise target does not fail the round. Use the
 `canRefund()` view rather than re-deriving the condition.
 
 **Phase 2 — shelf ladder.** `mintBondingCurve(tokenAmount)` buys from the active
@@ -246,10 +247,39 @@ would bill every trader for the privilege. `STATE-06` in
 ## Eligibility: Proof-of-Gas
 
 Genesis deposits are quota-gated. The oracle sums an address's historical gas
-spend across Ethereum, Arbitrum, Optimism, Base and Robinhood; below
-`POG_GAS_FLOOR_WEI` (0.05 ETH) it is refused, and above it the quota is
-converted at the live rate and clamped on-chain by `maxPogAllocationLimit()`
-(0.1 ETH) regardless of what the oracle signed.
+spend across Ethereum, Arbitrum, Optimism, Base and Robinhood; below the band's
+floor (seeded at 0.025 ETH) it is refused, and above it the quota is converted at
+the live rate (seeded at 0.5 ETH of quota per 1 ETH of gas), capped by the
+band's own ceiling (seeded at 0.5 ETH), then clamped on-chain by
+`maxPogAllocationLimit()` (0.5 ETH) regardless of what the oracle signed.
+
+### The band, and why the three dials move together
+
+Floor, rate and ceiling are one object — `PogBand` in
+`soat-frontend/src/app/lib/pogQuota.ts` — because they are not independent. The
+gas cap the scanner stops counting at is *derived*, `ceiling / rate`, so raising
+the rate shrinks how much history is worth scanning. A band is incoherent if the
+floor sits above that derived cap: every wallet would then be refused for having
+too little gas while the scanner refuses to count any more.
+
+`pogBandProblem()` is the single predicate that catches this, and both the admin
+endpoint and `assertPogBandCoherent()` at module load run it. The live values
+live in `pogParams.ts` (Upstash-backed, in-memory fallback for local dev); the
+`DEFAULT_*` constants in `pogQuota.ts` are only seeds for a cold store.
+
+Rotating any dial goes through the same owner-signed path as the rate always
+did — `POST /api/admin/config` with `newRate`, `newFloorWei`, `newMaxAllocWei`,
+each optional and each covered by the owner's signature. Omitted dials are
+signed as the literal `keep`, so an unsigned dial cannot be smuggled in
+alongside a signed one. `scripts/rotateGasRate.mjs --floor 0.02
+--max-alloc 0.4 --rate 0.5` builds, prints and submits the message for a Safe
+owner.
+
+One asymmetry to keep in mind: the endpoint reads the factory's live
+`maxPogAllocationLimit` and refuses any `newMaxAllocWei` above it. Raising the
+off-chain ceiling therefore means raising the on-chain dial first, otherwise the
+oracle would sign attestations that `registerPoG` reverts. Lowering is always
+allowed.
 
 `registerPoG(maxAlloc, deadline, nonce, signature)` consumes an EIP-191
 signature over:

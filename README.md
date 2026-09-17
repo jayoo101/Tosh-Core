@@ -151,8 +151,8 @@ bulk.
                                   │
           ┌───────────────────────┴───────────────────────┐
           │                                               │
-   lifetime gas < 0.05 ETH                        lifetime gas ≥ 0.05 ETH
-   (POG_GAS_FLOOR_WEI)                                    │
+   lifetime gas < 0.025 ETH                      lifetime gas ≥ 0.025 ETH
+   (band.floorWei)                                        │
           │                                               ▼
           ▼                                     [ size the quota ]
       [ refused ]                     alloc = f(gas spent) × globalGasToSatoRate
@@ -165,31 +165,45 @@ bulk.
                                         [ EIP-191 verification, then deposit ]
 ```
 
-**1 · The floor (`POG_GAS_FLOOR_WEI` = 0.05 ETH).** The oracle sums the
+**1 · The floor (`band.floorWei`, seeded at 0.025 ETH).** The oracle sums the
 requesting wallet's real gas spend across major chains. Fresh wallets and
 bulk-generated airdrop farms fall below the floor and are refused.
 
 Worth stating precisely, because it is a trust boundary rather than an invariant:
-this floor lives in the off-chain oracle (`soat-frontend/src/app/lib/pogQuota.ts`),
-not in the factory. What the *contract* enforces is the clamp below.
+this floor lives in the off-chain oracle (`soat-frontend/src/app/lib/pogQuota.ts`
+seeds it, `pogParams.ts` holds the live value), not in the factory. What the
+*contract* enforces is the clamp below.
 
-**2 · The on-chain ceiling (`maxPogAllocationLimit` = 0.1 ETH).** Gas history
+**2 · The on-chain ceiling (`maxPogAllocationLimit` = 0.5 ETH).** Gas history
 establishes that an address is real; it does not buy unlimited allocation. A
-wallet that has burned 100 ETH in fees still deposits at most 0.1 ETH in genesis,
+wallet that has burned 100 ETH in fees still deposits at most 0.5 ETH in genesis,
 because the factory clamps whatever the oracle signed. That ceiling is what
 disperses the opening float across hundreds or thousands of organic addresses
 instead of a handful of large ones.
+
+At the seeded rate of 0.5 ETH of quota per 1 ETH of historical gas, the ceiling
+binds from 1 ETH of lifetime gas upward, and more history past that point buys
+nothing.
 
 **3 · The attacker's cost inverts.** Suppose a farm wants 100 genesis slots:
 
 | | Cost to obtain 100 slots | Allocation unlocked |
 |---|---|---|
 | Conventional launchpad | ~0, generate 100 keypairs | whatever the cap allows |
-| Tosh | 100 × 0.05 = **5 ETH** genuinely burned in fees first | 100 × 0.1 = 10 ETH |
+| Tosh | 100 × 0.025 = **2.5 ETH** genuinely burned in fees first | 100 × 0.0125 = 1.25 ETH |
 
-The attacker must sink 5 ETH in unrecoverable fees to unlock 10 ETH of
-allocation. The 50% is spent before any position is taken and cannot be recovered
-by selling, which removes the profit from the sybil model rather than policing it.
+A wallet sitting exactly on the floor earns half of what the floor cost it, so a
+hundred minimum-viable sybils burn 2.5 ETH to unlock 1.25 ETH of allocation.
+Buying the full 0.5 ETH ceiling per wallet costs 1 ETH of real gas per wallet.
+Either way the fees are spent before any position is taken and cannot be
+recovered by selling, which removes the profit from the sybil model rather than
+policing it.
+
+**All three off-chain dials are owner-tunable** through the owner-signed
+`POST /api/admin/config` (see `scripts/rotateGasRate.mjs`): the floor, the rate,
+and the ceiling the oracle signs against. The ceiling cannot be raised above the
+live on-chain `maxPogAllocationLimit` — the endpoint refuses that, because an
+attestation over the factory dial reverts `registerPoG` for everybody.
 
 **4 · Replay protection.** The attestation is EIP-191 over a six-field tuple:
 
@@ -255,18 +269,19 @@ creation time and cannot go below the production floor
 
 **Two refund guarantees, both at 100% of principal with no penalty:**
 
-1. At the deadline, `totalEthDeposited < softCap()`.
-2. The soft cap was met, but nobody called `launch()` within the `LAUNCH_WINDOW`
-   of 7 days that follows.
+The genesis window always runs to its deadline. At that point the creator may
+call `launch()` with whatever was raised — the soft cap is a progress target,
+not a fail condition. The empty raise (`totalEthDeposited == 0`) cannot seed a
+pool and is the only size `launch()` still rejects.
 
-Either condition opens `refund()`, and a depositor recovers their full original
-deposit. Use the `canRefund()` view rather than re-deriving the condition.
+Refunds open when nobody called `launch()` within the `LAUNCH_WINDOW` of 7 days
+that follows the deadline. Use the `canRefund()` view rather than re-deriving
+the condition.
 
 ### 4.2 Phase 2 · The pool and the shelves
 
-Once genesis has closed, the soft cap is met, and the 7-day window has not
-lapsed, the creator calls `launch()`. That call does the following in a strict
-atomic order:
+Once genesis has closed and the 7-day window has not lapsed, the creator calls
+`launch()`. That call does the following in a strict atomic order:
 
 **Reserve the commission.** 10% of the raise is carved off for referrals whether
 or not anyone was referred, leaving `lpEth` to seed the pool.
@@ -626,12 +641,17 @@ withdraw path.
 | `BATCH_SIZE` | 3 | `ToshLadderTreasury` | pools a cycle is spread across |
 | `LEGS_PER_POKE` | 1 | `ToshLadderTreasury` | legs advanced per poke |
 | `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | `ToshLadderTreasury` | buyback slippage band against TWAP |
-| `POG_GAS_FLOOR_WEI` | 0.05 ETH | off-chain oracle (`pogQuota.ts`) | lifetime gas required to qualify |
-| `maxPogAllocationLimit` | 0.1 ETH | `ToshFactory` | **on-chain** per-wallet genesis clamp |
+| `DEFAULT_POG_GAS_FLOOR_WEI` | 0.025 ETH | off-chain oracle (`pogQuota.ts` seed) | lifetime gas required to qualify |
+| `DEFAULT_GAS_TO_ETH_RATE` | 0.5 | off-chain oracle (`pogQuota.ts` seed) | quota granted per 1 ETH of historical gas |
+| `DEFAULT_POG_MAX_ALLOC_WEI` | 0.5 ETH | off-chain oracle (`pogQuota.ts` seed) | ceiling the oracle signs against |
+| `maxPogAllocationLimit` | 0.5 ETH | `ToshFactory` | **on-chain** per-wallet genesis clamp |
 
-The last two rows are the trust boundary worth reading carefully: the gas floor
-is an off-chain policy the oracle applies, while the per-wallet clamp is enforced
-by the contract regardless of what the oracle signed.
+The last four rows are the trust boundary worth reading carefully: the floor,
+rate, and off-chain ceiling are owner-tunable policy the oracle applies — the
+three values above are seeds, and the live band lives in `pogParams.ts` — while
+the per-wallet clamp is enforced by the contract regardless of what the oracle
+signed. Keep the on-chain dial at or above the off-chain ceiling; the admin
+endpoint enforces that direction.
 
 ---
 
