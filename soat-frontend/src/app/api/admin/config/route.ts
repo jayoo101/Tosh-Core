@@ -2,7 +2,22 @@
  * Admin Global Config API
  *
  * GET  /api/admin/config        — read current config (public)
- * POST /api/admin/config        — update globalGasToSatoRate (authenticated)
+ * POST /api/admin/config        — rotate the PoG band (authenticated)
+ *
+ * ── What can be rotated ──────────────────────────────────────────────────────
+ *  { newRate }         ETH of deposit quota per 1 ETH of historical gas
+ *  { newFloorWei }     lifetime gas required to qualify, wei, decimal string
+ *  { newMaxAllocWei }  ceiling on one attestation, wei, decimal string
+ *
+ *  `newRate` is always required; the two wei dials are optional and left where
+ *  they are when omitted — but see `ADMIN_CONFIG_KEEP`: "omitted" is itself
+ *  part of the signed message, so the owner signs what is NOT moving too.
+ *
+ *  The ceiling is refused above the live `ToshFactory.maxPogAllocationLimit`.
+ *  That is not caution: an attestation over the on-chain dial reverts
+ *  `registerPoG` with `ExceedsGlobalPogLimit`, for everybody, until somebody
+ *  notices. Raising the deposit cap is therefore two steps in one order —
+ *  `setMaxPogAllocationLimit` on chain first, this endpoint second.
  *
  * ── Auth (POST) ──────────────────────────────────────────────────────────────
  *  Two acceptance paths:
@@ -63,8 +78,8 @@
  *
  * Body for shared-secret path: { newRate }  (nonce/expiresAt not required)
  *
- * The rate itself lives in `app/lib/gasToSatoRate.ts`, not here. It used to be
- * a module-scoped `let` in this file with no exported accessor, which meant
+ * The band itself lives in `app/lib/pogParams.ts`, not here. The rate used to
+ * be a module-scoped `let` in this file with no exported accessor, which meant
  * `api/sign-allocation` — the only route that turns a rate into a signed
  * allocation — could not read it and used the compile-time default instead. A
  * rotation therefore reported success, echoed back from the GET below, and
@@ -91,10 +106,12 @@ import {
 } from '@/app/lib/apiGuard'
 import { rateLimitBackendKind } from '@/app/lib/rateLimitStore'
 import {
-  gasToSatoRateBackendKind,
-  getGasToSatoRate,
-  setGasToSatoRate,
-} from '@/app/lib/gasToSatoRate'
+  getPogBand,
+  parseWeiDial,
+  pogParamsBackendKind,
+  setPogBand,
+} from '@/app/lib/pogParams'
+import { pogBandProblem, pogCapWei, type PogBand } from '@/app/lib/pogQuota'
 import {
   adminNonceBackendKind,
   claimAdminNonce,
@@ -219,6 +236,34 @@ async function readChainOwner(): Promise<Address | null> {
       extra: { route: 'admin/config', stage: 'readChainOwner' },
     })
     return null
+  }
+}
+
+/**
+ * The live on-chain ceiling an attestation may not exceed.
+ *
+ * `undefined` means the question could not be answered. That is deliberately
+ * distinct from a number: this value gates a raise of `maxAllocWei`, and
+ * treating an RPC outage as "no ceiling" would let a rotation through that
+ * bricks `registerPoG` platform-wide, while treating it as zero would refuse
+ * every rotation including the ones that lower the dial.
+ */
+async function readChainPogLimit(): Promise<bigint | undefined> {
+  if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) return undefined
+  try {
+    if (!(await assertServerChain())) return undefined
+    const limit = await serverPublicClient().readContract({
+      address: FACTORY_ADDRESS as Address,
+      abi: FACTORY_ABI,
+      functionName: 'maxPogAllocationLimit',
+    })
+    return limit as bigint
+  } catch (err) {
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'admin/config', stage: 'readChainPogLimit' },
+    })
+    return undefined
   }
 }
 
@@ -353,12 +398,22 @@ export async function GET(req: NextRequest) {
   // limiter is enforcing per-instance quotas. `rateLimitBackendKind` had no
   // caller before this, so "we are silently running on per-instance limits"
   // was observable only from a 429 header nobody sees until it is too late.
+  const band = await getPogBand()
+
   return corsify(
     req,
     NextResponse.json({
-      globalGasToSatoRate: await getGasToSatoRate(),
+      globalGasToSatoRate: band.rate,
+      // Wei as decimal strings: `scripts/pogSigner.ts` reads these to build the
+      // same `maxAlloc` this server would, and a wei figure through `JSON`'s
+      // number type is a wei figure through a double.
+      pogFloorWei: band.floorWei.toString(),
+      pogMaxAllocWei: band.maxAllocWei.toString(),
+      // Derived, not stored — reported so an operator can see where the rate
+      // stops paying for more history without recomputing it by hand.
+      pogGasCapWei: pogCapWei(band).toString(),
       lastSeenNonce: (await lastSeenAdminNonce()).toString(),
-      rateStore: gasToSatoRateBackendKind(),
+      rateStore: pogParamsBackendKind(),
       // Distinct from `rateStore` because the two can disagree, and this one is
       // the difference between a real replay guard and a decorative one. It also
       // tells an operator which signing window POST will enforce for a Safe.
@@ -375,6 +430,8 @@ export async function POST(req: NextRequest) {
 
   const parsed = await readJsonBody<{
     newRate?: unknown
+    newFloorWei?: unknown
+    newMaxAllocWei?: unknown
     nonce?: unknown
     expiresAt?: unknown
     signature?: unknown
@@ -394,12 +451,46 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // ── Validate the two optional wei dials ────────────────────────────────
+  // Strings only. A wei figure arriving as a JSON number has already been
+  // through a double by the time this runs, and the signature was over the
+  // decimal string, so accepting one would reject the owner's own request
+  // under a signature error.
+  const dials: { newFloorWei?: bigint; newMaxAllocWei?: bigint } = {}
+  for (const key of ['newFloorWei', 'newMaxAllocWei'] as const) {
+    const raw = body[key]
+    if (raw === undefined || raw === null) continue
+    const value = parseWeiDial(raw)
+    if (value === null) {
+      return corsify(
+        req,
+        NextResponse.json(
+          { error: `${key} must be a positive integer of wei, as a decimal string` },
+          { status: 400 }
+        )
+      )
+    }
+    dials[key] = value
+  }
+
+  const next: Partial<PogBand> = {
+    rate: newRate,
+    ...(dials.newFloorWei !== undefined && { floorWei: dials.newFloorWei }),
+    ...(dials.newMaxAllocWei !== undefined && { maxAllocWei: dials.newMaxAllocWei }),
+  }
+
+  // Coherence and the on-chain ceiling, checked before any auth path applies
+  // anything. Both are properties of the requested band rather than of the
+  // requester, so checking them here keeps one copy instead of one per arm.
+  const refusal = await bandRefusal(next)
+  if (refusal) return corsify(req, refusal)
+
   // ── Path 2: ADMIN_SECRET bearer-token shortcut ─────────────────────────
   // Allowed only when explicitly enabled; preferred path is the on-chain
   // signature below.
   const authHeader = req.headers.get('authorization')
   if (ADMIN_SECRET.length > 0 && bearerMatches(authHeader, ADMIN_SECRET)) {
-    return corsify(req, await applyUpdate({ newRate, authMethod: 'admin-secret' }))
+    return corsify(req, await applyUpdate({ next, authMethod: 'admin-secret' }))
   }
 
   // ── Path 1: on-chain owner signature ───────────────────────────────────
@@ -521,7 +612,17 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const message = buildAdminConfigMessage(newRate, nonce, rawExpires)
+  // Rebuilt from the parsed values, and with `keep` standing in for a dial the
+  // request left alone — so "move the rate only" and "move the rate and the
+  // ceiling" are two different signatures over two different texts, rather than
+  // one signature that authorises whichever fields happen to be in the body.
+  const message = buildAdminConfigMessage({
+    rate: newRate,
+    floorWei: dials.newFloorWei ?? null,
+    maxAllocWei: dials.newMaxAllocWei ?? null,
+    nonce,
+    expiresAt: rawExpires,
+  })
   const verdict = await ownerSignatureVerdict(owner, message, signature as Hex)
 
   if (verdict === 'unavailable') {
@@ -572,36 +673,116 @@ export async function POST(req: NextRequest) {
   // happened to hold the pen would name a wallet with no standing here.
   return corsify(
     req,
-    await applyUpdate({ newRate, authMethod: 'owner-signature', signer: owner, nonce })
+    await applyUpdate({ next, authMethod: 'owner-signature', signer: owner, nonce })
   )
+}
+
+// ─── Band validation ─────────────────────────────────────────────────────────
+
+/**
+ * Refuse a band that cannot work, with the reason, or null to proceed.
+ *
+ * Two distinct refusals, and the second is the one worth the RPC call. A
+ * `maxAllocWei` above the live `ToshFactory.maxPogAllocationLimit` is not a
+ * degraded configuration — every `registerPoG` reverts `ExceedsGlobalPogLimit`
+ * from the moment it lands, for every wallet, and the only symptom is wallets
+ * failing to activate a quota the site told them they had earned. It is cheaper
+ * to refuse it here than to diagnose it there.
+ *
+ * An unreadable dial is a 503, not a shrug. Lowering the ceiling is always safe
+ * and is allowed to wait for the RPC too: a rotation nobody can check is a
+ * rotation nobody should apply, and an operator who needs one during an outage
+ * has `setMaxPogAllocationLimit` on chain.
+ */
+async function bandRefusal(next: Partial<PogBand>): Promise<NextResponse | null> {
+  const merged: PogBand = { ...(await getPogBand()), ...next }
+
+  const problem = pogBandProblem(merged)
+  if (problem) {
+    return NextResponse.json({ error: `incoherent band: ${problem}` }, { status: 400 })
+  }
+
+  const onChain = await readChainPogLimit()
+  if (onChain === undefined) {
+    return NextResponse.json(
+      {
+        error: 'Could not read ToshFactory.maxPogAllocationLimit — refusing to rotate '
+          + 'the band without knowing the on-chain ceiling',
+      },
+      { status: 503 }
+    )
+  }
+  if (merged.maxAllocWei > onChain) {
+    return NextResponse.json(
+      {
+        error: `maxAllocWei ${merged.maxAllocWei} exceeds the on-chain `
+          + `maxPogAllocationLimit of ${onChain}. Every registerPoG would revert `
+          + 'ExceedsGlobalPogLimit. Call setMaxPogAllocationLimit on the factory first.',
+        onChainMaxPogAllocationLimit: onChain.toString(),
+      },
+      { status: 409 }
+    )
+  }
+
+  return null
 }
 
 // ─── Internal apply ──────────────────────────────────────────────────────────
 async function applyUpdate(opts: {
-  newRate: number
+  next: Partial<PogBand>
   authMethod: 'admin-secret' | 'owner-signature'
   signer?: Address
   nonce?: bigint
 }) {
-  const previous = await setGasToSatoRate(opts.newRate)
+  let previous: PogBand
+  try {
+    previous = await setPogBand(opts.next)
+  } catch (err) {
+    // `setPogBand` re-checks coherence, so this is reachable only if the live
+    // band moved between `bandRefusal` and here. Report the reason rather than
+    // a bare 500; the caller can re-read the GET and try again.
+    reportError(err, { surface: 'api-route', extra: { route: 'admin/config', stage: 'setPogBand' } })
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'could not store the band' },
+      { status: 409 }
+    )
+  }
 
-  console.log('[admin/config] rate updated', {
-    previous,
-    next: opts.newRate,
+  const applied: PogBand = { ...previous, ...opts.next }
+
+  console.log('[admin/config] band updated', {
+    previous: {
+      rate: previous.rate,
+      floorWei: previous.floorWei.toString(),
+      maxAllocWei: previous.maxAllocWei.toString(),
+    },
+    next: {
+      rate: applied.rate,
+      floorWei: applied.floorWei.toString(),
+      maxAllocWei: applied.maxAllocWei.toString(),
+    },
     authMethod: opts.authMethod,
     signer: opts.signer,
     nonce: opts.nonce?.toString(),
-    store: gasToSatoRateBackendKind(),
+    store: pogParamsBackendKind(),
     updatedAt: new Date().toISOString(),
   })
 
   return NextResponse.json(
     {
       success: true,
-      previous,
-      globalGasToSatoRate: opts.newRate,
+      previous: previous.rate,
+      previousBand: {
+        globalGasToSatoRate: previous.rate,
+        pogFloorWei: previous.floorWei.toString(),
+        pogMaxAllocWei: previous.maxAllocWei.toString(),
+      },
+      globalGasToSatoRate: applied.rate,
+      pogFloorWei: applied.floorWei.toString(),
+      pogMaxAllocWei: applied.maxAllocWei.toString(),
+      pogGasCapWei: pogCapWei(applied).toString(),
       authMethod: opts.authMethod,
-      rateStore: gasToSatoRateBackendKind(),
+      rateStore: pogParamsBackendKind(),
       updatedAt: new Date().toISOString(),
     },
     { status: 200 }

@@ -57,13 +57,12 @@ import {
   isSupportedPogChain,
 } from '@/lib/contracts'
 import {
-  POG_GAS_FLOOR_WEI,
   ATTESTATION_TTL_SECONDS,
   computeMaxAllocFromWei,
   isPogEligible,
 } from '@/app/lib/pogQuota'
 import { readScanJob, isFresh } from '@/app/lib/scanJobStore'
-import { getGasToSatoRate } from '@/app/lib/gasToSatoRate'
+import { getPogBand } from '@/app/lib/pogParams'
 import {
   applyCors,
   applyRateLimit,
@@ -397,15 +396,22 @@ export async function POST(req: Request) {
   }
 
   // ── Proof-of-Gas allocation derivation ───────────────────────────────
-  // Pipeline: finished scan → floor check → rate → computeMaxAllocFromWei.
-  // Caps at MAX_ALLOC_ETH_WEI (0.1 ETH). Reminder: the on-chain
+  // Pipeline: finished scan → floor check → band → computeMaxAllocFromWei.
+  // Caps at the band's `maxAllocWei`. Reminder: the on-chain
   // `factory.maxPogAllocationLimit` MUST be >= the resulting maxAlloc, or
   // `registerPoG` will revert with `ExceedsGlobalPogLimit` — and that same dial
   // is frozen into every launch as its `perWalletCap`, so it is not a knob that
-  // can be raised here alone. `assertPogBandCoherent()` in `pogQuota.ts` guards
-  // the relationship.
+  // can be raised here alone. `POST /api/admin/config` refuses a ceiling above
+  // the live on-chain dial, which is where that relationship is enforced.
   const scan = await readScannedGas(userAddress as Address)
   if (!scan.ok) return corsify(req, clientError(scan.error, scan.status))
+
+  // The LIVE band, not the compile-time seeds. This route used to read
+  // `DEFAULT_GAS_TO_SATO_RATE` while `scripts/pogSigner.ts` read the rotated
+  // value, so every owner rotation silently split the two signers apart — see
+  // `app/lib/pogParams.ts`. Read once, above the floor check, so the floor that
+  // refuses a wallet and the rate that sizes it come from one snapshot.
+  const band = await getPogBand()
 
   // The floor, enforced by refusing rather than by signing a small number.
   //
@@ -414,21 +420,17 @@ export async function POST(req: Request) {
   // quota of zero — so the wallet would have spent gas to register, be told it
   // succeeded, and then be turned away at the only door that matters, with an
   // error naming a quota it just registered.
-  if (!isPogEligible(scan.totalWei)) {
+  if (!isPogEligible(scan.totalWei, band)) {
     return corsify(req, NextResponse.json({
       error: 'Gas history below the minimum for an allocation.',
       totalGasWei: scan.totalWei.toString(),
-      floorWei: POG_GAS_FLOOR_WEI.toString(),
+      floorWei: band.floorWei.toString(),
       eligible: false,
     }, { status: 403 }))
   }
 
-  // The LIVE rate, not the compile-time default. This route used to read
-  // `DEFAULT_GAS_TO_SATO_RATE` while `scripts/pogSigner.ts` read the rotated
-  // value, so every owner rotation silently split the two signers apart — see
-  // `app/lib/gasToSatoRate.ts`.
-  const gasToSatoRate = await getGasToSatoRate()
-  const maxAlloc      = computeMaxAllocFromWei(scan.totalWei, gasToSatoRate)
+  const gasToSatoRate = band.rate
+  const maxAlloc      = computeMaxAllocFromWei(scan.totalWei, band)
 
   // Unreachable given the floor check above, and checked anyway: a zero here
   // would mean the rate itself is misconfigured, and signing a zero allocation

@@ -18,11 +18,11 @@ import * as dotenv from 'dotenv'
 import * as path from 'path'
 
 import {
-  POG_GAS_FLOOR_WEI,
   computeMaxAllocFromWei,
   isPogEligible,
   computeDeadline,
-  fetchGasToSatoRate,
+  fetchPogBand,
+  pogCapWei,
 } from '../soat-frontend/src/app/lib/pogQuota'
 import { scanGasHistory } from '../soat-frontend/src/app/lib/gasHistory'
 
@@ -80,9 +80,9 @@ export interface PoGSignatureBundle {
  * cost is that it does not share the route's hourly cache and always re-reads
  * the chains, which for a manual tool is the right trade.
  */
-async function scanMultiChainGas(userAddress: string): Promise<bigint> {
+async function scanMultiChainGas(userAddress: string, capWei: bigint): Promise<bigint> {
   console.log(`[PoG] Scanning gas history for ${userAddress} …`)
-  const history = await scanGasHistory(userAddress)
+  const history = await scanGasHistory(userAddress, capWei)
   for (const c of history.chains) {
     console.log(
       `  ${c.chain.padEnd(10)} ${ethers.formatEther(c.weiSpent).padStart(14)} ETH`
@@ -111,20 +111,26 @@ export async function issuePoGSignature(
 ): Promise<PoGSignatureBundle> {
   const wallet = new ethers.Wallet(POG_SIGNER_PRIVATE_KEY)
 
-  const totalGasWei   = await scanMultiChainGas(userAddress)
-  const gasToSatoRate = await fetchGasToSatoRate(ADMIN_API_URL)
+  // The band first, because it decides how far the scan needs to page. All
+  // three values come from the one endpoint read: a CLI that fetched the rate
+  // and held its own floor would be back to two signers with two answers.
+  const band = await fetchPogBand(ADMIN_API_URL)
+  const gasToSatoRate = band.rate
+
+  const totalGasWei = await scanMultiChainGas(userAddress, pogCapWei(band))
 
   // The floor is refused here too, and for the same reason the route refuses it:
   // a zero allocation registers successfully and then fails at `deposit` with
   // `NoPogQuota`, so signing one would cost the wallet gas to be turned away.
-  if (!isPogEligible(totalGasWei)) {
+  if (!isPogEligible(totalGasWei, band)) {
     throw new Error(
       `[PoG] ${userAddress} has ${ethers.formatEther(totalGasWei)} ETH of gas history, `
-      + `below the ${ethers.formatEther(POG_GAS_FLOOR_WEI)} ETH minimum. Refusing to sign.`)
+      + `below the ${ethers.formatEther(band.floorWei)} ETH minimum. Refusing to sign.`)
   }
 
-  const maxAlloc = computeMaxAllocFromWei(totalGasWei, gasToSatoRate)
+  const maxAlloc = computeMaxAllocFromWei(totalGasWei, band)
   console.log(`[PoG] totalGas=${ethers.formatEther(totalGasWei)} ETH rate=${gasToSatoRate}`
+    + ` floor=${ethers.formatEther(band.floorWei)} ceiling=${ethers.formatEther(band.maxAllocWei)}`
     + ` -> maxAlloc=${ethers.formatEther(maxAlloc)} ETH`)
 
   const deadline = computeDeadline()

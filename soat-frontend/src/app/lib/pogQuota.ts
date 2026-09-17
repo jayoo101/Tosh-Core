@@ -6,8 +6,13 @@
 //   • soat-frontend/src/app/api/sign-allocation/route.ts  (Next.js API — viem)
 //   • scripts/pogSigner.ts                                (Node.js script — ethers)
 //
-// The live exchange rate is NOT here — it is rotatable, so it lives in
-// `app/lib/gasToSatoRate.ts`. This file holds the constants and the arithmetic.
+// NONE OF THE THREE BAND VALUES LIVE HERE AS THE LIVE ONES. The floor, the
+// allocation ceiling and the exchange rate are all owner-tunable at runtime and
+// are held in `app/lib/pogParams.ts`; this file holds their SEEDS and the
+// arithmetic, and every function that decides an allocation takes the band as an
+// argument rather than reading a constant. A tunable read from a module constant
+// is a dial that reports success and changes nothing — see that module's header
+// for the two-week outage that shape produced when only the rate was tunable.
 //
 // Keep this file dependency-free (no `viem`, `ethers`, or runtime-specific
 // imports) so it can be consumed from either environment.
@@ -15,17 +20,18 @@
 
 // ─── Contract-aligned constants ──────────────────────────────────────────────
 
-/** Maximum ETH that can be allocated via a single PoG attestation.
- *  Mirrors `ToshFactory.maxPogAllocationLimit` (default 0.1 ether).
+/** Seed for the maximum ETH one PoG attestation may allocate.
+ *
+ *  Also the per-wallet deposit ceiling, because `createLaunch` freezes
+ *  `ToshFactory.maxPogAllocationLimit` into every new hook as its
+ *  `perWalletCap`. So this number answers "how much may one wallet put in".
  *
  *  ⚠️ ON-CHAIN LOCKSTEP REQUIREMENT
  *  A signature whose `maxAlloc` exceeds the live on-chain dial reverts
- *  `registerPoG` with `ExceedsGlobalPogLimit`.  Keep this constant ≤ the
- *  factory dial. */
-export const MAX_ALLOC_ETH_WEI: bigint = 10n ** 17n  // 0.1 ether
-
-/** @deprecated v4.x alias — PoG quota is ETH-native in v5.0. */
-export const MAX_ALLOC_SATO_WEI = MAX_ALLOC_ETH_WEI
+ *  `registerPoG` with `ExceedsGlobalPogLimit`. The admin endpoint refuses a
+ *  ceiling above the live dial for that reason; raising both is two
+ *  transactions, and the on-chain one goes first. */
+export const DEFAULT_POG_MAX_ALLOC_WEI: bigint = 5n * 10n ** 17n  // 0.5 ether
 
 /** The on-chain ceiling on how far ahead a deadline may sit.
  *  Mirrors `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). Not a TTL to sign with —
@@ -56,7 +62,7 @@ export const SIG_VALIDITY_SECONDS = 24 * 60 * 60
  * with `scripts/probeDeadlineMargin.mjs`: the CLI path tolerated 0 s and reverted
  * `SignatureTooLong` on a machine 3 s fast, while the route path tolerated 3600 s
  * and cleared the gate. Same pair of signers, same class of divergence as the
- * exchange rate in `gasToSatoRate.ts`.
+ * exchange rate in `pogParams.ts`.
  */
 export const ATTESTATION_HEADROOM_SECONDS = 60 * 60
 
@@ -67,9 +73,9 @@ export const ATTESTATION_TTL_SECONDS =
 // ─── Eligibility band (PM-F9) ────────────────────────────────────────────────
 
 /**
- * Minimum lifetime gas spend, summed across `GAS_SCAN_CHAINS`, that earns any
- * allocation at all. Below this the oracle refuses to sign rather than signing
- * a small number.
+ * Seed for the minimum lifetime gas spend, summed across `GAS_SCAN_CHAINS`,
+ * that earns any allocation at all. Below the floor the oracle refuses to sign
+ * rather than signing a small number.
  *
  * A floor is what makes the scan mean anything. Without one, the cost of a
  * second claim is one fresh address, so headcount rations supply and a wallet
@@ -77,40 +83,50 @@ export const ATTESTATION_TTL_SECONDS =
  * one, a claim costs what the floor costs, and that price is paid in public on
  * a chain nobody here controls.
  *
- * At `DEFAULT_GAS_TO_ETH_RATE` this floor corresponds to a 0.005 ETH
- * allocation — the smallest award the system will ever issue.
+ * At `DEFAULT_GAS_TO_ETH_RATE` this floor corresponds to a 0.0125 ETH
+ * allocation — the smallest award the seeded band will issue.
  */
-export const POG_GAS_FLOOR_WEI: bigint = 5n * 10n ** 16n // 0.05 ETH
-
-/**
- * Gas spend beyond which extra history stops counting.
- *
- * Set so that `POG_GAS_CAP_WEI * DEFAULT_GAS_TO_ETH_RATE` lands exactly on
- * `MAX_ALLOC_ETH_WEI`, which in turn equals the on-chain
- * `ToshFactory.maxPogAllocationLimit` default. Those three numbers are one
- * decision written in three places, and the on-chain one is load-bearing twice
- * over: it caps an attestation (`ExceedsGlobalPogLimit`), and `createLaunch`
- * freezes it into every new hook as that project's `perWalletCap`. Raising this
- * cap therefore cannot be done here alone — it needs an owner transaction
- * before the first launch exists, or launches created earlier keep a
- * per-wallet cap below the quota their depositors were promised.
- *
- * `assertPogBandCoherent()` below refuses to let the three drift.
- */
-export const POG_GAS_CAP_WEI: bigint = 10n ** 18n // 1 ETH
+export const DEFAULT_POG_GAS_FLOOR_WEI: bigint = 25n * 10n ** 15n // 0.025 ETH
 
 /** STARTING exchange rate for the Proof-of-Gas oracle.
- *  1 ETH of historical multi-chain gas spend = 0.1 ETH of genesis allocation
- *  (fills the on-chain default ceiling).
+ *  1 ETH of historical multi-chain gas spend = 0.5 ETH of genesis allocation,
+ *  which fills the seeded ceiling at exactly 1 ETH of gas.
  *
- *  Not the value to sign with: the admin endpoint rotates the live rate via
- *  owner-signed updates, so a signer must call `getGasToSatoRate()` from
- *  `app/lib/gasToSatoRate.ts`.  This constant is that store's seed and its
+ *  Not the value to sign with: the admin endpoint rotates the live band via
+ *  owner-signed updates, so a signer must call `getPogBand()` from
+ *  `app/lib/pogParams.ts`.  This constant is that store's seed and its
  *  fallback when the shared store is unreachable. */
-export const DEFAULT_GAS_TO_ETH_RATE = 0.1
+export const DEFAULT_GAS_TO_ETH_RATE = 0.5
 
 /** @deprecated v4.x alias of DEFAULT_GAS_TO_ETH_RATE. */
 export const DEFAULT_GAS_TO_SATO_RATE = DEFAULT_GAS_TO_ETH_RATE
+
+/**
+ * The three numbers that decide an allocation, carried together.
+ *
+ * Together and not separately, because they are one decision: an allocation is
+ * `min(gas, cap) * rate` clamped to `maxAllocWei`, and the cap is derived from
+ * the other two (see `pogCapWei`). Passing them as a unit is what stops a
+ * caller from reading a rotated rate against a stale ceiling — the class of
+ * mismatch that produces two signers, two digests and one redeemable
+ * attestation.
+ */
+export interface PogBand {
+  /** Lifetime gas, in wei, required to qualify at all. */
+  floorWei: bigint
+  /** Ceiling on one attestation, in wei. Also the per-wallet deposit cap. */
+  maxAllocWei: bigint
+  /** ETH of deposit quota earned per 1 ETH of historical gas. */
+  rate: number
+}
+
+/** The band a fresh deployment starts from, and the fallback when the shared
+ *  store cannot be read. */
+export const DEFAULT_POG_BAND: PogBand = {
+  floorWei: DEFAULT_POG_GAS_FLOOR_WEI,
+  maxAllocWei: DEFAULT_POG_MAX_ALLOC_WEI,
+  rate: DEFAULT_GAS_TO_ETH_RATE,
+}
 
 // ─── Multi-chain gas scan (stub) ─────────────────────────────────────────────
 
@@ -126,8 +142,8 @@ export interface ChainGasData {
  *  The same numbers feed BOTH the Next API and the standalone script.
  *
  *  Equal gas data is necessary but not sufficient for the two signers to agree
- *  on `maxAlloc` — they must also read the same exchange rate.  See
- *  `app/lib/gasToSatoRate.ts`; this comment used to promise lockstep on the
+ *  on `maxAlloc` — they must also read the same band.  See
+ *  `app/lib/pogParams.ts`; this comment used to promise lockstep on the
  *  strength of the table alone, while the rate silently diverged. */
 /** FIXTURE ONLY. No production path reads this any more: `gasHistory.ts` scans
  *  five chains for real (PM-F9). It survives because scripts and tests want a
@@ -162,27 +178,11 @@ export function totalGasEth(data: ChainGasData[]): number {
   return data.reduce((acc, d) => acc + d.ethGasUsed, 0)
 }
 
-/**
- * Compute the raw PoG quota in ETH-wei from gas history + exchange rate.
- *
- *   rawAlloc = floor(totalGasEth * gasToQuotaRate * 1e18)
- *   maxAlloc = min(rawAlloc, MAX_ALLOC_ETH_WEI)
- *
- * The contract additionally enforces a HARD revert via the live
- * `maxPogAllocationLimit` dial — no silent clamp on-chain.  Keep this
- * constant ≤ the on-chain ceiling or registrations revert with
- * `ExceedsGlobalPogLimit`.
- */
-export function computeMaxAllocWei(
-  gasEth: number,
-  gasToQuotaRate: number,
-): bigint {
-  if (!Number.isFinite(gasEth) || gasEth < 0)            return 0n
-  if (!Number.isFinite(gasToQuotaRate) || gasToQuotaRate <= 0) return 0n
-
-  const rawWei = BigInt(Math.floor(gasEth * gasToQuotaRate * 1e18))
-  return rawWei > MAX_ALLOC_ETH_WEI ? MAX_ALLOC_ETH_WEI : rawWei
-}
+// `computeMaxAllocWei(gasEth: number, rate)` used to sit here: the same
+// arithmetic with ETH as a float on the way in. Nothing called it once the scan
+// started returning wei, and a float path cannot be made band-aware without
+// reintroducing the rounding divergence `computeMaxAllocFromWei` exists to rule
+// out, so it was deleted rather than updated.
 
 /** Scale the float rate is converted to before integer arithmetic.
  *  1e9 keeps nine decimal places of a rate an owner can set, which is far more
@@ -190,83 +190,124 @@ export function computeMaxAllocWei(
  *  below 2^53 nowhere — they are all BigInt. */
 const RATE_SCALE = 1_000_000_000n
 
+/** The rate as an exact integer, or 0n if it is not a usable rate. */
+function scaledRate(rate: number): bigint {
+  if (!Number.isFinite(rate) || rate <= 0) return 0n
+  const scaled = BigInt(Math.round(rate * Number(RATE_SCALE)))
+  return scaled > 0n ? scaled : 0n
+}
+
+/**
+ * Gas spend beyond which extra history stops counting, DERIVED from the
+ * ceiling and the rate rather than stored beside them.
+ *
+ * It used to be its own constant, with a comment explaining that it, the
+ * allocation ceiling and `ToshFactory.maxPogAllocationLimit` were "one decision
+ * written in three places" and a load-time assertion to catch the day somebody
+ * moved one of them. Making the ceiling and the rate tunable would have turned
+ * that assertion into a runtime trap an owner could arm from the admin panel:
+ * any rotation that did not also move the cap would silently discard history or
+ * cap allocations below what the band promised.
+ *
+ * Deriving it removes the failure instead of guarding it. The cap is exactly
+ * the gas at which the rate first reaches the ceiling, rounded up so the wallet
+ * sitting on the boundary is not short-changed by integer division, and the
+ * scan uses it only to stop paging once more requests cannot change the answer.
+ */
+export function pogCapWei(band: PogBand): bigint {
+  const rate = scaledRate(band.rate)
+  if (rate <= 0n) return band.maxAllocWei
+  return (band.maxAllocWei * RATE_SCALE + rate - 1n) / rate
+}
+
 /**
  * The allocation for an exact gas spend, in wei, with no floating point in the
  * path that decides what gets signed.
  *
- *   floor  ->  0n, meaning "not eligible", distinct from "eligible for nothing"
- *              only in that the caller must not sign it
- *   band   ->  gasWei * rate, truncated
- *   cap    ->  MAX_ALLOC_ETH_WEI
+ *   below floor  ->  0n, meaning "not eligible", distinct from "eligible for
+ *                    nothing" only in that the caller must not sign it
+ *   in band      ->  gasWei * rate, truncated
+ *   at the cap   ->  band.maxAllocWei
  *
- * WHY THIS EXISTS ALONGSIDE `computeMaxAllocWei`
+ * WHY THE ARITHMETIC IS INTEGER ALL THE WAY DOWN
  *
- * That function takes ETH as a float, which was fine while its input was a
- * constant table of four short decimals. A real scan returns wei — up to
- * ~1e18 — and `Number(1e18 wei)/1e18` then back through `Math.floor(x * rate *
- * 1e18)` loses precision in the middle of the only number the signature is
- * about. Worse, it loses it *differently* depending on how the caller rounded
- * on the way in, and there are two callers: this repo's API route and
- * `scripts/pogSigner.ts`. Two signers that disagree by one wei produce two
- * different digests, and `registerPoG` accepts exactly one of them.
+ * A real scan returns wei — up to ~1e18 — and `Number(wei)/1e18` then back
+ * through `Math.floor(x * rate * 1e18)` loses precision in the middle of the
+ * only number the signature is about. Worse, it loses it *differently*
+ * depending on how the caller rounded on the way in, and there are two callers:
+ * this repo's API route and `scripts/pogSigner.ts`. Two signers that disagree
+ * by one wei produce two different digests, and `registerPoG` accepts exactly
+ * one of them.
  *
- * `gasToSatoRate.ts` documents the last time those two drifted apart. This is
- * the same hazard one layer down, so the rate is scaled to an integer once and
+ * `pogParams.ts` documents the last time those two drifted apart. This is the
+ * same hazard one layer down, so the rate is scaled to an integer once and
  * every subsequent step is exact.
  */
-export function computeMaxAllocFromWei(
-  gasWei: bigint,
-  gasToQuotaRate: number,
-): bigint {
-  if (gasWei < POG_GAS_FLOOR_WEI) return 0n
-  if (!Number.isFinite(gasToQuotaRate) || gasToQuotaRate <= 0) return 0n
-
-  const capped = gasWei > POG_GAS_CAP_WEI ? POG_GAS_CAP_WEI : gasWei
-  const rate = BigInt(Math.round(gasToQuotaRate * Number(RATE_SCALE)))
+export function computeMaxAllocFromWei(gasWei: bigint, band: PogBand): bigint {
+  if (gasWei < band.floorWei) return 0n
+  const rate = scaledRate(band.rate)
   if (rate <= 0n) return 0n
 
+  const cap = pogCapWei(band)
+  const capped = gasWei > cap ? cap : gasWei
+
   const alloc = (capped * rate) / RATE_SCALE
-  return alloc > MAX_ALLOC_ETH_WEI ? MAX_ALLOC_ETH_WEI : alloc
+  return alloc > band.maxAllocWei ? band.maxAllocWei : alloc
 }
 
 /** True when `gasWei` clears the floor. Separate from the allocation so a
  *  caller can tell "below the floor" from "rate misconfigured", which both
  *  produce 0n above and mean entirely different things to a user. */
-export function isPogEligible(gasWei: bigint): boolean {
-  return gasWei >= POG_GAS_FLOOR_WEI
+export function isPogEligible(gasWei: bigint, band: PogBand): boolean {
+  return gasWei >= band.floorWei
 }
 
 /**
- * Guards the one relationship that spans this file, the frontend cap, and a
- * contract we do not deploy from here.
+ * Why a band is unusable, in a sentence, or null when it is fine.
  *
- * The band is only coherent if the cap maps onto the allocation ceiling at the
- * seeded rate. If someone raises `POG_GAS_CAP_WEI` and forgets
- * `MAX_ALLOC_ETH_WEI`, the extra history is silently discarded and the docs
- * describing the cap become false. If they raise both and forget the on-chain
- * dial, nothing is silent at all: every `registerPoG` reverts
- * `ExceedsGlobalPogLimit`, and it reverts for everyone at once.
+ * Returns rather than throws because the admin endpoint needs to refuse a bad
+ * rotation with an explanation an operator can act on, and `assertPogBandCoherent`
+ * needs to stop a deployment. One set of rules, two failure styles.
+ *
+ * The cap/ceiling relationship that used to be checked here is now derived
+ * (`pogCapWei`), so what is left are the bounds that no amount of derivation can
+ * rescue. The on-chain half of the coupling — `maxAllocWei` must not exceed the
+ * live `ToshFactory.maxPogAllocationLimit`, or every `registerPoG` reverts
+ * `ExceedsGlobalPogLimit` for everyone at once — is checked in the admin route,
+ * because it needs an RPC call and this module is deliberately dependency-free.
+ */
+export function pogBandProblem(band: PogBand): string | null {
+  if (band.floorWei <= 0n) {
+    return 'floorWei must be positive; a zero floor is PM-F9 reopened — one fresh '
+      + 'address per claim, and headcount rations the supply'
+  }
+  if (band.maxAllocWei <= 0n) {
+    return 'maxAllocWei must be positive; a zero ceiling allocates nothing to anybody'
+  }
+  if (scaledRate(band.rate) <= 0n) {
+    return `rate must be a positive finite number with at most 9 decimals, got ${band.rate}`
+  }
+  const cap = pogCapWei(band)
+  if (cap <= band.floorWei) {
+    return `floorWei (${band.floorWei}) must sit below the cap (${cap} wei of gas, where `
+      + `the rate ${band.rate} first reaches the ${band.maxAllocWei} wei ceiling). Above `
+      + 'it, every eligible wallet gets the full ceiling and the gas history stops '
+      + 'ranking anybody'
+  }
+  return null
+}
+
+/**
+ * Stop a deployment whose seeded band, or whose deadline band, cannot work.
  *
  * Throws rather than warns, and is called at module load, because a
  * misconfigured band should stop a deployment rather than issue signatures
  * nobody can redeem.
  */
-export function assertPogBandCoherent(): void {
-  if (POG_GAS_FLOOR_WEI <= 0n) {
-    throw new Error('POG_GAS_FLOOR_WEI must be positive; a zero floor is PM-F9 reopened')
-  }
-  if (POG_GAS_CAP_WEI <= POG_GAS_FLOOR_WEI) {
-    throw new Error(
-      `POG_GAS_CAP_WEI (${POG_GAS_CAP_WEI}) must exceed POG_GAS_FLOOR_WEI (${POG_GAS_FLOOR_WEI})`)
-  }
-  const atCap = computeMaxAllocFromWei(POG_GAS_CAP_WEI, DEFAULT_GAS_TO_ETH_RATE)
-  if (atCap !== MAX_ALLOC_ETH_WEI) {
-    throw new Error(
-      `PoG band incoherent: ${POG_GAS_CAP_WEI} wei of gas at the seeded rate `
-      + `${DEFAULT_GAS_TO_ETH_RATE} yields ${atCap} wei, but MAX_ALLOC_ETH_WEI is `
-      + `${MAX_ALLOC_ETH_WEI}. Cap, ceiling and ToshFactory.maxPogAllocationLimit `
-      + 'are one decision in three places.')
-  }
+export function assertPogBandCoherent(band: PogBand = DEFAULT_POG_BAND): void {
+  const problem = pogBandProblem(band)
+  if (problem) throw new Error(`PoG band incoherent: ${problem}`)
+
   // The deadline band, checked here for the same reason the allocation band is:
   // it is a relationship between numbers that live apart, and it drifted once.
   if (ATTESTATION_HEADROOM_SECONDS <= 0) {
@@ -307,31 +348,57 @@ export function computeDeadline(nowSec: number = Math.floor(Date.now() / 1000)):
 // ─── Admin-config fetch (optional) ───────────────────────────────────────────
 
 /**
- * Fetch the current gas-to-ETH quota rate from the admin config endpoint.
+ * Fetch the live band from the admin config endpoint.
  *
  * For the offline CLI signer. Code running INSIDE the Next server must call
- * `getGasToSatoRate()` from `app/lib/gasToSatoRate.ts` instead — it reads the
- * same value without an HTTP hop through its own process.
+ * `getPogBand()` from `app/lib/pogParams.ts` instead — it reads the same values
+ * without an HTTP hop through its own process.
+ *
+ * All three values are read, not just the rate. While only the rate was
+ * tunable, a CLI that fetched it and a floor it held as a constant were still
+ * in lockstep. With the floor and the ceiling tunable too, fetching one of
+ * three is the divergence this endpoint exists to prevent, dressed as an
+ * optimisation.
  *
  * @param baseUrl   Base URL of the Next.js server (e.g. `http://localhost:3000`).
  *                  Pass `''` (default) to skip the network call and use the
- *                  hard-coded default. Note what that means: with no base URL
- *                  this returns the SEED rate, not the live one, so a caller
- *                  that omits it will diverge from every signer that does not.
+ *                  seeded band. Note what that means: with no base URL this
+ *                  returns the SEEDS, not the live values, so a caller that
+ *                  omits it will diverge from every signer that does not.
  */
-export async function fetchGasToSatoRate(baseUrl: string = ''): Promise<number> {
-  if (!baseUrl) return DEFAULT_GAS_TO_ETH_RATE
+export async function fetchPogBand(baseUrl: string = ''): Promise<PogBand> {
+  if (!baseUrl) return DEFAULT_POG_BAND
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/admin/config`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = (await res.json()) as { globalGasToSatoRate?: number }
-    return typeof data.globalGasToSatoRate === 'number' && data.globalGasToSatoRate > 0
-      ? data.globalGasToSatoRate
-      : DEFAULT_GAS_TO_ETH_RATE
+    const data = (await res.json()) as {
+      globalGasToSatoRate?: number
+      pogFloorWei?: string
+      pogMaxAllocWei?: string
+    }
+    const band: PogBand = {
+      rate: typeof data.globalGasToSatoRate === 'number' && data.globalGasToSatoRate > 0
+        ? data.globalGasToSatoRate
+        : DEFAULT_GAS_TO_ETH_RATE,
+      floorWei: parseWeiOr(data.pogFloorWei, DEFAULT_POG_GAS_FLOOR_WEI),
+      maxAllocWei: parseWeiOr(data.pogMaxAllocWei, DEFAULT_POG_MAX_ALLOC_WEI),
+    }
+    // A band the server would refuse is not one to sign against either: fall
+    // back whole rather than mixing one live value into two seeded ones.
+    return pogBandProblem(band) ? DEFAULT_POG_BAND : band
   } catch {
-    return DEFAULT_GAS_TO_ETH_RATE
+    return DEFAULT_POG_BAND
+  }
+}
+
+function parseWeiOr(raw: unknown, fallback: bigint): bigint {
+  if (typeof raw !== 'string' || !/^[0-9]+$/.test(raw)) return fallback
+  try {
+    return BigInt(raw)
+  } catch {
+    return fallback
   }
 }

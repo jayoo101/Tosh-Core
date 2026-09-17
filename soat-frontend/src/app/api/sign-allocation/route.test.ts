@@ -72,7 +72,7 @@ vi.mock('@/app/lib/scanJobStore', () => ({
 
 beforeEach(() => {
   authRecovers = true
-  // Above POG_GAS_FLOOR_WEI (0.05 ETH) and under the 1 ETH cap, so eligibility
+  // Above the seeded floor (0.025 ETH) and under the 1 ETH cap, so eligibility
   // is not what any of these assertions is measuring.
   scannedWei = 2n * 10n ** 17n // 0.2 ETH
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', FACTORY)

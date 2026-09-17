@@ -1,5 +1,5 @@
 /**
- * The exact bytes an owner signs to rotate the PoG exchange rate.
+ * The exact bytes an owner signs to rotate the PoG band.
  *
  * ── Why this is its own module ──────────────────────────────────────────────
  *
@@ -28,35 +28,70 @@
  * The template, in one string, so a reader (and the CLI script's parser) can see
  * the whole format at once instead of reassembling it from concatenation.
  *
- * The alignment inside the value fields is significant: `rate:` is followed by
- * six spaces and `nonce:` by five, so the three values line up. That is
- * cosmetic to a human and load-bearing to a signature, which is the reason this
- * lives in a named constant rather than being spread across template literals.
+ * The alignment inside the value fields is significant: the values line up
+ * under each other, which is cosmetic to a human and load-bearing to a
+ * signature. That is the reason this lives in a named constant rather than
+ * being spread across template literals.
+ *
+ * WHY THE TWO WEI DIALS ARE IN HERE AND NOT JUST IN THE BODY
+ *
+ * `floorWei` and `maxAllocWei` became rotatable alongside the rate. A field the
+ * server acts on but the owner did not sign is a field anybody who can replay
+ * or intercept the request gets to choose — and of the three, the ceiling is
+ * the one worth attacking: it is the per-wallet deposit cap. So all three are
+ * inside the signed bytes, and a request that carries a dial the message does
+ * not is rejected as unauthorised rather than partially applied.
  */
 export const ADMIN_CONFIG_MESSAGE_TEMPLATE =
   'Tosh Admin Config Update\n' +
-  'rate:      {rate}\n' +
-  'nonce:     {nonce}\n' +
-  'expiresAt: {expiresAt}'
+  'rate:        {rate}\n' +
+  'floorWei:    {floorWei}\n' +
+  'maxAllocWei: {maxAllocWei}\n' +
+  'nonce:       {nonce}\n' +
+  'expiresAt:   {expiresAt}'
+
+/**
+ * The literal that stands in for "leave this dial where it is".
+ *
+ * A rotation that only moves the rate must still sign a complete message, or
+ * the server would have to guess which of several possible texts was signed.
+ * An explicit sentinel makes the intent part of the signature: `keep` is a
+ * statement about the other two dials, not the absence of one.
+ */
+export const ADMIN_CONFIG_KEEP = 'keep'
+
+export interface AdminConfigUpdate {
+  rate: number
+  /** Wei, as a decimal string, or null to leave the dial alone. */
+  floorWei?: string | bigint | null
+  /** Wei, as a decimal string, or null to leave the dial alone. */
+  maxAllocWei?: string | bigint | null
+  nonce: bigint | string | number
+  expiresAt: number
+}
 
 /**
  * Build the canonical message.
  *
  * `rate` is interpolated with JavaScript's own number-to-string conversion,
- * which is what both the browser and the server already did — so `0.1` signs as
- * `0.1` and not `0.100000`. The server rebuilds this from the numbers it parsed
- * out of the request body, so any reformatting on either side invalidates the
- * signature rather than being quietly tolerated.
+ * which is what both the browser and the server already did — so `0.5` signs as
+ * `0.5` and not `0.500000`. The wei dials are interpolated as decimal integer
+ * strings, never as `Number`, because a wei figure does not survive a double.
+ * The server rebuilds this from the values it parsed out of the request body,
+ * so any reformatting on either side invalidates the signature rather than
+ * being quietly tolerated.
  */
-export function buildAdminConfigMessage(
-  rate: number,
-  nonce: bigint | string | number,
-  expiresAt: number,
-): string {
+export function buildAdminConfigMessage(u: AdminConfigUpdate): string {
   return ADMIN_CONFIG_MESSAGE_TEMPLATE
-    .replace('{rate}', String(rate))
-    .replace('{nonce}', nonce.toString())
-    .replace('{expiresAt}', String(expiresAt))
+    .replace('{rate}', String(u.rate))
+    .replace('{floorWei}', weiField(u.floorWei))
+    .replace('{maxAllocWei}', weiField(u.maxAllocWei))
+    .replace('{nonce}', u.nonce.toString())
+    .replace('{expiresAt}', String(u.expiresAt))
+}
+
+function weiField(v: string | bigint | null | undefined): string {
+  return v === null || v === undefined ? ADMIN_CONFIG_KEEP : v.toString()
 }
 
 /**

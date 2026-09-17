@@ -9,9 +9,11 @@ import {
   ATTESTATION_TTL_SECONDS,
   computeDeadline,
   assertPogBandCoherent,
-  MAX_ALLOC_ETH_WEI,
-  POG_GAS_CAP_WEI,
-  POG_GAS_FLOOR_WEI,
+  pogBandProblem,
+  pogCapWei,
+  DEFAULT_POG_BAND,
+  DEFAULT_POG_MAX_ALLOC_WEI,
+  DEFAULT_POG_GAS_FLOOR_WEI,
   DEFAULT_GAS_TO_ETH_RATE,
   computeMaxAllocFromWei,
 } from './pogQuota'
@@ -121,13 +123,44 @@ describe('PoG allocation band', () => {
     expect(() => assertPogBandCoherent()).not.toThrow()
   })
 
-  it('puts the cap exactly on the allocation ceiling at the seeded rate', () => {
-    expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, DEFAULT_GAS_TO_ETH_RATE))
-      .toBe(MAX_ALLOC_ETH_WEI)
+  it('derives a cap that lands exactly on the ceiling, whatever the dials', () => {
+    // The cap used to be a fourth constant with a load-time assertion holding
+    // it against the ceiling and the rate. Now that all three are tunable, the
+    // property has to hold for bands nobody wrote down — so assert it over a
+    // spread rather than over the seeds alone.
+    const bands = [
+      DEFAULT_POG_BAND,
+      { floorWei: 10n ** 15n, maxAllocWei: 10n ** 18n, rate: 0.1 },
+      { floorWei: 10n ** 15n, maxAllocWei: 3n * 10n ** 17n, rate: 0.75 },
+      { floorWei: 1n, maxAllocWei: 7n * 10n ** 16n, rate: 1.5 },
+    ]
+    for (const band of bands) {
+      expect(computeMaxAllocFromWei(pogCapWei(band), band)).toBe(band.maxAllocWei)
+      // And one wei short of the cap must not already be at the ceiling, or the
+      // cap is not where the rate reaches it.
+      expect(computeMaxAllocFromWei(pogCapWei(band) - 1n, band))
+        .toBeLessThanOrEqual(band.maxAllocWei)
+    }
   })
 
-  it('keeps the floor below the cap', () => {
-    expect(POG_GAS_FLOOR_WEI).toBeGreaterThan(0n)
-    expect(POG_GAS_CAP_WEI).toBeGreaterThan(POG_GAS_FLOOR_WEI)
+  it('holds the numbers that were actually chosen', () => {
+    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(500_000_000_000_000_000n) // 0.5 ETH
+    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)                        // 0.5 ETH per 1 ETH of gas
+    // 1 ETH of gas fills the ceiling at that rate.
+    expect(pogCapWei(DEFAULT_POG_BAND)).toBe(10n ** 18n)
+  })
+
+  it('refuses the bands an admin rotation could otherwise arm', () => {
+    expect(pogBandProblem(DEFAULT_POG_BAND)).toBeNull()
+    expect(pogBandProblem({ ...DEFAULT_POG_BAND, floorWei: 0n })).toMatch(/floorWei/)
+    expect(pogBandProblem({ ...DEFAULT_POG_BAND, maxAllocWei: 0n })).toMatch(/maxAllocWei/)
+    for (const rate of [0, -1, NaN, Infinity]) {
+      expect(pogBandProblem({ ...DEFAULT_POG_BAND, rate })).toMatch(/rate/)
+    }
+    // A floor above the cap collapses the band: every eligible wallet gets the
+    // whole ceiling and the gas history stops ranking anybody.
+    expect(pogBandProblem({ floorWei: 2n * 10n ** 18n, maxAllocWei: 10n ** 17n, rate: 0.5 }))
+      .toMatch(/must sit below the cap/)
   })
 })

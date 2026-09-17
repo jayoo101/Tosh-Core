@@ -84,9 +84,47 @@ export function InitcodeHashMonitor() {
  */
 const CLIENT_TTL_SEC = Math.min(120, SIGNATURE_WINDOW_SEC.eoa)
 
+/** What `GET /api/admin/config` reports about the live band. */
+interface LiveBand {
+  globalGasToSatoRate: number
+  pogFloorWei: string
+  pogMaxAllocWei: string
+  pogGasCapWei: string
+  rateStore: 'memory' | 'redis'
+}
+
+const weiToEth = (wei: string) => {
+  try {
+    // Trimmed rather than fixed-width: these are round numbers in practice and
+    // `0.025` reads as a decision where `0.025000000000000000` reads as noise.
+    return (Number(BigInt(wei)) / 1e18).toString()
+  } catch {
+    return '?'
+  }
+}
+
 export function ExchangeRatePanel() {
   const [rateInput, setRateInput] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // The three dials, as the server sees them. Shown because two of them can
+  // only be moved from the CLI: without a read-out, an operator has no way to
+  // tell whether a rotation landed except by signing another one.
+  const [live, setLive] = useState<LiveBand | null>(null)
+  useEffect(() => {
+    let alive = true
+    const read = async () => {
+      try {
+        const res = await fetch('/api/admin/config', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = (await res.json()) as LiveBand
+        if (alive) setLive(data)
+      } catch { /* a read-out that cannot read stays blank rather than lying */ }
+    }
+    void read()
+    const id = setInterval(read, 15_000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
 
   const { signMessageAsync } = useSignMessage()
 
@@ -107,7 +145,11 @@ export function ExchangeRatePanel() {
     if (!armed) return
     const nonce     = BigInt(Date.now())
     const expiresAt = Math.floor(Date.now() / 1000) + CLIENT_TTL_SEC
-    const msg       = buildAdminConfigMessage(rate, nonce, expiresAt)
+    // Rate only. The floor and the ceiling sign as `keep`, which is a statement
+    // about them rather than their absence — this panel deliberately does not
+    // offer them, because a per-wallet deposit cap typed into a box with no
+    // second pair of eyes is what `scripts/rotateGasRate.mjs` exists to avoid.
+    const msg       = buildAdminConfigMessage({ rate, nonce, expiresAt })
 
     setBusy(true)
     try {
@@ -176,27 +218,60 @@ export function ExchangeRatePanel() {
 
   return (
     <Section
-      id="DIAG-B" title="POG EXCHANGE RATE (OFF-CHAIN)"
+      id="DIAG-B" title="POG BAND (OFF-CHAIN)"
       subtitle="POST /api/admin/config · owner-signed message, not a transaction · 1 ETH gas = N ETH quota"
     >
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-note @sm:grid-cols-2">
+        <div className="flex justify-between gap-3">
+          <dt className="text-text-tertiary">Rate</dt>
+          <dd>{live ? `${live.globalGasToSatoRate} ETH per 1 ETH gas` : 'reading…'}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-text-tertiary">Gas floor</dt>
+          <dd>{live ? `${weiToEth(live.pogFloorWei)} ETH` : 'reading…'}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-text-tertiary">Max deposit</dt>
+          <dd>{live ? `${weiToEth(live.pogMaxAllocWei)} ETH` : 'reading…'}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-text-tertiary">Counts gas up to</dt>
+          <dd>{live ? `${weiToEth(live.pogGasCapWei)} ETH` : 'reading…'}</dd>
+        </div>
+      </dl>
+
       <Field
         label="NEW RATE · ETH QUOTA PER 1 ETH GAS"
         value={rateInput}
         onChange={setRateInput}
-        placeholder="e.g. 0.1"
+        placeholder="e.g. 0.5"
         inputMode="decimal"
         disabled={busy}
         fluo={armed}
       />
-      <ScopeNote>
+      <ScopeNote tone={live?.rateStore === 'memory' ? 'warn' : 'mute'}>
         This one never touches the chain. It is an owner-signed instruction to the
         backend, so it costs no gas and leaves no on-chain trace — and it is only
         as trustworthy as the API server holding the other end.
+        {live?.rateStore === 'memory' && (
+          <>
+            {' '}The band is held per-instance right now (<code>rateStore: memory</code>),
+            so a rotation lands on whichever server answered the POST and every other
+            one keeps signing at the old numbers. Set the Upstash variables before
+            turning any of these dials.
+          </>
+        )}
+        <br /><br />
+        Only the rate is typed here. The gas floor and the max-deposit ceiling move
+        through <code>scripts/rotateGasRate.mjs request --rate N --floor N --max-alloc N</code>,
+        because the ceiling is also the per-wallet deposit cap and raising it needs
+        the on-chain <code>setMaxPogAllocationLimit</code> to move first — the
+        endpoint refuses a ceiling above the live factory dial.
         {ownerIsContract && (
           <>
             {' '}The owner here is a contract, so this panel is read-only in
-            practice: use <code>scripts/rotateGasRate.mjs</code>, which asks the
-            Safe owners for signatures and posts the assembled result.
+            practice: use that script for the rate too — it asks the Safe owners
+            for signatures and posts the assembled result.
           </>
         )}
       </ScopeNote>

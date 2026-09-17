@@ -52,13 +52,21 @@ let nonceStoreKind: 'memory' | 'redis'
 /** Overrides the real (in-process) claim, for the store-outage case only. */
 let claimImpl: (() => Promise<'claimed' | 'replayed' | 'unavailable'>) | null
 
+/** The factory's live per-wallet ceiling. `null` fails the read, which the route
+ *  must treat as "cannot check" rather than "no ceiling". */
+let onChainPogLimit: bigint | null
+
 const verifyCalls: { address: Address; message: string; signature: Hex }[] = []
-const applied: { rate: number }[] = []
+const applied: { rate?: number; floorWei?: bigint; maxAllocWei?: bigint }[] = []
 
 vi.mock('@/app/lib/serverRpc', () => ({
   assertServerChain: async () => chainOk,
   serverPublicClient: () => ({
-    readContract: async () => {
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName === 'maxPogAllocationLimit') {
+        if (onChainPogLimit === null) throw new Error('rpc down')
+        return onChainPogLimit
+      }
       if (owner === null) throw new Error('rpc down')
       return owner
     },
@@ -90,11 +98,25 @@ vi.mock('@/app/lib/adminNonce', async (importOriginal) => {
   }
 })
 
-vi.mock('@/app/lib/gasToSatoRate', () => ({
-  gasToSatoRateBackendKind: () => 'memory',
-  getGasToSatoRate: async () => 0.1,
-  setGasToSatoRate: async (rate: number) => { applied.push({ rate }) },
-}))
+/** The band the store is holding before each request. `parseWeiDial` is NOT
+ *  stubbed — it is the parser the route depends on to refuse a wei figure that
+ *  arrived as a double, so stubbing it would stub out the property under test. */
+vi.mock('@/app/lib/pogParams', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/app/lib/pogParams')>()
+  return {
+    ...actual,
+    pogParamsBackendKind: () => 'memory',
+    getPogBand: async () => ({
+      rate: 0.5,
+      floorWei: 25_000_000_000_000_000n,
+      maxAllocWei: 500_000_000_000_000_000n,
+    }),
+    setPogBand: async (next: { rate?: number; floorWei?: bigint; maxAllocWei?: bigint }) => {
+      applied.push(next)
+      return { rate: 0.5, floorWei: 25_000_000_000_000_000n, maxAllocWei: 500_000_000_000_000_000n }
+    },
+  }
+})
 
 vi.mock('@/lib/observability', () => ({ reportError: () => {} }))
 
@@ -106,6 +128,7 @@ beforeEach(() => {
   owner = SAFE
   ownerCode = '0xfe'          // matches the default owner: a contract
   chainOk = true
+  onChainPogLimit = 500_000_000_000_000_000n   // 0.5 ETH, the deployed default
   nonceStoreKind = 'redis'    // the posture production is meant to run in
   verifyImpl = null
   claimImpl = null
@@ -153,14 +176,30 @@ async function post(body: unknown) {
 
 /** A request that is valid in every respect except whatever the test changes. */
 async function signedPost(over: {
-  rate?: number; nonce?: number; expiresAt?: number; signature?: Hex
+  rate?: number
+  floorWei?: string
+  maxAllocWei?: string
+  nonce?: number
+  expiresAt?: number
+  signature?: Hex
 } = {}) {
   const rate      = over.rate ?? 0.2
   const nonce     = over.nonce ?? 1
   const expiresAt = over.expiresAt ?? Math.floor(Date.now() / 1000) + 120
+  const floorWei    = over.floorWei ?? null
+  const maxAllocWei = over.maxAllocWei ?? null
   const signature = over.signature
-    ?? await signerEoa.signMessage({ message: signable(rate, nonce, expiresAt) })
-  return post({ newRate: rate, nonce, expiresAt, signature })
+    ?? await signerEoa.signMessage({
+      message: signable({ rate, floorWei, maxAllocWei, nonce, expiresAt }),
+    })
+  return post({
+    newRate: rate,
+    ...(floorWei !== null && { newFloorWei: floorWei }),
+    ...(maxAllocWei !== null && { newMaxAllocWei: maxAllocWei }),
+    nonce,
+    expiresAt,
+    signature,
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +229,7 @@ describe('POST /api/admin/config — owner is a Safe', () => {
 
     await signedPost()
 
-    const entry = log.mock.calls.find(([msg]) => msg === '[admin/config] rate updated')
+    const entry = log.mock.calls.find(([msg]) => msg === '[admin/config] band updated')
     expect(entry?.[1]).toMatchObject({ signer: SAFE, authMethod: 'owner-signature' })
     expect(signerEoa.address).not.toBe(SAFE)
     log.mockRestore()
@@ -211,7 +250,109 @@ describe('POST /api/admin/config — owner is a Safe', () => {
 
     await signedPost({ rate: 0.25, nonce: 7, expiresAt })
 
-    expect(verifyCalls[0].message).toBe(signable(0.25, 7, expiresAt))
+    expect(verifyCalls[0].message).toBe(signable({
+      rate: 0.25, floorWei: null, maxAllocWei: null, nonce: 7, expiresAt,
+    }))
+  })
+})
+
+describe('POST /api/admin/config — the floor and the ceiling', () => {
+  beforeEach(() => { verifyImpl = async () => true })
+
+  it('rotates all three dials in one signed instruction', async () => {
+    const res = await signedPost({
+      rate: 0.4, floorWei: '10000000000000000', maxAllocWei: '400000000000000000',
+    })
+
+    expect(res.status).toBe(200)
+    expect(applied).toEqual([{
+      rate: 0.4,
+      floorWei: 10_000_000_000_000_000n,
+      maxAllocWei: 400_000_000_000_000_000n,
+    }])
+  })
+
+  it('leaves an omitted dial alone rather than resetting it', async () => {
+    const res = await signedPost({ rate: 0.4 })
+
+    expect(res.status).toBe(200)
+    expect(applied).toEqual([{ rate: 0.4 }])
+  })
+
+  it('refuses a ceiling above the factory dial, which would brick registerPoG', async () => {
+    // The failure this check exists for: an attestation over the on-chain limit
+    // reverts `ExceedsGlobalPogLimit` for every wallet at once, and the only
+    // symptom is activations failing after the site promised a quota.
+    const res = await signedPost({ rate: 0.5, maxAllocWei: '600000000000000000' })
+
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/setMaxPogAllocationLimit/)
+    expect(applied).toEqual([])
+  })
+
+  it('allows lowering the ceiling, which is always safe on chain', async () => {
+    const res = await signedPost({ rate: 0.5, maxAllocWei: '100000000000000000' })
+
+    expect(res.status).toBe(200)
+    expect(applied).toEqual([{ rate: 0.5, maxAllocWei: 100_000_000_000_000_000n }])
+  })
+
+  it('answers 503 when the on-chain ceiling cannot be read', async () => {
+    // Guessing either way is worse: "no ceiling" lets a bricking rotation
+    // through, and "zero" refuses the ones that lower the dial.
+    onChainPogLimit = null
+
+    const res = await signedPost({ rate: 0.5, maxAllocWei: '100000000000000000' })
+
+    expect(res.status).toBe(503)
+    expect(applied).toEqual([])
+  })
+
+  it('refuses a wei dial sent as a JSON number', async () => {
+    // A wei figure in a JSON number has already been through a double, and the
+    // signature was over the decimal string — so accepting one would reject the
+    // owner's own request under a signature error instead of this one.
+    const nonce = 11
+    const expiresAt = Math.floor(Date.now() / 1000) + 120
+    const signature = await signerEoa.signMessage({
+      message: signable({ rate: 0.5, floorWei: '25000000000000000', nonce, expiresAt }),
+    })
+    const res = await post({
+      newRate: 0.5, newFloorWei: 25_000_000_000_000_000, nonce, expiresAt, signature,
+    })
+
+    expect(res.status).toBe(400)
+    expect(applied).toEqual([])
+  })
+
+  it('refuses a floor that sits above the cap, collapsing the band', async () => {
+    // Above the cap every eligible wallet gets the whole ceiling, so the gas
+    // history stops ranking anybody — a band nobody would choose on purpose.
+    const res = await signedPost({ rate: 0.5, floorWei: '5000000000000000000' })
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/incoherent band/)
+    expect(applied).toEqual([])
+  })
+
+  it('rejects a dial the signed message did not name', async () => {
+    // The attack the sentinel exists to block: sign "rate only", then add a
+    // ceiling to the body on the way through.
+    const nonce = 12
+    const expiresAt = Math.floor(Date.now() / 1000) + 120
+    const signature = await signerEoa.signMessage({
+      message: signable({ rate: 0.5, nonce, expiresAt }),
+    })
+    verifyImpl = null                 // real recovery, so the message matters
+    owner = signerEoa.address
+    ownerCode = '0x'
+
+    const res = await post({
+      newRate: 0.5, newMaxAllocWei: '100000000000000000', nonce, expiresAt, signature,
+    })
+
+    expect(res.status).toBe(403)
+    expect(applied).toEqual([])
   })
 })
 

@@ -155,9 +155,9 @@
  *     that much there alone, and it is why four chains stay fatal;
  *   · an unreadable Robinhood hides almost nothing. Measured 2026-09-05: a busy
  *     4663 account's fifty most recent transactions cost 0.00403 ETH in total.
- *     Against a 0.05 ETH eligibility floor that is 8 %, and against the 1 ETH cap
- *     it is 0.4 %. Omitting it changes an outcome only for a claimant already
- *     within a fraction of a percent of the floor, and then only downward.
+ *     Against the seeded 0.025 ETH eligibility floor that is 16 %, and against
+ *     the 1 ETH cap it is 0.4 %. Omitting it changes an outcome only for a
+ *     claimant already close to the floor, and then only downward.
  *
  * Set against that: while 4663 is fatal, its indexer's availability IS the
  * availability of genesis allocation for everybody. That is not theoretical — it
@@ -178,7 +178,17 @@
  * no version of this that awards more.
  */
 
-import { POG_GAS_CAP_WEI } from './pogQuota'
+import { DEFAULT_POG_BAND, pogCapWei } from './pogQuota'
+
+/**
+ * The cap to page up to when a caller does not say.
+ *
+ * Derived from the seeded band, not from the live one: this module is called
+ * from a script as well as from the server, and a default that silently reached
+ * for a shared store would make an offline scan depend on Upstash. Callers that
+ * hold the live band — `api/pog-scan`, `api/sign-allocation` — pass its cap in.
+ */
+const SEEDED_CAP_WEI = pogCapWei(DEFAULT_POG_BAND)
 
 // ─── Chains ──────────────────────────────────────────────────────────────────
 
@@ -554,6 +564,7 @@ async function scanChainV1(
   address: string,
   chain: GasScanChain,
   alreadyWei: bigint,
+  capWei: bigint,
 ): Promise<ChainSpend> {
   const target = address.toLowerCase()
   let weiSpent = 0n
@@ -595,7 +606,7 @@ async function scanChainV1(
       } catch { /* a row we cannot price is skipped, never guessed at */ }
     }
 
-    if (alreadyWei + weiSpent >= POG_GAS_CAP_WEI) { stoppedAtCap = true; break }
+    if (alreadyWei + weiSpent >= capWei) { stoppedAtCap = true; break }
 
     // Short window means the history ran out before the budget did.
     if (rows.length < V1_PAGE_SIZE) break
@@ -653,6 +664,7 @@ async function scanChainV2(
   address: string,
   chain: GasScanChain,
   alreadyWei: bigint,
+  capWei: bigint,
   maxPages: number = MAX_V2_PAGES,
 ): Promise<ChainSpend> {
   const target = address.toLowerCase()
@@ -679,7 +691,7 @@ async function scanChainV2(
       sentTxs++
     }
 
-    if (alreadyWei + weiSpent >= POG_GAS_CAP_WEI) { stoppedAtCap = true; break }
+    if (alreadyWei + weiSpent >= capWei) { stoppedAtCap = true; break }
 
     cursor = body.next_page_params ?? null
     if (!cursor) break
@@ -707,18 +719,19 @@ async function scanChain(
   address: string,
   chain: GasScanChain,
   alreadyWei: bigint,
+  capWei: bigint,
 ): Promise<ChainSpend> {
   // Chains configured v2-only have no v1 to fall through to.
-  if (chain.api === 'v2') return scanChainV2(address, chain, alreadyWei)
+  if (chain.api === 'v2') return scanChainV2(address, chain, alreadyWei, capWei)
 
-  const probe = await scanChainV2(address, chain, alreadyWei, 1)
+  const probe = await scanChainV2(address, chain, alreadyWei, capWei, 1)
 
   // `truncated` after a single page is this function's signal, not a defect: it
   // means a second page exists, so the sender is heavy enough to be worth v1.
   if (!probe.truncated) return probe
   if (probe.stoppedAtCap) return probe
 
-  return scanChainV1(address, chain, alreadyWei)
+  return scanChainV1(address, chain, alreadyWei, capWei)
 }
 
 // ─── The scan ────────────────────────────────────────────────────────────────
@@ -733,9 +746,18 @@ async function scanChain(
  * reached the cap inside Ethereum's first window and never touched the other
  * four.
  *
+ * `capWei` is where more history stops being able to change the allocation, so
+ * it is a budget rather than a policy: passing the live band's cap makes the
+ * short-circuit tighten and loosen with the dials, and passing the seeded one
+ * only over-reads. Never pass a figure below the live cap, or the total becomes
+ * a lower bound without the `truncated` flag that would say so.
+ *
  * Throws `GasScanUnavailable` if any chain it needed could not be read.
  */
-export async function scanGasHistory(address: string): Promise<GasHistory> {
+export async function scanGasHistory(
+  address: string,
+  capWei: bigint = SEEDED_CAP_WEI,
+): Promise<GasHistory> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
     throw new GasScanUnavailable('input', `not an address: ${address}`)
   }
@@ -744,7 +766,7 @@ export async function scanGasHistory(address: string): Promise<GasHistory> {
   let totalWei = 0n
 
   for (const chain of GAS_SCAN_CHAINS) {
-    if (totalWei >= POG_GAS_CAP_WEI) {
+    if (totalWei >= capWei) {
       chains.push({
         chain: chain.chain, chainId: chain.chainId,
         weiSpent: 0n, sentTxs: 0, truncated: false,
@@ -756,7 +778,7 @@ export async function scanGasHistory(address: string): Promise<GasHistory> {
 
     let spend: ChainSpend
     try {
-      spend = await scanChain(address, chain, totalWei)
+      spend = await scanChain(address, chain, totalWei, capWei)
     } catch (e) {
       // Only a read failure is survivable, and only on a chain marked optional.
       // Anything else — a bug in here, a shape we cannot parse — must not be

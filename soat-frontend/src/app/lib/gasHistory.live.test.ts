@@ -18,9 +18,17 @@
 import { describe, it, expect } from 'vitest'
 import { scanGasHistory, GAS_SCAN_CHAINS } from './gasHistory'
 import {
-  POG_GAS_FLOOR_WEI, POG_GAS_CAP_WEI, MAX_ALLOC_ETH_WEI,
-  DEFAULT_GAS_TO_ETH_RATE, computeMaxAllocFromWei, isPogEligible,
+  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ETH_RATE,
+  computeMaxAllocFromWei, isPogEligible, pogCapWei,
 } from './pogQuota'
+
+/** The seeded band. A live scan has nowhere to read a rotated one from, and
+ *  pointing it at the shared store would make an offline check depend on
+ *  Upstash. */
+const BAND = DEFAULT_POG_BAND
+const POG_GAS_FLOOR_WEI = BAND.floorWei
+const POG_GAS_CAP_WEI = pogCapWei(BAND)
+const MAX_ALLOC_ETH_WEI = BAND.maxAllocWei
 
 const eth = (w: bigint) => (Number(w) / 1e18).toFixed(8)
 
@@ -29,7 +37,7 @@ const OURS = '0x14791697260E4c9A71f18484C9f997B308e59325'
 const EMPTY = '0x000000000000000000000000000000000000dEaD'
 
 function report(label: string, h: Awaited<ReturnType<typeof scanGasHistory>>) {
-  const alloc = computeMaxAllocFromWei(h.totalWei, DEFAULT_GAS_TO_ETH_RATE)
+  const alloc = computeMaxAllocFromWei(h.totalWei, BAND)
   console.log(`\n--- ${label} ---`)
   for (const c of h.chains) {
     console.log(`  ${c.chain.padEnd(10)} ${eth(c.weiSpent).padStart(12)} ETH  sent=${String(c.sentTxs).padStart(5)}`
@@ -38,7 +46,7 @@ function report(label: string, h: Awaited<ReturnType<typeof scanGasHistory>>) {
       + `${c.truncated && !c.unavailable ? ' [TRUNCATED]' : ''}`
       + `${c.execFeeOnly ? ' [exec-fee only]' : ''}`)
   }
-  console.log(`  total=${eth(h.totalWei)} ETH  eligible=${isPogEligible(h.totalWei)}`
+  console.log(`  total=${eth(h.totalWei)} ETH  eligible=${isPogEligible(h.totalWei, BAND)}`
     + `  alloc=${eth(alloc)} ETH  truncated=${h.truncated}`)
 }
 
@@ -46,17 +54,18 @@ describe.runIf(process.env.POG_LIVE_SCAN === '1')('live gas scan', () => {
   it('chain table is coherent', () => {
     expect(GAS_SCAN_CHAINS).toHaveLength(5)
     expect(POG_GAS_CAP_WEI).toBe(10n ** 18n)
-    expect(POG_GAS_FLOOR_WEI).toBe(5n * 10n ** 16n)
+    expect(POG_GAS_FLOOR_WEI).toBe(25n * 10n ** 15n)
+    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)
     // the band's whole point: cap * rate lands exactly on the ceiling
-    expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, DEFAULT_GAS_TO_ETH_RATE)).toBe(MAX_ALLOC_ETH_WEI)
+    expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, BAND)).toBe(MAX_ALLOC_ETH_WEI)
   })
 
   it('heavy wallet: completes, and stops at the cap', async () => {
-    const h = await scanGasHistory(HEAVY)
+    const h = await scanGasHistory(HEAVY, POG_GAS_CAP_WEI)
     report('heavy', h)
     // v2 could not return one page for this wallet inside 15s; v1 must finish.
     expect(h.totalWei).toBeGreaterThanOrEqual(POG_GAS_CAP_WEI)
-    expect(computeMaxAllocFromWei(h.totalWei, DEFAULT_GAS_TO_ETH_RATE)).toBe(MAX_ALLOC_ETH_WEI)
+    expect(computeMaxAllocFromWei(h.totalWei, BAND)).toBe(MAX_ALLOC_ETH_WEI)
     // reaching the cap on Ethereum must skip the later chains entirely
     expect(h.chains.some(c => c.skipped)).toBe(true)
   }, 180_000)
@@ -68,7 +77,7 @@ describe.runIf(process.env.POG_LIVE_SCAN === '1')('live gas scan', () => {
     // v1 must agree to the wei.
     const ethereum = h.chains.find(c => c.chain === 'Ethereum')!
     expect(eth(ethereum.weiSpent)).toBe('0.11395591')
-    expect(isPogEligible(h.totalWei)).toBe(true)
+    expect(isPogEligible(h.totalWei, BAND)).toBe(true)
 
     // Not `expect(h.truncated).toBe(false)`, which is what this said and which
     // re-coupled the assertion to 4663's uptime — the exact dependency the
@@ -83,8 +92,8 @@ describe.runIf(process.env.POG_LIVE_SCAN === '1')('live gas scan', () => {
     const h = await scanGasHistory(EMPTY)
     report('empty', h)
     expect(h.totalWei).toBe(0n)
-    expect(isPogEligible(h.totalWei)).toBe(false)
-    expect(computeMaxAllocFromWei(h.totalWei, DEFAULT_GAS_TO_ETH_RATE)).toBe(0n)
+    expect(isPogEligible(h.totalWei, BAND)).toBe(false)
+    expect(computeMaxAllocFromWei(h.totalWei, BAND)).toBe(0n)
     expect(h.chains).toHaveLength(5)
   }, 180_000)
 })

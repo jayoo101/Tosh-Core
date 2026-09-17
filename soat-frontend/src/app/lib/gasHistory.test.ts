@@ -16,9 +16,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { scanGasHistory, GasScanUnavailable, GAS_SCAN_CHAINS } from './gasHistory'
 import {
-  POG_GAS_FLOOR_WEI, POG_GAS_CAP_WEI, MAX_ALLOC_ETH_WEI, DEFAULT_GAS_TO_ETH_RATE,
-  computeMaxAllocFromWei, isPogEligible, assertPogBandCoherent,
+  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ETH_RATE,
+  computeMaxAllocFromWei, isPogEligible, assertPogBandCoherent, pogCapWei,
 } from './pogQuota'
+
+/** The seeded band, spelled out, because every assertion below is about it. */
+const BAND = DEFAULT_POG_BAND
+const POG_GAS_FLOOR_WEI = BAND.floorWei
+const POG_GAS_CAP_WEI = pogCapWei(BAND)
+const MAX_ALLOC_ETH_WEI = BAND.maxAllocWei
 
 const USER = '0x1111111111111111111111111111111111111111'
 const OTHER = '0x2222222222222222222222222222222222222222'
@@ -116,31 +122,32 @@ afterEach(() => { vi.unstubAllGlobals() })
 
 describe('the eligibility band', () => {
   it('is self-consistent: cap x rate lands exactly on the allocation ceiling', () => {
-    // The guard that stops the three copies of this decision from drifting ?
-    // this file's cap, MAX_ALLOC_ETH_WEI, and ToshFactory.maxPogAllocationLimit.
+    // The cap is derived from the ceiling and the rate rather than stored, so
+    // this is the property that used to need a guard against three copies of
+    // one decision drifting apart.
     expect(() => assertPogBandCoherent()).not.toThrow()
-    expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, DEFAULT_GAS_TO_ETH_RATE))
-      .toBe(MAX_ALLOC_ETH_WEI)
+    expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, BAND)).toBe(MAX_ALLOC_ETH_WEI)
   })
 
   it('holds the numbers that were actually chosen', () => {
-    expect(POG_GAS_FLOOR_WEI).toBe(50_000_000_000_000_000n)  // 0.05 ETH
-    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n) // 1 ETH
-    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.1)                // 10 %
+    expect(POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH
+    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n) // 1 ETH of gas
+    expect(MAX_ALLOC_ETH_WEI).toBe(500_000_000_000_000_000n) // 0.5 ETH ceiling
+    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)                // 50 %
   })
 
   it('refuses anything below the floor, including one wei below', () => {
-    expect(isPogEligible(POG_GAS_FLOOR_WEI - 1n)).toBe(false)
-    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI - 1n, DEFAULT_GAS_TO_ETH_RATE)).toBe(0n)
+    expect(isPogEligible(POG_GAS_FLOOR_WEI - 1n, BAND)).toBe(false)
+    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI - 1n, BAND)).toBe(0n)
     // and admits exactly at the floor
-    expect(isPogEligible(POG_GAS_FLOOR_WEI)).toBe(true)
-    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI, DEFAULT_GAS_TO_ETH_RATE))
-      .toBe(5_000_000_000_000_000n) // 0.005 ETH
+    expect(isPogEligible(POG_GAS_FLOOR_WEI, BAND)).toBe(true)
+    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI, BAND))
+      .toBe(12_500_000_000_000_000n) // 0.0125 ETH
   })
 
   it('never exceeds the ceiling however large the history', () => {
     for (const gas of [POG_GAS_CAP_WEI, POG_GAS_CAP_WEI * 25n, 10n ** 24n]) {
-      expect(computeMaxAllocFromWei(gas, DEFAULT_GAS_TO_ETH_RATE)).toBe(MAX_ALLOC_ETH_WEI)
+      expect(computeMaxAllocFromWei(gas, BAND)).toBe(MAX_ALLOC_ETH_WEI)
     }
   })
 
@@ -148,16 +155,17 @@ describe('the eligibility band', () => {
     // A float path (`Number(wei)/1e18` then `* rate * 1e18`) loses the low digits
     // of a figure this size. Two inputs one wei apart must not collapse together,
     // because the API route and scripts/pogSigner.ts must agree exactly.
+    const tenth = { ...BAND, rate: 0.1, maxAllocWei: 10n ** 18n }
     const a = 123_456_789_012_345_678n
     const b = a + 10n
-    expect(computeMaxAllocFromWei(a, 0.1)).toBe(12_345_678_901_234_567n)
-    expect(computeMaxAllocFromWei(b, 0.1)).toBe(12_345_678_901_234_568n)
-    expect(computeMaxAllocFromWei(a, 0.1)).not.toBe(computeMaxAllocFromWei(b, 0.1))
+    expect(computeMaxAllocFromWei(a, tenth)).toBe(12_345_678_901_234_567n)
+    expect(computeMaxAllocFromWei(b, tenth)).toBe(12_345_678_901_234_568n)
+    expect(computeMaxAllocFromWei(a, tenth)).not.toBe(computeMaxAllocFromWei(b, tenth))
   })
 
   it('treats a broken rate as zero rather than as a free allocation', () => {
     for (const bad of [0, -1, NaN, Infinity]) {
-      expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, bad)).toBe(0n)
+      expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, { ...BAND, rate: bad })).toBe(0n)
     }
   })
 })
@@ -182,7 +190,7 @@ describe('what counts as gas the claimant paid', () => {
     const h = await scanGasHistory(USER)
     expect(h.totalWei).toBe(5n * 10n ** 15n) // 0.001 on each of 5 chains
     expect(h.chains[0].sentTxs).toBe(1)
-    expect(isPogEligible(h.totalWei)).toBe(false)
+    expect(isPogEligible(h.totalWei, BAND)).toBe(false)
   })
 
   it('ignores inbound rows on the v1 path too, where the server does not filter', async () => {
@@ -266,7 +274,7 @@ describe('cost and early exit', () => {
 
     const h = await scanGasHistory(USER)
     expect(h.totalWei).toBeGreaterThanOrEqual(POG_GAS_CAP_WEI)
-    expect(computeMaxAllocFromWei(h.totalWei, DEFAULT_GAS_TO_ETH_RATE)).toBe(MAX_ALLOC_ETH_WEI)
+    expect(computeMaxAllocFromWei(h.totalWei, BAND)).toBe(MAX_ALLOC_ETH_WEI)
     expect(requestLog).toHaveLength(1)
 
     // Skipped chains are still reported, so the breakdown never implies an

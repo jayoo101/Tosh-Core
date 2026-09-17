@@ -71,9 +71,9 @@ import {
   type ScanJob,
 } from '@/app/lib/scanJobStore'
 import {
-  POG_GAS_FLOOR_WEI, POG_GAS_CAP_WEI, computeMaxAllocFromWei, isPogEligible,
+  computeMaxAllocFromWei, isPogEligible, pogCapWei,
 } from '@/app/lib/pogQuota'
-import { getGasToSatoRate } from '@/app/lib/gasToSatoRate'
+import { getPogBand } from '@/app/lib/pogParams'
 import {
   applyCors, applyRateLimit, corsPreflight, readJsonBody,
 } from '@/app/lib/apiGuard'
@@ -246,11 +246,16 @@ function corsify(req: Request, res: NextResponse) {
  * show up as a wallet being told it qualified and then refused.
  */
 async function present(job: ScanJob) {
+  // The live band, not the seeds. Every figure below — the floor the UI draws,
+  // the cap it explains, the quota it promises — has to come from the same read
+  // that the signer will use, or the dialog and the attestation disagree.
+  const band = await getPogBand()
   const base = {
     status: job.status,
     address: job.address,
-    floorWei: POG_GAS_FLOOR_WEI.toString(),
-    capWei: POG_GAS_CAP_WEI.toString(),
+    floorWei: band.floorWei.toString(),
+    capWei: pogCapWei(band).toString(),
+    maxAllocCeilingWei: band.maxAllocWei.toString(),
     resultTtlMs: RESULT_TTL_MS,
     leaseMs: JOB_LEASE_MS,
   }
@@ -270,7 +275,6 @@ async function present(job: ScanJob) {
   }
 
   const totalWei = BigInt(result.totalWei)
-  const rate = await getGasToSatoRate()
 
   return {
     ...base,
@@ -286,9 +290,9 @@ async function present(job: ScanJob) {
      *  merely counted, so the UI can tell a user which history is missing instead
      *  of a vague "this may be incomplete". */
     unavailableChains: result.chains.filter(c => c.unavailable).map(c => c.chain),
-    eligible: isPogEligible(totalWei),
-    maxAllocWei: computeMaxAllocFromWei(totalWei, rate).toString(),
-    gasToSatoRate: rate,
+    eligible: isPogEligible(totalWei, band),
+    maxAllocWei: computeMaxAllocFromWei(totalWei, band).toString(),
+    gasToSatoRate: band.rate,
     chains: result.chains.map(c => ({
       chain: c.chain,
       chainId: c.chainId,
@@ -340,7 +344,10 @@ async function persistCreditReading(): Promise<void> {
 
 async function runScan(address: Address): Promise<void> {
   try {
-    const history = await scanGasHistory(address)
+    // Page up to the live cap. A raised ceiling or a lowered rate both move the
+    // point where more history stops mattering, and a scan that stopped at the
+    // old one would hand back a total too small to earn the new quota.
+    const history = await scanGasHistory(address, pogCapWei(await getPogBand()))
     await finishScanJob(address, {
       chains: history.chains.map(c => ({
         chain: c.chain,
@@ -417,11 +424,13 @@ export async function GET(req: Request) {
   }
 
   if (!job) {
+    const band = await getPogBand()
     return corsify(req, NextResponse.json({
       status: 'absent',
       address: address.toLowerCase(),
-      floorWei: POG_GAS_FLOOR_WEI.toString(),
-      capWei: POG_GAS_CAP_WEI.toString(),
+      floorWei: band.floorWei.toString(),
+      capWei: pogCapWei(band).toString(),
+      maxAllocCeilingWei: band.maxAllocWei.toString(),
     }))
   }
   return corsify(req, NextResponse.json(await present(job)))

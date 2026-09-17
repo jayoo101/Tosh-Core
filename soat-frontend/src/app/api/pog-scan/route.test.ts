@@ -55,7 +55,13 @@ vi.mock('@/app/lib/gasHistory', async (importOriginal) => {
     lastObservedCredits: () => null,
   }
 })
-vi.mock('@/app/lib/gasToSatoRate', () => ({ getGasToSatoRate: async () => 0.1 }))
+vi.mock('@/app/lib/pogParams', () => ({
+  getPogBand: async () => ({
+    rate: 0.5,
+    floorWei: 25_000_000_000_000_000n,
+    maxAllocWei: 500_000_000_000_000_000n,
+  }),
+}))
 
 /**
  * The IP bucket's arithmetic is not what these tests measure — `apiGuard.test.ts`

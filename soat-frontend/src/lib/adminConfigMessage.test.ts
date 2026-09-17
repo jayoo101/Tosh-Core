@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  ADMIN_CONFIG_KEEP,
   ADMIN_CONFIG_MESSAGE_TEMPLATE,
   buildAdminConfigMessage,
   SIGNATURE_WINDOW_SEC,
@@ -14,26 +15,61 @@ describe('the canonical admin-config message', () => {
     // Whitespace is not cosmetic once something signs it. Pinning the exact
     // string here means a well-meaning reformat shows up as a failed assertion
     // rather than as a 403 that looks like the wrong wallet is connected.
-    expect(buildAdminConfigMessage(0.12, 1757000000000n, 1757021600)).toBe(
+    expect(buildAdminConfigMessage({
+      rate: 0.12,
+      floorWei: '25000000000000000',
+      maxAllocWei: '500000000000000000',
+      nonce: 1757000000000n,
+      expiresAt: 1757021600,
+    })).toBe(
       'Tosh Admin Config Update\n' +
-      'rate:      0.12\n' +
-      'nonce:     1757000000000\n' +
-      'expiresAt: 1757021600',
+      'rate:        0.12\n' +
+      'floorWei:    25000000000000000\n' +
+      'maxAllocWei: 500000000000000000\n' +
+      'nonce:       1757000000000\n' +
+      'expiresAt:   1757021600',
     )
   })
 
   it('renders a rate the way a wallet will, not padded', () => {
-    // `0.1` must sign as `0.1`. Anything that reformats numbers on one side of
+    // `0.5` must sign as `0.5`. Anything that reformats numbers on one side of
     // this exchange invalidates every signature without saying so.
-    expect(buildAdminConfigMessage(0.1, 1n, 2)).toContain('rate:      0.1\n')
+    expect(buildAdminConfigMessage({ rate: 0.5, nonce: 1n, expiresAt: 2 }))
+      .toContain('rate:        0.5\n')
+  })
+
+  it('signs an untouched dial as an explicit sentinel, not as a blank', () => {
+    // "Leave the ceiling alone" has to be a statement inside the signed bytes.
+    // A blank, or an omitted line, would let the server choose between several
+    // texts the owner might have signed — and the ceiling is the per-wallet
+    // deposit cap, so that choice is worth attacking.
+    const msg = buildAdminConfigMessage({ rate: 0.5, nonce: 1n, expiresAt: 2 })
+    expect(msg).toContain(`floorWei:    ${ADMIN_CONFIG_KEEP}\n`)
+    expect(msg).toContain(`maxAllocWei: ${ADMIN_CONFIG_KEEP}\n`)
+    // And an explicitly-null dial is the same statement as an absent one.
+    expect(buildAdminConfigMessage({
+      rate: 0.5, floorWei: null, maxAllocWei: null, nonce: 1n, expiresAt: 2,
+    })).toBe(msg)
+  })
+
+  it('renders a wei dial from a bigint and a string identically', () => {
+    // The route parses a bigint out of a decimal string; the CLI holds the
+    // string it wrote into its artefact. Both must produce the same bytes, or
+    // the flow signs in one place and verifies in another.
+    const asBig = buildAdminConfigMessage({
+      rate: 0.5, floorWei: 25_000_000_000_000_000n, nonce: 1n, expiresAt: 2,
+    })
+    expect(buildAdminConfigMessage({
+      rate: 0.5, floorWei: '25000000000000000', nonce: 1n, expiresAt: 2,
+    })).toBe(asBig)
   })
 
   it('accepts a nonce as bigint, string or number identically', () => {
     // The route parses a bigint, the admin panel holds a bigint, and the CLI
     // reads a number out of JSON. All three must produce the same bytes.
-    const asBig = buildAdminConfigMessage(0.2, 42n, 99)
-    expect(buildAdminConfigMessage(0.2, '42', 99)).toBe(asBig)
-    expect(buildAdminConfigMessage(0.2, 42, 99)).toBe(asBig)
+    const asBig = buildAdminConfigMessage({ rate: 0.2, nonce: 42n, expiresAt: 99 })
+    expect(buildAdminConfigMessage({ rate: 0.2, nonce: '42', expiresAt: 99 })).toBe(asBig)
+    expect(buildAdminConfigMessage({ rate: 0.2, nonce: 42, expiresAt: 99 })).toBe(asBig)
   })
 
   it('gives a multi-signature owner materially longer than a single signer', () => {
@@ -60,7 +96,35 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
       { cwd: REPO_ROOT, encoding: 'utf8' },
     )
 
-    const expected = buildAdminConfigMessage(0.12, 1757000000000n, 1757021600)
+    const expected = buildAdminConfigMessage({
+      rate: 0.12, nonce: 1757000000000n, expiresAt: 1757021600,
+    })
+    for (const line of expected.split('\n')) {
+      expect(out).toContain(`    ${line}`)
+    }
+  })
+
+  it('agrees with the CLI on the wei dials too, ETH in and wei signed', () => {
+    // The CLI takes `--floor 0.025` because nobody types eighteen zeros
+    // correctly, and signs the wei. A conversion that disagreed with this side
+    // would sign a floor nobody chose.
+    const out = execFileSync(
+      process.execPath,
+      [
+        'scripts/rotateGasRate.mjs', 'template',
+        '--rate', '0.5', '--floor', '0.025', '--max-alloc', '0.5',
+        '--nonce', '1757000000000', '--expiresAt', '1757021600',
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    )
+
+    const expected = buildAdminConfigMessage({
+      rate: 0.5,
+      floorWei: 25_000_000_000_000_000n,
+      maxAllocWei: 500_000_000_000_000_000n,
+      nonce: 1757000000000n,
+      expiresAt: 1757021600,
+    })
     for (const line of expected.split('\n')) {
       expect(out).toContain(`    ${line}`)
     }
@@ -71,6 +135,8 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
     // silently returns something else, so pin the shape it depends on.
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toMatch(/^'?Tosh Admin Config Update/)
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{rate}')
+    expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{floorWei}')
+    expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{maxAllocWei}')
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{nonce}')
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{expiresAt}')
   })

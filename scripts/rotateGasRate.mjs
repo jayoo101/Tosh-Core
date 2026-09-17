@@ -1,6 +1,20 @@
 /*
- * rotateGasRate.mjs — turn the PoG exchange-rate dial when the owner is a Safe.
+ * rotateGasRate.mjs — turn the PoG dials when the owner is a Safe.
  * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * THREE DIALS, ONE SIGNATURE
+ *
+ *   --rate       ETH of deposit quota per 1 ETH of historical gas
+ *   --floor      lifetime gas required to qualify, in ETH
+ *   --max-alloc  ceiling on one wallet's deposit, in ETH
+ *
+ * `--rate` is always signed. The other two are optional and sign as the literal
+ * `keep` when omitted, so "move the rate only" is a different signature from
+ * "move the rate and the ceiling" rather than the same one with fewer fields in
+ * the body. Raising `--max-alloc` above the factory's live
+ * `maxPogAllocationLimit` is refused by the server, because an attestation over
+ * that dial reverts `registerPoG` for everybody — do the on-chain
+ * `setMaxPogAllocationLimit` first.
  *
  * WHY THIS EXISTS RATHER THAN A BUTTON
  *
@@ -38,7 +52,8 @@
  * single rate, and to a nonce the server will refuse to see twice.
  *
  * Usage:
- *   node scripts/rotateGasRate.mjs request --rate 0.12 [--ttl 21600]
+ *   node scripts/rotateGasRate.mjs request --rate 0.5 [--floor 0.025]
+ *                                          [--max-alloc 0.5] [--ttl 21600]
  *   node scripts/rotateGasRate.mjs verify  [scripts/.rate-signatures.json]
  *   node scripts/rotateGasRate.mjs submit
  *
@@ -155,7 +170,7 @@ function canonicalTemplate() {
   const parts = [...assignment[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1])
   if (parts.length === 0) fail('template literal parse produced nothing')
   const template = parts.join('').replace(/\\n/g, '\n')
-  for (const token of ['{rate}', '{nonce}', '{expiresAt}']) {
+  for (const token of ['{rate}', '{floorWei}', '{maxAllocWei}', '{nonce}', '{expiresAt}']) {
     if (!template.includes(token)) {
       fail(`parsed template is missing ${token}: ${JSON.stringify(template)}`)
     }
@@ -163,11 +178,37 @@ function canonicalTemplate() {
   return template
 }
 
-function buildMessage(rate, nonce, expiresAt) {
+/** The sentinel the server expects for a dial the request leaves alone. Kept
+ *  in step with `ADMIN_CONFIG_KEEP` in adminConfigMessage.ts. */
+const KEEP = 'keep'
+
+function buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt }) {
   return canonicalTemplate()
     .replace('{rate}', String(rate))
+    .replace('{floorWei}', floorWei == null ? KEEP : String(floorWei))
+    .replace('{maxAllocWei}', maxAllocWei == null ? KEEP : String(maxAllocWei))
     .replace('{nonce}', String(nonce))
     .replace('{expiresAt}', String(expiresAt))
+}
+
+/**
+ * Read an ETH-denominated flag into wei, or null when it was not passed.
+ *
+ * ETH in and wei out, because the dial is wei on the wire and in the signature
+ * but nobody types eighteen zeros correctly. `parseEther` rejects the slips
+ * that matter — a bare `.5`, an `0x` paste, a thousands separator.
+ */
+function weiFlag(name) {
+  const raw = flag(name)
+  if (raw === undefined) return null
+  let wei
+  try {
+    wei = ethers.parseEther(raw)
+  } catch {
+    return fail(`--${name} must be an amount in ETH, e.g. --${name} 0.025 (got ${raw})`)
+  }
+  if (wei <= 0n) fail(`--${name} must be positive, got ${raw}`)
+  return wei
 }
 
 // ─── Safe message hashing ────────────────────────────────────────────────────
@@ -305,12 +346,15 @@ async function request() {
   const ttl = Number(flag('ttl') ?? 6 * 60 * 60)
   if (!Number.isInteger(ttl) || ttl <= 0) fail(`--ttl must be a positive integer of seconds`)
 
+  const floorWei = weiFlag('floor')
+  const maxAllocWei = weiFlag('max-alloc')
+
   const { chainId, owner, safe } = await connect()
   const [owners, threshold] = await Promise.all([safe.getOwners(), safe.getThreshold()])
 
   const nonce = Date.now()
   const expiresAt = Math.floor(Date.now() / 1000) + ttl
-  const text = buildMessage(rate, nonce, expiresAt)
+  const text = buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt })
   const td = safeMessageTypedData(owner, chainId, text)
 
   const local = ethers.TypedDataEncoder.hash(td.domain, td.types, td.message)
@@ -349,6 +393,11 @@ async function request() {
     threshold: Number(threshold),
     owners: owners.map(ethers.getAddress),
     rate,
+    // Decimal strings: this artefact is JSON, and a wei figure through a JSON
+    // number is a wei figure through a double. The signature was over these
+    // exact digits.
+    floorWei: floorWei === null ? null : floorWei.toString(),
+    maxAllocWei: maxAllocWei === null ? null : maxAllocWei.toString(),
     nonce,
     expiresAt,
     message: text,
@@ -359,6 +408,8 @@ async function request() {
 
   console.log(`\n  safe          ${owner}  (${threshold}-of-${owners.length})`)
   console.log(`  rate          ${rate}`)
+  console.log(`  floor         ${floorWei === null ? 'unchanged' : ethers.formatEther(floorWei) + ' ETH'}`)
+  console.log(`  max alloc     ${maxAllocWei === null ? 'unchanged' : ethers.formatEther(maxAllocWei) + ' ETH'}`)
   console.log(`  nonce         ${nonce}`)
   console.log(`  expires       ${new Date(expiresAt * 1000).toISOString()}  (${ttl}s)`)
   console.log(`  hash to sign  ${local}  ✓ matches the Safe's own getMessageHash`)
@@ -446,6 +497,11 @@ async function submit() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       newRate: req.rate,
+      // Only sent when the signed message carried a value rather than `keep`.
+      // Sending one the message did not name would be rejected as unauthorised,
+      // which is the point of the sentinel.
+      ...(req.floorWei != null && { newFloorWei: req.floorWei }),
+      ...(req.maxAllocWei != null && { newMaxAllocWei: req.maxAllocWei }),
       nonce: String(req.nonce),
       expiresAt: req.expiresAt,
       signature: req.packedSignature,
@@ -460,6 +516,7 @@ async function submit() {
   if (!res.ok) fail(`rotation refused (HTTP ${res.status})`)
 
   console.log(`\n  ✓ rate is now ${body.globalGasToSatoRate} (was ${body.previous})`)
+  console.log(`  ✓ floor ${body.pogFloorWei} wei · ceiling ${body.pogMaxAllocWei} wei`)
   console.log('  Confirm from a second instance:')
   console.log(`    curl -s ${apiUrl()}/api/admin/config`)
   console.log('  `lastSeenNonce` should now be this request\'s nonce, and `nonceStore`')
@@ -475,10 +532,16 @@ async function submit() {
  * discovering the breakage while three people wait.
  */
 function template() {
-  const rate = Number(flag('rate') ?? 0.1)
+  const rate = Number(flag('rate') ?? 0.5)
   const nonce = flag('nonce') ?? 1700000000000
   const expiresAt = Number(flag('expiresAt') ?? 1700000600)
-  const text = buildMessage(rate, nonce, expiresAt)
+  const text = buildMessage({
+    rate,
+    floorWei: weiFlag('floor'),
+    maxAllocWei: weiFlag('max-alloc'),
+    nonce,
+    expiresAt,
+  })
   console.log(`\n  parsed from soat-frontend/src/lib/adminConfigMessage.ts:\n`)
   console.log(text.split('\n').map(l => '    ' + l).join('\n'))
   console.log(`\n  eip-191 hash  ${ethers.hashMessage(text)}`)

@@ -8,7 +8,7 @@
  *
  *  • Per instance. On more than one serverless instance, each keeps its own
  *    counter, so a payload already spent on instance A is unseen on instance B
- *    and replays there. This is the same class of fault `gasToSatoRate.ts` was
+ *    and replays there. This is the same class of fault `pogParams.ts` was
  *    extracted to fix, in the same route, one variable over.
  *
  *  • Resets to zero. After any restart — a deploy, a cold start, a scale event —
@@ -28,7 +28,7 @@
  * it reverts a later, deliberate rotation — silently, since the response to the
  * replay is a success.
  *
- * BACKEND SELECTION — mirrors `gasToSatoRate.ts` and `rateLimitStore.ts`:
+ * BACKEND SELECTION — mirrors `pogParams.ts` and `rateLimitStore.ts`:
  * Upstash when both env vars are present, in-process otherwise. Unlike those
  * two, degrading to in-process here weakens a security property rather than a
  * consistency one, so `adminNonceBackendKind()` is consulted by the route when
