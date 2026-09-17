@@ -212,7 +212,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         assertEq(block.chainid, 56, "fork is not BNB Smart Chain mainnet");
         assertGt(factoryAddr.code.length, 0, "no factory at BSC_FACTORY_ADDRESS");
-        assertGt(POOL_MANAGER.code.length, 0, "no Uniswap V4 PoolManager at the pinned BSC address");
+        assertGt(POOL_MANAGER.code.length, 0, "no Infinity CLPoolManager at the pinned BSC address");
         assertTrue(ownerSafe != address(0), "factory owner is unset");
         assertTrue(factory.pogSigner() != address(0), "pogSigner was never set; no attestation can verify");
         assertFalse(factory.paused(), "factory is paused; no launch can be created");

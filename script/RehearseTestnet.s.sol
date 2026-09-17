@@ -81,14 +81,18 @@ interface IUniversalRouter {
 // ── Running it ──────────────────────────────────────────────────────────────
 //
 //   forge script script/RehearseTestnet.s.sol:Phase1Genesis \
-//     --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast --slow -vv
+//     --rpc-url $BSC_TESTNET_RPC --broadcast --slow -vv
 //
-//   ...wait out the 3 h window, then...
+//   ...wait out the 3 h genesis window, then...
 //
 //   forge script script/RehearseTestnet.s.sol:Phase2Launch \
-//     --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast --slow -vv
-//   forge script script/RehearseTestnet.s.sol:Phase3Buy      ...
-//   forge script script/RehearseTestnet.s.sol:Phase4Ladder   ...
+//     --rpc-url $BSC_TESTNET_RPC --broadcast --slow -vv
+//
+//   ...wait out TWAP_WINDOW (30 min) so the ladder's listing gate opens, then...
+//
+//   forge script script/RehearseTestnet.s.sol:Phase2bList   ...
+//   forge script script/RehearseTestnet.s.sol:Phase3Buy     ...
+//   forge script script/RehearseTestnet.s.sol:Phase4Ladder  ...
 //
 // Phases 2-4 read HOOK_ADDRESS from .env; phase 1 prints the line to paste.
 //
@@ -403,9 +407,17 @@ contract Phase2Launch is RehearsalBase {
         console2.log("raised / soft cap:", hook.totalNativeDeposited(), "/", hook.softCap());
         console2.log("  launching with the cap UNMET is the behaviour under test.");
 
+        // Launch alone. Listing the token on the ladder used to ride along here
+        // and could not have worked: `addLadderToken` refuses a token whose hook
+        // answers 0 for `twapSqrtPriceX96()`, and `launch()` sets both oracle
+        // checkpoints to the launching timestamp, so `span` is 0 and the getter
+        // returns 0 by the rule at `_twapSqrtPriceX96`. The pair reverted
+        // `TwapNotMature()` in simulation before a transaction was ever sent —
+        // the same shape of mistake as the same-block lockout in the header, and
+        // caught the same way, by a phase boundary. Listing is Phase2bList,
+        // TWAP_WINDOW (1800 s) after this.
         vm.startBroadcast(deployerPk);
         hook.launch();
-        treasury.addLadderToken(address(token));
         vm.stopBroadcast();
 
         _report(hook, token);
@@ -465,6 +477,58 @@ contract Phase2Launch is RehearsalBase {
         console2.log("------------------------------------------------------------");
         console2.log("maxMintable() right now:", hook.maxMintable());
         console2.log("(0 is expected and correct -- launch() closed the launch block.)");
+        console2.log("Next: Phase2bList, once TWAP_WINDOW has passed:", hook.TWAP_WINDOW());
+        console2.log("============================================================");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Phase 2b — list the token on the buyback ladder
+// ═══════════════════════════════════════════════════════════════════════════
+/// @dev A phase of its own because the treasury's listing gate is a clock.
+///
+///      `addLadderToken` reads `twapSqrtPriceX96()` and refuses both doors to
+///      "unbounded" — a zero reading and a revert — so a token may only be
+///      listed once its hook has a TWAP. `launch()` stamps `_prevCheckpointTs`
+///      at the launching timestamp, so the getter returns 0 for the first
+///      `TWAP_WINDOW`, and no transaction can shorten that.
+///
+///      No swap is needed to mature it. With the pool quiet,
+///      `nowTs - lastObservationTs` also crosses the window and the getter
+///      returns `lastTick`'s sqrt price exactly, which is the launch price.
+///      Running this before or after Phase3Buy is therefore both fine; the
+///      ladder mint in Phase 4 is what needs the token listed.
+contract Phase2bList is RehearsalBase {
+    function run() external {
+        _setUp();
+        _logHeader("RH-F1 phase 2b -- list on the buyback ladder");
+
+        (ToshLaunchpadHook hook, ToshToken token) = _loadProject();
+        require(hook.launched(), "not launched -- run Phase2Launch first");
+
+        // Read the gate rather than compute the wait from a launch timestamp the
+        // hook does not expose. 0 is the one value that cannot be listed, and it
+        // is exactly what the treasury will see.
+        uint160 twap = hook.twapSqrtPriceX96();
+        if (twap == 0) {
+            revert(
+                string.concat(
+                    "TWAP is not mature -- the treasury would revert TwapNotMature(). Wait out TWAP_WINDOW (",
+                    vm.toString(uint256(hook.TWAP_WINDOW())),
+                    " s) from launch and re-run."
+                )
+            );
+        }
+        console2.log("twapSqrtPriceX96 :", twap);
+
+        vm.startBroadcast(deployerPk);
+        treasury.addLadderToken(address(token));
+        vm.stopBroadcast();
+
+        console2.log("============================================================");
+        console2.log("PHASE 2b COMPLETE");
+        console2.log("============================================================");
+        console2.log("ladder token count:", treasury.ladderTokenCount());
         console2.log("Next: Phase3Buy");
         console2.log("============================================================");
     }
