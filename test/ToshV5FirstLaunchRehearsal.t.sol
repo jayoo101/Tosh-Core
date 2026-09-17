@@ -87,10 +87,33 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
     // ─── The live deployment ──────────────────────────────────────────────────
 
-    /// @dev Uniswap V4 `PoolManager` on BSC. Still a literal, because unlike the
-    ///      factory this one already exists and is pinned by
-    ///      `ToshV5ForkBsc.t.sol` to the same address.
-    address internal constant POOL_MANAGER = 0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF;
+    /// @dev PancakeSwap Infinity `CLPoolManager` on BSC mainnet. Still a literal,
+    ///      because unlike the factory this one already exists.
+    ///
+    ///      ⚠ THIS WAS UNISWAP V4's `PoolManager` UNTIL THE PORT, and the wrong
+    ///        value survived every guard this file has. It was
+    ///        `0x28e2Ea09…`, which does hold code — 24,009 bytes of it — so the
+    ///        `code.length > 0` check below passed while naming Infinity in its
+    ///        failure message. Nothing else caught it either: this suite skips
+    ///        unless `BSC_FACTORY_ADDRESS` is set, and 56 is not deployed, so all
+    ///        four tests have been silently skipping since the retarget.
+    ///
+    ///        It would have surfaced at the mainnet cutover, as an unexplained
+    ///        revert inside `getSlot0` on the first run anyone set that env var
+    ///        for. The stale docstring pointed at `ToshV5ForkBsc.t.sol` as the
+    ///        file pinning "the same address", and that file was deleted in the
+    ///        port — so the cross-check it claimed did not exist either.
+    ///
+    ///        The two are told apart by asking, not by length: only Infinity's
+    ///        manager answers `vault()`, and it must name the Vault this
+    ///        protocol settles through. That is asserted in
+    ///        `test_rehearsal_liveFactoryIsWhatWeThinkItIs` rather than left to
+    ///        a comment.
+    address internal constant POOL_MANAGER = 0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b;
+
+    /// @dev The Vault the manager above must name. Infinity splits the AMM: the
+    ///      manager runs the pool, the Vault holds every balance.
+    address internal constant VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
 
     /// @dev Read from `BSC_FACTORY_ADDRESS`; see the contract docstring for what
     ///      that costs and how it is paid for.
@@ -126,15 +149,31 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     address internal creator = makeAddr("rehearsalCreator");
     address internal projTreasury = makeAddr("rehearsalProjTreasury");
 
+    /// @dev The fork exists whenever `BSC_RPC` does.
     bool internal forked;
+
+    /// @dev The factory is bound on top of the fork, and only if
+    ///      `BSC_FACTORY_ADDRESS` names one.
+    ///
+    ///      The two are separated because they expire at different times. The
+    ///      addresses this file pins are checkable TODAY; the factory does not
+    ///      exist on 56 yet. Gating both behind one flag meant the pinned-address
+    ///      test could not run either, which is how this file came to be pinning
+    ///      Uniswap V4's PoolManager — see the note on `POOL_MANAGER`. Skipping
+    ///      is right for a credential nobody has, and wrong for a fact anyone can
+    ///      check.
+    bool internal factoryBound;
 
     function setUp() public {
         string memory rpc = vm.envOr("BSC_RPC", string(""));
-        factoryAddr = vm.envOr("BSC_FACTORY_ADDRESS", address(0));
-        if (bytes(rpc).length == 0 || factoryAddr == address(0)) return;
+        if (bytes(rpc).length == 0) return;
 
         vm.createSelectFork(rpc);
         forked = true;
+
+        factoryAddr = vm.envOr("BSC_FACTORY_ADDRESS", address(0));
+        if (factoryAddr == address(0)) return;
+        factoryBound = true;
 
         // No `ArbSys` etch: BSC does not have the precompile, so the hook's
         // fallback to `block.number` is what production runs. See the docstring.
@@ -149,7 +188,13 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     }
 
     function _requireFork() internal {
-        vm.skip(!forked, "BSC_RPC or BSC_FACTORY_ADDRESS unset, see .env.example");
+        vm.skip(!factoryBound, "BSC_FACTORY_ADDRESS unset (56 is not deployed), see .env.example");
+    }
+
+    /// @dev For assertions about the chain itself, which need no deployment of
+    ///      ours to be checkable.
+    function _requireRpc() internal {
+        vm.skip(!forked, "BSC_RPC unset, see .env.example");
     }
 
     /// @dev Step 1 of the plan: the Safe transaction that lowers the dial.
@@ -207,12 +252,36 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         no deployment yet to pin — but it is still asserted non-zero,
     ///         because a factory whose signer was never set cannot attest and
     ///         the rehearsal would otherwise repoint it and never notice.
+    /// @notice The AMM addresses this file pins are PancakeSwap Infinity's, not
+    ///         Uniswap V4's.
+    ///
+    /// @dev    Runs on `BSC_RPC` alone, which is the whole point of it existing
+    ///         separately: every other test here waits on a mainnet factory, and
+    ///         while they waited this file spent the entire port pinning
+    ///         `0x28e2Ea09…` — Uniswap V4's PoolManager on BSC — under a constant
+    ///         named for Infinity's.
+    ///
+    ///         A code-length check cannot tell the two apart; both hold code, and
+    ///         pinning a length proves nothing anyway. `vault()` can tell them
+    ///         apart, because it exists only on Infinity's manager and because
+    ///         the address it returns is where this protocol's balances actually
+    ///         live. A manager that names a different Vault is as wrong here as
+    ///         no manager at all.
+    function test_rehearsal_pinnedAmmIsInfinityNotUniswap() public {
+        _requireRpc();
+
+        assertEq(block.chainid, 56, "fork is not BNB Smart Chain mainnet");
+        assertGt(POOL_MANAGER.code.length, 0, "no contract at the pinned CLPoolManager address");
+        assertGt(VAULT.code.length, 0, "no contract at the pinned Vault address");
+        assertEq(address(ICLPoolManager(POOL_MANAGER).vault()), VAULT, "the pinned manager does not name our Vault");
+    }
+
     function test_rehearsal_liveFactoryIsWhatWeThinkItIs() public {
         _requireFork();
 
         assertEq(block.chainid, 56, "fork is not BNB Smart Chain mainnet");
         assertGt(factoryAddr.code.length, 0, "no factory at BSC_FACTORY_ADDRESS");
-        assertGt(POOL_MANAGER.code.length, 0, "no Infinity CLPoolManager at the pinned BSC address");
+        assertGt(POOL_MANAGER.code.length, 0, "no contract at the pinned BSC CLPoolManager address");
         assertTrue(ownerSafe != address(0), "factory owner is unset");
         assertTrue(factory.pogSigner() != address(0), "pogSigner was never set; no attestation can verify");
         assertFalse(factory.paused(), "factory is paused; no launch can be created");

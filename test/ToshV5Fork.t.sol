@@ -547,4 +547,83 @@ contract ToshV5ForkTest is Test {
     //   `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable` measures
     //   the near-miss; `scripts/checkV4RouterTuple.mjs` check 6 pins it. See
     //   docs/PANCAKESWAP_INFINITY.md §10.
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  The buyback, which the testnet rehearsal cannot reach
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// @notice The ladder treasury's buy-and-burn settles through the DEPLOYED
+    ///         Vault, and the listing gate that guards it opens on a clock.
+    ///
+    /// @dev    Two things brought this test here, and neither is reachable
+    ///         elsewhere.
+    ///
+    ///         First, the buyback is the last piece of Infinity plumbing with no
+    ///         evidence against real bytecode. The ten local buyback tests all
+    ///         run against a Vault this repository compiled, and the RH-F1
+    ///         testnet rehearsal cannot close the gap for a reason no amount of
+    ///         care fixes: `TRIGGER_STEP` is a 3.5 BNB constant, so arming the
+    ///         reservoir from swap tax alone needs roughly 500 BNB of volume
+    ///         through a testnet pool. `vm.deal` on a fork is the only way to
+    ///         stand the reservoir up and still be driving deployed code.
+    ///
+    ///         Second, the listing gate. `addLadderToken` reads
+    ///         `twapSqrtPriceX96()` and refuses 0, and `launch()` sets both
+    ///         oracle checkpoints to the launching timestamp — so a token cannot
+    ///         be listed until `TWAP_WINDOW` has passed, and no ordering of
+    ///         transactions shortens that. The local suite has always known this
+    ///         (`_matureTwap()` precedes every `addLadderToken` in it) but the
+    ///         knowledge lived only in a helper, so nothing FAILED when the
+    ///         testnet rehearsal script broadcast `launch()` and
+    ///         `addLadderToken` as one script. It reverted `TwapNotMature()` in
+    ///         simulation on every attempt. The negative assertion below is that
+    ///         helper's reason, stated as a test.
+    function test_fork_buybackSettlesThroughTheDeployedVault() public {
+        _requireFork();
+
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject();
+
+        // The gate, before the clock has moved. This is the exact call the
+        // rehearsal script made one transaction after `launch()`.
+        assertEq(hook.twapSqrtPriceX96(), 0, "a TWAP exists in the launch window");
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.TwapNotMature.selector);
+        ladder.addLadderToken(address(token));
+
+        vm.warp(block.timestamp + hook.TWAP_WINDOW());
+        assertGt(hook.twapSqrtPriceX96(), 0, "TWAP_WINDOW passed and the TWAP is still 0");
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        assertEq(ladder.ladderTokenCount(), 1, "token not listed");
+
+        // Arm the reservoir directly. Its provenance is irrelevant to what is
+        // under test here — the treasury's payable fallback is the same door the
+        // buy tax arrives through, and `ToshV5.t.sol` covers the tax path.
+        vm.deal(address(ladder), 10 ether);
+        vm.roll(block.number + 1);
+
+        uint256 reservoirBefore = address(ladder).balance;
+        uint256 burnedBefore = token.balanceOf(ladder.DEAD_ADDRESS());
+        uint256 vaultTokensBefore = token.balanceOf(VAULT);
+
+        // Permissionless, and deliberately called by an address with no role.
+        vm.prank(trader);
+        ladder.pokeBuyback();
+
+        assertLt(address(ladder).balance, reservoirBefore, "the reservoir did not spend");
+        assertGt(token.balanceOf(ladder.DEAD_ADDRESS()), burnedBefore, "nothing was bought and burned");
+
+        // The Vault is the settlement layer, not the manager: a buyback that
+        // paid native in and took token out has to have moved the Vault's token
+        // balance down. Asserting on the manager instead would read 0 on a
+        // healthy fill, which is the mistake `scripts/auditLaunch.mjs` was
+        // carrying before the port.
+        assertLt(token.balanceOf(VAULT), vaultTokensBefore, "the swap did not settle through the deployed Vault");
+
+        // A buyback is a swap, so it must arm the same-block mint lockout like
+        // any other. `afterSwap` returns early for the treasury, and the stamp
+        // used to sit inside that early return.
+        assertEq(hook.lastSwapBlock(), block.number, "the buyback did not stamp lastSwapBlock");
+    }
 }
