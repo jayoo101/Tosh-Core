@@ -15,6 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { scanGasHistory, GasScanUnavailable, GAS_SCAN_CHAINS } from './gasHistory'
+import { GAS_SCAN_CHAIN_NAMES, formatGasScanChainList } from './gasScanCopy'
 import {
   DEFAULT_POG_BAND, DEFAULT_GAS_TO_ALLOC_RATE,
   computeMaxAllocFromWei, isPogEligible, assertPogBandCoherent, pogCapWei,
@@ -766,5 +767,9 @@ describe('assumptions about the upstream API', () => {
     expect(GAS_SCAN_CHAINS.map(c => c.chain))
       .toEqual(['Ethereum', 'Arbitrum', 'Optimism', 'Base', 'Robinhood'])
     expect(GAS_SCAN_CHAINS.map(c => c.chainId)).toEqual([1, 42161, 10, 8453, 4663])
+    // The dialog copy is a second list. Pin it here so a rename in the table
+    // that forgets the UI, or the other way around, cannot ship.
+    expect([...GAS_SCAN_CHAIN_NAMES]).toEqual(GAS_SCAN_CHAINS.map(c => c.chain))
+    expect(formatGasScanChainList()).toBe('Ethereum, Arbitrum, Optimism, Base and Robinhood')
   })
 })

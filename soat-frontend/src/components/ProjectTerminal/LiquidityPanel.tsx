@@ -369,7 +369,7 @@ export function LiquidityPanel({
       // still about the reader's own position, not about market making in
       // general. Copy only: nothing below moved.
       title={`YOUR LIQUIDITY · ${symbol}/${NATIVE_SYMBOL}`}
-      subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
+      subtitle="Infinity PositionManager · full range · 0.30% pool fee accrues to LPs"
     >
       <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">
         <Readout layout="stack"
@@ -492,7 +492,7 @@ export function LiquidityPanel({
         <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
           {'// '}This RPC would not serve position logs, so only positions minted from this
           browser are listed. Your other positions are safe on-chain and remain withdrawable
-          through any Uniswap V4 interface.
+          through any PancakeSwap Infinity interface.
         </p>
       )}
 
@@ -509,7 +509,7 @@ export function LiquidityPanel({
         <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
           {'// '}Position discovery scans the last {scanCoverage} of transfers. Anything older,
           minted from another browser, is not listed here — it remains yours on-chain and
-          withdrawable through any Uniswap V4 interface.
+          withdrawable through any PancakeSwap Infinity interface.
         </p>
       )}
     </Card>

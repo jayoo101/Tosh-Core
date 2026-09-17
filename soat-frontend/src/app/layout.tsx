@@ -39,7 +39,7 @@ const geist = Geist({
 export const metadata: Metadata = {
   title: 'TOSH // Cryptographic Console',
   description:
-    'Tosh Protocol v5.0 — fair-launch terminal with Uniswap V4 hooks. '
+    'Tosh Protocol v5.0 — fair-launch terminal with PancakeSwap Infinity hooks. '
   + 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '
   + CHAIN_POSITIONING,
 }

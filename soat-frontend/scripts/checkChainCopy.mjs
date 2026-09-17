@@ -83,6 +83,18 @@ const fail = (chain, msg) => { failures++; console.log(`FAIL  ${chain.name} (${c
  *      to derive it.
  */
 const ABANDONED_CHAIN_NAMES = /base\s*sepolia|basescan|sepolia/i
+
+/**
+ * AMM names this build no longer settles on. Same argument as the chain names
+ * above, one layer down: the landing badge, the page metadata, the launch
+ * lede and the LP panel all still said "Uniswap V4" after the Infinity port,
+ * because nothing in this guard looked at an AMM the way it looks at a chain.
+ *
+ * `\buniswap\b` rather than only `uniswap\s*v4`, because the bonding-halt copy
+ * said "trades on Uniswap" with no version, which is the same lie wearing
+ * fewer characters.
+ */
+const ABANDONED_AMM_NAMES = /\buniswap\b/i
 const LABEL_SOURCE = 'src/lib/chain.ts'
 
 /**
@@ -138,6 +150,7 @@ const GAS_CONTEXT_LINES = 1
 /** Cheap text-level reject, so only candidate files pay for a parse. */
 const mightNameAChain = (text, mainnetLabel, isLabelSource) =>
   ABANDONED_CHAIN_NAMES.test(text)
+  || ABANDONED_AMM_NAMES.test(text)
   || COIN_TICKERS.test(text)
   || (!isLabelSource && Boolean(mainnetLabel) && text.includes(mainnetLabel))
 
@@ -194,6 +207,9 @@ function scanLiterals(mainnetLabel) {
         if (ABANDONED_CHAIN_NAMES.test(value)) {
           hits++
           console.log(`FAIL  ${where} — names an abandoned chain in user-visible copy: ${JSON.stringify(value.trim().slice(0, 80))}`)
+        } else if (!isTest && ABANDONED_AMM_NAMES.test(value)) {
+          hits++
+          console.log(`FAIL  ${where} — names Uniswap in user-visible copy: ${JSON.stringify(value.trim().slice(0, 80))}`)
         } else if (!isLabelSource && mainnetLabel && value.includes(mainnetLabel)) {
           hits++
           console.log(`FAIL  ${where} — hard-codes "${mainnetLabel}"; import it from ${LABEL_SOURCE} instead: ${JSON.stringify(value.trim().slice(0, 80))}`)

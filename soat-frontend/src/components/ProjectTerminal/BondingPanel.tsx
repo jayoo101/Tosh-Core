@@ -75,7 +75,7 @@ export function BondingLadderSection() {
             The protocol owner has tripped the circuit breaker, so the contract
             turns away every shelf purchase until it expires. The pool itself is
             untouched — the token still
-            trades on Uniswap, existing balances are unaffected, and the halt
+            trades on PancakeSwap, existing balances are unaffected, and the halt
             lapses on its own without any further action.
           </p>
         </div>

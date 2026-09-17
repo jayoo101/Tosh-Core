@@ -967,7 +967,7 @@ export default function GenesisConsole() {
 
           <p className="max-w-xl text-readout leading-relaxed text-text-secondary">
             {CHAIN_STAGING_NOTE ? `${CHAIN_STAGING_NOTE} ` : ''}
-            One signature deploys your token with its own Uniswap V4 pool and opens a
+            One signature deploys your token with its own PancakeSwap Infinity pool and opens a
             gas-gated funding round that cannot close early.
           </p>
         </div>

@@ -7,6 +7,7 @@ import {
 } from '@/lib/contracts'
 import { resolveReferrerNow } from '@/lib/useReferral'
 import { NATIVE_SYMBOL } from '@/lib/chain'
+import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
   Card, Readout, Field, FieldAffix,
@@ -342,8 +343,7 @@ export function GenesisPanel(p: GenesisProps) {
             </p>
             <p className="font-mono text-note text-text-tertiary leading-relaxed">
               {scanning
-                ? <>Connected — looking up this address&apos;s lifetime gas on Ethereum,
-                  Arbitrum, Optimism, Base and Robinhood. No wallet signature is asked
+                ? <>Connected — looking up this address&apos;s lifetime gas on {formatGasScanChainList()}. No wallet signature is asked
                   for this read.</>
                 : scanEligible
                   ? <>Eligible for a deposit quota. Activate it once (signature +

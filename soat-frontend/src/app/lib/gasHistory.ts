@@ -259,10 +259,12 @@ function toNativeWei(ethWei: bigint, chain: GasScanChain): bigint {
  * Ethereum is first because fees there are orders of magnitude larger, so it is
  * the chain most likely to reach the cap on its own and end the scan early.
  *
- * Robinhood Chain contributes almost nothing today — it is new — and is
- * included deliberately anyway: it is the chain this launchpad settles on, and
- * leaving it out would mean early users of the chain the product depends on got
- * no credit for using it.
+ * Robinhood Chain is still in this table, and that is a live decision rather
+ * than a missed rename. Its gas is ETH-denominated and counts toward the floor.
+ * It is NOT the settlement chain any more — that is BNB Smart Chain, which is
+ * absent until the scanner has an Etherscan v2 transport (Blockscout does not
+ * cover chain 56 at any tier). A dialog that dropped 4663 while this table
+ * still queried it, or that named 56 while this table does not, would be lying.
  */
 export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },

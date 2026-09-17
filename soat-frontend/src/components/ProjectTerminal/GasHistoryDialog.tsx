@@ -16,6 +16,7 @@ import type { PogChainSpend, PogScanResult } from './pogScanClient'
 import type { PogLookupPhase } from './usePogFlow'
 import { ActionButton, useActionGate } from '@/components/ui'
 import { NATIVE_SYMBOL } from '@/lib/chain'
+import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 
 function shortAddr(a: Address): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
@@ -137,8 +138,8 @@ export function GasHistoryDialog({
           <div className="flex flex-col items-center gap-3 py-6">
             <Loader2 aria-hidden className="h-6 w-6 animate-spin text-brand" />
             <p className="font-mono text-note leading-relaxed text-text-secondary text-center">
-              Reading lifetime gas on Ethereum, Arbitrum, Optimism, Base and
-              Robinhood. This takes a few seconds and does not ask for a signature.
+              Reading lifetime gas on {formatGasScanChainList()}. This takes a
+              few seconds and does not ask for a signature.
             </p>
           </div>
         )}

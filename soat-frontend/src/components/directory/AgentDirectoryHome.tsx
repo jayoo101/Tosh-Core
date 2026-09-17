@@ -102,11 +102,11 @@ export default function AgentDirectoryHome() {
               {/* One pill, naming the chain once. The headline below used to end
                   in `MAINNET_CHAIN_LABEL` and the paragraph opened by naming it
                   again; see `CHAIN_STAGING_NOTE` in lib/chain.ts for the four
-                  times it appeared above the fold before. "Uniswap V4" is a
+                  times it appeared above the fold before. "Infinity" is a
                   literal because it is not a chain and cannot drift with one. */}
               <span className="inline-flex items-center gap-1.5 rounded-pill border border-brand/30 bg-brand/10 px-2.5 py-1 font-mono text-micro uppercase text-brand">
                 <span className="dot-breathe h-1.5 w-1.5 rounded-pill bg-brand text-brand" />
-                {CHAIN_STATUS_BADGE} · Uniswap V4
+                {CHAIN_STATUS_BADGE} · Infinity
               </span>
               {/* Only when the pill does not already name the settlement chain,
                   which on every arm but the devnet one it does. This matters

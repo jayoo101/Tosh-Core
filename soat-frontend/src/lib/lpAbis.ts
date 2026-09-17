@@ -8,11 +8,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Uniswap V4 PositionManager.
+ * PancakeSwap Infinity CLPositionManager.
  *
  * `modifyLiquidities` is the single mutating entry point: it takes an
  * abi-encoded `(bytes actions, bytes[] params)` payload where `actions` is a
- * packed byte string of `Actions` opcodes.  See `V4_ACTIONS` in contracts.ts.
+ * packed byte string of `Actions` opcodes.  See `V4_ACTIONS` in contracts.ts
+ * — the opcode numbers survived the port; the PoolKey they wrap did not.
  */
 export const POSM_ABI = [
   {
