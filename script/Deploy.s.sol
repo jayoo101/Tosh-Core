@@ -8,35 +8,51 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 
 // ---------------------------------------------------------------------------
-// DeployScript -- Robinhood Chain testnet
+// DeployScript -- BSC testnet (97), PancakeSwap Infinity
 // ---------------------------------------------------------------------------
 // TESTNET ONLY.  This script leaves the factory and the treasury owned by the
 // deployer EOA with no multisig handoff, which is fine for a staging chain and
 // is NOT acceptable anywhere real.  Use script/DeployMainnet.s.sol for
 // production; it performs the Ownable2Step transfer to a Safe.
 //
-// Retargeted from Base Sepolia (84532) to Robinhood Chain testnet (46630) — see
-// Robinhood testnet (46630).  The V4 addresses are identical on 46630
-// and 4663, so a rehearsal here exercises the mainnet address book unchanged.
+// Base Sepolia (84532) -> Robinhood testnet (46630) -> here.  This target is the
+// first of the three that is a REAL testnet for the AMM the protocol ships
+// against: Uniswap V4 never deployed to BSC testnet, so the Robinhood-era
+// rehearsal could only ever run against a mainnet fork.  Infinity is on 97, and
+// that is the whole reason for the port.
 //
-// Verification is Blockscout, not Etherscan: chain 46630 is served by neither
-// Etherscan v2 nor Basescan, and Blockscout needs no API key.
+// The address book is NOT shared between 97 and 56.  It was on Robinhood, where
+// 46630 and 4663 carried identical V4 addresses, and that made a rehearsal here
+// exercise the mainnet addresses unchanged.  Infinity's four contracts differ on
+// every chain, so 97 proves the mechanism and NOT the mainnet address book —
+// `test/ToshV5Fork.t.sol` is what checks the 56 addresses.
+//
+// Verification is Etherscan v2, which covers BSC 56 and 97 under one key.  The
+// Robinhood era used Blockscout because 46630 was served by neither Etherscan
+// nor Basescan; that constraint is gone, and the key is now needed anyway for
+// the PoG gas scanner.
 //
 // Required env vars (copy .env.example -> .env and fill in):
-//   PRIVATE_KEY          -- deployer wallet private key (must hold testnet ETH)
-//   INFINITY_CL_POOL_MANAGER      -- Uniswap V4 PoolManager (0x8366a3...e40951)
-//   POG_SIGNER_ADDRESS   -- address whose private key signs PoG attestations
-//   PLATFORM_TREASURY    -- recipient of the 0.30 % platform cut of every buy.
-//                           NO DEFAULT, and immutable once deployed: see below.
+//   PRIVATE_KEY               -- deployer key (must hold testnet BNB; faucet at
+//                                https://www.bnbchain.org/en/testnet-faucet)
+//   INFINITY_CL_POOL_MANAGER  -- Infinity CLPoolManager on 97 (0x36A12c...199d4)
+//   INFINITY_VAULT            -- Infinity Vault on 97 (0x2CdB3E...b79dD).  Both
+//                                are required: the manager runs the pool, the
+//                                Vault holds every balance
+//   POG_SIGNER_ADDRESS        -- address whose private key signs PoG attestations
+//   PLATFORM_TREASURY         -- recipient of the 0.30 % platform cut of every
+//                                buy.  NO DEFAULT, and immutable once deployed
 //
-// Deploy command (run after `source .env`):
+// Deploy command:
 //   forge script script/Deploy.s.sol:DeployScript \
-//     --rpc-url $ROBINHOOD_TESTNET_RPC \
+//     --rpc-url bsc_testnet \
 //     --broadcast \
 //     --verify \
-//     --verifier blockscout \
-//     --verifier-url https://explorer.testnet.chain.robinhood.com/api \
 //     -vvvv
+//
+// `bsc_testnet` is a foundry.toml rpc_endpoints alias, so it reads BSC_TESTNET_RPC
+// from .env without the shell having to export anything -- which on PowerShell
+// there is no `source` for.
 // ---------------------------------------------------------------------------
 contract DeployScript is Script {
     function run() external {
@@ -120,8 +136,8 @@ contract DeployScript is Script {
 
         // ── 4. Print deployment manifest ──────────────────────────────────────
         // Sentinel-address hash, 24h window.  Useful as a build fingerprint,
-        // useless for mining: see step 3 below for the hash that actually
-        // matches what `createLaunch` will verify.
+        // useless for predicting a real launch: see step 3 below for the hash
+        // that actually matches the address `createLaunch` will deploy to.
         bytes32 sentinelInitcodeHash = factory.getLiveHookInitcodeHash();
 
         console2.log("============================================================");
@@ -129,8 +145,8 @@ contract DeployScript is Script {
         console2.log("============================================================");
         console2.log("FACTORY_ADDRESS  =", address(factory));
         console2.log("TREASURY_ADDRESS =", address(treasury));
-        console2.log("CHAIN_ID         = 46630 (Robinhood Chain testnet)");
-        console2.log("Sentinel 24h initcode hash (reference only, NOT for mining):");
+        console2.log("CHAIN_ID         = 97 (BSC testnet)");
+        console2.log("Sentinel 24h initcode hash (build fingerprint, NOT a launch's hash):");
         console2.logBytes32(sentinelInitcodeHash);
         console2.log("============================================================");
         console2.log("");
@@ -139,17 +155,29 @@ contract DeployScript is Script {
         console2.log("     NEXT_PUBLIC_FACTORY_ADDRESS, NEXT_PUBLIC_TREASURY_ADDRESS");
         console2.log("2. Regenerate soat-frontend/src/app/lib/abis.ts if any signature moved:");
         console2.log("     forge build && node scripts/extractAbis.js");
-        console2.log("3. Salt mining (v5.0 -- REQUIRED_FLAGS mask is now 0x20CC):");
+        // ⚠ THIS STEP USED TO SAY "SALT MINING", and telling an operator to mine
+        //   would now send them looking for a rule that no longer exists.
+        //   Uniswap V4 read a hook's permissions from its address, so a salt had
+        //   to land on the 0x20CC mask.  Infinity asks the hook for
+        //   `getHooksRegistrationBitmap()`, and `ToshFactory` checks no address
+        //   bits at all -- any salt is admissible.
+        //
+        //   What replaced the search is a check the search used to imply: the
+        //   predicted address has to be UNOCCUPIED.  And what replaced the mask's
+        //   accidental protection against a stale quote is explicit --
+        //   `expectedSoftCap` / `expectedWalletCap`, which revert `CapsChanged`.
+        console2.log("3. Predicting a launch's hook address (NO MINING -- any salt lands):");
         console2.log("     initcodeHash = factory.hookInitcodeHash(");
-        console2.log("                      projTreasury, creator, projectAdmin, softCap, perWalletCap, duration)");
+        console2.log("                      projTreasury, creator, softCap, perWalletCap, duration)");
         console2.log("     duration MUST be the creator's choice: 3h / 24h / 72h");
-        console2.log("     softCap and perWalletCap MUST be the factory's CURRENT values");
+        console2.log("     softCap and perWalletCap MUST be the factory's CURRENT values,");
+        console2.log("       and MUST be passed to createLaunch as expectedSoftCap /");
+        console2.log("       expectedWalletCap or it reverts CapsChanged");
         console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
         console2.log("     predicted    = HookMiner.computeAddress(factory, finalSalt, initcodeHash)");
-        console2.log("     accept when  uint160(predicted) & 0x20CC == 0x20CC");
-        console2.log("     or just run: node scripts/mineHookSalt.js --rpc <url> ...");
-        console2.log("4. createLaunch is now PAYABLE -- send `launchFee` (default 0.1 ETH) as msg.value.");
-        console2.log("5. deposit(hook, referrer) is PAYABLE -- send native ETH, no ERC20 approve.");
+        console2.log("     the only test on `predicted` is that it holds no code yet");
+        console2.log("4. createLaunch is PAYABLE -- send `launchFee` (default 0.35 BNB) as msg.value.");
+        console2.log("5. deposit(hook, referrer) is PAYABLE -- send the native coin, no ERC20 approve.");
         console2.log("6. Curate the buyback ladder: treasury.addLadderToken(token).");
         console2.log("     The pool is derived from the token's hook -- listing a token this");
         console2.log("     factory did not launch is rejected.");
