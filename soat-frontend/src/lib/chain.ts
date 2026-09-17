@@ -9,30 +9,36 @@ import { bsc, bscTestnet, foundry } from 'viem/chains'
  * everything else — periphery addresses, explorer URLs, wagmi's chain list —
  * follows this id so a mainnet cutover is env, not a rebuild of the UI.
  *
- * The default is the LOCAL DEVNET, and it did not use to be — it was the public
- * testnet, on the reasoning that an unset variable should land somewhere
- * harmless and a testnet mistake costs nothing. That reasoning survives the
- * move to BNB Smart Chain; the testnet it pointed at does not.
+ * The default is the PUBLIC TESTNET, chain 97, and it has been all three of
+ * these in turn. Recording why, because the reasoning inverted once and would
+ * read as churn otherwise.
  *
- * Uniswap has not deployed v4 to BSC testnet. The testnet section of
- * docs.uniswap.org/contracts/v4/deployments lists Unichain Sepolia, Sepolia,
- * Base Sepolia and Arbitrum Sepolia, and chain 97 is absent — there is no
- * `PoolManager` to initialise a pool against. A build pointed there would
- * render the whole directory and then revert at `launch()`, which is the worst
- * possible moment for the first sign of trouble and the reason 97 cannot be the
- * safe default even though it is a real public chain.
+ * The principle never moved: an unset variable should land somewhere harmless,
+ * and a testnet mistake costs nothing. What moved is which chain satisfies it.
  *
- * So the harmless default is Foundry, which unlike 97 can actually serve a
- * launch: `anvil --fork-url $BSC_RPC` gives a devnet with BSC's real v4
- * singleton in it, and that is the rehearsal path this migration settled on.
+ * Under Uniswap V4 the answer could not be 97. Uniswap never deployed V4 to BSC
+ * testnet — the deployments page lists Unichain Sepolia, Sepolia, Base Sepolia
+ * and Arbitrum Sepolia, and 97 is absent — so there was no `PoolManager` to
+ * initialise a pool against. A build pointed there would render the entire
+ * directory and then revert at `launch()`: the worst possible moment for the
+ * first sign of trouble. So the default became Foundry, which could at least
+ * serve a launch via `anvil --fork-url $BSC_RPC`.
  *
- * 97 stays registered below so an operator CAN point at it deliberately for
- * UI-only work. It is only disqualified from being the value nobody chose.
+ * The port to PancakeSwap Infinity removed that obstacle rather than working
+ * around it. Infinity IS deployed on 97 — `CLPoolManager` and `Vault`, both
+ * verified to name each other — and this protocol now has a live factory, hook
+ * and token there, driven through genesis against the real contracts. 97 can
+ * serve a launch. See docs/PANCAKESWAP_INFINITY.md §7 for the address table.
+ *
+ * So the default returns to where it started, for the original reason. 31337
+ * stays registered for local work; it is no longer what an operator gets by
+ * saying nothing, because a devnet that vanishes on reboot is the worse of the
+ * two harmless answers once a real public testnet is available.
  */
 function parseChainId(): number {
   const raw = process.env.NEXT_PUBLIC_CHAIN_ID
-  const n = raw ? Number(raw) : 31337
-  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 31337
+  const n = raw ? Number(raw) : 97
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 97
 }
 
 export const TARGET_CHAIN_ID = parseChainId()
