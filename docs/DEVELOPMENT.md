@@ -511,6 +511,11 @@ forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $RPC
 
 Do not announce the factory while `pendingOwner() != address(0)`.
 
+`docs/MAINNET_REDEPLOY.md` is the step-by-step for a **re**deploy, which is a
+different job from a first deploy: it covers what a new factory strands on the
+old one, the order the Safe calls have to land in, and the point after which
+backing out stops being free.
+
 ### Robinhood Chain periphery
 
 Uniswap deployed V4 here themselves, and **mainnet (4663) and testnet (46630)
