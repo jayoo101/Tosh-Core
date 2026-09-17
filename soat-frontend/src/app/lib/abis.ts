@@ -11,7 +11,7 @@
 //   • Factory constructor is 5-arg: (poolManager, vault, pogSigner,
 //     platformTreasury, ladderTreasury).  Infinity splits the AMM: the CL
 //     manager runs the pool, the Vault holds every balance.
-//   • createLaunch is payable (native ETH launch fee)
+//   • createLaunch is payable (native-coin launch fee)
 //   • deposit(hook, referrer) is payable
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —
@@ -28,13 +28,13 @@
 //   • Hook constructor is 5-arg: (poolManager, vault, factory, ladderTreasury,
 //     platformFeeRecipient).  It builds the shared IMPLEMENTATION; per-project
 //     config lives in the clone's immutable args, not in a constructor call.
-//   • mintBondingCurve(tokenAmount) is payable; quoteMint returns ETH cost
+//   • mintBondingCurve(tokenAmount) is payable; quoteMint returns the native-coin cost
 //   • Hook permissions are the uint16 returned by getHooksRegistrationBitmap()
 //     (offsets 0, 2, 6, 7, 10, 11 → 0x0CC5), repeated in PoolKey.parameters.
 //     The Uniswap V4 address mask 0x20CC is gone with the miner.
 //   • Swap tax is TAX_BPS = 100 (1.00 % of the swap INPUT), on top of the
 //     0.30 % POOL_FEE that Infinity pays to LPs — total trader friction is 1.30 %.
-//     The buy leg SPLITS it: PLATFORM_SWAP_FEE_BPS (30) of the ETH input goes
+//     The buy leg SPLITS it: PLATFORM_SWAP_FEE_BPS (30) of the native-coin input goes
 //     to platformFeeRecipient and emits PlatformSwapFeePaid, the remaining
 //     70 bps goes to the ladder treasury and emits BuyTaxToTreasury.  The sell
 //     leg is NOT split: the full 100 bps of the token input is burned and
