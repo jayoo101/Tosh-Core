@@ -61,6 +61,25 @@ evm_version = "cancun"
 # metadata hash, and so the deployed address of any contract CREATE2'd from it.
 # Re-verify and re-publish the initcode hash (PM-C6) in the same change.
 # Nothing fails loudly if you do not — that is precisely why it is written here.
+#
+# ── The Infinity entries, and the measurement behind them ──────────────────
+#
+# The paragraph above is now backed by a number rather than an argument.
+# Adding ONE entry — `infinity-core/`, imported by no production file at the
+# time — moved `ToshLaunchpadHook`'s creation code from SHA-256 `4B960B60…`
+# to `31E9D55C…`. There is no such thing as a locally-scoped remapping: solc
+# records the whole list, used or not.
+#
+# So the two Infinity prefixes were added exactly once, deliberately, in the
+# same change that deletes the address miner — because that change moves every
+# CREATE2 address anyway, and paying for it twice would be the avoidable
+# mistake. Infinity derives hook permissions from a bitmap in `PoolKey.parameters`
+# instead of the hook's address bits, so there is no mined address left to
+# invalidate. See docs/PANCAKESWAP_INFINITY.md §3.3 and §3.4.
+#
+# `infinity-periphery/` is what forces the issue: unlike core, it cannot be
+# reached by relative path, because its own sources import core through the
+# `infinity-core/` prefix.
 # ---------------------------------------------------------------------------
 auto_detect_remappings = false
 remappings = [
@@ -69,6 +88,8 @@ remappings = [
     "@uniswap/v4-periphery/=lib/v4-periphery/",
     "ds-test/=lib/v4-core/lib/forge-std/lib/ds-test/src/",
     "forge-std/=lib/forge-std/src/",
+    "infinity-core/=lib/infinity-core/",
+    "infinity-periphery/=lib/infinity-periphery/",
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",
     "permit2/=lib/v4-periphery/lib/permit2/",
     "solmate/=lib/v4-core/lib/solmate/",

@@ -7,6 +7,12 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmounts.sol";
 
+import {TickMath as InfinityTickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {SqrtPriceMath as InfinitySqrtPriceMath} from "infinity-core/src/pool-cl/libraries/SqrtPriceMath.sol";
+import {
+    LiquidityAmounts as InfinityLiquidityAmounts
+} from "infinity-periphery/src/pool-cl/libraries/LiquidityAmounts.sol";
+
 /// @notice Regenerates the reference vectors consumed by
 ///         `soat-frontend/scripts/checkV4Math.ts`, and asserts them.
 ///
@@ -179,6 +185,66 @@ contract ToshV5LpMathVectorsTest is Test {
             SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(lower), v.sqrtP, liquidity, true),
             v.pairedToken,
             "vector pairedToken: getAmount1Delta(roundUp) off the ETH leg moved"
+        );
+    }
+
+    /// @notice The same four vectors, through PancakeSwap Infinity's copies of
+    ///         these libraries. Asserted against the vectors rather than
+    ///         against v4's output, so this extends the existing chain by one
+    ///         link instead of starting a second one: vector == v4-core ==
+    ///         infinity-core == the TypeScript port, and none of the four can
+    ///         move alone.
+    ///
+    ///         Why it is worth a test rather than a reading. The two
+    ///         `LiquidityAmounts` differ on inspection — Infinity renames
+    ///         `sqrtPrice` to `sqrtRatio`, drops v4's `unchecked` wrapper, and
+    ///         takes `toUint128` from a different `SafeCast`. All three look
+    ///         cosmetic and all three are: the swap that precedes each
+    ///         subtraction makes the `unchecked` a gas choice, and the casts
+    ///         only diverge on an overflow these vectors do not reach. "Looks
+    ///         cosmetic" is exactly the claim that should not be taken on
+    ///         faith, because what it is guarding is the LP panel quoting
+    ///         deposits the pool will refuse.
+    ///
+    ///         If this fails during the port, the port moves LP seeding, and
+    ///         the genesis position and the frontend clamp have to be re-derived
+    ///         together. Do not reconcile it by editing this file.
+    function test_infinityLibrariesReproduceTheSameVectors() public view {
+        Vectors memory v = _vectors();
+        (int24 lower, int24 upper) = _fullRangeTicks();
+
+        uint160 infLower = InfinityTickMath.getSqrtRatioAtTick(lower);
+        uint160 infUpper = InfinityTickMath.getSqrtRatioAtTick(upper);
+
+        assertEq(uint256(infLower), v.sqrtLower, "infinity sqrtLower disagrees with the vector");
+        assertEq(uint256(infUpper), v.sqrtUpper, "infinity sqrtUpper disagrees with the vector");
+
+        assertEq(
+            uint256(
+                InfinityLiquidityAmounts.getLiquidityForAmounts(v.sqrtP, infLower, infUpper, v.nativeIn, v.tokenIn)
+            ),
+            v.liquidity,
+            "infinity getLiquidityForAmounts disagrees with the vector"
+        );
+
+        uint128 liquidity = uint128(v.liquidity);
+        assertEq(
+            InfinitySqrtPriceMath.getAmount0Delta(v.sqrtP, infUpper, liquidity, false),
+            v.amount0,
+            "infinity getAmount0Delta(roundDown) disagrees with the vector"
+        );
+        assertEq(
+            InfinitySqrtPriceMath.getAmount1Delta(infLower, v.sqrtP, liquidity, false),
+            v.amount1,
+            "infinity getAmount1Delta(roundDown) disagrees with the vector"
+        );
+
+        assertEq(
+            InfinitySqrtPriceMath.getAmount1Delta(
+                infLower, v.sqrtP, InfinityLiquidityAmounts.getLiquidityForAmount0(v.sqrtP, infUpper, v.nativeIn), true
+            ),
+            v.pairedToken,
+            "infinity pairedToken leg disagrees with the vector"
         );
     }
 
