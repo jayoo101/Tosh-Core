@@ -1,4 +1,11 @@
-# Mainnet redeploy runbook — Robinhood Chain 4663
+# Mainnet redeploy runbook — BNB Smart Chain 56
+
+> **Do not execute the 4663 steps below.** This file was written for the
+> Robinhood Chain redeploy of 2026-09-17. The live target is now BSC 56 with
+> PancakeSwap Infinity; 56 is **not deployed**. Procedure still applies
+> (clock-decides-launch, PoG band, Ownable2Step handoff) once `.env.production`
+> names chain 56, the Infinity CLPoolManager/Vault, and split keys. Addresses
+> and balances in the tables were read from chain 4663 and are historical.
 
 Written for the redeploy that ships two changes: **the clock decides a launch**
 (the soft cap becomes a progress target) and **the PoG band moves to

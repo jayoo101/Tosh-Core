@@ -8,19 +8,22 @@ How to build, test, deploy and operate this repository. For what the protocol
 
 | | |
 |---|---|
-| Network | Robinhood Chain — chain `4663` (Arbitrum Orbit L2, ETH-denominated gas) |
-| Factory | [`0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892`](https://explorer.mainnet.chain.robinhood.com/address/0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892) |
-| Treasury | [`0x255722226720914eF5B2CD54647f21f584BD4Ea2`](https://explorer.mainnet.chain.robinhood.com/address/0x255722226720914eF5B2CD54647f21f584BD4Ea2) |
+| Network | BNB Smart Chain — chain `56` (mainnet, **not yet deployed**) / chain `97` (testnet, live) |
+| AMM | PancakeSwap Infinity CL (`Vault` + `CLPoolManager`) |
+| Factory (97) | [`0xB224f26a323320376c0b4C6a3228533FA63E5bBd`](https://testnet.bscscan.com/address/0xB224f26a323320376c0b4C6a3228533FA63E5bBd) |
+| Treasury (97) | [`0x79de222644E8BBeea6FC55815CCBE9FF136D7674`](https://testnet.bscscan.com/address/0x79de222644E8BBeea6FC55815CCBE9FF136D7674) |
 | Governance | 2-of-3 Gnosis Safe, `Ownable2Step` on both singletons |
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
-| Verification | Sourcify + Blockscout, independently, on all five contracts |
-| Tests | 373 across 15 suites, including stateful invariants and adversarial probes |
+| Verification | Etherscan v2 / BscScan — blocked on an API key; do not claim 56 is verified |
+| Tests | 387 across 16 suites, including stateful invariants and adversarial probes |
 | Toolchain | Foundry · Next.js + wagmi + viem · Node |
 
 > There is no platform token. Launch fees, genesis deposits and shelf purchases
-> are all native ETH. Notes mentioning `MockSATO`, `harvestAndBurn`, graduation
-> or the `0x2200` hook mask describe v3.4/v4.x and no longer apply.
+> are all native BNB. Notes mentioning `MockSATO`, `harvestAndBurn`, graduation
+> or the `0x2200` / `0x20CC` hook address mask describe v3.4/v4.x / Uniswap V4
+> and no longer apply. Infinity registers permissions via
+> `getHooksRegistrationBitmap()`.
 
 ---
 
@@ -31,7 +34,7 @@ code that exists or code that is absent, and each is checkable from chain.
 
 **Depositors always have a way out.** If the creator never calls `launch()`
 within the 7-day `LAUNCH_WINDOW` after genesis closes, every depositor reclaims
-100% of their ETH with no penalty. Missing the raise target does not fail the
+100% of their native coin with no penalty. Missing the raise target does not fail the
 round — time-up is what opens `launch()`, with whatever was raised. "Raised the
 money and vanished" is not a state that can trap funds.
 
@@ -44,7 +47,7 @@ rather than quietly shipping a different premium.
 **Nobody holds a pre-mine.** `launch()` mints only the 8.4M genesis block. The
 remaining 12.6M is minted shelf by shelf as it sells.
 
-**Genesis liquidity cannot be withdrawn — by anyone.** V4 keys positions to
+**Genesis liquidity cannot be withdrawn — by anyone.** Infinity keys positions to
 their creator; the genesis position belongs to the hook, and the hook has no
 code path that removes liquidity. The lock comes from ownership plus absence,
 not from a callback that could be edited. Third-party LPs use their own
@@ -53,7 +56,7 @@ positions and come and go freely.
 **The treasury cannot be drained.** `ToshLadderTreasury` has no `withdraw`, no
 `sweep`, no `rescue` and no `delegatecall`. Its only outbound path buys on a
 Tosh pool and sends the tokens to `0xdead`. The owner chooses which tokens are
-in the buyback rotation; the owner cannot choose where the ETH goes.
+in the buyback rotation; the owner cannot choose where the native coin goes.
 
 **Contracts are not upgradeable.** `ToshToken` never grants
 `DEFAULT_ADMIN_ROLE`, so `MINTER_ROLE` is frozen on the project's hook forever.
@@ -545,10 +548,11 @@ Copy `.env.example` to `.env`. Never commit it.
 
 ```dotenv
 PRIVATE_KEY=0x...
-ROBINHOOD_RPC=https://rpc.mainnet.chain.robinhood.com   # also read by the fork suite
-ROBINHOOD_TESTNET_RPC=https://rpc.testnet.chain.robinhood.com
-TARGET_CHAIN_ID=4663
-INFINITY_CL_POOL_MANAGER=0x8366a39CC670B4001A1121B8F6A443A643e40951
+BSC_RPC=https://...                 # keyed endpoint; also read by the fork suite
+BSC_TESTNET_RPC=https://...
+TARGET_CHAIN_ID=97                  # 56 for production, once it is deployed
+INFINITY_CL_POOL_MANAGER=0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4  # 97; 56 is 0xa0Ff…058b
+INFINITY_VAULT=0x...
 POG_SIGNER_ADDRESS=0x...
 PLATFORM_TREASURY=0x...
 FACTORY_ADDRESS=0x            # filled in after the first deploy
@@ -559,8 +563,8 @@ Frontend (`soat-frontend/.env.local`):
 
 ```dotenv
 NEXT_PUBLIC_FACTORY_ADDRESS=0x...
-NEXT_PUBLIC_CHAIN_ID=46630           # 4663 for production
-ROBINHOOD_RPC=https://...            # server-side only; where a KEYED endpoint goes
+NEXT_PUBLIC_CHAIN_ID=97              # 56 for production, once it is deployed
+BSC_RPC=https://...                  # server-side only; where a KEYED endpoint goes
 # NEXT_PUBLIC_RPC_URL=              # leave unset in production; see below
 POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
 ```
@@ -569,7 +573,7 @@ POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
 at boot for an unknown id rather than falling back, because a UI silently
 pointed at a chain nobody asked for is worse than one that will not start.
 
-A paid RPC endpoint goes in `ROBINHOOD_RPC` and nowhere else.
+A paid RPC endpoint goes in `BSC_RPC` (or `BSC_TESTNET_RPC`) and nowhere else.
 `NEXT_PUBLIC_RPC_URL` is read first by both `providers.tsx` and `serverRpc.ts`,
 so a keyed URL there ships the key in every bundle **and** preempts the
 server-side variable — the paid node stays billed and never called.
