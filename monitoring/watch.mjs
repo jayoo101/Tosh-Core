@@ -756,21 +756,10 @@ for (const hook of state.hooks) {
     const refundable = BigInt(await call(hook, 'canRefund()')) === 1n
     if (!refundable) continue
 
-    /* `canRefund()` is `totalEthDeposited < softCap()` once the deadline has
-     * passed, and zero clears that bar before anything else does — so an
-     * abandoned launch that raised nothing at all is permanently refundable.
-     * The message below says depositors are owed an announcement, which
-     * presupposes a depositor, so read the quantity the sentence is actually
-     * about instead of inferring it from the refund gate.
-     *
-     * AMENDED 2026-09-11. Hook 0xf40b2f1dfb4fe4549f8812a4914fca9a27da7eee
-     * filed issue #28 on 2026-09-10 holding 0 wei with totalEthDeposited == 0
-     * and no Refunded event: true by the letter of the check, owed to nobody.
-     * Two things made that worse than untidy. `report.mjs` de-duplicates
-     * against OPEN issues only, so closing it re-files it on the next pass and
-     * every pass after — and the repository went public on 2026-09-11, which
-     * turned an hourly self-refiling P1 into an hourly public claim that this
-     * protocol owes depositors an exit it has not announced. */
+    /* `canRefund()` is true only after the 7-day launch window lapses unused.
+     * An abandoned launch that raised nothing is still refundable then, but
+     * nobody is owed an announcement. Read the deposited quantity instead of
+     * inferring depositors from the refund gate. */
     const deposited = BigInt(await call(hook, 'totalEthDeposited()'))
     if (deposited === 0n) {
       gap('STATE-01', `${hook} is refundable but raised nothing, so no depositor is owed an announcement`)

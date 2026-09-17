@@ -111,9 +111,9 @@ export function GenesisPanel(p: GenesisProps) {
   const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
   const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
 
-  // The soft cap is a floor, not a ceiling: the hook keeps accepting deposits
-  // right up to the deadline.  Say so, so clearing the cap reads as momentum
-  // rather than as a closed door.
+  // The soft cap is a progress target, not a ceiling: the hook keeps accepting
+  // deposits right up to the deadline. Say so, so clearing the target reads as
+  // momentum rather than as a closed door.
   const oversubscribed = p.softCap > 0n && p.totalEthDeposited >= p.softCap
 
   // The hook rejects `deposit` outright once the window closes, and separately

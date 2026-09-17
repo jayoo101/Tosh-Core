@@ -329,7 +329,7 @@
       "page": false,
       "scope": "any-address",
       "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
-      "why": "MISLEADING BY CONSTRUCTION — read STATE-01 before relying on this. The flag is set lazily, inside refund(), so this fires when the FIRST depositor claims, not when the round actually failed. A failed round nobody has claimed from emits nothing at all."
+      "why": "UNUSED after time-up launch: GenesisFailed is no longer emitted. A raise under the progress target is still launchable until the 7-day window lapses. STATE-01 (canRefund poll) is the refund announcement."
     },
     {
       "id": "LIFE-02",
@@ -340,7 +340,7 @@
       "page": false,
       "scope": "any-address",
       "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
-      "why": "Same lazy-emit caveat as LIFE-01. Means a round met its soft cap but the creator never launched inside the 7-day window."
+      "why": "Same lazy-emit caveat as LIFE-01 used to have. Means the creator never launched inside the 7-day window, regardless of how much was raised."
     },
     {
       "id": "LIFE-03",
@@ -371,7 +371,7 @@
       "severity": "P1",
       "cadence": "hourly",
       "check": "For every hook from LaunchCreated: canRefund() == true AND totalEthDeposited > 0 AND no Refunded event yet",
-      "why": "The gap LIFE-01 leaves. Nothing is emitted when a genesis round crosses its deadline under the soft cap, or when the 7-day launch window lapses — refund() flips the flags lazily and launch() just starts reverting with LaunchWindowExpired. So a round can sit refundable and unannounced indefinitely and the event stream looks idle. Depositors are owed a notification that their exit is open; only a scheduled state poll can produce it. AMENDED 2026-09-11: the check was canRefund() alone, which is also true for an abandoned launch that raised nothing -- past the deadline canRefund() is totalEthDeposited < softCap(), and zero clears that bar before any real shortfall does. Hook 0xf40b2f1dfb4fe4549f8812a4914fca9a27da7eee filed #28 on 2026-09-10 holding 0 wei with no Refunded event: true by the letter of the check and owed to nobody. Two things made that worse than untidy. report.mjs de-duplicates against OPEN issues only, so closing it re-files it on the next pass and every pass after; and the repository went public on 2026-09-11, which turned a self-refiling P1 into an hourly public claim that this protocol owes depositors an exit it has not announced. A deposit total of zero is now a gap line in the run summary instead of a filed finding, because the sentence this alert exists to send presupposes someone to send it to.",
+      "why": "Nothing is emitted when the 7-day launch window lapses unused — refund() flips zombieRefundEnabled lazily and launch() starts reverting with LaunchWindowExpired. A round can sit refundable and unannounced. Depositors with a non-zero stake are owed a notification; a zero raise is a gap line, not a finding, because nobody is owed an exit.",
       "action": "Announce refund availability; tosh-status/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it, and the status page already links it."
     },
     {

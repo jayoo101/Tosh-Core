@@ -822,7 +822,7 @@ export default function GenesisConsole() {
         id: 'dials-unread',
         active: !dialsReady && !dialsFailed,
         label: 'Reading the terms…',
-        reason: 'Fetching the launch fee, the minimum raise and the per-wallet cap before quoting what you owe.',
+        reason: 'Fetching the launch fee, the raise target and the per-wallet cap before quoting what you owe.',
         tone: 'neutral',
       },
       {
@@ -1034,7 +1034,7 @@ export default function GenesisConsole() {
               <StepLegend n={3}>Genesis window</StepLegend>
               <div className={SECTION_BODY}>
                 <SectionNote>
-                  Immutable. The window runs to completion even if the soft cap fills in minutes.
+                  Immutable. The window runs to completion; time-up opens launch regardless of how much was raised.
                 </SectionNote>
 
                 {/* Three compact pills on one row, which is the redesign's
@@ -1362,18 +1362,18 @@ export default function GenesisConsole() {
                   {dialsReady ? (
                     <>
                       I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
-                      minimum raise, a genesis window that cannot close early, and a{' '}
-                      <span className="text-warning">full refund</span> if the raise misses or the{' '}
+                      raise target, a genesis window that cannot close early, and a{' '}
+                      <span className="text-warning">full refund</span> if the{' '}
                       {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
                     </>
                   ) : dialsFailed ? (
                     <span className="text-danger">
                       The factory did not answer on chain {TARGET_CHAIN_ID}, so the launch fee and
-                      minimum raise are unknown. There are no terms to accept yet.
+                      raise target are unknown. There are no terms to accept yet.
                     </span>
                   ) : (
                     <span className="text-text-tertiary">
-                      Reading the launch fee and the minimum raise off the factory — the pact
+                      Reading the launch fee and the raise target off the factory — the pact
                       appears here with its real numbers in it.
                     </span>
                   )}
@@ -1486,7 +1486,7 @@ export default function GenesisConsole() {
                       contract's name in the code, where the ambiguity costs
                       nothing. */}
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Minimum raise</dt>
+                    <dt className="text-text-tertiary">Raise target</dt>
                     <dd className="text-text-primary">
                       {dialsReady ? `${softCapDisplay} ETH` : EM_DASH}
                     </dd>

@@ -11,7 +11,7 @@ import { fmt } from './format'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AWAITING LAUNCH PANEL  ·  soft cap met, creator has not opened the pool yet
+// AWAITING LAUNCH PANEL  ·  genesis closed, creator has not opened the pool yet
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AwaitingLaunchPanel({
@@ -69,7 +69,7 @@ export function AwaitingLaunchPanel({
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
         <Readout label="Raised" value={`${fmt(totalEthDeposited)} ETH`} />
-        <Readout label="Soft cap" value="Met" tone="ok" />
+        <Readout label="Status" value="Time up · launchable" tone="ok" />
         <Readout label="Window remaining" value={countdown} tone="warn" />
       </div>
 
@@ -90,7 +90,7 @@ export function AwaitingLaunchPanel({
         <div className="rounded-card border border-warning/30 bg-warning/5 px-card py-gap">
           <p className="font-mono text-label text-warning">Waiting on the creator</p>
           <p className="mt-1 text-note text-text-secondary leading-relaxed">
-            The raise cleared its soft cap. If the pool is not opened within{' '}
+            The genesis window has closed. If the pool is not opened within{' '}
             {countdown}, the refund terminal unlocks automatically and returns
             100% of your deposit. Your ETH is not at risk.
           </p>

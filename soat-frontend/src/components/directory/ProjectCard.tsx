@@ -257,13 +257,13 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               describes something automatic. Nothing deploys on its own here:
               `launch()` is creator-only and expires after LAUNCH_WINDOW, at
               which point every depositor is refunded instead. See v0 audit §D2. */}
-          Soft cap cleared · waiting on creator
+          Waiting on creator
         </div>
       )}
 
       {p.tab === 'archived' && (
         <div className="mt-card rounded-input border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-micro uppercase text-danger">
-          Floor not reached · deposits refundable
+          Launch window closed · deposits refundable
         </div>
       )}
 

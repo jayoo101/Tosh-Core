@@ -30,7 +30,7 @@ import type { Phase } from './phase'
  */
 const LIFECYCLE: { key: Phase; label: string; body: string }[] = [
   { key: 'genesis',         label: 'Funding',         body: 'Proof-of-Gas gated ETH deposits' },
-  { key: 'awaiting_launch', label: 'Awaiting launch', body: 'Floor cleared · waiting on the creator' },
+  { key: 'awaiting_launch', label: 'Awaiting launch', body: 'Window closed · waiting on the creator' },
   { key: 'bonding',         label: 'Trading',         body: '4,000-shelf ladder live on V4' },
 ]
 
@@ -88,12 +88,7 @@ export function LifecycleTracker({ phase }: { phase: Phase }) {
       {archived && (
         <div className="flex items-center gap-gap-tight rounded-input border border-danger/30 bg-danger/5 px-3 py-2.5 text-note text-danger">
           <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-pill bg-danger" />
-          {/* The mock says only "funding floor was not reached", but
-              `resolvePhase` routes two different outcomes here: a raise that
-              missed its floor, and one that cleared it and then ran out of
-              launch window. Both refund in full, so the banner names both
-              rather than asserting the one that may not be true. */}
-          Refundable in full — this raise either missed its floor or ran out of
+          Refundable in full — the creator did not open the pool inside the
           launch window. No penalty, no haircut.
         </div>
       )}

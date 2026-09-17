@@ -87,8 +87,8 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
         active: !project.launched,
         label: 'Locked until launch',
         reason:
-          'Commission unlocks when the project calls launch(). A raise that misses its '
-          + 'soft cap refunds depositors in full and never pays commission, so this is the '
+          'Commission unlocks when the project calls launch(). A raise that is never launched '
+          + 'refunds depositors in full and never pays commission, so this is the '
           + 'contract holding the money until the outcome is known.',
         tone: 'neutral',
       },

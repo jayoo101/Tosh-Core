@@ -49,7 +49,7 @@ export function LaunchPreview({
   poolAddress: string
 }) {
   const rows: { label: string; value: string; pending?: boolean }[] = [
-    { label: 'Minimum raise', value: minimumRaise },
+    { label: 'Raise target', value: minimumRaise },
     { label: 'Window', value: windowLabel },
     {
       label: 'Pool address',

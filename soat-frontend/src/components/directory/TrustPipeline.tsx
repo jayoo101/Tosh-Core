@@ -86,7 +86,7 @@ const STEPS = [
     tag: 'Hardened',
     title: 'The contract enforces it, not this page',
     description:
-      'Deposit accounting, the 0.01 ETH minimum raise and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
+      'Deposit accounting, the raise-target dial and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
   },
 ] as const
 

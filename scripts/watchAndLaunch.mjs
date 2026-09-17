@@ -193,27 +193,25 @@ async function main() {
 
     if (now < deadline) {
       // Still taking deposits. Report progress but do not act: `launch()` before
-      // the deadline reverts, and the shortfall may still be filled.
+      // the deadline reverts; more ETH may still arrive.
       const line = `  waiting · ${human(deadline - now)} to deadline`
-        + ` · raised ${formatEther(raised)}/${formatEther(softCap)} ETH${met ? ' (cap met)' : ''}`
+        + ` · raised ${formatEther(raised)}/${formatEther(softCap)} ETH${met ? ' (target met)' : ''}`
       if (line !== lastLine) { console.log(line); lastLine = line }
       await sleep(intervalSec * 1000)
       continue
     }
 
-    if (!met) {
-      // Past the deadline and short. Nothing can add to the raise now, so this
-      // is terminal rather than something to keep polling.
+    if (raised === 0n) {
       return fail(
-        `✗ deadline passed with ${formatEther(raised)} ETH against a ${formatEther(softCap)} ETH cap.`,
-        '  The soft cap can no longer be met, so `launch()` would revert SoftCapNotMet.',
-        '  This raise is refundable; the name can be freed with `releaseAbandonedName`.',
+        '✗ deadline passed with nothing raised.',
+        '  `launch()` rejects a zero raise (`ZeroAmount`); there is no pool to seed.',
+        '  The name can be freed with `releaseAbandonedName` after the launch window lapses.',
       )
     }
 
-    // Due and eligible. Simulate first — a revert here costs nothing, and it is
-    // the only place a reason string is available before spending gas.
-    console.log(`  due · raised ${formatEther(raised)} ETH ≥ cap ${formatEther(softCap)} ETH · simulating…`)
+    // Due. The soft cap is a progress target, not a gate — any non-zero raise
+    // may open the pool until the 7-day launch window lapses.
+    console.log(`  due · raised ${formatEther(raised)} ETH · target ${formatEther(softCap)} ETH · simulating…`)
     try {
       await pub.simulateContract({ address: hook, abi: HOOK_ABI, functionName: 'launch', account })
     } catch (e) {

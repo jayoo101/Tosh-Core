@@ -44,19 +44,19 @@ interface RegistryRow {
   telegram:      string | null
 }
 
-/// Order matters, and an earlier revision had it wrong in both directions.
+/// Order matters.
 ///
-///   • The deadline was tested BEFORE the soft cap, so a raise that succeeded
-///     and was waiting on the creator's `launch()` got filed under `archived`
-///     and rendered as "[REFUND] ELIGIBLE" — advertising a healthy project as
-///     dead and pointing its depositors at a refund the hook would reject.
 ///   • `launching` fired as soon as the soft cap was touched, while the window
 ///     was still open.  Nothing is launching then: deposits are still accepted
 ///     and the creator cannot call `launch()` until the deadline passes.
+///   • After the deadline, every unlaunched raise is `launching` until the
+///     7-day launch window lapses — the soft cap is a progress target, not a
+///     fail condition. Filing an under-target raise as `archived` advertised
+///     a refund the hook would reject.
 function bucket(
   launched: boolean,
-  totalEth: bigint,
-  softCap: bigint,
+  _totalEth: bigint,
+  _softCap: bigint,
   genesisDeadline: bigint,
   nowSec: number,
 ): DirectoryTab {
@@ -65,11 +65,6 @@ function bucket(
   // nowSec === 0 means the clock has not ticked yet; do not call it expired.
   if (nowSec === 0 || Number(genesisDeadline) > nowSec) return 'live'
 
-  const capMet = softCap > 0n && totalEth >= softCap
-  if (!capMet) return 'archived'
-
-  // Cap met, but `launch()` only stays open for LAUNCH_WINDOW; past that the
-  // hook opens refunds to everyone and the raise really is archived.
   const launchWindowEnd = Number(genesisDeadline) + Number(LAUNCH_WINDOW_SECONDS)
   return nowSec < launchWindowEnd ? 'launching' : 'archived'
 }
