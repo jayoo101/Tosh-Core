@@ -1,6 +1,7 @@
 # Porting to PancakeSwap Infinity — assessment
 
-Status: assessment only. Nothing in this document has been implemented.
+Status: assessment, plus a fork spike that has been run. No production code has
+been changed. §9 records what the spike measured; the port itself is not started.
 
 Every deployment fact below was measured against a live node on 2026-09-17, not
 read off a table. The commands are included so they can be re-run, because the
@@ -174,6 +175,20 @@ which changes the last 32 bytes of creation code, which changes every CREATE2
 address. That mattered a great deal under address mining. Once §3.3 lands it
 matters much less, which is a small piece of luck: the two changes cancel.
 
+**Measured, and it is a non-issue.** `lib/infinity-core` is now vendored as a
+submodule. Its sources import only three non-relative prefixes —
+`@openzeppelin/contracts/`, `forge-std/` and `solmate/`, the last two only from
+`src/test/` mocks nothing here imports — and all three are already in the pinned
+list. So it resolves with **no new remapping entry**, `forge config` reports the
+same eight remappings as before, and `foundry.toml` is untouched. Production
+metadata hashes do not move. `scripts/checkHookMinerTuple.mjs` still passes,
+which is the guard that would have noticed if they had.
+
+The spike imports it by relative path (`../lib/infinity-core/src/...`), the same
+way `ToshLaunchpadHook.sol` already imports `v4-core`. A real port would probably
+want remapping entries for readability, and that is the point at which the
+metadata-hash argument comes back.
+
 `LiquidityAmounts` (currently from `v4-periphery`) and `TickMath` / `FullMath` /
 `SafeCast` (from `v4-core`) have Infinity equivalents; the LP math vectors in
 `test/ToshV5LpMathVectors.t.sol` (242 lines) exist precisely to catch a silent
@@ -225,12 +240,11 @@ Worth listing, because it is most of the product:
 
 ## 5 · Open questions — measure before committing
 
-1. **Does the hook actually run?** The cheapest decisive test is an Infinity fork
-   spike, mirroring `test/ToshV5ForkBsc.t.sol`: deploy the hook against the live
-   `Vault` + `CLPoolManager` on a chain-56 fork, initialize a pool with a
-   registration bitmap, and drive one real buy through Infinity's
-   `UniversalRouter`. That is what turned the Uniswap V4 BSC question from
-   opinion into fact, and it is the same shape of work here.
+1. ~~**Does the hook actually run?**~~ **Answered — see §9.**
+   `test/ToshV5ForkInfinity.t.sol`, 9 tests against the live `Vault` and
+   `CLPoolManager` on a chain-56 fork. The mechanism runs and the address miner
+   is confirmed deletable. One sub-question is still open: Infinity's
+   `UniversalRouter` calldata layout (§9.3).
 2. **Liquidity and routing.** It is widely assumed that PancakeSwap carries the
    large majority of BSC volume and that Uniswap V4 on BSC is comparatively thin.
    **This has not been measured** and should not be cited until it is. What
@@ -327,6 +341,88 @@ If no, Infinity is currently the only way to get a real testnet on BNB Chain, an
 that is worth more than any liquidity argument in §5.2 — which is unmeasured
 anyway.
 
-Recommended next step either way: the §5.1 fork spike. It is a few hundred lines,
-it reuses the existing fork-test scaffolding, and it converts the largest unknown
-in this document into a fact before any production code is touched.
+The §5.1 fork spike has now been run, which removes the largest unknown. §9
+records what it found; §9.3 is what is left.
+
+---
+
+## 9 · Spike results
+
+`test/ToshV5ForkInfinity.t.sol`, 9 tests, all passing against the live `Vault`
+and `CLPoolManager` on a BSC mainnet fork. Run with:
+
+```powershell
+$env:BSC_RPC = "https://bsc-dataseed1.bnbchain.org"
+forge test --match-path "test/ToshV5ForkInfinity.t.sol" -vv
+```
+
+It skips cleanly when `BSC_RPC` is unset, so it does not make the default suite
+depend on the network. The full suite is 370 passing / 0 failing with it added.
+
+### 9.1 Scope, stated plainly
+
+The spike reproduces the **mechanism**, not `ToshLaunchpadHook`'s 2,521 lines: a
+minimal hook at the real pool geometry (fee 3000, tick spacing 200, full range
+±887200, native/token) that declares permissions by bitmap, takes a basis-point
+cut in `beforeSwap`, stamps the block in `afterSwap`, and seeds its own liquidity
+through the Vault lock. The curve, the treasury and the genesis state machine are
+arithmetic and bookkeeping that never touch the AMM boundary, which is the only
+thing that was in question.
+
+So the spike licenses "the AMM boundary works", not "the port is done".
+
+### 9.2 What it established
+
+**The address miner can go.** This was the load-bearing question. The hook is
+deployed wherever `new` puts it; the test asserts its low 14 bits do *not* encode
+its permissions — i.e. it is an address Uniswap V4 would reject — and the pool
+initializes anyway. So §3.3's deletion list is real.
+
+**And dropping it does not drop enforcement.** Declaring a bitmap in
+`poolKey.parameters` that disagrees with the hook's own
+`getHooksRegistrationBitmap()` reverts `Hooks.HookConfigValidationError`. Worth
+having asserted: had it passed silently, the port would have traded one silent
+failure mode for another.
+
+**`beforeSwap` returning a delta takes the cut, exactly.** Asserted to the wei.
+Then asserted again at a second rate (500 bps against 70), because 70 bps of
+1 ether sits close enough to what a pool with its own 0.30% fee produces that a
+single-rate test cannot distinguish "the hook took our cut" from "something took
+roughly that much". The cut follows the hook's parameter, so the hook is what is
+deciding.
+
+**`afterSwap` runs**, so the same-block lockout would arm. A registered callback
+that is never invoked is precisely the quiet failure worth an assertion.
+
+**`hookData` arrives intact** through `CLPoolManager.swap`.
+
+**The native/token shape survives**: `currency0` is zero, and tick spacing
+round-trips through the `bytes32 parameters` packing.
+
+**A new hazard, and it is guarded.** `PoolKey` gained a `poolManager` field, so a
+key can name a manager other than the one it is created on — a realistic slip,
+since `BinPoolManager` is deployed on this chain. The benign outcome was
+plausible: `PoolId` hashes the whole key, so a mismatch could have quietly
+produced a *different pool* rather than an error. It does not —
+`CLPoolManager` reverts `PoolManagerMismatch`. Asserted by selector rather than
+with a bare `expectRevert`, which would also have passed on "that address has no
+code" and proved nothing.
+
+### 9.3 What is still open
+
+**Infinity's `UniversalRouter` calldata layout has not been measured.** The spike
+drives swaps by taking the Vault lock and calling `CLPoolManager.swap` directly,
+which is how the hook and the ladder treasury work internally — but buyers arrive
+through the router, and that is a different encoding from Uniswap's.
+
+This is exactly the class of defect `scripts/checkV4RouterTuple.mjs` exists for,
+and its argument transfers: a wrong-length tuple at a raw calldata decoder is not
+rejected, it is reinterpreted, and the swap can succeed with `hookData` silently
+dropped. Do not port the router path by reading the docs. Measure it, the way
+`test_forkBsc_deployedRouterReadsTheSixthField` measured Uniswap's.
+
+Also untouched by the spike: seeding genesis liquidity at real curve parameters
+rather than a flat `1e18`, and the treasury's buyback swap under the Vault's lock
+while a hook callback is already on the stack. The second is the one to be
+careful with — reentrancy shape differs when the lock lives in a separate
+contract from the AMM.
