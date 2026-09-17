@@ -54,14 +54,16 @@ contract SimArbSys {
 // ── Why the parameters are scaled, and what that costs ─────────────────────
 //
 // Stock defaults are `defaultSoftCap` 10 ETH against a `maxPogAllocationLimit`
-// of 0.1 ETH per wallet. Those multiply: filling genesis at production values
-// needs one hundred separately funded, separately PoG-attested wallets. The
+// of 0.5 ETH per wallet. Those multiply: reaching the cap at production values
+// needs twenty separately funded, separately PoG-attested wallets. The
 // per-wallet cap is a fairness property working as designed; it just makes
 // genesis the one phase no faucet can underwrite.
 //
-// So the soft cap goes to `MIN_SOFT_CAP_PROD` (0.01 ETH — the contract's own
-// floor, below which `p0` truncates toward zero) and the wallet cap goes to the
-// same figure, so one wallet fills it exactly.
+// It also no longer has to be reached. The soft cap is a progress target, not a
+// launch gate, so the rehearsal scales to a 0.05 ETH cap and deposits 0.01 ETH
+// against it — one wallet, one fifth, and a launch that the pre-change contract
+// would have refused with `SoftCapNotMet`. The raise itself stays at
+// `MIN_SOFT_CAP_PROD`, the floor below which `p0` truncates toward zero.
 //
 // Be clear about what that forfeits: this rehearsal does NOT exercise the
 // arithmetic at production magnitudes. Anything that only breaks at 10 ETH — an
@@ -104,12 +106,23 @@ abstract contract RehearsalBase is Script {
     /// this is the shortest rehearsal the contracts permit.
     uint256 internal constant GENESIS_WINDOW = 3 hours;
 
-    /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`. Asserted against the contract
-    /// in `_scaleParameters` rather than trusted, because a `lib` bump or a
-    /// constant edit would otherwise make this silently unreachable.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 0.01 ether;
+    /// Deliberately five times the raise below, so the rehearsal launches with
+    /// the soft cap UNMET. That is the whole point of it now: the cap became a
+    /// progress target rather than a gate, and a rehearsal that fills it
+    /// exactly — as this one did while the gate existed — exercises only the
+    /// path that worked before the change.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 0.05 ether;
     uint256 internal constant REHEARSAL_WALLET_CAP = 0.01 ether;
     uint256 internal constant REHEARSAL_LAUNCH_FEE = 0.001 ether;
+
+    /// What one wallet actually deposits: 20 % of the cap.
+    ///
+    /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`, and asserted against the
+    /// contract in `_scaleParameters` rather than trusted. The floor binds the
+    /// RAISE, not the cap: below it `p0 = lpEth / GENESIS_LP_SUPPLY` truncates
+    /// toward zero. Going lower to widen the shortfall would trade the thing
+    /// under test for a degenerate pool.
+    uint256 internal constant REHEARSAL_RAISE = 0.01 ether;
 
     /// Robinhood Chain's deployed Uniswap V4 periphery. Same constants as
     /// `test/ToshV5Fork.t.sol` §2.2 — kept in sync by eye, and by the fact that
@@ -273,9 +286,8 @@ contract Phase1Genesis is RehearsalBase {
             GENESIS_WINDOW
         );
 
-        // One wallet fills the whole soft cap, which is only possible because
-        // the wallet cap was raised to meet it above.
-        factory.deposit{value: REHEARSAL_SOFT_CAP}(hook, address(0));
+        // One wallet, one fifth of the cap. The shortfall is the point.
+        factory.deposit{value: REHEARSAL_RAISE}(hook, address(0));
 
         vm.stopBroadcast();
 
@@ -288,9 +300,8 @@ contract Phase1Genesis is RehearsalBase {
     ///      values. Mining before the setters land would produce an address the
     ///      factory then refuses as `InvalidHookSalt`.
     function _scaleParameters() internal {
-        require(
-            REHEARSAL_SOFT_CAP >= factory.MIN_SOFT_CAP_PROD(), "REHEARSAL_SOFT_CAP is below the contract's own floor"
-        );
+        require(REHEARSAL_RAISE >= factory.MIN_SOFT_CAP_PROD(), "REHEARSAL_RAISE is below the contract's own floor");
+        require(REHEARSAL_SOFT_CAP > REHEARSAL_RAISE, "rehearsal must launch with the soft cap unmet");
 
         factory.setLaunchFee(REHEARSAL_LAUNCH_FEE);
         factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP);
@@ -360,7 +371,16 @@ contract Phase2Launch is RehearsalBase {
             );
         }
         require(!hook.launched(), "already launched");
-        require(hook.totalEthDeposited() >= hook.softCap(), "soft cap was never met");
+
+        // What `launch()` now actually requires, and nothing more. This used to
+        // read `totalEthDeposited() >= softCap()`, which would refuse the very
+        // case the rehearsal exists to prove — the cap is a progress target now
+        // and the clock is the gate at both ends.
+        require(hook.totalEthDeposited() > 0, "nothing was raised");
+        require(block.timestamp <= deadline + hook.LAUNCH_WINDOW(), "launch window expired -- refunds are open");
+
+        console2.log("raised / soft cap:", hook.totalEthDeposited(), "/", hook.softCap());
+        console2.log("  launching with the cap UNMET is the behaviour under test.");
 
         vm.startBroadcast(deployerPk);
         hook.launch();
