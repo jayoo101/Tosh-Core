@@ -189,6 +189,32 @@ way `ToshLaunchpadHook.sol` already imports `v4-core`. A real port would probabl
 want remapping entries for readability, and that is the point at which the
 metadata-hash argument comes back.
 
+**And it comes back harder than the paragraph above implies.** `infinity-periphery`
+is now vendored too, and unlike core it does *not* resolve for free: its sources
+reach core through an `infinity-core/` prefix, so importing anything from it
+requires that remapping. Adding it was measured rather than reasoned about:
+
+| | `ToshLaunchpadHook` creation code, SHA-256 |
+|---|---|
+| eight pinned remappings | `4B960B60…6B321AC3` |
+| plus `infinity-core/=lib/infinity-core/` | `31E9D55C…601435DB` |
+
+One remapping entry, **imported by no production file**, moves the hook's
+creation code. solc records the entire `remappings` list in metadata regardless
+of which entries a given contract actually used, so there is no such thing as a
+locally-scoped remapping. `foundry.toml`'s warning is exact, and now has a
+number behind it.
+
+The consequence for the spike is concrete: it **restates**
+`ICLRouterBase.CLSwapExactInputSingleParams` rather than importing it, because
+importing it would perturb production bytecode for the sake of a test. A
+restated calldata tuple is the precise hazard `scripts/checkV4RouterTuple.mjs`
+exists to police, so it is pinned there against the vendored source — see §9.4.
+
+The consequence for a real port is that the remapping is unavoidable and should
+be added **once, deliberately, in the same change that deletes the address
+miner**, so every CREATE2 address moves exactly once.
+
 `LiquidityAmounts` (currently from `v4-periphery`) and `TickMath` / `FullMath` /
 `SafeCast` (from `v4-core`) have Infinity equivalents; the LP math vectors in
 `test/ToshV5LpMathVectors.t.sol` (242 lines) exist precisely to catch a silent
@@ -410,19 +436,83 @@ code" and proved nothing.
 
 ### 9.3 What is still open
 
-**Infinity's `UniversalRouter` calldata layout has not been measured.** The spike
-drives swaps by taking the Vault lock and calling `CLPoolManager.swap` directly,
-which is how the hook and the ladder treasury work internally — but buyers arrive
-through the router, and that is a different encoding from Uniswap's.
-
-This is exactly the class of defect `scripts/checkV4RouterTuple.mjs` exists for,
-and its argument transfers: a wrong-length tuple at a raw calldata decoder is not
-rejected, it is reinterpreted, and the swap can succeed with `hookData` silently
-dropped. Do not port the router path by reading the docs. Measure it, the way
-`test_forkBsc_deployedRouterReadsTheSixthField` measured Uniswap's.
-
-Also untouched by the spike: seeding genesis liquidity at real curve parameters
+Seeding genesis liquidity at real curve parameters
 rather than a flat `1e18`, and the treasury's buyback swap under the Vault's lock
 while a hook callback is already on the stack. The second is the one to be
 careful with — reentrancy shape differs when the lock lives in a separate
 contract from the AMM.
+
+## 10 · The router path, measured
+
+§9.3 used to open by saying Infinity's `UniversalRouter` layout had not been
+measured and warning against porting it from the docs. It has now been measured,
+against the live router on a BSC mainnet fork, and the docs would have been the
+wrong place to get it.
+
+### 10.1 The encoding
+
+`execute(bytes commands, bytes[] inputs)` — the same entry point shape as
+Uniswap's. One command byte, `INFI_SWAP = 0x10`, whose input is
+`abi.encode(bytes actions, bytes[] params)`. Actions for a buy are
+`CL_SWAP_EXACT_IN_SINGLE = 0x06`, `SETTLE_ALL = 0x0c`, `TAKE_ALL = 0x0f`; the two
+settle actions each take `abi.encode(Currency, uint256)`, as Uniswap's do.
+
+Three things worth having in writing:
+
+- **`hookData` survives the router.** Separate claim from surviving
+  `CLPoolManager.swap`, and the one whose loss is silent.
+- **The 70 bps cut is exact through the router**, not just through a direct
+  `swap` call.
+- **Output is paid to the caller of `execute`**, because `TAKE_ALL` pays
+  `msgSender()`, which the router resolves to whoever took its reentrancy lock.
+  No sweep step, so the frontend needs no extra command.
+
+### 10.2 The near-miss, which is the real finding
+
+Infinity's decoder is not merely *similar* to Uniswap's hazard — it is the same
+line of assembly, `swapParams := add(params.offset, calldataload(params.offset))`,
+with no validation beyond a minimum-length floor. And the floors are the same
+number:
+
+| | head slots | floor |
+|---|---|---|
+| Uniswap `ExactInputSingleParams` | `PoolKey`(5) + bool + uint128 + uint128 + uint256 `minHopPriceX36` + bytes = **10** | `0x160` |
+| Infinity `CLSwapExactInputSingleParams` | `PoolKey`(6) + bool + uint128 + uint128 + bytes = **10** | `0x160` |
+
+Infinity drops `minHopPriceX36` and its `PoolKey` gains a member — it names its
+own pool manager. The two cancel. **Identical encoded size, different meanings**,
+so neither decoder's length check can reject the other's calldata. The obvious
+conclusion is that sending one to the other is silent.
+
+It is not, and the reason should not be trusted twice: Uniswap's `fee` lands on
+the head slot Infinity reads as `poolManager`, and `CLPoolManager` validates that
+field (`PoolManagerMismatch`, §9.2). So the mismatch reverts. That is **one field
+in one position** — luck, not a design guarantee, and nothing makes it survive a
+version bump on either side.
+
+`test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable` builds a
+Uniswap-shaped tuple and sends it to Infinity's decoder to keep that measured
+rather than assumed. `test_forkInfinity_aShortTupleIsRefusedByTheLengthFloor`
+pins the floor itself.
+
+### 10.3 What the guard now pins
+
+`scripts/checkV4RouterTuple.mjs` gained a sixth check, and two of its own
+assumptions became derived rather than written down:
+
+- The restated `CLSwapExactInputSingleParams` must match
+  `infinity-periphery` field-for-field. It is restated because importing it
+  needs the remapping from §3.4, which makes this guard the *only* thing
+  relating the two.
+- Infinity's decoder floor must match its own head-slot count, as the check
+  already did for Uniswap's.
+- Both `PoolKey` widths are now parsed from their vendored sources instead of
+  the literal `5` the file used to carry. That number is what makes the two
+  layouts collide, so it is the last thing that should have been a literal.
+- While the two totals are equal, the interchangeability test above must exist.
+  If a future bump makes the sizes *differ*, the hazard gets safer and the check
+  goes quiet on its own.
+
+Negative-tested in the way the mistake would actually happen — copying the V4
+fork test's tuple, `minHopPriceX36` and all, into the Infinity spike. The guard
+rejects it.

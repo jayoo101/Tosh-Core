@@ -168,6 +168,34 @@ const DEPLOYED_LAYOUT = [
  */
 const HEAD_SLOTS = { PoolKey: 5, bool: 1, uint128: 1, uint256: 1, bytes: 1 };
 
+/**
+ * Infinity's `PoolKey` carries SIX members, not five — it names its pool
+ * manager, which Uniswap's does not need. So the same-looking swap tuple has a
+ * different shape, and the two cannot share a HEAD_SLOTS map.
+ *
+ * Both `PoolKey` widths are derived from their vendored sources below rather
+ * than written here, because that single number is what makes the two layouts
+ * collide at the same total size — see check 6.
+ */
+const INFINITY_HEAD_SLOTS = { bool: 1, uint128: 1, uint256: 1, bytes: 1 };
+
+/**
+ * Types allowed as `PoolKey` members when deriving its width. A member outside
+ * this set is a hard error: `bytes`/`string`/arrays would make `PoolKey`
+ * dynamic, which would stop it inlining into the head at all and quietly
+ * invalidate every slot number in this file.
+ */
+const STATIC_POOLKEY_MEMBERS = new Set([
+  'Currency',
+  'IHooks',
+  'ICLHooks',
+  'IPoolManager',
+  'uint24',
+  'int24',
+  'bytes32',
+  'address',
+]);
+
 const failures = [];
 const ok = [];
 
@@ -221,11 +249,34 @@ function structFields(src, name, path) {
 
 const render = (fields) => fields.map(([t, n]) => `${t} ${n}`).join(', ');
 
+/**
+ * Width of a `PoolKey` in head slots, derived from its vendored source. Every
+ * member must be a known static type, so a dynamic member is reported rather
+ * than counted as one slot.
+ */
+function poolKeyWidth(path) {
+  const fields = structFields(stripComments(read(path)), 'PoolKey', path);
+  if (!fields) return null;
+
+  for (const [type, name] of fields) {
+    if (!STATIC_POOLKEY_MEMBERS.has(type)) {
+      failures.push(
+        `${path}: \`PoolKey\` member \`${type} ${name}\` is not a known static type.\n` +
+          '        If it is dynamic, PoolKey no longer inlines into the tuple head and\n' +
+          '        every head-slot number in this guard is wrong. If it is static, add\n' +
+          '        it to STATIC_POOLKEY_MEMBERS.'
+      );
+      return null;
+    }
+  }
+  return fields.length;
+}
+
 /** Total head slots, or null if the layout contains a type this guard cannot size. */
-function headSlots(fields, path) {
+function headSlots(fields, path, slots_ = HEAD_SLOTS) {
   let n = 0;
   for (const [type, name] of fields) {
-    const slots = HEAD_SLOTS[type];
+    const slots = slots_[type];
     if (slots === undefined) {
       failures.push(
         `${path}: field \`${type} ${name}\` uses a type this guard cannot size.\n` +
@@ -236,6 +287,35 @@ function headSlots(fields, path) {
     n += slots;
   }
   return n;
+}
+
+// ── 0 · Both PoolKey widths, derived rather than assumed ───────────────────
+//
+// The literal `5` this file used to carry was the one number holding up every
+// slot offset below, and it is also the number that differs between the two
+// AMMs. Derive it.
+
+const V4_POOLKEY = 'lib/v4-core/src/types/PoolKey.sol';
+const INFINITY_POOLKEY = 'lib/infinity-core/src/types/PoolKey.sol';
+
+const v4PoolKeyWidth = poolKeyWidth(V4_POOLKEY);
+const infinityPoolKeyWidth = poolKeyWidth(INFINITY_POOLKEY);
+
+if (v4PoolKeyWidth !== null) {
+  if (v4PoolKeyWidth !== HEAD_SLOTS.PoolKey) {
+    failures.push(
+      `${V4_POOLKEY}: PoolKey now has ${v4PoolKeyWidth} members, not ${HEAD_SLOTS.PoolKey}.\n` +
+        '        Every head-slot offset this guard reports shifts with it, and the\n' +
+        '        deployed router still decodes the old width. Re-measure against the\n' +
+        '        chain before updating HEAD_SLOTS.'
+    );
+  } else {
+    ok.push(`v4-core PoolKey is ${v4PoolKeyWidth} static members, as the deployed router decodes`);
+  }
+}
+
+if (infinityPoolKeyWidth !== null) {
+  INFINITY_HEAD_SLOTS.PoolKey = infinityPoolKeyWidth;
 }
 
 // ── 1 · The fork test imports the struct rather than restating it ───────────
@@ -489,6 +569,114 @@ if (oldRouterHits.length) {
   );
 } else {
   ok.push(`BSC's older router is named only in ${OLD_BSC_ROUTER_HOME}, as the wrong one`);
+}
+
+// ── 6 · The restated Infinity tuple, and the size collision ────────────────
+//
+// The Infinity spike restates `CLSwapExactInputSingleParams` instead of
+// importing it, and the reason is not laziness: infinity-periphery reaches
+// infinity-core through an `infinity-core/` prefix, and adding that remapping
+// moves every production contract's metadata hash. Measured — the hook's
+// creation code changed keccak on a remapping no production file even imports,
+// because solc records the whole remappings list in metadata.
+//
+// So the hand-roll is forced, and a forced hand-roll is exactly what checks 1-3
+// refuse to allow unguarded. This is its guard.
+//
+// It also pins the nastiest fact the router spike turned up. The two AMMs'
+// decoders are the SAME hazard — both `swapParams := add(params.offset,
+// calldataload(params.offset))`, no length check past a floor — and both floors
+// are the same number:
+//
+//   Uniswap:  PoolKey(5) + bool + uint128 + uint128 + uint256 + bytes = 10 head
+//   Infinity: PoolKey(6) + bool + uint128 + uint128 +           bytes = 10 head
+//
+// Identical encoded size, different meanings. The floor cannot tell them apart.
+// Sending one to the other is caught only because Uniswap's `fee` lands on the
+// slot Infinity reads as `poolManager`, and that field is validated — luck, one
+// field in one position, measured by
+// `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable`.
+
+const ICLROUTERBASE = 'lib/infinity-periphery/src/pool-cl/interfaces/ICLRouterBase.sol';
+const CL_DECODER = 'lib/infinity-periphery/src/pool-cl/libraries/CLCalldataDecoder.sol';
+const INFINITY_SPIKE = 'test/ToshV5ForkInfinity.t.sol';
+const INTERCHANGE_TEST = 'test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable';
+
+const STRUCT = 'CLSwapExactInputSingleParams';
+
+const vendoredInfinity = structFields(stripComments(read(ICLROUTERBASE)), STRUCT, ICLROUTERBASE);
+const spikeSrc = stripComments(read(INFINITY_SPIKE));
+const restatedInfinity = structFields(spikeSrc, STRUCT, INFINITY_SPIKE);
+
+let infinityHead = null;
+
+if (vendoredInfinity && restatedInfinity) {
+  infinityHead = headSlots(vendoredInfinity, ICLROUTERBASE, INFINITY_HEAD_SLOTS);
+
+  if (render(vendoredInfinity) === render(restatedInfinity)) {
+    ok.push(
+      `${INFINITY_SPIKE} restates infinity-periphery's ${STRUCT} exactly\n` +
+        `        ${render(vendoredInfinity)}`
+    );
+  } else {
+    failures.push(
+      `${INFINITY_SPIKE} has drifted from infinity-periphery's ${STRUCT}.\n` +
+        `        vendored (${vendoredInfinity.length} fields): ${render(vendoredInfinity)}\n` +
+        `        restated (${restatedInfinity.length} fields): ${render(restatedInfinity)}\n\n` +
+        '        The restatement exists because importing infinity-periphery needs an\n' +
+        '        `infinity-core/` remapping, which moves every production metadata hash.\n' +
+        '        That makes this guard the ONLY thing relating the two, so a mismatch\n' +
+        '        here is the silent-calldata hazard with nothing else watching it.'
+    );
+  }
+}
+
+const clFloorMatch = stripComments(read(CL_DECODER))
+  .match(/function decodeCLSwapExactInSingleParams[\s\S]*?lt\(params\.length,\s*(0x[0-9a-fA-F]+)\)/);
+
+if (!clFloorMatch) {
+  failures.push(
+    `${CL_DECODER}: could not find the \`lt(params.length, ...)\` floor in\n` +
+      '        decodeCLSwapExactInSingleParams — the decoder was restructured and this\n' +
+      '        guard no longer knows what it is checking.'
+  );
+} else if (infinityHead !== null) {
+  const clFloor = Number(clFloorMatch[1]);
+  const expected = (infinityHead + 1) * 32;
+
+  if (clFloor !== expected) {
+    failures.push(
+      `${CL_DECODER}: minimum-length floor disagrees with its own struct.\n` +
+        `        floor in source: 0x${clFloor.toString(16)} (${clFloor} bytes)\n` +
+        `        ${infinityHead} head slots + 1 length word: 0x${expected.toString(16)}\n` +
+        '        One of the two was updated without the other.'
+    );
+  } else {
+    ok.push(`Infinity decoder floor 0x${clFloor.toString(16)} matches its ${infinityHead} head slots`);
+  }
+
+  // The collision. Not a failure — if the two sizes ever diverge the hazard
+  // gets SAFER, because then the length floor alone separates them. But while
+  // they match, the test that measures the near-miss has to exist.
+  if (libHead !== null && libHead === infinityHead) {
+    if (!spikeSrc.includes(INTERCHANGE_TEST)) {
+      failures.push(
+        `Uniswap and Infinity swap tuples are both ${libHead} head slots, so neither\n` +
+          `        decoder's length floor can reject the other's calldata — but\n` +
+          `        ${INTERCHANGE_TEST}\n` +
+          `        is gone from ${INFINITY_SPIKE}.\n\n` +
+          '        That test is what establishes the mismatch is loud rather than quiet,\n' +
+          '        and it is loud for one incidental reason: Uniswap\'s `fee` occupies the\n' +
+          '        slot Infinity reads as `poolManager`, which is validated. Nothing\n' +
+          '        guarantees that survives a version bump. Keep it measured.'
+      );
+    } else {
+      ok.push(
+        `both swap tuples are ${libHead} head slots — the collision is measured by\n` +
+          `        ${INTERCHANGE_TEST}`
+      );
+    }
+  }
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────

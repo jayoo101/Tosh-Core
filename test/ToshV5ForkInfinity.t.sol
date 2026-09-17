@@ -72,6 +72,13 @@ contract ToshV5ForkInfinityTest is Test {
     /// @dev 70 bps, the real buy tax.
     uint256 internal constant TAX_BPS = 70;
 
+    // Router dispatch bytes, from pancakeswap/infinity-universal-router
+    // `Commands.sol` and lib/infinity-periphery `Actions.sol`.
+    uint8 internal constant INFI_SWAP = 0x10;
+    uint8 internal constant CL_SWAP_EXACT_IN_SINGLE = 0x06;
+    uint8 internal constant SETTLE_ALL = 0x0c;
+    uint8 internal constant TAKE_ALL = 0x0f;
+
     SpikeHook internal hook;
     SpikeToken internal token;
     SpikeSwapper internal swapper;
@@ -260,10 +267,217 @@ contract ToshV5ForkInfinityTest is Test {
         ICLPoolManager(CL_POOL_MANAGER).initialize(bad, _sqrtPriceOne());
     }
 
+    // ── The router path ───────────────────────────────────────────────────
+
+    /// @notice A real buy through the live Infinity `UniversalRouter`, which is
+    ///         how buyers actually arrive. The spike's other swaps take the Vault
+    ///         lock directly, which is how the hook and treasury work internally
+    ///         but is not the public path.
+    function test_forkInfinity_buyThroughRealUniversalRouter() public onFork {
+        hook.seedPool(_sqrtPriceOne(), 1e18);
+
+        uint256 amountIn = 1 ether;
+        uint256 expectedCut = (amountIn * TAX_BPS) / 10_000;
+        uint256 taxBefore = hook.taxCollected();
+
+        // Built before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it, sending the output to this
+        // contract instead of the buyer.
+        bytes[] memory inputs = _routerInputs(hook.poolKey(), amountIn, "");
+
+        address buyer = makeAddr("buyer");
+        vm.deal(buyer, 10 ether);
+
+        vm.prank(buyer);
+        IInfinityUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
+            abi.encodePacked(bytes1(uint8(INFI_SWAP))), inputs
+        );
+
+        assertEq(hook.taxCollected() - taxBefore, expectedCut, "the tax is not exact through the real router");
+        // `TAKE_ALL` pays `msgSender()`, which the router resolves to whoever
+        // took its reentrancy lock in `execute` -- the buyer, not the router.
+        // The frontend needs no sweep step to collect the output.
+        assertGt(token.balanceOf(buyer), 0, "the buyer received no tokens");
+        assertEq(token.balanceOf(UNIVERSAL_ROUTER), 0, "output stranded on the router");
+    }
+
+    /// @notice `hookData` surviving the ROUTER is a different claim from
+    ///         surviving `CLPoolManager.swap`, and it is the one whose loss is
+    ///         silent: the decoder is a raw calldata pointer cast (§9.3), so a
+    ///         mis-shaped tuple is reinterpreted rather than rejected, and empty
+    ///         `hookData` looks exactly like a working swap.
+    function test_forkInfinity_hookDataSurvivesTheRouter() public onFork {
+        hook.seedPool(_sqrtPriceOne(), 1e18);
+
+        bytes memory payload = abi.encode(uint256(0xBEEF), address(this));
+        bytes[] memory inputs = _routerInputs(hook.poolKey(), 1 ether, payload);
+
+        address buyer = makeAddr("buyer");
+        vm.deal(buyer, 10 ether);
+
+        vm.prank(buyer);
+        IInfinityUniversalRouter(UNIVERSAL_ROUTER).execute{value: 1 ether}(
+            abi.encodePacked(bytes1(uint8(INFI_SWAP))), inputs
+        );
+
+        assertEq(hook.lastHookData(), payload, "the router dropped or truncated hookData");
+    }
+
+    /// @notice The near-miss worth measuring, and the reason this test exists at
+    ///         all rather than a reading of the docs.
+    ///
+    ///         Infinity's decoder and Uniswap's are the SAME hazard — both cast a
+    ///         raw calldata pointer with no length check beyond a floor — and
+    ///         both floors are the same number, `0x160`. Uniswap gets there as
+    ///         PoolKey(5) + bool + uint128 + uint128 + uint256 minHopPriceX36 +
+    ///         bytes; Infinity as PoolKey(6) + bool + uint128 + uint128 + bytes.
+    ///         Identical encoded size, different meanings. So the length floor
+    ///         cannot tell the two apart, and the naive conclusion is that
+    ///         sending one to the other is silent.
+    ///
+    ///         It is not, and the reason is worth recording because it is luck
+    ///         rather than design: Uniswap's `fee` sits at the head slot Infinity
+    ///         reads as `poolManager`, and `poolManager` is validated. So the
+    ///         mismatch reverts instead of settling a wrong swap. Do not
+    ///         generalise it — the protection is one field in one position.
+    function test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable() public onFork {
+        hook.seedPool(_sqrtPriceOne(), 1e18);
+
+        PoolKey memory key = hook.poolKey();
+        UniShapedParams memory wrong = UniShapedParams({
+            poolKey: UniShapedPoolKey({
+                currency0: address(0),
+                currency1: address(token),
+                hooks: address(hook),
+                fee: POOL_FEE,
+                tickSpacing: TICK_SPACING
+            }),
+            zeroForOne: true,
+            amountIn: uint128(1 ether),
+            amountOutMinimum: 0,
+            minHopPriceX36: 0,
+            hookData: ""
+        });
+
+        bytes[] memory params = new bytes[](3);
+        params[0] = abi.encode(wrong);
+        params[1] = abi.encode(key.currency0, uint256(1 ether));
+        params[2] = abi.encode(key.currency1, uint256(0));
+
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(
+            abi.encodePacked(
+                bytes1(uint8(CL_SWAP_EXACT_IN_SINGLE)), bytes1(uint8(SETTLE_ALL)), bytes1(uint8(TAKE_ALL))
+            ),
+            params
+        );
+
+        address buyer = makeAddr("buyer");
+        vm.deal(buyer, 10 ether);
+
+        vm.prank(buyer);
+        (bool ok,) = UNIVERSAL_ROUTER.call{value: 1 ether}(
+            abi.encodeWithSelector(
+                IInfinityUniversalRouter.execute.selector, abi.encodePacked(bytes1(uint8(INFI_SWAP))), inputs
+            )
+        );
+
+        assertFalse(
+            ok, "a Uniswap-shaped tuple was ACCEPTED by Infinity's decoder -- it settled a swap we did not describe"
+        );
+        assertEq(hook.taxCollected(), 0, "the hook took a cut on a call that should never have reached a swap");
+    }
+
+    /// @notice The floor itself. One slot short of `0x160` must be refused,
+    ///         because past the floor the decoder reads whatever follows.
+    function test_forkInfinity_aShortTupleIsRefusedByTheLengthFloor() public onFork {
+        hook.seedPool(_sqrtPriceOne(), 1e18);
+
+        bytes[] memory params = new bytes[](1);
+        // 10 slots where the decoder's floor demands 11.
+        params[0] = new bytes(0x140);
+
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(abi.encodePacked(bytes1(uint8(CL_SWAP_EXACT_IN_SINGLE))), params);
+
+        vm.expectRevert();
+        IInfinityUniversalRouter(UNIVERSAL_ROUTER).execute{value: 1 ether}(
+            abi.encodePacked(bytes1(uint8(INFI_SWAP))), inputs
+        );
+    }
+
+    /// @dev `INFI_SWAP`'s input is `abi.encode(bytes actions, bytes[] params)`,
+    ///      the same shape as Uniswap's `V4_SWAP`. Swap, then settle the native
+    ///      debt, then take the token credit.
+    function _routerInputs(PoolKey memory key, uint256 amountIn, bytes memory hookData)
+        internal
+        pure
+        returns (bytes[] memory inputs)
+    {
+        bytes[] memory params = new bytes[](3);
+        params[0] = abi.encode(
+            CLSwapExactInputSingleParams({
+                poolKey: key, zeroForOne: true, amountIn: uint128(amountIn), amountOutMinimum: 0, hookData: hookData
+            })
+        );
+        params[1] = abi.encode(key.currency0, amountIn);
+        params[2] = abi.encode(key.currency1, uint256(0));
+
+        inputs = new bytes[](1);
+        inputs[0] = abi.encode(
+            abi.encodePacked(
+                bytes1(uint8(CL_SWAP_EXACT_IN_SINGLE)), bytes1(uint8(SETTLE_ALL)), bytes1(uint8(TAKE_ALL))
+            ),
+            params
+        );
+    }
+
     /// @dev sqrt(1) in Q64.96.
     function _sqrtPriceOne() internal pure returns (uint160) {
         return 79_228_162_514_264_337_593_543_950_336;
     }
+}
+
+interface IInfinityUniversalRouter {
+    function execute(bytes calldata commands, bytes[] calldata inputs) external payable;
+}
+
+/// @dev Mirrors `ICLRouterBase.CLSwapExactInputSingleParams` from
+///      lib/infinity-periphery. Restated rather than imported because
+///      infinity-periphery reaches infinity-core through an `infinity-core/`
+///      prefix, and adding that remapping moves every production contract's
+///      metadata hash -- measured, see docs/PANCAKESWAP_INFINITY.md §3.4.
+///
+///      A restated tuple is the exact hazard scripts/checkV4RouterTuple.mjs was
+///      written for, so it is pinned there against the vendored source. The
+///      inner `PoolKey` is the real infinity-core type, which keeps the six
+///      members that matter most out of the hand-roll.
+struct CLSwapExactInputSingleParams {
+    PoolKey poolKey;
+    bool zeroForOne;
+    uint128 amountIn;
+    uint128 amountOutMinimum;
+    bytes hookData;
+}
+
+/// @dev What this repository encodes for Uniswap V4 today, restated only so
+///      `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable` can send
+///      it somewhere it does not belong. Never used for a real call.
+struct UniShapedPoolKey {
+    address currency0;
+    address currency1;
+    address hooks;
+    uint24 fee;
+    int24 tickSpacing;
+}
+
+struct UniShapedParams {
+    UniShapedPoolKey poolKey;
+    bool zeroForOne;
+    uint128 amountIn;
+    uint128 amountOutMinimum;
+    uint256 minHopPriceX36;
+    bytes hookData;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
