@@ -17,10 +17,17 @@
  *
  * NO "MINE HOOK SALT" BUTTON, AND THE SALT IS NOT A NUMBERED SECTION. The mock
  * mines on its own button and lets a later Deploy submit whatever that button
- * last produced. The grind stays inside Deploy here, so there is no step left
+ * last produced. Salt selection stays inside Deploy here, so there is no step left
  * for the creator to perform and nothing to number: the salt panel is a
- * readout that appears once Deploy has ground one. The reasoning is written out
+ * readout that appears once Deploy has picked one. The reasoning is written out
  * at the panel itself, because that is where the next person will look for it.
+ *
+ * NOTHING IS MINED ANY MORE, on this page or in Solidity. Uniswap V4 encoded a
+ * hook's permissions in its address, so a launch had to search for a salt whose
+ * CREATE2 address carried the right bits; PancakeSwap Infinity asks the hook for
+ * its own bitmap. A salt is now picked at random and checked for occupancy, and
+ * the guard that a failed search used to provide by accident — refusing a launch
+ * whose factory dials moved mid-flight — is an explicit `CapsChanged` check.
  *
  * NO "GENESIS TARGET" FIELD. See `LaunchPreview` — the minimum raise is one
  * factory dial shared by every launch, not a per-launch input, so an editable
@@ -53,7 +60,7 @@ import {
 
 import { useTosh } from '../lib/useTosh'
 import {
-  mineHookSalt,
+  pickHookSalt,
   GENESIS_DURATION_FAST,
   GENESIS_DURATION_STANDARD,
   GENESIS_DURATION_SLOW,
@@ -142,14 +149,20 @@ function launchRevertMessage(err: unknown): string | null {
       return 'The launch fee was raised above your quote. Reload to see the new terms.'
     case 'NameTaken':
       return 'That name and ticker pair is already claimed. Pick another.'
-    case 'InvalidHookSalt':
-      return 'The factory dials moved since the salt was ground. Deploy again for a fresh one.'
+    // The dial guard, and it replaced `InvalidHookSalt` rather than joining it.
+    // Under Uniswap V4 a rotated cap re-rolled the CREATE2 address, which then
+    // failed the permission mask about 31 times in 32 — the salt error was the
+    // symptom and the cap change was the cause. PancakeSwap Infinity reads
+    // permissions from the hook itself, so the address no longer objects and the
+    // factory has to; `expectedSoftCap` / `expectedWalletCap` are what it checks.
+    case 'CapsChanged':
+      return 'The factory dials moved while you were reading. Deploy again to quote the new ones.'
     case 'InsufficientLaunchFee':
       return 'The value sent does not cover the launch fee.'
     case 'InvalidAdmin':
       return 'The Phase-2 admin cannot be the zero address.'
     case 'DeployFailed':
-      return 'The hook clone failed to deploy. Deploy again to grind a fresh salt.'
+      return 'The hook clone failed to deploy. Deploy again for a fresh salt.'
     case 'EnforcedPause':
       return 'The factory is paused and is not taking new projects.'
     default:
@@ -290,19 +303,19 @@ export default function GenesisConsole() {
 
   const [salt, setSalt] = useState('')
   const [predictedHook, setPredictedHook] = useState('')
-  const [isMining, setIsMining] = useState(false)
-  const [mineError, setMineError] = useState('')
+  const [isDerivingSalt, setIsDerivingSalt] = useState(false)
+  const [saltError, setSaltError] = useState('')
   const [saltCaps, setSaltCaps] = useState<{ soft: bigint; wallet: bigint } | null>(null)
 
   /**
-   * Drop a mined salt and everything derived from it.
+   * Drop a held salt and everything derived from it.
    *
    * THREE SITES CLEARED THIS AND TWO OF THEM FORGOT `saltCaps`. A salt is only
-   * valid for the account, the window and the factory dials it was ground
+   * valid for the account, the window and the factory dials it was derived
    * against, so changing any of those invalidates it — but `pickWindow` and the
    * Project admin field cleared `salt` and `predictedHook` and left `saltCaps`
    * pointing at dials nothing was measured against any more. The watcher below
-   * then fired on the next dial change and reported "the next deploy will grind
+   * then fired on the next dial change and reported "the next deploy will use
    * a fresh salt" about a salt that had stopped existing several edits earlier.
    * Harmless, and still an error line about state that was not there.
    *
@@ -313,7 +326,7 @@ export default function GenesisConsole() {
    * reference to it in an effect body pulls the function into the dependency
    * array, and it is re-created every render.
    */
-  const clearMinedSalt = () => {
+  const clearSalt = () => {
     setSalt('')
     setPredictedHook('')
     setSaltCaps(null)
@@ -346,7 +359,7 @@ export default function GenesisConsole() {
       autofilledAdminRef.current = address
       setProjectAdmin(address)
     }
-    // A salt is only valid for the account it was mined against.
+    // A salt is only valid for the account it was derived against.
     setSalt('')
     setPredictedHook('')
     setSaltCaps(null)
@@ -464,10 +477,17 @@ export default function GenesisConsole() {
 
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
-  const mineSalt = useCallback(async (): Promise<{ rawSalt: `0x${string}`; hookAddress: `0x${string}` } | null> => {
+  // Returns the caps alongside the salt because `createLaunch` now has to quote
+  // them back, and `setSaltCaps` cannot be read on the same tick it is written.
+  // Handing them to the caller keeps the pair that produced the prediction and the
+  // pair sent to the factory literally the same values, rather than two reads that
+  // are usually equal.
+  const deriveSalt = useCallback(async (): Promise<
+    { rawSalt: `0x${string}`; hookAddress: `0x${string}`; soft: bigint; wallet: bigint } | null
+  > => {
     if (!address || !publicClient || !adminAddr) return null
-    setMineError('')
-    setIsMining(true)
+    setSaltError('')
+    setIsDerivingSalt(true)
     try {
       const liveSoftCap = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'defaultSoftCap',
@@ -479,23 +499,45 @@ export default function GenesisConsole() {
       // projectAdmin is deliberately absent: the hook is an EIP-1167 clone whose
       // immutable args are creator, projectTreasury, softCap, perWalletCap and
       // genesisDuration. The admin is mutable by design and is applied at
-      // initialisation, so it no longer moves the mined address.
+      // initialisation, so it no longer moves the predicted address.
       const initcodeHash = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookInitcodeHash',
         args: [address, address, liveSoftCap, liveWalletCap, genesisDuration],
       }) as `0x${string}`
-      const { rawSalt, hookAddress } = mineHookSalt(
-        FACTORY_ADDRESS as `0x${string}`, address as `0x${string}`, initcodeHash,
-      )
+      // Picked, not ground. `pickHookSalt` returns 32 random bytes and the
+      // address they land on; the occupancy check that used to be implicit in the
+      // mask search is now explicit, because a salt's only remaining job is to be
+      // unused. See the note at the top of `lib/hookMiner`.
+      //
+      // The loop is a formality — a random 32-byte salt colliding needs a
+      // deliberate effort — but a bounded retry is cheaper than shipping a path
+      // where CREATE2 silently returns address(0) and the factory reports
+      // `DeployFailed` with nothing to act on.
+      let rawSalt: `0x${string}` | null = null
+      let hookAddress: `0x${string}` | null = null
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const candidate = pickHookSalt(
+          FACTORY_ADDRESS as `0x${string}`, address as `0x${string}`, initcodeHash,
+        )
+        const occupant = await publicClient.getBytecode({ address: candidate.hookAddress })
+        if (!occupant || occupant === '0x') {
+          rawSalt = candidate.rawSalt
+          hookAddress = candidate.hookAddress
+          break
+        }
+      }
+      if (rawSalt === null || hookAddress === null) {
+        throw new Error('Could not find an unused hook address in 8 attempts — please retry.')
+      }
       setSalt(rawSalt)
       setPredictedHook(hookAddress)
       setSaltCaps({ soft: liveSoftCap, wallet: liveWalletCap })
-      return { rawSalt, hookAddress }
+      return { rawSalt, hookAddress, soft: liveSoftCap, wallet: liveWalletCap }
     } catch (e: unknown) {
-      setMineError(shortErrorMessage(e))
+      setSaltError(shortErrorMessage(e))
       return null
     } finally {
-      setIsMining(false)
+      setIsDerivingSalt(false)
     }
   }, [address, publicClient, adminAddr, genesisDuration])
 
@@ -505,7 +547,7 @@ export default function GenesisConsole() {
     if (saltCaps.soft === softCapWei && saltCaps.wallet === perWalletCapWei) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSalt(''); setPredictedHook(''); setSaltCaps(null)
-    setMineError('Factory soft cap / wallet cap changed — the next deploy will grind a fresh salt.')
+    setSaltError('Factory soft cap / wallet cap changed — the next deploy will use a fresh salt.')
   }, [saltCaps, dialsReady, softCapWei, perWalletCapWei])
 
   const nameTrimmed = name.trim()
@@ -532,7 +574,7 @@ export default function GenesisConsole() {
 
     // A message from the previous attempt outlives it: `mineSalt` clears this
     // on entry, but it is skipped entirely when a valid salt is already held.
-    setMineError('')
+    setSaltError('')
 
     pendingRef.current = {
       name: nameTrimmed, symbol: symbolTrimmed,
@@ -540,12 +582,17 @@ export default function GenesisConsole() {
       predictedHook: predictedHook || undefined,
     }
 
+    // The caps the salt was derived against, and the ones `createLaunch` will be
+    // asked to confirm. They travel together from here on: a salt and a cap pair
+    // that disagree is exactly what `CapsChanged` exists to refuse.
     let saltToUse = salt as `0x${string}` | ''
+    let capsToSend = saltCaps
     if (!saltToUse) {
-      const mined = await mineSalt()
-      if (!mined) return
-      saltToUse = mined.rawSalt
-      if (pendingRef.current) pendingRef.current.predictedHook = mined.hookAddress
+      const picked = await deriveSalt()
+      if (!picked) return
+      saltToUse = picked.rawSalt
+      capsToSend = { soft: picked.soft, wallet: picked.wallet }
+      if (pendingRef.current) pendingRef.current.predictedHook = picked.hookAddress
     } else if (publicClient && saltCaps) {
       try {
         const [nowSoft, nowWallet] = await Promise.all([
@@ -558,12 +605,25 @@ export default function GenesisConsole() {
         ])
         if (nowSoft !== saltCaps.soft || nowWallet !== saltCaps.wallet) {
           setSalt(''); setPredictedHook(''); setSaltCaps(null)
-          const mined = await mineSalt()
-          if (!mined) return
-          saltToUse = mined.rawSalt
-          if (pendingRef.current) pendingRef.current.predictedHook = mined.hookAddress
+          const picked = await deriveSalt()
+          if (!picked) return
+          saltToUse = picked.rawSalt
+          capsToSend = { soft: picked.soft, wallet: picked.wallet }
+          if (pendingRef.current) pendingRef.current.predictedHook = picked.hookAddress
         }
-      } catch { /* contract still rejects a stale salt */ }
+      } catch { /* the factory's own CapsChanged is the backstop */ }
+    }
+    // Held salt, and the caps it was derived against were never recorded — a
+    // session that predates this code, or state that survived a reload. Deriving a
+    // fresh salt is cheaper than guessing: the factory would refuse a mismatched
+    // pair anyway, and re-reading the dials here would only make the mismatch
+    // harder to see.
+    if (!capsToSend) {
+      const picked = await deriveSalt()
+      if (!picked) return
+      saltToUse = picked.rawSalt
+      capsToSend = { soft: picked.soft, wallet: picked.wallet }
+      if (pendingRef.current) pendingRef.current.predictedHook = picked.hookAddress
     }
 
     // `useTosh.createLaunch` documents that its caller MUST read the live fee
@@ -585,7 +645,7 @@ export default function GenesisConsole() {
         }) as bigint
         if (liveFee !== launchFeeWei) {
           setAckedTerms(null)
-          setMineError(
+          setSaltError(
             `Launch fee is now ${trimEth(formatUnits(liveFee, 18))} ETH, not `
             + `${trimEth(formatUnits(launchFeeWei, 18))} ETH. Review the terms and tick the pact again.`,
           )
@@ -608,7 +668,8 @@ export default function GenesisConsole() {
           functionName: 'createLaunch',
           args: [
             nameTrimmed, symbolTrimmed, address, adminAddr,
-            saltToUse as `0x${string}`, feeToSend, genesisDuration,
+            saltToUse as `0x${string}`, feeToSend,
+            capsToSend.soft, capsToSend.wallet, genesisDuration,
           ],
           value: feeToSend,
           account: address,
@@ -616,7 +677,7 @@ export default function GenesisConsole() {
       } catch (e: unknown) {
         const reason = launchRevertMessage(e)
         if (reason !== null) {
-          setMineError(reason)
+          setSaltError(reason)
           return
         }
       }
@@ -626,12 +687,13 @@ export default function GenesisConsole() {
     try {
       await createLaunch(
         nameTrimmed, symbolTrimmed, address, adminAddr,
-        saltToUse as `0x${string}`, feeToSend, genesisDuration,
+        saltToUse as `0x${string}`, feeToSend,
+        capsToSend.soft, capsToSend.wallet, genesisDuration,
       )
     } catch { /* wagmi + toast */ }
   }, [
     address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
-    logoUrl, website, twitter, telegram, description, salt, mineSalt,
+    logoUrl, website, twitter, telegram, description, salt, deriveSalt,
     createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
     dialsReady, predictedHook, refetchDials,
   ])
@@ -796,7 +858,7 @@ export default function GenesisConsole() {
     setGenesisDuration(next)
     // The duration is baked into the hook initcode, so it is one of the three
     // things a salt is ground against.
-    clearMinedSalt()
+    clearSalt()
   }
 
   const gate = useActionGate({
@@ -849,10 +911,13 @@ export default function GenesisConsole() {
         tone: 'warn',
       },
       {
-        id: 'mining',
-        active: isMining,
-        label: 'Finding your pool address…',
-        reason: `Searching for an address Uniswap will accept for a ${genesisDuration / 3600n}h window. This runs in your browser and takes a moment.`,
+        id: 'salt',
+        active: isDerivingSalt,
+        // No longer a search, and the copy should not promise one. This used to
+        // say "Searching for an address Uniswap will accept" and take seconds;
+        // it is now two contract reads and an occupancy check.
+        label: 'Reserving your pool address…',
+        reason: `Reserving an address for a ${genesisDuration / 3600n}h window and checking it is free. Takes a moment.`,
         tone: 'info',
       },
       {
@@ -987,7 +1052,7 @@ export default function GenesisConsole() {
                   value={projectAdmin}
                   onValueChange={v => {
                     setProjectAdmin(v)
-                    clearMinedSalt()
+                    clearSalt()
                   }}
                   placeholder="0x…"
                   error={projectAdmin && !isAddress(projectAdmin) ? 'NOT A VALID ADDRESS' : null}
@@ -1113,32 +1178,42 @@ export default function GenesisConsole() {
                 THE MOCK HAS A "MINE HOOK SALT" BUTTON HERE. THIS IS THE SAME
                 SECTION RENDERED AS A READOUT, AND THE GRIND STAYS IN DEPLOY.
 
-                A salt is only valid for the account, the genesis window and the
-                factory dials it was mined against. A button that mines and then
-                waits for a second click puts a gap between those two moments,
-                and anything moving inside that gap — the owner retuning
-                `defaultSoftCap` or `maxPogAllocationLimit`, the creator
+                A salt's PREDICTION is only valid for the account, the genesis
+                window and the factory dials it was derived against. A button that
+                derives and then waits for a second click puts a gap between those
+                two moments, and anything moving inside that gap — the owner
+                retuning `defaultSoftCap` or `maxPogAllocationLimit`, the creator
                 switching wallets or picking a different window — leaves a salt
-                that reads as locked and is not. The factory catches it and
-                reverts with `InvalidHookSalt`.
+                that reads as locked and is not.
+
+                THE FACTORY USED TO CATCH THAT BY ACCIDENT and now catches it on
+                purpose. Under Uniswap V4 a moved dial re-rolled the address, the
+                new address failed the permission mask about 31 times in 32, and
+                the launch reverted `InvalidHookSalt`; the one time in 32 it
+                passed, the launch went through at an address nobody predicted.
+                Infinity takes permissions from the hook's own bitmap, so that
+                accident is gone entirely — `createLaunch` is handed
+                `expectedSoftCap` and `expectedWalletCap` and reverts
+                `CapsChanged` on any difference, which closes the 1-in-32 hole
+                the mask left open.
 
                 What that revert costs is worth stating exactly: the whole
                 transaction unwinds, so the launch fee comes back with it and
                 only the gas is gone. It is a wasted transaction and a wasted
-                wallet prompt, not a lost fee. Mining on the same click that
+                wallet prompt, not a lost fee. Deriving on the same click that
                 sends the transaction is the one ordering with no gap in it, so
-                that is where `mineSalt` is called from — see `handleLaunch`.
+                that is where `deriveSalt` is called from — see `handleLaunch`.
 
                 So this readout is usually empty before the first Deploy, which
                 is exactly the mock's `no salt mined` state. It fills in when a
-                deploy ground a salt and then stopped short of a confirmed
+                deploy picked a salt and then stopped short of a confirmed
                 transaction — the pre-flight decoded a revert, the fee moved,
                 the wallet prompt was declined — and that held salt is what the
                 next Deploy reuses after re-reading the caps. `predictedHook` is
-                the address `mineSalt` already derived from that same salt; it
+                the address `deriveSalt` already derived from that same salt; it
                 is read here, never recomputed. */}
             {/* NO LONGER A NUMBERED SECTION, and this is the page's biggest
-                cut. It was `4 · Uniswap V4 hook salt`: a fieldset the same
+                cut. It was `4 · hook salt`: a fieldset the same
                 size as the three real form groups, carrying a three-line note
                 about CREATE2 and a well reading "no salt mined / Nothing to do
                 here."
@@ -1152,7 +1227,7 @@ export default function GenesisConsole() {
                 button the creator had to press.
 
                 What survives is the recovery state. A held salt only exists
-                when a Deploy ground one and then stopped short of a confirmed
+                when a Deploy picked one and then stopped short of a confirmed
                 transaction — pre-flight decoded a revert, the fee moved, the
                 wallet prompt was declined — and that salt is what the next
                 Deploy reuses after re-reading the caps. When it exists it is
@@ -1161,14 +1236,14 @@ export default function GenesisConsole() {
                 to say.
 
                 The one thing a reader did need from the old note — that Deploy
-                grinds the salt in-browser, so the button works for a few
-                seconds before the wallet opens — moved next to the button, in
-                the submit block, where it explains the pause as it happens
-                rather than three sections earlier. */}
+                settles the salt before the wallet opens — moved next to the
+                button, in the submit block, where it explains the pause as it
+                happens rather than three sections earlier. The pause is now an
+                RPC round-trip rather than a search, and much shorter for it. */}
             {salt && (
               <div className="flex min-w-0 flex-col gap-gap-tight rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel">
                 <div className="flex flex-wrap items-center justify-between gap-gap-tight">
-                  <p className="font-mono text-label text-text-tertiary">Ground salt</p>
+                  <p className="font-mono text-label text-text-tertiary">Hook salt</p>
                   <Badge tone="ok" size="sm" pip>salt held</Badge>
                 </div>
                 <p className="break-all font-mono text-note text-text-primary">{salt}</p>
@@ -1380,21 +1455,24 @@ export default function GenesisConsole() {
                 </span>
               </label>
 
-              {mineError && (
-                <p className="text-note text-danger">{mineError}</p>
+              {saltError && (
+                <p className="text-note text-danger">{saltError}</p>
               )}
 
               <ActionButton gate={gate} size="lg" />
 
               {/* The one sentence worth keeping from the deleted salt section,
-                  moved to the only place it does any work. Deploy grinds a
-                  CREATE2 salt in the browser before it opens the wallet, so the
-                  button sits busy for a few seconds with nothing else to show
-                  for it; said here, it explains a pause the reader is watching,
-                  rather than pre-explaining one three sections above it. */}
+                  moved to the only place it does any work. Deploy settles the
+                  CREATE2 address before it opens the wallet, so the button sits
+                  busy with nothing else to show for it; said here, it explains a
+                  pause the reader is watching, rather than pre-explaining one
+                  three sections above it.
+
+                  It says "a moment" rather than the old "a few seconds" because
+                  the wait is now three RPC calls instead of a salt search. */}
               <p className="text-micro leading-relaxed text-text-quiet">
-                Deploy grinds your pool address in-browser before the wallet
-                opens, so expect a few seconds before the prompt.
+                Deploy reserves your pool address before the wallet opens, so
+                expect a moment before the prompt.
               </p>
 
               {isConfirmed && hash && (

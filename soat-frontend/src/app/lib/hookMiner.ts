@@ -1,16 +1,21 @@
 import { keccak256, encodeAbiParameters, concat, numberToHex } from "viem"
 
-// ── Flags (mirror of Solidity HookMiner.sol) ─────────────────────────────────
-// BEFORE_INITIALIZE | BEFORE_SWAP | AFTER_SWAP | BEFORE_SWAP_RETURNS_DELTA | AFTER_SWAP_RETURNS_DELTA
-export const REQUIRED_FLAGS = BigInt(0x20CC)
-const BEFORE_SWAP_FLAG = BigInt(1 << 7)
-const AFTER_SWAP_FLAG  = BigInt(1 << 6)
-const AFTER_ADD_FLAG   = BigInt(1 << 10)
-const AFTER_REM_FLAG   = BigInt(1 << 8)
-const BEFORE_SWAP_DELTA_FLAG = BigInt(1 << 3)
-const AFTER_SWAP_DELTA_FLAG  = BigInt(1 << 2)
-const AFTER_ADD_DELTA_FLAG   = BigInt(1 << 1)
-const AFTER_REM_DELTA_FLAG   = BigInt(1 << 0)
+// ⚠ THERE IS NO MINER IN HERE ANY MORE, and the file keeps its name only until a
+//   rename can be done on its own. What survives is address PREDICTION, which the
+//   launch page still needs; what went is the search.
+//
+//   Uniswap V4 read a hook's permissions out of the low bits of its own address,
+//   so a launch had to arrive with a salt whose CREATE2 address carried the
+//   0x20CC mask — five required bits, about one salt in 32, hence `mineHookSalt`
+//   and its 500,000-attempt budget. PancakeSwap Infinity asks the contract
+//   instead, via `getHooksRegistrationBitmap()`, and `CLPoolManager.initialize`
+//   refuses a pool whose `PoolKey.parameters` disagrees with the answer.
+//   `ToshFactory` checks no address bits, `HookMiner.isValidHookAddress` was
+//   deleted from Solidity, and there is nothing left for a salt to satisfy.
+//
+//   Deleted with it: REQUIRED_FLAGS, isValidHookAddress, and the eight flag
+//   constants. Keeping them as documentation would have been worse than removing
+//   them — they described a rule the chain no longer applies.
 
 /** Replicates Solidity create2 address derivation. */
 export function computeCreate2Address(
@@ -20,17 +25,6 @@ export function computeCreate2Address(
 ): `0x${string}` {
   const hash = keccak256(concat(["0xff", deployer, salt, initcodeHash]))
   return `0x${hash.slice(26)}` as `0x${string}`
-}
-
-/** Mirror of Solidity HookMiner.isValidHookAddress. */
-export function isValidHookAddress(addr: `0x${string}`): boolean {
-  const bits = BigInt(addr)
-  if ((bits & REQUIRED_FLAGS) !== REQUIRED_FLAGS) return false
-  if ((bits & BEFORE_SWAP_DELTA_FLAG) !== 0n && (bits & BEFORE_SWAP_FLAG) === 0n) return false
-  if ((bits & AFTER_SWAP_DELTA_FLAG)  !== 0n && (bits & AFTER_SWAP_FLAG)  === 0n) return false
-  if ((bits & AFTER_ADD_DELTA_FLAG)   !== 0n && (bits & AFTER_ADD_FLAG)   === 0n) return false
-  if ((bits & AFTER_REM_DELTA_FLAG)   !== 0n && (bits & AFTER_REM_FLAG)   === 0n) return false
-  return true
 }
 
 // ── Genesis window (mirror of ToshLaunchpadHook's DURATION_* constants) ──────
@@ -64,8 +58,13 @@ export const CLONE_INITCODE_BYTES = 131
  *
  * Must match `ToshCloneLib.cloneInitcode` byte for byte;
  * `test_hookInitcodeHash_matchesHandBuiltCloneInitcode` pins the two together.
- * Anything else yields a stale CREATE2 prediction and `createLaunch` reverts
- * with `InvalidHookSalt`.
+ *
+ * ⚠ Getting this wrong is now SILENT. It used to yield a stale CREATE2
+ *   prediction and `createLaunch` reverted `InvalidHookSalt`, because the
+ *   re-rolled address almost never carried the permission mask. With the mask
+ *   gone the launch succeeds at an address nobody predicted, so the check that
+ *   matters is comparing this against `factory.hookInitcodeHash` — which the
+ *   launch page reads on-chain and uses in preference to this.
  *
  * @param implementation `factory.hookImplementation()`.
  */
@@ -135,33 +134,39 @@ export function deriveFinalSalt(
 }
 
 /**
- * Mine a CREATE2 salt so the resulting hook address carries the v5.0 flag
- * mask 0x20CC.
+ * Pick a CREATE2 salt and report where it lands.
  *
- * The factory derives `finalSalt = keccak256(abi.encode(creator, rawSalt))`.
- * This mines `rawSalt` (pass it to createLaunch as `hookSalt`) against
- * `initcodeHash` from `factory.hookInitcodeHash(projectTreasury, creator,
- * softCap, perWalletCap, genesisDuration)`.  The same `genesisDuration` must be
- * passed to `createLaunch`, or the prediction misses and it reverts with
- * `InvalidHookSalt`.
+ * ⚠ REPLACES `mineHookSalt`, WHICH SEARCHED. There is nothing to search for: see
+ *   the note at the top of this file. A salt's only remaining job is to be
+ *   unused, and that is a property of the address it produces rather than of the
+ *   salt, so this returns the prediction and leaves the occupancy check to the
+ *   caller — only an RPC can answer it, and this module is deliberately pure.
  *
- * Difficulty is a property of the 0x20CC mask — five required bits, so about one
- * salt in 32 — and not of the initcode. Shrinking the hook to a clone made the
- * deployment ~70x cheaper but did not make mining any easier or harder.
+ * The salt is 32 random bytes rather than a counter from zero. Counting up is
+ * what the miner did, and it was safe there because the mask made an early
+ * collision vanishingly unlikely; without the mask, the first free salt for one
+ * creator is `0x00..00` every time, so two launches by the same creator with the
+ * same dials and window would predict the same address and the second CREATE2
+ * would fail. Randomness sidesteps that without needing to know how many times
+ * this creator has launched before.
+ *
+ * The factory derives `finalSalt = keccak256(abi.encode(creator, rawSalt))`, and
+ * `initcodeHash` should come from `factory.hookInitcodeHash(projectTreasury,
+ * creator, softCap, perWalletCap, genesisDuration)`. The same `genesisDuration`,
+ * `softCap` and `perWalletCap` must reach `createLaunch` — the first because it is
+ * in the initcode hash, the latter two because `expectedSoftCap` /
+ * `expectedWalletCap` are checked for equality and the launch reverts
+ * `CapsChanged` otherwise.
  */
-export function mineHookSalt(
+export function pickHookSalt(
   factory:      `0x${string}`,
   creator:      `0x${string}`,
-  initcodeHash: `0x${string}`,
-  maxAttempts = 500_000
+  initcodeHash: `0x${string}`
 ): { rawSalt: `0x${string}`; finalSalt: `0x${string}`; hookAddress: `0x${string}` } {
-  for (let i = BigInt(0); i < BigInt(maxAttempts); i++) {
-    const rawSalt = `0x${i.toString(16).padStart(64, "0")}` as `0x${string}`
-    const finalSalt = deriveFinalSalt(creator, rawSalt)
-    const addr = computeCreate2Address(factory, finalSalt, initcodeHash)
-    if (isValidHookAddress(addr)) {
-      return { rawSalt, finalSalt, hookAddress: addr }
-    }
-  }
-  throw new Error(`HookMiner: no valid salt found within ${maxAttempts} attempts`)
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  const rawSalt = `0x${Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`
+
+  const finalSalt = deriveFinalSalt(creator, rawSalt)
+  return { rawSalt, finalSalt, hookAddress: computeCreate2Address(factory, finalSalt, initcodeHash) }
 }

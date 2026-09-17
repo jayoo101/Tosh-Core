@@ -3,15 +3,21 @@
  * e2eLaunchFlow.mjs
  * ─────────────────
  * Drive a real `createLaunch` against a live node using the FRONTEND's own salt
- * miner, and assert the hook lands exactly where the miner said it would.
+ * and address code, and assert the hook lands exactly where it said it would.
  *
  * ── Why this exists ─────────────────────────────────────────────────────────
  *
  * The Solidity suite proves `createLaunch` is correct given a good salt. It
- * cannot prove the UI produces one, because the UI mines in TypeScript against
- * a hash it reads over JSON-RPC. That seam — TS miner, wire encoding, live
- * factory globals — is where the EIP-1167 clone refactor actually broke things,
- * and nothing executed it end to end until this script.
+ * cannot prove the UI produces one, because the UI predicts in TypeScript
+ * against a hash it reads over JSON-RPC. That seam — TS prediction, wire
+ * encoding, live factory globals — is where the EIP-1167 clone refactor actually
+ * broke things, and nothing executed it end to end until this script.
+ *
+ * IT MATTERS MORE SINCE THE PORT, not less. Under Uniswap V4 a wrong prediction
+ * almost always failed the permission mask and reverted, so a broken UI was
+ * loud. PancakeSwap Infinity has no mask, so the same mistake now deploys
+ * successfully at an address the UI cannot name — and this script is the only
+ * thing that executes the comparison against a real chain.
  *
  * `checkHookMinerTuple.mjs` is the static half: it pins hookMiner.ts to
  * ToshCloneLib's SOURCE. This is the dynamic half: it pins hookMiner.ts to a
@@ -21,8 +27,8 @@
  * only this catches that.
  *
  * It imports `soat-frontend/src/app/lib/hookMiner.ts` directly, on purpose.
- * Re-implementing the miner here would test this file against itself and prove
- * nothing about what the browser does.
+ * Re-implementing the prediction here would test this file against itself and
+ * prove nothing about what the browser does.
  *
  * ── Usage ───────────────────────────────────────────────────────────────────
  *
@@ -59,8 +65,7 @@ import { loadRoleEnv } from './loadRoleEnv.mjs';
 
 import {
   computeHookInitcodeHash,
-  mineHookSalt,
-  isValidHookAddress,
+  pickHookSalt,
   GENESIS_DURATION_FAST,
   GENESIS_DURATION_STANDARD,
   GENESIS_DURATION_SLOW,
@@ -77,7 +82,7 @@ const FACTORY_ABI = parseAbi([
   'function hookInitcodeHash(address projectTreasury, address creator, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
   'function verifyHookDeployment(address hook, address creator, address projectTreasury, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration, bytes32 rawSalt) view returns (bool)',
   'function registeredHooks(address) view returns (bool)',
-  'function createLaunch(string name, string symbol, address projectTreasury, address projectAdmin, bytes32 hookSalt, uint256 expectedFee, uint256 genesisDuration) payable returns (address token, address hook)',
+  'function createLaunch(string name, string symbol, address projectTreasury, address projectAdmin, bytes32 hookSalt, uint256 expectedFee, uint256 expectedSoftCap, uint256 expectedWalletCap, uint256 genesisDuration) payable returns (address token, address hook)',
   'event LaunchCreated(uint256 indexed launchId, address indexed token, address indexed hook, address creator, string name, string symbol)',
 ]);
 
@@ -165,21 +170,28 @@ async function main() {
   ]);
   console.log(`      softCap ${formatEther(softCap)} ETH · perWalletCap ${formatEther(perWalletCap)} ETH · fee ${formatEther(launchFee)} ETH\n`);
 
-  // ── 2. TS miner vs the live factory ───────────────────────────────────────
+  // ── 2. TS prediction vs the live factory ──────────────────────────────────
   const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, softCap, perWalletCap, duration]);
   const localHash = computeHookInitcodeHash(implementation, creator, projectTreasury, softCap, perWalletCap, duration);
   check('hookMiner.ts initcode hash matches the deployed factory', chainHash === localHash,
     chainHash === localHash ? chainHash : `chain ${chainHash} vs local ${localHash}`);
   if (chainHash !== localHash) {
-    console.error('\nThe frontend would mine against a different initcode than the factory checks.');
+    console.error('\nThe frontend would predict against a different initcode than the factory builds.');
     process.exit(1);
   }
 
-  // ── 3. Mine, using the frontend's own miner ───────────────────────────────
-  const t0 = Date.now();
-  const { rawSalt, hookAddress: predicted } = mineHookSalt(factory, creator, chainHash);
-  check('mined a 0x20CC salt', isValidHookAddress(predicted),
-    `${predicted} · flags 0x${(BigInt(predicted) & 0x3fffn).toString(16).toUpperCase().padStart(4, '0')} · ${Date.now() - t0} ms`);
+  // ── 3. Pick a salt, using the frontend's own code ──────────────────────────
+  // This step used to assert the prediction carried Uniswap V4's 0x20CC
+  // permission mask and to report how long the search took. Neither exists any
+  // more: PancakeSwap Infinity reads permissions from the hook's bitmap, so any
+  // salt is admissible and `pickHookSalt` returns immediately. What is still
+  // worth asserting — that the address is free — is checked here, because
+  // `createLaunch` on an occupied address fails with a bare `DeployFailed`.
+  const { rawSalt, hookAddress: predicted } = pickHookSalt(factory, creator, chainHash);
+  const occupant = await pub.getCode({ address: predicted });
+  check('predicted address is unoccupied', !occupant || occupant === '0x',
+    !occupant || occupant === '0x' ? predicted : `${predicted} already holds code`);
+  if (occupant && occupant !== '0x') process.exit(1);
 
   // ── 4. Spend the gas ──────────────────────────────────────────────────────
   // Stamped rather than fixed, because `nameTaken` is permanent and a constant
@@ -194,7 +206,7 @@ async function main() {
   try {
     gasEstimate = await pub.estimateContractGas({
       address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
-      args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, duration],
+      args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
       value: launchFee, account,
     });
     check('createLaunch estimates (salt accepted by the live factory)', true, `${gasEstimate.toLocaleString()} gas`);
@@ -206,17 +218,20 @@ async function main() {
 
   const hash = await wallet.writeContract({
     address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
-    args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, duration],
+    args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
     value: launchFee, chain: null, gas: (gasEstimate * 12n) / 10n,
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   check('createLaunch confirmed', receipt.status === 'success', `${receipt.gasUsed.toLocaleString()} gas · ${hash}`);
   if (receipt.status !== 'success') process.exit(1);
 
-  // ── 5. The address the miner promised is the address that exists ──────────
+  // ── 5. The address the UI promised is the address that exists ─────────────
+  // THE LOAD-BEARING CHECK, now that no permission mask backs it up. See the
+  // note at the top: a mismatch here used to be a revert and is now a silent
+  // success at an unpredicted address.
   const [event] = parseEventLogs({ abi: FACTORY_ABI, eventName: 'LaunchCreated', logs: receipt.logs });
   const deployed = event.args.hook;
-  check('deployed hook == mined prediction', getAddress(deployed) === getAddress(predicted),
+  check('deployed hook == predicted address', getAddress(deployed) === getAddress(predicted),
     getAddress(deployed) === getAddress(predicted) ? deployed : `predicted ${predicted}, got ${deployed}`);
 
   const code = await pub.getCode({ address: deployed });

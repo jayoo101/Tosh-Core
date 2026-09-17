@@ -67,24 +67,39 @@ export function useTosh() {
   //     read `factory.launchFee()` immediately before invoking this and pass
   //     that exact value.  The factory aborts with FeeChanged if the live
   //     fee has since been bumped above the quote.
+  //   • expectedSoftCap / expectedWalletCap → the `factory.defaultSoftCap()` and
+  //     `factory.maxPogAllocationLimit()` the caller derived their predicted hook
+  //     address from. EXACT, not bounds: the factory aborts with CapsChanged on
+  //     any difference, in either direction, because a dial that moved re-rolls
+  //     the CREATE2 address whether it moved favourably or not.
+  //
+  //     These replace what the address-miner used to catch by accident. Under
+  //     Uniswap V4 a rotated dial produced an address that failed the permission
+  //     mask ~98 % of the time; PancakeSwap Infinity takes permissions from the
+  //     hook's own bitmap, so nothing would object without this.
   //   • genesisDuration → 3 h / 24 h / 72 h, in seconds.  Part of the hook's
-  //     initcode hash, so this MUST be the same window `hookSalt` was mined
-  //     against or the factory aborts with InvalidHookSalt.
+  //     initcode hash, so this MUST be the same window the salt was derived
+  //     against or the deployed address will not be the predicted one.
   const createLaunch = useCallback(
     async (
-      name:            string,
-      symbol:          string,
-      projectTreasury: Address,
-      projectAdmin:    Address,
-      hookSalt:        `0x${string}`,
-      expectedFee:     bigint,
-      genesisDuration: bigint
+      name:              string,
+      symbol:            string,
+      projectTreasury:   Address,
+      projectAdmin:      Address,
+      hookSalt:          `0x${string}`,
+      expectedFee:       bigint,
+      expectedSoftCap:   bigint,
+      expectedWalletCap: bigint,
+      genesisDuration:   bigint
     ): Promise<`0x${string}`> =>
       writeA({
         address:      FACTORY_ADDRESS,
         abi:          FACTORY_ABI,
         functionName: 'createLaunch',
-        args:         [name, symbol, projectTreasury, projectAdmin, hookSalt, expectedFee, genesisDuration],
+        args: [
+          name, symbol, projectTreasury, projectAdmin, hookSalt,
+          expectedFee, expectedSoftCap, expectedWalletCap, genesisDuration,
+        ],
         value:        expectedFee,
         gas:          6_000_000n,
         chainId:      TARGET_CHAIN_ID,

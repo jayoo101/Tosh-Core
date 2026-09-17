@@ -244,20 +244,27 @@ for (const f of FIELDS) {
 }
 
 // ─── Second copies of the genesis durations ──────────────────────────────────
-// `hookMiner.ts` keeps its own set, because salt mining needs them as bigints.
-// Two copies of three numbers in the same package is how the ladder guard would
-// go green while mining stayed broken.
-const MINER: Array<[string, bigint, bigint]> = [
+// `hookMiner.ts` keeps its own set, because address prediction needs them as
+// bigints. Two copies of three numbers in the same package is how the ladder
+// guard would go green while the launch path stayed broken.
+//
+// THE CONSEQUENCE GOT WORSE, not better, when the address miner was removed.
+// A duration mismatch used to re-roll the CREATE2 address, fail Uniswap V4's
+// permission mask and revert `InvalidHookSalt`. Infinity has no mask, so the
+// launch now succeeds at an address the UI never predicted, with the wrong
+// genesis window baked into the clone's immutable args.
+const PREDICTOR: Array<[string, bigint, bigint]> = [
   ['fast', GENESIS_DURATION_FAST, GENESIS_DURATIONS.fast],
   ['standard', GENESIS_DURATION_STANDARD, GENESIS_DURATIONS.standard],
   ['slow', GENESIS_DURATION_SLOW, GENESIS_DURATIONS.slow],
 ]
-for (const [label, miner, contractsCopy] of MINER) {
-  if (miner !== contractsCopy) {
+for (const [label, predictor, contractsCopy] of PREDICTOR) {
+  if (predictor !== contractsCopy) {
     fail(
-      `genesis duration "${label}": hookMiner says ${miner}, contracts says ${contractsCopy}.\n`
-      + '    Consequence: the salt is mined against one duration and submitted with the '
-      + 'other, so createLaunch reverts InvalidHookSalt after the mine.')
+      `genesis duration "${label}": hookMiner says ${predictor}, contracts says ${contractsCopy}.\n`
+      + '    Consequence: the address is predicted against one duration and the launch is '
+      + 'submitted with the other, so the hook deploys somewhere the UI cannot name — '
+      + 'silently, since there is no permission mask left to reject it.')
   }
 }
 

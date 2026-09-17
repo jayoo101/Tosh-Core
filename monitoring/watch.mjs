@@ -110,15 +110,30 @@ async function call(to, signature, suffix = '') {
 const word = n => BigInt(n).toString(16).padStart(64, '0')
 
 /**
- * V4 encodes a hook's permissions in the low 14 bits of its address, and
- * `HookMiner.isValidHookAddress` tests `bits & REQUIRED_FLAGS == REQUIRED_FLAGS`
- * -- the required bits must be SET, while the rest are whatever CREATE2 mining
- * happened to produce. Testing `(bits & 0x3FFF) == 0x20CC` instead rejects
- * every real hook: the live one on 46630 ends 0xffdf, whose low 14 bits are
- * 0x3fdf, and which carries all of 0x20CC.
+ * ⚠ THIS FILTER WOULD HAVE BLINDED THE WATCHER on PancakeSwap Infinity, and it
+ *   is the reason to state the history rather than just delete it.
+ *
+ *   It used to read `(bits & 0x20CC) == 0x20CC`. Uniswap V4 encoded a hook's
+ *   permissions in the low 14 bits of its address, so every legitimate hook
+ *   carried that mask and anything without it could not have been one of ours.
+ *   Infinity asks the hook for `getHooksRegistrationBitmap()` instead, the
+ *   factory stopped mining for address bits, and a hook's address is now
+ *   whatever CREATE2 produced — which satisfies a five-bit mask about one time
+ *   in 32.
+ *
+ *   Left in place, the harvest below would have dropped roughly 31 of every 32
+ *   real launches, and `state.hooks.filter` would have deleted the ones already
+ *   being polled. The watcher would have reported a clean pass over almost
+ *   nothing, which is the failure mode WATCHER-04 exists to catch and this
+ *   would have slipped underneath it: queries succeeded, there was just nothing
+ *   left to query.
+ *
+ *   Nothing replaces it. The address was never the authority — `LaunchCreated`
+ *   comes from the factory whose address this watcher is configured with, and a
+ *   forged event would need control of that factory, at which point a mask on
+ *   the hook address protects nothing. `asAddress` still bounds the shape.
  */
-const REQUIRED_HOOK_FLAGS = 0x20ccn
-const isHookAddress = addr => (BigInt(addr) & REQUIRED_HOOK_FLAGS) === REQUIRED_HOOK_FLAGS
+const isHookAddress = addr => /^0x[0-9a-f]{40}$/i.test(addr) && BigInt(addr) !== 0n
 
 // ── State ────────────────────────────────────────────────────────────────────
 

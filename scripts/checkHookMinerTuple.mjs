@@ -1,11 +1,33 @@
-// Pins the frontend CREATE2 miner's initcode layout to ToshCloneLib.
+// Pins the frontend's CREATE2 initcode layout to ToshCloneLib.
 //
 // The failure this exists to catch is silent and total: if the clone's byte
-// layout changes on one side only, the miner still produces a perfectly
-// well-formed salt. It is just a salt for a different initcode, so the
-// predicted address never materialises and EVERY createLaunch from the UI
-// reverts with `InvalidHookSalt`. Nothing in the type system or the Solidity
-// test suite notices, because both sides compile and pass in isolation.
+// layout changes on one side only, the frontend still produces a perfectly
+// well-formed salt. It is just a salt for a different initcode, so the address
+// it predicts is not the address that gets deployed.
+//
+// ⚠ THIS GUARD BECAME MORE LOAD-BEARING, NOT LESS, WITH THE INFINITY PORT, and
+//   was very nearly deleted for the opposite reason. It is named for a miner
+//   that no longer exists — Uniswap V4 read a hook's permissions out of its
+//   address, so `hookMiner.ts` searched for a salt whose address carried the
+//   0x20CC mask, and this file pinned the initcode that search ran against.
+//
+//   That mask was also the backstop for the failure above. A layout drift
+//   re-rolled the address, the address failed the mask about 31 times in 32, and
+//   `createLaunch` reverted `InvalidHookSalt` — loudly, on every launch, which is
+//   what the paragraph above used to describe. PancakeSwap Infinity reads
+//   permissions from `getHooksRegistrationBitmap()`, the factory checks no
+//   address bits, and `InvalidHookSalt` is gone from the contract. The same drift
+//   now DEPLOYS SUCCESSFULLY at an address the UI cannot name: the project page,
+//   the directory row and the pool link all point somewhere with no contract on
+//   it, and nothing reverted to say so.
+//
+//   So this stays wired into `precheck.ps1`, and `e2eLaunchFlow.mjs` is its
+//   dynamic other half. Between them they are now the whole of the protection
+//   that the mask used to provide for free. The filename is the only thing here
+//   that is obsolete.
+//
+// Nothing in the type system or the Solidity test suite notices a drift, because
+// both sides compile and pass in isolation.
 //
 // ── What this compares ──────────────────────────────────────────────────────
 //
@@ -30,8 +52,8 @@
 //
 // This guard pins TS to the Solidity SOURCE. `test_hookInitcodeHash_matches
 // HandBuiltCloneInitcode` pins that source to the EVM's actual behaviour.
-// Together they pin the miner to what `createLaunch` will check on-chain;
-// neither one alone is sufficient, so both must stay wired up.
+// Together they pin the frontend's prediction to what `createLaunch` will
+// actually deploy; neither one alone is sufficient, so both must stay wired up.
 //
 // Usage:  node scripts/checkHookMinerTuple.mjs
 
@@ -232,9 +254,11 @@ if (failures.length) {
   console.error('');
   for (const f of failures) console.error(`FAIL  ${f}`);
   console.error(
-    `\nThe frontend salt miner no longer matches ${SOL}.\n` +
+    `\nThe frontend's initcode no longer matches ${SOL}.\n` +
       `Update computeCloneInitcode in ${TS} to mirror cloneInitcode, or every\n` +
-      'createLaunch from the UI will revert with InvalidHookSalt.'
+      'createLaunch from the UI will deploy its hook to an address the UI cannot\n' +
+      'name. This does NOT revert any more — Infinity removed the permission mask\n' +
+      'that used to turn this mistake into InvalidHookSalt.'
   );
   process.exit(1);
 }

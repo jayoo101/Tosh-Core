@@ -36,9 +36,14 @@ const LOG_PAGE_SIZE = 50_000n
  *
  * The lookback used to be a flat `600_000n` explained as "Base blocks are ~2s,
  * so this is roughly a fortnight". Both halves had stopped being true. The
- * chain is Robinhood, measured at 0.101 s/block, so 600,000 blocks is about
+ * chain was Robinhood, measured at 0.101 s/block, so 600,000 blocks was about
  * 17 hours — and nothing announced the change, because a block count cannot:
  * it keeps meaning blocks while the time it stands for shrinks twentyfold.
+ *
+ * BSC is the third chain this has outlived, which is the argument for deriving
+ * the count instead of writing one down. At 0.75 s/block a fortnight is 1.61M
+ * blocks, so the page budget below binds first and the real coverage is about
+ * ten days — reported by `lpScanCoverageLabel` rather than asserted here.
  */
 const LOG_TARGET_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
@@ -49,6 +54,8 @@ const LOG_TARGET_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
  * `eth_getLogs` calls. This runs in a panel with somebody waiting on it, and
  * the endpoint rate-limits well before that (see the pacing below), so the
  * target is capped by what a scan can spend rather than the other way round.
+ * BSC's 0.75 s blocks need 33 pages for a fortnight, so the cap still binds —
+ * less brutally, and the shortfall is days rather than the earlier thirteen.
  *
  * 24 pages is ~6 s of paced requests. Deliberately double the 12 the flat
  * constant worked out to, because that number was never chosen — it fell out
@@ -59,8 +66,9 @@ const LOG_PAGE_BUDGET = 24n
 /**
  * Blocks to scan, and how long that actually covers.
  *
- * `blockTime` is absent from some chain definitions, including the Robinhood
- * testnet's. Falling back to the page budget is right for that case: it spends
+ * `blockTime` is absent from some chain definitions, including BSC testnet's
+ * (mainnet declares 750 ms; 97 declares nothing) and the Robinhood testnet's
+ * before it. Falling back to the page budget is right for that case: it spends
  * exactly what the scan is allowed to spend, which is the same answer the
  * budget gives on a chain we can measure, just without a span to report.
  */
@@ -78,9 +86,10 @@ function lookbackPlan(): { blocks: bigint; coverageMs: number | undefined } {
  * How recent a position has to be for the log scan to find it, as prose.
  *
  * Exported because the panel's degraded notice used to promise nothing about
- * coverage, which was survivable while the window was two weeks and is not now
- * that it is hours. A user who cannot see a position they hold should be told
- * the boundary rather than left to infer it.
+ * coverage, which was survivable while the window was two weeks and was not
+ * when it turned out to be hours. Still exported on BSC, where it reads about
+ * ten days: a user who cannot see a position they hold should be told the
+ * boundary rather than left to infer it, and "ten days" is a boundary too.
  */
 export function lpScanCoverageLabel(): string | undefined {
   const { coverageMs } = lookbackPlan()
@@ -94,13 +103,19 @@ export function lpScanCoverageLabel(): string | undefined {
  * Minimum spacing between `eth_getLogs` calls, and the retries that spacing
  * cannot save us from.
  *
- * The Robinhood mainnet endpoint returns `Too Many Requests` on roughly the
+ * The Robinhood mainnet endpoint returned `Too Many Requests` on roughly the
  * seventh tight sequential `eth_getLogs`. The flat lookback issued twelve, so
  * this scan did not merely return a short window on mainnet — it threw partway
  * through and landed in the `catch` below, every time, leaving discovery to the
  * localStorage cache alone while the panel reported a degraded RPC. The same
  * limit took the on-chain watcher blind for a full pass. 250 ms is the
  * interval measured to be clean.
+ *
+ * ⚠ NOT YET MEASURED ON BSC, and the pacing was kept rather than retuned for
+ *   that reason. Public BSC endpoints are known to refuse wide `getLogs` spans
+ *   outright — it is why the watcher still needs a keyed endpoint — so the
+ *   number to trust here is whatever the endpoint this ships against tolerates,
+ *   not this one. 250 ms is a floor that was safe on a stricter chain.
  */
 const LOG_MIN_INTERVAL_MS = 250
 const LOG_MAX_RETRIES = 3
