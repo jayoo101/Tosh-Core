@@ -739,12 +739,13 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @notice Event-dedup flags, NOT the refund gate.
     ///
     /// @dev    Set lazily the first time `refund()` actually runs, so the
-    ///         `GenesisFailed` / `ZombieRefund` events fire once.  Nothing
-    ///         reads these as a condition — `refund()` and `canRefund()`
-    ///         recompute `softCapFailed || zombieExpired` on every call.
-    ///         Indexers and the UI must treat `canRefund()` as the authority;
-    ///         these flags stay `false` until the first claimant shows up,
-    ///         even when refunds are already available.
+    ///         `ZombieRefund` event fires once.  Nothing reads these as a
+    ///         condition — `refund()` and `canRefund()` recompute
+    ///         `zombieExpired` on every call. Indexers and the UI must treat
+    ///         `canRefund()` as the authority; these flags stay `false` until
+    ///         the first claimant shows up, even when refunds are already
+    ///         available. A missed soft cap is no longer a refund trigger:
+    ///         the creator may still `launch()` with whatever was raised.
     bool public refundEnabled;
     bool public zombieRefundEnabled;
 
@@ -961,7 +962,6 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     error ZeroAmount();
     error UnauthorizedInitialization();
     error UnknownAction();
-    error SoftCapNotMet();
     error LaunchWindowExpired();
     error InvalidAdmin();
 
@@ -1297,11 +1297,12 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     }
 
     /// @notice True when depositors may reclaim their ETH.
+    /// @dev    Only after the 7-day launch window lapses unused. A raise that
+    ///         is under its soft cap is still launchable until then — the
+    ///         clock, not the floor, decides whether the pool opens.
     function canRefund() public view returns (bool) {
         if (launched) return false;
-        bool softCapFailed = block.timestamp > genesisDeadline && totalEthDeposited < softCap();
-        bool zombieExpired = block.timestamp > genesisDeadline + LAUNCH_WINDOW;
-        return softCapFailed || zombieExpired;
+        return block.timestamp > genesisDeadline + LAUNCH_WINDOW;
     }
 
     /// @notice Reclaim the full deposit when the refund path is open.
@@ -1312,9 +1313,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         require(!launched, "Already launched");
         require(block.timestamp > genesisDeadline, "Genesis not ended yet");
 
-        bool softCapFailed = totalEthDeposited < softCap();
-        bool zombieExpired = block.timestamp > genesisDeadline + LAUNCH_WINDOW;
-        require(softCapFailed || zombieExpired, "Refund not available");
+        require(block.timestamp > genesisDeadline + LAUNCH_WINDOW, "Refund not available");
 
         uint256 dep = ethDeposited[msg.sender];
         if (dep == 0) revert NoDeposit();
@@ -1322,11 +1321,7 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         // EFFECTS before INTERACTIONS.
         ethDeposited[msg.sender] = 0;
 
-        if (softCapFailed && !refundEnabled) {
-            refundEnabled = true;
-            emit GenesisFailed(totalEthDeposited);
-        }
-        if (zombieExpired && !zombieRefundEnabled) {
+        if (!zombieRefundEnabled) {
             zombieRefundEnabled = true;
             emit ZombieRefund(totalEthDeposited);
         }
@@ -1338,7 +1333,8 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
     /// @notice Finalise genesis: seed the ETH/token V4 pool, lock the LP, and
     ///         open the Phase-2 ladder.
     ///
-    ///   1. Enforce the soft cap and the 7-day launch window.
+    ///   1. Enforce the 7-day launch window. The soft cap is a progress
+    ///      target, not a gate: any non-zero raise may open the pool.
     ///   2. Split the raise: 90 % → LP, 10 % → referral commission pool.
     ///   3. Forward orphaned commission to the ladder treasury.
     ///   4. Mint 8.4 M tokens; 3.78 M into the LP, 4.62 M held for claims.
@@ -1348,7 +1344,6 @@ contract ToshLaunchpadHook is IHooks, IUnlockCallback, ReentrancyGuard {
         if (msg.sender != creator()) revert OnlyCreator();
         if (block.timestamp < genesisDeadline) revert GenesisActive();
         if (launched) revert AlreadyLaunched();
-        if (totalEthDeposited < softCap()) revert SoftCapNotMet();
         if (totalEthDeposited == 0) revert ZeroAmount();
         if (block.timestamp > genesisDeadline + LAUNCH_WINDOW) revert LaunchWindowExpired();
 

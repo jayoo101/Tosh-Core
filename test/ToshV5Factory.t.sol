@@ -686,7 +686,7 @@ contract ToshV5FactoryTest is Test {
 
         vm.prank(admin);
         factory.pause();
-        vm.warp(_h(hook).genesisDeadline() + 1);
+        vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
 
         uint256 before = user1.balance;
         vm.prank(user1);
@@ -781,7 +781,7 @@ contract ToshV5FactoryTest is Test {
 
         // Nobody funded it and the window closed: the hook's own refund path
         // is the objective proof the launch is dead.
-        vm.warp(_h(hook).genesisDeadline() + 1);
+        vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
         assertTrue(_h(hook).canRefund(), "fixture must actually be abandoned");
 
         factory.releaseAbandonedName(hook);
@@ -798,9 +798,10 @@ contract ToshV5FactoryTest is Test {
         factory.releaseAbandonedName(hook);
     }
 
-    /// @dev A round that took real money but still missed its soft cap is dead
-    ///      too.  Depositors are made whole by `refund()`; this covers the part
-    ///      that would otherwise stay unrecoverable — the creator's ticker.
+    /// @dev A round that took real money but whose creator never called
+    ///      `launch()` is dead too.  Depositors are made whole by `refund()`;
+    ///      this covers the part that would otherwise stay unrecoverable — the
+    ///      creator's ticker.
     function test_releaseAbandonedName_recoversANameAfterAPartiallyFundedMiss() public {
         vm.prank(admin);
         factory.setDefaultSoftCap(5 ether);
@@ -811,8 +812,8 @@ contract ToshV5FactoryTest is Test {
         vm.prank(user1);
         factory.deposit{value: 0.05 ether}(hook, address(0));
 
-        vm.warp(_h(hook).genesisDeadline() + 1);
-        assertTrue(_h(hook).canRefund(), "an under-funded round must be refundable");
+        vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
+        assertTrue(_h(hook).canRefund(), "an unlaunched round must be refundable after the launch window");
 
         // The round is dead, but the name is not.
         factory.releaseAbandonedName(hook);
@@ -1287,8 +1288,11 @@ contract ToshV5FactoryTest is Test {
         vm.warp(block.timestamp + 3 hours - 1);
         assertFalse(_h(hook).canRefund(), "no refund while the window is open");
 
-        // Past it, and under the soft cap, refunds open.
+        // Past genesis, still inside the 7-day launch window: no refund yet.
         vm.warp(block.timestamp + 2);
-        assertTrue(_h(hook).canRefund(), "refund opens once a failed 3h window lapses");
+        assertFalse(_h(hook).canRefund(), "refund stays closed until the launch window lapses");
+
+        vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
+        assertTrue(_h(hook).canRefund(), "refund opens once the 7-day launch window lapses");
     }
 }

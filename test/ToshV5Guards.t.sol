@@ -374,12 +374,12 @@ contract ToshV5GuardsTest is Test {
         assertFalse(hook.canRefund());
     }
 
-    function test_canRefund_trueWhenGenesisFailed() public {
+    function test_canRefund_falseWhenUnderCapAfterDeadline() public {
         _register(user1, 1 ether);
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(address(hook), address(0));
         vm.warp(hook.genesisDeadline() + 1);
-        assertTrue(hook.canRefund());
+        assertFalse(hook.canRefund());
     }
 
     function test_canRefund_trueAfterZombieWindowWhenSoftCapMet() public {
@@ -422,19 +422,18 @@ contract ToshV5GuardsTest is Test {
         assertTrue(hook.zombieRefundEnabled());
     }
 
-    function test_refund_lazyStateFlipOnSoftCapMiss() public {
+    function test_refund_revertsUnderCapUntilLaunchWindowLapses() public {
         _register(user1, 1 ether);
         vm.prank(user1);
         factory.deposit{value: 0.01 ether}(address(hook), address(0));
         vm.warp(hook.genesisDeadline() + 1);
-        assertFalse(hook.refundEnabled());
         vm.prank(user1);
+        vm.expectRevert(bytes("Refund not available"));
         hook.refund();
-        assertTrue(hook.refundEnabled());
     }
 
     function test_refund_revertsWithNoDeposit() public {
-        vm.warp(hook.genesisDeadline() + 1);
+        vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.NoDeposit.selector);
         hook.refund();
@@ -453,10 +452,10 @@ contract ToshV5GuardsTest is Test {
         hook.launch();
     }
 
-    function test_launch_revertsIfSoftCapNotMet() public {
+    function test_launch_revertsIfNothingRaised() public {
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        vm.expectRevert(ToshLaunchpadHook.SoftCapNotMet.selector);
+        vm.expectRevert(ToshLaunchpadHook.ZeroAmount.selector);
         hook.launch();
     }
 

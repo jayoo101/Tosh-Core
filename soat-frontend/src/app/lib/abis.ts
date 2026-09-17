@@ -4424,11 +4424,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
-    "name": "SoftCapNotMet",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "SpanTooManyShelves",
     "inputs": []
   },

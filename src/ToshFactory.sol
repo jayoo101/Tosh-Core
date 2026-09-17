@@ -244,7 +244,14 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         value governs projects created afterwards; rounds already
     ///         raising keep the cap they were deployed with, so the terms a
     ///         depositor committed under cannot be rewritten under them.
-    uint256 public maxPogAllocationLimit = 0.1 ether;
+    ///
+    ///         Kept in step with `DEFAULT_POG_MAX_ALLOC_WEI` in
+    ///         `soat-frontend/src/app/lib/pogQuota.ts`, which seeds the
+    ///         off-chain ceiling the oracle signs against.  This is the
+    ///         binding half of that pair: an attestation above this value
+    ///         reverts `ExceedsGlobalPogLimit`, so the off-chain dial may be
+    ///         lowered freely and raised only after this one moves.
+    uint256 public maxPogAllocationLimit = 0.5 ether;
 
     /// @notice Global default soft-cap baked into every NEW hook, in ETH (v5.0).
     uint256 public defaultSoftCap = 10 ether;
@@ -902,7 +909,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Hand a name/symbol back to the pool once its launch is provably
     ///         dead, i.e. the hook's own refund path has opened because the
-    ///         soft cap was missed or the 7-day launch window lapsed.
+    ///         7-day launch window lapsed unused.
     ///
     /// @dev    Permissionless on purpose.  The condition is objective and read
     ///         from the hook, there is nothing to steal — a live or launched

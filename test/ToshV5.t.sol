@@ -503,25 +503,27 @@ contract ToshV5Test is Test {
     ///         single wallet could deposit/refund on a loop and recycle one
     ///         attestation's worth of allowance indefinitely.
     function test_pogQuota_isNotRestoredByRefund() public {
-        // A window long enough to outlast the 24h genesis deadline, so the
-        // refund lands while the quota window is still open.
+        // Refunds now wait out LAUNCH_WINDOW (7 days), which is also
+        // MAX_COOLDOWN, so a quota window cannot outlast the refund. The
+        // claim under test is still the ledger: `refund()` must not write
+        // `quotaSpent` down. Eligibility may refill from the clock; the
+        // spent counter itself must not.
         vm.prank(admin);
-        factory.setQuotaWindowDuration(3 days);
+        factory.setQuotaWindowDuration(7 days);
 
         _registerPoG(alice, 0.3 ether);
         (, ToshLaunchpadHook hookA) = _createProject("Refunder", "RFD");
         _deposit(alice, hookA, 0.3 ether, address(0));
 
-        vm.warp(block.timestamp + 25 hours);
+        vm.warp(hookA.genesisDeadline() + hookA.LAUNCH_WINDOW() + 1);
         vm.prank(alice);
         hookA.refund();
 
         assertEq(factory.quotaSpent(alice), 0.3 ether, "refund must not credit the window back");
 
         (, ToshLaunchpadHook hookB) = _createProject("Retry", "RTY");
-        vm.prank(alice);
-        vm.expectRevert(ToshFactory.QuotaExceeded.selector);
-        factory.deposit{value: 0.1 ether}(address(hookB), address(0));
+        (, uint256 remaining,) = factory.eligibility(alice, address(hookB));
+        assertEq(remaining, 0.3 ether, "the lapsed window refills remaining; the spent counter did not move");
     }
 
     /// @notice The quota is a cooling-off budget, not a lifetime one: once the
@@ -550,13 +552,13 @@ contract ToshV5Test is Test {
         assertEq(factory.totalGenesisDeposited(alice), 0.6 ether, "lifetime tally keeps accumulating");
     }
 
-    function test_refund_returnsEthWhenSoftCapMissed() public {
+    function test_refund_returnsEthWhenLaunchWindowLapses() public {
         (, ToshLaunchpadHook hook) = _createProject("Fail", "FAIL");
         _registerPoG(alice, POG_CAP);
         _deposit(alice, hook, 0.3 ether, address(0));
 
-        vm.warp(block.timestamp + 25 hours);
-        assertTrue(hook.canRefund(), "genesis should be refundable past the deadline");
+        vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
+        assertTrue(hook.canRefund(), "genesis should be refundable once the launch window lapses");
 
         uint256 before = alice.balance;
         vm.prank(alice);
@@ -564,6 +566,18 @@ contract ToshV5Test is Test {
 
         assertEq(alice.balance - before, 0.3 ether, "refund must be paid in native ETH");
         assertEq(hook.ethDeposited(alice), 0);
+    }
+
+    function test_launch_succeedsBelowSoftCap() public {
+        (, ToshLaunchpadHook hook) = _createProject("Thin", "THN");
+        _registerPoG(alice, POG_CAP);
+        _deposit(alice, hook, 0.3 ether, address(0));
+        assertLt(hook.totalEthDeposited(), hook.softCap(), "fixture must sit under the progress target");
+
+        vm.warp(hook.genesisDeadline() + 1);
+        vm.prank(creator);
+        hook.launch();
+        assertTrue(hook.launched(), "time-up launch does not require the soft cap");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1397,27 +1411,25 @@ contract ToshV5Test is Test {
     ///   ETH is exactly the one worth being wrong about.
     ///
     ///   This is the scenario the runbook calls a hostage situation: money in,
-    ///   soft cap missed, and a platform switch standing between the depositor
-    ///   and their refund. It must not exist.
-    function test_ladderHalt_cannotHoldAFailedGenesisHostage() public {
+    ///   under the progress target, and a platform switch standing between the
+    ///   creator and `launch()`. It must not exist — time-up launch does not
+    ///   wait on the soft cap, and a halt must not invent that wait.
+    function test_ladderHalt_cannotHoldAnUnderCapGenesisHostage() public {
         (, ToshLaunchpadHook hook) = _createProject("Strand", "STR");
         _deposit(alice, hook, 0.3 ether, address(0));
+        assertLt(hook.totalEthDeposited(), hook.softCap());
 
-        // Arm the longest possible halt against a round that has not launched.
         uint256 maxHalt = factory.MAX_HALT_DURATION();
         vm.prank(admin);
         factory.haltLadderMinting(address(hook), maxHalt);
         assertTrue(factory.ladderMintingHalted(address(hook)), "halting a pre-launch hook is permitted");
 
-        // The round misses its soft cap while the halt is still live.
-        vm.warp(block.timestamp + 25 hours);
+        vm.warp(hook.genesisDeadline() + 1);
         assertTrue(factory.ladderMintingHalted(address(hook)), "and the halt outlives the genesis window");
-        assertTrue(hook.canRefund(), "a halt must not close the refund path");
 
-        uint256 before = alice.balance;
-        vm.prank(alice);
-        hook.refund();
-        assertEq(alice.balance - before, 0.3 ether, "the depositor exits in full, mid-halt");
+        vm.prank(creator);
+        hook.launch();
+        assertTrue(hook.launched(), "an under-cap raise still opens while halted");
     }
 
     /// @notice A halt blocks minting and no other post-launch path — including

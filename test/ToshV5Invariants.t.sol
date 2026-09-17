@@ -319,8 +319,7 @@ contract ToshInvariantHandler is Test {
             } else if (phase == 2) {
                 if (
                     !h.launched() && block.timestamp >= h.genesisDeadline()
-                        && block.timestamp <= h.genesisDeadline() + h.LAUNCH_WINDOW()
-                        && h.totalEthDeposited() >= h.softCap()
+                        && block.timestamp <= h.genesisDeadline() + h.LAUNCH_WINDOW() && h.totalEthDeposited() > 0
                 ) return h;
             } else {
                 if (h.launched()) return h;
@@ -784,7 +783,7 @@ contract ToshInvariantHandler is Test {
     }
 
     function warpLong(uint256 secs) external {
-        secs = bound(secs, 12 hours, 4 days);
+        secs = bound(secs, 12 hours, 14 days);
         vm.warp(block.timestamp + secs);
         vm.roll(block.number + 1);
         ++okWarp;
@@ -1015,7 +1014,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     /// @dev Deliberately low. A soft cap a single deposit can clear means the
     ///      fuzzer reaches `launch()` often, which is the only way the
     ///      post-launch invariants (genesis claims, referral claims) get
-    ///      exercised at all rather than sitting behind `SoftCapNotMet`.
+    ///      exercised at all rather than sitting behind a zero-raise
+    ///      `ZeroAmount` revert.
     uint256 internal constant SOFT_CAP = 2 ether;
     uint256 internal constant POG_CAP = 20 ether;
     uint256 internal constant ACTOR_FUNDING = 100 ether;
@@ -1259,9 +1259,9 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         stop being refundable.
     ///
     /// @dev    Past the deadline deposits are closed and `refund()` does not
-    ///         decrement `totalEthDeposited`, so the `softCapFailed` term is
-    ///         frozen; the zombie term is monotone in time. If either ever went
-    ///         backwards, a depositor who waited would find the exit shut.
+    ///         decrement `totalEthDeposited`; the zombie term is monotone in
+    ///         time. If it ever went backwards, a depositor who waited would
+    ///         find the exit shut.
     function invariant_refundabilityNeverRevokes() public view {
         uint256 n = handler.hookCount();
         for (uint256 i; i < n; ++i) {
@@ -1508,9 +1508,9 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         assertGt(handler.okOwnerAction(), 0, "handler could not land an owner action");
 
         // The clock must be able to cross a genesis deadline.
-        handler.warpLong(3 days);
+        handler.warpLong(8 days);
         assertGt(handler.okWarp(), 0, "handler could not advance the clock");
-        assertTrue(h0.canRefund(), "3h project should be refundable after 3 days below its soft cap");
+        assertTrue(h0.canRefund(), "3h project should be refundable after the 7-day launch window lapses");
 
         // And the refund must actually pay out.
         uint256 before = alice.balance;
