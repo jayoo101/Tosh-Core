@@ -130,6 +130,31 @@ const FORK_TESTS = ['test/ToshV5ForkInfinity.t.sol'];
 const IV4ROUTER = 'lib/v4-periphery/src/interfaces/IV4Router.sol';
 
 /**
+ * The Uniswap-shaped tuple's restatement in the spike, and the one file allowed
+ * to carry it.
+ *
+ * ⚠ THIS USED TO BE THE PRODUCTION TYPE. `IV4Router.ExactInputSingleParams` was
+ *   what every real call encoded, and checks 1-4 were built around keeping the
+ *   tree's copy equal to it. After the Infinity port nothing encodes it for a
+ *   real swap, and the tuple's only remaining job is to be the WRONG shape:
+ *   `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable` sends it to
+ *   Infinity's router to prove the two are not confusable.
+ *
+ *   That is a demotion and not a retirement. A trap has to be a faithful copy of
+ *   the thing it stands in for, or the test proves nothing about the mistake
+ *   anyone would actually make -- so `UNISWAP_LAYOUT` stays pinned to
+ *   `lib/v4-periphery` by check 2, and to the spike's restatement by check 2b.
+ */
+const UNI_SHAPED_STRUCT = 'UniShapedParams';
+const UNI_SHAPED_HOME = 'test/ToshV5ForkInfinity.t.sol';
+
+/**
+ * Infinity's swap tuple: what production encodes. Declared here rather than
+ * beside check 6 because check 1 needs it, and a `const` is not hoisted.
+ */
+const STRUCT = 'CLSwapExactInputSingleParams';
+
+/**
  * BSC's older UniversalRouter, and the one file allowed to name it. That file
  * asserts it is a different build from 2.1.1, which is the whole reason the
  * address is written down anywhere — see check 5.
@@ -139,19 +164,18 @@ const OLD_BSC_ROUTER_HOME = 'test/ToshV5ForkInfinity.t.sol';
 const DECODER = 'lib/v4-periphery/src/libraries/CalldataDecoder.sol';
 
 /**
- * The tuple the deployed router decodes, in order. Pinned as a literal because
- * there is no parseable source for it in this tree — the authority is the
- * verified source on the explorer, corroborated by
- * `test_fork_deployedRouterReadsTheSixthField` on Robinhood and
- * `test_forkBsc_deployedRouterReadsTheSixthField` on BSC, both against the live
- * contract.
+ * The tuple Uniswap's deployed UniversalRouter decodes, in order.
  *
- * Nominally a per-chain fact, and it stayed a single literal across the BSC
- * cutover only because both routers are the same compiled build. A third chain
- * earns no such assumption: measure it before adding it, and if it disagrees,
- * this becomes a map and every check below runs once per entry.
+ * ⚠ NO LONGER THE PRODUCTION LAYOUT. It was, on Robinhood and on Ethereum before
+ *   it, and it is kept because it is now the SHAPE OF THE MISTAKE -- see
+ *   `UNI_SHAPED_STRUCT` above. Production is `INFINITY_LAYOUT` below.
+ *
+ * Pinned as a literal because there is no parseable source for it in this tree
+ * -- the authority is the verified source on the explorer, corroborated by
+ * `test_fork_deployedRouterReadsTheSixthField` on Robinhood and on BSC while
+ * both were live targets, in each case against the real contract.
  */
-const DEPLOYED_LAYOUT = [
+const UNISWAP_LAYOUT = [
   ['PoolKey', 'poolKey'],
   ['bool', 'zeroForOne'],
   ['uint128', 'amountIn'],
@@ -254,14 +278,14 @@ const render = (fields) => fields.map(([t, n]) => `${t} ${n}`).join(', ');
  * member must be a known static type, so a dynamic member is reported rather
  * than counted as one slot.
  */
-function poolKeyWidth(path) {
-  const fields = structFields(stripComments(read(path)), 'PoolKey', path);
+function poolKeyWidth(path, name_ = 'PoolKey') {
+  const fields = structFields(stripComments(read(path)), name_, path);
   if (!fields) return null;
 
   for (const [type, name] of fields) {
     if (!STATIC_POOLKEY_MEMBERS.has(type)) {
       failures.push(
-        `${path}: \`PoolKey\` member \`${type} ${name}\` is not a known static type.\n` +
+        `${path}: \`${name_}\` member \`${type} ${name}\` is not a known static type.\n` +
           '        If it is dynamic, PoolKey no longer inlines into the tuple head and\n' +
           '        every head-slot number in this guard is wrong. If it is static, add\n' +
           '        it to STATIC_POOLKEY_MEMBERS.'
@@ -318,34 +342,49 @@ if (infinityPoolKeyWidth !== null) {
   INFINITY_HEAD_SLOTS.PoolKey = infinityPoolKeyWidth;
 }
 
-// ── 1 · The fork test imports the struct rather than restating it ───────────
+// ── 1 · A fork test still builds real router calldata ──────────────────────
+//
+// This check has kept its shape and swapped its subject twice, so state the
+// subject plainly: PRODUCTION ENCODES INFINITY'S TUPLE. The check asks that some
+// fork suite still builds it against a live chain, because checks 2-6 pin a
+// layout and a pinned layout nobody encodes is decorative.
+//
+// It no longer asks for an IMPORT. That was the right demand while the type came
+// from `lib/v4-periphery`, which this tree can import for free. Infinity's comes
+// from `lib/infinity-periphery`, which reaches infinity-core through an
+// `infinity-core/` prefix -- and adding that remapping moves every production
+// contract's metadata hash, measured, see docs/PANCAKESWAP_INFINITY.md §3.4. So
+// the restatement is forced, and check 6 is what makes it safe.
 
 for (const forkTest of FORK_TESTS) {
   const forkSrc = stripComments(read(forkTest));
 
-  if (/struct\s+ExactInputSingleParams\s*\{/.test(forkSrc)) {
+  if (!new RegExp(`\\b${STRUCT}\\b`).test(forkSrc)) {
     failures.push(
-      `${forkTest} declares its own \`ExactInputSingleParams\`.\n` +
-        '        It must import IV4Router.ExactInputSingleParams instead. A local copy\n' +
-        '        only made sense while the deployed router and lib/ disagreed, which was\n' +
-        '        true on Ethereum and is true on neither chain we target now. A copy\n' +
-        '        kept past that point drifts silently: nothing in either type system\n' +
-        '        relates the two. If the router really did diverge again, invert check 2\n' +
-        '        rather than reintroducing an unchecked duplicate.'
-    );
-  } else if (!/\bIV4Router\.ExactInputSingleParams\b/.test(forkSrc)) {
-    failures.push(
-      `${forkTest} no longer encodes IV4Router.ExactInputSingleParams.\n` +
-        '        The fork suites are the only place production router calldata is built,\n' +
-        '        so if one stopped building any, checks 2-3 are guarding less than they\n' +
-        '        appear to and this guard is drifting towards decorative.'
+      `${forkTest} no longer encodes ${STRUCT}.\n` +
+        '        This is the tuple every real swap on Infinity is built from, and the\n' +
+        '        fork suite is the only place it is built against a live router. If\n' +
+        '        nothing encodes it, checks 2-6 are pinning a layout with no caller and\n' +
+        '        this guard has drifted to decorative.\n' +
+        '        If the encoding moved to another suite, add that suite to FORK_TESTS.'
     );
   } else {
-    ok.push(`${forkTest} encodes the vendored IV4Router.ExactInputSingleParams`);
+    ok.push(`${forkTest} encodes ${STRUCT}, the tuple production swaps use`);
   }
 }
 
-// ── 2 · The vendored tuple still matches the deployed one ───────────────────
+// ── 2 · The Uniswap shape is still the shape of the mistake ────────────────
+//
+// Read this check as guarding the TRAP, not production. Nothing here encodes
+// Uniswap's tuple for a real swap any more; `UNI_SHAPED_STRUCT` exists to be
+// sent somewhere it does not belong, and check 6 measures that both tuples
+// occupy the same ten head slots, so neither decoder's length floor can reject
+// the other's calldata.
+//
+// A trap that has drifted from the real thing tests nothing. If `lib/` moved,
+// the spike is now proving that some tuple nobody would write is rejected,
+// while the tuple a reader might actually mistake for correct goes unmeasured.
+// That failure is silent by construction, which is why it is still checked.
 
 const libFields = structFields(stripComments(read(IV4ROUTER)), 'ExactInputSingleParams', IV4ROUTER);
 
@@ -354,19 +393,19 @@ let libHead = null;
 if (libFields) {
   libHead = headSlots(libFields, IV4ROUTER);
 
-  if (render(libFields) === render(DEPLOYED_LAYOUT)) {
+  if (render(libFields) === render(UNISWAP_LAYOUT)) {
     ok.push(
-      `lib/v4-periphery matches the deployed ${DEPLOYED_LAYOUT.length}-field tuple\n` +
-        `        ${render(DEPLOYED_LAYOUT)}`
+      `lib/v4-periphery still carries the ${UNISWAP_LAYOUT.length}-field shape the trap imitates\n` +
+        `        ${render(UNISWAP_LAYOUT)}`
     );
   } else {
     // The load-bearing number: the first head slot at which the deployed
     // decoder and the tuple we would now encode stop describing the same thing.
     let cursor = 0;
     let divergesAt = null;
-    for (let i = 0; i < Math.max(libFields.length, DEPLOYED_LAYOUT.length); i++) {
+    for (let i = 0; i < Math.max(libFields.length, UNISWAP_LAYOUT.length); i++) {
       const mine = libFields[i] ? render([libFields[i]]) : '(absent)';
-      const theirs = DEPLOYED_LAYOUT[i] ? render([DEPLOYED_LAYOUT[i]]) : '(absent)';
+      const theirs = UNISWAP_LAYOUT[i] ? render([UNISWAP_LAYOUT[i]]) : '(absent)';
       if (mine !== theirs) {
         divergesAt = { slot: cursor, mine, theirs };
         break;
@@ -376,19 +415,61 @@ if (libFields) {
 
     failures.push(
       'lib/v4-periphery and the deployed router disagree on ExactInputSingleParams.\n' +
-        `        deployed (${DEPLOYED_LAYOUT.length} fields): ${render(DEPLOYED_LAYOUT)}\n` +
+        `        deployed (${UNISWAP_LAYOUT.length} fields): ${render(UNISWAP_LAYOUT)}\n` +
         `        lib/     (${libFields.length} fields): ${render(libFields)}\n` +
         (divergesAt
           ? `        first divergence at head slot ${divergesAt.slot} (byte 0x${(divergesAt.slot * 32).toString(16)}):\n` +
             `        deployed reads \`${divergesAt.theirs}\`, we would encode \`${divergesAt.mine}\`\n`
           : '') +
         '\n' +
-        `        ${FORK_TESTS.join(' and ')} encode with lib/, so they are now\n` +
-        '        sending the live router a tuple it will misread — and misreading is not\n' +
-        '        the same as reverting.\n' +
-        '        See this file\'s header for what that looked like the last time.\n\n' +
-        '        Either pin the submodule back, or hand-roll the DEPLOYED layout in the\n' +
-        '        fork test and invert this check to assert they differ.'
+        '        Nothing production encodes this tuple any more, so this is not an\n' +
+        `        outage — it is the trap going stale. ${UNI_SHAPED_STRUCT} in\n` +
+        `        ${UNI_SHAPED_HOME} imitates the pinned shape, and ${INTERCHANGE_TEST}\n` +
+        '        proves Infinity rejects it. If Uniswap moved on, that proof now covers a\n' +
+        '        tuple nobody would write, and says nothing about the one a reader might.\n\n' +
+        '        Decide which shape is worth trapping: update UNISWAP_LAYOUT and\n' +
+        `        ${UNI_SHAPED_STRUCT} together, or drop both and delete this check —\n` +
+        '        but do not leave them disagreeing, which is the one state that reads\n' +
+        '        green while measuring nothing.'
+    );
+  }
+}
+
+// ── 2b · The hand-rolled trap matches the shape it claims to be ────────────
+//
+// Check 2 pins `UNISWAP_LAYOUT` to `lib/`. This pins the spike's hand-roll to
+// `UNISWAP_LAYOUT`, which closes the loop: the trap is a copy, and a copy with
+// nothing relating it to its original is exactly the hazard this whole file was
+// written about. It is restated rather than imported so the test can send a
+// five-member `UniShapedPoolKey` — no `poolManager` — which is the field
+// difference the interchange test turns on.
+
+const uniShaped = structFields(stripComments(read(UNI_SHAPED_HOME)), UNI_SHAPED_STRUCT, UNI_SHAPED_HOME);
+
+if (uniShaped) {
+  // The restatement names its own PoolKey type, because Infinity's real
+  // `PoolKey` is in scope in that file and using it would defeat the point.
+  // Compare names and the non-key fields, then size the key separately.
+  const shapedNames = uniShaped.map(([, n]) => n).join(', ');
+  const pinnedNames = UNISWAP_LAYOUT.map(([, n]) => n).join(', ');
+  const shapedTail = render(uniShaped.slice(1));
+  const pinnedTail = render(UNISWAP_LAYOUT.slice(1));
+  const shapedKeyWidth = poolKeyWidth(UNI_SHAPED_HOME, uniShaped[0][0]);
+
+  if (shapedNames === pinnedNames && shapedTail === pinnedTail && shapedKeyWidth === HEAD_SLOTS.PoolKey) {
+    ok.push(
+      `${UNI_SHAPED_STRUCT} imitates the pinned Uniswap shape\n` +
+        `        ${uniShaped[0][0]}(${shapedKeyWidth}) + ${shapedTail}`
+    );
+  } else {
+    failures.push(
+      `${UNI_SHAPED_HOME}: ${UNI_SHAPED_STRUCT} is not the Uniswap shape it stands in for.\n` +
+        `        pinned:   PoolKey(${HEAD_SLOTS.PoolKey}) + ${pinnedTail}\n` +
+        `        restated: ${uniShaped[0][0]}(${shapedKeyWidth ?? '?'}) + ${shapedTail}\n\n` +
+        `        ${INTERCHANGE_TEST} sends this at Infinity's router to prove the two\n` +
+        "        AMMs' same-sized tuples are not confusable. If the restatement is not\n" +
+        '        actually Uniswap-shaped, that test proves it about the wrong tuple, and\n' +
+        '        the collision check 6 measures is asserted against a straw man.'
     );
   }
 }
@@ -492,20 +573,32 @@ for (const root of SCAN_ROOTS) {
 
     // A local copy is drift wherever it appears — same argument as check 1,
     // and it outranks the exemption below rather than being excused by it.
-    if (/struct\s+ExactInputSingleParams\s*\{/.test(src)) {
-      failures.push(
-        `${rel} declares its own \`ExactInputSingleParams\`.\n` +
-          '        Import IV4Router.ExactInputSingleParams instead. Nothing in either\n' +
-          '        type system relates a copy to the vendored struct, so checks 2-3\n' +
-          '        cannot see it drift away from the deployed layout.'
-      );
-      continue;
+    //
+    // Both names are banned here, for different reasons. Uniswap's is dead
+    // weight: nothing encodes it, so a copy appearing outside test/ is someone
+    // reviving the wrong AMM's tuple. Infinity's is live, which makes a copy
+    // worse — it would be encoding real calldata with nothing relating it to
+    // infinity-periphery. The ONE restatement that exists is in the spike, is
+    // deliberate, and is pinned by check 6; test/ is out of scope here.
+    for (const banned of ['ExactInputSingleParams', STRUCT]) {
+      if (new RegExp(`struct\\s+${banned}\\s*\\{`).test(src)) {
+        failures.push(
+          `${rel} declares its own \`${banned}\`.\n` +
+            `        Import it (${banned === STRUCT ? 'ICLRouterBase' : 'IV4Router'}.${banned}) rather than restating it.\n` +
+            '        Nothing in either type system relates a copy to the vendored struct,\n' +
+            '        so no check here can see it drift, and a tuple of the wrong shape is\n' +
+            '        reinterpreted rather than rejected — see this file\'s header.'
+        );
+      }
     }
 
-    // Solidity encoding the vendored struct is already pinned by checks 2-3.
+    // Solidity reaching the vendored Infinity struct through its interface is
+    // pinned by construction: the type comes from lib/, and check 6 pins lib/
+    // against the restatement the spike sends at the live router.
+    //
     // The `.sol` condition is load-bearing: a TypeScript file cannot import a
     // Solidity type, so a marker there is always a hand-built tuple.
-    if (rel.endsWith('.sol') && /\bIV4Router\.ExactInputSingleParams\b/.test(src)) {
+    if (rel.endsWith('.sol') && new RegExp(`\\bICLRouterBase\\.${STRUCT}\\b`).test(src)) {
       onPinnedPath.push(rel);
       continue;
     }
@@ -520,7 +613,7 @@ if (hits.length) {
       '        This code builds UniversalRouter calldata without going through the\n' +
       '        vendored IV4Router.ExactInputSingleParams, so nothing here relates it\n' +
       '        to the layout checks 2-3 pin. Confirm it matches the DEPLOYED tuple:\n\n' +
-      `          ${render(DEPLOYED_LAYOUT)}\n\n` +
+      `          ${render(UNISWAP_LAYOUT)}\n\n` +
       '        and that it is checked against the chain rather than against lib/,\n' +
       '        which is a submodule and can move. A tuple of the wrong length does\n' +
       '        not revert on a native-ETH pool — see this file\'s header.'
@@ -601,8 +694,6 @@ const ICLROUTERBASE = 'lib/infinity-periphery/src/pool-cl/interfaces/ICLRouterBa
 const CL_DECODER = 'lib/infinity-periphery/src/pool-cl/libraries/CLCalldataDecoder.sol';
 const INFINITY_SPIKE = 'test/ToshV5ForkInfinity.t.sol';
 const INTERCHANGE_TEST = 'test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable';
-
-const STRUCT = 'CLSwapExactInputSingleParams';
 
 const vendoredInfinity = structFields(stripComments(read(ICLROUTERBASE)), STRUCT, ICLROUTERBASE);
 const spikeSrc = stripComments(read(INFINITY_SPIKE));

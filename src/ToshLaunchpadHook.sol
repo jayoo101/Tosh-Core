@@ -2222,12 +2222,26 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         Declared `public` rather than `external` so `_key()` can read it
     ///         without a self-call: the key has to repeat the bitmap, and the
     ///         two must come from one expression or they can drift apart.
+    ///
+    ///         WHAT BOUNDS THE SHIFTS, since `forge lint` asks and the answer is
+    ///         not visible from here. Each `HOOKS_*_OFFSET` is a `uint8` constant
+    ///         in Infinity's `ICLHooks`, and the largest of the fourteen is 13
+    ///         (`AFTER_REMOVE_LIQUIDIY_RETURNS_DELTA`). A `uint16` has bits 0-15,
+    ///         so every shift Infinity defines fits with two bits to spare and no
+    ///         combination of them can truncate.
+    ///
+    ///         The shifted operand is written `uint16(1)` rather than a bare `1`
+    ///         for that reason. A literal takes its type from context, which here
+    ///         is an outer `uint16(...)` cast — so the arithmetic was already
+    ///         correct, and correct for a reason a reader has to work out. Naming
+    ///         the width at the shift makes the bound local: if Infinity ever
+    ///         defines an offset above 15, this stops compiling silently-correct
+    ///         code and starts truncating visibly at a named type.
     function getHooksRegistrationBitmap() public pure override returns (uint16) {
-        return uint16(
-            (1 << HOOKS_BEFORE_INITIALIZE_OFFSET) | (1 << HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET)
-                | (1 << HOOKS_BEFORE_SWAP_OFFSET) | (1 << HOOKS_AFTER_SWAP_OFFSET)
-                | (1 << HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET) | (1 << HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET)
-        );
+        return (uint16(1) << HOOKS_BEFORE_INITIALIZE_OFFSET) | (uint16(1) << HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET)
+            | (uint16(1) << HOOKS_BEFORE_SWAP_OFFSET) | (uint16(1) << HOOKS_AFTER_SWAP_OFFSET)
+            | (uint16(1) << HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET)
+            | (uint16(1) << HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET);
     }
 
     /// @dev Settle the full-range genesis position: `lpNative` native ETH plus
