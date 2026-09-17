@@ -88,6 +88,55 @@ contract DeployMainnetScript is Script {
         require(prodOwnerSafe != deployer, "PROD_OWNER_SAFE must NOT equal deployer EOA");
         require(platformTreasury != deployer, "PLATFORM_TREASURY must NOT equal deployer EOA");
         require(platformTreasury != pogSigner, "PLATFORM_TREASURY must NOT equal the PoG signer");
+
+        // The checks above all compare roles against EACH OTHER, which cannot
+        // see the failure that actually happened on 97: every role distinct,
+        // every address well-formed, and `platformTreasury` set to Anvil's
+        // account #1 by a stale shell variable shadowing `.env`. Distinctness is
+        // orthogonal to controllability. See `_refuseWellKnownKey` for the
+        // full account of it.
+        _refuseWellKnownKey(platformTreasury);
+        _refuseWellKnownKey(prodOwnerSafe);
+        _refuseWellKnownKey(pogSigner);
+        _refuseWellKnownKey(deployer);
+    }
+
+    /// @dev Refuse an address whose private key is public knowledge — the first
+    ///      ten accounts of Foundry's default test mnemonic.
+    ///
+    ///      ⚠ THIS CAUGHT A REAL DEPLOY on 97. `.env` named the intended
+    ///        treasury; a PowerShell session left over from local Anvil work
+    ///        still exported `PLATFORM_TREASURY=0x7099…dc79C8`, and Foundry lets
+    ///        the process environment shadow `.env`. The file was right, the
+    ///        deploy was wrong, and the deploy log agreed with the deploy, so
+    ///        nothing reconciled the two.
+    ///
+    ///        On 97 that cost nothing. Here it would be permanent and drainable:
+    ///        `platformTreasury` takes 0.30 % of the native input of every buy on
+    ///        every pool and is immutable on both the factory and the hook
+    ///        implementation, and `prodOwnerSafe` owns the factory. Anyone who has
+    ///        run `anvil` holds those keys.
+    ///
+    ///      Applied to all four roles rather than just the treasury, because the
+    ///      mechanism is the environment and not the variable — any of them can
+    ///      be shadowed the same way. Note what this does NOT do: a passing
+    ///      address is not thereby one you control.
+    function _refuseWellKnownKey(address who) internal pure {
+        address[10] memory anvil = [
+            0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266,
+            0x70997970C51812dc3A010C7d01b50e0d17dc79C8,
+            0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC,
+            0x90F79bf6EB2c4f870365E785982E1f101E93b906,
+            0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65,
+            0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc,
+            0x976EA74026E726554dB657fA54763abd0C3a0aa9,
+            0x14dC79964da2C08b23698B3D3cc7Ca32193d9955,
+            0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,
+            0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
+        ];
+        for (uint256 i = 0; i < anvil.length; i++) {
+            require(who != anvil[i], "role is an Anvil test account -- its key is public");
+        }
     }
 
     function run() external {

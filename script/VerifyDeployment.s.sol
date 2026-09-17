@@ -139,7 +139,7 @@ contract VerifyDeploymentScript is Script {
         console2.log("Factory                 :", factoryAddr);
         console2.log("Chain ID                :", block.chainid);
         console2.log("Owner                   :", owner);
-        console2.log("V4 PoolManager          :", pm);
+        console2.log("Infinity CLPoolManager  :", pm);
         console2.log("PoG signer              :", ps);
         console2.log("Platform Treasury       :", pt);
         console2.log("  (== hook.platformFeeRecipient, takes 0.30% of every buy)");

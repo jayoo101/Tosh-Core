@@ -97,6 +97,7 @@ contract DeployScript is Script {
         // whose `receive()` can revert bricks every buy on every pool.
         address platformTreasury = vm.envAddress("PLATFORM_TREASURY");
         require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
+        _refuseWellKnownKey(platformTreasury);
 
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad v5.0 -- BNB Smart Chain testnet Deployment");
@@ -182,5 +183,50 @@ contract DeployScript is Script {
         console2.log("     The pool is derived from the token's hook -- listing a token this");
         console2.log("     factory did not launch is rejected.");
         console2.log("============================================================");
+    }
+
+    /// @dev Refuse an address whose private key is public knowledge.
+    ///
+    ///      ⚠ THIS CAUGHT A REAL DEPLOY, on 97, and the shape is what makes it
+    ///        worth a check rather than a note. `.env` named the intended
+    ///        treasury. A PowerShell session left over from local Anvil work
+    ///        still exported `PLATFORM_TREASURY=0x7099…dc79C8` — Anvil's account
+    ///        #1 — and Foundry lets the process environment shadow `.env`. So the
+    ///        file was right, the deploy was wrong, and the log agreed with the
+    ///        deploy. Nothing reconciled the two.
+    ///
+    ///        `require(!= address(0))` cannot see this: the address is perfectly
+    ///        well-formed, it accepts value unconditionally, and every invariant
+    ///        check downstream passes. It is wrong only in a way the deploy
+    ///        script has no other way to know — the key is in every Foundry
+    ///        install on earth.
+    ///
+    ///        On 97 that cost nothing. On 56 it would have been permanent: this
+    ///        address takes 0.30 % of the native input of every buy on every
+    ///        pool, it is immutable on both the factory and the hook
+    ///        implementation, and anyone who has ever run `anvil` could sweep it.
+    ///        The fix is not "remember to unset the variable" — it is to make the
+    ///        one class of address we can recognise impossible to deploy.
+    ///
+    ///      Scope, stated so the check is not mistaken for more than it is: these
+    ///      are the first ten accounts of Foundry's default test mnemonic
+    ///      ("test test … junk"), which is what a stale local session leaves
+    ///      behind. It does NOT verify that a passing address is one you control.
+    function _refuseWellKnownKey(address who) internal pure {
+        address[10] memory anvil = [
+            0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266,
+            0x70997970C51812dc3A010C7d01b50e0d17dc79C8,
+            0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC,
+            0x90F79bf6EB2c4f870365E785982E1f101E93b906,
+            0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65,
+            0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc,
+            0x976EA74026E726554dB657fA54763abd0C3a0aa9,
+            0x14dC79964da2C08b23698B3D3cc7Ca32193d9955,
+            0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,
+            0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
+        ];
+        for (uint256 i = 0; i < anvil.length; i++) {
+            require(who != anvil[i], "PLATFORM_TREASURY is an Anvil test account -- its key is public");
+        }
     }
 }
