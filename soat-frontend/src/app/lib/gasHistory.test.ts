@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { scanGasHistory, GasScanUnavailable, GAS_SCAN_CHAINS } from './gasHistory'
 import {
-  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ETH_RATE,
+  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ALLOC_RATE,
   computeMaxAllocFromWei, isPogEligible, assertPogBandCoherent, pogCapWei,
 } from './pogQuota'
 
@@ -130,10 +130,13 @@ describe('the eligibility band', () => {
   })
 
   it('holds the numbers that were actually chosen', () => {
-    expect(POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH
-    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n) // 1 ETH of gas
-    expect(MAX_ALLOC_ETH_WEI).toBe(500_000_000_000_000_000n) // 0.5 ETH ceiling
-    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)                // 50 %
+    // Floor and cap are ETH because they measure gas; the ceiling is BNB
+    // because it bounds a deposit. Only the BNB side moved at the cutover,
+    // and the cap held at 1 ETH because the rate moved with the ceiling.
+    expect(POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)    // 0.025 ETH of gas
+    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n)   // 1 ETH of gas
+    expect(MAX_ALLOC_ETH_WEI).toBe(1_750_000_000_000_000_000n) // 1.75 BNB ceiling
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.75)               // BNB per ETH of gas
   })
 
   it('refuses anything below the floor, including one wei below', () => {
@@ -142,7 +145,7 @@ describe('the eligibility band', () => {
     // and admits exactly at the floor
     expect(isPogEligible(POG_GAS_FLOOR_WEI, BAND)).toBe(true)
     expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI, BAND))
-      .toBe(12_500_000_000_000_000n) // 0.0125 ETH
+      .toBe(43_750_000_000_000_000n) // 0.04375 BNB
   })
 
   it('never exceeds the ceiling however large the history', () => {

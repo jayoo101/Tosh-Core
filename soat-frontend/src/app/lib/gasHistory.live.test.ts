@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import { scanGasHistory, GAS_SCAN_CHAINS } from './gasHistory'
 import {
-  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ETH_RATE,
+  DEFAULT_POG_BAND, DEFAULT_GAS_TO_ALLOC_RATE,
   computeMaxAllocFromWei, isPogEligible, pogCapWei,
 } from './pogQuota'
 
@@ -55,7 +55,7 @@ describe.runIf(process.env.POG_LIVE_SCAN === '1')('live gas scan', () => {
     expect(GAS_SCAN_CHAINS).toHaveLength(5)
     expect(POG_GAS_CAP_WEI).toBe(10n ** 18n)
     expect(POG_GAS_FLOOR_WEI).toBe(25n * 10n ** 15n)
-    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.75)
     // the band's whole point: cap * rate lands exactly on the ceiling
     expect(computeMaxAllocFromWei(POG_GAS_CAP_WEI, BAND)).toBe(MAX_ALLOC_ETH_WEI)
   })

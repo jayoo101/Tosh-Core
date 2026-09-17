@@ -16,11 +16,32 @@
 //
 // Keep this file dependency-free (no `viem`, `ethers`, or runtime-specific
 // imports) so it can be consumed from either environment.
+//
+// ─── THE BAND IS NOT IN ONE CURRENCY, AND THAT IS NOT A BUG ──────────────────
+//
+// Before the BNB Smart Chain cutover it was: settlement was ETH, the scanned
+// chains settle in ETH, so every figure here was ETH and `rate` was a pure
+// ratio. Now the two halves differ, and conflating them is the mistake this
+// note exists to prevent:
+//
+//   • `floorWei` and the derived cap measure GAS HISTORY, which is read from
+//     Ethereum, Arbitrum, Optimism and Base. Those settle in ETH, so these two
+//     stay ETH-denominated and did NOT move at the cutover. Converting them
+//     would have raised the eligibility bar 3.5x while looking like a rename.
+//
+//   • `maxAllocWei` measures a DEPOSIT, which is now BNB.
+//
+//   • `rate` therefore carries a currency conversion as well as a policy
+//     choice: it is BNB of quota per 1 ETH of gas, not a dimensionless ratio.
+//
+// `pogCapWei` divides the ceiling by the rate and so lands back in ETH, which
+// is the unit the scanner wants — the dimensions work out, but only because
+// the rate is the thing crossing between them. See `docs/BSC_MIGRATION.md` §6.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Contract-aligned constants ──────────────────────────────────────────────
 
-/** Seed for the maximum ETH one PoG attestation may allocate.
+/** Seed for the maximum BNB one PoG attestation may allocate.
  *
  *  Also the per-wallet deposit ceiling, because `createLaunch` freezes
  *  `ToshFactory.maxPogAllocationLimit` into every new hook as its
@@ -31,7 +52,7 @@
  *  `registerPoG` with `ExceedsGlobalPogLimit`. The admin endpoint refuses a
  *  ceiling above the live dial for that reason; raising both is two
  *  transactions, and the on-chain one goes first. */
-export const DEFAULT_POG_MAX_ALLOC_WEI: bigint = 5n * 10n ** 17n  // 0.5 ether
+export const DEFAULT_POG_MAX_ALLOC_WEI: bigint = 175n * 10n ** 16n  // 1.75 BNB
 
 /** The on-chain ceiling on how far ahead a deadline may sit.
  *  Mirrors `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). Not a TTL to sign with —
@@ -83,23 +104,38 @@ export const ATTESTATION_TTL_SECONDS =
  * one, a claim costs what the floor costs, and that price is paid in public on
  * a chain nobody here controls.
  *
- * At `DEFAULT_GAS_TO_ETH_RATE` this floor corresponds to a 0.0125 ETH
+ * ETH, and deliberately still ETH after the BNB cutover. This is a threshold
+ * on gas paid to Ethereum, Arbitrum, Optimism and Base, all of which settle in
+ * ETH; what the settlement chain's own coin is worth has no bearing on how
+ * much gas a wallet has historically burned. Multiplying it by 3.5 along with
+ * the BNB-denominated dials would have quietly tripled the eligibility bar.
+ *
+ * At `DEFAULT_GAS_TO_ALLOC_RATE` this floor corresponds to a 0.04375 BNB
  * allocation — the smallest award the seeded band will issue.
  */
 export const DEFAULT_POG_GAS_FLOOR_WEI: bigint = 25n * 10n ** 15n // 0.025 ETH
 
 /** STARTING exchange rate for the Proof-of-Gas oracle.
- *  1 ETH of historical multi-chain gas spend = 0.5 ETH of genesis allocation,
+ *  1 ETH of historical multi-chain gas spend = 1.75 BNB of genesis allocation,
  *  which fills the seeded ceiling at exactly 1 ETH of gas.
+ *
+ *  Both a policy choice and a currency conversion, which is new — see the
+ *  currency note in this file's header. The 1 ETH cap is unchanged from the
+ *  pre-cutover band precisely because the ceiling and the rate moved by the
+ *  same factor, so their quotient did not.
  *
  *  Not the value to sign with: the admin endpoint rotates the live band via
  *  owner-signed updates, so a signer must call `getPogBand()` from
  *  `app/lib/pogParams.ts`.  This constant is that store's seed and its
  *  fallback when the shared store is unreachable. */
-export const DEFAULT_GAS_TO_ETH_RATE = 0.5
+export const DEFAULT_GAS_TO_ALLOC_RATE = 1.75
 
-/** @deprecated v4.x alias of DEFAULT_GAS_TO_ETH_RATE. */
-export const DEFAULT_GAS_TO_SATO_RATE = DEFAULT_GAS_TO_ETH_RATE
+/** @deprecated Pre-BNB name. It said ETH on both sides of the conversion and
+ *  only one side is ETH now; use `DEFAULT_GAS_TO_ALLOC_RATE`. */
+export const DEFAULT_GAS_TO_ETH_RATE = DEFAULT_GAS_TO_ALLOC_RATE
+
+/** @deprecated v4.x alias of DEFAULT_GAS_TO_ALLOC_RATE. */
+export const DEFAULT_GAS_TO_SATO_RATE = DEFAULT_GAS_TO_ALLOC_RATE
 
 /**
  * The three numbers that decide an allocation, carried together.
@@ -112,11 +148,14 @@ export const DEFAULT_GAS_TO_SATO_RATE = DEFAULT_GAS_TO_ETH_RATE
  * attestation.
  */
 export interface PogBand {
-  /** Lifetime gas, in wei, required to qualify at all. */
+  /** Lifetime gas required to qualify at all, in **ETH** wei — the unit the
+   *  scanned chains settle in, not the unit a deposit is paid in. */
   floorWei: bigint
-  /** Ceiling on one attestation, in wei. Also the per-wallet deposit cap. */
+  /** Ceiling on one attestation, in **BNB** wei. Also the per-wallet deposit
+   *  cap, which is why it is BNB: it bounds money going in, not gas gone by. */
   maxAllocWei: bigint
-  /** ETH of deposit quota earned per 1 ETH of historical gas. */
+  /** BNB of deposit quota earned per 1 ETH of historical gas. Carries the
+   *  cross-currency conversion; see this file's header. */
   rate: number
 }
 
@@ -125,7 +164,7 @@ export interface PogBand {
 export const DEFAULT_POG_BAND: PogBand = {
   floorWei: DEFAULT_POG_GAS_FLOOR_WEI,
   maxAllocWei: DEFAULT_POG_MAX_ALLOC_WEI,
-  rate: DEFAULT_GAS_TO_ETH_RATE,
+  rate: DEFAULT_GAS_TO_ALLOC_RATE,
 }
 
 // ─── Multi-chain gas scan (stub) ─────────────────────────────────────────────
@@ -382,7 +421,7 @@ export async function fetchPogBand(baseUrl: string = ''): Promise<PogBand> {
     const band: PogBand = {
       rate: typeof data.globalGasToSatoRate === 'number' && data.globalGasToSatoRate > 0
         ? data.globalGasToSatoRate
-        : DEFAULT_GAS_TO_ETH_RATE,
+        : DEFAULT_GAS_TO_ALLOC_RATE,
       floorWei: parseWeiOr(data.pogFloorWei, DEFAULT_POG_GAS_FLOOR_WEI),
       maxAllocWei: parseWeiOr(data.pogMaxAllocWei, DEFAULT_POG_MAX_ALLOC_WEI),
     }

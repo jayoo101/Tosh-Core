@@ -213,6 +213,44 @@ export interface GasScanChain {
    * the result instead of buried in this comment.
    */
   execFeeIsWholeFee: boolean
+  /**
+   * What one wei of this chain's gas coin is worth in ETH wei, scaled by 1e18.
+   *
+   * Exists because the totals this module produces are ETH-denominated and not
+   * every chain worth scanning settles in ETH. `ChainSpend.weiSpent` stays in
+   * the chain's OWN coin — that is what the user paid and what a breakdown
+   * should show — and this is the factor that makes summing them legitimate.
+   *
+   * `10n ** 18n` means "already ETH" and is not merely the default: the
+   * conversion helpers short-circuit on it, so an ETH chain pays no rounding
+   * and no arithmetic for a feature it does not use.
+   *
+   * A non-unit factor is a PRICE, and prices drift, so the rule from the
+   * failure-direction section applies with full force: set it BELOW spot so
+   * drift under-awards. There is deliberately no oracle here. A scan that
+   * silently re-prices itself between two signers is the divergence hazard
+   * `pogParams.ts` exists to document, and a gas history that changes because
+   * a market moved is not a history.
+   */
+  nativeToEthX18: bigint
+}
+
+/** `nativeToEthX18` for a chain that settles in ETH. */
+const NATIVE_IS_ETH = 10n ** 18n
+
+/** This chain's coin -> ETH. Exact for ETH chains, floor-rounded otherwise,
+ *  which rounds against the claimant and so fails in the allowed direction. */
+function toEthWei(nativeWei: bigint, chain: GasScanChain): bigint {
+  if (chain.nativeToEthX18 === NATIVE_IS_ETH) return nativeWei
+  return (nativeWei * chain.nativeToEthX18) / NATIVE_IS_ETH
+}
+
+/** ETH -> this chain's coin, for carrying an ETH-denominated budget into a
+ *  scanner that counts in the chain's own units. Rounds UP so converting a
+ *  budget can never shrink it below what the ETH figure allowed. */
+function toNativeWei(ethWei: bigint, chain: GasScanChain): bigint {
+  if (chain.nativeToEthX18 === NATIVE_IS_ETH) return ethWei
+  return (ethWei * NATIVE_IS_ETH + chain.nativeToEthX18 - 1n) / chain.nativeToEthX18
 }
 
 /**
@@ -227,10 +265,10 @@ export interface GasScanChain {
  * no credit for using it.
  */
 export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
-  { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true  },
-  { chain: 'Arbitrum',  chainId: 42161, api: 'v1', required: true,  execFeeIsWholeFee: true  },
-  { chain: 'Optimism',  chainId: 10,    api: 'v1', required: true,  execFeeIsWholeFee: false },
-  { chain: 'Base',      chainId: 8453,  api: 'v1', required: true,  execFeeIsWholeFee: false },
+  { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Arbitrum',  chainId: 42161, api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Optimism',  chainId: 10,    api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Base',      chainId: 8453,  api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
   // Reads like the other four now. On its own instance v1 timed out, which is
   // why this was pinned to `v2` and a 20-page budget; on the PRO API it answers
   // a production-shaped `txlist` (offset 10,000, startblock 0) in 2.5 s, and
@@ -242,7 +280,7 @@ export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   // `required: false` is the one exception in this table, argued at length in the
   // header. Short version: it can hide 0.4 % of a capped total, and while it was
   // fatal its indexer's uptime was the uptime of genesis allocation.
-  { chain: 'Robinhood', chainId: 4663,  api: 'v1', required: false, execFeeIsWholeFee: true  },
+  { chain: 'Robinhood', chainId: 4663,  api: 'v1', required: false, execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
 ]
 
 /**
@@ -360,9 +398,17 @@ function withKey(url: string): string {
 export interface ChainSpend {
   chain: string
   chainId: number
-  /** Fees this address paid on this chain, in wei. All five settle in ETH, so
-   *  summing across them is addition of like units. */
+  /** Fees this address paid on this chain, in THIS CHAIN's coin.
+   *
+   *  This used to carry the note "all five settle in ETH, so summing across
+   *  them is addition of like units", and that was true until a chain whose
+   *  coin is not ETH became worth scanning. Summing this field directly is now
+   *  a unit error; `ethEquivalentWei` is what adds up. Kept in native units
+   *  because a per-chain breakdown should say what the user actually paid. */
   weiSpent: bigint
+  /** `weiSpent` converted through `GasScanChain.nativeToEthX18`. Equal to
+   *  `weiSpent` on every ETH chain, and the only field `totalWei` accumulates. */
+  ethEquivalentWei: bigint
   /** Transactions sent by the address that were counted. */
   sentTxs: number
   /** Request budget ran out before the history did: `weiSpent` is a floor. */
@@ -618,7 +664,8 @@ async function scanChainV1(
 
   return {
     chain: chain.chain, chainId: chain.chainId,
-    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
+    weiSpent, ethEquivalentWei: toEthWei(weiSpent, chain),
+    sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
     execFeeOnly: !chain.execFeeIsWholeFee,
   }
 }
@@ -700,7 +747,8 @@ async function scanChainV2(
 
   return {
     chain: chain.chain, chainId: chain.chainId,
-    weiSpent, sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
+    weiSpent, ethEquivalentWei: toEthWei(weiSpent, chain),
+    sentTxs, truncated, stoppedAtCap, skipped: false, unavailable: false,
     // A total assembled from v2 is exact on every chain, including OP-stack,
     // because `fee.value` already contains the L1 data fee.
     execFeeOnly: false,
@@ -769,7 +817,7 @@ export async function scanGasHistory(
     if (totalWei >= capWei) {
       chains.push({
         chain: chain.chain, chainId: chain.chainId,
-        weiSpent: 0n, sentTxs: 0, truncated: false,
+        weiSpent: 0n, ethEquivalentWei: 0n, sentTxs: 0, truncated: false,
         stoppedAtCap: true, skipped: true, unavailable: false,
         execFeeOnly: !chain.execFeeIsWholeFee,
       })
@@ -778,7 +826,13 @@ export async function scanGasHistory(
 
     let spend: ChainSpend
     try {
-      spend = await scanChain(address, chain, totalWei, capWei)
+      // The budget crosses into the chain's own currency on the way in and the
+      // result crosses back on the way out, so every comparison inside the
+      // scanners — including the early stop at the cap — is like against like.
+      // Converting only the result would leave those comparisons mixing units.
+      spend = await scanChain(
+        address, chain, toNativeWei(totalWei, chain), toNativeWei(capWei, chain),
+      )
     } catch (e) {
       // Only a read failure is survivable, and only on a chain marked optional.
       // Anything else — a bug in here, a shape we cannot parse — must not be
@@ -787,7 +841,7 @@ export async function scanGasHistory(
       if (chain.required || !(e instanceof GasScanUnavailable)) throw e
       spend = {
         chain: chain.chain, chainId: chain.chainId,
-        weiSpent: 0n, sentTxs: 0,
+        weiSpent: 0n, ethEquivalentWei: 0n, sentTxs: 0,
         // `truncated` as well as `unavailable`: this chain's figure is a lower
         // bound, which is exactly what that flag means, and it is what carries
         // the fact up into `GasHistory.truncated` without a second rule.
@@ -796,7 +850,7 @@ export async function scanGasHistory(
       }
     }
     chains.push(spend)
-    totalWei += spend.weiSpent
+    totalWei += spend.ethEquivalentWei
   }
 
   return {

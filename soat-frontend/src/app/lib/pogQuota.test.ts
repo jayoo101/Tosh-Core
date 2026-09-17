@@ -14,7 +14,7 @@ import {
   DEFAULT_POG_BAND,
   DEFAULT_POG_MAX_ALLOC_WEI,
   DEFAULT_POG_GAS_FLOOR_WEI,
-  DEFAULT_GAS_TO_ETH_RATE,
+  DEFAULT_GAS_TO_ALLOC_RATE,
   computeMaxAllocFromWei,
 } from './pogQuota'
 
@@ -144,9 +144,9 @@ describe('PoG allocation band', () => {
   })
 
   it('holds the numbers that were actually chosen', () => {
-    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH
-    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(500_000_000_000_000_000n) // 0.5 ETH
-    expect(DEFAULT_GAS_TO_ETH_RATE).toBe(0.5)                        // 0.5 ETH per 1 ETH of gas
+    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)    // 0.025 ETH of gas
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(1_750_000_000_000_000_000n) // 1.75 BNB of quota
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.75)                       // 1.75 BNB per 1 ETH of gas
     // 1 ETH of gas fills the ceiling at that rate.
     expect(pogCapWei(DEFAULT_POG_BAND)).toBe(10n ** 18n)
   })
