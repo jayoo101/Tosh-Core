@@ -19,6 +19,26 @@
 // the fork suite now imports `IV4Router.ExactInputSingleParams` directly, and
 // this guard's job is to keep the two the SAME.
 //
+// ── What the BSC cutover did NOT change ────────────────────────────────────
+//
+// The header above warned that a second target chain would turn the pinned
+// layout into a map. It did not, and the reason is worth recording so the next
+// reader does not go looking for the map.
+//
+// BSC's UniversalRouter 2.1.1 (0x8B844f885672f333Bc0042cB669255f93a4C1E6b) is
+// the same compiled build as Robinhood's: both are 24,546 bytes, and the two
+// runtimes differ only where a constructor immutable is baked in. Measured, not
+// assumed — `test_forkBsc_deployedRouterReadsTheSixthField` drives a real buy
+// through it on a mainnet fork and the sixth field arrives. One layout, now
+// corroborated on two chains.
+//
+// BSC also carries an OLDER router at 0x1906c1d672b88cD1B9aC7593301cA990F94Eae07,
+// 19,499 bytes, a different build entirely. That one is the Ethereum-era hazard
+// wearing a BSC address: point this protocol at it and `hookData` goes to the
+// quiet case below — the swap succeeds, the tax is right, and the hook never
+// sees its payload. Check 5 exists solely to keep that address out of anything
+// that is not documenting it as a trap.
+//
 // ── The drift this exists to catch ─────────────────────────────────────────
 //
 // The agreement is not a property of the world. It is two versions that happen
@@ -63,7 +83,7 @@
 //
 // ── What this checks ───────────────────────────────────────────────────────
 //
-//   1. test/ToshV5Fork.t.sol imports the vendored struct and does NOT carry a
+//   1. Every fork suite imports the vendored struct and does NOT carry a
 //      hand-rolled copy. A reappearing hand-roll is drift by definition now.
 //   2. lib/v4-periphery's tuple still MATCHES the deployed one — and when it
 //      stops, reports which head slot the deployed decoder will misread and
@@ -91,23 +111,45 @@
 //      this tuple by hand in a language with no access to the Solidity type —
 //      exactly the silent hazard this guard exists for.
 //
+//   5. BSC's older, five-field-era router appears nowhere except the one test
+//      that names it as the wrong one. Checks 2-4 pin the LAYOUT; this pins the
+//      ADDRESS, which is the other half of the same mistake — a correct tuple
+//      sent to the wrong decoder fails exactly as quietly.
+//
 // Usage:  node scripts/checkV4RouterTuple.mjs
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-const FORK_TEST = 'test/ToshV5Fork.t.sol';
+/**
+ * Every suite that builds router calldata against a live chain. Both encode the
+ * same vendored struct against the same build, so check 1 runs once per entry
+ * rather than picking one and hoping the other followed.
+ */
+const FORK_TESTS = ['test/ToshV5Fork.t.sol', 'test/ToshV5ForkBsc.t.sol'];
 const IV4ROUTER = 'lib/v4-periphery/src/interfaces/IV4Router.sol';
+
+/**
+ * BSC's older UniversalRouter, and the one file allowed to name it. That file
+ * asserts it is a different build from 2.1.1, which is the whole reason the
+ * address is written down anywhere — see check 5.
+ */
+const OLD_BSC_ROUTER = '0x1906c1d672b88cD1B9aC7593301cA990F94Eae07';
+const OLD_BSC_ROUTER_HOME = 'test/ToshV5ForkBsc.t.sol';
 const DECODER = 'lib/v4-periphery/src/libraries/CalldataDecoder.sol';
 
 /**
- * The tuple the router deployed on Robinhood Chain decodes, in order. Pinned as
- * a literal because there is no parseable source for it in this tree — the
- * authority is the verified source on Blockscout, corroborated by
- * `test_fork_deployedRouterReadsTheSixthField` against the live contract.
+ * The tuple the deployed router decodes, in order. Pinned as a literal because
+ * there is no parseable source for it in this tree — the authority is the
+ * verified source on the explorer, corroborated by
+ * `test_fork_deployedRouterReadsTheSixthField` on Robinhood and
+ * `test_forkBsc_deployedRouterReadsTheSixthField` on BSC, both against the live
+ * contract.
  *
- * Per-chain fact. If this repository ever targets a second chain, this becomes
- * a map and every check below has to run once per entry.
+ * Nominally a per-chain fact, and it stayed a single literal across the BSC
+ * cutover only because both routers are the same compiled build. A third chain
+ * earns no such assumption: measure it before adding it, and if it disagrees,
+ * this becomes a map and every check below runs once per entry.
  */
 const DEPLOYED_LAYOUT = [
   ['PoolKey', 'poolKey'],
@@ -198,27 +240,29 @@ function headSlots(fields, path) {
 
 // ── 1 · The fork test imports the struct rather than restating it ───────────
 
-const forkSrc = stripComments(read(FORK_TEST));
+for (const forkTest of FORK_TESTS) {
+  const forkSrc = stripComments(read(forkTest));
 
-if (/struct\s+ExactInputSingleParams\s*\{/.test(forkSrc)) {
-  failures.push(
-    `${FORK_TEST} declares its own \`ExactInputSingleParams\`.\n` +
-      '        It must import IV4Router.ExactInputSingleParams instead. A local copy\n' +
-      '        only made sense while the deployed router and lib/ disagreed, which was\n' +
-      '        true on Ethereum and is not true on Robinhood. A copy kept past that\n' +
-      '        point drifts silently: nothing in either type system relates the two.\n' +
-      '        If the router really did diverge again, invert check 2 rather than\n' +
-      '        reintroducing an unchecked duplicate.'
-  );
-} else if (!/\bIV4Router\.ExactInputSingleParams\b/.test(forkSrc)) {
-  failures.push(
-    `${FORK_TEST} no longer encodes IV4Router.ExactInputSingleParams.\n` +
-      '        The fork suite is the only place production router calldata is built,\n' +
-      '        so if it stopped building any, checks 2-3 are guarding nothing and this\n' +
-      '        guard has silently become decorative.'
-  );
-} else {
-  ok.push(`${FORK_TEST} encodes the vendored IV4Router.ExactInputSingleParams`);
+  if (/struct\s+ExactInputSingleParams\s*\{/.test(forkSrc)) {
+    failures.push(
+      `${forkTest} declares its own \`ExactInputSingleParams\`.\n` +
+        '        It must import IV4Router.ExactInputSingleParams instead. A local copy\n' +
+        '        only made sense while the deployed router and lib/ disagreed, which was\n' +
+        '        true on Ethereum and is true on neither chain we target now. A copy\n' +
+        '        kept past that point drifts silently: nothing in either type system\n' +
+        '        relates the two. If the router really did diverge again, invert check 2\n' +
+        '        rather than reintroducing an unchecked duplicate.'
+    );
+  } else if (!/\bIV4Router\.ExactInputSingleParams\b/.test(forkSrc)) {
+    failures.push(
+      `${forkTest} no longer encodes IV4Router.ExactInputSingleParams.\n` +
+        '        The fork suites are the only place production router calldata is built,\n' +
+        '        so if one stopped building any, checks 2-3 are guarding less than they\n' +
+        '        appear to and this guard is drifting towards decorative.'
+    );
+  } else {
+    ok.push(`${forkTest} encodes the vendored IV4Router.ExactInputSingleParams`);
+  }
 }
 
 // ── 2 · The vendored tuple still matches the deployed one ───────────────────
@@ -259,8 +303,9 @@ if (libFields) {
             `        deployed reads \`${divergesAt.theirs}\`, we would encode \`${divergesAt.mine}\`\n`
           : '') +
         '\n' +
-        `        ${FORK_TEST} encodes with lib/, so it is now sending the live router\n` +
-        '        a tuple it will misread — and misreading is not the same as reverting.\n' +
+        `        ${FORK_TESTS.join(' and ')} encode with lib/, so they are now\n` +
+        '        sending the live router a tuple it will misread — and misreading is not\n' +
+        '        the same as reverting.\n' +
         '        See this file\'s header for what that looked like the last time.\n\n' +
         '        Either pin the submodule back, or hand-roll the DEPLOYED layout in the\n' +
         '        fork test and invert this check to assert they differ.'
@@ -312,7 +357,9 @@ const SELF = 'scripts/checkV4RouterTuple.mjs';
  */
 const ROUTER_MARKERS = new RegExp(
   [
-    '0x8876789976dEcBfCbBbe364623C63652db8C0904',
+    '0x8876789976dEcBfCbBbe364623C63652db8C0904', // Robinhood 4663/46630
+    '0x8B844f885672f333Bc0042cB669255f93a4C1E6b', // BSC 56, UniversalRouter 2.1.1
+    OLD_BSC_ROUTER, // BSC 56, the older build — see check 5
     '\\bUniversalRouter\\b',
     '\\bIV4Router\\b',
     '\\bExactInputSingleParams\\b',
@@ -405,6 +452,43 @@ if (hits.length) {
   );
 } else {
   ok.push(`no V4 router calldata outside test/ (scanned ${SCAN_ROOTS.join(', ')})`);
+}
+
+// ── 5 · BSC's older router is named only where it is named as wrong ─────────
+//
+// Checks 2-4 pin the tuple. This pins the destination, because the two failure
+// modes are indistinguishable from the outside: a six-field tuple sent to the
+// five-field-era decoder loses `hookData` in exactly the quiet way the header
+// describes. `test/` is in scope here and not in check 4 — the trap lives in a
+// test, so a test is precisely where it could spread.
+
+const oldRouterHits = [];
+
+for (const root of [...SCAN_ROOTS, 'test']) {
+  for (const file of walk(root, [])) {
+    const rel = relative('.', file).split(sep).join('/');
+    if (rel === SELF || rel === OLD_BSC_ROUTER_HOME) continue;
+
+    const src = stripComments(read(file));
+    const at = src.toLowerCase().indexOf(OLD_BSC_ROUTER.toLowerCase());
+    if (at >= 0) {
+      oldRouterHits.push(`  ${rel}:${src.slice(0, at).split('\n').length}`);
+    }
+  }
+}
+
+if (oldRouterHits.length) {
+  failures.push(
+    `BSC's older UniversalRouter (${OLD_BSC_ROUTER}) is referenced\n` +
+      `        outside ${OLD_BSC_ROUTER_HOME}:\n${oldRouterHits.join('\n')}\n\n` +
+      '        That address is a 19,499-byte build, not the 24,546-byte 2.1.1 this\n' +
+      '        protocol encodes for. Sending it a correct tuple is as quiet as sending\n' +
+      '        the correct router a wrong one: the swap settles, the tax is right, and\n' +
+      '        hookData is silently dropped. Use 2.1.1\n' +
+      '        (0x8B844f885672f333Bc0042cB669255f93a4C1E6b).'
+  );
+} else {
+  ok.push(`BSC's older router is named only in ${OLD_BSC_ROUTER_HOME}, as the wrong one`);
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────

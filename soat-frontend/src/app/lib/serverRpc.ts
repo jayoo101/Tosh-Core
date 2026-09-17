@@ -37,12 +37,12 @@
 
 import { createPublicClient, http } from 'viem'
 import type { Chain, PublicClient } from 'viem'
-import { foundry, robinhood, robinhoodTestnet } from 'viem/chains'
+import { bsc, bscTestnet, foundry } from 'viem/chains'
 
 import {
+  BSC_ID,
+  BSC_TESTNET_ID,
   FOUNDRY_CHAIN_ID,
-  ROBINHOOD_ID,
-  ROBINHOOD_TESTNET_ID,
   TARGET_CHAIN_ID,
   targetChain,
 } from '@/lib/chain'
@@ -59,30 +59,30 @@ function trimmed(value: string | undefined): string | undefined {
  * different chain — the bug this module exists to make unrepresentable.
  */
 const PUBLIC_FALLBACK: Record<number, string> = {
-  [ROBINHOOD_ID]:          'https://rpc.mainnet.chain.robinhood.com',
-  [ROBINHOOD_TESTNET_ID]:  'https://rpc.testnet.chain.robinhood.com',
-  [FOUNDRY_CHAIN_ID]:      'http://127.0.0.1:8545',
+  [BSC_ID]:           'https://bsc-dataseed1.bnbchain.org',
+  [BSC_TESTNET_ID]:   'https://data-seed-prebsc-1-s1.bnbchain.org:8545',
+  [FOUNDRY_CHAIN_ID]: 'http://127.0.0.1:8545',
 }
 
 const CHAINS_BY_ID: Record<number, Chain> = {
-  [ROBINHOOD_ID]:         robinhood,
-  [ROBINHOOD_TESTNET_ID]: robinhoodTestnet,
-  [FOUNDRY_CHAIN_ID]:     foundry,
+  [BSC_ID]:           bsc,
+  [BSC_TESTNET_ID]:   bscTestnet,
+  [FOUNDRY_CHAIN_ID]: foundry,
 }
 
 /**
  * Env names that carry a chain in the name, and are therefore only meaningful
- * for that chain. `ROBINHOOD_TESTNET_RPC` on a production build is stale
+ * for that chain. `BSC_TESTNET_RPC` on a production build is stale
  * configuration, not an override.
  */
 function scopedEnvUrl(chainId: number): string | undefined {
   switch (chainId) {
-    case ROBINHOOD_ID:
-      return trimmed(process.env.ROBINHOOD_RPC)
-        ?? trimmed(process.env.NEXT_PUBLIC_ROBINHOOD_RPC)
-    case ROBINHOOD_TESTNET_ID:
-      return trimmed(process.env.ROBINHOOD_TESTNET_RPC)
-        ?? trimmed(process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC)
+    case BSC_ID:
+      return trimmed(process.env.BSC_RPC)
+        ?? trimmed(process.env.NEXT_PUBLIC_BSC_RPC)
+    case BSC_TESTNET_ID:
+      return trimmed(process.env.BSC_TESTNET_RPC)
+        ?? trimmed(process.env.NEXT_PUBLIC_BSC_TESTNET_RPC)
     case FOUNDRY_CHAIN_ID:
       return trimmed(process.env.LOCAL_RPC)
     default:

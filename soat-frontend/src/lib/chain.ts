@@ -1,5 +1,5 @@
 import type { Address, Chain } from 'viem'
-import { foundry, robinhood, robinhoodTestnet } from 'viem/chains'
+import { bsc, bscTestnet, foundry } from 'viem/chains'
 
 /**
  * Settlement chain the UI talks to.
@@ -9,24 +9,40 @@ import { foundry, robinhood, robinhoodTestnet } from 'viem/chains'
  * everything else — periphery addresses, explorer URLs, wagmi's chain list —
  * follows this id so a mainnet cutover is env, not a rebuild of the UI.
  *
- * The default is the public TESTNET, not production: an unset variable should
- * land somewhere harmless, and of the two that is the one where a mistake costs
- * nothing. Production is chain 4663; the public testnet is 46630.
+ * The default is the LOCAL DEVNET, and it did not use to be — it was the public
+ * testnet, on the reasoning that an unset variable should land somewhere
+ * harmless and a testnet mistake costs nothing. That reasoning survives the
+ * move to BNB Smart Chain; the testnet it pointed at does not.
+ *
+ * Uniswap has not deployed v4 to BSC testnet. The testnet section of
+ * docs.uniswap.org/contracts/v4/deployments lists Unichain Sepolia, Sepolia,
+ * Base Sepolia and Arbitrum Sepolia, and chain 97 is absent — there is no
+ * `PoolManager` to initialise a pool against. A build pointed there would
+ * render the whole directory and then revert at `launch()`, which is the worst
+ * possible moment for the first sign of trouble and the reason 97 cannot be the
+ * safe default even though it is a real public chain.
+ *
+ * So the harmless default is Foundry, which unlike 97 can actually serve a
+ * launch: `anvil --fork-url $BSC_RPC` gives a devnet with BSC's real v4
+ * singleton in it, and that is the rehearsal path this migration settled on.
+ *
+ * 97 stays registered below so an operator CAN point at it deliberately for
+ * UI-only work. It is only disqualified from being the value nobody chose.
  */
 function parseChainId(): number {
   const raw = process.env.NEXT_PUBLIC_CHAIN_ID
-  const n = raw ? Number(raw) : 46630
-  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 46630
+  const n = raw ? Number(raw) : 31337
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 31337
 }
 
 export const TARGET_CHAIN_ID = parseChainId()
-export const ROBINHOOD_ID = 4663 as const
-export const ROBINHOOD_TESTNET_ID = 46630 as const
+export const BSC_ID = 56 as const
+export const BSC_TESTNET_ID = 97 as const
 export const FOUNDRY_CHAIN_ID = 31337 as const
 
 const CHAINS_BY_ID: Record<number, Chain> = {
-  [ROBINHOOD_ID]: robinhood,
-  [ROBINHOOD_TESTNET_ID]: robinhoodTestnet,
+  [BSC_ID]: bsc,
+  [BSC_TESTNET_ID]: bscTestnet,
   [FOUNDRY_CHAIN_ID]: foundry,
 }
 
@@ -97,7 +113,7 @@ export function supportedPogChainLabel(): string {
  * product's answer to "what chain is this" should not change because someone is
  * looking at a testnet deployment.
  */
-export const MAINNET_CHAIN_LABEL = 'Robinhood Chain'
+export const MAINNET_CHAIN_LABEL = 'BNB Smart Chain'
 
 /**
  * Where this build is ACTUALLY pointed, whatever that is.
@@ -113,7 +129,7 @@ export const ACTIVE_CHAIN_LABEL =
   : targetChain.name
 
 /** Whether this build talks to something other than a production mainnet. */
-export const IS_TESTNET = TARGET_CHAIN_ID !== ROBINHOOD_ID
+export const IS_TESTNET = TARGET_CHAIN_ID !== BSC_ID
 
 /**
  * The one-line "where are we" byline used by the chrome that carries it:
@@ -127,8 +143,8 @@ export const IS_TESTNET = TARGET_CHAIN_ID !== ROBINHOOD_ID
  * `ACTIVE_CHAIN_LABEL`. Under Base the settlement chain and the staging chain
  * had different names ("Ethereum · testnet Base Sepolia"), so naming both said
  * something; here they are the same family, and the honest version of that
- * sentence is "Robinhood Chain · testnet Robinhood Chain Testnet" — which says
- * the name twice and adds nothing. `checkChainCopy.mjs` fails the build on
+ * sentence is "BNB Smart Chain · testnet Binance Smart Chain Testnet" — which
+ * says the name twice and adds nothing. `checkChainCopy.mjs` fails the build on
  * exactly that repetition, which is how this was caught rather than shipped.
  */
 export const CHAIN_BYLINE = !IS_TESTNET

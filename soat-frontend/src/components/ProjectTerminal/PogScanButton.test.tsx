@@ -37,7 +37,7 @@ import { PogScanButton } from './PogScanButton'
 // place early enough to beat the static imports above.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_FACTORY_ADDRESS = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-  process.env.NEXT_PUBLIC_CHAIN_ID = '46630'
+  process.env.NEXT_PUBLIC_CHAIN_ID = '97'
 })
 
 const USER = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8' as const
@@ -54,7 +54,7 @@ const signMessageAsync = vi.fn(async () => '0xsig' as `0x${string}`)
 let readContract = vi.fn(async () => SIGNER as string)
 
 vi.mock('wagmi', () => ({
-  useChainId: () => 46630,
+  useChainId: () => 97,
   usePublicClient: () => ({ readContract: (...a: unknown[]) => readContract(...(a as [])) }),
   useSignMessage: () => ({ signMessageAsync }),
   useWriteContract: () => ({

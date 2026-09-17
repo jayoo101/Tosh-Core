@@ -10,8 +10,20 @@ optimizer_runs = 200
 # Pinned, not inherited. `ToshLadderTreasury`'s reentrancy mutex is a hand-rolled
 # `tstore`/`tload` pair, so Cancun is a correctness requirement rather than a
 # default worth drifting on — and it was previously only true because 0.8.26
-# happens to default to it. Verified supported on the deployment target: ArbOS
-# 116 round-trips TSTORE/TLOAD on Robinhood Chain (4663).
+# happens to default to it.
+#
+# Verified on the deployment target by execution, not by hardfork name. A fork
+# test cannot establish this — forking borrows a chain's STATE and runs it on
+# the local EVM at whatever `evm_version` says, so `ToshV5ForkBsc.t.sol` passing
+# proves nothing about what chain 56 itself executes. The probe that does is an
+# `eth_call` against a BSC node with a state override planting
+# `0x60075f5d5f5c5f5260205ff3` — tstore(0,7), then return tload(0). BNB Smart
+# Chain mainnet returns 7, so TSTORE/TLOAD round-trip there.
+#
+# Re-run that probe before adding a chain. Uniswap V4 being deployed and busy is
+# strong corroboration (the PoolManager's lock and delta accounting are transient
+# storage, so V4 cannot function without EIP-1153) but it is inference, and this
+# line is cheap to check directly.
 evm_version = "cancun"
 
 # ---------------------------------------------------------------------------
@@ -94,7 +106,7 @@ runs = 256
 #
 # `fail_on_revert = false` is required, not a concession: the handler drives a
 # real state machine, so a random sequence legitimately hits phase guards
-# (`GenesisExpired`, `SoftCapNotMet`, `NotLaunched`) on most calls. Failing on
+# (`GenesisExpired`, `NotLaunched`, `AlreadyLaunched`) on most calls. Failing on
 # those would reduce every run to its first revert.
 #
 # The cost of that setting is that a suite where *everything* reverted would
@@ -108,8 +120,8 @@ runs = 256
 # call — so a shallow run can never reach the refund or zombie phases at all,
 # and the refund invariants would be vacuously true. Depth also has to be
 # enough to reach a *funded* treasury: the buyback invariants need a launched
-# pool, a listed ladder token and 1 ETH of accumulated tax before any ETH can
-# leave, which is several actions deep past launch.
+# pool, a listed ladder token and a full `TRIGGER_STEP` of accumulated tax
+# (3.5 BNB) before anything can leave, which is several actions deep past launch.
 #
 # depth stays 100 HERE, and the deeper setting lives in `.github/workflows/
 # soak.yml` instead. It was raised to 250 on 2026-09-06 and moved back out the
@@ -200,19 +212,26 @@ lint_on_build = false
 # Network RPC endpoints (values read from .env via ${VAR} interpolation)
 # ---------------------------------------------------------------------------
 #
-# `robinhood` is the production target (chain 4663) and `robinhood_testnet`
-# (46630) is where every rehearsal runs. Production is chain 4663.
+# `bsc` is the production target (chain 56). It also serves
+# `ToshV5ForkBsc.t.sol` and `ToshV5FirstLaunchRehearsal.t.sol`, both of which
+# read `BSC_RPC` directly rather than by alias.
 #
-# `robinhood` also serves `ToshV5Fork.t.sol`, which reads `ROBINHOOD_RPC`
-# directly rather than by alias — the fork suite now targets the chain we ship
-# to, so it no longer needs an endpoint of its own.
+# `bsc_testnet` (97) is listed for completeness and is NOT where rehearsals run.
+# Uniswap V4 is not deployed on chain 97, so a rehearsal there cannot create a
+# pool at all — the full-lifecycle rehearsal runs against `anvil --fork-url
+# $BSC_RPC` instead, which is why the devnet is the frontend's default chain.
 #
-# The Base and Ethereum entries are gone: Base described a staging deployment
-# that has been retired, and `mainnet` existed only for the fork suite's old
-# Ethereum target. A verification or fork target nobody reaches is worse than
-# none, because it looks configured.
+# `robinhood` / `robinhood_testnet` stay while `ToshV5Fork.t.sol` and the old
+# deployment do. They are the chain this protocol is migrating OFF; nothing new
+# should be pointed at them.
+#
+# A public BSC endpoint is fine for forking but not for the watcher: the
+# dataseed nodes reject a 9,000-block `eth_getLogs` span. `BSC_RPC` wants a
+# keyed provider before anything indexes against it.
 # ---------------------------------------------------------------------------
 [rpc_endpoints]
+bsc               = "${BSC_RPC}"
+bsc_testnet       = "${BSC_TESTNET_RPC}"
 robinhood         = "${ROBINHOOD_RPC}"
 robinhood_testnet = "${ROBINHOOD_TESTNET_RPC}"
 anvil             = "http://127.0.0.1:8545"
@@ -220,15 +239,25 @@ anvil             = "http://127.0.0.1:8545"
 # ---------------------------------------------------------------------------
 # Contract verification
 #
-# Robinhood Chain is served by Blockscout, not Etherscan: chain 4663 is absent
-# from Etherscan v2's multichain host and Basescan never covered it. Blockscout
-# takes no API key, so the placeholder below is a formality Foundry requires and
-# not a secret — there is nothing to put in `.env` for it.
+# Both BSC chains verify through Etherscan v2's multichain host on ONE key, so
+# `bsc` and `bsc_testnet` differ only in `chain`. These entries need no
+# `--verifier` flag; Etherscan is Foundry's default.
 #
-# Foundry needs `--verifier blockscout` on the command line as well; the section
-# here only supplies the URL. See the deploy scripts' headers for the full
-# invocation.
+# Queried from `api.etherscan.io/v2/chainlist` rather than assumed — 56 and 97
+# are both listed, as bscscan.com and testnet.bscscan.com.
+#
+# That same query corrected a claim this section used to make. It asserted chain
+# 4663 was "absent from Etherscan v2's multichain host"; 4663 is in fact listed,
+# as robin.etherscan.io. What is genuinely absent is the TESTNET, 46630. So
+# Blockscout is not Robinhood's only option, only its testnet's — and the
+# `blockscout` key below is a placeholder Foundry requires rather than a secret,
+# which remains true and is why nothing for it belongs in `.env`.
+#
+# The Blockscout entries need `--verifier blockscout` on the command line; this
+# section only supplies the URL. See the deploy scripts' headers.
 # ---------------------------------------------------------------------------
 [etherscan]
+bsc               = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api",           chain = 56    }
+bsc_testnet       = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api",           chain = 97    }
 robinhood         = { key = "blockscout", url = "https://robinhoodchain.blockscout.com/api",           chain = 4663  }
 robinhood_testnet = { key = "blockscout", url = "https://explorer.testnet.chain.robinhood.com/api",    chain = 46630 }

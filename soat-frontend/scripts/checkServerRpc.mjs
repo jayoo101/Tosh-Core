@@ -81,8 +81,8 @@ const CHAIN_SCOPED_ENV = [
 
 /** Endpoint literals that belong to exactly one chain. */
 const ENDPOINT_LITERALS = [
-  'rpc.mainnet.chain.robinhood.com',
-  'rpc.testnet.chain.robinhood.com',
+  'bsc-dataseed1.bnbchain.org',
+  'data-seed-prebsc-1-s1.bnbchain.org',
   'sepolia.base.org',
   'mainnet.base.org',
   'eth.llamarpc.com',

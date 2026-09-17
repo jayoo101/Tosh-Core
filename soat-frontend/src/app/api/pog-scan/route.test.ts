@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  */
 
 const USER = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
-const SUPPORTED_CHAIN = 4663
+const SUPPORTED_CHAIN = 56
 
 let authRecovers: boolean
 

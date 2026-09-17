@@ -31,8 +31,8 @@ const TMP = 'src/lib/.chainCopyProbe.mjs'
 // unregistered chain fails the probe with that error, which is the intended
 // coupling: the two lists describe the same set and should break together.
 const CHAINS = [
-  { id: 4663,  name: 'Robinhood Chain',         mainnet: true },
-  { id: 46630, name: 'Robinhood Chain testnet', mainnet: false },
+  { id: 56, name: 'BNB Smart Chain',         mainnet: true },
+  { id: 97, name: 'BNB Smart Chain testnet', mainnet: false },
   { id: 31337, name: 'Foundry devnet',          mainnet: false },
 ]
 

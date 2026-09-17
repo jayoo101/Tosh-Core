@@ -18,10 +18,10 @@ async function load(env: Record<string, string | undefined>) {
   for (const key of [
     'NEXT_PUBLIC_CHAIN_ID',
     'NEXT_PUBLIC_RPC_URL',
-    'ROBINHOOD_RPC',
-    'NEXT_PUBLIC_ROBINHOOD_RPC',
-    'ROBINHOOD_TESTNET_RPC',
-    'NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC',
+    'BSC_RPC',
+    'NEXT_PUBLIC_BSC_RPC',
+    'BSC_TESTNET_RPC',
+    'NEXT_PUBLIC_BSC_TESTNET_RPC',
     'LOCAL_RPC',
   ]) {
     vi.stubEnv(key, undefined as unknown as string)
@@ -37,43 +37,43 @@ afterEach(() => {
   vi.resetModules()
 })
 
-const MAINNET = '4663'
-const TESTNET = '46630'
+const MAINNET = '56'
+const TESTNET = '97'
 const FOUNDRY = '31337'
 
-const MAINNET_URL = 'https://rpc.mainnet.chain.robinhood.com'
-const TESTNET_URL = 'https://rpc.testnet.chain.robinhood.com'
+const MAINNET_URL = 'https://bsc-dataseed1.bnbchain.org'
+const TESTNET_URL = 'https://data-seed-prebsc-1-s1.bnbchain.org:8545'
 
 describe('serverRpcUrl — chain-named variables are scoped to their chain', () => {
-  it('ignores ROBINHOOD_TESTNET_RPC when the target chain is mainnet', async () => {
+  it('ignores BSC_TESTNET_RPC when the target chain is mainnet', async () => {
     // The exact shape of configuration this guard exists for: a testnet
     // endpoint exported in the deploy shell, which Next's env loader will not
     // override, silently beating .env.production.
     const { serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: MAINNET,
-      ROBINHOOD_TESTNET_RPC: 'https://testnet.example/leftover',
+      BSC_TESTNET_RPC: 'https://testnet.example/leftover',
     })
     const url = serverRpcUrl()
     expect(url).not.toContain('testnet')
     expect(url).toBe(MAINNET_URL)
   })
 
-  it('ignores NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC when the target chain is mainnet', async () => {
+  it('ignores NEXT_PUBLIC_BSC_TESTNET_RPC when the target chain is mainnet', async () => {
     const { serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: MAINNET,
-      NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: 'https://testnet.example/leftover',
+      NEXT_PUBLIC_BSC_TESTNET_RPC: 'https://testnet.example/leftover',
     })
     expect(serverRpcUrl()).not.toContain('testnet')
   })
 
-  it('ignores ROBINHOOD_RPC when the target chain is the testnet', async () => {
-    // The mirror image, and the one a Robinhood-only address book makes easy to
+  it('ignores BSC_RPC when the target chain is the testnet', async () => {
+    // The mirror image, and the one a BSC-only address book makes easy to
     // get wrong: mainnet and testnet differ by a single word in the hostname,
-    // so a resolver that merely pattern-matched "robinhood" would pass the case
+    // so a resolver that merely pattern-matched "bsc" would pass the case
     // above and fail this one.
     const { serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: TESTNET,
-      ROBINHOOD_RPC: 'https://mainnet.example/leftover',
+      BSC_RPC: 'https://mainnet.example/leftover',
     })
     expect(serverRpcUrl()).toBe(TESTNET_URL)
   })
@@ -85,10 +85,10 @@ describe('serverRpcUrl — chain-named variables are scoped to their chain', () 
     expect(serverRpcUrl()).toBe(MAINNET_URL)
   })
 
-  it('honours ROBINHOOD_TESTNET_RPC when the target chain really is the testnet', async () => {
+  it('honours BSC_TESTNET_RPC when the target chain really is the testnet', async () => {
     const { serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: TESTNET,
-      ROBINHOOD_TESTNET_RPC: 'https://testnet.example/premium',
+      BSC_TESTNET_RPC: 'https://testnet.example/premium',
     })
     expect(serverRpcUrl()).toBe('https://testnet.example/premium')
   })
@@ -121,7 +121,7 @@ describe('serverRpcUrl — NEXT_PUBLIC_RPC_URL is the chain-agnostic override', 
     const { serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: TESTNET,
       NEXT_PUBLIC_RPC_URL: 'https://generic.example',
-      ROBINHOOD_TESTNET_RPC: 'https://scoped.example',
+      BSC_TESTNET_RPC: 'https://scoped.example',
     })
     expect(serverRpcUrl()).toBe('https://generic.example')
   })
@@ -153,7 +153,7 @@ describe('publicFallbackClient — a second opinion, never a second chain', () =
       NEXT_PUBLIC_RPC_URL: 'https://nd-471-397-430.example/key',
     })
     const client = publicFallbackClient()
-    expect(client?.chain?.id).toBe(4663)
+    expect(client?.chain?.id).toBe(56)
     expect(client?.transport.url).toBe(MAINNET_URL)
   })
 
@@ -178,11 +178,11 @@ describe('publicFallbackClient — a second opinion, never a second chain', () =
     const { publicFallbackClient } = await load({
       NEXT_PUBLIC_CHAIN_ID: MAINNET,
       NEXT_PUBLIC_RPC_URL: 'https://keyed.example/mainnet',
-      ROBINHOOD_TESTNET_RPC: 'https://keyed.example/testnet',
+      BSC_TESTNET_RPC: 'https://keyed.example/testnet',
     })
     expect(publicFallbackClient()?.transport.url).toBe(MAINNET_URL)
-    expect(publicFallbackClient(46630)?.transport.url).toBe(TESTNET_URL)
-    expect(publicFallbackClient(46630)?.chain?.id).toBe(46630)
+    expect(publicFallbackClient(97)?.transport.url).toBe(TESTNET_URL)
+    expect(publicFallbackClient(97)?.chain?.id).toBe(97)
   })
 })
 
@@ -192,10 +192,10 @@ describe('serverPublicClient — chain and transport cannot disagree', () => {
     // by two unrelated expressions. This asserts they are one decision.
     const { serverPublicClient, serverRpcUrl } = await load({
       NEXT_PUBLIC_CHAIN_ID: MAINNET,
-      ROBINHOOD_TESTNET_RPC: 'https://testnet.example/leftover',
+      BSC_TESTNET_RPC: 'https://testnet.example/leftover',
     })
     const client = serverPublicClient()
-    expect(client.chain?.id).toBe(4663)
+    expect(client.chain?.id).toBe(56)
     expect(client.transport.url).toBe(serverRpcUrl())
     expect(client.transport.url).not.toContain('testnet')
   })
@@ -228,6 +228,6 @@ describe('the target chain itself must be one this build knows', () => {
   })
 
   it('names the chains it does support, so the fix does not need a source dive', async () => {
-    await expect(load({ NEXT_PUBLIC_CHAIN_ID: '84532' })).rejects.toThrow(/4663/)
+    await expect(load({ NEXT_PUBLIC_CHAIN_ID: '84532' })).rejects.toThrow(/56/)
   })
 })

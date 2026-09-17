@@ -212,11 +212,11 @@ function checkStatic(files) {
 
     const raw = env.NEXT_PUBLIC_CHAIN_ID
     if (raw === undefined) {
-      // The default lives in `chain.ts` (46630) and applies here too, so an
+      // The default lives in `chain.ts` (31337) and applies here too, so an
       // absent id is a real configuration, not a gap.
-      console.log('  chain id        (unset — chain.ts defaults to 46630)')
+      console.log('  chain id        (unset — chain.ts defaults to 31337)')
     }
-    const chainId = raw === undefined ? 46630 : Number(raw)
+    const chainId = raw === undefined ? 31337 : Number(raw)
 
     const addresses = {}
     for (const key of Object.keys(ADDRESS_KEYS)) {
@@ -253,8 +253,8 @@ function checkAmbient() {
 
   console.log('process.env (ambient)')
   const raw = process.env.NEXT_PUBLIC_CHAIN_ID
-  if (raw === undefined) console.log('  chain id        (unset — chain.ts defaults to 46630)')
-  assertCoherent('process.env', raw === undefined ? 46630 : Number(raw), addresses)
+  if (raw === undefined) console.log('  chain id        (unset — chain.ts defaults to 31337)')
+  assertCoherent('process.env', raw === undefined ? 31337 : Number(raw), addresses)
   return true
 }
 
@@ -313,7 +313,7 @@ async function checkLive(base) {
   if (badge === undefined) {
     fail(`${origin}: no chain badge in the served HTML — the second witness is missing, so the id above is unconfirmed`)
   } else {
-    const expected = chainId === 4663 ? 'mainnet' : chainId === 31337 ? 'devnet' : 'testnet'
+    const expected = chainId === 56 ? 'mainnet' : chainId === 31337 ? 'devnet' : 'testnet'
     if (badge !== expected) {
       fail(
         `${origin}: the bundle targets chain ${chainId} (reads as ${expected}) but the page badge says ${badge}. ` +

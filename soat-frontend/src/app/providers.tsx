@@ -7,7 +7,7 @@ import { WagmiProvider, createConfig, http, fallback } from 'wagmi'
 import { foundry } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
 import type { ToasterProps } from 'react-hot-toast'
-import { targetChain, ROBINHOOD_ID, ROBINHOOD_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
+import { targetChain, BSC_ID, BSC_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
 import { PogLookupProvider } from '@/components/ProjectTerminal/PogLookupProvider'
 
 // ssr: false — react-hot-toast maintains an internal toast store; the SSR
@@ -64,10 +64,10 @@ function buildTargetTransport() {
   // `NEXT_PUBLIC_RPC_URL` names no chain and stays the universal override.
   const premium =
     trimmedEnv(process.env.NEXT_PUBLIC_RPC_URL) ??
-    (targetChain.id === ROBINHOOD_ID
-      ? trimmedEnv(process.env.NEXT_PUBLIC_ROBINHOOD_RPC)
-      : targetChain.id === ROBINHOOD_TESTNET_ID
-        ? trimmedEnv(process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC)
+    (targetChain.id === BSC_ID
+      ? trimmedEnv(process.env.NEXT_PUBLIC_BSC_RPC)
+      : targetChain.id === BSC_TESTNET_ID
+        ? trimmedEnv(process.env.NEXT_PUBLIC_BSC_TESTNET_RPC)
         : null)
   if (premium) candidates.push(premium)
   // Read off the chain definition instead of a parallel list of literals. The

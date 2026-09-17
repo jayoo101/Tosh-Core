@@ -40,7 +40,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 
 const SITE = 'https://toshx.xyz'
 const FACTORY = '0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892'
-const CHAIN_ID = 4663
+const CHAIN_ID = 56
 const AUTH_DOMAIN = 'Tosh PoG Scan Request'
 
 const account = privateKeyToAccount(generatePrivateKey())

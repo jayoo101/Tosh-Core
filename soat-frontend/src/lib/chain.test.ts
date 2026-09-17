@@ -47,22 +47,22 @@ async function loadChain(nodeEnv: string, chainId: string) {
 
 describe('PoG chain allowlist', () => {
   it('refuses the devnet in a production build pointed at mainnet', async () => {
-    const { isSupportedPogChain } = await loadChain('production', '4663')
-    expect(isSupportedPogChain(4663)).toBe(true)
+    const { isSupportedPogChain } = await loadChain('production', '56')
+    expect(isSupportedPogChain(56)).toBe(true)
     expect(isSupportedPogChain(31337)).toBe(false)
   })
 
   it('refuses the devnet in a production build pointed at the public testnet', async () => {
     // A deployed testnet build has no loopback node either, so this is not a
     // mainnet-only tightening.
-    const { isSupportedPogChain } = await loadChain('production', '46630')
-    expect(isSupportedPogChain(46630)).toBe(true)
+    const { isSupportedPogChain } = await loadChain('production', '97')
+    expect(isSupportedPogChain(97)).toBe(true)
     expect(isSupportedPogChain(31337)).toBe(false)
   })
 
   it('keeps the devnet for a developer running against the public testnet', async () => {
-    const { isSupportedPogChain } = await loadChain('development', '46630')
-    expect(isSupportedPogChain(46630)).toBe(true)
+    const { isSupportedPogChain } = await loadChain('development', '97')
+    expect(isSupportedPogChain(97)).toBe(true)
     expect(isSupportedPogChain(31337)).toBe(true)
   })
 
@@ -73,15 +73,15 @@ describe('PoG chain allowlist', () => {
   })
 
   it('never accepts a chain that is neither the target nor the devnet', async () => {
-    const { isSupportedPogChain } = await loadChain('development', '46630')
-    for (const foreign of [1, 8453, 10, 42161, 4663, 0, -1]) {
+    const { isSupportedPogChain } = await loadChain('development', '97')
+    for (const foreign of [1, 8453, 10, 42161, 56, 0, -1]) {
       expect(isSupportedPogChain(foreign)).toBe(false)
     }
   })
 
   it('names what it accepts, for the error messages that quote it', async () => {
-    const { supportedPogChainLabel } = await loadChain('production', '46630')
-    expect(supportedPogChainLabel()).toBe('46630')
+    const { supportedPogChainLabel } = await loadChain('production', '97')
+    expect(supportedPogChainLabel()).toBe('97')
   })
 
   it('is decided in exactly one module', () => {

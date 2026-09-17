@@ -19,10 +19,10 @@
 // ENV WIRING
 // ──────────
 //   NEXT_PUBLIC_FACTORY_ADDRESS     — deployed ToshFactory (required)
-//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 46630, testnet)
-//   NEXT_PUBLIC_POSITION_MANAGER    — V4 posm; Robinhood address if unset
+//   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 31337, devnet)
+//   NEXT_PUBLIC_POSITION_MANAGER    — V4 posm; BSC address if unset
 //   NEXT_PUBLIC_PERMIT2             — Permit2; canonical address if unset
-//   NEXT_PUBLIC_STATE_VIEW          — V4 StateView; Robinhood address if unset
+//   NEXT_PUBLIC_STATE_VIEW          — V4 StateView; BSC address if unset
 //   POG_SIGNER_PRIVATE_KEY          — server-only PoG oracle key (NEVER expose)
 //   POG_PRIVATE_KEY                 — spec-compliant fallback alias of the above
 //
@@ -37,8 +37,8 @@ import { envAddress } from '@/lib/chain'
 export { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI }
 export {
   TARGET_CHAIN_ID,
-  ROBINHOOD_ID,
-  ROBINHOOD_TESTNET_ID,
+  BSC_ID,
+  BSC_TESTNET_ID,
   FOUNDRY_CHAIN_ID,
   isSupportedPogChain,
   supportedPogChainLabel,
@@ -126,35 +126,37 @@ if (
  *  PoolManager would silently mis-CREATE2 every hook.  Mainnet cutover is a
  *  source change here, reviewed, not an env flip.
  *
- *  Uniswap deployed V4 on Robinhood Chain themselves, and 4663 and 46630 share
- *  the address — so unlike the Base era there is no testnet/mainnet split to
- *  get wrong here, and a rehearsal exercises the production value. */
-export const POOL_MANAGER: Address = '0x8366a39CC670B4001A1121B8F6A443A643e40951'
+ *  BNB Smart Chain mainnet only. The Robinhood era had 4663 and 46630 sharing
+ *  one address, so a testnet rehearsal exercised the production value for free.
+ *  That property is gone: Uniswap has not deployed v4 to BSC testnet at all
+ *  (chain 97 is absent from their testnet list), so there is no second address
+ *  to share and no public testnet that can host a launch. A rehearsal forks
+ *  mainnet instead, which reaches this same singleton — see `chain.ts`. */
+export const POOL_MANAGER: Address = '0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF'
 
 /**
  * Uniswap V4 PositionManager — the retail LP entry point.
  *
- * Verified deployed at the same address on both 4663 and 46630 (23,877 bytes of
- * runtime on each), so the fallback is correct on either without an override.
+ * BSC mainnet, from the official deployments page and pinned identically by
+ * `test/ToshV5ForkBsc.t.sol`, which exercises it against a fork.
  */
 export const POSITION_MANAGER: Address = envAddress(
   process.env.NEXT_PUBLIC_POSITION_MANAGER,
-  '0x58daec3116aae6D93017bAAea7749052E8a04fA7',
+  '0x7A4a5c919aE2541AeD11041A1AEeE68f1287f95b',
 )
 
 /** Permit2 — canonical address on every chain, overridable just in case.
- *  Confirmed present on both Robinhood chains. */
+ *  The one address the migration did not have to touch. */
 export const PERMIT2: Address = envAddress(
   process.env.NEXT_PUBLIC_PERMIT2,
   '0x000000000022D473030F116dDEE9F6B43aC78BA3',
 )
 
 /** V4 StateView — read-only `getSlot0`, so the LP panel can size a deposit
- *  off the real sqrtPriceX96 rather than a derived spot.  Same address on both
- *  Robinhood chains. */
+ *  off the real sqrtPriceX96 rather than a derived spot.  BSC mainnet. */
 export const STATE_VIEW: Address = envAddress(
   process.env.NEXT_PUBLIC_STATE_VIEW,
-  '0xF3334192D15450CdD385c8B70e03f9A6bD9E673b',
+  '0xd13Dd3D6E93f276FAfc9Db9E6BB47C1180aeE0c4',
 )
 
 /** Full-range bounds, mirroring the hook's genesis position (TICK_SPACING 200). */

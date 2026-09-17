@@ -41,7 +41,7 @@ const MAX_POG_LIMIT_TYPED = '1000000'
 // place early enough; the file is `isolate: true`, so nothing leaks out of it.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_FACTORY_ADDRESS = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-  process.env.NEXT_PUBLIC_CHAIN_ID = '46630'
+  process.env.NEXT_PUBLIC_CHAIN_ID = '97'
 })
 
 /**
@@ -60,7 +60,7 @@ vi.mock('wagmi', () => ({
     data: undefined, isLoading: false, isSuccess: false, error: null,
   }),
   useAccount: () => ({ isConnected: true }),
-  useChainId: () => 46630,
+  useChainId: () => 97,
   useConnect: () => ({ connectAsync: vi.fn(), connectors: [{}], isPending: false }),
   useSwitchChain: () => ({ switchChainAsync: vi.fn(), isPending: false }),
 }))
