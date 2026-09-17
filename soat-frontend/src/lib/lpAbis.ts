@@ -12,7 +12,7 @@
  *
  * `modifyLiquidities` is the single mutating entry point: it takes an
  * abi-encoded `(bytes actions, bytes[] params)` payload where `actions` is a
- * packed byte string of `Actions` opcodes.  See `V4_ACTIONS` in contracts.ts
+ * packed byte string of `Actions` opcodes.  See `CL_ACTIONS` in contracts.ts
  * — the opcode numbers survived the port; the PoolKey they wrap did not.
  */
 export const POSM_ABI = [
@@ -38,9 +38,10 @@ export const POSM_ABI = [
         components: [
           { name: 'currency0', type: 'address' },
           { name: 'currency1', type: 'address' },
-          { name: 'fee', type: 'uint24' },
-          { name: 'tickSpacing', type: 'int24' },
           { name: 'hooks', type: 'address' },
+          { name: 'poolManager', type: 'address' },
+          { name: 'fee', type: 'uint24' },
+          { name: 'parameters', type: 'bytes32' },
         ],
       },
       { name: 'info', type: 'uint256' },
@@ -78,13 +79,13 @@ export const POSM_ABI = [
   },
 ] as const
 
-/** V4 StateView — the read-only lens over PoolManager's packed storage. */
-export const STATE_VIEW_ABI = [
+/** Infinity CLPoolManager — the read-only surface V4's StateView used to be. */
+export const CL_POOL_ABI = [
   {
     type: 'function',
     name: 'getSlot0',
     stateMutability: 'view',
-    inputs: [{ name: 'poolId', type: 'bytes32' }],
+    inputs: [{ name: 'id', type: 'bytes32' }],
     outputs: [
       { name: 'sqrtPriceX96', type: 'uint160' },
       { name: 'tick', type: 'int24' },
@@ -96,8 +97,24 @@ export const STATE_VIEW_ABI = [
     type: 'function',
     name: 'getLiquidity',
     stateMutability: 'view',
-    inputs: [{ name: 'poolId', type: 'bytes32' }],
+    inputs: [{ name: 'id', type: 'bytes32' }],
     outputs: [{ name: 'liquidity', type: 'uint128' }],
+  },
+] as const
+
+/**
+ * The permission bitmap `PoolKey.parameters` has to repeat. Read off the hook,
+ * never typed: `CLPoolManager.initialize` compares the two and reverts on
+ * mismatch, so a hard-coded copy is a second source of truth for a value the
+ * chain already publishes.
+ */
+export const HOOKS_BITMAP_ABI = [
+  {
+    type: 'function',
+    name: 'getHooksRegistrationBitmap',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint16' }],
   },
 ] as const
 

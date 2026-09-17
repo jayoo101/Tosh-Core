@@ -3,9 +3,9 @@ import { useState, useCallback, useMemo } from 'react'
 import { useReadContract } from 'wagmi'
 import { parseUnits, parseEventLogs, erc20Abi, type Address } from 'viem'
 
-import { PERMIT2, POSITION_MANAGER } from '@/lib/contracts'
+import { PERMIT2, CL_POSITION_MANAGER } from '@/lib/contracts'
 import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
-import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/v4Math'
+import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/clMath'
 import { encodeMintPayload, encodeBurnPayload } from '@/lib/lpActions'
 import {
   useLpPoolState,
@@ -33,8 +33,8 @@ const LP_SLIPPAGE_PRESETS = [
 // LIQUIDITY PANEL  ·  retail market making
 //
 // The hook deliberately leaves BEFORE_REMOVE_LIQUIDITY off its address mask, so
-// third-party LPs add and remove freely — V4 never even calls into Tosh code on
-// those paths.  What was missing was a front door: posm positions are ERC-721s
+// third-party LPs add and remove freely — Infinity never even calls into Tosh
+// code on those paths.  What was missing was a front door: posm positions are ERC-721s
 // behind a Permit2 approval dance, which is not something a retail user is
 // going to hand-assemble.
 //
@@ -63,7 +63,8 @@ export function LiquidityPanel({
   const [nativeAmount, setEthAmount] = useState('')
   const [slippageBps, setSlippageBps] = useState(100n)
 
-  const { sqrtPriceX96, totalLiquidity } = useLpPoolState(tokenAddress, hookAddress)
+  const { sqrtPriceX96, totalLiquidity, hooksRegistrationBitmap } =
+    useLpPoolState(tokenAddress, hookAddress)
   const { positions, totals, degraded, refresh } =
     useLpPositions(userAddress, hookAddress, sqrtPriceX96)
 
@@ -99,7 +100,7 @@ export function LiquidityPanel({
   })
   const { data: posmAllowance, refetch: refetchPermit2 } = useReadContract({
     address: PERMIT2, abi: PERMIT2_ABI, functionName: 'allowance',
-    args: userAddress && tokenAddress ? [userAddress, tokenAddress, POSITION_MANAGER] : undefined,
+    args: userAddress && tokenAddress ? [userAddress, tokenAddress, CL_POSITION_MANAGER] : undefined,
     query: { enabled: !!tokenAddress && !!userAddress, refetchInterval: 12_000 },
   })
 
@@ -195,7 +196,7 @@ export function LiquidityPanel({
     send({
       address: PERMIT2, abi: PERMIT2_ABI, functionName: 'approve',
       args: [
-        tokenAddress, POSITION_MANAGER, MAX_UINT160,
+        tokenAddress, CL_POSITION_MANAGER, MAX_UINT160,
         Number(nowSeconds + PERMIT2_TTL_SECONDS),
       ],
     })
@@ -213,9 +214,12 @@ export function LiquidityPanel({
   const addLiquidity = useCallback(() => {
     if (!userAddress || !tokenAddress) return
 
+    if (hooksRegistrationBitmap === undefined || hooksRegistrationBitmap === 0) return
+
     const unlockData = encodeMintPayload({
       token: tokenAddress,
       hook: hookAddress,
+      hooksRegistrationBitmap,
       owner: userAddress,
       liquidity,
       amount0Max: ethMax,
@@ -223,13 +227,13 @@ export function LiquidityPanel({
     })
 
     send({
-      address: POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
+      address: CL_POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
       value: ethMax,
     })
   }, [
-    userAddress, tokenAddress, hookAddress, liquidity, ethMax, tokenMax,
-    nowSeconds, send,
+    userAddress, tokenAddress, hookAddress, hooksRegistrationBitmap, liquidity,
+    ethMax, tokenMax, nowSeconds, send,
   ])
 
   const withdraw = useCallback((tokenId: bigint, amount0: bigint, amount1: bigint) => {
@@ -247,7 +251,7 @@ export function LiquidityPanel({
     })
 
     send({
-      address: POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
+      address: CL_POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
     })
   }, [userAddress, tokenAddress, nowSeconds, send, slippageBps])
@@ -308,6 +312,13 @@ export function LiquidityPanel({
         active: sqrtPriceX96 === 0n,
         label: 'Pool price unavailable',
         reason: 'The pool price has not come back yet, and a full-range position cannot be sized without it.',
+        tone: 'neutral',
+      },
+      {
+        id: 'bitmap-unresolved',
+        active: hooksRegistrationBitmap === undefined || hooksRegistrationBitmap === 0,
+        label: 'Reading the pool key…',
+        reason: 'The hook’s permission bitmap has not come back yet, and a PoolKey cannot be encoded without it.',
         tone: 'neutral',
       },
       {

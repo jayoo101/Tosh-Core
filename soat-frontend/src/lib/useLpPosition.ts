@@ -3,8 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Retail LP data layer.
 //
-// POSITION DISCOVERY IS THE HARD PART.  V4 positions are ERC-721s held by the
-// PositionManager, and posm is NOT ERC721Enumerable — there is no
+// POSITION DISCOVERY IS THE HARD PART.  Infinity positions are ERC-721s held
+// by CLPositionManager, and posm is NOT ERC721Enumerable — there is no
 // `tokenOfOwnerByIndex`, and no "positions by owner and pool" view anywhere in
 // the periphery.  So we reconstruct the set from two sources and merge them:
 //
@@ -24,9 +24,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePublicClient, useReadContract } from 'wagmi'
 import { getAddress, type Address } from 'viem'
 
-import { POSITION_MANAGER, STATE_VIEW, TARGET_CHAIN_ID, targetChain } from './contracts'
-import { POSM_ABI, STATE_VIEW_ABI } from './lpAbis'
-import { amountsForLiquidity, poolIdOf, toshPoolKey } from './v4Math'
+import { CL_POOL_MANAGER, CL_POSITION_MANAGER, TARGET_CHAIN_ID, targetChain } from './contracts'
+import { POSM_ABI, CL_POOL_ABI, HOOKS_BITMAP_ABI } from './lpAbis'
+import { amountsForLiquidity, poolIdOf, toshPoolKey } from './clMath'
 
 /** Public RPCs cap `eth_getLogs` spans; walk the window in slices. */
 const LOG_PAGE_SIZE = 50_000n
@@ -169,35 +169,51 @@ export interface LpPoolState {
   /** Total in-range liquidity across every LP, including the genesis position. */
   totalLiquidity: bigint
   poolId: `0x${string}`
+  /**
+   * `hook.getHooksRegistrationBitmap()`, or `undefined` until the read lands.
+   * Threaded into `toshPoolKey` — a zero/unresolved bitmap is refused there
+   * rather than encoded, because it hashes to a pool that was never initialised.
+   */
+  hooksRegistrationBitmap: number | undefined
 }
 
-/** Live pool price and depth for the ETH/token pair behind `hook`. */
+/** Live pool price and depth for the native/token pair behind `hook`. */
 export function useLpPoolState(token: Address | undefined, hook: Address | undefined): LpPoolState {
-  const poolId = useMemo(
-    () => (token && hook ? poolIdOf(toshPoolKey(token, hook)) : undefined),
-    [token, hook],
-  )
+  const { data: bitmap } = useReadContract({
+    address: hook,
+    abi: HOOKS_BITMAP_ABI,
+    functionName: 'getHooksRegistrationBitmap',
+    query: { enabled: !!hook, refetchInterval: 60_000 },
+  })
+
+  const poolId = useMemo(() => {
+    if (!token || !hook || bitmap === undefined || Number(bitmap) === 0) return undefined
+    return poolIdOf(toshPoolKey(token, hook, Number(bitmap)))
+  }, [token, hook, bitmap])
+
+  const managerReady = !!poolId && !/^0x0{40}$/.test(CL_POOL_MANAGER)
 
   const { data: slot0 } = useReadContract({
-    address: STATE_VIEW,
-    abi: STATE_VIEW_ABI,
+    address: CL_POOL_MANAGER,
+    abi: CL_POOL_ABI,
     functionName: 'getSlot0',
     args: poolId ? [poolId] : undefined,
-    query: { enabled: !!poolId, refetchInterval: 12_000 },
+    query: { enabled: managerReady, refetchInterval: 12_000 },
   })
 
   const { data: liq } = useReadContract({
-    address: STATE_VIEW,
-    abi: STATE_VIEW_ABI,
+    address: CL_POOL_MANAGER,
+    abi: CL_POOL_ABI,
     functionName: 'getLiquidity',
     args: poolId ? [poolId] : undefined,
-    query: { enabled: !!poolId, refetchInterval: 12_000 },
+    query: { enabled: managerReady, refetchInterval: 12_000 },
   })
 
   return {
     sqrtPriceX96: slot0?.[0] ?? 0n,
     totalLiquidity: liq ?? 0n,
     poolId: poolId ?? '0x',
+    hooksRegistrationBitmap: bitmap === undefined ? undefined : Number(bitmap),
   }
 }
 
@@ -242,7 +258,7 @@ export function useLpPositions(
           lastStartedAt = Date.now()
           try {
             return await client.getLogs({
-              address: POSITION_MANAGER,
+              address: CL_POSITION_MANAGER,
               event: POSM_ABI[5],
               args: { to: user },
               fromBlock: from,
@@ -276,14 +292,14 @@ export function useLpPositions(
       try {
         const [owner, info, liquidity] = await Promise.all([
           client.readContract({
-            address: POSITION_MANAGER, abi: POSM_ABI, functionName: 'ownerOf', args: [tokenId],
+            address: CL_POSITION_MANAGER, abi: POSM_ABI, functionName: 'ownerOf', args: [tokenId],
           }),
           client.readContract({
-            address: POSITION_MANAGER, abi: POSM_ABI,
+            address: CL_POSITION_MANAGER, abi: POSM_ABI,
             functionName: 'getPoolAndPositionInfo', args: [tokenId],
           }),
           client.readContract({
-            address: POSITION_MANAGER, abi: POSM_ABI,
+            address: CL_POSITION_MANAGER, abi: POSM_ABI,
             functionName: 'getPositionLiquidity', args: [tokenId],
           }),
         ])
