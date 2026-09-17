@@ -197,9 +197,41 @@ an order of magnitude away from 0.5 ETH in value. So:
 - The band is rotatable now without a redeploy, which is what makes getting this
   slightly wrong survivable.
 
+**Resolved:** a single ×3.5 factor, applied to every BNB-denominated constant.
+Chosen over per-constant rounding because one factor keeps the numbers clean and
+auditable, and it sat ~4% above spot at the time (1 ETH = 3.3624 BNB). The PoG
+band is the exception and is deliberately split across two currencies: the floor
+stays in ETH because it measures ETH gas history, while `maxAllocWei` and `rate`
+move to BNB because they bound a BNB deposit. `pogQuota.ts` carries the full
+argument. The `README.md` attacker-cost recomputation is still outstanding.
+
 The 21 `totalNativeDeposited`-style identifiers keep working — they are all
 `msg.value` — but every one of them names the wrong asset. That is a rename,
-not a behaviour change, and it reaches the ABI and the frontend.
+not a behaviour change, and it reaches the ABI and the frontend. **Done** across
+843 occurrences in 43 files.
+
+### 6.1 Quote asset: BNB, not an ERC20
+
+`0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a` ("BEM") was raised as a candidate
+for the raise currency and the pool's quote side. **Rejected; BNB stays.**
+
+Measured: plain ERC20, 2,205 bytes, no transfer tax or blacklist or pause,
+8 decimals, supply 181,273.29979283. But it exposes `mint(address,uint256)` gated
+by a single `minter()` = `0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46`, a 130-byte
+contract, with no `owner()` and no role system — a quote asset one address can
+inflate. Its only real market is the PancakeSwap v3 1% tier (1,562.92 BEM against
+77.55 WBNB, implying ≈0.0496 BNB per BEM); the v2 pair and the v3 0.25% tier hold
+dust, and there is no BEM/USDT pair. Note that `balanceOf` on a v3 pool sums all
+ticks plus uncollected fees and is **not** usable depth at spot.
+
+The structural reason matters more than the token's own risk. Every pool this
+protocol creates is native-coin/token, so `currency0` is always zero — an
+assumption `scripts/checkV4RouterTuple.mjs` cites directly when arguing about its
+quiet failure mode. An ERC20 quote asset turns deposits from `msg.value` into
+`transferFrom` and rewrites the refund and buyback paths. That is a larger change
+than the whole BSC migration.
+
+See `docs/PANCAKESWAP_INFINITY.md` §6 for the same record from the AMM side.
 
 One code comment goes stale: the `uint48 _lastSwapBlock` headroom note reasons
 from 12-second blocks. At 0.451 s the slot still holds about **4.0 million
