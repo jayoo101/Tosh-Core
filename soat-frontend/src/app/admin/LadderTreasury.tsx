@@ -18,6 +18,7 @@ import {
   DEAD_ADDRESS,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, useTxAction, revertOrder,
   type TxAction,
@@ -290,20 +291,20 @@ export function LadderTreasuryPanel() {
                hint={boundFactory && boundFactory.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()
                  ? 'MISMATCH — this treasury is bound to a different factory'
                  : null} />
-      <Readout label="TREASURY ETH BALANCE" value={fmtEth(treasuryBalance?.value)} tone="fluo" />
+      <Readout label={`TREASURY ${NATIVE_SYMBOL} BALANCE`} value={fmtEth(treasuryBalance?.value)} tone="fluo" />
       <Readout label="ROUND-ROBIN CURSOR" value={`${cursor.toString()} / ${tokenCount.toString()}`} />
       <Readout label="NEXT SPEND PER TRIGGER" value={fmtEth(nextSpend)} />
 
       <ScopeNote>
         One-way valve by construction. The treasury has no withdraw, no transfer
         and no owner payout path — the only exit for a wei that lands here is
-        _buyAndBurn, which swaps ETH for a listed token and sends the proceeds to{' '}
+        _buyAndBurn, which swaps {NATIVE_SYMBOL} for a listed token and sends the proceeds to{' '}
         <span className="text-text-secondary">{DEAD_ADDRESS}</span>. Owner authority on
         this contract is curation only.
       </ScopeNote>
       <ScopeNote tone="warn">
         Curation is not neutral, though. That guarantee is about custody, not
-        beneficiaries: nobody can take this ETH, but the roster below decides
+        beneficiaries: nobody can take this {NATIVE_SYMBOL}, but the roster below decides
         which order books absorb it, and buying pressure that ends in a burn is
         still buying pressure. Narrowing the roster to one token points what is
         left of the reservoir at a single price.

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 
 import { ProjectLogo } from '@/components/ProjectLogo'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmtEth, type DirectoryProject } from './useDirectoryProjects'
 
 /** How many launches the panel lists before it stops. */
@@ -29,7 +30,7 @@ const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
  *
  * The redesign puts a price and a 24h delta here. We publish neither: there is
  * no price feed and no volume index behind this app, and the only numbers the
- * chain hands back per launch are the ETH deposited and the cap it is measured
+ * chain hands back per launch are the native coin deposited and the cap it is measured
  * against. Inventing the other two was the single largest piece of fiction in
  * the mock, so the column states what the figure above it IS instead.
  */
@@ -71,7 +72,7 @@ function Row({ project: p, index }: { project: DirectoryProject; index: number }
 
       <span className="flex shrink-0 flex-col items-end">
         <span className="font-mono text-note text-text-primary tabular-nums">
-          {fmtEth(p.totalNative)} ETH
+          {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
         </span>
         <span className={`font-mono text-micro tabular-nums ${sub.cls}`}>{sub.text}</span>
       </span>

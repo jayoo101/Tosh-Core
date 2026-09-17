@@ -62,7 +62,7 @@ export const PROJECT_GAS_TOTAL = CREATE_LAUNCH_GAS_TOTAL + LAUNCH_GAS_TOTAL
  * Cost in wei of `gas` units at `feePerGas`.
  *
  * Returns `null` rather than `0n` when the fee is unknown. A zero here would
- * render as "0 ETH gas", which reads as "free" instead of "not known yet" —
+ * render as "0 gas", which reads as "free" instead of "not known yet" —
  * the same class of lie the `dialsReady` all-or-nothing gate exists to prevent.
  */
 export function gasCostWei(gas: bigint, feePerGas: bigint | undefined): bigint | null {
@@ -71,12 +71,17 @@ export function gasCostWei(gas: bigint, feePerGas: bigint | undefined): bigint |
 }
 
 /**
- * Render an ESTIMATE in ETH, rounded to four significant digits.
+ * Render an ESTIMATE in the settlement coin, rounded to four significant digits.
+ *
+ * The coin is whatever the chain settles in — BNB on 56 and 97 — and the name
+ * `formatEstimateEth` is one migration behind. Left as-is on purpose: renaming
+ * the helpers is a separate pass from correcting what the user reads, and doing
+ * both at once is how a rename hides a copy change.
  *
  * Deliberately not the page's `trimEth`, which only strips trailing zeros and
  * so prints all 18 decimals. That is right for the launch fee, where every
  * digit is a fact the factory will enforce, and wrong here: `0.001037884137798906
- * ETH` claims wei-level precision for a figure derived from a gas budget and a
+ * BNB` claims wei-level precision for a figure derived from a gas budget and a
  * fee oracle that will both have moved by the time the creator signs.
  *
  * Significant digits rather than fixed decimals because the same panel has to

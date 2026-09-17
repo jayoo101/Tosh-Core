@@ -18,6 +18,7 @@ import {
   CLOCK_UNSYNCED,
 } from '@/components/ui'
 import type { TxReceipt } from '@/components/ui/useTxAction'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 
 const LP_SLIPPAGE_PRESETS = [
@@ -256,7 +257,7 @@ export function LiquidityPanel({
   // show one fault as two.
   const ethError =
       ethInvalid        ? 'NOT A NUMBER'
-    : insufficientEth   ? 'ABOVE YOUR ETH BALANCE'
+    : insufficientEth   ? `ABOVE YOUR ${NATIVE_SYMBOL} BALANCE`
     : insufficientToken ? `NEEDS MORE ${symbol}`
     : null
 
@@ -292,14 +293,14 @@ export function LiquidityPanel({
         id: 'amount-invalid',
         active: ethInvalid,
         label: 'Check the amount',
-        reason: 'That is not a number this field can send as ETH.',
+        reason: `That is not a number this field can send as ${NATIVE_SYMBOL}.`,
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !ethInvalid && ethWei === 0n,
         label: 'Enter an amount',
-        reason: 'Enter the amount of ETH to put into the pool.',
+        reason: `Enter the amount of ${NATIVE_SYMBOL} to put into the pool.`,
         tone: 'neutral',
       },
       {
@@ -319,7 +320,7 @@ export function LiquidityPanel({
       {
         id: 'balance-eth',
         active: insufficientEth,
-        label: 'Not enough ETH',
+        label: `Not enough ${NATIVE_SYMBOL}`,
         reason: `This wallet does not hold the deposit plus its ${Number(slippageBps) / 100}% headroom.`,
         tone: 'warn',
       },
@@ -367,12 +368,12 @@ export function LiquidityPanel({
       // words. That card is gone; the title stays, because this panel is
       // still about the reader's own position, not about market making in
       // general. Copy only: nothing below moved.
-      title={`YOUR LIQUIDITY · ${symbol}/ETH`}
+      title={`YOUR LIQUIDITY · ${symbol}/${NATIVE_SYMBOL}`}
       subtitle="Uniswap V4 PositionManager · full range · 0.30% pool fee accrues to LPs"
     >
       <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">
         <Readout layout="stack"
-                 label="POOL DEPTH · ETH"
+                 label={`POOL DEPTH · ${NATIVE_SYMBOL}`}
                  value={fmt(poolAmounts.amount0)}
                  hint="all LPs incl. genesis" />
         <Readout layout="stack"
@@ -380,7 +381,7 @@ export function LiquidityPanel({
                  value={fmt(poolAmounts.amount1)}
                  hint="all LPs incl. genesis" />
         <Readout layout="stack"
-                 label="MY POSITION · ETH"
+                 label={`MY POSITION · ${NATIVE_SYMBOL}`}
                  value={fmt(totals.amount0)}
                  hint={`${positions.length} position${positions.length === 1 ? '' : 's'}`} />
         <Readout layout="stack"
@@ -390,7 +391,7 @@ export function LiquidityPanel({
       </div>
 
       <Field
-        label="ETH TO DEPOSIT"
+        label={`${NATIVE_SYMBOL} TO DEPOSIT`}
         value={nativeAmount}
         onValueChange={setEthAmount}
         placeholder="e.g. 0.05"
@@ -470,7 +471,7 @@ export function LiquidityPanel({
             >
               <div className="font-mono text-note text-text-tertiary tabular-nums">
                 <span className="text-text-primary">#{pos.tokenId.toString()}</span>
-                {' · '}{fmt(pos.amount0)} ETH{' + '}{fmt(pos.amount1)} {symbol}
+                {' · '}{fmt(pos.amount0)} {NATIVE_SYMBOL}{' + '}{fmt(pos.amount1)} {symbol}
               </div>
               <button
                 type="button"

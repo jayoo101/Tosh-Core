@@ -15,6 +15,7 @@ import { fmt } from './format'
 import type { PogChainSpend, PogScanResult } from './pogScanClient'
 import type { PogLookupPhase } from './usePogFlow'
 import { ActionButton, useActionGate } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 function shortAddr(a: Address): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
@@ -190,17 +191,37 @@ export function GasHistoryDialog({
                   {fmt(BigInt(scan.floorWei))} ETH
                 </span>
               </div>
+              {/*
+                * ⚠ THIS ROW CHANGES CURRENCY, and the two above it do not.
+                *
+                * Total and Floor are gas burned on ETH-settled chains, so they are
+                * ETH and stay ETH. This row is what the wallet may then DEPOSIT,
+                * which is the settlement coin. On BSC that renders "0.04 BNB"
+                * directly beneath "0.025 ETH", which looks like a bug and is not.
+                *
+                * The note below the block exists so a user does not read it as one.
+                * Do not "fix" this by unifying the symbols: the rate is
+                * BNB-per-ETH, and making both sides agree would either overstate
+                * eligibility or misname the deposit.
+                */}
               {scan.maxAllocWei && eligible && (
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="font-mono text-label tracking-[0.2em] uppercase text-text-tertiary">
                     Quota sized
                   </span>
                   <span className="font-mono text-note text-success">
-                    {fmt(BigInt(scan.maxAllocWei))} ETH
+                    {fmt(BigInt(scan.maxAllocWei))} {NATIVE_SYMBOL}
                   </span>
                 </div>
               )}
             </div>
+
+            {scan.maxAllocWei && eligible && NATIVE_SYMBOL !== 'ETH' && (
+              <p className="font-mono text-note text-text-tertiary leading-relaxed">
+                Gas is measured in ETH because that is what you burned; the quota is
+                in {NATIVE_SYMBOL} because that is what you deposit.
+              </p>
+            )}
 
             {missing.length > 0 && (
               <p className="font-mono text-note text-warning leading-relaxed">

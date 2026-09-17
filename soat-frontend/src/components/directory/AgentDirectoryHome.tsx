@@ -11,6 +11,7 @@ import {
   BADGE_NAMES_SETTLEMENT_CHAIN,
   CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { HeroFeedPanel } from './HeroFeedPanel'
 import {
   FeatureCard,
@@ -44,7 +45,7 @@ export default function AgentDirectoryHome() {
    * a refundable raise or one waiting on its creator is not something a
    * visitor can act on. They are one click away under the phase sidebar.
    *
-   * ORDERED BY ETH RAISED, where the mock orders by 24h volume. There is no
+   * ORDERED BY AMOUNT RAISED, where the mock orders by 24h volume. There is no
    * volume index behind this app, and of the numbers there are, the size of
    * the raise is the closest thing to "this one has the most behind it".
    */
@@ -149,7 +150,7 @@ export default function AgentDirectoryHome() {
 
             <p className="max-w-md text-lede text-text-secondary">
               {CHAIN_STAGING_NOTE && `${CHAIN_STAGING_NOTE} `}
-              Fund a launch in ETH through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own Uniswap V4 pool.
+              Fund a launch in {NATIVE_SYMBOL} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.
             </p>
 
             {/* `min-h-11` is 44px, the touch floor. The base rule in globals.css

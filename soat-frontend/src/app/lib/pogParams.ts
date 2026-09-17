@@ -6,7 +6,14 @@
  *  Three numbers decide what a wallet may deposit:
  *
  *    floorWei     lifetime gas required to qualify at all
- *    rate         ETH of quota earned per 1 ETH of historical gas
+ *    rate         BNB of quota earned per 1 ETH of historical gas
+ *
+ *                 Two coins in one line, deliberately. The quota is a deposit
+ *                 allowance on the settlement chain; the gas was burned on
+ *                 ETH-settled chains and is measured where it was spent. The
+ *                 rate IS the conversion, so it cannot be dimensionless, and
+ *                 writing both sides as one coin would either overstate
+ *                 eligibility or misname the deposit.
  *    maxAllocWei  ceiling on one attestation, and so on one wallet
  *
  *  All three are owner-rotatable through `POST /api/admin/config`, and all

@@ -7,6 +7,7 @@ import {
   Card, Readout, ActionButton, useActionGate, useTxAction, formatCountdown,
   revertOrder,
 } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 
 
@@ -64,11 +65,11 @@ export function AwaitingLaunchPanel({
     <Card
       id="P-1.5"
       title="Launch the pool"
-      subtitle="Opening seeds the Uniswap pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone."
+      subtitle="Opening seeds the Infinity pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone."
       tone={isCreator ? 'ok' : 'default'}
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
-        <Readout label="Raised" value={`${fmt(totalNativeDeposited)} ETH`} />
+        <Readout label="Raised" value={`${fmt(totalNativeDeposited)} ${NATIVE_SYMBOL}`} />
         <Readout label="Status" value="Time up · launchable" tone="ok" />
         <Readout label="Window remaining" value={countdown} tone="warn" />
       </div>
@@ -76,13 +77,13 @@ export function AwaitingLaunchPanel({
       {isCreator ? (
         <>
           <p className="text-note text-text-secondary leading-relaxed">
-            You created {symbol}. Triggering launch pairs the raised ETH with the
+            You created {symbol}. Triggering launch pairs the raised {NATIVE_SYMBOL} with the
             genesis LP allocation and starts the ladder. Depositors can claim their
             pro-rata share the moment it confirms.
           </p>
           <p className="text-note text-warning leading-relaxed">
             {countdown} left. After that, launch() dies permanently and every
-            depositor reclaims 100% of their ETH.
+            depositor reclaims 100% of their {NATIVE_SYMBOL}.
           </p>
           <ActionButton gate={gate} size="lg" intent="primary" />
         </>
@@ -92,7 +93,7 @@ export function AwaitingLaunchPanel({
           <p className="mt-1 text-note text-text-secondary leading-relaxed">
             The genesis window has closed. If the pool is not opened within{' '}
             {countdown}, the refund terminal unlocks automatically and returns
-            100% of your deposit. Your ETH is not at risk.
+            100% of your deposit. Your {NATIVE_SYMBOL} is not at risk.
           </p>
         </div>
       )}

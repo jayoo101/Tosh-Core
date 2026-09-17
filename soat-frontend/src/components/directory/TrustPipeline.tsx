@@ -1,5 +1,7 @@
 import { BarChart3, Fuel, Lock, Rocket, Timer, type LucideIcon } from 'lucide-react'
 
+import { NATIVE_SYMBOL } from '@/lib/chain'
+
 /**
  * The five-step explainer under the directory.
  *
@@ -65,14 +67,14 @@ const STEPS = [
     tag: 'Launch',
     title: 'Anyone can open one',
     description:
-      'Pay the launch fee in ETH and the token deploys together with its own Uniswap V4 pool. No pre-mine, no team allocation, no supply held back for insiders.',
+      `Pay the launch fee in ${NATIVE_SYMBOL} and the token deploys together with its own PancakeSwap Infinity pool. No pre-mine, no team allocation, no supply held back for insiders.`,
   },
   {
     step: '03',
     tag: 'Genesis',
     title: 'A window that cannot close early',
     description:
-      'Deposits run in ETH for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. If the raise misses its floor, every depositor takes back the full amount.',
+      `Deposits run in ${NATIVE_SYMBOL} for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. If the raise misses its floor, every depositor takes back the full amount.`,
   },
   {
     step: '04',

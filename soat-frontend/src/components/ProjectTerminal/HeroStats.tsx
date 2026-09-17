@@ -7,13 +7,14 @@
  *   1. Price     — P₀ during genesis; the live shelf once the ladder is open
  *   2. Phase     — the state machine, as a badge, not a sentence
  *   3. Progress  — raise vs soft cap, or ladder minted vs BONDING_MAX
- *   4. Your stake — ETH this wallet has in, or is owed back
+ *   4. Your stake — the settlement coin this wallet has in, or is owed back
  */
 
 import {
   Badge, Progress, Readout,
   type Tone,
 } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 import type { Phase } from './phase'
 
@@ -71,7 +72,7 @@ export function HeroStats({
   const pct = progressIsLadder ? ladderPct : raisePct
   const progressCaption = progressIsLadder
     ? `${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`
-    : `${fmt(totalNativeDeposited)} / ${fmt(softCap)} ETH`
+    : `${fmt(totalNativeDeposited)} / ${fmt(softCap)} ${NATIVE_SYMBOL}`
 
   const stakeHint =
     phase === 'refund'  ? 'claimable in full'
@@ -82,14 +83,14 @@ export function HeroStats({
     <div className="grid grid-cols-2 gap-card @lg:grid-cols-4">
       {/* The unit rides on the hint line rather than beside the figure. Token
           prices here are routinely exponential ("2.50e-9"), and at figure size
-          that plus " ETH" overruns the cell and wraps — splitting the number
+          that plus the coin's ticker overruns the cell and wraps — splitting the number
           off its own unit. The hint already sits directly underneath. */}
       <Readout
         layout="stack"
         size="figure"
         label="Price"
         value={price > 0n ? fmt(price) : '—'}
-        hint={price > 0n ? `ETH · ${priceHint}` : priceHint}
+        hint={price > 0n ? `${NATIVE_SYMBOL} · ${priceHint}` : priceHint}
         tone="ok"
       />
       <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
@@ -119,7 +120,7 @@ export function HeroStats({
         layout="stack"
         size="figure"
         label="Your stake"
-        value={`${fmt(userEthDeposited)} ETH`}
+        value={`${fmt(userEthDeposited)} ${NATIVE_SYMBOL}`}
         hint={stakeHint}
         tone={userEthDeposited > 0n ? 'ink' : 'mute'}
       />

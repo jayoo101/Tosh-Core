@@ -122,6 +122,31 @@ export function supportedPogChainLabel(): string {
 export const MAINNET_CHAIN_LABEL = 'BNB Smart Chain'
 
 /**
+ * The settlement coin's ticker, for any copy that prints an amount.
+ *
+ * ⚠ THE REASON THIS EXISTS is that the migration renamed identifiers and left
+ *   the words on screen behind. `totalEthDeposited` became `totalNativeDeposited`
+ *   across 843 call sites, the contracts were recalibrated ×3.5, the factory on
+ *   97 charges 0.35 — and roughly 230 literal "ETH"s stayed in the copy, so the
+ *   UI confidently labelled BNB amounts as ETH. Every individual string was
+ *   untouched and therefore uninspected, which is exactly how this class of bug
+ *   survives a rename.
+ *
+ * Derived from the chain rather than declared, so it cannot drift from what the
+ * wallet is actually spending. On 31337 that yields "ETH", and that is correct
+ * rather than a leak: Foundry's devnet coin IS ether, and a devnet build should
+ * say so.
+ *
+ * ⚠ NOT for the Proof-of-Gas floor. `band.floorWei` measures gas burned on
+ *   ETH-settled chains and stays denominated in ETH on purpose — see
+ *   `pogQuota.ts`. Copy about lifetime gas must keep saying ETH, and using this
+ *   constant there would state a falsehood the ×3.5 rescale was careful to avoid.
+ *   The two currencies now coexist on the same screen; that is the design, not an
+ *   oversight, and `scripts/checkChainCopy.mjs` guards the boundary.
+ */
+export const NATIVE_SYMBOL = targetChain.nativeCurrency.symbol
+
+/**
  * Where this build is ACTUALLY pointed, whatever that is.
  *
  * Was `TESTNET_CHAIN_LABEL`, and that name was the bug: it asserts something

@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * Tosh Protocol · CRYPTOGRAPHIC TRADING TERMINAL  (v5.0 — ETH-native)
+ * Tosh Protocol · CRYPTOGRAPHIC TRADING TERMINAL  (v5.0 — native-coin)
  * ─────────────────────────────────────────────────────────────────────────────
  *
  *   PHASE 1 · GENESIS
- *     ▸ Native ETH deposits via factory.deposit{value}(hook, referrer)
+ *     ▸ Native-coin deposits via factory.deposit{value}(hook, referrer)
  *     ▸ H-01 PoG quota ledger
  *
  *   PHASE 2 · DISCRETE TIER SHELVES
@@ -13,7 +13,7 @@
  *     ▸ hook.mintBondingCurve{value}(tokenAmount)
  *
  *   PHASE 3 · REFUND
- *     ▸ hook.refund() returns 100 % of the ETH deposit
+ *     ▸ hook.refund() returns 100 % of the native-coin deposit
  *
  * ── LAYOUT: PORTED FROM THE v0 REDESIGN ──────────────────────────────────────
  *
@@ -36,6 +36,7 @@ import {
 } from '@/lib/contracts'
 import { isUnlisted } from '@/lib/projectRow'
 import { useBoundReferrer } from '@/lib/useReferral'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
 } from '@/components/ui'
@@ -399,7 +400,7 @@ export default function ProjectTerminal({ project, about, header }: {
             <p className="font-mono text-label text-warning">Refund window open</p>
             <p className="mt-1 text-note text-text-secondary leading-relaxed">
               This raise did not open a pool. Every depositor can reclaim 100% of
-              their ETH — no penalty, no haircut, no expiry on the claim itself.
+              their {NATIVE_SYMBOL} — no penalty, no haircut, no expiry on the claim itself.
             </p>
           </div>
         )}

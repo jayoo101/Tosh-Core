@@ -126,19 +126,52 @@ if (
  *  PoolManager would silently mis-CREATE2 every hook.  Mainnet cutover is a
  *  source change here, reviewed, not an env flip.
  *
- *  BNB Smart Chain mainnet only. The Robinhood era had 4663 and 46630 sharing
- *  one address, so a testnet rehearsal exercised the production value for free.
- *  That property is gone: Uniswap has not deployed v4 to BSC testnet at all
- *  (chain 97 is absent from their testnet list), so there is no second address
- *  to share and no public testnet that can host a launch. A rehearsal forks
- *  mainnet instead, which reaches this same singleton — see `chain.ts`. */
+ *  ⚠ DEAD CONSTANT, AND THE WARNING ABOVE IT IS NOT TRUE ANY MORE. Nothing in
+ *    `src/` reads this. Kept only long enough to be deleted deliberately, and
+ *    documented because the paragraph above claims it is load-bearing, which is
+ *    exactly the sort of comment that gets a stale value trusted.
+ *
+ *    Two things stopped being true. It is Uniswap's V4 PoolManager, and this
+ *    protocol now runs on PancakeSwap Infinity — so the address names the wrong
+ *    AMM. And hook addresses are no longer predicted from it: the launch page
+ *    reads `factory.hookInitcodeHash(...)` off the chain, so the prediction
+ *    tracks whatever factory is deployed and cannot be desynchronised by a
+ *    constant here.
+ *
+ *    Infinity's manager for the record — `CLPoolManager`, 56
+ *    0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b, 97
+ *    0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4 — plus a `Vault`, which V4 had no
+ *    equivalent of. The contracts take both as constructor arguments; the
+ *    frontend needs neither. */
 export const POOL_MANAGER: Address = '0x28e2Ea090877bF75740558f6BFB36A5ffeE9e9dF'
 
 /**
  * Uniswap V4 PositionManager — the retail LP entry point.
  *
- * BSC mainnet, from the official deployments page and pinned identically by
- * `test/ToshV5ForkBsc.t.sol`, which exercises it against a fork.
+ * ⚠ THIS IS THE WRONG AMM AND THE RETAIL LP FEATURE IS CURRENTLY BROKEN. Not a
+ *   copy problem; recorded here rather than quietly repointed because fixing it
+ *   is a port, not an address swap.
+ *
+ *   Every pool this protocol creates is now a PancakeSwap Infinity CL pool. This
+ *   address is Uniswap's V4 PositionManager, and Uniswap deployed no V4 to BSC
+ *   testnet at all — measured, it has NO CODE on 97 (see
+ *   docs/PANCAKESWAP_INFINITY.md §7). So `useLpPosition.ts` and
+ *   `LiquidityPanel.tsx` are talking to an address with nothing behind it on the
+ *   chain this build targets.
+ *
+ *   Infinity's equivalent is `CLPositionManager`:
+ *     56  0x55f4c8abA71A1e923edC303eb4fEfF14608cC226
+ *     97  0x77DedB52EC6260daC4011313DBEE09616d30d122
+ *
+ *   Swapping the address alone would trade a no-code failure for a revert: the
+ *   two managers do not share an encoding. `POSM_ABI` and the `modifyLiquidities`
+ *   action bytes in `lpAbis.ts` are V4's, and Infinity's take a six-member
+ *   `PoolKey` that names its pool manager. The genesis position itself is
+ *   unaffected — the hook seeds it directly through the Vault, with no periphery
+ *   involved — so this is retail LP only.
+ *
+ *   The fallback is left pointing at V4 deliberately, so nobody reads a plausible
+ *   Infinity address here and concludes the feature works.
  */
 export const POSITION_MANAGER: Address = envAddress(
   process.env.NEXT_PUBLIC_POSITION_MANAGER,
@@ -153,7 +186,13 @@ export const PERMIT2: Address = envAddress(
 )
 
 /** V4 StateView — read-only `getSlot0`, so the LP panel can size a deposit
- *  off the real sqrtPriceX96 rather than a derived spot.  BSC mainnet. */
+ *  off the real sqrtPriceX96 rather than a derived spot.  BSC mainnet.
+ *
+ *  ⚠ Same breakage as `POSITION_MANAGER` above, and Infinity has no drop-in
+ *    counterpart: it does not ship a `StateView`. `CLPoolManager` exposes pool
+ *    state directly, so the port is a call-site change and not a new address.
+ *    Left as V4's for the same reason — an honest broken pointer beats a
+ *    plausible one. */
 export const STATE_VIEW: Address = envAddress(
   process.env.NEXT_PUBLIC_STATE_VIEW,
   '0xd13Dd3D6E93f276FAfc9Db9E6BB47C1180aeE0c4',

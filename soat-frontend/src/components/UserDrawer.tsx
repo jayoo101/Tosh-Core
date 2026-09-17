@@ -63,6 +63,7 @@ import {
   CHAIN_BYLINE,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
   useNowMs, CLOCK_UNSYNCED,
@@ -631,20 +632,20 @@ function PoGQuotaPanel({
         ) : (
           <div className="text-brand font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
             {formatEth(remaining)}
-            <span className="text-sm text-brand/60 ml-1">ETH</span>
+            <span className="text-sm text-brand/60 ml-1">{NATIVE_SYMBOL}</span>
           </div>
         )}
         <div className="border-t border-border-subtle/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-text-tertiary font-mono text-label uppercase">Per-window Allocation</span>
             <span className="text-text-primary font-mono text-xs font-bold tabular-nums">
-              {unattested ? '—' : `${formatEth(pogQuota)} ETH`}
+              {unattested ? '—' : `${formatEth(pogQuota)} ${NATIVE_SYMBOL}`}
             </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-text-tertiary font-mono text-label uppercase">Spent This Window</span>
             <span className="text-text-secondary font-mono text-xs font-bold tabular-nums">
-              {blocked ? '—' : `${formatEth(windowSpent)} ETH`}
+              {blocked ? '—' : `${formatEth(windowSpent)} ${NATIVE_SYMBOL}`}
             </span>
           </div>
         </div>
@@ -733,7 +734,7 @@ function ParticipatedAssetsPanel({
       {empty && (
         <p className="text-label tracking-wider text-text-tertiary uppercase leading-relaxed">
           / no genesis deposits detected ·{' '}
-          <span className="text-text-primary">deposit ETH in any live genesis window, then claim after launch()</span>
+          <span className="text-text-primary">deposit {NATIVE_SYMBOL} in any live genesis window, then claim after launch()</span>
         </p>
       )}
 
@@ -798,7 +799,7 @@ function AssetRow({
 
       {/* `nativeDeposited` came from an earlier read that succeeded, so it stays
           on the degraded row — it is the one number here that is still known. */}
-      <Row label="DEPOSITED" value={`${formatEth(row.nativeDeposited)} ETH`} />
+      <Row label="DEPOSITED" value={`${formatEth(row.nativeDeposited)} ${NATIVE_SYMBOL}`} />
 
       {degraded && (
         <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">

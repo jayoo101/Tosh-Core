@@ -6,7 +6,7 @@
  * These used to be two instances of the same rotation panel.  They are not any
  * more: `setPlatformTreasury` was deleted from the factory when
  * `platformTreasury` went back onto a money path (it now receives 0.30 % of
- * every buy's ETH input), because a mutable fee-routing target is audit finding
+ * every buy's native-coin input), because a mutable fee-routing target is audit finding
  * M-2.  The field is immutable, so the treasury half is now a readout.
  *
  * What remains rotatable is the PoG signer.  The refusals there are the
@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { useReadContract } from 'wagmi'
 import { isAddress, getAddress, type Abi } from 'viem'
 import { FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { ActionButton, useActionGate, useTxAction, revertOrder } from '@/components/ui'
 import {
   Section,
@@ -199,10 +200,10 @@ export function PlatformTreasuryPanel() {
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <ScopeNote>
-        Every buy pays a 1.00 % tax on its ETH input. 0.70 % of that funds the
+        Every buy pays a 1.00 % tax on its {NATIVE_SYMBOL} input. 0.70 % of that funds the
         ladder treasury&apos;s buyback-and-burn; the remaining 0.30 % is paid here
         as platform revenue. The sell leg is not split — the whole 1.00 % of a
-        sell&apos;s token input is burned — so this address only ever receives ETH.
+        sell&apos;s token input is burned — so this address only ever receives {NATIVE_SYMBOL}.
         Launch fees, the 1 % shelf-mint cut and orphaned referral commission all
         still route entirely to the ladder treasury.
       </ScopeNote>

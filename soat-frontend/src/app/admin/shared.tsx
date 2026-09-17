@@ -16,6 +16,7 @@
 import { useEffect } from 'react'
 import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
 import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MINIMAL PRIMITIVES — every visual is a 1 px line or a typeface contrast
@@ -326,9 +327,16 @@ export function trimEthDisplay(units: string): string {
   return units.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0'
 }
 
+/**
+ * Every caller formats a SETTLEMENT figure — the launch fee, the default soft
+ * cap, the PoG allocation ceiling, the treasury balance and its next spend —
+ * so the suffix follows the chain. Nothing here formats a Proof-of-Gas floor
+ * or a lifetime-gas total; those stay ETH-denominated and are printed by
+ * `Monitors.tsx`, which spells the unit out per row for exactly that reason.
+ */
 export function fmtEth(wei: bigint | undefined): string {
   if (wei === undefined) return '—'
-  return `${trimEthDisplay(formatUnits(wei, 18))} ETH`
+  return `${trimEthDisplay(formatUnits(wei, 18))} ${NATIVE_SYMBOL}`
 }
 
 export function fmtDuration(sec: bigint, zeroHint: string): string {
@@ -340,7 +348,7 @@ export function fmtDuration(sec: bigint, zeroHint: string): string {
   return `${(n / 86400).toFixed(2)} d`
 }
 
-/** Parse an ETH-denominated field.  Zero is a legitimate value for fees. */
+/** Parse a settlement-coin field.  Zero is a legitimate value for fees. */
 export function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
   const trimmed = raw.trim()
   if (!trimmed) return { ok: false, reason: null }

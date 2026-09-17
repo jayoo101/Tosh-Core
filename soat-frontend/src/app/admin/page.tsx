@@ -43,7 +43,7 @@
  * Local guards mirrored from Solidity (so the wallet never opens for a
  * transaction that is already known to revert):
  *
- *   defaultSoftCap  < MIN_SOFT_CAP_PROD (0.01 ETH)  → blocked
+ *   defaultSoftCap  < MIN_SOFT_CAP_PROD (0.035)     → blocked
  *   cooldown/quota  > MAX_COOLDOWN (7 d)            → blocked
  *   blacklist batch > ADMIN_BATCH_MAX (200)         → truncated on the wire
  *   addLadderToken  → token must be factory-launched AND its hook must have

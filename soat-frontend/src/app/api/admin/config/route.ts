@@ -5,7 +5,7 @@
  * POST /api/admin/config        — rotate the PoG band (authenticated)
  *
  * ── What can be rotated ──────────────────────────────────────────────────────
- *  { newRate }         ETH of deposit quota per 1 ETH of historical gas
+ *  { newRate }         BNB of deposit quota per 1 ETH of historical gas
  *  { newFloorWei }     lifetime gas required to qualify, wei, decimal string
  *  { newMaxAllocWei }  ceiling on one attestation, wei, decimal string
  *

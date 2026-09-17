@@ -6,6 +6,7 @@ import type { Address } from 'viem'
 // shelf count is stated by the curve section's header and the page title.
 import { HOOK_ABI, TIER_SIZE, TWAP_WINDOW_LABEL } from '@/lib/contracts'
 import { Readout, Progress } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,12 +128,12 @@ export function ShelfLadder({
           that row `LIVE`, and the page header prints `shelf #0 / 4,000` beside
           the headline price. */}
       <div className="grid grid-cols-2 @lg:grid-cols-3 gap-4 px-4 py-3">
-        <Readout layout="stack" label="SHELF PRICE"  value={`${fmt(tierPrice)} ETH`} hint="per whole token" />
+        <Readout layout="stack" label="SHELF PRICE"  value={`${fmt(tierPrice)} ${NATIVE_SYMBOL}`} hint="per whole token" />
         <Readout layout="stack" label="REMAINING"    value={fmt(remaining)} hint="tokens on this rung" />
         <Readout
           layout="stack"
           label="105% CEILING"
-          value={`${fmt(ceiling)} ETH`}
+          value={`${fmt(ceiling)} ${NATIVE_SYMBOL}`}
           hint={unlocked ? 'tracks the pool and its average' : 'held at the opening price'}
           tone={unlocked ? 'ok' : 'mute'}
         />
@@ -162,7 +163,7 @@ export function ShelfLadder({
                           ${active ? 'text-text-primary bg-surface-hover' : 'text-text-tertiary'}`}
             >
               <span>#{idx.toString()}</span>
-              <span>{fmt(t.price)} ETH</span>
+              <span>{fmt(t.price)} {NATIVE_SYMBOL}</span>
               <span>{soldPct.toFixed(1)}%</span>
               <span className="text-right">{active ? 'LIVE' : idx < tierIndex ? 'CLEARED' : 'QUEUED'}</span>
             </div>
@@ -172,7 +173,7 @@ export function ShelfLadder({
 
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle
                       font-mono text-label text-text-tertiary tabular-nums">
-        <span>opening = <span className="text-text-primary">{fmt(p0)} ETH</span></span>
+        <span>opening = <span className="text-text-primary">{fmt(p0)} {NATIVE_SYMBOL}</span></span>
         <span>now = <span className="text-text-primary">{fmt(spotPrice)}</span></span>
         {/* A zero average is the contract's "no full window yet" signal, not a
             price of zero — the ceiling caps against the opening price until the

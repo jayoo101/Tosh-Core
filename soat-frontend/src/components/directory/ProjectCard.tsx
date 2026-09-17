@@ -13,7 +13,7 @@
  *
  * None of those five figures exist behind this app. There is no price oracle,
  * no volume index and no holder index; `DirectoryProject` carries exactly what
- * the factory and the hook return, which is the ETH deposited, the cap it is
+ * the factory and the hook return, which is the native coin deposited, the cap it is
  * measured against, the deadline, and whether the pool is open. Rather than
  * stub them — a market cap is not the kind of number to invent on a page
  * people spend money from — the slots keep their layout and say what they
@@ -31,6 +31,7 @@ import { ArrowUpRight } from 'lucide-react'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtEth } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import type { ProjectRow } from '@/app/lib/supabase'
 import { CLOCK_UNSYNCED, formatCountdown, useNowSec } from '@/components/ui'
 import { ProjectLogo } from '@/components/ProjectLogo'
@@ -223,7 +224,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
             />
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
-            {fmtEth(p.totalNative)} / {fmtEth(p.softCap)} ETH
+            {fmtEth(p.totalNative)} / {fmtEth(p.softCap)} {NATIVE_SYMBOL}
           </div>
         </div>
       )}
@@ -240,7 +241,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               Raised at genesis
             </div>
             <div className="font-mono text-readout tabular-nums text-text-primary">
-              {fmtEth(p.totalNative)} ETH
+              {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
             </div>
           </div>
           {/* There is no price feed behind this app, so there is nothing to
@@ -359,7 +360,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div>
             <div className="flex items-center justify-between gap-gap text-note text-text-tertiary">
               <span className="font-mono tabular-nums text-text-primary">
-                {fmtEth(p.totalNative)} ETH
+                {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>

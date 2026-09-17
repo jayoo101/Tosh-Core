@@ -4,6 +4,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useBytecode, useReadContract, useSignMessage } from 'wagmi'
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, revertOrder,
   toshToast, isUserRejection, shortErrorMessage,
@@ -219,12 +220,18 @@ export function ExchangeRatePanel() {
   return (
     <Section
       id="DIAG-B" title="POG BAND (OFF-CHAIN)"
-      subtitle="POST /api/admin/config · owner-signed message, not a transaction · 1 ETH gas = N ETH quota"
+      subtitle={`POST /api/admin/config · owner-signed message, not a transaction · 1 ETH gas = N ${NATIVE_SYMBOL} quota`}
     >
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-note @sm:grid-cols-2">
+        {/* THE TWO UNITS IN THIS LIST ARE NOT THE SAME COIN, and the rows are
+            ordered so that is visible. `pogFloorWei` and `pogGasCapWei` measure
+            gas burned on ETH-settled chains and stay ETH; `pogMaxAllocWei` is
+            what the wallet may then deposit, so it follows the settlement chain.
+            The rate carries the conversion and is therefore per-ETH-of-gas, not
+            dimensionless — see the currency note at the top of `pogQuota.ts`. */}
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Rate</dt>
-          <dd>{live ? `${live.globalGasToSatoRate} ETH per 1 ETH gas` : 'reading…'}</dd>
+          <dd>{live ? `${live.globalGasToSatoRate} ${NATIVE_SYMBOL} per 1 ETH gas` : 'reading…'}</dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Gas floor</dt>
@@ -232,7 +239,7 @@ export function ExchangeRatePanel() {
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Max deposit</dt>
-          <dd>{live ? `${weiToEth(live.pogMaxAllocWei)} ETH` : 'reading…'}</dd>
+          <dd>{live ? `${weiToEth(live.pogMaxAllocWei)} ${NATIVE_SYMBOL}` : 'reading…'}</dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Counts gas up to</dt>
@@ -241,7 +248,7 @@ export function ExchangeRatePanel() {
       </dl>
 
       <Field
-        label="NEW RATE · ETH QUOTA PER 1 ETH GAS"
+        label={`NEW RATE · ${NATIVE_SYMBOL} QUOTA PER 1 ETH GAS`}
         value={rateInput}
         onChange={setRateInput}
         placeholder="e.g. 0.5"

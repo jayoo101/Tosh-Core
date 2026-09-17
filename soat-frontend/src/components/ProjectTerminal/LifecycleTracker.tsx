@@ -14,6 +14,7 @@
 
 import { Check } from 'lucide-react'
 import { Card, cn } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import type { Phase } from './phase'
 
 /**
@@ -29,9 +30,9 @@ import type { Phase } from './phase'
  * directory card's `launching` body; see v0 audit §D2.
  */
 const LIFECYCLE: { key: Phase; label: string; body: string }[] = [
-  { key: 'genesis',         label: 'Funding',         body: 'Proof-of-Gas gated ETH deposits' },
+  { key: 'genesis',         label: 'Funding',         body: `Proof-of-Gas gated ${NATIVE_SYMBOL} deposits` },
   { key: 'awaiting_launch', label: 'Awaiting launch', body: 'Window closed · waiting on the creator' },
-  { key: 'bonding',         label: 'Trading',         body: '4,000-shelf ladder live on V4' },
+  { key: 'bonding',         label: 'Trading',         body: '4,000-shelf ladder live on Infinity' },
 ]
 
 export function LifecycleTracker({ phase }: { phase: Phase }) {

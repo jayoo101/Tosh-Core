@@ -13,7 +13,7 @@
  * over each `<fieldset>`, an unnumbered submit panel under them, and a 340px
  * preview column beside the lot. Where this page departs from
  * the mock it is because the mock is a mock — fake data and stubbed writes —
- * and this page spends real ETH through a real factory.
+ * and this page spends the real settlement coin through a real factory.
  *
  * NO "MINE HOOK SALT" BUTTON, AND THE SALT IS NOT A NUMBERED SECTION. The mock
  * mines on its own button and lets a later Deploy submit whatever that button
@@ -82,6 +82,7 @@ import {
   BONDING_MAX, TIER_COUNT, LADDER_SPAN,
   LAUNCH_WINDOW_SECONDS,
 } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import type { ProjectPayload } from '../api/projects/route'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
@@ -473,7 +474,7 @@ export default function GenesisConsole() {
   const dueNowWei = dialsReady && createGasWei !== null ? launchFeeWei + createGasWei : null
   const dueTotalWei = dialsReady && projectGasWei !== null ? launchFeeWei + projectGasWei : null
 
-  const ethDisplay = (wei: bigint | null) => (wei === null ? EM_DASH : `${formatEstimateEth(wei)} ETH`)
+  const ethDisplay = (wei: bigint | null) => (wei === null ? EM_DASH : `${formatEstimateEth(wei)} ${NATIVE_SYMBOL}`)
 
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
@@ -636,7 +637,7 @@ export default function GenesisConsole() {
     // A moved fee un-ticks the pact rather than being spent anyway. That box
     // is an agreement to two specific numbers, and `ack` already goes false
     // when the cached read notices a change; this is the same rule applied at
-    // the one moment it decides whether ETH leaves the wallet.
+    // the one moment it decides whether the wallet is spent from.
     let feeToSend = launchFeeWei
     if (publicClient) {
       try {
@@ -646,8 +647,8 @@ export default function GenesisConsole() {
         if (liveFee !== launchFeeWei) {
           setAckedTerms(null)
           setSaltError(
-            `Launch fee is now ${trimEth(formatUnits(liveFee, 18))} ETH, not `
-            + `${trimEth(formatUnits(launchFeeWei, 18))} ETH. Review the terms and tick the pact again.`,
+            `Launch fee is now ${trimEth(formatUnits(liveFee, 18))} ${NATIVE_SYMBOL}, not `
+            + `${trimEth(formatUnits(launchFeeWei, 18))} ${NATIVE_SYMBOL}. Review the terms and tick the pact again.`,
           )
           void refetchDials()
           return
@@ -862,7 +863,7 @@ export default function GenesisConsole() {
   }
 
   const gate = useActionGate({
-    action: `Deploy — ${feeDisplay} ETH`,
+    action: `Deploy — ${feeDisplay} ${NATIVE_SYMBOL}`,
     onAct: () => { void handleLaunch() },
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
@@ -906,8 +907,8 @@ export default function GenesisConsole() {
         active: insufficientFee,
         label: `Need ${ethDisplay(requiredNowWei)}`,
         reason: gasKnown
-          ? `${feeDisplay} ETH launch fee plus about ${ethDisplay(createGasWei)} of gas at the current rate. This wallet does not hold that much.`
-          : `The factory takes ${feeDisplay} ETH as the launch fee. This wallet does not hold that much.`,
+          ? `${feeDisplay} ${NATIVE_SYMBOL} launch fee plus about ${ethDisplay(createGasWei)} of gas at the current rate. This wallet does not hold that much.`
+          : `The factory takes ${feeDisplay} ${NATIVE_SYMBOL} as the launch fee. This wallet does not hold that much.`,
         tone: 'warn',
       },
       {
@@ -979,7 +980,7 @@ export default function GenesisConsole() {
         <div className="mt-section grid gap-section lg:grid-cols-[minmax(0,1fr)_340px]">
           {/* `onSubmit` swallows the event rather than deploying. The mock's
               submit button IS the form's submit, which on this page would mean
-              the Enter key can spend ETH — and the deploy path is gated through
+              the Enter key can spend the settlement coin — and the deploy path is gated through
               `useActionGate`, which is a deliberate click on a button that has
               already said what it is about to cost. The fieldsets are still a
               real form: grouping, legends and tab order all come from that. */}
@@ -1140,9 +1141,21 @@ export default function GenesisConsole() {
                   </div>
 
                   {/* THE MINIMUM RAISE READOUT IS GONE FROM HERE. It was a
-                      `Minimum raise / 0.01 ETH / Set on the factory, not per
-                      launch` block on the right of this row — the fourth place
-                      on one screen showing one number. The other three are the
+                      `Minimum raise / <softCapDisplay> / Set on the factory,
+                      not per launch` block on the right of this row — the
+                      fourth place on one screen showing one number.
+
+                      That figure was written here as the literal "0.01 ETH",
+                      which was the factory floor before the BNB cutover
+                      recalibrated it ×3.5 to 0.035. It is not quoted as a
+                      number any more: this row read `softCapWei` live, and the
+                      three surviving call sites still do, so naming the
+                      variable rather than a frozen value is what stops this
+                      tombstone from going stale a second time. The live floor
+                      constant, if you want it spelled out, is
+                      `MIN_SOFT_CAP_PROD_LABEL` in `lib/contracts.ts`.
+
+                      The other three are the
                       preview panel's MINIMUM RAISE, the factory dials in the
                       aside (as `Soft cap`, which is why that label is now the
                       same words as these were), and the consent line the
@@ -1340,7 +1353,7 @@ export default function GenesisConsole() {
                   splits {shareOf(GENESIS_CLAIM_SUPPLY, GENESIS_SUPPLY)} to depositor
                   claims and the rest to pool liquidity, which is what opens the market
                   above what they paid. Miss the refund window and every depositor takes
-                  back 100% of their ETH.
+                  back 100% of their {NATIVE_SYMBOL}.
                 </p>
               </Card>
 
@@ -1436,7 +1449,7 @@ export default function GenesisConsole() {
                 <span className="text-note leading-relaxed text-text-secondary">
                   {dialsReady ? (
                     <>
-                      I accept the immutable pact: {feeDisplay} ETH launch fee, {softCapDisplay} ETH
+                      I accept the immutable pact: {feeDisplay} {NATIVE_SYMBOL} launch fee, {softCapDisplay} {NATIVE_SYMBOL}
                       raise target, a genesis window that cannot close early, and a{' '}
                       <span className="text-warning">full refund</span> if the{' '}
                       {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
@@ -1530,7 +1543,7 @@ export default function GenesisConsole() {
                 description={description}
                 logoUrl={logoUrl}
                 windowLabel={`${activeWindow.seconds / 3600n}h`}
-                minimumRaise={dialsReady ? `${softCapDisplay} ETH` : EM_DASH}
+                minimumRaise={dialsReady ? `${softCapDisplay} ${NATIVE_SYMBOL}` : EM_DASH}
                 poolAddress={predictedHook}
               />
 
@@ -1552,7 +1565,7 @@ export default function GenesisConsole() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Launch fee</dt>
                     <dd className="text-text-primary">
-                      {dialsReady ? `${feeDisplay} ETH` : EM_DASH}
+                      {dialsReady ? `${feeDisplay} ${NATIVE_SYMBOL}` : EM_DASH}
                     </dd>
                   </div>
                   {/* `Minimum raise`, not `Soft cap`. It is the same
@@ -1566,13 +1579,13 @@ export default function GenesisConsole() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Raise target</dt>
                     <dd className="text-text-primary">
-                      {dialsReady ? `${softCapDisplay} ETH` : EM_DASH}
+                      {dialsReady ? `${softCapDisplay} ${NATIVE_SYMBOL}` : EM_DASH}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Per-wallet cap</dt>
                     <dd className="text-text-primary">
-                      {dialsReady ? `${trimEth(formatUnits(perWalletCapWei, 18))} ETH` : EM_DASH}
+                      {dialsReady ? `${trimEth(formatUnits(perWalletCapWei, 18))} ${NATIVE_SYMBOL}` : EM_DASH}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">

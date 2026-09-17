@@ -31,6 +31,7 @@
 import {
   Card, Readout, Field, ActionButton,
 } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 import { ShelfLadder } from './ShelfLadder'
 import { useBondingState } from './bondingState'
@@ -160,7 +161,7 @@ export function BondingBuyPanel() {
               layout="stack"
               className="px-4 py-3"
               label="QUOTED COST"
-              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(nativeCost)} ETH`}
+              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(nativeCost)} ${NATIVE_SYMBOL}`}
               tone={quoteUnavailable ? 'warn' : 'ink'}
             />
             <Readout
@@ -172,7 +173,7 @@ export function BondingBuyPanel() {
               // quote lands — so the panel spent every in-flight moment stating
               // that the order costs nothing and sends nothing. A ceiling of
               // "0 ETH" is not a pending state, it is a wrong answer.
-              value={quoteUnknown || quoteUnavailable ? '…' : `${fmt(maxEthCost)} ETH`}
+              value={quoteUnknown || quoteUnavailable ? '…' : `${fmt(maxEthCost)} ${NATIVE_SYMBOL}`}
               hint="0.5% over the quote; the difference comes back"
             />
             <Readout

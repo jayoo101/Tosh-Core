@@ -12,6 +12,7 @@ import type { Phase } from './phase'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt, fmtFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 
@@ -162,7 +163,7 @@ export function ReferralPanel({
     >
       <Readout
         label="CLAIMABLE COMMISSION"
-        value={`${fmt(claimable)} ETH`}
+        value={`${fmt(claimable)} ${NATIVE_SYMBOL}`}
         hint={claimable === 0n
           ? 'accrues on deposit · unlocks at launch()'
           : fmtFull(claimable, 18)}

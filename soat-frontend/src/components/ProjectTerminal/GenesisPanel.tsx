@@ -6,6 +6,7 @@ import {
   FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS,
 } from '@/lib/contracts'
 import { resolveReferrerNow } from '@/lib/useReferral'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
   Card, Readout, Field, FieldAffix,
@@ -178,7 +179,7 @@ export function GenesisPanel(p: GenesisProps) {
   // told its window was spent when the transaction would actually have reverted
   // `CooldownActive`: "you have none left" instead of "wait 24 hours".
   const gate = useActionGate({
-    action: 'Deposit ETH',
+    action: `Deposit ${NATIVE_SYMBOL}`,
     onAct: submitDeposit,
     tx: {
       isPending: isDepositing || pog.isPending,
@@ -190,14 +191,14 @@ export function GenesisPanel(p: GenesisProps) {
         id: 'amount-invalid',
         active: amountInvalid,
         label: 'Check the amount',
-        reason: 'That is not a number this field can send as ETH.',
+        reason: `That is not a number this field can send as ${NATIVE_SYMBOL}.`,
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !amountInvalid && amountWei === 0n,
         label: 'Enter an amount',
-        reason: 'Enter the amount of ETH to deposit.',
+        reason: `Enter the amount of ${NATIVE_SYMBOL} to deposit.`,
         tone: 'neutral',
       },
       {
@@ -253,7 +254,7 @@ export function GenesisPanel(p: GenesisProps) {
         id: 'quota-exceeded',
         active: quotaBreached,
         label: 'Over your limit',
-        reason: `That is more than this wallet may deposit in the current window · ${fmt(quotaRemaining)} ETH left.`,
+        reason: `That is more than this wallet may deposit in the current window · ${fmt(quotaRemaining)} ${NATIVE_SYMBOL} left.`,
       },
       {
         id: 'window-closed',
@@ -265,14 +266,14 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'wallet-cap',
         active: walletCapBreached,
-        label: `Over the wallet cap · ${fmt(walletHeadroom)} ETH left`,
-        reason: `That is more than this project allows one wallet to hold · ${fmt(walletHeadroom)} ETH left for you.`,
+        label: `Over the wallet cap · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} left`,
+        reason: `That is more than this project allows one wallet to hold · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} left for you.`,
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: 'Not enough ETH',
-        reason: 'This wallet does not hold that much ETH.',
+        label: `Not enough ${NATIVE_SYMBOL}`,
+        reason: `This wallet does not hold that much ${NATIVE_SYMBOL}.`,
         tone: 'warn',
       },
     ),
@@ -295,7 +296,7 @@ export function GenesisPanel(p: GenesisProps) {
   return (
     <div className="flex flex-col">
       <Card
-        title="Deposit ETH"
+        title={`Deposit ${NATIVE_SYMBOL}`}
         subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
         interactive={false}
       >
@@ -380,8 +381,8 @@ export function GenesisPanel(p: GenesisProps) {
 
         {p.isConnected && (
           <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
-            <Readout label="ETH BALANCE"
-                     value={`${fmt(p.ethBalance)} ETH`}
+            <Readout label={`${NATIVE_SYMBOL} BALANCE`}
+                     value={`${fmt(p.ethBalance)} ${NATIVE_SYMBOL}`}
                      hint={fmtFull(p.ethBalance, 18)} />
             <Readout label="COOLDOWN"
                      value={cooldownTxt}
@@ -399,7 +400,7 @@ export function GenesisPanel(p: GenesisProps) {
         )}
 
         <Field
-          label="DEPOSIT AMOUNT · ETH"
+          label={`DEPOSIT AMOUNT · ${NATIVE_SYMBOL}`}
           value={amount}
           onValueChange={setAmount}
           placeholder="e.g. 0.05"
@@ -408,7 +409,7 @@ export function GenesisPanel(p: GenesisProps) {
           error={amountError}
           armed={armed}
           hint={p.perWalletCap > 0n
-            ? `THIS PROJECT ALLOWS ${fmt(p.perWalletCap)} ETH PER WALLET · ${fmt(walletHeadroom)} ETH LEFT FOR YOU`
+            ? `THIS PROJECT ALLOWS ${fmt(p.perWalletCap)} ${NATIVE_SYMBOL} PER WALLET · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} LEFT FOR YOU`
             : undefined}
           affix={
             <FieldAffix

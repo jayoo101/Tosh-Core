@@ -19,7 +19,7 @@
  * NOTHING IN HERE IS NEW. It is `BondingPanel`'s former body, moved verbatim —
  * same reads, same cadences, same revert-ordered blocker cascade, same
  * `value: maxEthCost`. The split is a layout change and the buy path spends
- * real ETH, so the derivation was lifted rather than rewritten.
+ * the real settlement coin, so the derivation was lifted rather than rewritten.
  *
  * WHY THIS IS NOT BEHIND `next/dynamic` the way the two halves are: a dynamic
  * component's fallback renders INSTEAD of its children, and this provider wraps
@@ -41,11 +41,12 @@ import {
 import {
   useActionGate, revertOrder, useTxAction, type ActionGate,
 } from '@/components/ui'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fmt } from './format'
 import type { TierStatus } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
- *  on-chain quote and sent as `msg.value`; excess ETH is refunded by the hook. */
+ *  on-chain quote and sent as `msg.value`; the excess is refunded by the hook. */
 const SLIPPAGE_BPS = 50n
 
 export interface BondingProps {
@@ -371,13 +372,13 @@ export function BondingStateProvider(
         id: 'dust',
         active: isDust,
         label: 'Amount too small',
-        reason: 'That amount costs less than the smallest unit of ETH. Raise it until it is worth at least a wei.',
+        reason: `That amount costs less than the smallest unit of ${NATIVE_SYMBOL}. Raise it until it is worth at least a wei.`,
         tone: 'warn',
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: 'Not enough ETH',
+        label: `Not enough ${NATIVE_SYMBOL}`,
         reason: 'This wallet does not hold the quoted cost plus its slippage headroom.',
         tone: 'warn',
       },

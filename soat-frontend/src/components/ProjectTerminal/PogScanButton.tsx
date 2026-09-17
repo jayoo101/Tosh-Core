@@ -19,6 +19,7 @@ import { ActionButton, useActionGate, useTxAction, toshToast } from '@/component
 import { fmt } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
 import { runUnsignedPogScan } from './pogScanClient'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 type Phase = 'idle' | 'scanning' | 'signing'
 
@@ -110,7 +111,7 @@ export function PogScanButton({
         }
       }
 
-      toshToast.info(`Quota sized · ${fmt(BigInt(maxAlloc))} ETH`)
+      toshToast.info(`Quota sized · ${fmt(BigInt(maxAlloc))} ${NATIVE_SYMBOL}`)
 
       send({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI,

@@ -85,9 +85,61 @@ const fail = (chain, msg) => { failures++; console.log(`FAIL  ${chain.name} (${c
 const ABANDONED_CHAIN_NAMES = /base\s*sepolia|basescan|sepolia/i
 const LABEL_SOURCE = 'src/lib/chain.ts'
 
+/**
+ * Coin tickers the UI must not hard-code, and the one exception.
+ *
+ * ⚠ RULE 3, ADDED AFTER THE BNB MIGRATION SHIPPED WITH ~230 "ETH"s STILL ON
+ *   SCREEN. Rules 1 and 2 guard the chain's NAME. Nothing guarded the coin's
+ *   ticker, and the coin is what almost every number on the site is denominated
+ *   in — so the rename that moved `totalEthDeposited` to `totalNativeDeposited`
+ *   across 843 sites, and rescaled every contract constant ×3.5, left the UI
+ *   confidently labelling BNB amounts as ETH. Each individual string was
+ *   untouched and therefore uninspected. That is the same failure mode as
+ *   `layout.tsx` naming Base Sepolia for months, one layer down.
+ *
+ * The fix is `NATIVE_SYMBOL` in `chain.ts`, derived from the chain. This makes
+ * bypassing it a build failure.
+ *
+ * THE EXCEPTION IS NOT A LOOPHOLE, it is the design. Proof-of-Gas measures gas
+ * burned on ETH-settled chains, and that figure stays in ETH on purpose — a
+ * ×3.5 rescale would have raised the eligibility bar while looking like a
+ * rename. So the PoG rate is BNB-per-ETH, and screens like GasHistoryDialog
+ * legitimately show "0.025 ETH" of gas directly above "0.04 BNB" of quota.
+ *
+ * So a ticker survives only where the SOURCE AROUND IT is reading a gas figure.
+ * The test is against a window of source lines, not against the literal, and
+ * that is not a convenience — a template literal reaches the AST already torn
+ * into chunks, so `{fmt(BigInt(scan.floorWei))} ETH` arrives as the bare string
+ * "ETH" with every clue stripped off. Judging the literal alone flagged all
+ * fourteen legitimate PoG sites on the first run.
+ *
+ * Keyed on the identifiers that hold gas, because the copy does not always say
+ * "gas" where it shows one: the Floor row renders `scan.floorWei` and the word
+ * never appears. Identifiers are also the harder thing to fake, so the exception
+ * cannot be claimed by writing "gas" into a sentence about deposits.
+ *
+ * Test files are out of scope. Their names quote copy on purpose, including copy
+ * that has since changed, and a guard that could not tell a test name from a
+ * label would force those records to be rewritten into uselessness.
+ */
+const COIN_TICKERS = /\b(?:ETH|BNB|WETH|WBNB)\b/
+
+/** Reading a gas figure, so a ticker beside it is the PoG currency, not the
+ *  settlement one. `NATIVE_SYMBOL` earns an exception too: a line that already
+ *  consults it is currency-aware by construction, which covers comparisons like
+ *  `NATIVE_SYMBOL !== 'ETH'` that gate the cross-currency note. */
+const GAS_DENOMINATED_SOURCE =
+  /gasWei|floorWei|GasCapWei|NATIVE_SYMBOL|historical gas|lifetime gas|gas burned|ETH-settled|ETH gas/i
+
+/** Lines around the literal that the exception may be read from. One either
+ *  side, because JSX wraps and the identifier often sits on the previous line. */
+const GAS_CONTEXT_LINES = 1
+
 /** Cheap text-level reject, so only candidate files pay for a parse. */
 const mightNameAChain = (text, mainnetLabel, isLabelSource) =>
-  ABANDONED_CHAIN_NAMES.test(text) || (!isLabelSource && Boolean(mainnetLabel) && text.includes(mainnetLabel))
+  ABANDONED_CHAIN_NAMES.test(text)
+  || COIN_TICKERS.test(text)
+  || (!isLabelSource && Boolean(mainnetLabel) && text.includes(mainnetLabel))
 
 /**
  * Literals only — string, template chunk, JSX text. Comments are deliberately
@@ -112,8 +164,15 @@ function scanLiterals(mainnetLabel) {
     const text = readFileSync(file, 'utf8')
     const rel = file.split('\\').join('/')
     const isLabelSource = rel.endsWith(LABEL_SOURCE)
+    const isTest = /\.test\.tsx?$/.test(rel)
 
     if (!mightNameAChain(text, mainnetLabel, isLabelSource)) continue
+
+    const srcLines = text.split('\n')
+    /** Is the literal on line `n` (0-based) sitting next to a gas figure? */
+    const gasContext = (n) => GAS_DENOMINATED_SOURCE.test(
+      srcLines.slice(Math.max(0, n - GAS_CONTEXT_LINES), n + GAS_CONTEXT_LINES + 1).join('\n'),
+    )
 
     const sf = ts.createSourceFile(
       file, text, ts.ScriptTarget.ES2022, true,
@@ -138,6 +197,14 @@ function scanLiterals(mainnetLabel) {
         } else if (!isLabelSource && mainnetLabel && value.includes(mainnetLabel)) {
           hits++
           console.log(`FAIL  ${where} — hard-codes "${mainnetLabel}"; import it from ${LABEL_SOURCE} instead: ${JSON.stringify(value.trim().slice(0, 80))}`)
+        } else if (!isLabelSource && !isTest && COIN_TICKERS.test(value) && !gasContext(line)) {
+          hits++
+          console.log(
+            `FAIL  ${where} — hard-codes a coin ticker; use NATIVE_SYMBOL from ${LABEL_SOURCE}`
+            + ` (a ticker is allowed only where the surrounding source reads a gas`
+            + ` figure, which is the Proof-of-Gas exception):`
+            + ` ${JSON.stringify(value.trim().slice(0, 80))}`,
+          )
         }
       }
       ts.forEachChild(node, visit)
