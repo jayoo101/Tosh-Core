@@ -127,13 +127,13 @@ jobs:
         run: npm run guard:supabase
 
       # The LP panel quotes deposits from fixed-point maths hand-ported out of
-      # v4-core's SqrtPriceMath and v4-periphery's LiquidityAmounts. A drift
-      # here does not throw: the panel just quotes an amount the pool will
-      # refuse, so the mint reverts on `amount1Max` after the user has already
-      # signed two Permit2 approvals. Pins the TS against vectors recorded from
-      # Foundry. See scripts/checkV4Math.ts.
-      - name: v4 fixed-point maths matches Solidity vectors
-        run: npm run guard:v4math
+      # infinity-core's SqrtPriceMath and infinity-periphery's LiquidityAmounts.
+      # The arithmetic is bit-identical to the Uniswap V4 port it replaced
+      # (measured, not assumed); a drift here does not throw: the panel just
+      # quotes an amount the pool will refuse, so the mint reverts on
+      # `amount1Max` after the user has already signed two Permit2 approvals.
+      - name: Infinity CL fixed-point maths matches Solidity vectors
+        run: npm run guard:clmath
 
       # posm decodes `modifyLiquidities` payloads with hard-coded calldata
       # offsets and a decoder that reverts on any non-canonical abi offset, so a

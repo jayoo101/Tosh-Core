@@ -7,7 +7,8 @@
 #   1. node scripts/checkEncoding.mjs   (source files are valid UTF-8)
 #   2. forge fmt --check    (style drift)
 #   3. forge build          (compile-clean)
-#   4. cross-language tuple guards (PoG digest, pool geometry, salt miner)
+#   4. cross-language tuple guards (PoG digest, pool geometry, salt miner,
+#      Infinity posm ABI, Infinity router tuple, lint findings, doc symbols)
 #   5. node scripts/checkPublicEnv.mjs  (NEXT_PUBLIC_* really reaches the browser)
 #   6. node scripts/checkServerRpc.mjs  (no RPC endpoint chosen without a chain id)
 #   7. node scripts/checkSupabase.mjs   (every Supabase query carries a deadline)
@@ -93,6 +94,33 @@ Step "node scripts/checkPoolGeometry.mjs" {
 
 Step "node scripts/checkHookMinerTuple.mjs" {
     node scripts/checkHookMinerTuple.mjs
+}
+
+# The LP panel hand-encodes Infinity posm payloads. This half pins the offsets
+# and opcodes against lib/infinity-periphery; the TypeScript encoder half lives
+# in soat-frontend and is run by frontend.yml. Both must stay wired — a
+# five-member V4 key still encodes and still hashes to a pool nobody opened.
+Step "node scripts/checkLpActionsAbi.mjs" {
+    node scripts/checkLpActionsAbi.mjs
+}
+
+# Pins the hand-rolled UniversalRouter tuple against the deployed Infinity
+# decoder. A V4-shaped tuple is well-formed and wrong; this is the check that
+# names the collision rather than letting a swap revert in a wallet popup.
+Step "node scripts/checkV4RouterTuple.mjs" {
+    node scripts/checkV4RouterTuple.mjs
+}
+
+# The narrowing-cast triage is a SET, not a count. forge lint here, not in CI
+# only — two red builds this port shipped were guards this script did not run.
+Step "node scripts/checkLintFindings.mjs" {
+    node scripts/checkLintFindings.mjs
+}
+
+# A dangling Solidity symbol in a security-facing doc is a control nobody can
+# check. Cheap, local, and already in test.yml.
+Step "node scripts/checkDocSymbols.mjs" {
+    node scripts/checkDocSymbols.mjs
 }
 
 # Catches `process.env[name]`, which Next.js cannot inline, and env vars the

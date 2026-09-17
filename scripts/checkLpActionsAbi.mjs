@@ -1,18 +1,18 @@
-// Pins the frontend's posm action payloads to the v4-periphery Solidity that
-// decodes them.
+// Pins the frontend's posm action payloads to the infinity-periphery Solidity
+// that decodes them.
 //
 // ── The failure this exists to catch ────────────────────────────────────────
 //
 // `soat-frontend/src/lib/lpActions.ts` hand-encodes the `(bytes actions,
-// bytes[] params)` blob `PositionManager.modifyLiquidities` takes. posm does
-// not abi-decode it: `CalldataDecoder.decodeMintParams` reads its fields by
+// bytes[] params)` blob `CLPositionManager.modifyLiquidities` takes. posm does
+// not abi-decode it: `CLCalldataDecoder.decodeCLMintParams` reads its fields by
 // HARD-CODED calldata offsets, and `decodeActionsRouterParams` recomputes every
 // offset and reverts on the slightest deviation. So the frontend's param list
 // has to produce one exact byte layout, and the action bytes have to be the
 // exact numbers `Actions` assigns.
 //
 // A submodule bump is all it takes to break that. Insert a field into
-// `PoolKey`, move `decodeMintParams`'s 0xa0, or renumber an `Actions` opcode,
+// `PoolKey`, move `decodeCLMintParams`'s 0xc0, or renumber an `Actions` opcode,
 // and every line of TypeScript still compiles, every Solidity test still
 // passes, and every deposit from the UI reverts with `SliceOutOfBounds` — or
 // worse, succeeds while performing a different action than the button said.
@@ -23,7 +23,7 @@
 // checks the bytes it emits, which this file cannot do — that needs `viem`, and
 // npm lives in frontend.yml, which checks out without submodules. But it
 // checks those bytes against offsets written in that file, and it used to
-// assert the opcodes against `V4_ACTIONS`, the same constant it built the
+// assert the opcodes against `CL_ACTIONS`, the same constant it built the
 // payload from, which passes for any value.
 //
 // So that guard pins the encoder to a set of literals; this one pins those
@@ -39,20 +39,22 @@
 import { readFileSync } from 'node:fs';
 
 // Ground truth: the Solidity that will run.
-const DECODER = 'lib/v4-periphery/src/libraries/CalldataDecoder.sol';
-const ACTIONS = 'lib/v4-periphery/src/libraries/Actions.sol';
-const POOL_KEY = 'lib/v4-core/src/types/PoolKey.sol';
+const DECODER = 'lib/infinity-periphery/src/pool-cl/libraries/CLCalldataDecoder.sol';
+const ROUTER_DECODER = 'lib/infinity-periphery/src/libraries/CalldataDecoder.sol';
+const ACTIONS = 'lib/infinity-periphery/src/libraries/Actions.sol';
+const POOL_KEY = 'lib/infinity-core/src/types/PoolKey.sol';
 
 // Files consulted only to resolve user-defined types down to abi types.
 const TYPE_SOURCES = [
-  'lib/v4-core/src/types/Currency.sol',
-  'lib/v4-core/src/interfaces/IHooks.sol',
+  'lib/infinity-core/src/types/Currency.sol',
+  'lib/infinity-core/src/interfaces/IHooks.sol',
+  'lib/infinity-core/src/interfaces/IPoolManager.sol',
 ];
 
 // The frontend side.
 const FE_CONTRACTS = 'soat-frontend/src/lib/contracts.ts';
 const FE_LP_ACTIONS = 'soat-frontend/src/lib/lpActions.ts';
-const FE_V4MATH = 'soat-frontend/src/lib/v4Math.ts';
+const FE_CLMATH = 'soat-frontend/src/lib/clMath.ts';
 const FE_GUARD = 'soat-frontend/scripts/checkLpActions.ts';
 
 const failures = [];
@@ -135,7 +137,8 @@ function resolveSolidityType(name, depth = 0) {
 // The one rule everything below rests on: a STATIC tuple is inlined, so it
 // occupies one head slot per field, while a dynamic type occupies exactly one
 // head slot holding an offset. That is the whole reason `hookData` lands on
-// slot 11 rather than slot 7.
+// slot 12 rather than slot 7 — Infinity's PoolKey is six static members, V4's
+// was five, and a payload built for the other is well-formed and wrong.
 
 const isDynamic = (abiType) => abiType === 'bytes' || abiType === 'string' || abiType.endsWith('[]');
 
@@ -230,13 +233,13 @@ const lpActionsSrc = stripComments(read(FE_LP_ACTIONS));
 
 /** Components of `POOL_KEY_PARAM`, in declaration order. */
 function frontendPoolKeyParam() {
-  const src = stripComments(read(FE_V4MATH));
+  const src = stripComments(read(FE_CLMATH));
   const at = src.indexOf('POOL_KEY_PARAM');
   if (at < 0) {
-    failures.push(`${FE_V4MATH}: no POOL_KEY_PARAM — was it renamed?`);
+    failures.push(`${FE_CLMATH}: no POOL_KEY_PARAM — was it renamed?`);
     return null;
   }
-  const list = balanced(src, at, '[', ']', `${FE_V4MATH} POOL_KEY_PARAM`);
+  const list = balanced(src, at, '[', ']', `${FE_CLMATH} POOL_KEY_PARAM`);
   if (list === null) return null;
 
   const out = [];
@@ -282,15 +285,15 @@ function frontendSpec(name) {
   return out;
 }
 
-/** `V4_ACTIONS` as the frontend declares it. */
+/** `CL_ACTIONS` as the frontend declares it. */
 function frontendActions() {
   const src = read(FE_CONTRACTS);
-  const at = src.indexOf('V4_ACTIONS');
+  const at = src.indexOf('CL_ACTIONS');
   if (at < 0) {
-    failures.push(`${FE_CONTRACTS}: no V4_ACTIONS — was it renamed?`);
+    failures.push(`${FE_CONTRACTS}: no CL_ACTIONS — was it renamed?`);
     return null;
   }
-  const body = balanced(src, at, '{', '}', `${FE_CONTRACTS} V4_ACTIONS`);
+  const body = balanced(src, at, '{', '}', `${FE_CONTRACTS} CL_ACTIONS`);
   if (body === null) return null;
 
   const out = new Map();
@@ -332,7 +335,7 @@ if (feActions) {
       diffs.push(`  ${name}: Solidity 0x${solValue.toString(16).padStart(2, '0')}, frontend 0x${feValue.toString(16).padStart(2, '0')}`);
     }
     // The payload guard asserts against its own literals so it is not
-    // comparing V4_ACTIONS with itself; those literals need pinning too.
+    // comparing CL_ACTIONS with itself; those literals need pinning too.
     if (guardLiterals.has(name) && guardLiterals.get(name) !== solValue) {
       diffs.push(
         `  ${name}: Solidity 0x${solValue.toString(16).padStart(2, '0')}, ` +
@@ -349,13 +352,25 @@ if (feActions) {
   if (diffs.length) {
     failures.push(`action opcodes disagree with ${ACTIONS}:\n${diffs.join('\n')}`);
   } else {
-    ok.push(`action opcodes: ${feActions.size} names agree across Actions.sol, V4_ACTIONS and the payload guard`);
+    ok.push(`action opcodes: ${feActions.size} names agree across Actions.sol, CL_ACTIONS and the payload guard`);
   }
 }
 
-// ── Check: PoolKey is the static 5-field tuple the offsets assume ───────────
+// ── Check: PoolKey is the static 6-field tuple the offsets assume ───────────
 
 const solPoolKey = solidityPoolKey();
+
+if (solPoolKey && solPoolKey.length !== 6) {
+  failures.push(
+    `${POOL_KEY}: Infinity's PoolKey is 6 fields (currency0, currency1, hooks, poolManager, fee, parameters); ` +
+      `parsed ${solPoolKey.length}. This path must point at lib/infinity-core, not v4-core.`
+  );
+}
+if (solPoolKey && solPoolKey.some((f) => f.name === 'tickSpacing')) {
+  failures.push(
+    `${POOL_KEY}: still declares tickSpacing — that is Uniswap V4's key. Infinity packed it into parameters.`
+  );
+}
 
 if (solPoolKey && POOL_KEY_COMPONENTS) {
   const diffs = [];
@@ -376,7 +391,10 @@ if (solPoolKey && POOL_KEY_COMPONENTS) {
       diffs.push(`  [${i}] Solidity ${s.solType} (${s.abi}) ${s.name}  frontend ${f.abi} ${f.name}`);
     }
   }
-  // Static-ness is what makes PoolKey occupy 5 head slots instead of 1.
+  // Static-ness is what makes PoolKey occupy 6 head slots instead of 1.
+  // A five-member V4 key would still be static and still encode — it would
+  // just hash to a pool that was never initialised. The field list above is
+  // the check that refuses that shape; this one only refuses a dynamic member.
   const dynamic = POOL_KEY_COMPONENTS.filter((c) => isDynamic(c.abi));
   if (dynamic.length) {
     diffs.push(
@@ -469,8 +487,8 @@ function checkDecoder(fnName, specName) {
   }
 }
 
-checkDecoder('decodeMintParams', 'MINT_PARAM_SPEC');
-checkDecoder('decodeBurnParams', 'BURN_PARAM_SPEC');
+checkDecoder('decodeCLMintParams', 'MINT_PARAM_SPEC');
+checkDecoder('decodeCLBurnParams', 'BURN_PARAM_SPEC');
 
 // ── Check: the strict-encoding constants the payload guard re-implements ────
 //
@@ -480,17 +498,18 @@ checkDecoder('decodeBurnParams', 'BURN_PARAM_SPEC');
 // agree, so the re-implementation cannot quietly describe a decoder that is no
 // longer there.
 
-const routerFn = decoderSrc.slice(decoderSrc.indexOf('function decodeActionsRouterParams('));
+const routerSrc = stripComments(read(ROUTER_DECODER));
+const routerFn = routerSrc.slice(routerSrc.indexOf('function decodeActionsRouterParams('));
 
 const solWord0 = capture(
   routerFn,
   /xor\(\s*calldataload\(\s*_bytes\.offset\s*\)\s*,\s*(0x[0-9a-fA-F]+)\s*\)/,
-  `${DECODER} decodeActionsRouterParams word0`
+  `${ROUTER_DECODER} decodeActionsRouterParams word0`
 );
 const solParamsBase = capture(
   routerFn,
   /paramsLengthOffset\s*:=\s*add\([\s\S]*?,\s*(0x[0-9a-fA-F]+)\s*\)\s*\n/,
-  `${DECODER} decodeActionsRouterParams params base`
+  `${ROUTER_DECODER} decodeActionsRouterParams params base`
 );
 const tsWord0 = capture(guardSrc, /w\[0\]\s*!==\s*(0x[0-9a-fA-F]+)n/, `${FE_GUARD} decodeStrict word0`);
 const tsParamsBase = capture(
@@ -522,7 +541,7 @@ if (failures.length) {
   console.error('');
   for (const f of failures) console.error(`FAIL  ${f}`);
   console.error(
-    '\nThe frontend posm payload layout no longer matches the vendored v4-periphery.\n' +
+    '\nThe frontend posm payload layout no longer matches the vendored infinity-periphery.\n' +
       'If a submodule was bumped, update soat-frontend/src/lib/lpActions.ts,\n' +
       'src/lib/contracts.ts and scripts/checkLpActions.ts to match the new decoder —\n' +
       'do NOT relax this guard, or every deposit and withdrawal from the LP panel\n' +
@@ -531,4 +550,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('\nposm action payload layout is in sync with lib/v4-periphery.');
+console.log('\nposm action payload layout is in sync with lib/infinity-periphery.');

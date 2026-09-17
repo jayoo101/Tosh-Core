@@ -103,13 +103,13 @@ unable to catch:
 | `guard:chainaddr` | The built bundle names the chain and addresses it claims to |
 | `guard:rpc` | RPC selection cannot silently prefer the free endpoint over the paid one |
 | `guard:supabase` | Schema and policies match what the code queries |
-| `guard:v4math` | The TS reimplementation of V4 price math agrees with the Solidity |
-| `guard:lpactions` | Encoded LP action calldata matches the deployed PositionManager's ABI shape |
+| `guard:clmath` | The TS reimplementation of Infinity CL price math agrees with the Solidity |
+| `guard:lpactions` | Encoded LP action calldata matches the deployed CLPositionManager's ABI shape |
 | `guard:constants` | Every protocol constant mirrored in TS equals the on-chain value |
 
-`guard:constants` and `guard:v4math` are the two that earn their keep most often:
+`guard:constants` and `guard:clmath` are the two that earn their keep most often:
 a constant duplicated in TypeScript is a number that can drift from the contract
-without anything failing to compile, and V4's price math is where an off-by-one
+without anything failing to compile, and Infinity CL price math is where an off-by-one
 in a `Q96` conversion produces a plausible-looking wrong answer.
 
 Deployment-time checks that hit live services, run against a deployed URL rather

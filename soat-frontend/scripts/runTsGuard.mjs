@@ -2,11 +2,11 @@
  * Runs a TypeScript guard script under plain `node`, with no TS runner
  * installed.
  *
- *   node scripts/runTsGuard.mjs scripts/checkV4Math.ts
+ *   node scripts/runTsGuard.mjs scripts/checkClMath.ts
  *
  * ── Why this exists ─────────────────────────────────────────────────────────
  *
- * `scripts/checkLpActions.ts` and `scripts/checkV4Math.ts` were written with
+ * `scripts/checkLpActions.ts` and `scripts/checkClMath.ts` were written with
  * `npx tsx` in their usage lines, but `tsx` is not a dependency of this
  * package and never was — so neither guard could be wired into CI, and neither
  * ran for months. That is the same shape as the `checkHookMinerTuple.mjs`
@@ -61,6 +61,7 @@ const ROOT = resolvePath(fileURLToPath(import.meta.url), '../..')
  * deployment, so a leaked log cannot be mistaken for one.
  */
 process.env.NEXT_PUBLIC_FACTORY_ADDRESS ||= '0x1111111111111111111111111111111111111111'
+process.env.NEXT_PUBLIC_CHAIN_ID ||= '97'
 
 /**
  * Path aliases, read from tsconfig so a renamed alias fails loudly here

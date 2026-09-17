@@ -32,8 +32,8 @@
  * TypeScript guards, `checkLpActionsAbi.mjs`, `tsc --noEmit` and `next build`
  * all passed.
  *
- * `checkV4Math.ts` reaches the hook, but only for `SQRT_PRICE_LOWER/UPPER`,
- * which live in `v4Math.ts` as literals and are pinned separately by
+ * `checkClMath.ts` reaches the hook, but only for `SQRT_PRICE_LOWER/UPPER`,
+ * which live in `clMath.ts` as literals and are pinned separately by
  * `test/ToshV5LpMathVectors.t.sol`. They are a different pair of numbers that
  * happen to describe the same range, with nothing tying the two descriptions
  * together. This guard anchors the tick side; that test anchors the sqrt side;

@@ -315,7 +315,7 @@ jobs:
         run: node scripts/checkV4RouterTuple.mjs
 
       # The LP panel hand-encodes posm `modifyLiquidities` payloads, and posm
-      # does not abi-decode them: `decodeMintParams` reads fields by hard-coded
+      # does not abi-decode them: `decodeCLMintParams` reads fields by hard-coded
       # calldata offsets. Bump this submodule so that a `PoolKey` field is
       # inserted, an offset moves, or an `Actions` opcode is renumbered, and
       # both sides still compile and every Solidity test still passes while
@@ -325,9 +325,9 @@ jobs:
       # frontend.yml runs the other half of this pair, which drives the real
       # viem encoder and checks the bytes. That half can only compare them
       # against literals written in the guard; this half is what pins those
-      # literals to `lib/v4-periphery`, so it has to be here — frontend.yml
+      # literals to `lib/infinity-periphery`, so it has to be here — frontend.yml
       # checks out without submodules. See scripts/checkLpActionsAbi.mjs.
-      - name: Check posm payload layout matches vendored v4-periphery
+      - name: Check posm payload layout matches vendored infinity-periphery
         run: node scripts/checkLpActionsAbi.mjs
 
       # The on-chain alert definitions key on event topic0 hashes. Rename an

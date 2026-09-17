@@ -1,9 +1,9 @@
 /**
  * Validates the posm payloads built by `src/lib/lpActions.ts` against the
- * rules `PositionManager` enforces when it decodes them: STRICT abi encoding
+ * rules `CLPositionManager` enforces when it decodes them: STRICT abi encoding
  * (`CalldataDecoder.decodeActionsRouterParams` recomputes every offset and
  * reverts on any deviation) and the hard-coded field offsets
- * `decodeMintParams` / `decodeBurnParams` read.
+ * `decodeCLMintParams` / `decodeCLBurnParams` read.
  *
  * Getting this wrong produces a transaction that reverts with an opaque
  * `SliceOutOfBounds`, which is a miserable thing to debug from a wallet popup.
@@ -15,27 +15,32 @@
  * It runs the REAL encoder — viem, the same call the panel makes — and checks
  * the actual bytes. What it cannot do is know whether the offsets it expects
  * are the ones the vendored decoder reads, because the expectations below are
- * numbers written here. A submodule bump that moved `decodeMintParams`'s
+ * numbers written here. A submodule bump that moved `decodeCLMintParams`'s
  * offsets, added a `PoolKey` field, or renumbered an `Actions` opcode would
  * leave every line below green.
  *
  * `scripts/checkLpActionsAbi.mjs` closes exactly that gap: it parses
- * `lib/v4-periphery` and `lib/v4-core` and requires the literals here and the
- * frontend's param specs to agree with the Solidity. It runs in test.yml,
- * which is the job that checks out submodules. Both must stay wired up;
- * neither is sufficient alone.
+ * `lib/infinity-periphery` and `lib/infinity-core` and requires the literals
+ * here and the frontend's param specs to agree with the Solidity. It runs in
+ * test.yml, which is the job that checks out submodules. Both must stay wired
+ * up; neither is sufficient alone.
  *
  * Note the opcodes below are LITERALS, deliberately. Asserting them against
- * `V4_ACTIONS` — the same constant `lpActions.ts` builds the payload from —
+ * `CL_ACTIONS` — the same constant `lpActions.ts` builds the payload from —
  * is a tautology that passes for any value, which is what this used to do.
+ *
+ * ⚠ THE OPCODES ARE NUMERICALLY IDENTICAL TO UNISWAP V4'S. The six-member
+ *   PoolKey is the only structural signal that this payload is Infinity's.
+ *   A five-slot mint layout here would encode a well-formed V4 payload against
+ *   an Infinity decoder and fail late, or mint into a pool nobody asked for.
  */
 
 import { encodeMintPayload, encodeBurnPayload } from '../src/lib/lpActions'
-import { TICK_LOWER, TICK_UPPER, POOL_FEE, TICK_SPACING } from '../src/lib/contracts'
+import { TICK_LOWER, TICK_UPPER, POOL_FEE, TICK_SPACING, CL_POOL_MANAGER } from '../src/lib/contracts'
 
-/** v4-periphery `Actions`, as of the pinned submodule. Verified by checkLpActionsAbi.mjs. */
-const MINT_POSITION = 0x02
-const BURN_POSITION = 0x03
+/** infinity-periphery `Actions`, as of the pinned submodule. Verified by checkLpActionsAbi.mjs. */
+const CL_MINT_POSITION = 0x02
+const CL_BURN_POSITION = 0x03
 const SETTLE_PAIR = 0x0d
 const TAKE_PAIR = 0x11
 const SWEEP = 0x14
@@ -43,6 +48,14 @@ const SWEEP = 0x14
 const TOKEN = '0x1111111111111111111111111111111111111111' as const
 const HOOK  = '0x22222222222222222222222222222222222222C8' as const
 const OWNER = '0x3333333333333333333333333333333333333333' as const
+
+/**
+ * Production Tosh bitmap: offsets 0, 2, 6, 7, 10, 11 → 0x0CC5.
+ * A fixture for the encoder, not a default the panel types in; the panel reads
+ * `getHooksRegistrationBitmap()` off the deployed hook.
+ */
+const HOOKS_BITMAP = 0x0cc5
+const PARAMETERS = BigInt(HOOKS_BITMAP) | (BigInt(TICK_SPACING) << 16n)
 
 let failures = 0
 function check(label: string, got: unknown, want: unknown) {
@@ -103,11 +116,19 @@ function decodeStrict(payload: string): { actions: number[]; params: string[] } 
   return { actions: [...actionsBytes], params }
 }
 
+if (/^0x0{40}$/.test(CL_POOL_MANAGER)) {
+  failures++
+  console.log(
+    'FAIL  CL_POOL_MANAGER is the zero sentinel — encodeMintPayload will throw rather than ' +
+    'build a key. runTsGuard should pin NEXT_PUBLIC_CHAIN_ID to 97 or 56.',
+  )
+}
+
 // ── MINT ─────────────────────────────────────────────────────────────────────
-console.log('MINT_POSITION + SETTLE_PAIR + SWEEP')
+console.log('CL_MINT_POSITION + SETTLE_PAIR + SWEEP')
 
 const mintPayload = encodeMintPayload({
-  token: TOKEN, hook: HOOK, owner: OWNER,
+  token: TOKEN, hook: HOOK, hooksRegistrationBitmap: HOOKS_BITMAP, owner: OWNER,
   liquidity: 76_376_261_582_597_339_790n,
   amount0Max: 50_250_000_000_000_000n,
   amount1Max: 117_250_000_000_000_000_000_000n,
@@ -116,25 +137,28 @@ const mintPayload = encodeMintPayload({
 const mint = decodeStrict(mintPayload)
 check('strict encoding accepted by decodeActionsRouterParams', true, true)
 check('action opcodes', mint.actions.join(','),
-  [MINT_POSITION, SETTLE_PAIR, SWEEP].join(','))
+  [CL_MINT_POSITION, SETTLE_PAIR, SWEEP].join(','))
 check('three param blobs', mint.params.length, 3)
 
-// decodeMintParams reads by fixed slot: PoolKey occupies 0..4 because it is a
-// fully static tuple, so hookData's head has to land on slot 11.
+// decodeCLMintParams reads by fixed slot: PoolKey occupies 0..5 because it is a
+// fully static six-member tuple, so hookData's head has to land on slot 12
+// (toBytes(12) → 13 * 32 = 416).
 const mp = words(mint.params[0])
 check('slot0  poolKey.currency0 == native', mp[0], 0n)
 check('slot1  poolKey.currency1 == token', '0x' + mp[1].toString(16).padStart(40, '0'), TOKEN)
-check('slot2  poolKey.fee', mp[2], BigInt(POOL_FEE))
-check('slot3  poolKey.tickSpacing', mp[3], BigInt(TICK_SPACING))
-check('slot4  poolKey.hooks', '0x' + mp[4].toString(16).padStart(40, '0'), HOOK.toLowerCase())
-check('slot5  tickLower (0xa0)', BigInt.asIntN(256, mp[5]), BigInt(TICK_LOWER))
-check('slot6  tickUpper (0xc0)', BigInt.asIntN(256, mp[6]), BigInt(TICK_UPPER))
-check('slot7  liquidity (0xe0)', mp[7], 76_376_261_582_597_339_790n)
-check('slot8  amount0Max (0x100)', mp[8], 50_250_000_000_000_000n)
-check('slot9  amount1Max (0x120)', mp[9], 117_250_000_000_000_000_000_000n)
-check('slot10 owner (0x140)', '0x' + mp[10].toString(16).padStart(40, '0'), OWNER)
-check('slot11 hookData head — the slot toBytes(11) reads', mp[11], 384n)
-check('hookData is empty', mp[12], 0n)
+check('slot2  poolKey.hooks', '0x' + mp[2].toString(16).padStart(40, '0'), HOOK.toLowerCase())
+check('slot3  poolKey.poolManager', '0x' + mp[3].toString(16).padStart(40, '0'), CL_POOL_MANAGER.toLowerCase())
+check('slot4  poolKey.fee', mp[4], BigInt(POOL_FEE))
+check('slot5  poolKey.parameters (bitmap | tickSpacing << 16)', mp[5], PARAMETERS)
+check('slot6  tickLower (0xc0)', BigInt.asIntN(256, mp[6]), BigInt(TICK_LOWER))
+check('slot7  tickUpper (0xe0)', BigInt.asIntN(256, mp[7]), BigInt(TICK_UPPER))
+check('slot8  liquidity (0x100)', mp[8], 76_376_261_582_597_339_790n)
+check('slot9  amount0Max (0x120)', mp[9], 50_250_000_000_000_000n)
+check('slot10 amount1Max (0x140)', mp[10], 117_250_000_000_000_000_000_000n)
+check('slot11 owner (0x160)', '0x' + mp[11].toString(16).padStart(40, '0'), OWNER)
+check('slot12 hookData head — the slot toBytes(12) reads', mp[12], 416n)
+check('hookData is empty', mp[13], 0n)
+check('mint params occupy 14 words, not V4\'s 13', mp.length, 14)
 
 const settle = words(mint.params[1])
 check('SETTLE_PAIR currency0 == native', settle[0], 0n)
@@ -145,7 +169,7 @@ check('SWEEP currency == native', sweep[0], 0n)
 check('SWEEP recipient == owner', '0x' + sweep[1].toString(16).padStart(40, '0'), OWNER)
 
 // ── BURN ─────────────────────────────────────────────────────────────────────
-console.log('\nBURN_POSITION + TAKE_PAIR')
+console.log('\nCL_BURN_POSITION + TAKE_PAIR')
 
 const burnPayload = encodeBurnPayload({
   token: TOKEN, recipient: OWNER, tokenId: 7n,
@@ -155,7 +179,7 @@ const burnPayload = encodeBurnPayload({
 
 const burn = decodeStrict(burnPayload)
 check('action opcodes', burn.actions.join(','),
-  [BURN_POSITION, TAKE_PAIR].join(','))
+  [CL_BURN_POSITION, TAKE_PAIR].join(','))
 check('two param blobs', burn.params.length, 2)
 
 const bp = words(burn.params[0])

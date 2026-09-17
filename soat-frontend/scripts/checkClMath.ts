@@ -1,35 +1,35 @@
 /**
- * Cross-checks the hand-ported fixed-point maths in `src/lib/v4Math.ts`
- * against reference vectors produced by v4-core's own `SqrtPriceMath` and
- * v4-periphery's `LiquidityAmounts`.
+ * Cross-checks the hand-ported fixed-point maths in `src/lib/clMath.ts`
+ * against reference vectors produced by infinity-core's own `SqrtPriceMath` and
+ * infinity-periphery's `LiquidityAmounts`.
  *
  * The vectors below are regenerated and asserted by
  * `test/ToshV5LpMathVectors.t.sol`, which READS THEM OUT OF THIS FILE — so
  * `EXPECT` is the single copy, and editing it here to silence a failure will
  * simply move the failure into `forge test`. They are taken at a realistic
- * launched-pool price (0.9 ETH against 2.1M tokens, full range) with a
- * 0.05 ETH / 200k token deposit against it, the case where the ETH leg binds.
+ * launched-pool price (0.9 native against 2.1M tokens, full range) with a
+ * 0.05 native / 200k token deposit against it, the case where the native leg
+ * binds.
  *
- * That pairing is the whole value of this guard. On its own it would only pin
- * the TS against numbers nobody can re-derive — which is what it was for a
- * while, when its generator was an uncommitted scratch test that no longer
- * existed. A `lib/v4-core` bump could then have re-rounded the maths under the
- * frontend and this would have stayed green against the pre-bump values.
+ * The arithmetic is unchanged from the Uniswap V4 port this replaces — measured
+ * in `test_infinityLibrariesReproduceTheSameVectors`, not assumed. What this
+ * guard pins is that the TypeScript still agrees with those integers after the
+ * PoolKey rewrite around them.
  *
  * If the TS drifts from the Solidity the panel starts quoting deposits the
  * pool will refuse: `amount1Max` is the binding side, so an under-quoted token
  * leg reverts at the wallet prompt.
  *
- *   npm run guard:v4math
+ *   npm run guard:clmath
  */
 
 import {
   SQRT_PRICE_LOWER, SQRT_PRICE_UPPER,
   amountsForLiquidity, liquidityForAmounts, pairedAmount1,
-} from '../src/lib/v4Math'
+} from '../src/lib/clMath'
 
 const SQRT_P = 121_023_017_297_959_709_708_926_085_430_745n
-const ETH_IN = 50_000_000_000_000_000n        // 0.05 ETH
+const NATIVE_IN = 50_000_000_000_000_000n        // 0.05 native
 const TOKEN_IN = 200_000_000_000_000_000_000_000n // 200k tokens
 
 const EXPECT = {
@@ -53,7 +53,7 @@ check('SQRT_PRICE_UPPER matches TickMath(+887200)', SQRT_PRICE_UPPER, EXPECT.sqr
 
 check(
   'liquidityForAmounts matches LiquidityAmounts.getLiquidityForAmounts',
-  liquidityForAmounts(SQRT_P, ETH_IN, TOKEN_IN),
+  liquidityForAmounts(SQRT_P, NATIVE_IN, TOKEN_IN),
   EXPECT.liquidity,
 )
 
@@ -62,10 +62,10 @@ check('amountsForLiquidity.amount0 matches SqrtPriceMath.getAmount0Delta', amoun
 check('amountsForLiquidity.amount1 matches SqrtPriceMath.getAmount1Delta', amounts.amount1, EXPECT.amount1)
 
 check(
-  'pairedAmount1 matches getAmount1Delta(roundUp) off the ETH leg',
-  pairedAmount1(SQRT_P, ETH_IN),
+  'pairedAmount1 matches getAmount1Delta(roundUp) off the native leg',
+  pairedAmount1(SQRT_P, NATIVE_IN),
   EXPECT.pairedToken,
 )
 
-console.log(failures === 0 ? '\nAll v4 maths vectors agree.' : `\n${failures} mismatch(es).`)
+console.log(failures === 0 ? '\nAll Infinity CL maths vectors agree.' : `\n${failures} mismatch(es).`)
 process.exit(failures === 0 ? 0 : 1)

@@ -14,27 +14,27 @@ import {
 } from "infinity-periphery/src/pool-cl/libraries/LiquidityAmounts.sol";
 
 /// @notice Regenerates the reference vectors consumed by
-///         `soat-frontend/scripts/checkV4Math.ts`, and asserts them.
+///         `soat-frontend/scripts/checkClMath.ts`, and asserts them.
 ///
-///         The frontend hand-ports the slice of V4 fixed-point maths the LP
-///         panel needs (`soat-frontend/src/lib/v4Math.ts`) rather than pulling
-///         a solver into the bundle.  `checkV4Math.ts` pins that port against
-///         six recorded numbers.  The numbers are only worth anything for as
-///         long as something still derives them from v4-core, and for a while
-///         nothing did: they were produced by a `test/ScratchLpMath.t.sol` that
-///         was never committed, so a `lib/v4-core` bump could have re-rounded
-///         `LiquidityAmounts` or `TickMath` under the frontend and the guard
-///         would have kept asserting the pre-bump numbers, green, forever.  A
-///         pin whose generator is gone is a pin against a moment, not against
-///         the chain.
+///         The frontend hand-ports the slice of Infinity CL fixed-point maths
+///         the LP panel needs (`soat-frontend/src/lib/clMath.ts`) rather than
+///         pulling a solver into the bundle.  `checkClMath.ts` pins that port
+///         against six recorded numbers.  The numbers are only worth anything
+///         for as long as something still derives them from infinity-core, and
+///         for a while nothing did: they were produced by a
+///         `test/ScratchLpMath.t.sol` that was never committed, so a library
+///         bump could have re-rounded `LiquidityAmounts` or `TickMath` under
+///         the frontend and the guard would have kept asserting the pre-bump
+///         numbers, green, forever.  A pin whose generator is gone is a pin
+///         against a moment, not against the chain.
 ///
 ///         So the vectors are READ OUT of the guard rather than restated here.
 ///         Two copies of six integers is the same failure one indirection
 ///         further out — an author updating the TS side would have no reason to
 ///         look in `test/`, and the halves would drift apart while both passed.
 ///         With one copy the chain closes: this test asserts
-///         v4-core == vector, `checkV4Math.ts` asserts vector == the TS port,
-///         and neither can move alone.
+///         infinity-core == vector, `checkClMath.ts` asserts vector == the TS
+///         port, and neither can move alone.
 ///
 ///         What a failure here means, concretely: the LP panel quotes deposits
 ///         the pool will refuse.  `amount1Max` is the binding side, so an
@@ -51,16 +51,16 @@ import {
 ///         How to fix when this fails: every assertion puts the freshly
 ///         computed Solidity value on the LEFT of the `a != b` it prints, so
 ///         that number IS the new vector.  Copy it into `EXPECT` in
-///         `checkV4Math.ts`, then expect `npm run guard:v4math` to start
+///         `checkClMath.ts`, then expect `npm run guard:clmath` to start
 ///         failing — the hand-port has to be re-derived too, and a bump that
 ///         moved the maths has to move both halves.  Never adjust this file to
 ///         agree with the vector; it has nothing of its own to adjust.
 contract ToshV5LpMathVectorsTest is Test {
-    string internal constant GUARD = "soat-frontend/scripts/checkV4Math.ts";
+    string internal constant GUARD = "soat-frontend/scripts/checkClMath.ts";
     string internal constant HOOK = "src/ToshLaunchpadHook.sol";
 
     /// @dev The pool state the vectors were taken at: a launched pool holding
-    ///      0.9 ETH against 2.1M tokens, and a deposit of 0.05 ETH / 200k
+    ///      0.9 native against 2.1M tokens, and a deposit of 0.05 native / 200k
     ///      tokens against it. At that ratio the ETH leg binds, which is the
     ///      case the panel actually has to get right — the token leg is what
     ///      the user is asked to approve.
@@ -80,7 +80,7 @@ contract ToshV5LpMathVectorsTest is Test {
         bytes memory src = bytes(vm.readFile(GUARD));
 
         v.sqrtP = uint160(_numberAfter(src, bytes("const SQRT_P"), "n"));
-        v.nativeIn = _numberAfter(src, bytes("const ETH_IN"), "n");
+        v.nativeIn = _numberAfter(src, bytes("const NATIVE_IN"), "n");
         v.tokenIn = _numberAfter(src, bytes("const TOKEN_IN"), "n");
 
         // Anchored inside the EXPECT literal so a field name that also occurs
