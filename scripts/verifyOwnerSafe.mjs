@@ -15,7 +15,7 @@
  *
  * The last check is the one that cannot be undone later. Per the decision to
  * let the owner Safe also be PLATFORM_TREASURY, this address will receive
- * 0.30 % of the ETH input of every buy on every pool, forever, and it is
+ * 0.30 % of the BNB input of every buy on every pool, forever, and it is
  * IMMUTABLE — baked into both the factory and the hook implementation's
  * `platformFeeRecipient`. Rotating it is a factory redeploy and a migration of
  * every pool. It is also paid on a path that is not fault-isolated: v4-core's
@@ -33,9 +33,15 @@ import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
 
 installFailureExit()
 
-const MAINNET_ID = 4663n
-const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
-const TX_SERVICE = 'https://api.safe.global/tx-service/robinhood/api/v1'
+const MAINNET_ID = 56n
+const RPC = process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
+
+// Safe's per-chain slug, and it is `bnb` rather than the `bsc` you would guess
+// from every other name BNB Smart Chain goes by. Probed rather than read off a
+// docs page: `/tx-service/bsc/` answers 404 and `/tx-service/bnb/` answers 200
+// with ETH_L2_NETWORK true, which is also what the SafeL2 check below needs to
+// be the case.
+const TX_SERVICE = 'https://api.safe.global/tx-service/bnb/api/v1'
 
 // keccak256("fallback_manager.handler.address")
 const FALLBACK_SLOT = '0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5'
@@ -89,7 +95,7 @@ function isOverrideUnsupported(err) {
     && !/execution reverted|insufficient funds/i.test(msg)
 }
 
-/** 100 ETH — enough for 1 wei plus intrinsic gas at any price this chain has shown. */
+/** 100 BNB — enough for 1 wei plus intrinsic gas at any price this chain has shown. */
 const SYNTHETIC_BALANCE = '0x56bc75e2d63100000'
 
 async function estimatePlainEth(to, from) {
@@ -228,7 +234,7 @@ for (const [name, addr] of roles) {
   }
 }
 
-// ── 7. It accepts plain ETH — the irreversible PLATFORM_TREASURY property ─────
+// ── 7. It accepts plain BNB — the irreversible PLATFORM_TREASURY property ─────
 //
 // Measured, not assumed. A Safe's receive() emits SafeReceived, which costs far
 // more than the 2300-gas stipend a bare `transfer()` would forward: on 46630 a
@@ -252,21 +258,21 @@ if (ethProbe.gas != null) {
   const how = ethProbe.synthetic
     ? ` — probe sender ${probeFrom} holds too little to pay for 1 wei; measured with an eth_estimateGas state override`
     : ''
-  console.log(`\n  plain ETH   accepted, ~${ethProbe.gas} gas${how}`)
+  console.log(`\n  plain BNB   accepted, ~${ethProbe.gas} gas${how}`)
   console.log('              well over the 2300 a bare transfer() would forward.')
   console.log('              v4-core uses call(gas(), …), so this is fine;')
   console.log('              it is fine BECAUSE of that, not by margin.')
   if (ethProbe.synthetic) {
-    notes.push(`the ETH-accept probe funded ${probeFrom} synthetically; its on-chain `
+    notes.push(`the BNB-accept probe funded ${probeFrom} synthetically; its on-chain `
       + 'balance could not pay for 1 wei plus gas. The gas figure is the recipient\'s. '
       + 'The empty sender is not a reason to rotate PLATFORM_TREASURY.')
   }
   if (ethProbe.gas > 100000n) {
-    problems.push(`receiving ETH costs ${ethProbe.gas} gas, which is high enough to be worth `
+    problems.push(`receiving BNB costs ${ethProbe.gas} gas, which is high enough to be worth `
       + 'understanding before making this the permanent fee recipient.')
   }
 } else if (ethProbe.reject) {
-  problems.push('a plain ETH transfer to this address does not even estimate '
+  problems.push('a plain BNB transfer to this address does not even estimate '
     + `(${ethProbe.reject.message}). As PLATFORM_TREASURY it would revert every buy on every pool, `
     + 'and the address is immutable once the factory is deployed. Do NOT use it as '
     + 'PLATFORM_TREASURY.')
@@ -276,17 +282,17 @@ if (ethProbe.gas != null) {
     ? ` State override retry: ${ethProbe.overrideErr.message}.`
     : ''
   if (err && isSenderFundsError(err)) {
-    unknowns.push('could not determine whether this address accepts plain ETH: the probe sender '
+    unknowns.push('could not determine whether this address accepts plain BNB: the probe sender '
       + `${probeFrom} cannot fund the estimate (${err.message}).`
       + extra
-      + ' This is not a finding that the Safe rejects ETH, and not a reason to rotate '
+      + ' This is not a finding that the Safe rejects BNB, and not a reason to rotate '
       + 'PLATFORM_TREASURY. Re-run once the sender can pay for 1 wei plus gas, or against an RPC '
       + 'that honours eth_estimateGas state overrides.')
   } else {
-    unknowns.push('could not determine whether this address accepts plain ETH '
+    unknowns.push('could not determine whether this address accepts plain BNB '
       + `(${err?.message ?? 'unknown'}).`
       + extra
-      + ' This is not a finding that the Safe rejects ETH, and not a reason to rotate '
+      + ' This is not a finding that the Safe rejects BNB, and not a reason to rotate '
       + 'PLATFORM_TREASURY.')
   }
 }
@@ -307,7 +313,7 @@ if (problems.length) {
   for (const u of unknowns) console.error('  · ' + u)
   process.exitCode = 2
 } else {
-console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, accepts ETH.')
+console.log('✓ 2-of-3, owners as agreed, SafeL2 and indexed, roles distinct, accepts BNB.')
 console.log('\n  Safe to set BOTH of these in .env.production:')
 console.log(`    PROD_OWNER_SAFE=${ethers.getAddress(safeAddr)}`)
 console.log(`    PLATFORM_TREASURY=${ethers.getAddress(safeAddr)}`)

@@ -2,7 +2,14 @@
 /*
  * createOwnerSafe.mjs
  * ───────────────────
- * Step two of PM-D4: create the real 2-of-3 Safe on Robinhood mainnet (4663).
+ * Step two of PM-D4: create the real 2-of-3 Safe on BNB Smart Chain (56).
+ *
+ * ⚠ THERE IS NO SAFE ON 56 YET, and the one this repository has always referred
+ *   to — the 2-of-3 at 0x2953957774482efA660921df85A1E7634ccfe27A in SECURITY.md
+ *   — is on chain 4663 and cannot be reused. A Safe is a contract at an address,
+ *   not an account: the same owners on a different chain are a different Safe,
+ *   which has to be created and then verified there. Running this is a
+ *   precondition for the mainnet deploy, not a follow-up to it.
  *
  * This Safe is not optional scaffolding and it is not only about C2. It is a
  * REQUIRED INPUT to the mainnet deploy: `script/DeployMainnet.s.sol` reads
@@ -12,10 +19,13 @@
  * run at all — which is the good news, because it means creating the Safe now
  * takes it off the critical path instead of parking it behind the audit.
  *
- * Everything here mirrors what §8.2 already rehearsed twice on 46630, with the
- * chain guard inverted: `drillSafe.mjs` refuses to run anywhere BUT testnet,
- * because it uses publicly known mnemonic keys. This one refuses to run
- * anywhere but mainnet, and refuses to use those keys at all.
+ * Everything here mirrors what §8.2 rehearsed twice, with the chain guard
+ * inverted: `drillSafe.mjs` refuses to run anywhere BUT testnet, because it uses
+ * publicly known mnemonic keys. This one refuses to run anywhere but mainnet,
+ * and refuses to use those keys at all.
+ *
+ * Note that `drillSafe.mjs` still names 46630 and has not been repointed at 97,
+ * so the rehearsal leg of this pair is currently unavailable.
  *
  * Usage:  node scripts/createOwnerSafe.mjs safe-owners.json --confirm
  * Requires: PRIVATE_KEY (pays gas only — the deployer does NOT become an owner)
@@ -25,13 +35,14 @@ import fs from 'node:fs'
 import { ethers } from 'ethers'
 import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
 
-const MAINNET_ID = 4663n
-const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+const MAINNET_ID = 56n
+const RPC = process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
 
-// Canonical Safe 1.4.1 deployments. Verified present on BOTH 4663 and 46630
-// before the §8.2 rehearsals; re-verified on chain below rather than trusted,
-// because a missing singleton here produces a proxy that accepts ownership and
-// can never act.
+// Canonical Safe 1.4.1 deployments, at the same addresses on BSC as everywhere
+// else — measured on chain 56 on 2026-09-18 at 3054, 24421 and 5637 bytes
+// respectively, not assumed from the fact that they are called canonical.
+// Re-verified on chain below rather than trusted, because a missing singleton
+// here produces a proxy that accepts ownership and can never act.
 const PROXY_FACTORY = '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67'
 const SAFE_L2 = '0x29fcB43b46531BcA003ddC8FCB67FFE91900C762'
 const FALLBACK = '0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99'
@@ -72,7 +83,7 @@ const net = await provider.getNetwork()
 // ── Rail 1: this is a mainnet-only script ─────────────────────────────────────
 if (net.chainId !== MAINNET_ID) {
   die(`✗ connected to chain ${net.chainId}, refusing: this script only runs on ${MAINNET_ID}.`,
-    '  For rehearsal on 46630 use scripts/drillSafe.mjs, which is built for it and',
+    '  For a testnet rehearsal use scripts/drillSafe.mjs, which is built for it and',
     '  carries the opposite guard. Mixing the two is how a Safe whose owners are',
     "  Foundry's public test mnemonic ends up owning the real factory.")
 }
@@ -153,10 +164,10 @@ for (const [name, addr] of [['SafeProxyFactory', PROXY_FACTORY], ['SafeL2', SAFE
 }
 
 const bal = await provider.getBalance(deployer.address)
-console.log(`\n  gas payer       ${deployer.address}  ${ethers.formatEther(bal)} ETH`)
+console.log(`\n  gas payer       ${deployer.address}  ${ethers.formatEther(bal)} BNB`)
 console.log(`  owners (2-of-3)`)
 input.signers.forEach((s, i) => console.log(`    ${i + 1}. ${owners[i]}  ${s.name || ''}`))
-console.log('\n  NOTE: SafeL2, not the plain singleton — chain 4663 is `l2: true` in Safe\'s')
+console.log('\n  NOTE: SafeL2, not the plain singleton — chain 56 is `l2: true` in Safe\'s')
 console.log('  own config, and the plain singleton yields a Safe that works on chain but')
 console.log('  is invisible to the transaction service and to app.safe.global, i.e. it')
 console.log('  holds ownership while nobody can drive it from the UI the playbook assumes.')
