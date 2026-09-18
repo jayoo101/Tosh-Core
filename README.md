@@ -8,8 +8,8 @@
 | | |
 |---|---|
 | Version | v5.0 |
-| Date | 2026-09-17 |
-| Network | Migrating to BNB Smart Chain. Rehearsing on testnet `97`; mainnet `56` **not yet deployed** |
+| Date | 2026-09-18 |
+| Network | Migrating to BNB Smart Chain. Rehearsed end to end on testnet `97`; mainnet `56` **not yet deployed** |
 | Previously | Robinhood Chain `4663` — retired, see Appendix A |
 | Site | [toshx.xyz](https://toshx.xyz) |
 | Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |
@@ -603,17 +603,26 @@ build should see the gap rather than an unqualified list.
   `deploy-4663-2026-09-12`. `HOOK_CREATION_CODEHASH` is still cross-checked against
   this tree by `RecomputeInitcodeHash`, which is checkable from chain and from this
   repository without trusting anyone — but there is no BSC tag to pin to yet.
-- **Tests — current.** 387 tests across 16 suites, covering the lifecycle state
+- **Tests — current.** 389 tests across 16 suites, covering the lifecycle state
   machine, the premium identity, the same-block lock, retail LP isolation from the
   genesis position, and that a ladder halt cannot withhold refunds. CI runs the
   suite twice — once normally and once under `--isolate`, which charges each call
   the way a real transaction does. The port to Infinity is inside this count, and
   it found two real bugs: settlement was being paid to the pool manager rather
   than the Vault, and the treasury's callback still authenticated the manager.
-- **Live-chain rehearsal — current, partial.** The lifecycle has been driven
-  against the real PancakeSwap Infinity deployment on testnet `97`, not only
-  against a fork. Genesis is confirmed; launch, buy and ladder are pending the
-  genesis window.
+  A further four tests report as skipped: they check a `56` deployment and stay
+  dormant until there is one.
+- **Live-chain rehearsal — current, complete on `97`.** The whole lifecycle has
+  been driven against the real PancakeSwap Infinity deployment on testnet `97`,
+  not only against a fork — genesis, launch, the ladder listing, a buy, and a
+  ladder mint, each as its own transaction. It earned its place by finding what
+  the forks could not. Listing a token on the ladder turned out to be impossible
+  in the same transaction as the launch, because `addLadderToken` reads a TWAP
+  that `launch()` has just zeroed; it is now a phase of its own, run a
+  `TWAP_WINDOW` later. The launch itself went through under the soft cap, which
+  is the intended behaviour rather than a fault — the soft cap is a progress
+  target, not a fail condition (§4.1). And both value-moving calls charged what
+  they had quoted, to the wei: a 0.002 BNB buy and a 945-token ladder mint.
 - **Static analysis, pinned.** `forge lint` and Slither both run in CI against
   committed baselines, so a finding cannot start or stop firing without somebody
   deciding about it. There has been no third-party audit; see below.
@@ -623,9 +632,11 @@ build should see the gap rather than an unqualified list.
 1. **Short operating history.** The mechanisms are in place; they have not been
    run through a long adversarial period. Read any "therefore X will happen" here
    as a design claim, not as a historical statistic.
-2. **No third-party audit.** None has been performed. What replaces it is
-   reproducibility: independent verification on two services, a pinned build tag,
-   and a public test suite and audit log.
+2. **No third-party audit.** None has been performed. What stood in for one on
+   `4663` was reproducibility — independent verification on two services and a
+   pinned build tag — and the BSC build has neither yet (§10.1). Until it does,
+   what is left is the public test suite and audit log, which are weaker than
+   what this line used to claim.
 3. **Early shelf release.** Around 2×, the ladder releases roughly 24.9% of the
    live float — see §5.3. Depth has to absorb it. Span and split are parameters,
    not constants.
@@ -685,7 +696,7 @@ The earlier pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`, treas
 platform. It still exists and still holds a small buyback reservoir with no
 withdraw path.
 
-### A.2 BNB Smart Chain testnet `97` — rehearsal in progress
+### A.2 BNB Smart Chain testnet `97` — rehearsed end to end
 
 | Component | Address |
 |---|---|
@@ -698,6 +709,17 @@ Two addresses, not one, because Infinity splits what V4's PoolManager did alone:
 the manager runs the pool and the Vault holds every balance. That split is the
 source of both bugs the port surfaced — see §10.1.
 
+The rehearsal project itself is `RHRSL`, and it is checkable:
+
+| Component | Address |
+|---|---|
+| `ToshLaunchpadHook` | `0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f` |
+| `ToshToken` (`RHRSL`) | `0xb3b9443a717138aFB542156D27279726BAFf5A63` |
+
+Its supply reads 8,400,945 rather than the round `GENESIS_SUPPLY` of 8,400,000,
+and the difference is the point: 945 tokens are what the ladder minted in the
+last phase, so the total is itself evidence the buyback leg ran on a live chain.
+
 ⚠ An earlier factory at `0xe94F79A0c44b124b5987Afe55Add16EF0c80FFb2` is abandoned.
 Its immutable `platformTreasury` is Anvil's account #1, whose private key ships
 with Foundry: a leftover shell variable shadowed `.env`, and Foundry lets the
@@ -705,11 +727,26 @@ process environment win. Both deploy scripts now refuse the default test account
 outright. Recorded because the address is live, looks ordinary, and would pass
 every invariant check the repository has.
 
+⚠ **Treat this whole deployment as compromised.** All three privileged roles on
+the factory above — `owner`, `pogSigner` and `platformTreasury` — are the single
+address `0x73db078fa94607893270079AC8F5c7492aB480cd`, and its private key was
+committed to this repository in a set of driver scripts and pushed. The scripts
+are deleted, which stops the bleeding but does not undo the disclosure: anyone
+who cloned the repository can sign as any of the three. `platformTreasury` is
+`immutable`, so `97` cannot be repaired by rotating a key — only by redeploying.
+It is testnet, holding no value, and it is left standing on purpose so the
+addresses in this appendix keep resolving. Nothing here travels to `56`; see A.3.
+
 ### A.3 BNB Smart Chain mainnet `56` — not deployed
 
-No addresses yet, deliberately. Cutover waits on the `97` rehearsal completing and
-on splitting the single deployer key, which is currently also the PoG signer and
-the immutable platform treasury.
+No addresses yet, deliberately. The `97` rehearsal is done, so what cutover now
+waits on is the key. Splitting the deployer key three ways — owner, PoG signer,
+platform treasury — was already the plan, because one address holding all three
+means one compromise ends the protocol and `platformTreasury` cannot be rotated
+afterwards. The disclosure described in A.2 turns that plan into a precondition:
+the `97` key is public, so `56` has to be deployed from freshly generated keys
+that have never appeared in this repository, and the mainnet address must not be
+`0x73db…80cd`. At the time of writing that address has never transacted on `56`.
 
 ---
 
