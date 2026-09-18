@@ -1,4 +1,4 @@
-# ─────────────────────────────────────────────────────────────────────────────
+         # ─────────────────────────────────────────────────────────────────────────────
 # SECRETS — nothing in this block may ever be committed.
 #
 # `.env.local` files in this repo hold POG_SIGNER_PRIVATE_KEY, the sole trust
@@ -77,6 +77,22 @@ check.txt
 .fork-*.json
 .tmp_*
 *.log
+
+# A one-off query script, dot-prefixed so it sorts with config and therefore
+# read as config — it sat untracked AND unignored, one `git add -A` from being
+# committed. It holds no credential (it reads soat-frontend/.env.local at run
+# time, which is the right shape), so this entry is tidiness rather than an
+# incident. Named because the near-miss is the point: a dotfile that is a
+# SCRIPT is the one shape this section did not cover.
+#
+# Deliberately the exact name, not `.*.mjs`, which is the opposite call from
+# the SECRETS block at the top. There, broad is right because a missed
+# `.env.staging` is a leaked key. Here the stakes invert: nothing dot-prefixed
+# and executable is tracked today, but `.prettierrc.mjs` and friends are
+# ordinary names for files that MUST be, and the note at the foot of this file
+# is a long account of how quietly git drops a new file that matches an ignore
+# rule. Buying scratch-file tidiness with that trap is a bad trade.
+.wallets.mjs
 
 # The watcher's resume point, harvested hook set and STATE-06 window. Per
 # deployment, not per repository: committing one machine's cursor would make
