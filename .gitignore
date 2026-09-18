@@ -123,3 +123,19 @@ verify-input/
 #
 # In the tree the two can at least be diffed. Note that no guard enforces their
 # agreement: check/doc-symbols reads identifiers, not claims.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `vercel link` appends `.vercel` and `.env*` here, and BOTH must be deleted
+# again rather than left as harmless duplicates. `.vercel/` is already covered
+# at the top of this file, and `.env` / `.env.*` are too — but those come with
+# `!.env.example` and `!.env.production.example`, and a bare `.env*` this far
+# down silently overrides them, because the last matching pattern wins.
+#
+# The damage is exactly the two negated names, which is to say the two files
+# the header above calls committed templates. With the bare rule in place
+# `git check-ignore --no-index -v .env.example` answered `:128:.env*`; with it
+# gone it answers `:14:!.env.example`. Nothing broke only because both were
+# already tracked and git skips ignore rules for tracked paths — delete and
+# re-add either one, or add it in a fresh worktree, and it goes back in
+# silently unstaged.
+# ─────────────────────────────────────────────────────────────────────────────
