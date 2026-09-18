@@ -32,8 +32,8 @@ import fs from 'node:fs'
 import { ethers } from 'ethers'
 import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
 
-const MAINNET_ID = 4663n
-const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+const MAINNET_ID = 56n
+const RPC = process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
 
 const ROLES = ['PRIVATE_KEY', 'POG_SIGNER_ADDRESS']
 console.log('roles being checked against:')
@@ -199,7 +199,7 @@ for (const s of input.signers) {
       const isEoa = code === '0x'
       console.log(`  on chain    ${isEoa ? 'EOA' : `CONTRACT (${(code.length - 2) / 2} bytes)`}`
         + `, nonce ${await provider.getTransactionCount(addr)}`
-        + `, ${ethers.formatEther(await provider.getBalance(addr))} ETH`)
+        + `, ${ethers.formatEther(await provider.getBalance(addr))} BNB`)
       if (!isEoa) {
         problems.push(`${label}: ${addr} has code on chain ${MAINNET_ID}. Safe owners `
           + 'must be EOAs here — a contract owner cannot sign the way Step 1 assumes.')
@@ -222,7 +222,7 @@ if (chainOk) {
     } catch { /* reported above */ }
   }
   if (funded.length === 0) {
-    console.log('⚠ none of the three holds ETH on this chain. Signing costs nothing,')
+    console.log('⚠ none of the three holds BNB on this chain. Signing costs nothing,')
     console.log('  but SOMEONE has to submit the transaction and pay for it. Fund at')
     console.log('  least one — ideally two, so the executor is not a single point.\n')
   } else {
