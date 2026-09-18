@@ -151,29 +151,31 @@ jobs:
           # chain, and a monitor whose target is secret cannot be reviewed. The
           # endpoint is a secret because it may carry a key.
           #
-          # BSC_TESTNET_RPC is tried FIRST, and the order is a deliberate choice
-          # between two endpoints that are each wrong in a different way.
+          # MONITOR_RPC first, BSC_TESTNET_RPC only as a fallback.
           #
-          # MONITOR_RPC is not empty and not cheap: it is the paid dRPC Growth key
-          # bought 2026-09-15, and it serves eth_getLogs properly — for chain
-          # 4663. It is also the variable that kept this monitor on a retired chain
-          # for the ten days WATCHER-08 describes. BSC_TESTNET_RPC is the public
-          # dataseed: right chain, and measured 2026-09-18 it does not serve
-          # eth_getLogs AT ALL (see the BSC section in monitoring/rpc.mjs).
+          # This order was briefly INVERTED, and the reason is worth keeping
+          # because the inversion was correct at the time and wrong hours later.
+          # On 2026-09-18 MONITOR_RPC held a paid dRPC Growth key for chain 4663 —
+          # right capability, retired chain — and BSC_TESTNET_RPC held the public
+          # dataseed, which is the right chain but does not serve eth_getLogs at
+          # all (measured; see the BSC section in monitoring/rpc.mjs). Preferring
+          # the dataseed was the better of two bad options: eth_call is served, so
+          # the STATE-* checks and the ownership reads ran and only the log-based
+          # alerts were missing, loudly, via WATCHER-02 and WATCHER-04.
           #
-          # So the choice is right-capability-wrong-chain versus
-          # right-chain-missing-capability, and the second is strictly better:
-          # eth_call is served, so the STATE-* checks and the owner()/pogSigner()
-          # reads actually run, and only the 24 log-based alerts are missing —
-          # loudly, via WATCHER-02 and WATCHER-04 on every pass. The other order
-          # yields a monitor that works perfectly and reports on a chain that
-          # settles nothing, which is the failure this whole cutover was about.
+          # MONITOR_RPC was then repointed at a keyed chain-97 endpoint, at which
+          # point the fallback became the thing holding the monitor half-blind:
+          # BSC_TESTNET_RPC is still the dataseed, `||` takes the first non-empty
+          # value, and a run after the repoint reported 0/3 getLogs exactly as
+          # before. A precedence written for one state of the secrets is a silent
+          # regression in the next, which is the same failure mode as the stale
+          # catalogue WATCHER-08 exists for.
           #
-          # Writing `secrets.MONITOR_RPC || secrets.BSC_TESTNET_RPC` would look
-          # like a repoint and change nothing, because a stale value is still a
-          # value and `||` takes it. Once MONITOR_RPC names a keyed chain-97
-          # endpoint, flip this back — a keyed right-chain endpoint beats both.
-          MONITOR_RPC: ${{ secrets.BSC_TESTNET_RPC || secrets.MONITOR_RPC }}
+          # The invariant to preserve: whichever endpoint is named must be chain
+          # 97 and must serve eth_getLogs. WATCHER-07 catches the first if this
+          # ever falls back to a 4663 URL; WATCHER-02 and -04 catch the second.
+          # Neither is silent, so a wrong order here costs a pass, not a month.
+          MONITOR_RPC: ${{ secrets.MONITOR_RPC || secrets.BSC_TESTNET_RPC }}
           MONITOR_FACTORY: ${{ vars.MONITOR_FACTORY }}
           MONITOR_TREASURY: ${{ vars.MONITOR_TREASURY }}
           MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
