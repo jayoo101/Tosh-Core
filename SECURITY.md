@@ -1,8 +1,19 @@
 # Security Policy
 
 This repository contains the contracts, monitoring and tooling for a protocol
-that is **live on Robinhood Chain (chain 4663)** and holds real value. Reports
-are welcome and read.
+that is **not deployed to any mainnet right now**. Reports are welcome and read.
+
+That sentence used to say "live on Robinhood Chain (chain 4663) and holds real
+value", and every section below was written under it. The protocol has since
+left that chain for BNB Smart Chain, `56` has not been deployed, and the only
+standing deployment is a rehearsal on testnet `97` that holds no value and whose
+keys are public. So the honest reading of this policy today is: the threat model
+and the known findings are current, the operational promises describe a
+deployment that no longer exists, and each section says which it is.
+
+**If you are looking for the live singletons to point a report at, there are
+none.** The `97` addresses in *Scope* are the current code on a chain where
+nothing is at stake.
 
 ## Reporting a vulnerability
 
@@ -18,7 +29,7 @@ Please do not open a public issue for anything that could put funds at risk.
 
 **What to include.** A description of the flaw, the contract and function, and
 — if you have one — a Foundry test that reproduces it. The test is worth more
-than the prose; `test/` carries 373 tests across 13 files, 17 of them
+than the prose; `test/` carries 389 tests across 16 suites, 17 of them
 adversarial `test_probe*` cases, and one of those —
 `test_probeG3_immatureTwapIsRefusedAtListing` in
 `test/ToshV5Attack.t.sol` — is the model for what a useful report looks like.
@@ -52,17 +63,26 @@ are written down rather than glossed:
   WATCHER-05: the gap between passes is now checked from inside the monitor and
   pages if an hour goes by without one. A pass that never runs still pages
   nobody, and the push reaches one phone, not a rotation.
-- The public chain-4663 RPC rate-limits the monitor: identical `eth_getLogs`
-  calls are refused from the seventh onward. That cost one real detection — on
-  the 2026-09-08 mainnet cutover every log query was refused, the run stayed
-  green, and seven P0 governance events in that window went unread. A pass now
-  issues three queries rather than one per event, which is under the measured
-  ceiling, and a fully blind pass is loud instead of green. Neither change
-  removes the ceiling; a keyed endpoint does.
+- The public RPC rate-limits the monitor. On chain 4663 the ceiling was measured:
+  identical `eth_getLogs` calls were refused from the seventh onward, and that
+  cost one real detection — on the 2026-09-08 cutover every log query was
+  refused, the run stayed green, and seven P0 governance events in that window
+  went unread. A pass now issues three queries rather than one per event, and a
+  fully blind pass is loud instead of green. **Those two fixes travel to BSC; the
+  measurement does not.** Nobody has characterised the BNB dataseed endpoints'
+  limits, so the margin the "three rather than one" figure was chosen against is
+  currently unknown rather than comfortable. A keyed endpoint removes the
+  question; the project does not have one yet.
 - The incident commander and comms lead are the same person.
-- Halting requires 2-of-3 signatures on Safe
-  `0x2953957774482efA660921df85A1E7634ccfe27A`, so the binding constraint is
-  reaching a second human, not the mechanics — those were measured at 5 seconds.
+- **Halting is not multi-signature on the standing deployment.** On 4663 it
+  required 2-of-3 on Safe `0x2953957774482efA660921df85A1E7634ccfe27A`, and the
+  binding constraint was reaching a second human rather than the mechanics —
+  those were measured at 5 seconds. That Safe is on a chain the protocol left
+  and cannot be reused. On `97` both the factory and the treasury answer
+  `owner()` with a single EOA whose private key is public, so halting there
+  requires no human at all and can be done by anyone who cloned this repository.
+  Restoring the 2-of-3 property is a precondition for `56`, not a description of
+  today.
 
 So: expect a reply in **days, not minutes**, and assume nobody is awake when you
 send it. If you believe an exploit is in flight and you can see funds moving, say
@@ -73,16 +93,60 @@ say that than imply otherwise.
 
 ## Scope
 
-In scope — the singletons deployed on chain 4663:
+**In scope is this source tree**, because that is where the protocol currently
+lives: `src/`, the PoG signing oracle under `scripts/`, and the frontend under
+`soat-frontend/`. A finding against the code is a finding whether or not it is
+deployed anywhere, and with `56` undeployed that is the only kind available.
+
+### The standing deployment — BNB Smart Chain testnet `97`
+
+| Contract | Address |
+|---|---|
+| `ToshFactory` | `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` |
+| `ToshLadderTreasury` | `0x79de222644E8BBeea6FC55815CCBE9FF136D7674` |
+
+Deployed 2026-09-17 at block 131563800 from commit `1030eae`, recorded in
+`broadcast/Deploy.s.sol/97/run-latest.json`. `ToshLaunchpadHook` and `ToshToken`
+are deployed as clones by the factory on every launch; the rehearsal's pair are
+`0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f` and
+`0xb3b9443a717138aFB542156D27279726BAFf5A63` (`RHRSL`).
+
+Two things to know before spending time on it.
+
+**Its keys are public.** All three privileged roles on that factory — `owner`,
+`pogSigner` and `platformTreasury` — are the single address
+`0x73db078fa94607893270079AC8F5c7492aB480cd`, whose private key was committed to
+this repository in a set of driver scripts and pushed. The scripts are deleted;
+the disclosure is not undone. Anyone who cloned the repository can sign as any
+of the three. `platformTreasury` is `immutable`, so this cannot be fixed by
+rotating a key — only by redeploying. **"I can drain / halt / mint on `97`" is
+therefore not a finding**, and neither is anything else that follows from
+holding that key. It is left standing so the addresses above keep resolving.
+
+**Nothing on BSC is verified.** Neither `97` contract has source published on
+BscScan. An Etherscan v2 key now exists in CI, but verification has not been
+run, so the provenance chain below — two independent verifications of the 4663
+build — has no BSC counterpart. What survives is the local anchor: the deploy
+artefact plus `HOOK_CREATION_CODEHASH`, checkable without trusting anyone.
+
+What IS worth reporting against `97`: anything reachable **without** that key.
+An unprivileged attack on genesis accounting, the buyback floor, the claim
+arithmetic, the same-block lock, or the PoG quota is a real finding, and `97` is
+a convenient place to demonstrate it because a rehearsal has already driven the
+whole lifecycle through it.
+
+### Retired — Robinhood Chain `4663`
+
+Everything from here to the end of this section describes a deployment the
+protocol has **left**. It is kept because the verification work is the strongest
+provenance claim this project has ever been able to make, and deleting it would
+quietly upgrade the current state. Reports against these addresses are welcome
+as history and are not live findings.
 
 | Contract | Address |
 |---|---|
 | `ToshFactory` | `0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892` |
 | `ToshLadderTreasury` | `0x255722226720914eF5B2CD54647f21f584BD4Ea2` |
-
-Also in scope: `ToshLaunchpadHook` and `ToshToken`, which are deployed as clones
-by the factory on every launch; the PoG signing oracle under `scripts/`; and the
-frontend under `soat-frontend/`.
 
 Deployed 2026-09-12 at block 61056709 from commit `9b9d9ce`, which reaches
 `main` as `d18d2d5`. Two names for one tree, and worth stating rather than
@@ -127,25 +191,43 @@ artefact `broadcast/DeployMainnet.s.sol/4663/run-latest.json` plus the factory's
 equality is checkable from the chain and from this repository without trusting
 either of us, or Sourcify; `script/RecomputeInitcodeHash.s.sol` is the check.
 
-The previous pair — factory `0xBa9d2E86281b988225Eca383C375215912fb20B9`,
-treasury `0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, deployed 2026-09-08 and
-Blockscout-verified — is **out of scope**. It is no longer the platform. It
-still exists and still holds a small buyback reservoir with no withdraw path,
-and its two launches were abandoned by decision rather than by failure. Reports
-against it are welcome as history but are not live findings.
+And one before that, also on 4663 — factory
+`0xBa9d2E86281b988225Eca383C375215912fb20B9`, treasury
+`0x99aD248dD15498957B864Fd79917F0E103Aa78F7`, deployed 2026-09-08 and
+Blockscout-verified. It still exists and still holds a small buyback reservoir
+with no withdraw path, and its two launches were abandoned by decision rather
+than by failure.
+
+So the full history is three deployments deep and none of them is live: two on a
+chain that was left, one on a testnet whose keys are public. That is the state a
+reporter should assume.
 
 ### Out of scope
 
-- **Private keys that appear in this repository's git history.** They are test
-  and rehearsal keys. All of them are revoked: none holds any role in the live
-  deployment, and their reuse is banned. History was
-  deliberately *not* rewritten, because the commit that the verified mainnet
-  bytecode was built from is the anchor that lets anyone reproduce the build,
-  and rewriting history would break every hash in that chain. Reporting one of
-  these keys is not a finding.
-- Anything reachable only by an owner key acting against its own interest.
-  Ownership is a 2-of-3 Safe; "the owner could rug" is understood, and the
-  threshold is the answer to it.
+- **Private keys that appear in this repository's git history** — but read the
+  correction, because this entry used to be wrong in a way that would have cost
+  a reporter their time. It said "all of them are revoked: none holds any role
+  in the live deployment." **That is false.**
+  `0x73db078fa94607893270079AC8F5c7492aB480cd` holds `owner`, `pogSigner` and
+  `platformTreasury` on the standing `97` deployment, and its key is in this
+  history. It is out of scope because it is **already disclosed** — see *Scope*
+  — and not because it is inert. The distinction matters: an out-of-scope note
+  resting on a false premise is worse than no note, since it tells a reader not
+  to look at the one live key there is.
+
+  The rest are genuinely test and rehearsal keys with no role anywhere. History
+  was deliberately *not* rewritten, because the commit the verified 4663
+  bytecode was built from is the anchor that lets anyone reproduce that build,
+  and rewriting history would break every hash in that chain. Reporting any of
+  these keys is not a finding. **Finding one of them signing on `56` would be**,
+  and `0x73db…80cd` in particular must never appear there; at the time of
+  writing it has never transacted on `56`.
+- Anything reachable only by an owner key acting against its own interest —
+  with the same caveat. On 4663 ownership was a 2-of-3 Safe and the threshold
+  was the answer to "the owner could rug". On `97` ownership is one EOA with a
+  public key, so there is no threshold and the premise of this exclusion does
+  not hold; that case is covered by the disclosure above rather than by this
+  line. The 2-of-3 property is a precondition for `56`.
 - Denial of service against the public RPC endpoint, or against the free-tier
   third-party services the monitoring uses.
 
@@ -162,7 +244,16 @@ pool whose liquidity is thinnest. It is measured, not theoretical: on a pool
 parked 1500 bps out, the full 3.33 ETH leg clears and 0.93 ETH of it is
 recovered by whoever parked the price.
 
-**Closed in source on 2026-09-11, and on chain on 2026-09-12.**
+Those two figures are **denominated in ETH because that is the build they were
+measured on**, and they are left unconverted rather than rescaled. `TRIGGER_STEP`
+is now `3.5 ether` of BNB over a `BATCH_SIZE` of 3, so the leg a present-day
+attacker would be reaching for is a different number; multiplying the old
+measurement by the currency rescale would produce a figure nobody measured and
+present it in the same sentence as one somebody did.
+
+**Closed in source on 2026-09-11, on 4663 on 2026-09-12, and carried into every
+deployment since — including `97`.** The next two paragraphs are 4663 history;
+the one after them is what is true now.
 `addLadderToken` now reads `twapSqrtPriceX96()` itself and reverts
 `TwapNotMature` unless it answers non-zero, which puts the window out of reach
 through the only door that leads to it. `test_probeG3_immatureTwapIsRefusedAtListing`
@@ -178,15 +269,20 @@ did not wait: the platform was redeployed on 2026-09-12 for an unrelated reason
 the gate, and the exposure closed as a side effect. The old treasury still does
 not have it and still never can; it is simply no longer the platform.
 
-Two honest limits on that claim. First, the gate's presence in the live treasury
-rests on **provenance rather than observation**: the deploy artefact records the
-commit, the factory's `HOOK_CREATION_CODEHASH` matches this tree, the treasury's
-runtime differs from this tree's build only in the bytes of the `poolManager`
-immutable, and Sourcify has independently recompiled this source and matched it
-against the deployed runtime — but nobody has watched the gate fire, because
-reaching it needs a token listed on the new treasury and none has been listed
-(`ladderTokenCount()` reads 0). Provenance from four directions is still provenance; it
-says the right code is there, not that it was seen to work. Second, the gate fires **once, at listing**, while
+**The gate has now been watched firing, on a real chain.** This section used to
+say the opposite — that its presence rested on provenance rather than
+observation, because reaching it needed a token listed on the treasury and none
+had been (`ladderTokenCount()` read 0). The `97` rehearsal closed that gap
+without setting out to. Listing was attempted in the same transaction as
+`launch()` and `addLadderToken` reverted `TwapNotMature`, which is the refusal
+arm; the listing was retried a `TWAP_WINDOW` later and succeeded, and
+`ladderTokenCount()` on `0x79de…7674` now reads 1. Both arms of one branch,
+against deployed bytecode rather than a fork. That is observation, and it is
+worth more than the four directions of provenance it replaces — though note what
+it is observation *of*: the current source on a testnet, not the retired 4663
+treasury, which never got the gate and never could.
+
+One honest limit remains. The gate fires **once, at listing**, while
 `_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a
 healthy getter whose getter later reverts still buys unbounded. That residual is
 assessed as unreachable on chain and is pre-disclosed below. `STATE-07` in
@@ -216,8 +312,8 @@ the mechanism.
 
 **A buyback leg can move a couple of wei into the pool without burning
 anything.** `_buyAndBurn` settles whatever the pool consumed and then burns only
-`if (out > 0)`. When spot already sits on `_buybackSqrtFloor`, V4 fills nothing
-and still rounds the amount owed to the pool up, so the swap returns
+`if (out > 0)`. When spot already sits on `_buybackSqrtFloor`, the AMM fills
+nothing and still rounds the amount owed to the pool up, so the swap returns
 `amount0 = -2, amount1 = 0`: two wei leave the treasury, no tokens come back, no
 `BuybackBurned` is emitted. The wei reach the pool, not an address — nobody is
 paid — but "every wei out is matched by a burn" is false at wei granularity, and
