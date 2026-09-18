@@ -7,19 +7,28 @@ Everything in this document was read from chain or from the vendor's own
 documentation on 2026-09-17. Where a figure was measured, the measurement is
 stated so it can be re-run rather than trusted.
 
-> **§1 and §2 are no longer arguments.** `test/ToshV5ForkBsc.t.sol` runs the
-> whole lifecycle against a BSC mainnet fork — mine a salt, create, deposit,
-> launch into the live singleton, then buy through the deployed router — and
-> **all 9 tests pass with no change to any contract**. Run it with
-> `$env:BSC_RPC="https://bsc-dataseed1.bnbchain.org"; forge test --match-path
-> test/ToshV5ForkBsc.t.sol`. It skips without the variable, so CI is unaffected.
+> ## ⚠ Read this as a decision record, not as instructions
 >
-> What that run settles, as opposed to argues: the hook's `_hasArbSys` fallback
-> is the branch that executes (the suite needs no `_installArbSys` at all, and
-> its absence is the evidence); BSC's live 24,009-byte singleton accepts a hook
-> address our miner produced and holds the genesis liquidity; and the router
-> reads the sixth field, so the tuple layout is measured rather than inferred
-> from a bytecode diff.
+> **The move happened. The AMM in it did not.** The chain decision in this
+> document is what shipped — settlement is on BNB Smart Chain, the Robinhood
+> factory is unmaintained, nothing migrated off it. But §1 and §2 reason about
+> carrying **Uniswap V4** onto BSC, and that is not what the protocol runs. §4
+> below is the reason: there is no V4 on BSC testnet, which cost the release
+> process its rehearsal, and rather than accept an unrehearsable mainnet the port
+> went to **PancakeSwap Infinity** instead. `docs/PANCAKESWAP_INFINITY.md` is
+> that decision and it supersedes the AMM half of this one.
+>
+> So the V4-specific mechanics described here are history: `test/ToshV5ForkBsc.t.sol`
+> is deleted (the live-AMM fork suites are now `ToshV5Fork.t.sol` and
+> `ToshV5ForkInfinity.t.sol`), salt mining is gone with the `0x20CC` address mask
+> it existed for, and `StateView` has no Infinity equivalent. The 24,009-byte
+> singleton named below is V4's on `56`; the protocol talks to Infinity's
+> `CLPoolManager` and `Vault`.
+>
+> What still stands from that spike, because it was never about V4: the hook's
+> `_hasArbSys` fallback is the branch that executes on BSC, and the contract
+> layer did survive the chain move without changes. The AMM layer did not, and
+> `PANCAKESWAP_INFINITY.md` §9 has the two bugs that found.
 
 ---
 
@@ -134,6 +143,28 @@ Two consequences for `gasHistory.ts`:
 > **Stale claim to fix while here.** `foundry.toml` says "chain 4663 is absent
 > from Etherscan v2's multichain host". That was true when written and is no
 > longer: Etherscan lists Robinhood Chain, free until 2026-10-15.
+
+### 3.1 What the free tier actually did, once tried
+
+The table above is about the `account` module, and it held: BSC gas history needs
+a paid tier, so the scanner still omits 56 and 97 and a BSC wallet earns no
+quota from its BSC history. That gap is open and disclosed in `README.md`.
+
+The reasoning about the **`contract`** module did not hold, and the correction is
+worth more than the original inference. `getabi` and `getsourcecode` answer for
+BSC on a free key, which was read here as free-tier verification being fine
+since verification is the same module. Measured 2026-09-18 on a real submission,
+it is not: `forge verify-contract` came back with *"Free API access is not
+supported for this chain"*. Reads are allowed and submissions are not, and no
+amount of probing the read endpoints predicts that — only submitting does.
+
+The consequence is visible on chain today. `ToshLadderTreasury` is verified on
+`97` and `ToshFactory` is not, from the same key in the same workflow minutes
+apart, which reads like a rate limit and is better explained as a per-key
+submission allowance. `SECURITY.md` records it, and the factory is deliberately
+left unverified rather than papered over. Anything planning on verified `56`
+bytecode should price the Lite tier as required, not optional — the same $49/mo
+this section already argues for, now for two reasons instead of one.
 
 ---
 

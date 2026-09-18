@@ -1,11 +1,23 @@
-# Porting to PancakeSwap Infinity — assessment
+# Porting to PancakeSwap Infinity
 
-Status: assessment, plus a fork spike that has been run. No production code has
-been changed. §9 records what the spike measured; the port itself is not started.
+**Status: done and shipped.** This began as an assessment written before any code
+moved, and the header said so — "no production code has been changed, the port
+itself is not started". Both clauses are false now. The port is merged, the
+protocol settles through Infinity's `Vault` on BSC, the whole lifecycle has been
+driven against the live deployment on testnet `97`, and the fork suites run
+against real Infinity bytecode in CI. Read the assessment sections as the
+reasoning that was acted on rather than as a proposal awaiting a decision.
 
-Every deployment fact below was measured against a live node on 2026-09-17, not
-read off a table. The commands are included so they can be re-run, because the
-addresses are the part most likely to rot.
+Two things the port found that no amount of assessment would have: settlement
+was being paid to the pool manager rather than to the `Vault`, and the treasury's
+lock callback still authenticated the manager. Both are in §9. They are the
+argument for why "arithmetically identical periphery" was not the same as "drop-in".
+
+Every deployment fact below was measured against a live node on 2026-09-17 and
+the addresses and byte counts were **re-measured on 2026-09-18** — manager 20,885
+bytes on `56` and 20,886 on `97`, `Vault` 8,347 on both, and each manager's
+`vault()` returning the `Vault` in its own column. The commands are included so
+they can be re-run, because the addresses are the part most likely to rot.
 
 ---
 
@@ -278,29 +290,45 @@ Worth listing, because it is most of the product:
 
 ---
 
-## 5 · Open questions — measure before committing
+## 5 · Open questions — four of five closed by porting
 
-1. ~~**Does the hook actually run?**~~ **Answered — see §9.**
-   `test/ToshV5ForkInfinity.t.sol`, 9 tests against the live `Vault` and
-   `CLPoolManager` on a chain-56 fork. The mechanism runs and the address miner
-   is confirmed deletable. One sub-question is still open: Infinity's
-   `UniversalRouter` calldata layout (§9.3).
-2. **Liquidity and routing.** It is widely assumed that PancakeSwap carries the
-   large majority of BSC volume and that Uniswap V4 on BSC is comparatively thin.
-   **This has not been measured** and should not be cited until it is. What
-   matters for a launchpad is not headline TVL but whether aggregators route
-   through Infinity pools with a custom hook, which is a different question
-   again.
-3. **Dynamic fee interaction.** `beforeSwap` can override the LP fee only if the
-   pool is created with a dynamic fee flag. The current design takes its cut in
-   the hook rather than via LP fee, so this is probably unused — confirm rather
-   than assume.
-4. **Donate callbacks.** Infinity's bitmap has `beforeDonate` / `afterDonate`.
-   Leaving them unregistered means a donate path exists that the hook does not
-   see. Decide whether that is acceptable or whether they need stubs.
-5. **`BinPoolManager`.** Not needed (CL is the analogue of what is used now), but
-   its existence means a pool could be created against the wrong manager. The
-   `poolManager` field in `PoolKey` is now a thing that can be wrong.
+Kept with their answers rather than deleted, because which of these mattered is
+not what was expected: the two that looked like real risks were nothing, and the
+one flagged as "not needed" turned out to be the bug in §11.
+
+1. ~~**Does the hook actually run?**~~ **Closed — §9.**
+   `test/ToshV5ForkInfinity.t.sol` against the live `Vault` and `CLPoolManager`
+   on a chain-56 fork. The mechanism runs and the address miner is gone. The
+   `UniversalRouter` sub-question is closed too — §10 measured the encoding.
+2. **Liquidity and routing. STILL OPEN, and still uncited.** It is widely
+   assumed that PancakeSwap carries the large majority of BSC volume and that
+   Uniswap V4 on BSC is comparatively thin. **This has not been measured** and
+   should not be cited until it is. What matters for a launchpad is not headline
+   TVL but whether aggregators route through Infinity pools with a custom hook,
+   which is a different question again. Nothing in the port settled it, because
+   nothing in the port depended on it.
+3. ~~**Dynamic fee interaction.**~~ **Closed — unused, as suspected.** There is
+   no `LPFeeLibrary`, no dynamic-fee flag and no fee override anywhere in `src`.
+   The cut is taken in the hook via the swap deltas, so the LP fee stays the
+   static `POOL_FEE` the pool was created with.
+4. ~~**Donate callbacks.**~~ **Closed — inert stubs, deliberately unregistered.**
+   `ICLHooks` requires the methods, so `beforeDonate` / `afterDonate` exist and
+   return their own selectors without touching state. Their offsets are absent
+   from `getHooksRegistrationBitmap()`, so Infinity never calls them. A donate
+   the hook cannot see is acceptable because donating adds to fee growth rather
+   than moving the price, so it reaches neither the TWAP the shelf ladder prices
+   against nor the buyback floor.
+5. ~~**`BinPoolManager`.**~~ **Closed, and this is the one that bit.** The worry
+   was recorded as theoretical — "not needed, but the `poolManager` field is now
+   a thing that can be wrong" — and it was wrong within days, though not via
+   `BinPoolManager`: the rehearsal test pinned **Uniswap V4's** PoolManager on
+   BSC mainnet in a field that had to name Infinity's `CLPoolManager`. Both are
+   real contracts with code at their addresses, so nothing reverted on the
+   address alone. The guards that now exist are
+   `test_rehearsal_pinnedAmmIsInfinityNotUniswap`, which distinguishes them by
+   calling `vault()` — a function only Infinity's manager has — and
+   `preflightMainnet.mjs` check 5b, which does the same against the configured
+   pair. Do not verify this field by eyeballing an address.
 
 ---
 
@@ -363,26 +391,35 @@ for the callback signatures in §3.1.
 
 ---
 
-## 8 · How to decide
+## 8 · How it was decided
+
+Kept as written, because the decision turned on one question and it is worth
+being able to check that the question was the right one.
 
 The port is not cheap and it is not a rewrite either. The callback bodies survive
 (§3.1); the accounting plumbing and the PoolKey/permission encoding do not
 (§3.2–3.3); the test and guard layer is where the hours actually go (§3.5).
 
-The question that should decide it is narrower than "PancakeSwap or Uniswap":
+The question that decided it was narrower than "PancakeSwap or Uniswap":
 
 > Is shipping to BSC mainnet with rehearsals that only ever ran on an anvil fork
 > an acceptable risk?
 
-If yes, stay on Uniswap V4 — it is already measured working on BSC by
-`test/ToshV5ForkBsc.t.sol`, and this port buys comparatively little.
+**The answer taken was no, and Infinity was the only way to get a real testnet on
+BNB Chain.** The alternative — staying on Uniswap V4, which
+`test/ToshV5ForkBsc.t.sol` had measured working on BSC mainnet — would have
+meant a mainnet whose first real-network execution was the production deploy.
 
-If no, Infinity is currently the only way to get a real testnet on BNB Chain, and
-that is worth more than any liquidity argument in §5.2 — which is unmeasured
-anyway.
+That judgement has since paid for itself twice, which is the part worth
+recording. The two bugs in §11 were both settlement-layer and neither was
+reachable on an anvil fork: payment to the manager instead of the `Vault`, and a
+callback authenticating the wrong caller. A V4-on-BSC build would have carried
+its own equivalents to mainnet untested. The rehearsal on `97` also caught a
+third thing no fork would have — that `addLadderToken` cannot follow `launch()`
+in the same breath, because the TWAP needs its full 1,800-second window first.
 
-The §5.1 fork spike has now been run, which removes the largest unknown. §9
-records what it found; §9.3 is what is left.
+Note that this was decided **without** the liquidity argument, which §5.2 still
+records as unmeasured. It did not need it.
 
 ---
 
@@ -448,13 +485,30 @@ produced a *different pool* rather than an error. It does not —
 with a bare `expectRevert`, which would also have passed on "that address has no
 code" and proved nothing.
 
-### 9.3 What is still open
+### 9.3 What was still open — both since closed
 
-Seeding genesis liquidity at real curve parameters
+Two items were left here: seeding genesis liquidity at real curve parameters
 rather than a flat `1e18`, and the treasury's buyback swap under the Vault's lock
-while a hook callback is already on the stack. The second is the one to be
-careful with — reentrancy shape differs when the lock lives in a separate
-contract from the AMM.
+while a hook callback is already on the stack. The second was flagged as the one
+to be careful with, because reentrancy shape differs when the lock lives in a
+separate contract from the AMM.
+
+Both are now covered, and the flagged one is covered against real bytecode:
+`test_fork_buybackSettlesThroughTheDeployedVault` in `test/ToshV5Fork.t.sol`
+drives that path through the deployed Vault on a chain-56 fork.
+
+The curve parameters are pinned by `test/ToshV5LpMathVectors.t.sol`, and the way
+it is wired is worth knowing because the port nearly lost it. The frontend hand-
+ports the slice of Infinity CL fixed-point maths the LP panel needs
+(`soat-frontend/src/lib/clMath.ts`), pinned by `checkClMath.ts` against six
+recorded numbers — and for a while those numbers had no generator, having been
+produced by a scratch test that was never committed. A library bump could then
+have re-rounded `LiquidityAmounts` under the frontend with the guard still
+asserting the pre-bump values, green, indefinitely. The fix was to have this
+test read the vectors *out of* the guard rather than restate them, so the chain
+closes: infinity-core == vector here, vector == the TS port there, and neither
+half can move alone. Tick bounds are derived from `TickMath.MAX_TICK` on the
+hook's `TICK_SPACING` grid rather than typed in, for the same reason.
 
 ## 10 · The router path, measured
 
