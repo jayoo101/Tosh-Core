@@ -123,11 +123,22 @@ rotating a key — only by redeploying. **"I can drain / halt / mint on `97`" is
 therefore not a finding**, and neither is anything else that follows from
 holding that key. It is left standing so the addresses above keep resolving.
 
-**Nothing on BSC is verified.** Neither `97` contract has source published on
-BscScan. An Etherscan v2 key now exists in CI, but verification has not been
-run, so the provenance chain below — two independent verifications of the 4663
-build — has no BSC counterpart. What survives is the local anchor: the deploy
-artefact plus `HOOK_CREATION_CODEHASH`, checkable without trusting anyone.
+**Half of BSC is verified, and the missing half is the factory.**
+`ToshLadderTreasury` at `0x79de…7674` has its source published on
+testnet.bscscan.com, compiler `v0.8.26+commit.8a97fa7a`, submitted from
+`.github/workflows/verify.yml`. `ToshFactory` does not, and the reason is
+worth stating because it is not a decision: Etherscan refuses further
+submissions on chain 97 to this key with *"Free API access is not supported
+for this chain"* — after accepting one. It behaves like a spent allowance
+rather than a plan boundary, since reads on the same key and chain never
+stopped working. Re-running the workflow later is safe and will attempt only
+what is missing; buying an Etherscan plan is the other route, and is the same
+purchase PoG gas scanning on 56 would need.
+
+So the provenance chain below — two independent verifications of the 4663
+build — has one BSC counterpart out of two. What covers the gap meanwhile is
+the local anchor, which needs no explorer and no trust: the deploy artefact at
+`broadcast/Deploy.s.sol/97/run-latest.json` plus `HOOK_CREATION_CODEHASH`.
 
 What IS worth reporting against `97`: anything reachable **without** that key.
 An unprivileged attack on genesis accounting, the buyback floor, the claim

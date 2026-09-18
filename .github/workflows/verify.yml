@@ -28,10 +28,19 @@ name: Verify deployment
 #
 # Runs 6 and 7 differ in nothing that this repository controls. So that
 # message does not mean what it says — it is not a statement about the plan,
-# because the plan verified a contract one run earlier. The most likely
-# reading is load-shedding wearing a tier error's clothes, and run 6 supports
-# it from the other side by also producing an honest "Max calls per sec rate
-# limit reached (3/sec)". THIS IS NOT ESTABLISHED, only consistent.
+# because the plan verified a contract one run earlier.
+#
+# What it behaves like is a SUBMISSION ALLOWANCE. The shape of the evidence,
+# across eight runs: the first submission that reached the endpoint succeeded,
+# every submission after it was refused, four attempts 45 seconds apart on run
+# 8 were refused identically, and `getsourcecode` reads never faltered once
+# through any of it. A per-key allowance on a gated chain, spent, would look
+# exactly like that. THIS IS INFERENCE, NOT MEASUREMENT — nobody has waited a
+# day and tried again, which is the experiment that would settle it.
+#
+# The practical consequence is the useful part, and the steps below act on it:
+# retrying within a run is futile, so the refusal fails fast with that reading
+# attached rather than burning three minutes to arrive at it.
 #
 # Two earlier theories are recorded as wrong so they are not re-derived:
 #
@@ -204,35 +213,56 @@ jobs:
             fi
             echo "source: ${src}"
 
+            # Retries are for rate limits. They are NOT for the tier refusal,
+            # which run 8 established is not transient within a run: four
+            # attempts 45 seconds apart against the factory produced four
+            # identical refusals, while the treasury -- already verified --
+            # was skipped. Continuing to poke it just spends three minutes
+            # arriving at the same place, so that message breaks the loop and
+            # reports what it appears to mean instead.
+            out=$(mktemp)
             ok=0
-            for attempt in 1 2 3 4; do
-              [ "$attempt" = 1 ] || { echo "-- attempt ${attempt} after 45s"; sleep 45; }
-              if forge verify-contract "$addr" "${src}:${name}" \
-                   --chain "$CHAIN" \
-                   --rpc-url "$rpc" \
-                   --guess-constructor-args \
-                   --retries 10 \
-                   --delay 20 \
-                   --watch; then
-                ok=1
-                break
-              fi
-              # Cheap out: the submission may have landed even though the
-              # command reported failure, which is precisely what happened to
-              # the factory on run 6.
+            budget=0
+            for attempt in 1 2 3; do
+              [ "$attempt" = 1 ] || { echo "-- retrying in 45s"; sleep 45; }
+              set +e
+              forge verify-contract "$addr" "${src}:${name}" \
+                --chain "$CHAIN" \
+                --rpc-url "$rpc" \
+                --guess-constructor-args \
+                --retries 10 \
+                --delay 20 \
+                --watch > "$out" 2>&1
+              rc=$?
+              set -e
+              cat "$out"
+              [ "$rc" = 0 ] && { ok=1; break; }
+
+              # The submission can land even when the command reports failure:
+              # that is what happened to the factory on run 6, where only the
+              # status poll was rate-limited.
               if published "$addr"; then
                 echo "the command failed but the source is published anyway"
                 ok=1
+                break
+              fi
+
+              if grep -q 'Free API access is not supported' "$out"; then
+                budget=1
                 break
               fi
             done
 
             if [ "$ok" = 1 ]; then
               echo "verified: ${name}"
+            elif [ "$budget" = 1 ]; then
+              echo "::error::${name} at ${addr} was refused with \"Free API access is not supported for this chain\". Do not read that as a capability limit: this same key published ToshLadderTreasury on this same chain. It behaves like a submission allowance rather than a plan boundary -- one went through, everything after it was refused, and reads were never affected. Options, in order of cost: wait and re-run (the skip logic makes that safe and it will only attempt what is missing), or buy an Etherscan plan, which is the same purchase PoG gas scanning on 56 needs."
+              failed=1
             else
-              echo "::error::verification failed for ${name} at ${addr} after 4 attempts"
+              echo "::error::verification failed for ${name} at ${addr} after 3 attempts -- see the output above; this is not the tier refusal."
               failed=1
             fi
+            rm -f "$out"
             echo "::endgroup::"
           done < <(jq -r '.transactions[] | select(.transactionType=="CREATE") | select(.contractName != null) | [.contractName, .contractAddress] | @tsv' "$log")
 
