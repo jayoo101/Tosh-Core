@@ -39,28 +39,30 @@
  * The gate is not per chain: on 56 and 97 `account`, `proxy` and `stats` are
  * refused while `contract` reads through to the key check.
  *
- * ⚠ THIS USED TO CONCLUDE "so contract verification on BSC works from a free
- *   key", AND THAT WAS WRONG. Corrected 2026-09-18 by trying it: Etherscan
- *   refuses a `verifysourcecode` submission on 97 with the same "Free API
- *   access is not supported for this chain". The gate is per ACTION, not per
- *   module — `getsourcecode` READS and is free, `verifysourcecode` WRITES and
- *   is not, and both live in `module=contract`.
+ * That extends to WRITES as well as reads, and the whole `contract` module is
+ * usable on 56 and 97 from a free key. `ToshLadderTreasury` on 97 is verified
+ * on BscScan, submitted by `.github/workflows/verify.yml` with the key in
+ * repository secrets.
  *
- *   Worth keeping because the wrong conclusion was drawn from three true
- *   measurements: the unkeyed probe above, Etherscan's own "source code and
- *   ABI endpoints are available on all chains for every API plan", and a
- *   keyed `getsourcecode` on 97 that returned real Solidity with `status:1`.
- *   All three describe reading. A probe at module granularity measures the
- *   readable half of a module and reports confidence about the writable one,
- *   which is worse than not probing, because it comes back green.
+ * ⚠ Two paragraphs were deleted from here rather than amended, and it is
+ *   worth saying what they claimed, because each was measured and each was
+ *   wrong in a different direction. One said the `contract` module's freeness
+ *   made verification free — right conclusion, but reached from a read-only
+ *   probe, so it was a guess wearing a measurement's clothes. The other said
+ *   verification was pay-gated after all, quoting a real "Free API access is
+ *   not supported for this chain" from a real submission attempt. The second
+ *   is the more interesting mistake: that response came from passing
+ *   `--verifier-url` and `--etherscan-api-key` as command-line flags, while
+ *   letting Foundry read the same host and the same key out of foundry.toml
+ *   verified successfully. Nobody has explained that difference. It is
+ *   recorded in the workflow's header so that the next person to "simplify"
+ *   those flags back in knows what it costs.
  *
  * So moving this file to Etherscan v2 is no longer blocked on coverage. It is
  * blocked on a bill, for three of the six chains, and that is somebody's
- * spending decision rather than an engineering one — and it is a slightly
- * bigger decision than it looked, because the same plan is also what would
- * let this project publish source on BscScan at all. `.github/workflows/
- * verify.yml` goes through Sourcify instead, which has no tier and covers 56
- * and 97, but Sourcify is not where a user looks up a contract.
+ * spending decision rather than an engineering one. The decision is also
+ * narrower than it looked at one point: it buys PoG gas scanning on 56, 10
+ * and 8453, and nothing else. Verification is already free.
  *
  * The fallbacks were checked too, and both are closed. BscScan V1
  * (`api.bscscan.com`) now answers every request with "You are using a
