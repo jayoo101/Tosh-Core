@@ -9,7 +9,7 @@
  *
  * `DeployMainnet.s.sol` asserts the chain id and that the four privileged roles
  * are non-zero and distinct. `verifyOwnerSafe.mjs` verifies a Safe deeply —
- * 2-of-3, owners as agreed, SafeL2 and indexed, and that it accepts plain ETH.
+ * 2-of-3, owners as agreed, SafeL2 and indexed, and that it accepts plain BNB.
  * Both are good and neither closes the gap this one does.
  *
  * The gap is a paste. `verifyOwnerSafe.mjs` takes the Safe on argv and ends by
@@ -21,7 +21,7 @@
  * the deployer and the PoG signer, so a personal EOA passes and is then
  * permanent."
  *
- * `PLATFORM_TREASURY` takes 0.30 % of the ETH input of every buy on every pool,
+ * `PLATFORM_TREASURY` takes 0.30 % of the BNB input of every buy on every pool,
  * forever, and is immutable — baked into the factory AND into the hook
  * implementation's `platformFeeRecipient`. Changing it is a factory redeploy and
  * a migration of every pool. So the one check that matters most is the one
@@ -51,7 +51,37 @@ import { ethers } from 'ethers'
 import { loadRoleEnv, reportRoleEnv } from './loadRoleEnv.mjs'
 
 const REPO = path.resolve(import.meta.dirname, '..')
-const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+
+/**
+ * The endpoint is chosen by the chain being deployed to.
+ *
+ * ⚠ THIS WAS `process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'`
+ *   for the whole of the BSC port, which made the only pre-broadcast guard in
+ *   the repository unable to reach the chain it guards. Every check below needs
+ *   the provider, so the failure was total: `cannotRun` on the chain-id
+ *   comparison, exit 2, and a fix line that named a variable nothing reads.
+ *
+ *   What makes that worth more than a rename: check 5 cross-checks
+ *   `INFINITY_CL_POOL_MANAGER` against `contracts.ts` for chain 56, and both
+ *   `.env.example` and `.env.production.example` shipped that name carrying
+ *   Uniswap V4's PoolManager address on Robinhood Chain — renamed during the
+ *   port, never revalued. So the guard that catches the template was the guard
+ *   that could not run. A wrong manager hashes every `PoolKey` to a pool the
+ *   factory never opened.
+ *
+ * Named per chain rather than one `TARGET_RPC`, because these are the same names
+ * the frontend's `serverRpc.ts` and the CI fork suite already read, and a
+ * chain-named variable cannot answer for a chain it does not name.
+ */
+function resolveRpc(chainId) {
+  if (chainId === 56n) {
+    return process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
+  }
+  if (chainId === 97n) {
+    return process.env.BSC_TESTNET_RPC || 'https://data-seed-prebsc-1-s1.bnbchain.org:8545'
+  }
+  return process.env.TARGET_RPC || null
+}
 
 /** Mirrored in `soat-frontend/src/lib/contracts.ts`, parsed rather than retyped. */
 const CONTRACTS_TS = path.join(REPO, 'soat-frontend', 'src', 'lib', 'contracts.ts')
@@ -59,6 +89,11 @@ const CONTRACTS_TS = path.join(REPO, 'soat-frontend', 'src', 'lib', 'contracts.t
 const ADDRESS_ROLES = [
   'TARGET_CHAIN_ID',
   'INFINITY_CL_POOL_MANAGER',
+  // `DeployMainnet.s.sol` requires this non-zero and neither template declares
+  // it, so a deploy from a filled-in template reverts at broadcast. Checking it
+  // here turns that into an exit 2 before any gas is spent — and check 5b below
+  // does more than presence, since the manager names its own Vault on chain.
+  'INFINITY_VAULT',
   'POG_SIGNER_ADDRESS',
   'PLATFORM_TREASURY',
   'PROD_OWNER_SAFE',
@@ -173,8 +208,8 @@ if (missingRoles.length) {
 //
 // The reason that is worth an explicit gate rather than a note: the remediation
 // text is a money instruction. Check 6 prints "Fund 0x73db078f… with at least
-// N ETH", and 0x73db078f… is the testnet deployer that §4.1 forbids reusing on
-// mainnet. An operator following this script on deploy day would send real ETH
+// N BNB", and 0x73db078f… is the testnet deployer that §4.1 forbids reusing on
+// mainnet. An operator following this script on deploy day would send real BNB
 // to a wallet that must never sign a mainnet transaction.
 //
 // Note also that the existing protection lived only in the `!existsSync` branch
@@ -189,12 +224,24 @@ if (strayed.length) {
     + '            This script checks the file the deploy sources. A role resolved\n'
     + '            from .env is a TESTNET value, and every check below would then\n'
     + '            describe the wrong wallet — including the funding check, whose\n'
-    + '            fix line names an address to send real ETH to.\n'
+    + '            fix line names an address to send real BNB to.\n'
     + '            Fill these in .env.production itself and re-run.',
   )
 }
 
-// Everything below needs the chain.
+// Everything below needs the chain. The endpoint is chosen by the chain the
+// file asks for, so a `.env.production` naming 56 cannot be checked against 97
+// by an endpoint left over from the rehearsal.
+const targetChainId = BigInt(process.env.TARGET_CHAIN_ID)
+const RPC = resolveRpc(targetChainId)
+if (!RPC) {
+  cannotRun(
+    `TARGET_CHAIN_ID is ${targetChainId}, which this script has no endpoint for.\n`
+    + '            56 reads BSC_RPC, 97 reads BSC_TESTNET_RPC, and both fall back to\n'
+    + '            a public endpoint. For anything else, set TARGET_RPC.',
+  )
+}
+
 const provider = new ethers.JsonRpcProvider(RPC)
 let net
 try {
@@ -203,11 +250,11 @@ try {
   cannotRun(`could not reach ${RPC} (${err.message}).`)
 }
 
-const targetChainId = BigInt(process.env.TARGET_CHAIN_ID)
 if (net.chainId !== targetChainId) {
   cannotRun(
     `TARGET_CHAIN_ID is ${targetChainId} but ${RPC} reports chain ${net.chainId}.\n`
-    + '            Set ROBINHOOD_RPC to an endpoint for the chain you are deploying to.\n'
+    + `            Set ${targetChainId === 56n ? 'BSC_RPC' : targetChainId === 97n ? 'BSC_TESTNET_RPC' : 'TARGET_RPC'} `
+    + 'to an endpoint for the chain you are deploying to.\n'
     + '            DeployMainnet.s.sol asserts this too, but at broadcast time.',
   )
 }
@@ -225,7 +272,7 @@ if (process.env.DEPLOYER_ADDRESS && process.env.PRIVATE_KEY) {
       `DEPLOYER_ADDRESS is ${deployer} but PRIVATE_KEY derives ${fromKey}.\n`
       + '            forge script --private-key signs from the KEY, so every check\n'
       + '            below would describe a wallet that does not broadcast — and\n'
-      + '            check 6 names an address to send real ETH to.\n'
+      + '            check 6 names an address to send real BNB to.\n'
       + '            Delete whichever is stale. Prefer keeping DEPLOYER_ADDRESS.',
     )
   }
@@ -250,7 +297,7 @@ if (treasuryCode === '0x') {
     'PLATFORM_TREASURY has no code — it is an EOA',
     'This address is immutable once the factory is deployed: it is baked into the '
     + 'factory and into the hook implementation as platformFeeRecipient, and it takes '
-    + '0.30 % of the ETH input of every buy on every pool, forever. An EOA here is not '
+    + '0.30 % of the BNB input of every buy on every pool, forever. An EOA here is not '
     + 'a configuration to revisit later, it is permanent. PM-C9 decided this is the '
     + '2-of-3 owner Safe. DeployMainnet.s.sol does NOT check this and will accept it.',
     'Set PLATFORM_TREASURY to the owner Safe in .env.production.',
@@ -372,22 +419,85 @@ if (pmCode === '0x') {
   }
 }
 
+// ── 5b. INFINITY_VAULT, asked of the manager rather than of the operator ─────
+//
+// The two are not independent: Infinity's CLPoolManager is constructed with its
+// Vault and exposes it as `vault()`. So the pair can be checked against the
+// chain instead of against a document, and that is the strongest check in this
+// file — it is the only one whose reference value comes from the deployment
+// being deployed against rather than from something a human typed twice.
+//
+// It also happens to be the cleanest way to catch a Uniswap V4 PoolManager
+// wearing an Infinity variable name, which is exactly what both env templates
+// shipped: V4's singleton has no `vault()`, so the call reverts and this fails
+// with the reason rather than with a shrug. The same confusion reached the
+// rehearsal suite once already, where it survived a `code.length > 0` assertion
+// because the wrong address is also a real contract.
+console.log('\n5b. structural — INFINITY_VAULT is the Vault this manager settles through')
+const vault = ethers.getAddress(process.env.INFINITY_VAULT)
+const vaultCode = await codeOf(vault)
+if (vaultCode === '0x') {
+  fail(
+    'INFINITY_VAULT has no code on this chain',
+    'The hook, the factory and the treasury all settle through the Vault. DeployMainnet.s.sol '
+    + 'requires it non-zero but cannot tell a wrong contract from the right one.',
+    'Set INFINITY_VAULT to the PancakeSwap Infinity Vault on this chain.',
+  )
+} else {
+  pass('INFINITY_VAULT is a contract', `${(vaultCode.length - 2) / 2} bytes`)
+
+  let declared = null
+  try {
+    declared = await new ethers.Contract(
+      poolManager, ['function vault() view returns (address)'], provider,
+    ).vault()
+  } catch (err) {
+    fail(
+      'INFINITY_CL_POOL_MANAGER does not answer vault()',
+      `Called vault() on ${poolManager} and it reverted (${err.shortMessage ?? err.message}). `
+      + 'Every Infinity CLPoolManager answers it. A contract at this address that does not is '
+      + 'not an Infinity manager — Uniswap V4\'s PoolManager is the near miss to expect, since '
+      + 'it settles internally and has no Vault, and both env templates shipped V4\'s Robinhood '
+      + 'address under this exact variable name.',
+      'Set INFINITY_CL_POOL_MANAGER to the PancakeSwap Infinity CLPoolManager on this chain.',
+    )
+  }
+  if (declared && ethers.getAddress(declared) !== vault) {
+    fail(
+      'INFINITY_VAULT is not the Vault this manager uses',
+      `${poolManager} reports vault() = ${ethers.getAddress(declared)}, but .env.production names `
+      + `${vault}. The manager's own answer is authoritative; settling through any other Vault `
+      + 'is settling against balances nothing credits.',
+      `Set INFINITY_VAULT to ${ethers.getAddress(declared)}.`,
+    )
+  } else if (declared) {
+    pass('the manager names this Vault itself', 'vault() agrees with .env.production')
+  }
+}
+
 // ── 7. Recoverable, so last: can the deployer pay for the broadcast ──────────
 //
-// Not a threshold anyone picked. The 46630 rehearsal broadcast is on disk with
-// per-transaction receipts, so the requirement is measured and then priced at
-// the live gas price. An arbitrary "at least 0.01 ETH" would have been a number
-// with no argument behind it, and on a chain whose gas price moves it would be
-// wrong in both directions.
+// Not a threshold anyone picked. The chain-97 rehearsal broadcast is on disk
+// with per-transaction receipts, so the requirement is measured and then priced
+// at the live gas price. An arbitrary "at least 0.01 BNB" would have been a
+// number with no argument behind it, and on a chain whose gas price moves it
+// would be wrong in both directions.
 console.log('\n6. recoverable — can the deployer actually pay for C1')
 const balance = await provider.getBalance(deployer)
 
-// Recorded from broadcast/Deploy.s.sol/46630/run-latest.json, which deployed the
-// same three contracts. Kept as a fallback so this check still has a basis if
-// the broadcast directory is absent or gets pruned.
-const C1_REHEARSED_GAS = 14_580_627n
+// Recorded from broadcast/Deploy.s.sol/97/run-latest.json, which deployed the
+// same three contracts against the Infinity manager and Vault. Kept as a
+// fallback so this check still has a basis if the broadcast directory is absent
+// or gets pruned.
+//
+// It read the 46630 rehearsal until the BSC port, and that number was wrong in
+// two directions at once. It was stale against its own source — the file sums to
+// 15_143_081, not the 14_580_627 written here — and it priced a deploy that
+// mined a hook address, which this one does not, since Infinity reads
+// permissions from a bitmap. The measured BSC figure is about a third lower.
+const C1_REHEARSED_GAS = 9_550_629n
 let requiredGas = C1_REHEARSED_GAS
-const REHEARSAL = path.join(REPO, 'broadcast', 'Deploy.s.sol', '46630', 'run-latest.json')
+const REHEARSAL = path.join(REPO, 'broadcast', 'Deploy.s.sol', '97', 'run-latest.json')
 try {
   const receipts = JSON.parse(fs.readFileSync(REHEARSAL, 'utf8')).receipts ?? []
   const summed = receipts.reduce((a, r) => a + BigInt(r.gasUsed), 0n)
@@ -407,35 +517,35 @@ if (!gasPrice) {
   const need = requiredGas * gasPrice
   console.log(`        C1 measured at ${requiredGas} gas (rehearsal), priced at `
     + `${ethers.formatUnits(gasPrice, 'gwei')} gwei`)
-  console.log(`        needs ~${ethers.formatEther(need)} ETH, deployer holds `
-    + `${ethers.formatEther(balance)} ETH`)
+  console.log(`        needs ~${ethers.formatEther(need)} BNB, deployer holds `
+    + `${ethers.formatEther(balance)} BNB`)
 
   // DeployMainnet does slightly more than the rehearsal it is priced from — it
   // also stages two ownership transfers — and the gas price read here is a
   // single sample. Hence a margin rather than a bare comparison.
   if (balance < need) {
     fail(
-      `deployer cannot afford C1 — holds ${ethers.formatEther(balance)} ETH, needs ~${ethers.formatEther(need)} ETH`,
+      `deployer cannot afford C1 — holds ${ethers.formatEther(balance)} BNB, needs ~${ethers.formatEther(need)} BNB`,
       `That is ${(balance * 100n) / need} % of the requirement, short by `
-      + `${ethers.formatEther(need - balance)} ETH. C1 is a single broadcast that deploys `
+      + `${ethers.formatEther(need - balance)} BNB. C1 is a single broadcast that deploys `
       + 'HookDeployLib, the treasury and the factory and then wires them together; the '
       + 'factory alone was 7.95 M gas in rehearsal. A broadcast that runs out of gas '
       + 'part-way leaves exactly the half-deployed platform this script exists to prevent, '
       + 'with some contracts live and unowned.',
-      `Fund ${deployer} with at least ${ethers.formatEther(need * 2n - balance)} ETH more `
+      `Fund ${deployer} with at least ${ethers.formatEther(need * 2n - balance)} BNB more `
       + '(2x the measured cost, so a gas-price move between this check and the broadcast '
       + 'does not strand it).',
     )
   } else if (balance < need * 2n) {
     notes.push(
-      `deployer holds ${ethers.formatEther(balance)} ETH against a measured requirement of `
-      + `${ethers.formatEther(need)} ETH — enough at the current gas price with less than 2x `
+      `deployer holds ${ethers.formatEther(balance)} BNB against a measured requirement of `
+      + `${ethers.formatEther(need)} BNB — enough at the current gas price with less than 2x `
       + 'margin. The price above is one sample; if it rises before the broadcast this '
       + 'becomes insufficient mid-deploy.',
     )
     pass('deployer can afford C1', 'but with under 2x margin — see notes')
   } else {
-    pass('deployer can afford C1', `${ethers.formatEther(balance)} ETH, over 2x the measured cost`)
+    pass('deployer can afford C1', `${ethers.formatEther(balance)} BNB, over 2x the measured cost`)
   }
 }
 
@@ -443,7 +553,7 @@ if (!gasPrice) {
 //
 // Deliberately a subprocess against the address THE FILE names, not a
 // reimplementation: verifyOwnerSafe.mjs already checks 2-of-3, the agreed owner
-// set, the fallback handler, SafeL2 indexing and that plain ETH is accepted.
+// set, the fallback handler, SafeL2 indexing and that plain BNB is accepted.
 // Re-running it here is what turns "the Safe we blessed" into "the Safe we are
 // about to deploy against".
 console.log('\n7. deep Safe verification, delegated to verifyOwnerSafe.mjs')
@@ -507,4 +617,4 @@ console.log('\n✓ clear for C1.')
 console.log('  Still not covered by any pre-broadcast check, because they are only')
 console.log('  observable afterwards: that the PoG signer KEY in Vercel matches')
 console.log('  POG_SIGNER_ADDRESS above (PM-C7), and the status page CHAIN block')
-console.log('  (checkStatusPage.mjs, which arms itself once broadcast/*/4663/ exists).')
+console.log('  (checkStatusPage.mjs, which arms itself once broadcast/*/56/ exists).')
