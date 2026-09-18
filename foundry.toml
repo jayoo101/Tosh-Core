@@ -268,8 +268,23 @@ anvil             = "http://127.0.0.1:8545"
 # Contract verification
 #
 # Both BSC chains verify through Etherscan v2's multichain host on ONE key, so
-# `bsc` and `bsc_testnet` differ only in `chain`. These entries need no
-# `--verifier` flag; Etherscan is Foundry's default.
+# `bsc` and `bsc_testnet` differ only in the chain they name. These entries need
+# no `--verifier` flag; Etherscan is Foundry's default.
+#
+# ⚠ `?chainid=` IN THE URL IS NOT BELT-AND-BRACES WITH `chain =`. Foundry 1.7.1
+#   does not append v2's chain selector to a URL given here, so without the
+#   query parameter every request to this host comes back
+#
+#       Missing chainid parameter (required for v2 api)
+#
+#   even though `chain` is set two fields to the right. Measured twice while
+#   getting `.github/workflows/verify.yml` working: once on a verification
+#   submission, and once on the ABI lookup that Foundry performs even when the
+#   verifier is Sourcify and Etherscan is not being submitted to at all.
+#
+#   So `chain` and the query parameter answer to different consumers and both
+#   are load-bearing. Deleting the duplication is a two-line change that breaks
+#   verification on both BSC chains with an error that names neither.
 #
 # Queried from `api.etherscan.io/v2/chainlist` rather than assumed — 56 and 97
 # are both listed, as bscscan.com and testnet.bscscan.com.
@@ -285,7 +300,7 @@ anvil             = "http://127.0.0.1:8545"
 # section only supplies the URL. See the deploy scripts' headers.
 # ---------------------------------------------------------------------------
 [etherscan]
-bsc               = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api",           chain = 56    }
-bsc_testnet       = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api",           chain = 97    }
+bsc               = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=56", chain = 56    }
+bsc_testnet       = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=97", chain = 97    }
 robinhood         = { key = "blockscout", url = "https://robinhoodchain.blockscout.com/api",           chain = 4663  }
 robinhood_testnet = { key = "blockscout", url = "https://explorer.testnet.chain.robinhood.com/api",    chain = 46630 }
