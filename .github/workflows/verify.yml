@@ -177,13 +177,18 @@ jobs:
           fi
 
           if [ "$VERIFIER" = "sourcify" ]; then
-            # No key, and no constructor arguments: Sourcify matches compiler
+            # No key and no constructor arguments: Sourcify matches compiler
             # metadata against deployed bytecode, so it derives what Etherscan
-            # has to be told. `ETHERSCAN_API_KEY` is unset because merely
-            # HAVING it in the environment makes Foundry pick the Etherscan
-            # verifier -- it says so itself: "ETHERSCAN_API_KEY is set,
-            # defaulting to Etherscan verifier."
-            unset ETHERSCAN_API_KEY
+            # has to be told.
+            #
+            # ⚠ DO NOT `unset ETHERSCAN_API_KEY` HERE. Foundry's own warning
+            #   says "Unset it or pass `--verifier sourcify`", and taking the
+            #   first branch as well as the second broke run 4 with
+            #   "environment variable `ETHERSCAN_API_KEY` not found" -- because
+            #   foundry.toml's `[etherscan]` table interpolates that variable
+            #   in all four of its entries, and the table is resolved whether
+            #   or not the Etherscan verifier is the one being used. The flag
+            #   alone is sufficient and the unset is actively harmful.
             args=(--verifier sourcify)
           else
             # `--verifier-url` LOOKS REDUNDANT AND IS NOT. foundry.toml's
