@@ -375,16 +375,28 @@ about detection rather than in a changelog. Read the stated 15-minute and 8-hour
 figures elsewhere in this file with the knowledge that for ten days they
 described passes about the wrong chain.
 
-**The monitor is also currently half-blind on `97`, loudly.** Measured
-2026-09-18, the public BSC testnet dataseed refuses `eth_getLogs`
+**The monitor was briefly half-blind on `97`, loudly, and is not any more.**
+Measured 2026-09-18, the public BSC testnet dataseed refuses `eth_getLogs`
 unconditionally — `-32005`, six of six identical one-block requests at 2-second
 spacing — so it is neither the rate limit nor the range cap documented in
-`monitoring/rpc.mjs`; the method is not served. `eth_call` is served, so the
-`STATE-*` checks and the ownership reads run, and the 24 log-based alerts do not.
-`WATCHER-02` and `WATCHER-04` say so on every pass. That is the fixed version of
-the 2026-09-08 incident, in which a blind pass stayed green, and not a new fault
-— but it does mean the log-based half of this catalogue is unwatched until
-`MONITOR_RPC` names a keyed chain-97 endpoint.
+`monitoring/rpc.mjs`; the method is not served. `eth_call` is, so the `STATE-*`
+checks and the ownership reads ran while the 24 log-based alerts did not, with
+`WATCHER-02` and `WATCHER-04` saying so on every pass. `MONITOR_RPC` was then
+repointed at a keyed chain-97 endpoint and the next pass read 12 logs in 3/3
+getLogs with neither check firing. Worth stating rather than quietly fixing,
+because the loud half-blind state is the *repaired* form of the 2026-09-08
+incident, in which a fully blind pass stayed green.
+
+**The PoG signer is still `0x73db078f…80cd`, whose private key is public, and
+that is now a decision rather than an oversight.** On `97` it changes nothing
+that is not already true: the same key owns both contracts there, so the testnet
+offers no security to lose and is documented throughout this file as such. The
+reason to name it here anyway is that it does **not** carry to `56`.
+`registerPoG` verifies signatures against `pogSigner`, so a public signing key on
+mainnet means anyone can mint PoG allocations at will — it is a funds-affecting
+compromise on day one, not a degraded control. Rotating it is a precondition for
+the mainnet deploy in the same sense the owner Safe was, and unlike the Safe it
+has not been done. Do not read "deferred" as "assessed as low risk on `56`".
 
 **A buyback leg can move a couple of wei into the pool without burning
 anything.** `_buyAndBurn` settles whatever the pool consumed and then burns only

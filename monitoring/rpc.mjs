@@ -72,13 +72,27 @@
  * do work — the monitor is partially functional here rather than blind, and
  * WATCHER-02 and -04 say which half is missing on every pass.
  *
- * The fix is the same shape as before and cheaper than it looks: dRPC is
- * multichain, so the Growth key already paid for on 2026-09-15 should serve BSC
- * testnet by changing the chain in the URL rather than by buying anything. Until
- * `MONITOR_RPC` names a keyed chain-97 endpoint, expect WATCHER-02 on all three
- * query groups and WATCHER-04 every pass. That is loud on purpose: the 4663
- * incident this file documents was a blind pass that stayed GREEN, and a blind
- * pass that pages is the fixed version of it, not a new fault.
+ * RESOLVED the same day. `MONITOR_RPC` was repointed at a keyed chain-97
+ * endpoint and the next pass reported 12 logs in 3/3 getLogs, one hook harvested
+ * from LaunchCreated, and no WATCHER-02 or -04 at all. The log-based half of the
+ * catalogue is watched again.
+ *
+ * One thing that fix needed, and it is the more useful half of this note: the
+ * workflow had been changed to prefer `BSC_TESTNET_RPC` over `MONITOR_RPC`,
+ * which was correct while MONITOR_RPC held a 4663 key and became the thing
+ * holding the monitor half-blind the moment it did not. `||` takes the first
+ * non-empty value, BSC_TESTNET_RPC was still the dataseed, and the first pass
+ * after the repoint reported 0/3 getLogs exactly as before — a precedence
+ * written for one state of the secrets, silently wrong in the next. See the
+ * MONITOR_RPC block in .github/workflows/watch.yml.
+ *
+ * Note also what the first working pass did: 900,000 blocks of chain-97 history
+ * had never been scanned, so it filed three P0s — GOV-02, GOV-03 and GOV-06 —
+ * all in block 131,563,800, all from the known deployer, two of them the
+ * constructor's OwnershipTransferred(0 -> deployer) on contract creation and one
+ * the deploy's own setFactory. That is the cold-start rescan behaving correctly,
+ * not a governance incident, and it is what "correlate before acting" in the
+ * GOV-* playbooks is for.
  *
  * What follows still earns its place. It is what makes a *single* caller behave,
  * and the 2026-09-08 incident it was written for was a real one.

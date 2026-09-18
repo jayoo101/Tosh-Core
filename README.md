@@ -272,6 +272,12 @@ supplies.
 Two platform singletons per chain. Each project gets a CREATE2-derived pair of
 EIP-1167 minimal clones.
 
+**The addresses in this diagram are BNB Smart Chain testnet `97`**, the standing
+deployment. Mainnet `56` has no protocol addresses yet — see Appendix A.3 — so
+there is nothing else these could be. They are shown because a diagram of
+abstract boxes is harder to check than one you can paste into an explorer, not
+because they are production.
+
 ```
 ToshFactory (0xB224f26a…) ──────────► ToshLadderTreasury (0x79de2226…)
    ├─ createLaunch / PoG verification      ├─ revenue in: launch fee, shelf cut,
@@ -397,7 +403,7 @@ Once the treasury's native balance reaches `TRIGGER_STEP` = 3.5 BNB, any
   `PIGGYBACK_MIN_GAS` = 270,000 left, the protocol skips the buyback so the
   user's own trade always completes. Because skipping means trading alone no
   longer guarantees the reservoir drains, anyone may call the permissionless
-  `pokeBuyback()` to advance it. That call moves no ETH to the caller and
+  `pokeBuyback()` to advance it. That call moves no BNB to the caller and
   chooses nothing but the timing.
 
 ---
@@ -422,7 +428,7 @@ of `MINTER_ROLE`.
 
 ### 5.2 Where the 10% opening premium comes from
 
-Let $R$ be the total ETH raised in genesis. The protocol always carves off 10%
+Let $R$ be the total BNB raised in genesis. The protocol always carves off 10%
 for referrals, whether or not anyone was referred, so the pool is seeded with
 $0.9R$.
 
@@ -473,7 +479,7 @@ a quarter of the live supply.
 | Fee | Rate | Where it goes |
 |---|---|---|
 | Infinity pool fee | 0.30% | liquidity providers, settled natively by the AMM |
-| Swap tax — buy | 1.00% of ETH in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
+| Swap tax — buy | 1.00% of BNB in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
 | Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
 | Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
 | Launch fee | currently 0.35 BNB | treasury in full |
@@ -509,7 +515,7 @@ require the referrer to hold a registered PoG quota, so farming links costs an
 attestation per throwaway wallet — a cost the oracle can price or refuse, which
 is a cost rather than a wall and is documented as such. The project slot asks for
 one thing more: a live deposit in that same project, read from state before the
-new depositor's own ETH arrives. `canBindProjectReferral` is the read-only mirror
+new depositor's own BNB arrives. `canBindProjectReferral` is the read-only mirror
 of that gate, so the UI does not have to reproduce it in TypeScript.
 
 Self-referral is ignored, and so is a stale link — silently, because this runs
@@ -586,10 +592,18 @@ transfer requires the recipient to call `acceptOwnership()`.
 | Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
 
 `pause()` does not close a genesis round that is already open — a raise already
-taking money keeps taking it, because failing by missing the soft cap is the
-designed failure and gating deposits would hand the owner a unilateral veto over
-a project it already accepted money for. A shelf halt can make a buyer miss a
-price. It cannot cost anyone a balance already on the books.
+taking money keeps taking it, because the designed failure is a raise that never
+calls `launch()` inside its window, and gating deposits would hand the owner a
+unilateral veto over a project it already accepted money for. A shelf halt can
+make a buyer miss a price. It cannot cost anyone a balance already on the books.
+
+Note what the designed failure is *not*: missing the soft cap. `canRefund()`
+reads `block.timestamp > genesisDeadline + LAUNCH_WINDOW` and nothing else, and
+no `require` or `revert` anywhere in the contracts compares a raise against
+`softCap()` — it is a snapshot taken at clone time and exposed for display, per
+§4.1. An earlier version of this paragraph said the soft cap was the designed
+failure, which contradicted §4.1 and §10.1 on the same page and would have told
+a depositor to expect a refund on a ground that does not exist.
 
 This is governance, not the absence of governance. The boundaries are real and so
 are the powers.
@@ -613,7 +627,7 @@ build should see the gap rather than an unqualified list.
   `deploy-4663-2026-09-12`. `HOOK_CREATION_CODEHASH` is still cross-checked against
   this tree by `RecomputeInitcodeHash`, which is checkable from chain and from this
   repository without trusting anyone — but there is no BSC tag to pin to yet.
-- **Tests — current.** 389 tests across 16 suites, covering the lifecycle state
+- **Tests — current.** 389 passing of 393 across 16 suites, covering the lifecycle state
   machine, the premium identity, the same-block lock, retail LP isolation from the
   genesis position, and that a ladder halt cannot withhold refunds. CI runs the
   suite twice — once normally and once under `--isolate`, which charges each call
@@ -774,9 +788,15 @@ ends the protocol and `platformTreasury` cannot be rotated afterwards. The
 disclosure described in A.2 turns that plan into a precondition: the `97` key is
 public, so `56` has to be deployed from freshly generated keys that have never
 appeared in this repository, and the mainnet address must not be `0x73db…80cd`.
-That address has still never transacted on `56`. A fresh deployer key now
-exists and paid for the Safe above; the PoG signer is **not** yet rotated and
-still names `0x73db…80cd`, which is the remaining key-shaped precondition.
+That address has still never transacted on `56`. A fresh deployer key now exists
+and paid for the Safe above.
+
+The PoG signer is **not** rotated, deliberately and for now: it still names
+`0x73db…80cd`, whose key is public. On `97` that costs nothing already lost —
+the same key owns both contracts there — but `registerPoG` verifies signatures
+against `pogSigner`, so on `56` a public signing key means anyone can mint PoG
+allocations from the first block. It is the one remaining key-shaped
+precondition for mainnet, and it is a hard one.
 
 ---
 
@@ -797,7 +817,7 @@ still names `0x73db…80cd`, which is the remaining key-shaped precondition.
 | `TAX_BPS` | 100 | `ToshLaunchpadHook` | swap tax — 1.00% |
 | `PLATFORM_SWAP_FEE_BPS` | 30 | `ToshLaunchpadHook` | platform's share of the buy-side tax |
 | `PLATFORM_TAX_BPS` | 100 | `ToshLaunchpadHook` | treasury's share of shelf proceeds — 1.00% |
-| `POOL_FEE` | 3000 | `ToshLaunchpadHook` | native v4 pool fee — 0.30% |
+| `POOL_FEE` | 3000 | `ToshLaunchpadHook` | Infinity CL pool fee — 0.30% |
 | `TICK_SPACING` | 200 | `ToshLaunchpadHook` | pool tick spacing |
 | `SHELF_PREMIUM_BPS` | 10500 | `ToshLaunchpadHook` | shelf base premium — 105% |
 | `PRICE_CEILING_BPS` | 10500 | `ToshLaunchpadHook` | shelf unlock ceiling — 105% |
@@ -840,7 +860,7 @@ callers still resolve.
 
 | Document | What it covers |
 |---|---|
-| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, deploy, environment, hook salt mining, guards, troubleshooting |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, deploy, environment, CREATE2 salts, guards, troubleshooting |
 | [`SECURITY.md`](SECURITY.md) | Reporting channel, scope, and verification anchors |
 
 If this document and the source disagree, the source wins.
