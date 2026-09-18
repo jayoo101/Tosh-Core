@@ -68,10 +68,20 @@
  * both `soat-frontend/` and the repo root -- the root because that is where
  * `forge script` runs and therefore where a deploy key lands, which is the
  * gap a 2026-09 laptop-copy sweep found after this scan had been green for
- * weeks. Presence of a non-empty assignment is the entire signal: values
- * are never read for comparison and never printed. If no such file is
+ * weeks. Presence of a non-empty assignment is the signal that FAILS; values
+ * are never compared to anything and never printed. If no such file is
  * present — the CI case, because `.env.local` is gitignored — that absence
  * is reported as not-evaluated, not as a pass.
+ *
+ * That sentence used to read "presence is the entire signal", and the value
+ * was genuinely never looked at. It now is, for one narrow purpose: deciding
+ * WHICH REPAIR to print. Shape only — is there userinfo, a query string, an
+ * opaque path segment — never a comparison, and nothing retained. The reason
+ * for the narrowing is that a name-keyed verdict got it wrong out loud, and
+ * told an operator to rotate a credential that did not exist; see
+ * `assignmentCarriesCredential`. Deciding the repair from the name alone is
+ * cheaper to write and was wrong in the one direction that wastes the
+ * reader's time instead of ours.
  *
  * ── Not a CI gate ───────────────────────────────────────────────────────────
  *
@@ -668,11 +678,21 @@ const localEnvFiles = ENV_SCAN_DIRS.flatMap(({ dir, label }) => {
 })
 
 /**
- * True when `name` has a non-empty assignment. The right-hand side is
- * forgotten immediately; it is never returned, logged, or compared to a
- * known secret.
+ * The right-hand side of `name`, or `null` when there is no non-empty one.
+ *
+ * ⚠ THIS RETURNS THE VALUE, AND THE HEADER SAYS VALUES ARE NEVER READ. That
+ *   principle is narrowed here rather than abandoned, so the distinction has
+ *   to be stated. What it forbids is reading a value in order to COMPARE it —
+ *   to a known secret, to a remote store's copy, to an expected constant —
+ *   because that is the design that needs a secret on hand to check a secret.
+ *   Measuring a value's SHAPE needs nothing on hand and reveals nothing: the
+ *   two callers below ask "is it non-empty" and "does its structure carry a
+ *   credential", and neither returns, logs or stores what it looked at.
+ *
+ *   The narrowing was forced by a wrong answer this file gave. See
+ *   `assignmentCarriesCredential`.
  */
-function hasNonEmptyAssignment(text, name) {
+function assignedValue(text, name) {
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim()
     if (line === '' || line.startsWith('#')) continue
@@ -684,11 +704,67 @@ function hasNonEmptyAssignment(text, name) {
     const quoted = /^(["'])([\s\S]*)\1$/.exec(rhs)
     if (quoted) rhs = quoted[2]
     else rhs = rhs.replace(/\s+#.*$/, '').trim()
-    const nonempty = rhs.length > 0
-    rhs = ''
-    if (nonempty) return true
+    if (rhs.length > 0) return rhs
   }
-  return false
+  return null
+}
+
+/** True when `name` has a non-empty assignment. */
+function hasNonEmptyAssignment(text, name) {
+  return assignedValue(text, name) !== null
+}
+
+/**
+ * Whether the value actually sitting in this file carries a credential.
+ *
+ * ── Why the name is not enough, which is the bug this fixes ─────────────────
+ *
+ * `INVENTORY[name].carriesCredential` is a claim about a ROLE. The value in
+ * one particular dotenv is a fact about one particular copy, and the two come
+ * apart. `ROBINHOOD_RPC` is the case that proved it: its row says "the
+ * chain-4663 endpoint, and a keyed one", and tells the reader to rotate at the
+ * provider. The copy in the repo root's `.env.production` is
+ * `https://rpc.mainnet.chain.robinhood.com/` — no userinfo, no query, no path
+ * — i.e. the bare public endpoint, with nothing to rotate anywhere.
+ *
+ * So this check told an operator to go and rotate a credential that does not
+ * exist. That is worse than silence: it spends somebody's afternoon at a
+ * vendor console, and a check that sends you after impossible work is a check
+ * you learn to skip. The evidence it was avoidable is inside this same
+ * INVENTORY — `NEXT_PUBLIC_RPC_URL`'s row already describes that exact URL as
+ * "the bare public endpoint" and is already marked `carriesCredential: false`.
+ * One file, two verdicts on one string, decided by which name held it.
+ *
+ * ── Conservative by construction ────────────────────────────────────────────
+ *
+ * Only a URL can be cleared, and only when its structure leaves nowhere for a
+ * secret to hide. Anything else — a raw key, a token, a password, a DSN with a
+ * userinfo half — is treated as a credential, so the failure mode is "told to
+ * rotate something that did not need it" and never the reverse. A keyed
+ * endpoint still reports as keyed; that path is unchanged.
+ */
+function assignmentCarriesCredential(text, name) {
+  if (INVENTORY[name]?.carriesCredential === false) return false
+
+  const value = assignedValue(text, name)
+  if (value === null) return false
+
+  let url
+  try {
+    url = new URL(value)
+  } catch {
+    return true // not a URL at all: assume the worst
+  }
+  if (!/^https?:$/.test(url.protocol)) return true
+  if (url.username || url.password) return true
+  if (url.search) return true
+
+  // A key is commonly the last path segment -- Alchemy, Infura, QuickNode all
+  // do this. Anything long and opaque counts; `/v1` and `/rpc` do not.
+  const opaqueSegment = url.pathname
+    .split('/')
+    .some((seg) => seg.length >= 12 && /^[A-Za-z0-9_-]+$/.test(seg))
+  return opaqueSegment
 }
 
 // `absent` joins `secret` here, where it used to be checked against the two
@@ -728,16 +804,31 @@ if (localEnvFiles.length > 0) {
       // nothing to rotate, and saying so anyway sends the reader to look for a
       // rotation procedure that does not exist — which is its own kind of wrong
       // answer, and the reason this branch exists rather than one generic string.
-      const rotatable = INVENTORY[name].carriesCredential !== false
+      //
+      // Decided from the VALUE's shape rather than the name's row, because the
+      // two disagree in a way that produced exactly that wrong answer. See
+      // `assignmentCarriesCredential`. A third case falls out of the gap and is
+      // reported separately: the row says this name is keyed, this copy is not,
+      // and the rotation the row asks for may still be owed by the OTHER stores
+      // it names. Collapsing that into "nothing to rotate" would cancel a real
+      // instruction on the strength of one file.
+      const rotatable = assignmentCarriesCredential(text, name)
+      const rowClaimsCredential = INVENTORY[name].carriesCredential !== false
+      const copyIsPublic = rowClaimsCredential && !rotatable
+
       const repair = rotatable
         ? 'delete it and rotate, not delete only'
-        : 'delete it — nothing to rotate, it carries no credential'
+        : copyIsPublic
+          ? 'delete it — THIS copy carries no credential, whatever the row says'
+          : 'delete it — nothing to rotate, it carries no credential'
 
       lines.push(`${ICON.bad} ${name} — non-empty assignment in ${file.shown}; ${repair}`)
       findings.push(
         rotatable
           ? `${name} has a non-empty assignment in ${file.shown}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`
-          : `${name} has a non-empty assignment in ${file.shown}. Delete the line; it carries no credential, so there is nothing to rotate. ${INVENTORY[name].why}`,
+          : copyIsPublic
+            ? `${name} has a non-empty assignment in ${file.shown}, but the value there is a bare endpoint with no credential in it — no userinfo, no query, no opaque path segment. Delete the line and stop; there is nothing at a provider to rotate for THIS copy. Note the row for this name claims it is keyed, so if a keyed value was ever put in a remote store under it, that rotation is still owed and this finding does not discharge it. If the name is credential-free everywhere now, the row is what is stale: ${INVENTORY[name].why}`
+            : `${name} has a non-empty assignment in ${file.shown}. Delete the line; it carries no credential, so there is nothing to rotate. ${INVENTORY[name].why}`,
       )
     }
     for (const name of localOnlyNames) {
