@@ -197,50 +197,67 @@ jobs:
             exit 1
           fi
 
-      # Fork tests against the Uniswap V4 singleton that is actually deployed on
-      # Robinhood Chain (4663). Every run above this uses a `PoolManager`
-      # compiled from `lib/v4-core` — the same source, but never the same
-      # bytecode and never the same surrounding state. See test/ToshV5Fork.t.sol.
+      # Fork tests against the PancakeSwap Infinity CL manager and Vault that are
+      # actually deployed on BNB Smart Chain (56). Every run above this uses a
+      # manager and Vault compiled from `lib/infinity-core` — the same source, but
+      # never the same bytecode and never the same surrounding state. See
+      # test/ToshV5Fork.t.sol.
+      #
+      # ⚠ THIS STEP PASSED `ROBINHOOD_RPC` INTO SUITES THAT READ `BSC_RPC`, from
+      #   the Infinity port until it was noticed. The three assertions below are
+      #   what made that loud instead of silent: every test skipped for want of an
+      #   endpoint name nothing supplied, so "0 passed" tripped the second check
+      #   and the step went red. It went red with an error message telling the
+      #   operator to set a chain-4663 endpoint, which was the one repair that
+      #   could not work. Worth keeping as a note: the guard caught the symptom
+      #   and the message sent the reader the wrong way, and only the first of
+      #   those is automatable.
       #
       # Forks of this repository have no reason to carry a permanently red
       # check, and a check everyone has learned to ignore is worth less than no
-      # check — so a missing `ROBINHOOD_RPC` is tolerated THERE and only there.
+      # check — so a missing `BSC_RPC` is tolerated THERE and only there.
       #
-      # On the canonical repository it is a failure. The earlier version of this
-      # step tolerated it everywhere, which meant the whole live-V4 suite could
+      # On the canonical repository it is a failure. An earlier version of this
+      # step tolerated it everywhere, which meant the whole live-AMM suite could
       # stop running here — secret expired, secret never set, endpoint dead —
       # and CI stayed green, because "every test skipped" and "everything
       # passed" are the same exit code.
       #
-      # Two assertions below, for two ways this goes quiet without going red:
+      # Three assertions below, for three ways this goes quiet without going red:
       #
       #   • `--match-contract` against a name that matches nothing prints
-      #     "No tests found in project!" and exits 0. Rename `ToshV5ForkTest`,
-      #     or delete the file, and this step keeps reporting success forever.
+      #     "No tests found in project!" and exits 0. Rename the contracts, or
+      #     delete the files, and this step keeps reporting success forever.
       #   • A reachable-but-wrong RPC (rate-limited, 521) leaves `forked` false,
-      #     so `_requireFork` skips every test and the suite still exits 0.
+      #     so the fork guard skips every test and the suite still exits 0.
+      #   • A PARTIAL skip is not a pass, and is the shape a half-configured
+      #     environment takes.
       #
-      # The secret must point at chain 4663. It does NOT need to be archive-
-      # capable: the suite is unpinned, because Robinhood's public endpoint
-      # retains state for under seventeen minutes at 100 ms blocks. The suite
-      # asserts the chain id itself, so a correct-looking endpoint for the wrong
-      # chain fails loudly rather than passing against someone else's V4.
-      - name: Run fork tests against live Uniswap V4
+      # The secret must point at chain 56. It does NOT need to be archive-
+      # capable: both suites are unpinned. Each asserts `block.chainid == 56`
+      # itself, so a correct-looking endpoint for the wrong chain fails loudly
+      # rather than passing against some other chain's AMM.
+      #
+      # Both fork contracts run here. `ToshV5ForkInfinityTest` was not in CI at
+      # all before — it is the spike that proves the hook MECHANISM against the
+      # deployed Vault, and it reads the same secret, so leaving it out meant a
+      # suite that could only ever run on someone's laptop.
+      - name: Run fork tests against live PancakeSwap Infinity
         env:
-          ROBINHOOD_RPC: ${{ secrets.ROBINHOOD_RPC }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
           REPO_IS_FORK: ${{ github.event.repository.fork }}
           PR_FROM_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
 
-          if [ -z "${ROBINHOOD_RPC:-}" ]; then
+          if [ -z "${BSC_RPC:-}" ]; then
             # Secrets are not exposed to pull requests raised from a fork, so a
             # community PR reaching here without one is expected, not broken.
             if [ "$REPO_IS_FORK" = "true" ] || [ "$PR_FROM_FORK" = "true" ]; then
-              echo "::notice::ROBINHOOD_RPC unavailable on a fork — skipping the live Uniswap V4 suite. This is expected; see .env.example."
+              echo "::notice::BSC_RPC unavailable on a fork — skipping the live Infinity suites. This is expected; see .env.example."
               exit 0
             fi
-            echo "::error::ROBINHOOD_RPC is not set on the canonical repository, so the live Uniswap V4 fork suite did not run. Set the repository secret to a chain-4663 endpoint. Do not silence this by deleting the step: it is the only check that runs against the V4 singleton actually deployed on the production chain."
+            echo "::error::BSC_RPC is not set on the canonical repository, so the live Infinity fork suites did not run. Set the repository secret to a chain-56 endpoint. Do not silence this by deleting the step: it is the only check that runs against the CLPoolManager and Vault actually deployed on the production chain."
             exit 1
           fi
 
@@ -248,18 +265,18 @@ jobs:
           # fails on any unexpected file, and a log dropped in the repo root
           # would trip it.
           log="$RUNNER_TEMP/fork-test.log"
-          forge test --match-contract ToshV5ForkTest -vvv | tee "$log"
+          forge test --match-contract 'ToshV5ForkTest|ToshV5ForkInfinityTest' -vvv | tee "$log"
 
           if grep -q 'No tests found' "$log"; then
-            echo "::error::--match-contract ToshV5ForkTest matched nothing. The contract was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
+            echo "::error::--match-contract matched no fork contract. ToshV5ForkTest or ToshV5ForkInfinityTest was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
             exit 1
           fi
           if ! grep -qE '[1-9][0-9]* (tests? )?passed' "$log"; then
-            echo "::error::The fork suite ran but nothing passed. With ROBINHOOD_RPC set this usually means setUp() could not reach the endpoint, so it never forked and every test skipped."
+            echo "::error::The fork suites ran but nothing passed. With BSC_RPC set this usually means setUp() could not reach the endpoint, so it never forked and every test skipped. Check that the value names chain 56 and not 97."
             exit 1
           fi
           if grep -qE '[1-9][0-9]* skipped' "$log"; then
-            echo "::error::Some fork tests reported SKIPPED with ROBINHOOD_RPC set. A partial skip is not a pass — see _requireFork in test/ToshV5Fork.t.sol."
+            echo "::error::Some fork tests reported SKIPPED with BSC_RPC set. A partial skip is not a pass — see _requireFork in test/ToshV5Fork.t.sol and the onFork modifier in test/ToshV5ForkInfinity.t.sol."
             exit 1
           fi
 

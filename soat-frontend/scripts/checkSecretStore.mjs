@@ -31,12 +31,33 @@
  * is a finding, and anything classified `absent` must stay absent.
  *
  * One tier per name was an assumption, not a fact, and it hid a gap until
- * 2026-09-13: `ROBINHOOD_RPC` is read by the fork suite in CI AND by
+ * 2026-09-13: the chain-scoped RPC is read by the fork suite in CI AND by
  * serverRpc.ts in production, so classifying it `ci` left its Vercel half
  * unguarded. An optional `alsoVercel` names the second home and the Vercel
- * type it must have. The lesson generalises past this one row: a name with two
+ * type it must have. The lesson generalises past that one row: a name with two
  * consumers gets checked in the store the tier is named after and nowhere
  * else, so the store nobody classified is the one that fails silently.
+ *
+ * ── The port, and the limit of an inventory ─────────────────────────────────
+ *
+ * 2026-09-18: this file ran green for the whole PancakeSwap Infinity port while
+ * checking names the port had abandoned. It asserted ROBINHOOD_RPC and
+ * NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC were present and correct, and carried no row
+ * at all for BSC_RPC, BSC_TESTNET_RPC or ETHERSCAN_API_KEY — the three the code
+ * now actually reads. Every run passed; nothing it reported was false; and the
+ * credentials production depends on were entirely outside its view.
+ *
+ * That is this file's own failure mode, stated at the top of it: a check that
+ * does not name a credential cannot report on that credential. What it costs is
+ * measurable — BSC_RPC is absent from Vercel, so every server-side read on
+ * chain 56 falls through to a public dataseed, and the CI fork step spent the
+ * port passing ROBINHOOD_RPC into suites that read BSC_RPC. Neither was visible
+ * here.
+ *
+ * The repair is not a better checker. An inventory keyed on names can only ever
+ * be as current as the last person to edit it, so the rule is procedural: a
+ * commit that changes which env name the code reads changes this table in the
+ * same commit, the way a commit that lowers a test floor says why.
  *
  * ── Local copies, added after the 2026-09-08 exposure ───────────────────────
  *
@@ -184,10 +205,12 @@ const INVENTORY = {
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
   NEXT_PUBLIC_RPC_URL: {
     tier: 'absent',
+    carriesCredential: false,
     why: 'Universal RPC override, shipped in the client bundle because of the NEXT_PUBLIC_ prefix. '
        + 'It was config until 2026-09-13, holding the bare public endpoint '
        + 'https://rpc.mainnet.chain.robinhood.com, and it is absent now because serverRpcUrl() '
-       + 'reads it BEFORE the chain-scoped ROBINHOOD_RPC. Setting it therefore silently disables '
+       + 'reads it BEFORE the chain-scoped name — ROBINHOOD_RPC then, BSC_RPC / BSC_TESTNET_RPC '
+       + 'now, and the ordering is what matters rather than the chain. Setting it silently disables '
        + 'the keyed server endpoint: the paid node stays configured, stays billed and is never '
        + 'called. It cannot be repurposed to carry the key either, because the NEXT_PUBLIC_ '
        + 'prefix inlines it into every browser bundle. So the only two things it can be here are '
@@ -196,7 +219,39 @@ const INVENTORY = {
        + 'so deleting it left the browser candidate list identical. A paid endpoint belongs off '
        + 'NEXT_PUBLIC_*, the way MONITOR_RPC is a GitHub secret for the same reason.',
   },
-  NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: { tier: 'config', why: 'Public RPC endpoint, no credential in the URL.' },
+  // NEXT_PUBLIC_BSC_RPC and NEXT_PUBLIC_BSC_TESTNET_RPC are deliberately NOT
+  // rows here, and the omission is the classification rather than an oversight.
+  //
+  // `serverRpcUrl` reads them only after the keyed BSC_RPC / BSC_TESTNET_RPC, and
+  // `providers.tsx` appends viem's own default unconditionally, so they are a
+  // fallback behind a fallback: unset is the normal, correct state. A `config`
+  // row would assert they must be present and produce two findings that name no
+  // problem, which is how a check gets ignored — the failure mode this file's
+  // docblock is about.
+  //
+  // Unclassified is not unguarded. The sweep at the bottom flags any name found
+  // in a remote store without a row, so ADDING either one still comes up for
+  // review — which is what you want for a NEXT_PUBLIC_ name, because the prefix
+  // inlines it into every browser bundle.
+  NEXT_PUBLIC_LADDER_TREASURY: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'The older alias of NEXT_PUBLIC_TREASURY_ADDRESS. contracts.ts resolves the canonical '
+       + 'name first and says plainly to delete this one rather than resolve it, because both set '
+       + 'and disagreeing is a case the `??` picks silently: a .env.local once carried the '
+       + 'PREVIOUS deployment\'s treasury under the alias while the canonical name held the '
+       + 'current one, and both were live contracts of identical size because they are the same '
+       + 'contract from two deploys. Vercel production correctly holds only the canonical name. '
+       + 'Two names for one address is the same shape as two names for one key.',
+  },
+  NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'The chain-46630 endpoint. Nothing reads it after the port; it is config rather than a '
+       + 'credential, so this row is housekeeping and not an incident — but a NEXT_PUBLIC_ name '
+       + 'is inlined into every browser bundle, and shipping a dead chain\'s RPC to users is a '
+       + 'claim about which chain this app is on. Delete from Vercel production.',
+  },
   NEXT_PUBLIC_SUPABASE_URL:          { tier: 'config', why: 'Public project URL.' },
   NEXT_PUBLIC_SUPABASE_ANON_KEY:     { tier: 'config', why: 'Anon key is public by design; RLS is what protects the rows.' },
   NEXT_PUBLIC_SENTRY_DSN:            { tier: 'config', why: 'DSN is a public ingest endpoint, not a token.' },
@@ -208,18 +263,51 @@ const INVENTORY = {
   RATE_LIMIT_TRUSTED_PROXY_HOPS:     { tier: 'config', why: 'How many proxy hops to trust in X-Forwarded-For.' },
 
   // ── CI. ──────────────────────────────────────────────────────────────────
-  ROBINHOOD_RPC: {
+  BSC_RPC: {
     tier: 'ci',
     alsoVercel: 'sensitive',
-    why: 'Fork suite reads it. Unset, those tests skip rather than fail, so its absence is silent.',
+    why: 'Chain 56. The fork suites read it — ToshV5ForkTest and ToshV5ForkInfinityTest — and '
+       + 'unset, those tests skip rather than fail, so its absence is silent inside forge. '
+       + 'The workflow step is what makes it loud: it refuses a run where nothing passed.',
     alsoVercelWhy:
-      'Since 2026-09-13 this name has a second consumer: serverRpc.ts resolves it for chain 4663, '
-      + 'so it is also the keyed endpoint every server-side read goes through. One name, two '
-      + 'stores, and the two copies are NOT interchangeable — CI forks at a pinned block and '
-      + 'needs archive state, which the app never asks for. The Vercel copy has to be asserted '
-      + 'separately because losing it is silent: PUBLIC_FALLBACK answers, production reverts to '
-      + 'the public endpoint, and the only symptom is intermittent 429s under concurrency once '
-      + 'more than six requests overlap.',
+      'Two consumers, as ROBINHOOD_RPC had: serverRpc.ts resolves this name for chain 56, so it '
+      + 'is also the keyed endpoint every server-side read goes through. The two copies are NOT '
+      + 'interchangeable — CI wants breadth and the app wants latency — which is why the Vercel '
+      + 'side is asserted separately. Losing it is silent: PUBLIC_FALLBACK answers with '
+      + 'bsc-dataseed1, production reverts to a public endpoint, and the only symptom is '
+      + 'intermittent 429s under concurrency.',
+  },
+  BSC_TESTNET_RPC: {
+    tier: 'ci',
+    alsoVercel: 'sensitive',
+    why: 'Chain 97. Read by the rehearsal scripts and by anything driving the deployed testnet '
+       + 'factory.',
+    alsoVercelWhy:
+      'serverRpc.ts resolves this name for chain 97, and 97 is what NEXT_PUBLIC_CHAIN_ID points '
+      + 'at until 56 is deployed — so today this is the endpoint production actually reads, and '
+      + 'BSC_RPC is the one that matters later. Same silent-failure shape as BSC_RPC: the public '
+      + 'dataseed answers and nothing reports the downgrade.',
+  },
+  ETHERSCAN_API_KEY: {
+    tier: 'ci',
+    why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
+       + 'at Etherscan v2\'s multichain host on this one key, so a single value covers 56 and 97 '
+       + '— which is also why losing it blocks verification on both at once. Blockscout does not '
+       + 'cover chain 56 at any tier, so there is no second door: unverified is the state a '
+       + 'missing key leaves the mainnet factory in, and an unverified launchpad is one nobody '
+       + 'can read the terms of before depositing.',
+  },
+  ROBINHOOD_RPC: {
+    tier: 'absent',
+    why: 'The chain-4663 endpoint, and a keyed one. The Infinity port removed BOTH of its '
+       + 'consumers: serverRpc.ts has no 4663 case in scopedEnvUrl, and the CI fork step now '
+       + 'passes BSC_RPC. It survived in two remote stores after the last thing that read it was '
+       + 'deleted, and for a while the CI step still passed THIS name into suites that read '
+       + 'BSC_RPC — so the credential was present, billed, and could not be used. Absent rather '
+       + 'than ci-tier on purpose: a live credential in two stores that nothing reads is reach '
+       + 'without a reason, and reintroducing it should be a finding rather than a shrug. Delete '
+       + 'from GitHub Actions and from Vercel production, and rotate at the provider — the '
+       + 'operator scripts under scripts/ still carry it as a default, so copies exist.',
   },
   MONITOR_RPC: {
     tier: 'ci',
@@ -302,6 +390,7 @@ const INVENTORY = {
   // ── Deliberately unset. ──────────────────────────────────────────────────
   MONITOR_KEEPER_ADDRESS: {
     tier: 'absent',
+    carriesCredential: false,
     why: 'Turns on the STATE-05 keeper gas-balance check. Unset is correct while no automated '
        + 'keeper exists — the check would otherwise page about an empty address that is empty '
        + 'because it does not exist. Set it only when something starts calling pokeBuyback() '
@@ -463,9 +552,9 @@ for (const [name, spec] of Object.entries(INVENTORY)) {
     // A name can be required in both stores at once. `tier` says which store
     // the classification is named after; `alsoVercel` adds the second claim.
     // Without it the inventory can only describe one home per name, and the
-    // unnamed one is unguarded — which for ROBINHOOD_RPC means deleting the
-    // Vercel row leaves every row green while production quietly falls back to
-    // the rate-limited public endpoint.
+    // unnamed one is unguarded — which for BSC_RPC means deleting the Vercel
+    // row leaves every row green while production quietly falls back to the
+    // rate-limited public dataseed.
     if (spec.alsoVercel) {
       const why = spec.alsoVercelWhy ?? spec.why
       if (!inVercel) {
@@ -632,11 +721,23 @@ if (localEnvFiles.length > 0) {
     const text = readFileSync(join(file.dir, file.name), 'utf8')
     for (const name of localScanNames) {
       if (!hasNonEmptyAssignment(text, name)) continue
-      lines.push(
-        `${ICON.bad} ${name} — non-empty assignment in ${file.shown}; delete it and rotate, not delete only`,
-      )
+
+      // Two different repairs, and telling them apart matters. For a credential,
+      // deletion is the lesser half: the copy that leaked stays valid until it is
+      // rotated at the provider. For an address or a public endpoint there is
+      // nothing to rotate, and saying so anyway sends the reader to look for a
+      // rotation procedure that does not exist — which is its own kind of wrong
+      // answer, and the reason this branch exists rather than one generic string.
+      const rotatable = INVENTORY[name].carriesCredential !== false
+      const repair = rotatable
+        ? 'delete it and rotate, not delete only'
+        : 'delete it — nothing to rotate, it carries no credential'
+
+      lines.push(`${ICON.bad} ${name} — non-empty assignment in ${file.shown}; ${repair}`)
       findings.push(
-        `${name} has a non-empty assignment in ${file.shown}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`,
+        rotatable
+          ? `${name} has a non-empty assignment in ${file.shown}. Delete it from that file and rotate the live value — deletion alone leaves the leaked copy live.`
+          : `${name} has a non-empty assignment in ${file.shown}. Delete the line; it carries no credential, so there is nothing to rotate. ${INVENTORY[name].why}`,
       )
     }
     for (const name of localOnlyNames) {
