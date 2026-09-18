@@ -21,6 +21,36 @@
  * Chain runs its own Blockscout and `viem` already carries the `apiUrl`, so
  * Blockscout is the only provider covering all five with one request shape.
  *
+ * RE-MEASURED 2026-09-18 — HALF OF THAT PARAGRAPH IS NOW STALE
+ *
+ * `api.etherscan.io/v2/chainlist` advertises 63 chains and Robinhood 4663 is
+ * one of them, so "does not index Robinhood Chain at any price" no longer
+ * holds. The other half does: the free tier still refuses Optimism and Base.
+ *
+ * The fact worth keeping is HOW that was measured, because it needs no key and
+ * so can be repeated by anyone reading this. The tier refusal is evaluated
+ * BEFORE the key check, so an unkeyed `module=account&action=txlist` answers
+ * either "Missing/Invalid API Key" — meaning the free tier reaches that chain —
+ * or "Free API access is not supported for this chain". By that probe:
+ *
+ *   free tier reaches    1 Ethereum · 42161 Arbitrum · 4663 Robinhood
+ *   paid plan required  10 Optimism · 8453 Base · 56 BNB Smart Chain · 97
+ *
+ * The gate is per MODULE, not per chain: on 56 and 97 `account`, `proxy` and
+ * `stats` are refused while `contract` reads through to the key check. That is
+ * why contract verification on BSC works from a free key and a gas scan does
+ * not — the same key, the same chain, a different answer.
+ *
+ * So moving this file to Etherscan v2 is no longer blocked on coverage. It is
+ * blocked on a bill, for three of the six chains, and that is somebody's
+ * spending decision rather than an engineering one.
+ *
+ * The fallbacks were checked too, and both are closed. BscScan V1
+ * (`api.bscscan.com`) now answers every request with "You are using a
+ * deprecated V1 endpoint", and Blockscout's own directory of 708 hosted
+ * instances contains no BNB Smart Chain — which corroborates, from outside,
+ * the claim below that Blockscout cannot serve 56 at any tier.
+ *
  * ONE HOST, NOT FIVE — THE PRO API
  *
  * This used to read five separate public instances: `eth.blockscout.com`,
@@ -262,9 +292,19 @@ function toNativeWei(ethWei: bigint, chain: GasScanChain): bigint {
  * Robinhood Chain is still in this table, and that is a live decision rather
  * than a missed rename. Its gas is ETH-denominated and counts toward the floor.
  * It is NOT the settlement chain any more — that is BNB Smart Chain, which is
- * absent until the scanner has an Etherscan v2 transport (Blockscout does not
- * cover chain 56 at any tier). A dialog that dropped 4663 while this table
- * still queried it, or that named 56 while this table does not, would be lying.
+ * absent because no transport this project pays for can reach it: Blockscout
+ * has no chain-56 instance at any tier, and Etherscan v2 has one but puts
+ * `account` behind a paid plan (measured 2026-09-18; see the header).
+ *
+ * Stated plainly, because the shape of it is easy to miss: **a wallet's BSC gas
+ * history earns it nothing, on the chain the protocol now settles on.** That is
+ * a policy consequence of a billing fact, and it should be decided rather than
+ * inherited. Adding 56 means buying an Etherscan plan and moving at least
+ * Optimism and Base across with it, since those two are gated identically and
+ * running two vendors to save one subscription is the worse trade.
+ *
+ * A dialog that dropped 4663 while this table still queried it, or that named
+ * 56 while this table does not, would be lying.
  */
 export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
