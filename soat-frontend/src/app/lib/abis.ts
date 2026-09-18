@@ -3790,19 +3790,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "refundEnabled",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "satoDeposited",
     "inputs": [
       {

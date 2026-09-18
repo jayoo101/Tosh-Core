@@ -809,17 +809,25 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
     uint256 public genesisDeadline;
     bool public launched;
-    /// @notice Event-dedup flags, NOT the refund gate.
+    /// @notice Event-dedup flag, NOT the refund gate.
     ///
     /// @dev    Set lazily the first time `refund()` actually runs, so the
-    ///         `ZombieRefund` event fires once.  Nothing reads these as a
+    ///         `ZombieRefund` event fires once. Nothing reads it as a
     ///         condition — `refund()` and `canRefund()` recompute
     ///         `zombieExpired` on every call. Indexers and the UI must treat
-    ///         `canRefund()` as the authority; these flags stay `false` until
+    ///         `canRefund()` as the authority; this flag stays `false` until
     ///         the first claimant shows up, even when refunds are already
-    ///         available. A missed soft cap is no longer a refund trigger:
-    ///         the creator may still `launch()` with whatever was raised.
-    bool public refundEnabled;
+    ///         available.
+    ///
+    ///         A `refundEnabled` twin stood here until Slither noticed it could
+    ///         be `constant`. It could, in the worst sense: nothing in the
+    ///         repository ever assigned it, so the getter answered `false` for
+    ///         the life of every hook. It was the soft-cap refund's flag, and it
+    ///         lost its only writer when a missed soft cap stopped being a
+    ///         refund trigger — the creator may now `launch()` with whatever was
+    ///         raised. Removed rather than documented, because a permanently
+    ///         false `refundEnabled()` sitting beside `canRefund()` reads as an
+    ///         answer to the question `canRefund()` actually answers.
     bool public zombieRefundEnabled;
 
     // ─── Genesis accounting (all ETH-wei) ─────────────────────────────────────
