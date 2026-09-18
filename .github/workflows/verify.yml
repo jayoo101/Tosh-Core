@@ -91,13 +91,23 @@ jobs:
             --data-urlencode 'action=getsourcecode' \
             --data-urlencode 'address=0x0000000000000000000000000000000000001000' \
             --data-urlencode "apikey=${ETHERSCAN_API_KEY}")
-          echo "$body" | head -c 400; echo
+          # Bash substring, not `| head -c`. Piping into `head` closes the
+          # pipe as soon as it has its bytes, `echo` takes SIGPIPE, and under
+          # `pipefail` that aborts the step -- which is exactly how the first
+          # run of this workflow failed, with "echo: write error: Broken pipe"
+          # while the response sitting right underneath it said status 1, OK.
+          # A diagnostic that kills the thing it is diagnosing is worse than
+          # no diagnostic.
+          printf '%s\n' "${body:0:400}"
           case "$body" in
             *'Free API access is not supported'*)
               echo "::error::Chain ${CHAIN} now requires a paid plan even for the contract module. The free-tier carve-out for source-code endpoints has changed; verification cannot proceed on this key."
               exit 1 ;;
             *'Invalid API Key'*|*'Missing/Invalid API Key'*)
               echo "::error::Etherscan rejected the key. Check the ETHERSCAN_API_KEY secret."
+              exit 1 ;;
+            *'rate limit'*)
+              echo "::error::Rate-limited before starting. Named separately from the two above because it is the only one of the three that is worth simply retrying."
               exit 1 ;;
           esac
           echo "Explorer reachable for chain ${CHAIN} with this key."
