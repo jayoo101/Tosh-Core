@@ -52,8 +52,19 @@
 
 import { ethers } from 'ethers'
 
-const MAINNET_ID = 4663n
-const RPC = process.env.ROBINHOOD_RPC || 'https://rpc.mainnet.chain.robinhood.com'
+const MAINNET_ID = 56n
+
+// Chain-named, so a testnet endpoint cannot answer for mainnet by accident.
+// `BSC_RPC` is the same name the fork suites, the preflight and the frontend's
+// server leg already read.
+//
+// ⚠ THE LIVE_TREASURY BELOW IS ON CHAIN 4663 and there is no chain-56 equivalent
+//   yet, because nothing is deployed there. Every check downstream that compares
+//   against it is therefore meaningless on 56 and will say so through the
+//   chain-id note below. Replace the address in the same edit as the first BSC
+//   ladder deploy; leaving a retired address here is safer than a plausible
+//   guess, since a wrong-but-live address is the one that gets signed against.
+const RPC = process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
 const LIVE_TREASURY = '0x255722226720914eF5B2CD54647f21f584BD4Ea2'
 
 // `error TwapNotMature()`, kept only to decode a revert that arrives without an
@@ -103,7 +114,7 @@ const notes = []
 const provider = new ethers.JsonRpcProvider(RPC)
 const net = await provider.getNetwork()
 console.log(`rpc      ${RPC}`)
-console.log(`chain    ${net.chainId}${net.chainId === MAINNET_ID ? '' : '  (NOT mainnet 4663)'}`)
+console.log(`chain    ${net.chainId}${net.chainId === MAINNET_ID ? '' : `  (NOT mainnet ${MAINNET_ID})`}`)
 console.log(`treasury ${ethers.getAddress(treasuryAddr)}` +
   `${ethers.getAddress(treasuryAddr) === ethers.getAddress(LIVE_TREASURY) ? '  (the live reservoir)' : ''}`)
 console.log(`token    ${ethers.getAddress(token)}`)

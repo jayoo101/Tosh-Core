@@ -41,8 +41,8 @@
  *
  * Resolved by `loadRoleEnv`: `.env.production` first, then `.env`. Each value's
  * origin is printed, which is not politeness. `.env` is a perfectly valid
- * TESTNET config — its `FACTORY_ADDRESS` is a real contract on 46630 and has no
- * code at all on 4663 — so a mainnet script that quietly prefers it fails in a
+ * TESTNET config — its `FACTORY_ADDRESS` is a real contract on 97 and has no
+ * code at all on 56 — so a mainnet script that quietly prefers it fails in a
  * way that reads like a chain problem rather than a config one. The chain-id
  * check below is the backstop for exactly that.
  *
@@ -62,9 +62,9 @@ import { privateKeyToAccount } from 'viem/accounts'
 
 import { loadRoleEnv } from './loadRoleEnv.mjs'
 
-const MAINNET_ID = 4663
+const MAINNET_ID = 56
 
-const ROLES = ['ROBINHOOD_RPC', 'LAUNCH_CREATOR_PRIVATE_KEY']
+const ROLES = ['BSC_RPC', 'LAUNCH_CREATOR_PRIVATE_KEY']
 const { source: roleSource } = loadRoleEnv(ROLES)
 
 function arg(name, fallback) {
@@ -114,7 +114,7 @@ async function main() {
   }
   const hook = getAddress(hookArg)
 
-  const rpc = arg('rpc', process.env.ROBINHOOD_RPC ?? 'https://rpc.mainnet.chain.robinhood.com')
+  const rpc = arg('rpc', process.env.BSC_RPC ?? 'https://bsc-dataseed1.bnbchain.org')
   const pk = process.env.LAUNCH_CREATOR_PRIVATE_KEY
 
   if (!pk) {
@@ -132,7 +132,7 @@ async function main() {
   // ── Pre-flight. Fatal, and none of it changes while we wait ──────────────
 
   console.log('resolved configuration:')
-  console.log(`  ROBINHOOD_RPC              ${rpc}   ← ${arg('rpc') ? 'command line' : roleSource.ROBINHOOD_RPC ?? 'built-in default'}`)
+  console.log(`  BSC_RPC                    ${rpc}   ← ${arg('rpc') ? 'command line' : roleSource.BSC_RPC ?? 'built-in default'}`)
   console.log(`  LAUNCH_CREATOR_PRIVATE_KEY (set)   ← ${roleSource.LAUNCH_CREATOR_PRIVATE_KEY}`)
   console.log(`  caller                     ${account.address}`)
   console.log(`  hook                       ${hook}\n`)
@@ -140,7 +140,7 @@ async function main() {
   const chainId = await pub.getChainId()
   if (chainId !== MAINNET_ID) {
     return fail(
-      `✗ connected to chain ${chainId}, not Robinhood mainnet (${MAINNET_ID}).`,
+      `✗ connected to chain ${chainId}, not BNB Smart Chain mainnet (${MAINNET_ID}).`,
       '  Refusing to run: .env may still carry the testnet TARGET_CHAIN_ID.',
     )
   }

@@ -202,26 +202,53 @@ if (html) {
     // testnet — a half-finished cutover that still carries a rehearsal
     // marker is the cheaper mistake to catch.
     //
-    // `robinhoodchain.blockscout.com` is special-cased because it is the
-    // canonical mainnet explorer and contains neither `mainnet` nor `4663`.
-    // The vanity alias `explorer.mainnet.chain.robinhood.com` would have
-    // voted mainnet on the substring, and was rejected: a GET of
-    // `/address/<factory>` against it returns 200 and lands on the
-    // explorer's front page — the path is dropped. Address links on the
-    // status page would then send users to the homepage of the right
-    // chain, looking like a working explorer while showing them nothing
-    // about the contract. The hostname is therefore recognised, rather
-    // than the URL being swapped for the one that happens to match.
-    const vote = s => (/testnet|46630/i.test(s) ? 'testnet' : /mainnet|4663\b|robinhoodchain\.blockscout\.com/.test(s) ? 'mainnet' : '?')
+    // Hostnames are recognised as well as chain numbers, because the
+    // canonical endpoints name neither: `bscscan.com` and
+    // `bsc-dataseed1.bnbchain.org` contain no `56`, and the testnet
+    // dataseed says `prebsc` rather than `97`. Matching on bare `56`
+    // alone would also be reckless — it is two digits that turn up inside
+    // addresses and hostnames for reasons that have nothing to do with
+    // the chain — hence the word boundaries.
+    //
+    // Testnet markers are still checked first, so `testnet.bscscan.com`
+    // votes testnet despite also matching the mainnet host pattern.
+    //
+    // ⚠ THE WORDS `mainnet` AND `testnet` ARE NOT ENOUGH ON THEIR OWN, and the
+    //   version of this that only looked for them was not wrong until the chain
+    //   changed under it. "Robinhood mainnet — 4663" contains `mainnet`, so it
+    //   voted mainnet; so would "Base mainnet", or any other. The vote was
+    //   answering "is this a production page" when check 6 needs it to answer
+    //   "is this OUR production page". Every field has to carry a BSC marker.
+    const bscTestnet = /prebsc|testnet\.bscscan|\bbsc[\s-]*testnet\b|\b97\b/i
+    const bscMainnet = /bscscan\.com|bsc-dataseed|\bbnb smart chain\b|\bbsc mainnet\b|\b56\b/i
+
+    // Chains this protocol has left. Named explicitly so that a page still
+    // pointing at one produces the reason rather than a shrug — `?` on its own
+    // reads as "unparseable", which is the wrong thing to go fix.
+    const departed = /robinhood|blockscout|\b4663\b|\b46630\b/i
+
+    const stranded = Object.entries(chain).filter(([, v]) => v && departed.test(v))
+    if (stranded.length) {
+      drift.push(
+        'the page still names a chain this protocol has left: '
+        + stranded.map(([k, v]) => `${k}=${v}`).join(' ')
+        + '. Those fields describe Robinhood Chain; settlement moved to BNB Smart '
+        + 'Chain. Users following the incident playbook to this page are being '
+        + 'shown the health of contracts nobody is using, over an RPC for a chain '
+        + 'nobody is trading on. Edit the CHAIN block in jayoo101/tosh-status.')
+    }
+
+    const vote = s => (bscTestnet.test(s) ? 'testnet' : bscMainnet.test(s) ? 'mainnet' : '?')
     const votes = Object.fromEntries(Object.entries(chain).map(([k, v]) => [k, vote(v)]))
     const distinct = [...new Set(Object.values(votes))]
-    if (distinct.length !== 1 || distinct[0] === '?') {
+    if (!stranded.length && (distinct.length !== 1 || distinct[0] === '?')) {
       drift.push(
-        'the page\'s chain fields do not agree on one chain: '
+        'the page\'s chain fields do not agree on one BSC chain: '
         + Object.entries(votes).map(([k, v]) => `${k}=${v}`).join(' ')
         + '. It reads paused() from the factory over `rpc` and sends users to '
         + '`explorer`; if those are different chains the page is confidently '
-        + 'wrong rather than visibly broken.')
+        + 'wrong rather than visibly broken. A `?` means the field carries no '
+        + 'BSC marker at all.')
     }
     STATUS_PAGE_CHAIN = distinct.length === 1 ? distinct[0] : '?'
     STATUS_PAGE_FACTORY = field('factory').toLowerCase()
@@ -256,10 +283,24 @@ try {
 // page's own disagreement warning stays quiet. It would be reporting the
 // health of a contract nobody is using.
 //
-// `broadcast/<script>/4663/` is where PM-C1 records the mainnet run, so its
+// `broadcast/<script>/56/` is where PM-C1 records the mainnet run, so its
 // appearance is exactly the moment the page becomes wrong. No new constant to
 // maintain, and no way to satisfy this by editing a comment.
-const MAINNET_ID = '4663'
+//
+// ⚠ THIS SAID 4663, and `broadcast/DeployMainnet.s.sol/4663/` is on disk, so the
+//   check was armed and comparing the page against a deployment on a chain the
+//   protocol no longer uses. The page passed it — by still naming that chain.
+//   Retargeting to 56 disarms it until the BSC deploy, which is correct: there is
+//   no mainnet to be pointed at yet.
+//
+//   That does not make the page right. It is live at the URL the incident
+//   playbook sends users to, and it still declares `Robinhood mainnet — 4663`
+//   with an RPC, a Blockscout explorer and a factory address on that chain. This
+//   guard cannot fix it: the page is in `jayoo101/tosh-status` by design, so
+//   that a status page and the thing whose status it reports do not share a
+//   deploy pipeline. It has to be edited there, and nothing here will go red
+//   about it until chain 56 is deployed.
+const MAINNET_ID = '56'
 const broadcastRoot = path.join(REPO_ROOT, 'broadcast')
 const mainnetDeployed = fs.existsSync(broadcastRoot)
   && fs.readdirSync(broadcastRoot).some(script =>
