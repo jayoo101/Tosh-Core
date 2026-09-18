@@ -233,18 +233,25 @@ lint_on_build = false
 # Network RPC endpoints (values read from .env via ${VAR} interpolation)
 # ---------------------------------------------------------------------------
 #
-# `bsc` is the production target (chain 56). It also serves
-# `ToshV5ForkBsc.t.sol` and `ToshV5FirstLaunchRehearsal.t.sol`, both of which
-# read `BSC_RPC` directly rather than by alias.
+# `bsc` is the production target (chain 56). It serves `ToshV5Fork.t.sol`,
+# `ToshV5ForkInfinity.t.sol` and `ToshV5FirstLaunchRehearsal.t.sol`, all three of
+# which read `BSC_RPC` directly rather than by alias.
 #
-# `bsc_testnet` (97) is listed for completeness and is NOT where rehearsals run.
-# Uniswap V4 is not deployed on chain 97, so a rehearsal there cannot create a
-# pool at all — the full-lifecycle rehearsal runs against `anvil --fork-url
-# $BSC_RPC` instead, which is why the devnet is the frontend's default chain.
+# `bsc_testnet` (97) is where the rehearsal actually runs, against the deployed
+# factory. This paragraph used to say the opposite — that 97 could not host a
+# rehearsal because Uniswap V4 is not deployed there, so the lifecycle had to be
+# driven against `anvil --fork-url $BSC_RPC`, and that the devnet was therefore
+# the frontend's default chain. Every clause of that was made false by the move
+# to PancakeSwap Infinity, which IS deployed on 97: the full lifecycle ran on the
+# real chain there, and the frontend's default is 97. The V4/97 gap is in fact
+# why Infinity was chosen; see docs/PANCAKESWAP_INFINITY.md §2.
 #
-# `robinhood` / `robinhood_testnet` stay while `ToshV5Fork.t.sol` and the old
-# deployment do. They are the chain this protocol is migrating OFF; nothing new
-# should be pointed at them.
+# `robinhood` / `robinhood_testnet` are retained but nothing reads them. Their
+# rationale used to be `ToshV5Fork.t.sol`, which now reads `BSC_RPC`; no alias
+# resolves to either entry today, and `ROBINHOOD_TESTNET_RPC` is not in `.env`
+# at all, so `robinhood_testnet` would not even interpolate if something tried.
+# They are kept only so the retired 4663 deployment stays re-verifiable, and
+# nothing new should be pointed at them.
 #
 # A public BSC endpoint is fine for forking but not for the watcher: the
 # dataseed nodes reject a 9,000-block `eth_getLogs` span. `BSC_RPC` wants a
