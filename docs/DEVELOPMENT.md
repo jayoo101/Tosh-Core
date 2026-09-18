@@ -12,11 +12,12 @@ How to build, test, deploy and operate this repository. For what the protocol
 | AMM | PancakeSwap Infinity CL (`Vault` + `CLPoolManager`) |
 | Factory (97) | [`0xB224f26a323320376c0b4C6a3228533FA63E5bBd`](https://testnet.bscscan.com/address/0xB224f26a323320376c0b4C6a3228533FA63E5bBd) |
 | Treasury (97) | [`0x79de222644E8BBeea6FC55815CCBE9FF136D7674`](https://testnet.bscscan.com/address/0x79de222644E8BBeea6FC55815CCBE9FF136D7674) |
-| Governance | 2-of-3 Gnosis Safe, `Ownable2Step` on both singletons |
+| Governance (97) | a **single EOA whose private key is public** — `0x73db078f…80cd`, which is also the PoG signer. Not a multi-sig. See `SECURITY.md` |
+| Governance (56) | 2-of-3 Safe [`0x02DE4629129D104C63329D13A6Ca67E43db7B310`](https://bscscan.com/address/0x02DE4629129D104C63329D13A6Ca67E43db7B310), `Ownable2Step` on both singletons — **owns nothing yet**, the deploy transfers to it |
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
-| Verification | Etherscan v2 / BscScan — blocked on an API key; do not claim 56 is verified |
-| Tests | 387 across 16 suites, including stateful invariants and adversarial probes |
+| Verification | Etherscan v2 via `.github/workflows/verify.yml`. `ToshLadderTreasury` is verified on `97`; `ToshFactory` is deliberately not — see `SECURITY.md`. Nothing on `56` is verified because nothing on `56` is deployed |
+| Tests | 389 passing of 393 across 16 suites, including stateful invariants and adversarial probes |
 | Toolchain | Foundry · Next.js + wagmi + viem · Node |
 
 > There is no platform token. Launch fees, genesis deposits and shelf purchases
@@ -106,16 +107,16 @@ so the two 1.05 factors cancel and the condition carries no magic number.
 
 | Fee | Rate | Destination |
 |---|---|---|
-| Launch fee | `launchFee()` — currently **0.01 ETH** | `ladderTreasury` (buyback fuel) |
+| Launch fee | `launchFee()` — currently **0.35 BNB** | `ladderTreasury` (buyback fuel) |
 | Shelf proceeds | 99% | `projectAdmin` |
 | Shelf platform cut | 1% | `ladderTreasury` |
 | Referral commission | 10% of each deposit | referrer(s), or the treasury if unbound |
-| Swap tax — buy | 1.00% of the ETH input | 0.70% → `ladderTreasury`, 0.30% → `platformTreasury` |
+| Swap tax — buy | 1.00% of the BNB input | 0.70% → `ladderTreasury`, 0.30% → `platformTreasury` |
 | Swap tax — sell | 1.00% of the token input | burned to `0xdead`, not split |
-| Pool fee | 0.30% | third-party LPs, settled natively by V4 |
+| Pool fee | 0.30% | third-party LPs, settled natively by the Infinity CL pool |
 | **Total trader friction** | **1.30%** | 0.30% LPs + 0.70% burn + 0.30% platform |
 
-The launch fee is an owner-tunable parameter with a `MAX_LAUNCH_FEE` = 10 ETH
+The launch fee is an owner-tunable parameter with a `MAX_LAUNCH_FEE` = 35 BNB
 ceiling and zero permitted; read `launchFee()` rather than trusting this table.
 
 **The 0.30% platform cut is the one fee not committed to buy-and-burn.** It is
@@ -170,16 +171,22 @@ ToshFactory  ──creates──▶  ToshToken + ToshLaunchpadHook   (one pair p
 |---|---|---|
 | `ToshFactory` | one per chain | `createLaunch` (CREATE2), `registerPoG`, genesis deposit gateway, referral graph, blacklist / cooldown / pause |
 | `ToshLadderTreasury` | one per chain | receives four revenue pipes, curates the buyback roster, `autoPiggybackBuyback` / `pokeBuyback`, `_buyAndBurn` → `0xdead` |
-| `ToshLaunchpadHook` | one per project | Phase 1 deposit / refund / launch; Phase 2 shelf mint / claims; V4 callbacks; hook-local TWAP oracle |
+| `ToshLaunchpadHook` | one per project | Phase 1 deposit / refund / launch; Phase 2 shelf mint / claims; Infinity `ICLHooks` callbacks; hook-local TWAP oracle |
 | `ToshToken` | one per project | ERC-20, hard cap checked on every mint, minted only by its own hook |
 
-Hooks are deployed as EIP-1167 clones (121 bytes) at CREATE2 addresses, which is
-what makes one dedicated hook per project affordable. Per-project rules are
-frozen as immutables at deployment.
+Hooks are deployed as EIP-1167 clones at CREATE2 addresses, which is what makes
+one dedicated hook per project affordable. Per-project rules are frozen as
+immutables at deployment.
+
+Two byte counts appear in this repository and both are right: the initcode is
+**131 bytes** (a 10-byte creation stub plus the runtime) and that is what the
+CREATE2 address is derived from, while the deployed **runtime is 121 bytes** and
+that is what the 200 gas/byte is charged on. `ToshCloneLib` lays out both, and
+`ToshV5Factory.t.sol` asserts the 131.
 
 | Role | Who | Can do |
 |---|---|---|
-| Platform owner | Safe | pause new launches, curate the buyback roster, tune caps and fees, halt shelf minting for ≤ 7 days |
+| Platform owner | Safe on `56`; a single public-key EOA on `97` | pause new launches, curate the buyback roster, tune caps and fees, halt shelf minting for ≤ 7 days |
 | `creator` | EOA | call `launch()` on their own project |
 | `projectAdmin` | EOA / Safe | receive 99% of shelf proceeds; may rotate itself |
 | Genesis depositor | anyone eligible | deposit in Phase 1, claim after launch, or refund |
@@ -192,11 +199,16 @@ frozen as immutables at deployment.
 
 **Create.** `createLaunch(name, symbol, projectTreasury, projectAdmin, rawSalt,
 expectedFee, genesisDuration)` reserves the name/symbol pair and CREATE2-deploys
-the hook at a mined address. `expectedFee` is the caller's slippage cap against
-the owner moving `launchFee` underneath them.
+the hook. `expectedFee` is the caller's slippage cap against the owner moving
+`launchFee` underneath them.
+
+The address is **not** mined. Uniswap V4 read a hook's permissions out of its
+address, so the factory used to search salts until it found one carrying the
+`0x20CC` mask; Infinity calls `getHooksRegistrationBitmap()` instead, and any
+unused salt will do. See "Salts: there is nothing left to mine" below.
 
 **Phase 1 — genesis.** Depositors call `factory.deposit(hook, referrer)` with
-native ETH. The window is a hard deadline chosen at creation; the soft cap is a
+native BNB. The window is a hard deadline chosen at creation; the soft cap is a
 floor, not a ceiling, so a round keeps accepting deposits for its whole window
 after the cap is met.
 
@@ -225,8 +237,8 @@ refunded.
 `claimReferralReward()` per project, or use the aggregated ledger at
 `/referrals`.
 
-**Buyback.** Once the treasury holds `TRIGGER_STEP` (1 ETH) the reservoir is
-armed and `max(1 ETH, 10% of balance)` is due. One poke spends
+**Buyback.** Once the treasury holds `TRIGGER_STEP` (3.5 BNB) the reservoir is
+armed and `max(3.5 BNB, 10% of balance)` is due. One poke spends
 `spend / BATCH_SIZE` on one roster token in round-robin order and sends it to
 `0xdead`, under a TWAP-relative floor
 (`MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000). Two things poke it:
@@ -237,7 +249,7 @@ armed and `max(1 ETH, 10% of balance)` is due. One poke spends
   finish. Without the gate, the trade whose own tax armed the reservoir paid for
   the whole cycle, every cycle.
 - **`pokeBuyback()`, from anyone** — the liveness backstop, since the gas gate
-  means trading alone no longer guarantees the reservoir empties. It moves no ETH
+  means trading alone no longer guarantees the reservoir empties. It moves no BNB
   to the caller and chooses nothing but the timing: venue comes from the hook,
   size from the balance, order from the cursor, price floor from the same TWAP.
 
@@ -252,9 +264,18 @@ would bill every trader for the privilege. `STATE-06` in
 Genesis deposits are quota-gated. The oracle sums an address's historical gas
 spend across Ethereum, Arbitrum, Optimism, Base and Robinhood; below the band's
 floor (seeded at 0.025 ETH) it is refused, and above it the quota is converted at
-the live rate (seeded at 0.5 ETH of quota per 1 ETH of gas), capped by the
-band's own ceiling (seeded at 0.5 ETH), then clamped on-chain by
-`maxPogAllocationLimit()` (0.5 ETH) regardless of what the oracle signed.
+the live rate (seeded at 1.75 BNB of quota per 1 ETH of gas), capped by the
+band's own ceiling (seeded at 1.75 BNB), then clamped on-chain by
+`maxPogAllocationLimit()` (1.75 BNB) regardless of what the oracle signed.
+
+The two units in that sentence are not a typo. The floor and the derived gas cap
+measure **gas history**, which was spent on ETH-settled chains and stays in ETH;
+the rate and the ceiling measure a **deposit**, which is BNB. `pogQuota.ts` says
+the same thing at its `floorWei` and `maxAllocWei` declarations. Note also what
+the scanner still covers: Ethereum, Arbitrum, Optimism, Base and Robinhood —
+**not** BSC. A wallet's BSC gas history does not count toward its own quota on
+BSC, which is a disclosed gap rather than a design choice, and closing it needs
+a paid Etherscan v2 tier.
 
 ### The band, and why the three dials move together
 
@@ -321,7 +342,14 @@ forge test
 forge test --isolate
 ```
 
-Expected: **373 passing** in both runs. CI runs both.
+Expected: **389 passing, 4 skipped** in both runs. CI runs both. The 4 skipped
+check a deployed `56` and stay dormant until there is one.
+
+Two suites — `ToshV5Fork.t.sol` and `ToshV5ForkInfinity.t.sol` — fork BSC
+mainnet against the real Infinity deployment and therefore depend on `BSC_RPC`
+answering. They flake when it rate-limits, which presents as a handful of
+failures and a lower total rather than as a network error. If a local run
+reports something like "3 failing, 367 succeeded", re-run before believing it.
 
 The second run is not redundant. `forge test` bills a whole test as one
 transaction, so storage warmed in setup stays warm and later calls look cheaper
@@ -342,8 +370,10 @@ node scripts/extractAbis.js
 > **Comment-only edits change the hook's address.** `foundry.toml` leaves
 > `bytecode_hash` at its default, so the solc metadata hash is appended to the
 > deployed bytecode. Editing a natspec line in `ToshLaunchpadHook.sol` — with no
-> change to a single opcode — produces a different initcode hash, a different
-> mined address, and invalidates every previously mined salt. This only bites
+> change to a single opcode — produces a different initcode hash and therefore a
+> different CREATE2 address for the same salt. Under Uniswap V4 that also
+> invalidated every previously mined salt; with no mask to satisfy, the cost now
+> is simply that predicted addresses move. This only bites
 > during development: once deployed, the factory freezes
 > `HOOK_CREATION_CODEHASH` in its constructor. Never hardcode an initcode hash
 > in tooling; always read it from the deployed factory.
@@ -354,9 +384,14 @@ node scripts/extractAbis.js
 node scripts/auditLaunch.mjs <hook address>
 ```
 
-Reads a launched hook, its token and its V4 pool, and checks them against the
-arithmetic `launch()` performs — pool state comes out of the PoolManager's
-storage via `extsload`, not through the app's read path.
+Reads a launched hook, its token and its Infinity CL pool, and checks them
+against the arithmetic `launch()` performs — pool state comes from
+`CLPoolManager.getSlot0` / `getLiquidity`, not through the app's read path.
+
+It reads through those getters rather than `extsload` because Infinity ships no
+`StateView`, which is the periphery contract the V4 version leaned on. Balances
+live in the `Vault` and pool state in the manager, so this reads two contracts
+where it used to read one.
 
 ---
 
@@ -401,38 +436,64 @@ is `workflow_dispatch` — a different trigger this route never calls. A token
 granted Actions: write authenticates, is refused by GitHub, and surfaces as
 `/api/watch-ping` returning 502 while the ping itself looks accepted.
 
-**The public 4663 RPC 429s on the seventh identical `eth_getLogs`.** A pass
-that issued one request per topic0 walked into that ceiling; workflow run
-`34196807435` missed P0 governance logs that way. The watcher now ORs topic0s
-into three queries (factory, treasury, address-less hook events). 250 ms
-pacing plus adaptive backoff after a 429 absorbs a transient. They do not
-remove the ceiling. A keyed URL in `MONITOR_RPC` does. `watch.mjs` prints
-that on stderr when the secret still points at
-`rpc.mainnet.chain.robinhood.com`.
+**A public RPC will not serve this monitor, and the reason differs per chain.**
+On the public 4663 endpoint the seventh identical `eth_getLogs` was refused; a
+pass that issued one request per topic0 walked into that ceiling, and workflow
+run `34196807435` missed P0 governance logs that way. The watcher now ORs topic0s
+into three queries (factory, treasury, address-less hook events), with 250 ms
+pacing plus adaptive backoff. On the public **BSC testnet dataseed** the answer
+is blunter: measured 2026-09-18, `eth_getLogs` is refused unconditionally —
+`-32005`, six of six identical one-block requests at 2-second spacing — so it is
+neither a rate limit nor a range cap and no amount of pacing or chunking reaches
+it. `eth_call` is served, which is why a pass on that endpoint runs the `STATE-*`
+checks and reports `0/3 getLogs`. `MONITOR_RPC` must be a **keyed chain-97
+endpoint**; with one, a pass reads logs normally.
+
+**The monitor watches chain `97`, and `monitoring/alerts.json` is the thing that
+says so.** It named 4663 for ten days after the protocol left that chain, with
+the endpoint and the `MONITOR_*` addresses agreeing, and reported success on
+every pass about a deployment that settles nothing. `WATCHER-07` compares the
+catalogue against the endpoint and could not see it, because both were wrong
+together. `WATCHER-08` compares the catalogue against an external retired-chain
+list instead. If you repoint this monitor, move `alerts.json` first — repointing
+only the RPC makes `WATCHER-07` page while the addresses stay wrong.
 
 ---
 
-## Hook salt mining
+## Hook permissions
 
-Uniswap V4 encodes hook permissions in the hook's own address. Combined mask
-**`0x20CC`**:
+The hook declares which callbacks Infinity should invoke, as a `uint16` bitmap
+returned by `getHooksRegistrationBitmap()` and repeated in `PoolKey.parameters`;
+`CLPoolManager.initialize` refuses the pool if the two disagree. Six offsets are
+set, giving **`0x0CC5`**:
 
-| Flag | Bit | Why |
-|---|---:|---|
-| `BEFORE_INITIALIZE` | `0x2000` | pool-init front-run defence |
-| `BEFORE_SWAP` | `0x0080` | exact-input tax (specified = input) |
-| `AFTER_SWAP` | `0x0040` | oracle + buyback poke + exact-output tax |
-| `BEFORE_SWAP_RETURNS_DELTA` | `0x0008` | skim the specified (input) side |
-| `AFTER_SWAP_RETURNS_DELTA` | `0x0004` | skim the unspecified (input) side |
+| Offset constant | Why it is load-bearing |
+|---|---|
+| `HOOKS_BEFORE_INITIALIZE_OFFSET` | only this hook may open its own pool |
+| `HOOKS_BEFORE_ADD_LIQUIDITY_OFFSET` | gates who may provide liquidity |
+| `HOOKS_BEFORE_SWAP_OFFSET` | takes the exact-input tax (specified = input) |
+| `HOOKS_AFTER_SWAP_OFFSET` | stamps the block, feeds the oracle, pokes the buyback |
+| `HOOKS_BEFORE_SWAP_RETURNS_DELTA_OFFSET` | lets `beforeSwap` move the input side |
+| `HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET` | lets `afterSwap` charge exact-output |
 
 Exact-output cannot be taxed in `beforeSwap` — the input is unspecified and its
 size is only known after the swap. Returning a delta from `afterSwap` is what
 charges that input, so a router asking for "N tokens out" still funds the
 treasury instead of burning the output token.
 
-Note what is absent: no liquidity flags. The genesis position stays locked
-through ownership, so a reverting `beforeRemoveLiquidity` would only have
-punished retail LPs for a guarantee the ownership model already provides.
+What is absent is `BEFORE_REMOVE_LIQUIDITY`, and only that one. The genesis
+position stays locked through ownership, so a reverting `beforeRemoveLiquidity`
+would only have punished retail LPs for a guarantee the ownership model already
+provides. `BEFORE_ADD_LIQUIDITY` *is* set — an earlier version of this table
+listed five flags and said "no liquidity flags", which was wrong on both counts.
+
+**Do not carry the old hex over.** The same permission set under Uniswap V4 was
+the address mask `0x20CC`, and these are offsets into a bitmap rather than bits
+of the hook's address, so the numbering is unrelated. Importing `0x20CC` here, or
+`0x0CC5` into anything that reasons about addresses, is silent nonsense — the
+set is identical, the encoding is not. On chain 97 you can read the whole word
+back: `PoolKey.parameters` is `0xc80cc5`, which is tick spacing 200 (`0xC8`)
+packed above the `0x0CC5` bitmap.
 
 ### Salts: there is nothing left to mine
 
@@ -511,11 +572,9 @@ is **one-shot** — it is what proves a roster token's provenance, so it must
 never become re-pointable.
 
 ```bash
-# Robinhood Chain testnet (46630)
+# BNB Smart Chain testnet (97)
 forge script script/Deploy.s.sol:DeployScript \
-  --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast --verify \
-  --verifier blockscout \
-  --verifier-url https://explorer.testnet.chain.robinhood.com/api -vvvv
+  --rpc-url $BSC_TESTNET_RPC --broadcast -vvvv
 
 # Local
 anvil
@@ -523,9 +582,18 @@ forge script script/DeployLocal.s.sol:DeployLocal --fork-url http://127.0.0.1:85
 ```
 
 Each script asserts `block.chainid` before broadcasting, so pointing one at the
-wrong RPC aborts instead of deploying. Verification is Blockscout and needs no
-API key — chain 4663 appears on neither Etherscan v2's multichain host nor
-Basescan.
+wrong RPC aborts instead of deploying.
+
+Verification is **not** part of the broadcast any more. Chain 4663 was verified
+on Blockscout, which needed no API key; BSC verification goes through Etherscan
+v2, which does. Rather than put that key on a laptop, run
+`.github/workflows/verify.yml` by hand — it holds the key in secrets, skips
+contracts already published, and retries the rate limit. Two things it taught,
+both recorded in `SECURITY.md`: `foundry.toml` must carry `?chainid=` in the
+`[etherscan]` URL or `forge` reports a missing-chainid error whatever
+`--verifier-url` says, and a free key can be refused with "Free API access is
+not supported for this chain" on submission even when reads work — which is why
+`ToshFactory` is deliberately unverified while `ToshLadderTreasury` is verified.
 
 **Production.** `DeployMainnet.s.sol` initiates an `Ownable2Step` transfer to
 `PROD_OWNER_SAFE` for both singletons. The transfer is not complete when the
@@ -542,26 +610,45 @@ different job from a first deploy: it covers what a new factory strands on the
 old one, the order the Safe calls have to land in, and the point after which
 backing out stops being free.
 
-### Robinhood Chain periphery
+### PancakeSwap Infinity periphery
 
-Uniswap deployed V4 here themselves, and **mainnet (4663) and testnet (46630)
-share every address** — so a testnet rehearsal exercises the production address
-book unchanged.
+Unlike Robinhood Chain, mainnet and testnet do **not** share addresses here, so
+every one of these is per-chain and a rehearsal does not exercise the production
+address book. The authoritative copies are `soat-frontend/src/lib/contracts.ts`
+and the two `.env*.example` templates; this table is a convenience, and
+`scripts/preflightMainnet.mjs` check 5b verifies the pair structurally by calling
+`CLPoolManager.vault()` rather than trusting either.
 
-| Contract | Address |
-|---|---|
-| V4 PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
-| PositionManager | `0x58daec3116aae6D93017bAAea7749052E8a04fA7` |
-| StateView | `0xF3334192D15450CdD385c8B70e03f9A6bD9E673b` |
-| V4Quoter | `0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94` |
-| UniversalRouter | `0x8876789976dEcBfCbBbe364623C63652db8C0904` |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| Contract | `56` mainnet | `97` testnet |
+|---|---|---|
+| CL PoolManager | `0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
+| Vault | `0x238a358808379702088667322f80aC48bAd5e6c4` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
+| UniversalRouter | `0x55f4c8abA71A1e923edC303eb4fEfF14608cC226` | `0x77DedB52EC6260daC4011313DBEE09616d30d122` |
+| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | same |
 
-Each was confirmed by reading its code size on both chains, not by citation. The
-UniversalRouter is stock Uniswap from the `Uniswap/contracts` monorepo, but a
-newer build than Ethereum mainnet's: its `IV4Router.ExactInputSingleParams`
-carries the six-field shape with `minHopPriceX36`. That matters to anything
-hand-encoding router calldata.
+Measured on chain 2026-09-18 rather than cited: manager 20,885 bytes on `56` and
+20,886 on `97`, Vault 8,347 on both, UniversalRouter 24,004 on both. And each
+manager's own `vault()` returns the Vault in its column — so the pairing above
+is the managers' answer, not this table's claim.
+
+There is no `StateView` and no `Quoter` row because Infinity ships neither. Pool
+state is read from `CLPoolManager.getSlot0` / `getLiquidity` directly, which is
+why `auditLaunch.mjs` and the frontend both talk to the manager instead of to a
+periphery reader.
+
+> ⚠ **The Vault is not optional detail.** V4's `PoolManager` both ran the pool
+> and held the balances; Infinity splits those, and settlement is paid to the
+> **Vault**. Both bugs the port surfaced were this: settlement paid to the
+> manager, and the treasury's callback still authenticating the manager rather
+> than the Vault. Anything hand-encoding a swap or a liquidity payload needs the
+> 6-field `PoolKey` — `(currency0, currency1, hooks, poolManager, fee, parameters)`
+> — where V4 had 5 ending in `hooks`. The action opcodes are numerically
+> identical to V4's, so the key's width is the only structural signal that you
+> are on the wrong one.
+
+The retired Robinhood Chain V4 periphery — where mainnet `4663` and testnet
+`46630` did share every address — is in `README.md` Appendix A.1. Nothing in this
+tree talks to it.
 
 ---
 
@@ -615,7 +702,7 @@ npm run dev
 | Route | Purpose |
 |---|---|
 | `/` | Directory and genesis dashboard |
-| `/launch` | Create a launch — duration picker, client-side salt mining |
+| `/launch` | Create a launch — duration picker, client-side salt selection and address prediction |
 | `/projects` | All launches |
 | `/projects/<addr>` | Project terminal: deposit, launch, mint, claim, LP |
 | `/referrals` | Aggregated referral ledger and per-project claims |
@@ -681,15 +768,23 @@ there rather than trusting a number copied into this file.
 
 ### Watcher RPC
 
-`MONITOR_RPC` is a paid keyed endpoint (dRPC Growth) as of 2026-09-15. It had
-been the public 4663 URL, and half the passes were scanning nothing: every
-`eth_getLogs` refused on the first attempt through all four retries, `eth_call`
-answering normally alongside. `monitoring/rpc.mjs` carries the measurements — the
-short version is that the public endpoint meters by source IP, a GitHub runner
-shares its range with every other runner, and no request interval buys back an
-allowance a neighbour has already spent.
+`MONITOR_RPC` is a paid keyed endpoint (dRPC Growth) as of 2026-09-15, repointed
+at **BSC testnet `97`** on 2026-09-18. It had been the public 4663 URL, and half
+the passes were scanning nothing: every `eth_getLogs` refused on the first
+attempt through all four retries, `eth_call` answering normally alongside.
+`monitoring/rpc.mjs` carries the measurements — the short version is that the
+public endpoint meters by source IP, a GitHub runner shares its range with every
+other runner, and no request interval buys back an allowance a neighbour has
+already spent.
 
-Two things follow that are worth knowing before touching this.
+The repoint is a separate act from repointing `alerts.json`, and doing one
+without the other is how this monitor spent ten days reporting on a chain the
+protocol had left. `watch.yml` resolves `MONITOR_RPC` with
+`secrets.MONITOR_RPC || secrets.BSC_TESTNET_RPC`; that order was briefly
+inverted, for a good reason that expired within hours, and the comment there is
+worth reading before changing it.
+
+Three things follow that are worth knowing before touching this.
 
 **A free keyed tier is not a substitute, however it is marketed.** A pass needs
 `eth_getLogs` over the ~8,700 blocks it spans, and free tiers cap that range
@@ -709,6 +804,14 @@ again — but not quietly: it is the same refusal shape as before, so WATCHER-04
 fires, the job goes red, and a finding is filed. That is the one reassuring thing
 about this dependency, and it is worth not undoing.
 
+**The public BSC testnet dataseed cannot stand in for it, and not for the reason
+the section above would suggest.** Measured 2026-09-18, it refuses `eth_getLogs`
+unconditionally — `-32005` on six of six identical one-block requests at 2-second
+spacing — so this is neither a rate limit nor a range cap, and neither chunking
+nor pacing reaches it. `eth_call` is served, so a pass on that endpoint runs the
+`STATE-*` checks, reports `0/3 getLogs`, and fires `WATCHER-02` and `-04`. Useful
+as a fallback that pages, useless as a target.
+
 ---
 
 ## Documentation
@@ -727,13 +830,13 @@ about this dependency, and it is worth not undoing.
 Tosh-Core/
 ├── src/
 │   ├── ToshFactory.sol         # Platform singleton: PoG, referrals, launches, deposits
-│   ├── ToshLaunchpadHook.sol   # Per-project V4 hook: genesis, pool, shelf ladder, tax
+│   ├── ToshLaunchpadHook.sol   # Per-project Infinity CL hook: genesis, pool, shelf ladder, tax
 │   ├── ToshLadderTreasury.sol  # Platform-wide buyback reservoir (one-way valve)
 │   ├── ToshToken.sol           # ERC-20, minted on demand by its hook only
-│   └── libraries/              # HookDeployLib · HookAddress · ToshCloneLib
-├── test/                       # 373 tests, incl. stateful invariants and test_probe* adversarial cases
+│   └── libraries/              # HookDeployLib · HookAddress (computeAddress only) · ToshCloneLib
+├── test/                       # 393 tests, incl. stateful invariants and test_probe* adversarial cases
 ├── script/                     # Foundry deploy + verification scripts
-├── scripts/                    # Node tooling: salt miner, ABI sync, launch audit, guards
+├── scripts/                    # Node tooling: ABI sync, launch audit, preflight, guards
 ├── monitoring/                 # alerts.json + watcher
 ├── docs/                       # This file. Protocol overview is README.md, disclosure is SECURITY.md
 ├── soat-frontend/              # Next.js dApp
@@ -746,7 +849,7 @@ Tosh-Core/
 
 | Symptom | Cause and fix |
 |---|---|
-| `createLaunch` reverts `InvalidHookSalt` | Salt mined against stale `defaultSoftCap` / `maxPogAllocationLimit` / duration. Re-read live values and re-mine. |
+| `createLaunch` reverts `CapsChanged` | `expectedSoftCap` / `expectedWalletCap` no longer equal the factory's live `defaultSoftCap` / `maxPogAllocationLimit`. Re-read both from chain and retry. This replaced `InvalidHookSalt`, which no longer exists. |
 | `createLaunch` reverts `FeeChanged` | Owner moved `launchFee` past your `expectedFee` cap. Re-read and retry. |
 | `createLaunch` reverts `NameTaken` | Name/symbol already reserved. If that round died, `releaseAbandonedName(hook)` frees it. |
 | `mintBondingCurve` reverts `NotLaunched` | The creator has not called `launch()` yet. |
@@ -758,7 +861,7 @@ Tosh-Core/
 | `addLadderToken` reverts `TokenNotLaunchedHere` | Only tokens launched by the bound factory can be listed. |
 | `addLadderToken` reverts `InvalidPoolKey` / `PoolNotLaunched` | The hook exists but has not run `launch()`, so there is no pool yet. |
 | `addLadderToken` reverts `TwapNotMature` | The pool's TWAP has not matured; listing is refused until it answers. |
-| Treasury holds ≥ 1 ETH and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
+| Treasury holds ≥ 3.5 BNB and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
 | `pokeBuyback` reverts `NotArmed` | Reservoir below `TRIGGER_STEP`, or the roster is empty. |
 | `pokeBuyback` reverts `PiggybackInProgress` | A buyback is already mid-flight in this call stack. Retry after it settles. |
 | Every swap on a pool reverts | Check `treasury.factory()` is wired. This now degrades to skipped buybacks rather than bricking pools. |
