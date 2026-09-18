@@ -1,0 +1,170 @@
+name: Verify deployment
+
+# Manual only. Verification is not idempotent in a useful way -- a second run
+# against an already-verified address answers "already verified" and costs a
+# call -- and it needs a credential, so it does not belong on push.
+#
+# WHY THIS RUNS HERE AND NOT ON A LAPTOP
+#
+# `ETHERSCAN_API_KEY` lives in repository secrets and nowhere else. Running
+# `forge verify-contract` locally means first copying that key into a dotenv,
+# which is the plaintext-at-rest state `checkSecretStore.mjs` exists to report.
+# A workflow reads the secret into a process and never writes it down.
+#
+# WHAT IT DEPENDS ON, WHICH IS A BILLING FACT AND NOT A STABLE ONE
+#
+# Etherscan v2 gates chains 56 and 97 behind a paid plan for most modules, but
+# its own documentation says "Source code and ABI endpoints are available on
+# all chains for every API plan, including the Free Tier", and an unkeyed probe
+# agrees: on 56 and 97 `module=contract` reaches the key check while `account`,
+# `proxy` and `stats` are refused outright. Verification is a source-code
+# endpoint, so a free key is expected to be enough here -- and a gas scan with
+# the same key on the same chain is still refused. See the header of
+# `soat-frontend/src/app/lib/gasHistory.ts` for the measurement.
+#
+# If that policy changes, step "Probe the explorer" below fails first and says
+# so, rather than leaving a `forge verify-contract` failure to be misread as a
+# problem with the build.
+
+permissions: {}
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: Chain the contracts are deployed on
+        required: true
+        default: "97"
+        type: choice
+        options:
+          - "97"
+          - "56"
+      script:
+        description: Broadcast log to read the deployment out of
+        required: true
+        default: Deploy.s.sol
+        type: choice
+        options:
+          - Deploy.s.sol
+          - DeployMainnet.s.sol
+
+jobs:
+  verify:
+    name: Publish source to the explorer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      # Pinned to match CI. The compiler settings are part of what gets
+      # verified: a different solc or a different optimizer run count produces
+      # different runtime bytecode and the explorer rejects the submission.
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 1.7.1
+
+      - name: Build
+        run: forge build --skip '*.t.sol'
+
+      # Fails before spending anything if the key is absent or the chain has
+      # been moved behind a plan this project does not hold. `getsourcecode` on
+      # a known-verified address is the cheapest call that exercises both.
+      - name: Probe the explorer
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          CHAIN: ${{ inputs.chain }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ETHERSCAN_API_KEY:-}" ]; then
+            echo "::error::ETHERSCAN_API_KEY is not set in repository secrets."
+            exit 1
+          fi
+          body=$(curl -sS --get 'https://api.etherscan.io/v2/api' \
+            --data-urlencode "chainid=${CHAIN}" \
+            --data-urlencode 'module=contract' \
+            --data-urlencode 'action=getsourcecode' \
+            --data-urlencode 'address=0x0000000000000000000000000000000000001000' \
+            --data-urlencode "apikey=${ETHERSCAN_API_KEY}")
+          echo "$body" | head -c 400; echo
+          case "$body" in
+            *'Free API access is not supported'*)
+              echo "::error::Chain ${CHAIN} now requires a paid plan even for the contract module. The free-tier carve-out for source-code endpoints has changed; verification cannot proceed on this key."
+              exit 1 ;;
+            *'Invalid API Key'*|*'Missing/Invalid API Key'*)
+              echo "::error::Etherscan rejected the key. Check the ETHERSCAN_API_KEY secret."
+              exit 1 ;;
+          esac
+          echo "Explorer reachable for chain ${CHAIN} with this key."
+
+      # Reads the deployment out of the broadcast artefact rather than a list
+      # maintained here, so this workflow cannot name an address the deploy did
+      # not produce. The same reason SECURITY.md cites the artefact.
+      - name: Verify every contract the deploy created
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          BSC_RPC: ${{ secrets.BSC_RPC }}
+          BSC_TESTNET_RPC: ${{ secrets.BSC_TESTNET_RPC }}
+          CHAIN: ${{ inputs.chain }}
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          set -euo pipefail
+
+          log="broadcast/${SCRIPT}/${CHAIN}/run-latest.json"
+          if [ ! -f "$log" ]; then
+            echo "::error::${log} is not in the tree. Commit the broadcast artefact for this deployment, or pick the other script input."
+            exit 1
+          fi
+
+          if [ "$CHAIN" = "56" ]; then
+            rpc="${BSC_RPC:-https://bsc-dataseed.bnbchain.org}"
+          else
+            rpc="${BSC_TESTNET_RPC:-https://data-seed-prebsc-1-s1.bnbchain.org:8545}"
+          fi
+
+          # `--guess-constructor-args` rather than re-encoding the `arguments`
+          # field: it takes the creation bytecode off the chain and strips the
+          # locally compiled prefix, so a mismatch between this tree and what
+          # was deployed surfaces here instead of as an opaque explorer
+          # rejection. The recorded arguments are a claim; the chain is not.
+          failed=0
+          while IFS=$'\t' read -r name addr; do
+            [ -n "$name" ] || continue
+            src=$(grep -rl --include='*.sol' -E "^\s*(abstract\s+)?contract\s+${name}\b" src/ | head -n 1)
+            if [ -z "$src" ]; then
+              echo "::error::no source file under src/ declares contract ${name}"
+              failed=1
+              continue
+            fi
+            echo "::group::${name} at ${addr}  (${src})"
+            if forge verify-contract "$addr" "${src}:${name}" \
+                 --chain "$CHAIN" \
+                 --rpc-url "$rpc" \
+                 --guess-constructor-args \
+                 --etherscan-api-key "$ETHERSCAN_API_KEY" \
+                 --watch; then
+              echo "verified: ${name}"
+            else
+              echo "::error::verification failed for ${name} at ${addr}"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done < <(jq -r '.transactions[] | select(.transactionType=="CREATE") | select(.contractName != null) | [.contractName, .contractAddress] | @tsv' "$log")
+
+          exit "$failed"
+
+      - name: Where to look
+        if: always()
+        env:
+          CHAIN: ${{ inputs.chain }}
+        run: |
+          if [ "$CHAIN" = "56" ]; then
+            echo "https://bscscan.com/"
+          else
+            echo "https://testnet.bscscan.com/"
+          fi
