@@ -2,29 +2,57 @@ name: Verify deployment
 
 # Manual only. Verification is not idempotent in a useful way -- a second run
 # against an already-verified address answers "already verified" and costs a
-# call -- and it needs a credential, so it does not belong on push.
+# call -- and it can need a credential, so it does not belong on push.
 #
 # WHY THIS RUNS HERE AND NOT ON A LAPTOP
 #
 # `ETHERSCAN_API_KEY` lives in repository secrets and nowhere else. Running
-# `forge verify-contract` locally means first copying that key into a dotenv,
-# which is the plaintext-at-rest state `checkSecretStore.mjs` exists to report.
-# A workflow reads the secret into a process and never writes it down.
+# `forge verify-contract` locally against Etherscan means first copying that
+# key into a dotenv, which is the plaintext-at-rest state
+# `checkSecretStore.mjs` exists to report. A workflow reads the secret into a
+# process and never writes it down. (The Sourcify path needs no key at all,
+# and is the default for exactly that reason.)
 #
-# WHAT IT DEPENDS ON, WHICH IS A BILLING FACT AND NOT A STABLE ONE
+# ─────────────────────────────────────────────────────────────────────────────
+# WHICH VERIFIER, AND WHY THE ANSWER IS NOT ETHERSCAN
 #
-# Etherscan v2 gates chains 56 and 97 behind a paid plan for most modules, but
-# its own documentation says "Source code and ABI endpoints are available on
-# all chains for every API plan, including the Free Tier", and an unkeyed probe
-# agrees: on 56 and 97 `module=contract` reaches the key check while `account`,
-# `proxy` and `stats` are refused outright. Verification is a source-code
-# endpoint, so a free key is expected to be enough here -- and a gas scan with
-# the same key on the same chain is still refused. See the header of
-# `soat-frontend/src/app/lib/gasHistory.ts` for the measurement.
+# Etherscan v2 REFUSES to accept a verification submission for chains 56 and
+# 97 on a free key:
 #
-# If that policy changes, step "Probe the explorer" below fails first and says
-# so, rather than leaving a `forge verify-contract` failure to be misread as a
-# problem with the build.
+#     Free API access is not supported for this chain. Please upgrade your
+#     api plan for full chain coverage.
+#
+# That was measured by this workflow, on run 3, against the real key. It is
+# recorded here because the repository previously concluded the opposite, and
+# the reasoning behind that wrong conclusion is worth keeping so it is not
+# arrived at a second time:
+#
+#   · An UNKEYED probe of `module=contract&action=getsourcecode` on 56 and 97
+#     returns "Missing/Invalid API Key" rather than the tier refusal. Since
+#     the tier check is evaluated BEFORE the key check, that proves the free
+#     tier reaches the `contract` module on those chains — while `account`,
+#     `proxy` and `stats` are refused outright.
+#   · Etherscan's own pricing page says "Source code and ABI endpoints are
+#     available on all chains for every API plan, including the Free Tier".
+#   · Run 1 of this workflow confirmed it with the real key: `getsourcecode`
+#     on 97 answered `status:1, OK` with real Solidity.
+#
+# All three are true, and the conclusion drawn from them was still wrong. THE
+# GATE IS PER ACTION, NOT PER MODULE. `getsourcecode` READS and is free;
+# `verifysourcecode` WRITES and is not. Both live in `module=contract`, so any
+# probe at module granularity — including the one this workflow used to run —
+# measures the readable half and reports confidence about the writable one.
+#
+# Sourcify has no such tier, covers 56 and 97 among 442 chains, and needs no
+# account. It is also already part of this project's provenance story: the
+# retired 4663 treasury's strongest claim was that Sourcify independently
+# recompiled this source and matched it against deployed runtime bytecode.
+#
+# Etherscan is kept as an option because BscScan is where a user actually
+# looks, and because buying a plan for PoG gas scanning — the `account` module
+# on 56 — would unlock this submission as a side effect. That decision is
+# open; see the header of `soat-frontend/src/app/lib/gasHistory.ts`.
+# ─────────────────────────────────────────────────────────────────────────────
 
 permissions: {}
 
@@ -47,10 +75,18 @@ on:
         options:
           - Deploy.s.sol
           - DeployMainnet.s.sol
+      verifier:
+        description: "sourcify (free) or etherscan (needs a paid plan on BSC)"
+        required: true
+        default: sourcify
+        type: choice
+        options:
+          - sourcify
+          - etherscan
 
 jobs:
   verify:
-    name: Publish source to the explorer
+    name: Publish source
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,7 +99,7 @@ jobs:
 
       # Pinned to match CI. The compiler settings are part of what gets
       # verified: a different solc or a different optimizer run count produces
-      # different runtime bytecode and the explorer rejects the submission.
+      # different bytecode and the verifier rejects the submission.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -72,10 +108,15 @@ jobs:
       - name: Build
         run: forge build --skip '*.t.sol'
 
-      # Fails before spending anything if the key is absent or the chain has
-      # been moved behind a plan this project does not hold. `getsourcecode` on
-      # a known-verified address is the cheapest call that exercises both.
-      - name: Probe the explorer
+      # Only for the Etherscan path, and it deliberately probes the WRITE
+      # action rather than a read. An earlier version probed `getsourcecode`,
+      # passed, and handed a green light to a submission that was then refused
+      # for tier reasons — see the header. `verifysourcecode` with no payload
+      # cannot succeed, so what is being read here is WHICH failure comes back:
+      # a tier refusal means stop, anything else means the gate is not the
+      # problem and the real attempt is worth making.
+      - name: Probe the submission endpoint
+        if: inputs.verifier == 'etherscan'
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
           CHAIN: ${{ inputs.chain }}
@@ -85,36 +126,33 @@ jobs:
             echo "::error::ETHERSCAN_API_KEY is not set in repository secrets."
             exit 1
           fi
-          body=$(curl -sS --get 'https://api.etherscan.io/v2/api' \
-            --data-urlencode "chainid=${CHAIN}" \
+          body=$(curl -sS -X POST "https://api.etherscan.io/v2/api?chainid=${CHAIN}" \
             --data-urlencode 'module=contract' \
-            --data-urlencode 'action=getsourcecode' \
-            --data-urlencode 'address=0x0000000000000000000000000000000000001000' \
+            --data-urlencode 'action=verifysourcecode' \
             --data-urlencode "apikey=${ETHERSCAN_API_KEY}")
-          # Bash substring, not `| head -c`. Piping into `head` closes the
-          # pipe as soon as it has its bytes, `echo` takes SIGPIPE, and under
-          # `pipefail` that aborts the step -- which is exactly how the first
-          # run of this workflow failed, with "echo: write error: Broken pipe"
-          # while the response sitting right underneath it said status 1, OK.
-          # A diagnostic that kills the thing it is diagnosing is worse than
-          # no diagnostic.
+          # Bash substring, not `| head -c`. Piping into `head` closes the pipe
+          # as soon as it has its bytes, `echo` takes SIGPIPE, and under
+          # `pipefail` that aborts the step -- which is how run 1 of this
+          # workflow failed, with "echo: write error: Broken pipe" while the
+          # successful response sat directly underneath it. A diagnostic that
+          # kills the thing it is diagnosing is worse than no diagnostic.
           printf '%s\n' "${body:0:400}"
           case "$body" in
             *'Free API access is not supported'*)
-              echo "::error::Chain ${CHAIN} now requires a paid plan even for the contract module. The free-tier carve-out for source-code endpoints has changed; verification cannot proceed on this key."
+              echo "::error::Chain ${CHAIN} will not accept a verification submission on this key's plan. Re-run with verifier=sourcify, which is free and covers this chain, or buy an Etherscan plan -- the same plan is what PoG gas scanning on 56 needs, so the two decisions are one decision."
               exit 1 ;;
             *'Invalid API Key'*|*'Missing/Invalid API Key'*)
               echo "::error::Etherscan rejected the key. Check the ETHERSCAN_API_KEY secret."
               exit 1 ;;
             *'rate limit'*)
-              echo "::error::Rate-limited before starting. Named separately from the two above because it is the only one of the three that is worth simply retrying."
+              echo "::error::Rate-limited before starting. Named separately from the two above because it is the only one of the three worth simply retrying."
               exit 1 ;;
           esac
-          echo "Explorer reachable for chain ${CHAIN} with this key."
+          echo "Submission endpoint is reachable on this plan for chain ${CHAIN}."
 
       # Reads the deployment out of the broadcast artefact rather than a list
       # maintained here, so this workflow cannot name an address the deploy did
-      # not produce. The same reason SECURITY.md cites the artefact.
+      # not produce. Same artefact SECURITY.md cites as the provenance anchor.
       - name: Verify every contract the deploy created
         env:
           ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
@@ -122,6 +160,7 @@ jobs:
           BSC_TESTNET_RPC: ${{ secrets.BSC_TESTNET_RPC }}
           CHAIN: ${{ inputs.chain }}
           SCRIPT: ${{ inputs.script }}
+          VERIFIER: ${{ inputs.verifier }}
         run: |
           set -euo pipefail
 
@@ -137,24 +176,38 @@ jobs:
             rpc="${BSC_TESTNET_RPC:-https://data-seed-prebsc-1-s1.bnbchain.org:8545}"
           fi
 
-          # `--guess-constructor-args` rather than re-encoding the `arguments`
-          # field: it takes the creation bytecode off the chain and strips the
-          # locally compiled prefix, so a mismatch between this tree and what
-          # was deployed surfaces here instead of as an opaque explorer
-          # rejection. The recorded arguments are a claim; the chain is not.
-          #
-          # `--verifier-url` LOOKS REDUNDANT AND IS NOT. foundry.toml's
-          # `[etherscan]` table already gives `bsc_testnet` the v2 host and
-          # `chain = 97`, but passing `--etherscan-api-key` on the command line
-          # makes Foundry 1.7.1 resolve the endpoint itself instead of reading
-          # that entry, and its built-in host for this chain is the retired
-          # `api-testnet.bscscan.com`, which now proxies to v2 and answers:
-          #
-          #     Missing chainid parameter (required for v2 api)
-          #
-          # That is what the second run of this workflow failed with, on both
-          # contracts, after the probe had passed. The `chainid` query
-          # parameter is v2's chain selector, so it has to be in the URL.
+          if [ "$VERIFIER" = "sourcify" ]; then
+            # No key, and no constructor arguments: Sourcify matches compiler
+            # metadata against deployed bytecode, so it derives what Etherscan
+            # has to be told. `ETHERSCAN_API_KEY` is unset because merely
+            # HAVING it in the environment makes Foundry pick the Etherscan
+            # verifier -- it says so itself: "ETHERSCAN_API_KEY is set,
+            # defaulting to Etherscan verifier."
+            unset ETHERSCAN_API_KEY
+            args=(--verifier sourcify)
+          else
+            # `--verifier-url` LOOKS REDUNDANT AND IS NOT. foundry.toml's
+            # `[etherscan]` table already gives `bsc_testnet` the v2 host and
+            # `chain = 97`, but passing `--etherscan-api-key` on the command
+            # line makes Foundry 1.7.1 resolve the endpoint itself instead of
+            # reading that entry, and its built-in host for this chain is the
+            # retired `api-testnet.bscscan.com`, which now proxies to v2 and
+            # answers "Missing chainid parameter (required for v2 api)". That
+            # is what run 2 failed with, on both contracts, after the probe
+            # had passed.
+            #
+            # `--guess-constructor-args` rather than re-encoding the broadcast
+            # log's `arguments`: it takes the creation bytecode off the chain
+            # and strips the locally compiled prefix, so a divergence between
+            # this tree and what was deployed surfaces here instead of as an
+            # opaque rejection. The recorded arguments are a claim; the
+            # creation transaction is not.
+            args=(--verifier etherscan
+                  --verifier-url "https://api.etherscan.io/v2/api?chainid=${CHAIN}"
+                  --etherscan-api-key "$ETHERSCAN_API_KEY"
+                  --guess-constructor-args)
+          fi
+
           failed=0
           while IFS=$'\t' read -r name addr; do
             [ -n "$name" ] || continue
@@ -168,9 +221,7 @@ jobs:
             if forge verify-contract "$addr" "${src}:${name}" \
                  --chain "$CHAIN" \
                  --rpc-url "$rpc" \
-                 --guess-constructor-args \
-                 --verifier-url "https://api.etherscan.io/v2/api?chainid=${CHAIN}" \
-                 --etherscan-api-key "$ETHERSCAN_API_KEY" \
+                 "${args[@]}" \
                  --watch; then
               echo "verified: ${name}"
             else
@@ -182,13 +233,34 @@ jobs:
 
           exit "$failed"
 
-      - name: Where to look
+      # Independent read-back. `forge verify-contract --watch` reporting
+      # success is Foundry's account of what the verifier told it; this asks
+      # the verifier directly, and it is the difference between "the
+      # submission was accepted" and "the source is there now".
+      - name: Confirm it is actually published
         if: always()
         env:
           CHAIN: ${{ inputs.chain }}
+          SCRIPT: ${{ inputs.script }}
+          VERIFIER: ${{ inputs.verifier }}
         run: |
-          if [ "$CHAIN" = "56" ]; then
-            echo "https://bscscan.com/"
-          else
-            echo "https://testnet.bscscan.com/"
-          fi
+          set -uo pipefail
+          log="broadcast/${SCRIPT}/${CHAIN}/run-latest.json"
+          [ -f "$log" ] || exit 0
+          while IFS=$'\t' read -r name addr; do
+            [ -n "$name" ] || continue
+            if [ "$VERIFIER" = "sourcify" ]; then
+              code=$(curl -s -o /dev/null -w '%{http_code}' \
+                "https://sourcify.dev/server/v2/contract/${CHAIN}/${addr}")
+              if [ "$code" = "200" ]; then
+                echo "  ${name}: published on Sourcify"
+              else
+                echo "  ${name}: NOT on Sourcify (HTTP ${code})"
+              fi
+            fi
+            if [ "$CHAIN" = "56" ]; then
+              echo "    https://bscscan.com/address/${addr}#code"
+            else
+              echo "    https://testnet.bscscan.com/address/${addr}#code"
+            fi
+          done < <(jq -r '.transactions[] | select(.transactionType=="CREATE") | select(.contractName != null) | [.contractName, .contractAddress] | @tsv' "$log")

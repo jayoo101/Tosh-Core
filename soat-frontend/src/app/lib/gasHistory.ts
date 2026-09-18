@@ -36,14 +36,31 @@
  *   free tier reaches    1 Ethereum · 42161 Arbitrum · 4663 Robinhood
  *   paid plan required  10 Optimism · 8453 Base · 56 BNB Smart Chain · 97
  *
- * The gate is per MODULE, not per chain: on 56 and 97 `account`, `proxy` and
- * `stats` are refused while `contract` reads through to the key check. That is
- * why contract verification on BSC works from a free key and a gas scan does
- * not — the same key, the same chain, a different answer.
+ * The gate is not per chain: on 56 and 97 `account`, `proxy` and `stats` are
+ * refused while `contract` reads through to the key check.
+ *
+ * ⚠ THIS USED TO CONCLUDE "so contract verification on BSC works from a free
+ *   key", AND THAT WAS WRONG. Corrected 2026-09-18 by trying it: Etherscan
+ *   refuses a `verifysourcecode` submission on 97 with the same "Free API
+ *   access is not supported for this chain". The gate is per ACTION, not per
+ *   module — `getsourcecode` READS and is free, `verifysourcecode` WRITES and
+ *   is not, and both live in `module=contract`.
+ *
+ *   Worth keeping because the wrong conclusion was drawn from three true
+ *   measurements: the unkeyed probe above, Etherscan's own "source code and
+ *   ABI endpoints are available on all chains for every API plan", and a
+ *   keyed `getsourcecode` on 97 that returned real Solidity with `status:1`.
+ *   All three describe reading. A probe at module granularity measures the
+ *   readable half of a module and reports confidence about the writable one,
+ *   which is worse than not probing, because it comes back green.
  *
  * So moving this file to Etherscan v2 is no longer blocked on coverage. It is
  * blocked on a bill, for three of the six chains, and that is somebody's
- * spending decision rather than an engineering one.
+ * spending decision rather than an engineering one — and it is a slightly
+ * bigger decision than it looked, because the same plan is also what would
+ * let this project publish source on BscScan at all. `.github/workflows/
+ * verify.yml` goes through Sourcify instead, which has no tier and covers 56
+ * and 97, but Sourcify is not where a user looks up a contract.
  *
  * The fallbacks were checked too, and both are closed. BscScan V1
  * (`api.bscscan.com`) now answers every request with "You are using a
