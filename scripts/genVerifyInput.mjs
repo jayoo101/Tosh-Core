@@ -1,25 +1,36 @@
 #!/usr/bin/env node
 /**
- * Produce everything the Blockscout verification form needs, because the
- * command-line path to that form does not work on this chain.
+ * Produce everything a block explorer's manual verification form needs, for
+ * when the command-line path does not work.
+ *
+ * ⚠ THIS IS A FALLBACK NOW, not the only route. It was written for the retired
+ *   chain, where it was the only route — see below — and the condition that
+ *   made it so does not hold on BNB Smart Chain. Try plain `--verify` first,
+ *   and reach for this when it fails.
  *
  * WHY THIS EXISTS
  * ───────────────
  * `DeployMainnet.s.sol` was broadcast with `--verify`, and PM-C4 was left open
  * on the assumption that the flag had probably worked and merely needed
  * confirming. It had not worked, and it never could have: every path under
- * `https://robinhoodchain.blockscout.com/api` sits behind a Cloudflare
- * "managed" challenge, so any non-browser client — forge included — receives an
- * HTML interstitial titled "Just a moment..." where it expects JSON. Foundry
+ * `https://robinhoodchain.blockscout.com/api` sat behind a Cloudflare "managed"
+ * challenge, so any non-browser client — forge included — received an HTML
+ * interstitial titled "Just a moment..." where it expected JSON. Foundry
  * reports that as `Failed to deserialize response: expected value at line 1
  * column 1`, which reads like a malformed reply rather than a wall, and during
  * a broadcast it scrolls past under the deployment output. The contracts sat
  * unverified for a day with nothing saying so.
  *
- * The HTML surface is not challenged, so a human with a browser can complete
+ * The HTML surface was not challenged, so a human with a browser could complete
  * the form. That asymmetry is the whole reason this script's output is files
- * rather than a network call: the upload has to happen from a browser, and the
- * only part that can be automated is preparing exactly what gets uploaded.
+ * rather than a network call: the upload had to happen from a browser, and the
+ * only part that could be automated was preparing exactly what gets uploaded.
+ *
+ * On chain 56 the API is Etherscan v2, it takes a key, and it answers machines.
+ * Everything below still applies to the document being uploaded — via_ir, the
+ * encoding, the constructor arguments read from the broadcast rather than
+ * retyped — so the script is kept rather than deleted. What changed is that
+ * needing it is now a symptom rather than the normal course.
  *
  * WHY STANDARD JSON AND NOT FLATTENED SOURCE
  * ──────────────────────────────────────────
@@ -42,7 +53,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { writeFileSync, mkdirSync, statSync } from 'node:fs'
+import { writeFileSync, mkdirSync, statSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve, join } from 'node:path'
 
@@ -64,7 +75,14 @@ const OUT = join(ROOT, 'verify-input')
  * `contractAddress` and `arguments`, which live on the entry and are correct,
  * and never `hash`.
  */
-const BROADCAST = join(ROOT, 'broadcast', 'DeployMainnet.s.sol', '4663', 'run-latest.json')
+const CHAIN_ID = process.env.TARGET_CHAIN_ID || process.argv[2] || '56'
+const BROADCAST = join(ROOT, 'broadcast', 'DeployMainnet.s.sol', CHAIN_ID, 'run-latest.json')
+
+/** Where a human finishes the job, per chain. */
+const FORM_BASE = {
+  56: 'https://bscscan.com',
+  97: 'https://testnet.bscscan.com',
+}[CHAIN_ID] ?? `https://bscscan.com`
 
 /**
  * Three contracts, not two. PM-C4 named the factory and the treasury; the
@@ -101,6 +119,19 @@ const CONTRACTS = [
   },
 ]
 
+// Checked before the require below, which otherwise answers a missing broadcast
+// with a module-resolution stack trace — accurate, and unreadable as the thing
+// it actually means, which is "that chain has not been deployed to".
+if (!existsSync(BROADCAST)) {
+  console.error(`[genVerifyInput] no broadcast for chain ${CHAIN_ID}.`)
+  console.error(`                 looked for ${BROADCAST}`)
+  console.error('                 This script reads constructor arguments out of the deploy')
+  console.error('                 log rather than retyping them from the script defaults, so')
+  console.error('                 it cannot run before the deploy it is verifying.')
+  console.error('                 Pass another chain id as argv[2] or set TARGET_CHAIN_ID.')
+  process.exit(2)
+}
+
 const log = JSON.parse(
   execFileSync('node', ['-e', `process.stdout.write(JSON.stringify(require(${JSON.stringify(BROADCAST)})))`], {
     encoding: 'utf8',
@@ -112,7 +143,7 @@ const { transactions, libraries = [] } = log
 /**
  * `forge inspect … bytecode` leaves an unlinked `__$<hash>$__` placeholder where
  * the library address goes, and `--show-standard-json-input` emits
- * `settings.libraries` empty. Blockscout accepts that anyway — it matches the
+ * `settings.libraries` empty. Explorers accept that anyway — they match the
  * placeholder positionally against whatever 20 bytes are on chain — so the
  * factory verifies as an exact match with this field blank. It is filled in
  * regardless, because a submission that states its link explicitly does not
@@ -132,7 +163,7 @@ function libraryLinks() {
 
 mkdirSync(OUT, { recursive: true })
 
-console.log('Blockscout standard-JSON inputs for chain 4663\n')
+console.log(`standard-JSON verification inputs for chain ${CHAIN_ID}\n`)
 
 const links = libraryLinks()
 
@@ -206,11 +237,11 @@ for (const c of CONTRACTS) {
   console.log(`  sources           ${Object.keys(doc.sources).length} files`)
   console.log(`  libraries         ${JSON.stringify(doc.settings.libraries ?? {})}`)
   console.log(`  constructor args  ${args}`)
-  console.log(`  form              https://robinhoodchain.blockscout.com/address/${address}/contract-verification`)
+  console.log(`  form              ${FORM_BASE}/verifyContract?a=${address}`)
   console.log()
 }
 
 console.log('Pick "Solidity (Standard JSON input)". The constructor arguments go in')
-console.log('the separate field WITHOUT the leading 0x if the form strips it — Blockscout')
-console.log('accepts both, but reports a mismatch rather than a format error when wrong.')
+console.log('the separate field WITHOUT the leading 0x if the form strips it — explorers')
+console.log('accept both, but report a mismatch rather than a format error when wrong.')
 console.log('HookDeployLib takes no constructor arguments; leave that field empty.')

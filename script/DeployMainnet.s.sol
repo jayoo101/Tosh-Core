@@ -52,14 +52,24 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //  last one makes it fail loudly rather than deploy wrongly — vm.envAddress
 //  reverts on a missing var — but it fails on deploy day, at the broadcast.
 //
+//  Run scripts/preflightMainnet.mjs first. It is the only check that reaches the
+//  chain before the broadcast does, and it asks the CLPoolManager for its own
+//  vault() rather than trusting the two addresses the environment names.
+//
 //    set -a && source .env.production && set +a
+//    node scripts/preflightMainnet.mjs
 //    forge script script/DeployMainnet.s.sol:DeployMainnetScript \
 //      --rpc-url $TARGET_RPC \
 //      --broadcast \
 //      --verify \
-//      --verifier blockscout \
-//      --verifier-url https://robinhoodchain.blockscout.com/api \
 //      -vvvv
+//
+//  Plain `--verify`. The `--verifier blockscout --verifier-url …robinhoodchain…`
+//  pair that stood here belongs to the retired chain; Blockscout does not serve
+//  chain 56 at any tier, so passing it now verifies nothing and reports success
+//  for having done so. Verification goes through Etherscan v2, which covers 56
+//  and 97 from one host under one ETHERSCAN_API_KEY — see [etherscan] in
+//  foundry.toml, where `bsc` and `bsc_testnet` are both already wired.
 //
 //  After broadcast, the Safe signers MUST call `acceptOwnership()` on BOTH the
 //  factory and the treasury.  The script itself initiates both transfers, so no
@@ -192,11 +202,11 @@ contract DeployMainnetScript is Script {
         console2.log("Chain ID (verified)       :", block.chainid);
         console2.log("Deployer (will hand off)  :", deployer);
         console2.log("PROD owner (Gnosis Safe)  :", prodOwnerSafe);
-        console2.log("V4 PoolManager            :", poolManager);
+        console2.log("Infinity CLPoolManager    :", poolManager);
         console2.log("PoG Signer (not deployer) :", pogSigner);
         console2.log("Platform fee recipient    :", platformTreasury);
-        console2.log("  ^ takes 0.30% of every buy's ETH input. IMMUTABLE: no setter,");
-        console2.log("    baked into the hook implementation too. Must accept ETH always.");
+        console2.log("  ^ takes 0.30% of every buy's BNB input. IMMUTABLE: no setter,");
+        console2.log("    baked into the hook implementation too. Must accept BNB always.");
         console2.log("------------------------------------------------------------");
 
         vm.startBroadcast(deployerPk);
@@ -264,11 +274,13 @@ contract DeployMainnetScript is Script {
         console2.log("       NEXT_PUBLIC_FACTORY_ADDRESS=", address(factory));
         console2.log("       NEXT_PUBLIC_CHAIN_ID=", block.chainid);
         console2.log("  4. Run `forge verify-contract` on the deployed Factory address");
-        console2.log("     against Blockscout if --verify above didn't catch it:");
-        console2.log("       --verifier blockscout --verifier-url \\");
-        console2.log("         https://robinhoodchain.blockscout.com/api");
+        console2.log("     if --verify above didn't catch it. Etherscan v2 covers 56");
+        console2.log("     and 97 from one host under one key:");
+        console2.log("       --etherscan-api-key $ETHERSCAN_API_KEY --chain 56");
+        console2.log("     Do NOT pass --verifier blockscout, which this line used to");
+        console2.log("     say: it does not serve chain 56 and verifies nothing.");
         console2.log("  5. Pre-fund the PoG signer (a new EOA, not this deployer)");
-        console2.log("     with ~0.05 ETH. Its key is in Vercel Production only.");
+        console2.log("     with ~0.05 BNB. Its key is in Vercel Production only.");
         console2.log("  6. Wire monitoring:  Defender / Tenderly alerts on FACTORY_ADDRESS");
         console2.log("     for events Paused / Unpaused / OwnershipTransferred /");
         console2.log("     PogSignerUpdated / LaunchCreated.");
