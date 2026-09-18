@@ -142,6 +142,19 @@ jobs:
           # locally compiled prefix, so a mismatch between this tree and what
           # was deployed surfaces here instead of as an opaque explorer
           # rejection. The recorded arguments are a claim; the chain is not.
+          #
+          # `--verifier-url` LOOKS REDUNDANT AND IS NOT. foundry.toml's
+          # `[etherscan]` table already gives `bsc_testnet` the v2 host and
+          # `chain = 97`, but passing `--etherscan-api-key` on the command line
+          # makes Foundry 1.7.1 resolve the endpoint itself instead of reading
+          # that entry, and its built-in host for this chain is the retired
+          # `api-testnet.bscscan.com`, which now proxies to v2 and answers:
+          #
+          #     Missing chainid parameter (required for v2 api)
+          #
+          # That is what the second run of this workflow failed with, on both
+          # contracts, after the probe had passed. The `chainid` query
+          # parameter is v2's chain selector, so it has to be in the URL.
           failed=0
           while IFS=$'\t' read -r name addr; do
             [ -n "$name" ] || continue
@@ -156,6 +169,7 @@ jobs:
                  --chain "$CHAIN" \
                  --rpc-url "$rpc" \
                  --guess-constructor-args \
+                 --verifier-url "https://api.etherscan.io/v2/api?chainid=${CHAIN}" \
                  --etherscan-api-key "$ETHERSCAN_API_KEY" \
                  --watch; then
               echo "verified: ${name}"
