@@ -17,6 +17,10 @@
 
 import { ethers } from 'ethers'
 import fs from 'node:fs'
+import { installFailureExit } from './lib/checkExit.mjs'
+import { refuseIfRetired } from './lib/retiredChains.mjs'
+
+installFailureExit()
 
 const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com'
 const FACTORY = '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA'
@@ -61,6 +65,26 @@ const provider = new ethers.JsonRpcProvider(RPC)
 // single EOA it would be replacing. That mistake is one wrong RPC away, so it
 // is checked rather than warned about.
 const TESTNET_ID = 46630n
+
+// The assertion below is right in spirit and pinned to the wrong constant, and
+// the two failures are opposite enough to be worth separating. It refuses
+// unless you are on 46630, which protected the drill while 46630 WAS the
+// rehearsal chain; now it is the thing holding this script there, and it holds
+// it silently, because that endpoint still answers. So the retirement is
+// reported first and on its own terms: "you are not on 46630" is a confusing
+// way to say "46630 is gone".
+refuseIfRetired(TESTNET_ID, {
+  script: 'drillSafe.mjs',
+  reArm: [
+    'point TESTNET_ID and the RPC at the current testnet (97), and FACTORY at '
+      + 'the factory named by FACTORY_ADDRESS in .env',
+    'fund the deployer and leave the two stand-in owners at zero — they sign, '
+      + 'they never pay',
+    'keep the refusal below: its reasoning survives the move intact, because '
+      + 'two owners from a public mnemonic are as unacceptable on 56 as on 4663',
+  ],
+})
+
 const net = await provider.getNetwork()
 if (net.chainId !== TESTNET_ID) {
   console.error(

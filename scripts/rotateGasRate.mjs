@@ -122,7 +122,16 @@ function required(flagName, ...envNames) {
 }
 
 function rpcUrl() {
-  return required('rpc', 'ROTATE_RPC_URL', 'NEXT_PUBLIC_RPC_URL', 'ROBINHOOD_RPC')
+  // `BSC_RPC` replaces `ROBINHOOD_RPC`, which no longer resolves anywhere: the
+  // Infinity port removed both of its consumers and the name is not in .env.
+  // A dead name in last place is quiet in the worst way — the failure it
+  // produces is `missing rpc: pass --rpc or set …`, which names it as an
+  // option, so the reader's next move is to go set a variable nothing reads.
+  //
+  // Deliberately mainnet-only. This drives a band rotation against an owner
+  // signature, so the testnet endpoint is not a sensible silent fallback;
+  // rehearse with an explicit `--rpc`.
+  return required('rpc', 'ROTATE_RPC_URL', 'NEXT_PUBLIC_RPC_URL', 'BSC_RPC')
 }
 
 function factoryAddress() {

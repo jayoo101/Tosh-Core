@@ -49,11 +49,36 @@
 import { ethers } from 'ethers'
 import fs from 'node:fs'
 import { installFailureExit } from './lib/checkExit.mjs'
+import { refuseIfRetired } from './lib/retiredChains.mjs'
 
 installFailureExit()
 
 const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com'
 const TESTNET_ID = 46630n
+
+// This one cannot be repointed by editing constants, which is why the refusal
+// says so rather than offering a substitution. The whole claim of this run is
+// that the drill Safe's owners are the REAL signer set — the three addresses
+// that own 0x2953957774482efA660921df85A1E7634ccfe27A on 4663, each of whom
+// proved control by signature before it was created. That is the criterion:
+// "at least one new signer participating", which the two earlier sittings
+// scored as not met precisely because every key that could sign was on the
+// operator's laptop. Substituting a BSC chain id would leave three owners who
+// hold nothing on it and a Safe that does not exist there, and the run would
+// score the criterion by connecting to a chain the protocol has left.
+refuseIfRetired(TESTNET_ID, {
+  script: 'drillQ1.mjs',
+  reArm: [
+    'PM-D4 has to be redone on BSC first: collect three proof-of-control '
+      + 'signatures over the message now in force (BNB Smart Chain 56) and '
+      + 'create the Safe — see scripts/verifySignerCandidates.mjs, then '
+      + 'createOwnerSafe.mjs',
+    'then point TESTNET_ID, RPC, FACTORY and MAINNET_SAFE at that chain and '
+      + 'that Safe, and replace the three owner addresses',
+    'the previous run stands as evidence for the quarter it was scored in; '
+      + 'it is not evidence about BSC',
+  ],
+})
 const FACTORY = '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA'
 const PROXY_FACTORY = '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67'
 const SAFE_L2 = '0x29fcB43b46531BcA003ddC8FCB67FFE91900C762'

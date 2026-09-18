@@ -54,17 +54,50 @@
 
 import { ethers } from 'ethers';
 import fs from 'node:fs';
+import { refuseIfRetired } from './lib/retiredChains.mjs';
+import { loadRoleEnv } from './loadRoleEnv.mjs';
 
-const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com';
-const FACTORY = '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA';
-const TESTNET_ID = 46630n;
+// Resolved from the environment, not pinned. These used to be 46630 and that
+// chain's factory, and the `net.chainId !== TESTNET_ID` assertion further down
+// requires the connected chain to EQUAL the pinned one — which reads like a
+// safety check and was the opposite, because the pinned chain is still
+// reachable. The assertion passed, the drill ran, and it scored Q4 against the
+// retired deployment. An assertion that two stale values agree is the failure
+// `checkStatusPage.mjs` check 7b exists for.
+loadRoleEnv(['TARGET_CHAIN_ID', 'FACTORY_ADDRESS', 'BSC_TESTNET_RPC', 'BSC_RPC']);
+
+const TESTNET_ID = BigInt(process.env.TARGET_CHAIN_ID ?? 97);
+refuseIfRetired(TESTNET_ID, {
+  script: 'drillQ4.mjs',
+  reArm: [
+    'set TARGET_CHAIN_ID to a live chain (97 for the BSC testnet rehearsal)',
+    "set FACTORY_ADDRESS to that chain's factory",
+    'note that Q4\'s criterion text below still says "Robinhood testnet '
+      + 'deployment"; the criterion means the current testnet deployment',
+  ],
+});
+
+const RPC = TESTNET_ID === 56n
+  ? (process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org')
+  : (process.env.BSC_TESTNET_RPC || 'https://data-seed-prebsc-1-s1.bnbchain.org:8545');
+const FACTORY = process.env.FACTORY_ADDRESS;
+// Checked here rather than through `die()`, which is declared further down: an
+// unset address would otherwise reach `new ethers.Contract` and fail there as
+// an ethers type error, which reads as a bug in this harness.
+if (!FACTORY || !ethers.isAddress(FACTORY)) {
+  console.error(`FACTORY_ADDRESS is ${FACTORY ?? 'unset'}, which is not an address.`);
+  console.error('It names the factory this drill attacks, and .env sets it');
+  console.error('alongside TARGET_CHAIN_ID.');
+  process.exitCode = 2;
+  throw new Error('FACTORY_ADDRESS unusable');
+}
 
 // The one genuine PoG registration on this deployment, from its calldata.
 // tx 0xf1c6257e5f4ba00e6102676cc99e38199e9c1d312b2259043719205f18a80942
 const REAL = {
   tx: '0xf1c6257e5f4ba00e6102676cc99e38199e9c1d312b2259043719205f18a80942',
   sender: '0x73db078fa94607893270079AC8F5c7492aB480cd',
-  maxAlloc: 10_000_000_000_000_000n, // 0.01 ETH
+  maxAlloc: 10_000_000_000_000_000n, // 0.01 BNB
   nonce: 0n,
   deadline: 1_788_440_372n, // 2026-09-03T12:59:32Z — expired
   signature:
@@ -162,7 +195,7 @@ async function main() {
   console.log(`\n  chain ${net.chainId}  head ${head}`);
   console.log(`  factory     ${FACTORY}`);
   console.log(`  pogSigner   ${signer}`);
-  console.log(`  wallet cap  ${ethers.formatEther(limit)} ETH   sig TTL ${ttl}s   paused ${paused}`);
+  console.log(`  wallet cap  ${ethers.formatEther(limit)} BNB   sig TTL ${ttl}s   paused ${paused}`);
 
   // ── Step 0: the historical artefact really is a pogSigner signature ────────
   const realDigest = digest({
@@ -430,7 +463,7 @@ async function main() {
     const same = after === before[a];
     if (!same) moved++;
     console.log(
-      `    ${same ? 'unchanged' : '*** MOVED'}  ${a}  ${ethers.formatEther(before[a])} -> ${ethers.formatEther(after)} ETH`
+      `    ${same ? 'unchanged' : '*** MOVED'}  ${a}  ${ethers.formatEther(before[a])} -> ${ethers.formatEther(after)} BNB`
     );
   }
 

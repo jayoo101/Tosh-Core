@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import { ethers } from 'ethers'
 import { CheckFailed, installFailureExit } from './lib/checkExit.mjs'
+import { refuseIfRetired } from './lib/retiredChains.mjs'
 
 installFailureExit()
 
@@ -111,6 +112,26 @@ const lit = (name, re) => {
 const safe = lit('SAFE', /^const SAFE = '(0x[0-9a-fA-F]{40})'/m)
 const factory = lit('FACTORY', /^const FACTORY = '(0x[0-9a-fA-F]{40})'/m)
 const chainId = lit('CHAIN_ID', /^const CHAIN_ID = (\d+)/m)
+
+// Deliberately here, inside the "a page exists" branch, and not at the top of
+// the file. Everything this guard pins — TESTNET_ID, MAINNET_SAFE, OWNERS, the
+// RPC — describes the 2026-09-04 drill on 46630, so the file is stale the
+// moment the next drill runs anywhere else. But between drills the page 404s
+// and this guard is deliberately silent, and a refusal at import time would
+// hold CI red over a page that does not exist, for a chain nobody is signing
+// against. The hazard is a drill page being LIVE while the constants describe a
+// departed chain, so the refusal belongs exactly where that becomes true.
+refuseIfRetired(TESTNET_ID, {
+  script: 'checkDrillPage.mjs',
+  reArm: [
+    'point TESTNET_ID and the RPC at the chain the next drill runs on',
+    'replace MAINNET_SAFE with the live Safe on that chain, and OWNERS with '
+      + 'its three owners — none of which exist yet, because PM-D4 has not been '
+      + 'redone on BSC and the Safe it names is on 4663',
+    'until then this page must not be published: it would ask real signers for '
+      + 'real Safe payloads that this guard cannot check',
+  ],
+})
 
 if (chainId && BigInt(chainId) !== TESTNET_ID) {
   fail(`the page signs for chain ${chainId}, not the rehearsal chain ${TESTNET_ID}.`)

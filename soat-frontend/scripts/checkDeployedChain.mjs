@@ -64,6 +64,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, basename, dirname, relative } from 'node:path'
 import { installFailureExit } from './lib/checkExit.mjs'
+import { retiredChain } from './lib/retiredChains.mjs'
 
 // Registered before the first await, which is what makes it useful: the live
 // arm's `fetch` calls are not individually guarded, so a DNS failure or a reset
@@ -265,7 +266,34 @@ async function checkLive(base) {
   const origin = base.replace(/\/+$/, '')
   console.log(`${origin}`)
 
-  const html = await (await fetch(origin + '/')).text()
+  const res = await fetch(origin + '/')
+  const html = await res.text()
+
+  // ── Is this the site, or a wall in front of it? ────────────────────────────
+  //
+  // Vercel Deployment Protection answers every path on a protected deployment
+  // — including `/_next/static/*.js` — with its own SSO login page. That page
+  // is itself a Next.js app, so it has real `/_next/static` chunks, they fetch
+  // with 200, and they contain no `Number("<chainId>")` for this project. The
+  // scan therefore completed, found nothing, and blamed the one suspect it
+  // knows about: "the minifier's output shape probably changed — fix this
+  // parser". It cost an investigation of a parser that was working perfectly,
+  // on a build it had never been shown.
+  //
+  // Checked on the response rather than by eye, because the giveaway is a
+  // header: a protected deployment returns `x-matched-path: /login`, and the
+  // body carries Vercel's SSO nonce. Either is conclusive; both are cheap.
+  const matched = res.headers.get('x-matched-path') ?? ''
+  if (/^\/login/.test(matched) || /_vercel_sso_nonce|vercel\.com\/sso-api/.test(html)) {
+    fail(
+      `${origin}: served Vercel's authentication page, not the site ` +
+      `(x-matched-path: ${matched || 'n/a'}). Deployment Protection is on for ` +
+      `this deployment, so every asset behind it — the document and the ` +
+      `chunks — is that login page. Nothing here is a statement about the ` +
+      `build. Check a production alias, or disable protection for this URL.`,
+    )
+    return
+  }
 
   // `CHAIN_STATUS_BADGE` is build-time copy derived from the same id, so it is
   // an independent witness. Used to corroborate the number scraped below, not
@@ -309,6 +337,27 @@ async function checkLive(base) {
     return
   }
   const chainId = candidates[0]
+
+  // Asked before the badge is compared, because a retired chain makes that
+  // comparison produce a true statement about a false premise. `expected` maps
+  // anything that is not 56 or 31337 to "testnet"; 4663 was Robinhood
+  // MAINNET, so a build still on it reads as `expected: testnet` against a
+  // badge saying `mainnet`, and the guard concludes "two derivations disagree —
+  // one of them, or this parser, is wrong". All three were right. The parser
+  // read the id correctly, the badge rendered it correctly, and the disagreement
+  // was entirely inside a mainnet/testnet mapping that no longer has a case for
+  // that chain. Sending someone to debug the parser is the one outcome that
+  // cannot lead to the fix, which is to redeploy off a chain the protocol left.
+  const retired = retiredChain(chainId)
+  if (retired) {
+    fail(
+      `${origin}: this build targets chain ${chainId}, ${retired.name} — a chain ` +
+      `this protocol has left. ${retired.left} Nothing is wrong with this ` +
+      `guard's extraction: the id was read correctly and the badge says ` +
+      `${badge ?? 'nothing recognisable'}. The build itself is the finding.`,
+    )
+    return
+  }
 
   if (badge === undefined) {
     fail(`${origin}: no chain badge in the served HTML — the second witness is missing, so the id above is unconfirmed`)

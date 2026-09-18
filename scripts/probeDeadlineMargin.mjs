@@ -6,7 +6,7 @@
 //     if (deadline > block.timestamp + MAX_SIG_VALIDITY) revert SignatureTooLong();
 //
 // MAX_SIG_VALIDITY is 24 h. Substituting `deadline = signerNow + 24h` cancels
-// both terms and leaves `signerNow > block.timestamp` ??zero margin. That is
+// both terms and leaves `signerNow > block.timestamp` — zero margin. That is
 // what `pogQuota.computeDeadline()` returns, and `scripts/pogSigner.ts` is its
 // only caller. `sign-allocation/route.ts` deliberately uses 23 h instead.
 //
@@ -14,15 +14,48 @@
 // checked BEFORE the nonce and before `recover`: blacklist, then this, then
 // expiry, then nonce, then the cap, then the signature. So an eth_call with a
 // junk signature reveals exactly which gate a given deadline lands on, and
-// walking the deadline finds the threshold ??which is the effective
+// walking the deadline finds the threshold — which is the effective
 // `block.timestamp` the node uses for a call, not a guess at it.
 import { ethers } from 'ethers';
+import { CheckFailed, installFailureExit } from './lib/checkExit.mjs';
+import { refuseIfRetired } from './lib/retiredChains.mjs';
+import { loadRoleEnv } from './loadRoleEnv.mjs';
 
-const RPC = process.env.ROBINHOOD_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com';
-const FACTORY = '0x2E690A91b383eDB21f6b5B4180Cc4a2C905C6BeA';
+installFailureExit();
+
+// Resolved from the environment rather than pinned, the way
+// `preflightMainnet.mjs` resolves its endpoint. This measurement is a property
+// of the node, not of a chain chosen once: the point is to learn the effective
+// `block.timestamp` a given node uses for an `eth_call`, so it has to be
+// re-taken on whatever chain is current. It used to hardcode 46630 and the old
+// factory, which would have answered — that endpoint is still up — with a
+// margin measured on a chain the protocol has left.
+loadRoleEnv(['TARGET_CHAIN_ID', 'FACTORY_ADDRESS', 'BSC_TESTNET_RPC', 'BSC_RPC']);
+
+const CHAIN_ID = BigInt(process.env.TARGET_CHAIN_ID ?? 97);
+refuseIfRetired(CHAIN_ID, {
+  script: 'probeDeadlineMargin.mjs',
+  reArm: [
+    'set TARGET_CHAIN_ID to a live chain (97 for the BSC testnet rehearsal)',
+    "set FACTORY_ADDRESS to that chain's factory",
+  ],
+});
+
+const RPC = CHAIN_ID === 56n
+  ? (process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org')
+  : (process.env.BSC_TESTNET_RPC || 'https://data-seed-prebsc-1-s1.bnbchain.org:8545');
+
+const FACTORY = process.env.FACTORY_ADDRESS;
+if (!FACTORY || !ethers.isAddress(FACTORY)) {
+  console.error(`FACTORY_ADDRESS is ${FACTORY ?? 'unset'}, which is not an address.`);
+  console.error('It names the factory to measure against, and .env sets it');
+  console.error('alongside TARGET_CHAIN_ID.');
+  process.exitCode = 2;
+  throw new Error('FACTORY_ADDRESS unusable');
+}
 
 const ABI = [
-  // Argument order is (maxAlloc, deadline, nonce, signature) ??deadline SECOND.
+  // Argument order is (maxAlloc, deadline, nonce, signature) — deadline SECOND.
   // Getting this backwards puts the deadline in the nonce slot and leaves
   // deadline at 0, so every probe answers SignatureExpired and the measurement
   // looks like a broken gate rather than a broken caller.
@@ -79,7 +112,8 @@ console.log(`sanity: deadline=head+0      -> ${loGate}`);
 console.log(`sanity: deadline=head+48h    -> ${hiGate}\n`);
 if (loGate === 'SignatureTooLong' || hiGate !== 'SignatureTooLong') {
   console.log('Bracket is wrong; the gate does not behave as assumed. Stopping.');
-  process.exit(1);
+  process.exitCode = 1;
+  throw new CheckFailed('deadline bracket does not behave as assumed');
 }
 
 let calls = 2;
@@ -125,7 +159,14 @@ for (const [label, ttl] of rows) {
 
 console.log('\nA tolerated skew of 0 means the signer fails the moment its clock is');
 console.log('one second ahead of the timestamp of the block that mines the');
-console.log('registration ? and fails totally, with SignatureTooLong, for as long');
+console.log('registration — and fails totally, with SignatureTooLong, for as long');
 console.log('as the skew lasts. Clearing the gate shows up as a LATER revert');
 console.log('(nonce, cap or signature), which is what a cleared gate looks like here.');
-process.exit(anyZero ? 1 : 0);
+
+// `process.exitCode`, not `process.exit`. Every line above came from an
+// `eth_call`, so undici's keep-alive socket is still open, and on Windows
+// tearing the loop down under it exits 0xC0000409 instead of the code asked
+// for — which this script was observed doing (exit -1073740791, surfacing as
+// -1) on the run that found it still pointed at 46630. `lib/checkExit.mjs`
+// documents the reproduction. Letting the loop drain is the whole fix.
+process.exitCode = anyZero ? 1 : 0;
