@@ -12,30 +12,42 @@ name: Verify deployment
 # report. A workflow reads the secret into a process and never writes it down.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# THE FREE KEY DOES VERIFY ON BSC. IT TOOK SIX RUNS TO ESTABLISH THAT, AND THE
-# WRONG ANSWERS ARE RECORDED BECAUSE THEY WERE EACH PLAUSIBLE.
+# THE FREE KEY DOES VERIFY ON BSC, AND THE REFUSAL IS INTERMITTENT
 #
 # Etherscan v2 puts `account`, `proxy` and `stats` behind a paid plan on chains
-# 56 and 97. `contract` is NOT gated, and that includes `verifysourcecode`, the
-# submission endpoint. `ToshLadderTreasury` on 97 was verified on run 6 from
-# the free key: "Pass - Verified".
+# 56 and 97. `contract` is not gated, and that includes `verifysourcecode`.
+# The proof is on chain and re-checkable: `ToshLadderTreasury` at
+# `0x79de…7674` is published on testnet.bscscan.com as `ToshLadderTreasury`,
+# compiler `v0.8.26+commit.8a97fa7a`, submitted by this workflow on run 6 with
+# the free key in repository secrets.
 #
-# Run 3 said otherwise, in Etherscan's own words --
+# But the SAME configuration, unchanged, was refused on run 7:
 #
 #     Free API access is not supported for this chain. Please upgrade your
 #     api plan for full chain coverage.
 #
-# -- and that is why this comment is long. The difference between run 3 and
-# run 6 is not the key and not the plan; it is HOW THE ENDPOINT WAS REACHED.
-# Run 3 passed `--verifier-url` and `--etherscan-api-key` on the command line.
-# Run 6 passed neither and let Foundry resolve `[etherscan]` out of
-# foundry.toml. Same key, same chain, same host, same `chainid=97` in the URL,
-# opposite answers. No explanation is offered here for the tier message on the
-# flag path, because none has been established -- what has been established is
-# that the config path works, so that is the only path this workflow takes,
-# and passing those two flags "to be explicit" is a regression.
+# Runs 6 and 7 differ in nothing that this repository controls. So that
+# message does not mean what it says — it is not a statement about the plan,
+# because the plan verified a contract one run earlier. The most likely
+# reading is load-shedding wearing a tier error's clothes, and run 6 supports
+# it from the other side by also producing an honest "Max calls per sec rate
+# limit reached (3/sec)". THIS IS NOT ESTABLISHED, only consistent.
 #
-# The two failures before that were mundane and are fixed in foundry.toml:
+# Two earlier theories are recorded as wrong so they are not re-derived:
+#
+#   · "the gate is per action — reads free, writes paid". Held for one run.
+#     Run 6 wrote.
+#   · "the config path works and the command-line-flag path is refused",
+#     drawn from run 3 (flags, refused) against run 6 (config, verified). Run
+#     7 used the config path and was refused, so the flags were never the
+#     variable.
+#
+# What follows from all of it, and is what the steps below are built on: the
+# refusal is retryable, a run that ends red may still have published
+# something, and the only trustworthy account of what is verified comes from
+# asking the explorer afterwards rather than from `--watch`'s exit code.
+#
+# Two failures before that were mundane and are fixed in foundry.toml:
 # Foundry does not add v2's `chainid` selector to a configured URL, so it has
 # to be written into the URL beside a `chain` field that already names it.
 #
@@ -142,41 +154,83 @@ jobs:
             rpc="${BSC_TESTNET_RPC:-https://data-seed-prebsc-1-s1.bnbchain.org:8545}"
           fi
 
+          # Already-published addresses are skipped rather than resubmitted.
+          # That is what makes re-running this safe after a partial failure,
+          # which is the normal case given the intermittent refusal described
+          # in the header -- and it is why run 7 was pure waste: it resubmitted
+          # a contract that had been verified since run 6, and reported the
+          # whole job red when nothing was actually missing but the factory.
+          published() {
+            local body
+            body=$(curl -sS --get 'https://api.etherscan.io/v2/api' \
+              --data-urlencode "chainid=${CHAIN}" \
+              --data-urlencode 'module=contract' \
+              --data-urlencode 'action=getsourcecode' \
+              --data-urlencode "address=$1" \
+              --data-urlencode "apikey=${ETHERSCAN_API_KEY}") || return 1
+            [ -n "$(printf '%s' "$body" | jq -r '.result[0].ContractName // ""')" ]
+          }
+
           # `--guess-constructor-args` takes the creation bytecode off the
           # chain and strips the locally compiled prefix, so a divergence
           # between this tree and what was deployed surfaces here instead of
           # as an opaque rejection. The broadcast log's recorded `arguments`
           # are a claim; the creation transaction is not.
           #
-          # `--retries`/`--delay` are for a real and undramatic failure: run 6
-          # verified the treasury and then lost the factory to "Max calls per
-          # sec rate limit reached (3/sec)" while polling for its result. The
-          # submission had already been accepted, so nothing was wrong except
-          # the polling cadence. The `sleep` does the same job between
-          # contracts, where `--delay` cannot reach.
+          # `--retries`/`--delay` govern Foundry's polling for a result it has
+          # already submitted. The outer loop is a different thing: it retries
+          # the SUBMISSION, which is what the intermittent tier refusal kills.
+          # Both are needed and neither covers the other.
           failed=0
           first=1
           while IFS=$'\t' read -r name addr; do
             [ -n "$name" ] || continue
             [ "$first" = 1 ] || sleep 5
             first=0
+
+            echo "::group::${name} at ${addr}"
+            if published "$addr"; then
+              echo "already published -- skipping"
+              echo "::endgroup::"
+              continue
+            fi
+
             src=$(grep -rl --include='*.sol' -E "^\s*(abstract\s+)?contract\s+${name}\b" src/ | head -n 1)
             if [ -z "$src" ]; then
               echo "::error::no source file under src/ declares contract ${name}"
               failed=1
+              echo "::endgroup::"
               continue
             fi
-            echo "::group::${name} at ${addr}  (${src})"
-            if forge verify-contract "$addr" "${src}:${name}" \
-                 --chain "$CHAIN" \
-                 --rpc-url "$rpc" \
-                 --guess-constructor-args \
-                 --retries 10 \
-                 --delay 20 \
-                 --watch; then
+            echo "source: ${src}"
+
+            ok=0
+            for attempt in 1 2 3 4; do
+              [ "$attempt" = 1 ] || { echo "-- attempt ${attempt} after 45s"; sleep 45; }
+              if forge verify-contract "$addr" "${src}:${name}" \
+                   --chain "$CHAIN" \
+                   --rpc-url "$rpc" \
+                   --guess-constructor-args \
+                   --retries 10 \
+                   --delay 20 \
+                   --watch; then
+                ok=1
+                break
+              fi
+              # Cheap out: the submission may have landed even though the
+              # command reported failure, which is precisely what happened to
+              # the factory on run 6.
+              if published "$addr"; then
+                echo "the command failed but the source is published anyway"
+                ok=1
+                break
+              fi
+            done
+
+            if [ "$ok" = 1 ]; then
               echo "verified: ${name}"
             else
-              echo "::error::verification failed for ${name} at ${addr}"
+              echo "::error::verification failed for ${name} at ${addr} after 4 attempts"
               failed=1
             fi
             echo "::endgroup::"
