@@ -131,9 +131,14 @@ worth stating because it is not a decision: Etherscan refuses further
 submissions on chain 97 to this key with *"Free API access is not supported
 for this chain"* — after accepting one. It behaves like a spent allowance
 rather than a plan boundary, since reads on the same key and chain never
-stopped working. Re-running the workflow later is safe and will attempt only
-what is missing; buying an Etherscan plan is the other route, and is the same
-purchase PoG gas scanning on 56 would need.
+stopped working.
+
+**Leaving it unverified is a decision, not a backlog item.** `97` is a
+rehearsal whose keys are public; buying an API plan to publish source on it
+would be spending money to improve the provenance of a deployment that holds
+nothing. The workflow is idempotent and skips what is already published, so
+whoever wants the factory on BscScan can re-run it any time and it will
+attempt only that one contract. For `56` this stops being optional.
 
 So the provenance chain below — two independent verifications of the 4663
 build — has one BSC counterpart out of two. What covers the gap meanwhile is
