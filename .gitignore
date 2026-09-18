@@ -114,6 +114,12 @@ safe-owners.json
 # from the tree, ~660 KB of solc input, and stale the moment src/ changes.
 verify-input/
 
-# The published spec is the README, in English. This draft covers the same
-# ground and is kept out of the tree so the two cannot disagree in public.
-docs/RESEARCH_BRIEF_zh.md
+# docs/RESEARCH_BRIEF_zh.md used to be ignored here, on the reasoning that the
+# published spec is the README and a second document covering the same ground
+# could disagree with it in public. Tracking it instead, because ignoring it did
+# not prevent the disagreement — it only hid it. The brief spent five days
+# describing a retired chain, a Uniswap V4 pool and ETH pricing while the README
+# was retargeted, and nothing reported the drift because nothing could see it.
+#
+# In the tree the two can at least be diffed. Note that no guard enforces their
+# agreement: check/doc-symbols reads identifiers, not claims.
