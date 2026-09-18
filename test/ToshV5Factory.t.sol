@@ -592,9 +592,14 @@ contract ToshV5FactoryTest is Test {
         factory.setDefaultSoftCap(10e18 ether);
     }
 
-    /// @dev Companion to `test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses`:
-    ///      8000 ETH is the soft cap `soat-frontend/scripts/batchA-R2-fresh.ps1`
-    ///      sets against a local Anvil node, so it has to keep working.
+    /// @dev Companion to `test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses`.
+    ///
+    ///      8000 came from a local-Anvil driver script that set it as a soft cap;
+    ///      that script is gone, deleted with its cohort for carrying a live
+    ///      private key in plaintext. The VALUE stays, because what it pins is
+    ///      not that one script's habits: `MAX_DEFAULT_SOFT_CAP` is a wei/ether
+    ///      slip catcher, not a view on how large a raise may be, and a ceiling
+    ///      tightened to something tidier would reject this first.
     function test_setDefaultSoftCap_admitsALargeButRealRaise() public {
         vm.prank(admin);
         factory.setDefaultSoftCap(8000 ether);

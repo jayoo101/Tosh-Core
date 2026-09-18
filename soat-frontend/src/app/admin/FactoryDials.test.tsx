@@ -171,8 +171,10 @@ describe('DEFAULT SOFT CAP dial', () => {
   })
 
   it('still arms at a large but real raise, because the ceiling is not a view on size', () => {
-    // 8000 ETH is what `batchA-R2-fresh.ps1` sets, and the Foundry side pins the
-    // same value. A ceiling tightened to something tidy would fail here first.
+    // 8000 is pinned on the Foundry side too, by
+    // `test_setDefaultSoftCap_admitsALargeButRealRaise`, which carries the note
+    // on where the number came from. A ceiling tightened to something tidy would
+    // fail here first.
     const v = verdictFor(<SoftCapPanel />, '8000')
     expect(v.label).toBe(READY)
     expect(v.disabled).toBe(false)
