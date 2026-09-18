@@ -25,7 +25,10 @@
  * and refuses to use those keys at all.
  *
  * Note that `drillSafe.mjs` still names 46630 and has not been repointed at 97,
- * so the rehearsal leg of this pair is currently unavailable.
+ * so the rehearsal leg of this pair is unavailable. It now refuses rather than
+ * running: that endpoint is still live, so until 2026-09-18 a rehearsal there
+ * would have SUCCEEDED and produced evidence about a chain the protocol left.
+ * Its refusal lists what repointing needs.
  *
  * Usage:  node scripts/createOwnerSafe.mjs safe-owners.json --confirm
  * Requires: PRIVATE_KEY (pays gas only — the deployer does NOT become an owner)
