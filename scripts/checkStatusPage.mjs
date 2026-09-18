@@ -74,6 +74,17 @@ const EXPECTED_PAUSED_COPY = 'Tosh Protocol is currently paused while we investi
   + 'report. Existing deposits remain refundable. We will update this page '
   + 'within 30 minutes.'
 
+/** Chains this protocol has left. Named explicitly so that anything still
+ *  pointing at one produces the reason rather than a shrug — `?` on its own
+ *  reads as "unparseable", which is the wrong thing to go fix.
+ *
+ *  Module scope because checks 5 and 7 both need it, and they need the SAME
+ *  list. Check 5 asks whether the status page names a departed chain; check 7
+ *  asks whether the message three people are asked to sign does. A copy that
+ *  drifted would leave one of those two blind, and the blind one would be
+ *  green. */
+const DEPARTED = /robinhood|blockscout|\b4663\b|\b46630\b/i
+
 const drift = []
 const unreachable = []
 
@@ -222,12 +233,7 @@ if (html) {
     const bscTestnet = /prebsc|testnet\.bscscan|\bbsc[\s-]*testnet\b|\b97\b/i
     const bscMainnet = /bscscan\.com|bsc-dataseed|\bbnb smart chain\b|\bbsc mainnet\b|\b56\b/i
 
-    // Chains this protocol has left. Named explicitly so that a page still
-    // pointing at one produces the reason rather than a shrug — `?` on its own
-    // reads as "unparseable", which is the wrong thing to go fix.
-    const departed = /robinhood|blockscout|\b4663\b|\b46630\b/i
-
-    const stranded = Object.entries(chain).filter(([, v]) => v && departed.test(v))
+    const stranded = Object.entries(chain).filter(([, v]) => v && DEPARTED.test(v))
     if (stranded.length) {
       drift.push(
         'the page still names a chain this protocol has left: '
@@ -381,8 +387,35 @@ if (mainnetDeployed && STATUS_PAGE_CHAIN === 'mainnet' && currentFactory
 //
 // Compared byte for byte, with none of check 2's normalization: whitespace is
 // not cosmetic here, it is part of what was hashed.
+//
+// ⚠ AGREEMENT WAS THE ONLY THING THIS CHECKED, AND AGREEMENT IS NOT ENOUGH.
+//
+//   For the whole Infinity port both copies read "…(2-of-3, Robinhood Chain
+//   4663). Collected 2026-09-04." — and this check was green throughout,
+//   correctly, because they agreed. Two identical copies of a statement about
+//   a chain the protocol has left is exactly the state a consistency check
+//   cannot see, and the consequence is not cosmetic: anyone signing that text
+//   today is accepting a 2-of-3 role on a chain that no longer settles
+//   anything. Their signature would still prove control of the key, which is
+//   the half that makes this quiet — `verifySignerCandidates.mjs` would report
+//   all three as verified and leave the reader believing PM-D4 was done.
+//
+//   So 7b asks what the message SAYS, not just whether two places say it
+//   alike. It shares check 5's `DEPARTED` list rather than carrying its own,
+//   because a second copy of that list would go stale in one place and be
+//   green in the other.
+//
+//   7c covers the same failure one level up. `safe-owners.json` — the
+//   collected file, gitignored because it names people — carries the message
+//   inside each signer block, so it does NOT follow an edit to the template.
+//   Fixing the text in the template and on the page therefore makes 7a and 7b
+//   pass while three real signatures sit in the tree covering the OLD
+//   statement, and nothing compared those two until now. That check only fires
+//   for an operator; CI cannot see the file and reports it as not-evaluated
+//   rather than as a pass.
 const SIGN_URL = 'https://jayoo101.github.io/tosh-status/sign/'
 const OWNERS_TEMPLATE = path.join(REPO_ROOT, 'safe-owners.example.json')
+const OWNERS_COLLECTED = path.join(REPO_ROOT, 'safe-owners.json')
 
 try {
   const signHtml = await get(SIGN_URL)
@@ -412,7 +445,66 @@ try {
       + 'hardcoding the message — which would mean it takes one from the URL, '
       + 'the phishing shape its own header rules out — or it was restructured '
       + 'and this check needs rewriting rather than deleting.')
-  } else if (expected && onPage !== expected) {
+  }
+
+  // ── 7b. The message must not name a chain the protocol has left ───────────
+  //
+  // Checked on the template rather than the page, and on the page only when
+  // they already agree, so that a divergence reports as 7a once instead of as
+  // two findings with one cause.
+  const stated = expected ?? onPage
+  if (stated && DEPARTED.test(stated)) {
+    drift.push(
+      'the Safe signing message names a chain this protocol has left:\n'
+      + `      ${JSON.stringify(stated)}\n`
+      + '    Settlement moved to BNB Smart Chain, so this text asks three people '
+      + 'to accept a 2-of-3 role over a chain that settles nothing. Agreement '
+      + 'between the page and the template does NOT catch this — both said it, '
+      + 'identically, for the whole port, and 7a was green the entire time. Fix '
+      + 'the string in safe-owners.example.json AND in `const MESSAGE` in '
+      + 'jayoo101/tosh-status/sign/index.html on the same day, because 7a fails '
+      + 'the moment only one of them moves. Re-date it while you are there: the '
+      + 'date is what stops a signature collected for one round being replayed '
+      + 'into another.')
+  }
+
+  // ── 7c. Signatures already collected must cover the message now in force ──
+  if (fs.existsSync(OWNERS_COLLECTED) && expected) {
+    try {
+      const got = JSON.parse(fs.readFileSync(OWNERS_COLLECTED, 'utf8'))
+      const signed = new Set(
+        (got.signers ?? []).map(s => s.message ?? got.message).filter(Boolean))
+      const stale = [...signed].filter(m => m !== expected)
+      if (stale.length) {
+        drift.push(
+          `safe-owners.json holds ${(got.signers ?? []).length} signature(s) over a `
+          + 'message that is no longer the one in force.\n'
+          + `      signed:      ${JSON.stringify(stale[0])}\n`
+          + `      now in force: ${JSON.stringify(expected)}\n`
+          + '    Those signatures are not worthless and should not be deleted — an '
+          + 'EIP-191 signature proves control of the key whatever the text said, and '
+          + 'that half still holds. What they no longer record is CONSENT to the role '
+          + 'as currently stated, which is the half PM-D4 exists to collect. '
+          + '`verifySignerCandidates.mjs` reads the message out of this same file, so '
+          + 'it will keep reporting all of them as verified: it is answering "did '
+          + 'these people sign this text", and the question here is "is this the text '
+          + 'we are asking them to sign". Re-collect before creating the Safe.')
+      }
+    } catch (err) {
+      drift.push(
+        `safe-owners.json exists but could not be read as JSON (${err.message}). `
+        + 'It is the input to all three PM-D4 scripts, so a malformed copy stops '
+        + 'the Safe being created rather than creating a wrong one — but it is '
+        + 'reported here because the failure would otherwise surface halfway '
+        + 'through createOwnerSafe.mjs.')
+    }
+  }
+
+  // `onPage &&` matters: this used to be the `else` arm of the block above, and
+  // splitting 7b/7c between them would otherwise make a page with no MESSAGE
+  // line report twice — once for being absent, once for "disagreeing" with the
+  // template it could not be compared to.
+  if (onPage && expected && onPage !== expected) {
     drift.push(
       `the signing page and safe-owners.example.json disagree about the message.\n`
       + `      page:     ${JSON.stringify(onPage)}\n`

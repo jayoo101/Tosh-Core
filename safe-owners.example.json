@@ -23,6 +23,21 @@
     "who signed three different statements have each proved control of a key",
     "without all having accepted the same role.",
     "",
+    "THE MESSAGE NAMES A CHAIN AND A DATE, AND BOTH ARE LOAD-BEARING. The chain",
+    "is what makes this consent to a specific deployment rather than to the",
+    "word 'Tosh'; the date is what stops a signature collected for one round",
+    "being replayed into the next. So changing either one invalidates the round",
+    "before it: signatures over the old text still prove control of their keys,",
+    "but they no longer record acceptance of the role as now stated, and they",
+    "have to be collected again.",
+    "",
+    "The exact same string is hardcoded as `const MESSAGE` in sign/index.html in",
+    "jayoo101/tosh-status, because the page is what people actually sign from.",
+    "Edit both on the same day. `checkStatusPage.mjs` check 7a compares them and",
+    "goes red the moment only one moves — and 7b now also reads the text, since",
+    "for the whole Infinity port both copies agreed on '(2-of-3, Robinhood Chain",
+    "4663)' and 7a was green the entire time.",
+    "",
     "NEVER put a private key or seed phrase in this file. The scripts refuse to",
     "run if they find one, and rightly: a signer key that has been transmitted is",
     "no longer a signer key. Nobody entitled to ask you for one will ask.",
@@ -31,7 +46,7 @@
     "chain. The real file is gitignored only because it names people."
   ],
 
-  "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, Robinhood Chain 4663). Collected 2026-09-04.",
+  "message": "I control this address and accept the role of Tosh Protocol Safe signer (2-of-3, BNB Smart Chain 56). Collected 2026-09-18.",
 
   "signers": [
     {
