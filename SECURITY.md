@@ -81,8 +81,21 @@ are written down rather than glossed:
   and cannot be reused. On `97` both the factory and the treasury answer
   `owner()` with a single EOA whose private key is public, so halting there
   requires no human at all and can be done by anyone who cloned this repository.
-  Restoring the 2-of-3 property is a precondition for `56`, not a description of
-  today.
+- A **replacement 2-of-3 now exists on `56`**:
+  `0x02DE4629129D104C63329D13A6Ca67E43db7B310`, created 2026-09-18, SafeL2
+  1.4.1, indexed by the transaction service, owner set verified against three
+  signatures that each recovered to their claimed address. **It owns nothing
+  yet.** `56` is undeployed, so the Safe is a precondition that has been met
+  rather than a control that is operating: `script/DeployMainnet.s.sol` reads it
+  as `PROD_OWNER_SAFE` and transfers both the factory and the ladder treasury to
+  it in the same broadcast, and until that broadcast runs the 2-of-3 property is
+  something this repository is ready for and not something it has.
+- Two of the three owner keys are held by the operator's counterparties and one
+  by the operator. The gas that funded the Safe's deployer came from owner 3's
+  address at the operator's request, which is worth stating because balance
+  arithmetic alone cannot tell that apart from the operator holding that key —
+  and if the operator held two of three, the threshold would be decorative.
+  This is an attestation, not a measurement. Nothing on chain proves it.
 
 So: expect a reply in **days, not minutes**, and assume nobody is awake when you
 send it. If you believe an exploit is in flight and you can see funds moving, say
@@ -325,6 +338,53 @@ you than find out otherwise. It is reachable in tests, and was reached; see
 If you think it is wrong, say so. That is a legitimate report even though it is
 already documented, and arguing the trade is more useful to us than rediscovering
 the mechanism.
+
+**The monitor watching that gate was itself broken for the whole Infinity port,
+in two independent ways, and both are worth knowing before you weigh anything
+above about detection.** Found 2026-09-18 by running the monitor rather than by
+reading it:
+
+1. **It was watching a chain the protocol had left.** `monitoring/alerts.json`
+   named 4663, `MONITOR_RPC` pointed at 4663, and the `MONITOR_*` addresses were
+   the 4663 pair — from the 2026-09-08 cutover until 2026-09-18. Every pass
+   reported success, roughly a thousand of them, about a deployment that settles
+   nothing, while `97` had nothing watching it. No check caught it because every
+   check in `watch.mjs` was a *consistency* check and all of them were satisfied:
+   the endpoint agreed with the catalogue, the checkpoint agreed with the
+   endpoint, and `owner()` answered with the address the config expected.
+   `WATCHER-08` is the check added for it, and it compares the catalogue against
+   an external list of retired chains rather than against anything in the
+   catalogue.
+2. **STATE-07 could not perform its check at all.** It read the hook address
+   from word 4 of the `PoolKey` returned by `getPoolKey(address)`, which is
+   Uniswap V4's five-member layout ending in `hooks`. Infinity's key has six
+   members and `hooks` is third, so word 4 is `fee` — the monitor was calling
+   `twapSqrtPriceX96()` on `0x…0bb8`, i.e. 3000. That address has no code, the
+   call failed, and the handler reported the token as having no anti-sandwich
+   bound. So the one automated control on the unbounded-buyback rule paged a
+   confident false P1 for every listed token on every pass and could never
+   detect the real condition. The unit test did not catch it because its stub
+   encoded the same five-word layout. The fix reads word 2 and additionally
+   cross-checks against the factory's `tokenToHook` mapping, so the offset is no
+   longer the only thing asserting what that address is; `monitoring/state07.test.mjs`
+   now fails if the offset regresses.
+
+Neither was exploitable on its own, and neither is a contract bug. They are
+detection failures, which is why they belong in the same section as the claims
+about detection rather than in a changelog. Read the stated 15-minute and 8-hour
+figures elsewhere in this file with the knowledge that for ten days they
+described passes about the wrong chain.
+
+**The monitor is also currently half-blind on `97`, loudly.** Measured
+2026-09-18, the public BSC testnet dataseed refuses `eth_getLogs`
+unconditionally — `-32005`, six of six identical one-block requests at 2-second
+spacing — so it is neither the rate limit nor the range cap documented in
+`monitoring/rpc.mjs`; the method is not served. `eth_call` is served, so the
+`STATE-*` checks and the ownership reads run, and the 24 log-based alerts do not.
+`WATCHER-02` and `WATCHER-04` say so on every pass. That is the fixed version of
+the 2026-09-08 incident, in which a blind pass stayed green, and not a new fault
+— but it does mean the log-based half of this catalogue is unwatched until
+`MONITOR_RPC` names a keyed chain-97 endpoint.
 
 **A buyback leg can move a couple of wei into the pool without burning
 anything.** `_buyAndBurn` settles whatever the pool consumed and then burns only

@@ -562,15 +562,25 @@ the pool's 0.30% fee on their own terms.
 
 ## 9. Governance
 
-Ownership is the Gnosis Safe `0x2953957774482efA660921df85A1E7634ccfe27A`, a
-2-of-3 threshold. Both the factory and the treasury use OpenZeppelin's
-`Ownable2Step`, so a transfer requires the recipient to call `acceptOwnership()`.
+Ownership on BNB Smart Chain is the Gnosis Safe
+`0x02DE4629129D104C63329D13A6Ca67E43db7B310`, a 2-of-3 threshold created
+2026-09-18. It does not own anything yet: `56` is undeployed, and the mainnet
+deploy script transfers the factory and the treasury to it in the same broadcast
+that creates them. On the standing `97` testnet both contracts are owned by a
+single EOA whose key is public — the table below describes the design, not the
+testnet's current security. (The earlier 2-of-3,
+`0x2953957774482efA660921df85A1E7634ccfe27A`, was on chain 4663 and did not
+travel; a Safe is a contract at an address, so the same owners on a new chain are
+a new Safe.)
+
+Both the factory and the treasury use OpenZeppelin's `Ownable2Step`, so a
+transfer requires the recipient to call `acceptOwnership()`.
 
 | The owner can | The owner cannot |
 |---|---|
 | Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 35 BNB, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
 | Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 0.035 BNB) | Change `platformTreasury`, which is `immutable` |
-| Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or ETH from the genesis liquidity position |
+| Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or BNB from the genesis liquidity position |
 | Pause `createLaunch` and `registerPoG`, or blacklist an address | Use the ladder halt to withhold refunds, genesis claims or commission |
 | Curate the treasury's buyback roster | Grant mint authority to any third party |
 | Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
@@ -739,14 +749,34 @@ addresses in this appendix keep resolving. Nothing here travels to `56`; see A.3
 
 ### A.3 BNB Smart Chain mainnet `56` — not deployed
 
-No addresses yet, deliberately. The `97` rehearsal is done, so what cutover now
-waits on is the key. Splitting the deployer key three ways — owner, PoG signer,
-platform treasury — was already the plan, because one address holding all three
-means one compromise ends the protocol and `platformTreasury` cannot be rotated
-afterwards. The disclosure described in A.2 turns that plan into a precondition:
-the `97` key is public, so `56` has to be deployed from freshly generated keys
-that have never appeared in this repository, and the mainnet address must not be
-`0x73db…80cd`. At the time of writing that address has never transacted on `56`.
+No protocol addresses yet, deliberately. One governance address does exist:
+
+| Component | Address |
+|---|---|
+| Governance Safe (2-of-3, SafeL2 1.4.1) | [`0x02DE4629129D104C63329D13A6Ca67E43db7B310`](https://bscscan.com/address/0x02DE4629129D104C63329D13A6Ca67E43db7B310) |
+
+Created 2026-09-18 in tx
+[`0x41c2429e…939b0`](https://bscscan.com/tx/0x41c2429ebc462aefa9ed3cc62a2d4f43b8f7e12aaae921a278c7c3e53ef939b0),
+305,871 gas. **It owns nothing.** It exists ahead of the deploy because
+`script/DeployMainnet.s.sol` reads it as `PROD_OWNER_SAFE` with no default and
+cannot run without it, so creating it early takes it off the critical path
+instead of parking it behind the audit. Each of the three owners signed a
+message naming the chain and the threshold, and each signature was checked to
+recover to the address that claimed it — an owner nobody can sign for is
+indistinguishable from a working one until the first time you need two
+signatures inside a minute. By the standing decision the same address is also
+`PLATFORM_TREASURY`, which is why it was additionally checked to accept a plain
+BNB transfer.
+
+Splitting the deployer key three ways — owner, PoG signer, platform treasury —
+was already the plan, because one address holding all three means one compromise
+ends the protocol and `platformTreasury` cannot be rotated afterwards. The
+disclosure described in A.2 turns that plan into a precondition: the `97` key is
+public, so `56` has to be deployed from freshly generated keys that have never
+appeared in this repository, and the mainnet address must not be `0x73db…80cd`.
+That address has still never transacted on `56`. A fresh deployer key now
+exists and paid for the Safe above; the PoG signer is **not** yet rotated and
+still names `0x73db…80cd`, which is the remaining key-shaped precondition.
 
 ---
 

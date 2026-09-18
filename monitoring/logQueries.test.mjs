@@ -6,8 +6,20 @@ import { buildLogQueries, matchLog } from './logQueries.mjs'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(join(ROOT, 'alerts.json'), 'utf8'))
 
-const FACTORY = '0x2920ca7e9fcd85491d699e1f9ae2caa65cfb2892'
-const TREASURY = '0x255722226720914ef5b2cd54647f21f584bd4ea2'
+/* Deliberately not real addresses.
+ *
+ * What this file tests is the GROUPING — that two contracts sharing a topic0 end
+ * up in separate queries, that an any-address alert does not collide with an
+ * address-scoped one, and that no two alerts in one group share a topic0. None
+ * of that depends on which addresses are used, only on their being distinct.
+ *
+ * They used to be the real 4663 factory and treasury, which made the test look
+ * chain-specific when it is not, and left two addresses for a retired chain in a
+ * file that never talks to a chain at all. Obvious placeholders say "fixture"
+ * without a comment having to.
+ */
+const FACTORY = '0x000000000000000000000000000000000000fac7'
+const TREASURY = '0x0000000000000000000000000000000000007265'
 const addressFor = { ToshFactory: FACTORY, ToshLadderTreasury: TREASURY }
 
 const queries = buildLogQueries(config.alerts, addressFor)

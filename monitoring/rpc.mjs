@@ -50,6 +50,36 @@
  * makes the watcher depend on a prepaid balance for the first time — see
  * `docs/DEVELOPMENT.md` under "Watcher RPC" for what happens when it runs out.
  *
+ * ── BSC testnet 97, measured 2026-09-18 ────────────────────────────────────
+ *
+ * The monitor moved to chain 97 on 2026-09-18 (see WATCHER-08 in watch.mjs for
+ * why that was ten days late). The endpoint question did NOT travel with it, and
+ * the answer on BSC is worse than on 4663.
+ *
+ * Against `https://data-seed-prebsc-1-s1.bnbchain.org:8545`:
+ *
+ *   - `eth_getLogs` is refused UNCONDITIONALLY: `-32005 limit exceeded`, 6 of 6
+ *     identical one-block requests at 2,000 ms spacing.
+ *   - a one-block window is refused exactly like a 200-block one, so this is
+ *     neither the rate limit of 4663 nor the range cap of the free keyed tiers.
+ *     The method is simply not served here.
+ *
+ * That distinction matters because it rules out both known workarounds. Pacing
+ * cannot help a method that is never served, and chunking cannot help when the
+ * smallest possible chunk is refused. The 24 log-based alerts in `alerts.json`
+ * cannot run on this endpoint at any interval or window size. `eth_call` is
+ * served normally, so the STATE-* checks and the `owner()`/`pogSigner()` reads
+ * do work — the monitor is partially functional here rather than blind, and
+ * WATCHER-02 and -04 say which half is missing on every pass.
+ *
+ * The fix is the same shape as before and cheaper than it looks: dRPC is
+ * multichain, so the Growth key already paid for on 2026-09-15 should serve BSC
+ * testnet by changing the chain in the URL rather than by buying anything. Until
+ * `MONITOR_RPC` names a keyed chain-97 endpoint, expect WATCHER-02 on all three
+ * query groups and WATCHER-04 every pass. That is loud on purpose: the 4663
+ * incident this file documents was a blind pass that stayed GREEN, and a blind
+ * pass that pages is the fixed version of it, not a new fault.
+ *
  * What follows still earns its place. It is what makes a *single* caller behave,
  * and the 2026-09-08 incident it was written for was a real one.
  *

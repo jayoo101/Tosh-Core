@@ -31,7 +31,7 @@
     "",
     "GOV-05 IS GONE, ON PURPOSE. It watched TreasuryUpdated(address), the companion",
     "event to setPlatformTreasury. Both were deleted when platformTreasury went back",
-    "onto a money path — it now takes 0.30 % of the ETH input of every buy — because a",
+    "onto a money path — it now takes 0.30 % of the BNB input of every buy — because a",
     "mutable fee-routing target is audit finding M-2, so the mutability went rather",
     "than the inflow. The field is immutable on the factory and the same address is",
     "baked into the hook implementation as platformFeeRecipient. The event can",
@@ -79,30 +79,62 @@
     "is as bad as usual'."
   ],
   "version": "1",
-  "chainId": 4663,
+  "chainId": 97,
 
   "addresses": {
-    "factory": "0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892",
-    "ladderTreasury": "0x255722226720914eF5B2CD54647f21f584BD4Ea2",
-    "gnosisSafe": "0x2953957774482efA660921df85A1E7634ccfe27A",
+    "factory": "0xB224f26a323320376c0b4C6a3228533FA63E5bBd",
+    "ladderTreasury": "0x79de222644E8BBeea6FC55815CCBE9FF136D7674",
+    "gnosisSafe": null,
+    "$gnosisSafe": [
+      "Null because chain 97 has no Safe, and writing an address here that is not",
+      "the owner would be worse than writing nothing. Both contracts on 97 answer",
+      "owner() with the single EOA 0x73db…80cd, whose private key is public — so",
+      "the GOV-* playbooks below, which all say 'correlate against the Safe",
+      "transaction history', have nothing to correlate against on this chain. Read",
+      "them as descriptions of the control that mainnet will have.",
+      "The 2-of-3 for BNB Smart Chain 56 exists and is verified —",
+      "0x02DE4629129D104C63329D13A6Ca67E43db7B310, created 2026-09-18 — but it owns",
+      "nothing until the 56 deploy transfers to it, so it is not watched here yet."
+    ],
     "$replaced": [
-      "2026-09-12, block 61056709: these two moved. The previous pair — factory",
-      "0xBa9d2E86281b988225Eca383C375215912fb20B9, treasury",
+      "2026-09-18: repointed from Robinhood Chain mainnet 4663 to BNB Smart Chain",
+      "testnet 97. The 4663 pair was factory 0x2920ca7E9fcD85491D699e1f9Ae2CAa65Cfb2892,",
+      "treasury 0x255722226720914eF5B2CD54647f21f584BD4Ea2, owner Safe",
+      "0x2953957774482efA660921df85A1E7634ccfe27A.",
+      "This cutover was TEN DAYS LATE and the delay is the finding. The warning",
+      "below was written on 2026-09-12 about a within-chain move and was then",
+      "walked straight into on a much larger one: the protocol left 4663 entirely",
+      "on 2026-09-08, this file kept naming it, MONITOR_RPC kept pointing at it,",
+      "and the monitor kept reporting success every fifteen minutes about a chain",
+      "that settles nothing — while 97, the standing deployment, had nothing",
+      "watching it at all. No check caught it because every check in watch.mjs was",
+      "a CONSISTENCY check, and the catalogue, the endpoint, the checkpoint and the",
+      "addresses were all consistent with each other and all wrong together.",
+      "WATCHER-08 is the check added for it, and it compares this file against an",
+      "external list of retired chains rather than against anything in here.",
+      "EARLIER, 2026-09-12, block 61056709: these two moved within 4663. The pair",
+      "before that — factory 0xBa9d2E86281b988225Eca383C375215912fb20B9, treasury",
       "0x99aD248dD15498957B864Fd79917F0E103Aa78F7, deployed 2026-09-08 at block",
-      "57400516 — is no longer the platform and is no longer watched. It still",
-      "exists, still holds 0.021 ETH of buyback reservoir with no withdraw path,",
-      "and its two launches are abandoned by decision rather than by failure.",
-      "A monitor still pointed at the old pair reports a permanently quiet",
+      "57400516 — still exists, still holds 0.021 ETH of buyback reservoir with no",
+      "withdraw path, and its two launches are abandoned by decision rather than by",
+      "failure. A monitor still pointed at the old pair reports a permanently quiet",
       "platform, which is indistinguishable from a healthy one, so the cutover",
       "is the alert-config change and not just a documentation change."
     ],
     "$comment": [
-      "Hook addresses are deliberately absent. There is one hook per project, each at",
-      "a CREATE2 address mined to carry the 0x20CC flag mask, so the set is unbounded",
-      "and unknowable ahead of time. Hook alerts MUST be scoped by topic0 across all",
-      "addresses, or the monitor must subscribe to LaunchCreated and add the emitted",
-      "`hook` address to its watch list. A monitor configured with a fixed hook list",
-      "silently stops covering every project created after it was set up."
+      "Hook addresses are deliberately absent. There is one hook per project, so the",
+      "set is unbounded and unknowable ahead of time. Hook alerts MUST be scoped by",
+      "topic0 across all addresses, or the monitor must subscribe to LaunchCreated and",
+      "add the emitted `hook` address to its watch list. A monitor configured with a",
+      "fixed hook list silently stops covering every project created after it was set",
+      "up.",
+      "The reason no longer involves an address mask. On 4663 these were Uniswap V4",
+      "hooks and the factory mined CREATE2 salts so the address itself carried the",
+      "0x20CC permission flags; PancakeSwap Infinity reads permissions from",
+      "getHooksRegistrationBitmap() instead, so nothing is mined and hook addresses",
+      "are ordinary CREATE2 output. The conclusion is unchanged — one per project,",
+      "discovered from events — but the premise is gone, and a reader who took the",
+      "mask literally would look for a pattern in these addresses that is not there."
     ]
   },
 
@@ -151,8 +183,8 @@
       "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
       "severity": "P0",
       "page": true,
-      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised, and this is the contract holding ETH.",
-      "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds ETH."
+      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised, and this is the contract holding BNB.",
+      "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds BNB."
     },
     {
       "id": "GOV-04",
@@ -264,7 +296,7 @@
       "severity": "P2",
       "page": false,
       "playbook": null,
-      "why": "Curation of buyback targets. The contract already refuses tokens this factory did not launch, so the abuse case is bounded — but it decides where treasury ETH goes. One thing the contract does NOT refuse is a pool younger than TWAP_WINDOW, whose buyback legs are unbounded; STATE-07 is the check for that, and this alert is where a human first sees the listing that trips it."
+      "why": "Curation of buyback targets. The contract already refuses tokens this factory did not launch, so the abuse case is bounded — but it decides where treasury BNB goes. One thing the contract does NOT refuse is a pool younger than TWAP_WINDOW, whose buyback legs are unbounded; STATE-07 is the check for that, and this alert is where a human first sees the listing that trips it."
     },
     {
       "id": "PARAM-05",
@@ -318,7 +350,7 @@
       "alertOn": "rate",
       "threshold": "more than 3 in 24h for the same token, or any occurrence for more than half the curated set",
       "playbook": null,
-      "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating ETH it can no longer spend, which is the one-way valve failing closed rather than open."
+      "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating BNB it can no longer spend, which is the one-way valve failing closed rather than open."
     },
     {
       "id": "LIFE-01",
@@ -378,7 +410,7 @@
       "id": "STATE-02",
       "severity": "P0",
       "cadence": "every 15 minutes",
-      "check": "ladderTreasury ETH balance is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
+      "check": "ladderTreasury BNB balance is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
       "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract.",
       "action": "Treat as funds-at-risk: pause the factory via the Safe, then correlate the fall against buyback events and Safe transactions in the same window. A fall matching neither is a governance compromise, and once the reservoir is spent there is no on-chain remedy — announce."
     },
@@ -407,7 +439,7 @@
       "why": [
         "This check used to watch the PoG signer, on the premise that it needs gas to sign. It does not, and the premise was wrong in a way nothing downstream could catch.",
         "registerPoG() is external and keys off msg.sender: the DEPOSITOR sends that transaction and pays for it. The signer's address appears in the contract only as the expected result of hash.recover(signature). Both consumers of the key sign without a chain connection at all — the API route uses viem's privateKeyToAccount().signMessage(), and scripts/pogSigner.ts constructs ethers.Wallet(pk) with no provider, which cannot send a transaction even in principle.",
-        "So a PoG signer holding 0 ETH signs exactly as well as one holding 50. Funding it was not merely unnecessary but slightly harmful: the key lives in a Vercel environment variable, and a key guarding a balance is worth more to steal than one guarding nothing.",
+        "So a PoG signer holding 0 BNB signs exactly as well as one holding 50. Funding it was not merely unnecessary but slightly harmful: the key lives in a Vercel environment variable, and a key guarding a balance is worth more to steal than one guarding nothing.",
         "The check is kept rather than deleted because the shape is right for a case that does not exist yet. pokeBuyback() is permissionless and STATE-06's remedy is currently a human calling it; automating that would introduce the protocol's first wallet that genuinely needs gas, and it would fail silently when it ran dry. Set MONITOR_KEEPER_ADDRESS at that point and this activates."
       ]
     },
@@ -415,7 +447,7 @@
       "id": "STATE-06",
       "severity": "P2",
       "cadence": "hourly",
-      "check": "ladderTreasury ETH balance has been >= TRIGGER_STEP continuously for 24h with no PiggybackExecuted in that window",
+      "check": "ladderTreasury BNB balance has been >= TRIGGER_STEP continuously for 24h with no PiggybackExecuted in that window",
       "why": "The gas gate in ToshLaunchpadHook.afterSwap skips the buyback when the triggering trade cannot afford it, which is what stops that trade from reverting. The cost is that the reservoir no longer deploys itself from trading alone: a market where wallets attach tight gas limits leaves it armed and idle, emitting NOTHING. There is deliberately no event for a skipped poke — skipping is the common case, and logging it would bill every trader for the privilege. So this has to be a balance-and-silence poll; it is the only signal that the reservoir has stopped deploying.",
       "action": "Call pokeBuyback() on the treasury. Permissionless — no role, no Safe transaction, any address can clear it."
     },
@@ -442,7 +474,7 @@
       "The three tax events are per-swap and none of them may page. They are also the",
       "revenue ledger, so how they compose matters to whoever builds the dashboard:",
       "a BUY emits BuyTaxToTreasury AND PlatformSwapFeePaid in the same swap, carrying",
-      "70 bps and 30 bps of the ETH input respectively; a SELL emits only SellTaxBurned,",
+      "70 bps and 30 bps of the BNB input respectively; a SELL emits only SellTaxBurned,",
       "carrying the full 100 bps of the token input, because the sell leg is not split.",
       "BuyTaxToTreasury therefore is NOT the buy-side tax total — it is the buyback",
       "reservoir's share of it. Summing it as though it were understates the tax by 30 %",

@@ -45,6 +45,7 @@ import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRpc } from './rpc.mjs'
 import { buildLogQueries, matchLog } from './logQueries.mjs'
+import { retiredChain } from '../scripts/lib/retiredChains.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
@@ -56,9 +57,21 @@ const opt = (name, fallback) => {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback
 }
 
+/* The default is BSC testnet, not Robinhood testnet, and not mainnet.
+ *
+ * It used to be `https://rpc.testnet.chain.robinhood.com` — chain 46630, which
+ * the protocol has left and which is still answering. WATCHER-07's own comment
+ * names that default as the way "forgetting one variable" reaches the wrong
+ * chain, so leaving it pointed at a retired-but-live endpoint made the fallback
+ * the exact fault the check exists to catch.
+ *
+ * Testnet rather than mainnet on purpose: an unset variable should land
+ * somewhere a mistaken pass is cheap. Defaulting to 56 would make a forgotten
+ * variable produce confident-looking findings about the chain that holds money.
+ */
 const RPC = opt('--rpc', process.env.MONITOR_RPC
-  || process.env.ROBINHOOD_TESTNET_RPC
-  || 'https://rpc.testnet.chain.robinhood.com')
+  || process.env.BSC_TESTNET_RPC
+  || 'https://data-seed-prebsc-1-s1.bnbchain.org:8545')
 const STATE_PATH = opt('--state', join(HERE, '.watch-state.json'))
 const SINCE = opt('--since', null)
 const DRY = flag('--dry')
@@ -241,6 +254,48 @@ if (CONFIG.chainId != null && CONFIG.chainId !== chainId) {
     `statement about ${CONFIG.chainId}. Set MONITOR_RPC — unset, it defaults to the testnet ` +
     `endpoint, and this pass would otherwise have looked quiet rather than wrong.`,
     { catalogueChainId: CONFIG.chainId, endpointChainId: chainId })
+}
+
+/* WATCHER-08 — the catalogue is about a chain the protocol has left.
+ *
+ * WATCHER-07 above compares two numbers and pages when they disagree. It cannot
+ * see the case where they AGREE and are both wrong, which is the state this
+ * monitor was actually in from the 2026-09-08 cutover until 2026-09-18:
+ * `alerts.json` said 4663, `MONITOR_RPC` pointed at 4663, the addresses were the
+ * 4663 pair, and every pass reported success. Roughly a thousand green passes
+ * about a chain that settles nothing, while `97` — the standing deployment — had
+ * nothing watching it at all.
+ *
+ * Nothing detected it because every consistency check in here was satisfied. The
+ * endpoint matched the catalogue, the checkpoint matched the endpoint, the log
+ * queries returned real events, and `owner()` answered with the address the
+ * config expected. A monitor cannot notice that it is pointed at the wrong
+ * chain by cross-checking its own configuration, so this compares the
+ * configuration against an external list instead.
+ *
+ * P1 and paging rather than exit 2, for the reason WATCHER-07 gives: exit 2
+ * means "could not start", the workflow skips `report.mjs` on it, and the
+ * loudest misconfiguration available would then produce a red Actions run that
+ * nobody reads at ~6.5 passes a day. `refuseIfRetired()` is the right shape for
+ * the drill scripts and the wrong shape here — hence `retiredChain()`, which
+ * only answers the question.
+ *
+ * This fires on the catalogue rather than on the endpoint on purpose. Repointing
+ * `MONITOR_RPC` at a live chain while leaving the addresses on the retired one
+ * is a downgrade, not a fix: WATCHER-07 would start paging and the addresses
+ * would still be wrong. The catalogue is the thing that has to move.
+ */
+const retiredTarget = retiredChain(CONFIG.chainId ?? chainId)
+if (retiredTarget) {
+  record('WATCHER-08', 'P1', true,
+    `alerts.json targets chain ${CONFIG.chainId ?? chainId}, ${retiredTarget.name} — a chain this ` +
+    `protocol has left. ${retiredTarget.left} Every address, topic and threshold below is about ` +
+    `that deployment, so a green pass here is not evidence about the standing one. This is the ` +
+    `one fault in this file that consistency cannot catch: the endpoint, the checkpoint and the ` +
+    `addresses all agree with each other and all describe the wrong chain. Move the catalogue ` +
+    `first (chainId plus the addresses block), then MONITOR_RPC and the MONITOR_* repository ` +
+    `variables to match.`,
+    { catalogueChainId: CONFIG.chainId ?? chainId, retired: retiredTarget.name })
 }
 
 const staleChain = state.chainId != null && state.chainId !== chainId
@@ -730,8 +785,50 @@ try {
     try {
       const token = asAddress(await call(TREASURY, 'ladderTokens(uint256)', word(i)))
       const key = await call(TREASURY, 'getPoolKey(address)', word(BigInt(token)))
-      // PoolKey is (currency0, currency1, fee, tickSpacing, hooks) — hooks last.
-      const hook = asAddress(key.slice(2).slice(4 * 64, 5 * 64))
+
+      /* PoolKey on Infinity is SIX members and `hooks` is the THIRD, not the last:
+       *   (currency0, currency1, hooks, poolManager, fee, parameters)
+       *
+       * This read was `slice(4 * 64, 5 * 64)` with a comment describing Uniswap
+       * V4's five-member key ending in `hooks`. Word 4 of the Infinity key is
+       * `fee`, so the "hook address" it produced was the fee tier: 3000, i.e.
+       * 0x0000000000000000000000000000000000000bb8. That address has no code,
+       * `twapSqrtPriceX96()` on it fails, and the catch below reports the token as
+       * having NO anti-sandwich bound. So STATE-07 — the only automated check on
+       * a rule the contract deliberately does not enforce — could not detect the
+       * condition it exists for, and paged a confident wrong answer about every
+       * listed token on every pass instead. Found by running a pass against 97
+       * rather than by reading, because both the code and its comment were
+       * internally consistent; the comment described V4 and so did the offset.
+       *
+       * Same root cause as the 0x20CC mask above: an Infinity layout change that
+       * leaves working-looking V4 code behind. That one was caught here and this
+       * one was not, thirty lines apart.
+       */
+      const hook = asAddress(key.slice(2).slice(2 * 64, 3 * 64))
+
+      /* Cross-checked against the factory's own token→hook mapping, which is a
+       * different storage slot reached by a different call.
+       *
+       * A raw offset into an abi-encoded struct cannot notice that the struct
+       * moved under it — that is precisely how the bug above survived the port —
+       * so the offset is no longer the only thing asserting what this address is.
+       * A mismatch is also a real finding on its own terms: `_poolKeyOf` is what
+       * the buyback actually trades against, so it disagreeing with the token's
+       * registered hook means the buyback venue is not the token's own pool.
+       */
+      const registered = asAddress(await call(FACTORY, 'tokenToHook(address)', word(BigInt(token))))
+      if (hook !== registered) {
+        record('STATE-07', sev('STATE-07'), pages('STATE-07'),
+          `Ladder token ${token}: the pool key the treasury will buy through names hook ${hook}, ` +
+          `but the factory registers this token's hook as ${registered}. Either the buyback venue ` +
+          `is not this token's own pool, or this decode is reading the wrong word of PoolKey — ` +
+          `check the second before acting on the first, because a PoolKey layout change presents ` +
+          `exactly like this and has done once already.`,
+          { playbook: 'STATE-07: removeLadderToken, wait for the TWAP to mature, then re-add' })
+        continue
+      }
+
       let twap
       try {
         twap = BigInt(await call(hook, 'twapSqrtPriceX96()'))

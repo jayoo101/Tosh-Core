@@ -4,12 +4,20 @@
  * ───────────────────
  * Step two of PM-D4: create the real 2-of-3 Safe on BNB Smart Chain (56).
  *
- * ⚠ THERE IS NO SAFE ON 56 YET, and the one this repository has always referred
- *   to — the 2-of-3 at 0x2953957774482efA660921df85A1E7634ccfe27A in SECURITY.md
- *   — is on chain 4663 and cannot be reused. A Safe is a contract at an address,
- *   not an account: the same owners on a different chain are a different Safe,
- *   which has to be created and then verified there. Running this is a
- *   precondition for the mainnet deploy, not a follow-up to it.
+ * ✓ DONE, 2026-09-18: the Safe on 56 is 0x02DE4629129D104C63329D13A6Ca67E43db7B310,
+ *   created by this script in tx 0x41c2429e…939b0 for 305,871 gas, and verified
+ *   by verifyOwnerSafe.mjs — SafeL2 1.4.1, 2-of-3, indexed by the transaction
+ *   service, owner set matching three checked signatures. This script is kept
+ *   runnable rather than retired because a Safe is per-chain and the next chain
+ *   or the next owner rotation needs it again; re-running it does not disturb
+ *   the existing one, since createProxyWithNonce makes a NEW proxy.
+ *
+ * ⚠ The one this repository referred to for most of its life — the 2-of-3 at
+ *   0x2953957774482efA660921df85A1E7634ccfe27A in SECURITY.md — is on chain 4663
+ *   and could not be reused. A Safe is a contract at an address, not an account:
+ *   the same owners on a different chain are a different Safe, which has to be
+ *   created and then verified there. Running this was a precondition for the
+ *   mainnet deploy, not a follow-up to it.
  *
  * This Safe is not optional scaffolding and it is not only about C2. It is a
  * REQUIRED INPUT to the mainnet deploy: `script/DeployMainnet.s.sol` reads
@@ -230,8 +238,24 @@ const safe = new ethers.Contract(safeAddr, SAFE_ABI, provider)
 console.log(`\n  read back: threshold ${await safe.getThreshold()} of ${(await safe.getOwners()).length},`
   + ` version ${await safe.VERSION()}, nonce ${await safe.nonce()}`)
 
-console.log('\n  Put these in .env.production — the same address for both, per the decision')
-console.log('  to let the owner Safe also be the platform treasury:\n')
+/* `.env.production` does NOT exist right now, and that is the correct state
+ * rather than something to work around. It was deleted on 2026-09-18 because it
+ * held a plaintext LAUNCH_CREATOR_PRIVATE_KEY and otherwise described the
+ * retired 4663 deployment; `preflightMainnet.mjs` says in its own header that
+ * the file "is gitignored and does not exist until deploy day", and it exits 2
+ * with exactly this instruction when it is missing. So the message below names
+ * the template as well as the file — not because the path is wrong, but because
+ * following it today requires one step that the old wording assumed had already
+ * happened. */
+console.log('\n  Put these in .env.production — create it first if it is not there:')
+console.log('      cp .env.production.example .env.production')
+console.log('\n  The same address for both, per the decision to let the owner Safe also be')
+console.log('  the platform treasury, which is why this script checked that it accepts a')
+console.log('  plain BNB transfer:\n')
 console.log(`    PROD_OWNER_SAFE=${safeAddr}`)
 console.log(`    PLATFORM_TREASURY=${safeAddr}`)
+console.log('\n  Both are read by script/DeployMainnet.s.sol with vm.envAddress and no')
+console.log('  default, and loadRoleEnv reads .env.production BEFORE .env — so a value')
+console.log('  left in .env cannot quietly stand in for one of these. PLATFORM_TREASURY')
+console.log('  is immutable once the factory is deployed; this is a one-way decision.')
 console.log('\n  Then: node scripts/verifyOwnerSafe.mjs ' + safeAddr + ' ' + file)

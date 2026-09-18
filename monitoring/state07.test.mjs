@@ -64,9 +64,21 @@ const stub = (opts = {}) => `async function call(to, signature, suffix = '') {
     ${opts.entryThrowsAt != null ? `if (i === ${opts.entryThrowsAt}) throw new Error('execution reverted: entry')` : ''}
     return '0x' + w(TOKENS[i])
   }
+  /* Infinity's SIX-word PoolKey, with \`fee\` really present in word 4.
+   *
+   * This stub used to return five words ending in the hook — Uniswap V4's
+   * layout — which is the same assumption watch.mjs was making, so this harness
+   * AGREED with the defect instead of catching it. Encoding the real fee at
+   * word 4 means a regression to \`slice(4 * 64, 5 * 64)\` now resolves the hook
+   * to 0xbb8, which is not \`tokenToHook\`, and the cross-check fires.
+   */
   if (signature === 'getPoolKey(address)') {
     const i = TOKENS.findIndex(t => t.toLowerCase().slice(-40) === String(suffix).slice(-40))
-    return '0x' + w('0') + w('0') + w('0') + w('0') + w(HOOKS[i])
+    return '0x' + w('0') + w(TOKENS[i]) + w(HOOKS[i]) + w('0') + w('bb8') + w('c80cc5')
+  }
+  if (signature === 'tokenToHook(address)') {
+    const i = TOKENS.findIndex(t => t.toLowerCase().slice(-40) === String(suffix).slice(-40))
+    return '0x' + w(HOOKS[i])
   }
   if (signature === 'twapSqrtPriceX96()') {
     const i = HOOKS.findIndex(h => h.toLowerCase() === String(to).toLowerCase())
@@ -159,7 +171,13 @@ console.log('\nSTATE-07 — the only control holding the unbounded-buyback risk 
   for (let i = 0; i < count; i++) {
     const token = asAddress(await call(TREASURY, 'ladderTokens(uint256)', word(i)))
     const key = await call(TREASURY, 'getPoolKey(address)', word(BigInt(token)))
-    const hook = asAddress(key.slice(2).slice(4 * 64, 5 * 64))
+    // Word 2, not word 4, even though the real pre-fix code read word 4: this
+    // case exists to isolate the §5.11 structural defect (one failing call
+    // blinding every later token, and a revert not counting as an absent
+    // bound). Carrying the PoolKey offset bug here as well would make every
+    // token fail identically for the wrong reason, and the two assertions below
+    // would pass without demonstrating anything about the structure.
+    const hook = asAddress(key.slice(2).slice(2 * 64, 3 * 64))
     const twap = BigInt(await call(hook, 'twapSqrtPriceX96()'))
     if (twap === 0n) {
       record('STATE-07', sev('STATE-07'), pages('STATE-07'),
@@ -187,6 +205,43 @@ console.log('\nSTATE-07 — the only control holding the unbounded-buyback risk 
       !zero, `it was reported, so this harness is not exercising the defect: ${JSON.stringify(state07.map(f => f.message))}`)
     check('PRE-FIX: nothing paged, despite a bound being absent',
       !anyPaging, JSON.stringify(state07))
+  }
+}
+
+/* 5. THE OTHER REGRESSION — the PoolKey offset, and the guard that now catches it.
+ *
+ * Case 4 covers a defect found by reading the code. This one covers a defect
+ * found by running it against chain 97, which is a different failure mode and
+ * needs its own assertion: `hooks` moved from the last word of Uniswap V4's
+ * five-member PoolKey to the third of Infinity's six, and watch.mjs kept reading
+ * word 4. Word 4 is `fee`, so every "hook address" was 3000 — 0x…0bb8 — and
+ * STATE-07 paged "this token has no anti-sandwich bound" about every listed
+ * token on every pass while being unable to detect the real condition.
+ *
+ * Nothing caught it for the whole port. Not the compiler, since this is a raw
+ * string offset; not verifyAlertTopics.js, which checks topics against ABIs and
+ * never touches this call; and not this harness, whose stub encoded the same
+ * five-word layout and therefore agreed. The lesson is that the offset cannot be
+ * the only thing asserting what that address is, hence the cross-check against
+ * the factory's token→hook mapping — and hence this case, because a guard with
+ * no test is the thing it was added to prevent.
+ */
+{
+  const FIXED = 'const hook = asAddress(key.slice(2).slice(2 * 64, 3 * 64))'
+  if (!original.includes(FIXED)) {
+    check('could anchor the PoolKey hook read', false, 'offset expression not found')
+  } else {
+    const v4Offset = original.replace(FIXED, 'const hook = asAddress(key.slice(2).slice(4 * 64, 5 * 64))')
+    const { state07 } = run(v4Offset.replace(REAL_CALL, stub()))
+    const caught = state07.find(f => /factory registers this token's hook as/.test(f.message))
+    check('a V4 PoolKey offset is caught rather than reported as a missing bound',
+      !!caught, JSON.stringify(state07.map(f => f.message), null, 2))
+    check('and it names the fee tier it mistook for an address',
+      /0x0*bb8/.test(caught?.message ?? ''), caught?.message)
+    check('and it pages', caught?.page === true, JSON.stringify(caught))
+    check('and no token is silently reported as unbounded instead',
+      !state07.some(f => /== 0/.test(f.message)),
+      JSON.stringify(state07.map(f => f.message)))
   }
 }
 

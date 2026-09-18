@@ -150,7 +150,30 @@ jobs:
           # Addresses are repository VARIABLES, not secrets: they are public on
           # chain, and a monitor whose target is secret cannot be reviewed. The
           # endpoint is a secret because it may carry a key.
-          MONITOR_RPC: ${{ secrets.MONITOR_RPC }}
+          #
+          # BSC_TESTNET_RPC is tried FIRST, and the order is a deliberate choice
+          # between two endpoints that are each wrong in a different way.
+          #
+          # MONITOR_RPC is not empty and not cheap: it is the paid dRPC Growth key
+          # bought 2026-09-15, and it serves eth_getLogs properly — for chain
+          # 4663. It is also the variable that kept this monitor on a retired chain
+          # for the ten days WATCHER-08 describes. BSC_TESTNET_RPC is the public
+          # dataseed: right chain, and measured 2026-09-18 it does not serve
+          # eth_getLogs AT ALL (see the BSC section in monitoring/rpc.mjs).
+          #
+          # So the choice is right-capability-wrong-chain versus
+          # right-chain-missing-capability, and the second is strictly better:
+          # eth_call is served, so the STATE-* checks and the owner()/pogSigner()
+          # reads actually run, and only the 24 log-based alerts are missing —
+          # loudly, via WATCHER-02 and WATCHER-04 on every pass. The other order
+          # yields a monitor that works perfectly and reports on a chain that
+          # settles nothing, which is the failure this whole cutover was about.
+          #
+          # Writing `secrets.MONITOR_RPC || secrets.BSC_TESTNET_RPC` would look
+          # like a repoint and change nothing, because a stale value is still a
+          # value and `||` takes it. Once MONITOR_RPC names a keyed chain-97
+          # endpoint, flip this back — a keyed right-chain endpoint beats both.
+          MONITOR_RPC: ${{ secrets.BSC_TESTNET_RPC || secrets.MONITOR_RPC }}
           MONITOR_FACTORY: ${{ vars.MONITOR_FACTORY }}
           MONITOR_TREASURY: ${{ vars.MONITOR_TREASURY }}
           MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
