@@ -30,7 +30,13 @@ jobs:
       # Must be a chain `src/lib/chain.ts` registers. It no longer falls back to
       # a default for an id it does not know — it throws — so a stale value here
       # fails the build rather than quietly building against the wrong network.
-      NEXT_PUBLIC_CHAIN_ID: "46630"
+      #
+      # This said 46630 until 2026-09-18, and by then `CHAINS_BY_ID` held only
+      # 56, 97 and 31337: the value named a chain the build would have refused to
+      # start on. It survived because the job died earlier, at checkPublicEnv, on
+      # a separate leftover — so the throw that was supposed to be loud was
+      # sitting behind a louder one.
+      NEXT_PUBLIC_CHAIN_ID: "97"
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""
@@ -100,7 +106,7 @@ jobs:
       # supply these; a dotenv-only check is blind to both. CI's placeholder
       # factory is deliberately not a real deployment, so it is unrecognised
       # and not asserted — what fails here is a real address under the wrong id,
-      # including the id being unset, since chain.ts then defaults to 46630.
+      # including the id being unset, since chain.ts then defaults to 97.
       - name: Chain id and contract addresses are the same chain
         run: npm run guard:chainaddr
 
