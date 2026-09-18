@@ -3,14 +3,31 @@
 > **Do not execute the 4663 steps below.** This file was written for the
 > Robinhood Chain redeploy of 2026-09-17. The live target is now BSC 56 with
 > PancakeSwap Infinity; 56 is **not deployed**. Procedure still applies
-> (clock-decides-launch, PoG band, Ownable2Step handoff) once `.env.production`
-> names chain 56, the Infinity CLPoolManager/Vault, and split keys. Addresses
-> and balances in the tables were read from chain 4663 and are historical.
+> (clock-decides-launch, PoG band, Ownable2Step handoff) once a production env
+> names chain 56, the Infinity CLPoolManager/Vault, and split keys — the root
+> `.env.production` this used to point at was deleted on 2026-09-18 as a 4663
+> relic holding a second private key. Addresses and balances in the tables were
+> read from chain 4663 and are historical.
+>
+> **So are the numbers on the dials, which is the trap, because those are the
+> part written as instructions.** §5 step 3 tells you to set a fee and step 4
+> tells you to confirm two values; all three were denominated in ETH against a
+> fee the old mainnet was charging, and none of them is what the code now
+> ships. Today's defaults, read from `src/ToshFactory.sol` and confirmed on
+> chain 97 on 2026-09-18, are `launchFee` **0.35**, `defaultSoftCap` **35** and
+> `maxPogAllocationLimit` **1.75**, all in BNB. What 56 should charge instead
+> is an open decision, not a stale figure — see the note under step 3.
 
-Written for the redeploy that ships two changes: **the clock decides a launch**
-(the soft cap becomes a progress target) and **the PoG band moves to
+Written for the redeploy that shipped two changes: **the clock decides a
+launch** (the soft cap becomes a progress target) and **the PoG band moves to
 0.025 / 0.5 / 0.5** (floor / rate / ceiling, with `maxPogAllocationLimit` at
 0.5 ether on-chain).
+
+The first change is now simply how the protocol works, and it survived the move
+to BSC unaltered — it is the model `MANUAL_INTERACTION.md` documents. The second
+is the historical band: the on-chain ceiling it names has since moved to **1.75
+BNB**, and the off-chain triple is config rather than deployment, so §8 rotates
+it without any of this runbook.
 
 `DeployMainnet.s.sol` prints its own checklist at the end of a broadcast. This
 document is the part that checklist cannot know: the order, the evidence each
@@ -206,18 +223,30 @@ the factory must not be announced in that state.
 |---|---|---|
 | 1 | Safe calls `acceptOwnership()` on the **factory** | `owner()` is the Safe and `pendingOwner()` is `address(0)` |
 | 2 | Safe calls `acceptOwnership()` on the **treasury** | same two reads on the treasury |
-| 3 | Safe calls `setLaunchFee(0.01 ether)` | `launchFee()` returns `10000000000000000` |
-| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = 10 ether, `maxPogAllocationLimit()` = 0.5 ether |
+| 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the wei you decided on, not the 0.35 BNB default |
+| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = 35 ether, `maxPogAllocationLimit()` = 1.75 ether — i.e. 35 and 1.75 **BNB** |
 | 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |
 | 7 | Vercel Production: `NEXT_PUBLIC_FACTORY_ADDRESS` = new factory | redeploy finishes and the directory renders |
 | 8 | Push the five commits to `main` | CI green |
 | 9 | Point `monitoring/` at the new factory and treasury | a watch run reports the new addresses with 0 findings |
 
-**Step 3 is not optional.** The new factory's `launchFee` default is **0.1
-ether**, ten times what mainnet charges today. Left alone, the first creator to
-try a launch pays ten times the intended fee, or more likely cannot afford it
-and leaves.
+**Step 3 is not optional, and it no longer has an answer written down.** It
+used to read `setLaunchFee(0.01 ether)`, on the reasoning that the factory
+default was 0.1 ether and mainnet was charging a tenth of that. Both halves
+are now obsolete: the default is **0.35 BNB** (`src/ToshFactory.sol`, confirmed
+on chain 97), and there is no "what mainnet charges today", because 56 has
+never launched anything. The old figure is a price in ETH and cannot be carried
+across a currency by editing the unit.
+
+So the fee is a decision owed before the broadcast, not a value to copy out of
+this table. What constrains it: `MAX_LAUNCH_FEE` is 35 BNB, so anything
+sensible is legal; it is charged as `msg.value` on `createLaunch`, so it is
+paid once per project by the creator and is the first number a creator sees;
+and it is settable afterwards by the Safe, so it is reversible in a way the
+immutable dials are not. Left at the default, the first creator pays 0.35 BNB
+to open a round — whether that is right is the question, and it is the kind of
+question a runbook must not answer by inertia.
 
 **Steps 7 and 8 belong together.** The committed frontend copy says the soft
 cap is a progress target. That is true of the new factory and false of every
@@ -257,8 +286,20 @@ Remove-Item Env:\PRIVATE_KEY
 Rename-Item .env.testnet-parked .env
 
 # The key must not be in any file. This should print nothing.
-Select-String -Path .env, .env.production -Pattern '^PRIVATE_KEY=.+'
+Select-String -Path (Get-ChildItem .env* -Force -Exclude *.example) -Pattern '^PRIVATE_KEY=.+'
 ```
+
+This used to name `.env` and `.env.production` literally, which stopped working
+the day the second file was deleted — and it failed by *erroring on the missing
+path*, so the check that is supposed to print nothing printed a PathNotFound
+instead. A reader mid-cleanup reasonably reads "no output about a key" as the
+pass it looks like. Globbing what is actually there avoids inventing that
+outcome, and `-Exclude *.example` keeps the two committed templates out of a
+result set where a hit means "stop everything".
+
+For the same question asked properly, across the remote stores as well as the
+local files, `node soat-frontend/scripts/checkSecretStore.mjs` inventories every
+name this protocol uses and says which of them a local copy is still holding.
 
 Close the shell as well — `$env:PRIVATE_KEY` is gone from it, but the value may
 still sit in the PSReadLine history if it was ever typed rather than prompted
