@@ -10,6 +10,7 @@ import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { CHAIN_POSITIONING } from '@/lib/chain'
+import { QUOTE_POSITIONING } from '@/lib/contracts'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({
@@ -36,16 +37,60 @@ const geist = Geist({
 // but a literal in a component is invisible to it, and page metadata is not one
 // of the four surfaces that guard was built around. Search engines and link
 // previews were quoting the wrong chain for as long as the string sat here.
+/**
+ * Where this build believes it lives, for the absolute URLs OG and Twitter need.
+ *
+ * Overridable so a preview deployment can describe itself instead of pointing
+ * its card at production, and defaulted rather than required because a missing
+ * `metadataBase` does not fail the build — it silently resolves relative image
+ * URLs against `localhost`, which ships a card that renders for nobody.
+ */
+const SITE_URL = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://toshx.xyz')
+
+/**
+ * One description, used three times.
+ *
+ * Both derived clauses are here rather than written out: see `CHAIN_POSITIONING`
+ * in lib/chain.ts and `QUOTE_POSITIONING` in lib/contracts.ts for what each one
+ * is protecting against. Between them they carry the two facts most likely to
+ * age — which chain this settles on, and what the numbers are denominated in.
+ */
+const DESCRIPTION =
+  'Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. '
++ 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '
++ `${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
+
 export const metadata: Metadata = {
+  metadataBase: SITE_URL,
   // `ToshX`, matching the navbar wordmark and the domain. It read
   // `TOSH // Cryptographic Console`, which made the product answer to two names
   // across three surfaces: the tab said TOSH, the wordmark renders
   // `Tosh<span>X</span>`, and the site is served from toshx.xyz.
   title: 'ToshX',
-  description:
-    'Tosh Protocol v5.0 — fair-launch terminal with PancakeSwap Infinity hooks. '
-  + 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '
-  + CHAIN_POSITIONING,
+  description: DESCRIPTION,
+
+  /* Link previews. There were none: every `toshx.xyz` link shared anywhere
+     rendered as a bare URL with no title, no description and no image, which
+     for a launchpad is the main distribution path carrying nothing.
+     `opengraph-image.tsx` and `twitter-image.tsx` supply the image itself; the
+     `url`, `siteName` and `type` are what turn it into a card rather than a
+     loose image. */
+  openGraph: {
+    type:        'website',
+    url:         SITE_URL,
+    siteName:    'ToshX',
+    title:       'ToshX — fair-launch terminal for agent tokens',
+    description: DESCRIPTION,
+    locale:      'en_US',
+  },
+  twitter: {
+    // `summary_large_image`, not `summary`: the small card crops to a square
+    // thumbnail, and a 1200x630 image with a headline in it becomes unreadable
+    // at that aspect. The card is only worth having at the size it was drawn.
+    card:        'summary_large_image',
+    title:       'ToshX — fair-launch terminal for agent tokens',
+    description: DESCRIPTION,
+  },
 }
 
 export default function RootLayout({

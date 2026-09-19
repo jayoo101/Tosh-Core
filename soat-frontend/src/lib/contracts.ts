@@ -37,7 +37,10 @@
 
 import type { Address } from 'viem'
 import { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI } from '@/app/lib/abis'
-import { envAddress, TARGET_CHAIN_ID, BSC_ID, BSC_TESTNET_ID } from '@/lib/chain'
+// `IS_TESTNET` is also in the re-export block below, which is not the same
+// thing: `export … from` forwards a name without binding it locally, so
+// QUOTE_POSITIONING needs it imported here as well.
+import { envAddress, TARGET_CHAIN_ID, BSC_ID, BSC_TESTNET_ID, IS_TESTNET } from '@/lib/chain'
 
 export { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI }
 export {
@@ -132,6 +135,27 @@ export const QUOTE_DECIMALS = 8
  * would be the interface asserting something the chain does not support.
  */
 export const QUOTE_SYMBOL = process.env.NEXT_PUBLIC_QUOTE_SYMBOL ?? 'BEM'
+
+/**
+ * The denomination as a sentence, for page metadata and link previews.
+ *
+ * Derived for the reason `CHAIN_POSITIONING` is derived, one layer down. The
+ * description in `app/layout.tsx` ended in a hard-coded "Currently staging on
+ * Base Sepolia testnet." and survived the entire Robinhood Chain migration,
+ * because page metadata is not one of the four surfaces `checkChainCopy.mjs`
+ * was written around — so every search result and link preview named the wrong
+ * chain for months. The denomination is the next literal with that shape: it
+ * went ETH, then BNB, then BEM inside two months, and unlike the chain name it
+ * is not guarded at all.
+ *
+ * The testnet arm deliberately does not name the production quote asset. On 97
+ * the token is an unrestricted-mint mock with no market, and a link preview
+ * saying BEM would be the same class of claim as the interface labelling that
+ * mock "BEM" — which is why `NEXT_PUBLIC_QUOTE_SYMBOL` is `mBEM` there.
+ */
+export const QUOTE_POSITIONING = IS_TESTNET
+  ? `Denominated in ${QUOTE_SYMBOL}, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment.`
+  : `Denominated in ${QUOTE_SYMBOL}, an 8-decimal ERC-20.`
 
 /** Pre-bound quote-asset tuple, for allowance reads and approve writes. */
 export const quoteContract = {
