@@ -548,8 +548,16 @@ if (quoteCode === '0x') {
     // uses a different token, and on 97 it MUST, since BEM has no deployment
     // there. So this reports the disagreement and leaves the judgement with the
     // operator instead of refusing a rehearsal.
+    // `targetChainId`, not `chainId` — which is what this line said until the
+    // first run that ever reached it, and it threw a ReferenceError that took
+    // the whole preflight down at the last check.
+    //
+    // Worth recording how it survived being written: every earlier run exited 2
+    // at the top because `.env.production` did not exist, so check 5c had never
+    // executed once. A guard that cannot run is not a guard that passes, and the
+    // day it would first have run is deploy day.
     const BEM_56 = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
-    if (chainId === 56n && quoteAsset !== ethers.getAddress(BEM_56)) {
+    if (targetChainId === 56n && quoteAsset !== ethers.getAddress(BEM_56)) {
       notes.push(
         `QUOTE_ASSET on chain 56 is ${quoteAsset}, not BEM (${BEM_56}). Every document in this `
         + 'tree says the mainnet quote asset is BEM. If that changed, the docs are now wrong; if '
