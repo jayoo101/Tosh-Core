@@ -30,8 +30,8 @@ import { X } from 'lucide-react'
 import type { Address } from 'viem'
 
 import { PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 
 const PROJECT_PCT = PROJECT_REFERRAL_BPS / 100
@@ -75,7 +75,7 @@ export function DepositSuccessDialog({
           <div>
             <h4 className="text-title text-text-primary">You are in ${symbol}</h4>
             <p className="mt-0.5 font-mono text-note text-success">
-              {fmt(deposited)} {NATIVE_SYMBOL} staked in this genesis
+              {fmtQuote(deposited)} {QUOTE_SYMBOL} staked in this genesis
             </p>
           </div>
           <button

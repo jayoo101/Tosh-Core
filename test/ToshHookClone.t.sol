@@ -6,6 +6,7 @@ import {ToshCloneLib} from "../src/libraries/ToshCloneLib.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @dev Stands in for the refactored `ToshLaunchpadHook`: reads its per-project
 ///      config through the same library readers the real hook will use, so these
@@ -105,9 +106,18 @@ contract CloneDeployer {
     ///      `name`/`symbol` are strings that could never have been packed into
     ///      bytecode, so they live in storage. Its clone is therefore the
     ///      canonical 45-byte EIP-1167 proxy with nothing appended.
-    function deployBareCloneMeasured(address impl) external returns (address deployed, uint256 gasUsed) {
+    ///
+    ///      `floor` is passed rather than defaulted because the grind is part of
+    ///      what this measures. `deployBareCloneAbove` rejects candidates below
+    ///      the quote asset, so the gas figure depends on the floor's position in
+    ///      the address space — a floor of `address(0)` accepts the first salt
+    ///      every time and would measure a deployment the protocol never does.
+    function deployBareCloneMeasured(address impl, address floor, bytes32 seed)
+        external
+        returns (address deployed, uint256 gasUsed)
+    {
         uint256 before = gasleft();
-        deployed = ToshCloneLib.deployBareClone(impl);
+        (deployed,) = ToshCloneLib.deployBareCloneAbove(impl, floor, seed);
         gasUsed = before - gasleft();
     }
 
@@ -129,20 +139,28 @@ contract CloneDeployer {
     ///      a zero `poolManager`, `factory`, `ladderTreasury`, or
     ///      `platformFeeRecipient`, and a reverted CREATE2 yields `address(0)`
     ///      and a gas figure that measures nothing.
+    ///
+    ///      `quoteAsset` is stricter than the rest and cannot be a placeholder:
+    ///      the constructor calls `decimals()` on it and requires 8. A bare
+    ///      address literal has no code, the staticcall fails, and the deploy
+    ///      reverts — which is exactly how the BEM port broke this helper, silently,
+    ///      because a reverted CREATE2 still returns a plausible-looking gas
+    ///      figure. Pass a real 8-decimal mock.
     function deployFullHookMeasured(
         bytes32 salt,
         address poolManager,
         address vault,
         address ladderTreasury,
-        address platformFeeRecipient
+        address platformFeeRecipient,
+        address quoteAsset
     ) external returns (address deployed, uint256 gasUsed) {
-        // Five constructor arguments, not four. `vault` was added by the
-        // PancakeSwap Infinity port, and a mismatch here does not fail loudly:
-        // the constructor's zero-address `require` reverts, CREATE2 returns
-        // address(0), and only the caller's own assertion notices.
+        // Six constructor arguments, not five. `vault` came from the PancakeSwap
+        // Infinity port and `quoteAsset` from the move to BEM. A mismatch here does
+        // not fail loudly: the constructor reverts, CREATE2 returns address(0), and
+        // only the caller's own assertion notices.
         bytes memory initcode = abi.encodePacked(
             type(ToshLaunchpadHook).creationCode,
-            abi.encode(poolManager, vault, address(this), ladderTreasury, platformFeeRecipient)
+            abi.encode(poolManager, vault, address(this), ladderTreasury, platformFeeRecipient, quoteAsset)
         );
         uint256 before = gasleft();
         assembly {
@@ -158,13 +176,30 @@ contract ToshHookCloneTest is Test {
 
     address constant CREATOR = address(0xC0FFEE);
     address constant TREASURY = address(0xBEEF);
-    uint256 constant SOFT_CAP = 5 ether;
-    uint256 constant WALLET_CAP = 2 ether;
+    // Quote-asset base units, 8 decimals. These are only ever stored and read
+    // back by `MockCloneImpl`, so the magnitudes do not gate anything -- they are
+    // rescaled so the fixture does not read as an 18-decimal cap sitting in a
+    // suite that measures the BEM-era clone.
+    uint256 constant SOFT_CAP = 500e8;
+    uint256 constant WALLET_CAP = 200e8;
     uint256 constant DURATION = 24 hours;
+
+    /// @dev Real BEM on chain 56. A literal rather than a deployed mock because
+    ///      what the grind cares about is the address's POSITION in the space —
+    ///      `0x5ce0…` rejects roughly 36% of candidates — and a freshly deployed
+    ///      mock would land wherever the test's nonce put it, making the gas
+    ///      figure depend on test ordering.
+    address constant QUOTE_FLOOR = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+
+    /// @dev Only there to satisfy the hook constructor's `decimals() == 8` check
+    ///      in `deployFullHookMeasured`. Unlike `QUOTE_FLOOR` its address is
+    ///      irrelevant: nothing in this suite sorts against it.
+    MockQuoteAsset quoteAsset;
 
     function setUp() public {
         impl = new MockCloneImpl();
         deployer = new CloneDeployer();
+        quoteAsset = new MockQuoteAsset();
     }
 
     function _deploy(bytes32 salt) internal returns (MockCloneImpl) {
@@ -461,7 +496,12 @@ contract ToshHookCloneTest is Test {
         );
 
         (address fullHook, uint256 fullGas) = deployer.deployFullHookMeasured(
-            bytes32(uint256(101)), address(0x1111), address(0x2222), address(0x3333), address(0x4444)
+            bytes32(uint256(101)),
+            address(0x1111),
+            address(0x2222),
+            address(0x3333),
+            address(0x4444),
+            address(quoteAsset)
         );
 
         assertTrue(fullHook != address(0), "the full deploy must actually have landed");
@@ -502,14 +542,21 @@ contract ToshHookCloneTest is Test {
         uint256 MEASURED_CREATE_LAUNCH = 5_016_031;
 
         (, uint256 hookFull) = deployer.deployFullHookMeasured(
-            bytes32(uint256(200)), address(0x1111), address(0x2222), address(0x3333), address(0x4444)
+            bytes32(uint256(200)),
+            address(0x1111),
+            address(0x2222),
+            address(0x3333),
+            address(0x4444),
+            address(quoteAsset)
         );
         (, uint256 hookClone) = deployer.deployMeasured(
             bytes32(uint256(201)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
         );
 
         (, uint256 tokenFull) = deployer.deployFullTokenMeasured();
-        (, uint256 tokenClone) = deployer.deployBareCloneMeasured(address(impl));
+        // Real BEM as the floor, so the salt grind is exercised at its real
+        // rejection rate (~36%) rather than accepting the first candidate.
+        (, uint256 tokenClone) = deployer.deployBareCloneMeasured(address(impl), QUOTE_FLOOR, bytes32(uint256(202)));
 
         uint256 deploysBefore = hookFull + tokenFull;
         uint256 deploysNow = hookClone + tokenClone;

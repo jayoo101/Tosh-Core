@@ -14,8 +14,8 @@ import {
   Badge, Progress, Readout,
   type Tone,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmt, fmtQuote } from './format'
 import type { Phase } from './phase'
 
 /**
@@ -72,7 +72,7 @@ export function HeroStats({
   const pct = progressIsLadder ? ladderPct : raisePct
   const progressCaption = progressIsLadder
     ? `${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`
-    : `${fmt(totalNativeDeposited)} / ${fmt(softCap)} ${NATIVE_SYMBOL}`
+    : `${fmtQuote(totalNativeDeposited)} / ${fmtQuote(softCap)} ${QUOTE_SYMBOL}`
 
   const stakeHint =
     phase === 'refund'  ? 'claimable in full'
@@ -90,7 +90,7 @@ export function HeroStats({
         size="figure"
         label="Price"
         value={price > 0n ? fmt(price) : '—'}
-        hint={price > 0n ? `${NATIVE_SYMBOL} · ${priceHint}` : priceHint}
+        hint={price > 0n ? `${QUOTE_SYMBOL} · ${priceHint}` : priceHint}
         tone="ok"
       />
       <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
@@ -120,7 +120,7 @@ export function HeroStats({
         layout="stack"
         size="figure"
         label="Your stake"
-        value={`${fmt(userEthDeposited)} ${NATIVE_SYMBOL}`}
+        value={`${fmtQuote(userEthDeposited)} ${QUOTE_SYMBOL}`}
         hint={stakeHint}
         tone={userEthDeposited > 0n ? 'ink' : 'mute'}
       />

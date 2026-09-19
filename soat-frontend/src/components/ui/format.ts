@@ -14,7 +14,7 @@
  */
 
 import { formatUnits } from 'viem'
-import { UNBOUNDED_BAN_SECONDS } from '@/lib/contracts'
+import { UNBOUNDED_BAN_SECONDS, QUOTE_DECIMALS } from '@/lib/contracts'
 import { CLOCK_UNSYNCED } from './useClock'
 
 /**
@@ -182,6 +182,43 @@ export function formatAmount(wei: bigint | undefined | null, options: AmountOpti
   } catch {
     return fallback
   }
+}
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE QUOTE ASSET IS 8 DECIMALS, AND `decimals = 18` IS THE DEFAULT ABOVE
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Those two facts together are a trap, so the way out of it is named rather than
+ * left to each caller to remember. Every amount this module was written for had 18
+ * decimals: the project token, and a quote asset that was the chain's own coin.
+ * The quote asset is now an 8-decimal ERC-20, and the default silently understates
+ * one of the two populations by a factor of 10^10.
+ *
+ * Understates it PLAUSIBLY, which is what makes it worth a named helper instead of
+ * a comment. A 9.28 launch fee formatted at 18 decimals renders `9.28e-8`. Nothing
+ * throws, nothing warns, and the output is a perfectly believable small number — so
+ * the error survives review by looking like data.
+ *
+ * `formatQuote` exists so a call site declares which asset it is printing. `fmtEth`
+ * keeps the 18-decimal default for the native coin, where it remains correct, and
+ * token amounts keep using `formatAmount` directly.
+ */
+
+/** A quote-asset amount: raises, fees, caps, shelf prices, treasury balances. */
+export function formatQuote(
+  units: bigint | undefined | null,
+  options: Omit<AmountOptions, 'decimals'> = {},
+): string {
+  return formatAmount(units, { ...options, decimals: QUOTE_DECIMALS })
+}
+
+/** A quote-asset amount at full precision, for a hint line under a compact value. */
+export function formatQuoteExact(
+  units: bigint | undefined | null,
+  fallback = EM_DASH,
+): string {
+  return formatExact(units, QUOTE_DECIMALS, fallback)
 }
 
 /** Full precision, trailing zeros trimmed — the hint line under a compact value. */

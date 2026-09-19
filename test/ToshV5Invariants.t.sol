@@ -19,6 +19,7 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @notice Stateful handler: the only contract the invariant fuzzer is allowed
 ///         to call.  It drives real user, creator and owner actions against a
@@ -57,6 +58,14 @@ contract ToshInvariantHandler is Test {
     address public immutable creator;
     address public immutable projTreasury;
     uint256 private immutable pogSignerPk;
+
+    /// @dev READ OFF THE FACTORY rather than passed in, so the handler cannot be
+    ///      driving one token while the protocol denominates in another. A
+    ///      constructor argument would compile, run, and make every deposit
+    ///      revert on an allowance the handler had granted somewhere else — which
+    ///      in a `fail_on_revert = false` suite is indistinguishable from a
+    ///      passing run.
+    IERC20 public immutable quote;
 
     address public constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -212,6 +221,7 @@ contract ToshInvariantHandler is Test {
         address[] memory _actors
     ) {
         factory = _factory;
+        quote = _factory.quoteAsset();
         ladder = _ladder;
         router = _router;
         admin = _admin;
@@ -226,7 +236,7 @@ contract ToshInvariantHandler is Test {
         for (uint256 i; i < _actors.length; ++i) {
             actors.push(_actors[i]);
         }
-        ghostTreasuryFloor = address(_ladder).balance;
+        ghostTreasuryFloor = quote.balanceOf(address(_ladder));
     }
 
     // ─── Introspection for the invariant contract ─────────────────────────────
@@ -387,7 +397,7 @@ contract ToshInvariantHandler is Test {
     ///      action, deposit, refund, launch, claim or time jump may leave the
     ///      reservoir smaller than the largest it has been.
     function _sync() internal {
-        uint256 bal = address(ladder).balance;
+        uint256 bal = quote.balanceOf(address(ladder));
         if (bal > ghostTreasuryFloor) ghostTreasuryFloor = bal;
         _syncLatches();
     }
@@ -410,7 +420,7 @@ contract ToshInvariantHandler is Test {
     ///      to tell the two apart — the fuzzer would report two wei in the same
     ///      breath it would report a drained reservoir.
     function _syncAfterSwap(uint256 ladderBefore, uint256 burnedBefore) internal {
-        uint256 bal = address(ladder).balance;
+        uint256 bal = quote.balanceOf(address(ladder));
         if (bal < ladderBefore) {
             uint256 drop = ladderBefore - bal;
             ghostBuybackOutflow += drop;
@@ -478,14 +488,14 @@ contract ToshInvariantHandler is Test {
         if (!found) return;
 
         uint256 fee = factory.launchFee();
-        if (creator.balance < fee) return;
+        if (quote.balanceOf(creator) < fee) return;
 
         string memory name = string(abi.encodePacked("INV", vm.toString(nameNonce++)));
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        try factory.createLaunch{value: fee}(
+        try factory.createLaunch(
             name, name, projTreasury, projTreasury, rawSalt, fee, agreedSoftCap, agreedWalletCap, dur
         ) returns (
             address, address h
@@ -510,8 +520,12 @@ contract ToshInvariantHandler is Test {
 
         // Bounded to something a funded actor can actually pay, and above the
         // `ZeroAmount` floor.
-        amount = bound(amount, 0.001 ether, 5 ether);
-        if (user.balance < amount) return;
+        amount = bound(amount, 1e7, 500e8);
+        // The affordability check reads a token balance now. Leaving it on
+        // `user.balance` would have compared a BEM figure against a native one
+        // and admitted deposits the actor could not pay, turning every one of
+        // them into a caught revert and quietly emptying this handler.
+        if (quote.balanceOf(user) < amount) return;
 
         // Half the deposits carry a referrer, so the referral reserve is a
         // meaningful slice of the hook's balance when the refund solvency
@@ -522,7 +536,7 @@ contract ToshInvariantHandler is Test {
         _ensureQuota(user, address(hook), amount);
 
         vm.prank(user);
-        try factory.deposit{value: amount}(address(hook), referrer) {
+        try factory.deposit(address(hook), referrer, amount) {
             ghostDeposited[address(hook)][user] += amount;
             ++okDeposit;
         } catch (bytes memory reason) {
@@ -609,8 +623,8 @@ contract ToshInvariantHandler is Test {
         if (!hook.launched()) return;
 
         address who = _actor(actorSeed);
-        nativeIn = bound(nativeIn, 0.001 ether, 3 ether);
-        if (who.balance < nativeIn) return;
+        nativeIn = bound(nativeIn, 1e7, 300e8);
+        if (quote.balanceOf(who) < nativeIn) return;
 
         // Read the key BEFORE the prank. `vm.prank` applies to the next call of
         // any kind, so an external getter evaluated inside the argument list
@@ -618,11 +632,11 @@ contract ToshInvariantHandler is Test {
         // actor. See the note on `ownerAddLadderToken`.
         PoolKey memory key = hook.getPoolKey();
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = _totalBurned();
 
         vm.prank(who);
-        try router.swap{value: nativeIn}(
+        try router.swap(
             key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
@@ -670,10 +684,17 @@ contract ToshInvariantHandler is Test {
             lastMintRevert = reason;
             return;
         }
-        if (cost == 0 || who.balance < cost) return;
+        if (cost == 0 || quote.balanceOf(who) < cost) return;
+
+        // Approved here rather than up front, because the hook being minted from
+        // may have been created BY THE FUZZER mid-run and so cannot have been
+        // approved in `setUp`. Sized to `cost` rather than unlimited: a mint is
+        // the one action where the exact amount is known a call in advance.
+        vm.prank(who);
+        quote.approve(address(hook), cost);
 
         vm.prank(who);
-        try hook.mintBondingCurve{value: cost}(tokenAmount) {
+        try hook.mintBondingCurve(tokenAmount, cost) {
             ++okMintShelf;
         } catch (bytes memory reason) {
             lastMintRevert = reason;
@@ -698,7 +719,7 @@ contract ToshInvariantHandler is Test {
     function pokeBuyback(uint256 actorSeed) external {
         address who = _actor(actorSeed);
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = _totalBurned();
 
         // Per-hook burn snapshot: the round-robin cursor decides which pool a
@@ -747,7 +768,7 @@ contract ToshInvariantHandler is Test {
         if (held == 0) return;
         tokensIn = bound(tokensIn, 1, held);
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = _totalBurned();
 
         vm.startPrank(who);
@@ -878,7 +899,7 @@ contract ToshInvariantHandler is Test {
         // Capped at 1 ether so the creator can keep affording to open rounds;
         // a 100-ether fee bankrupts them in a few calls and shuts off the one
         // action the rest of the sequence depends on.
-        fee = bound(fee, 0, 1 ether);
+        fee = bound(fee, 0, 100e8);
         vm.prank(admin);
         try factory.setLaunchFee(fee) {
             ++okOwnerAction;
@@ -895,7 +916,7 @@ contract ToshInvariantHandler is Test {
         // never launch, starving the post-launch invariants of subjects. The
         // property under test is that a retune cannot reach into a round that
         // is already open, and any moving value exercises that.
-        cap = bound(cap, 0.01 ether, 6 ether);
+        cap = bound(cap, 1e8, 600e8);
         vm.prank(admin);
         try factory.setDefaultSoftCap(cap) {
             ++okOwnerAction;
@@ -912,7 +933,7 @@ contract ToshInvariantHandler is Test {
         // Floor raised to 2 ETH now that the soft cap tops out at 6: this value
         // becomes each new round's `perWalletCap`, and four actors capped at
         // 1 ETH each cannot clear a 6-ETH soft cap no matter how long the run.
-        limit = bound(limit, 2 ether, 1000 ether);
+        limit = bound(limit, 200e8, 100_000e8);
         vm.prank(admin);
         try factory.setMaxPogAllocationLimit(limit) {
             ++okOwnerAction;
@@ -1021,6 +1042,9 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
+    /// @dev Stands in for BEM, at eight decimals.
+    MockQuoteAsset internal quote;
+
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
     ToshInvariantHandler internal handler;
@@ -1032,9 +1056,9 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///      post-launch invariants (genesis claims, referral claims) get
     ///      exercised at all rather than sitting behind a zero-raise
     ///      `ZeroAmount` revert.
-    uint256 internal constant SOFT_CAP = 2 ether;
-    uint256 internal constant POG_CAP = 20 ether;
-    uint256 internal constant ACTOR_FUNDING = 100 ether;
+    uint256 internal constant SOFT_CAP = 200e8;
+    uint256 internal constant POG_CAP = 2000e8;
+    uint256 internal constant ACTOR_FUNDING = 10_000e8;
 
     /// @dev The three legal genesis durations. Giving each project a different
     ///      one staggers the deadlines, so a single monotonic clock can have one
@@ -1054,9 +1078,13 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         vault.registerApp(address(poolManager));
         router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
-        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        factory = new ToshFactory(
+            address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
+        );
         ladder.setFactory(address(factory));
 
         factory.setDefaultSoftCap(SOFT_CAP);
@@ -1077,9 +1105,21 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         actors.push(makeAddr("carol"));
         actors.push(makeAddr("dave"));
 
-        // The ONLY ether ever handed to an actor. See the handler's header.
+        // The ONLY quote asset ever handed to an actor. See the handler's header.
+        //
+        // The approvals go with it and are unlimited, which is the right shape
+        // for an invariant run: a bounded allowance would be a second resource
+        // the fuzzer could exhaust, and "the run stopped because an approval ran
+        // out" is not a property anyone wants proven. Both spenders are named
+        // because the handler drives deposits (factory) and swaps (router).
         for (uint256 i; i < actors.length; ++i) {
-            vm.deal(actors[i], ACTOR_FUNDING);
+            quote.mint(actors[i], ACTOR_FUNDING);
+            vm.startPrank(actors[i]);
+            quote.approve(address(factory), type(uint256).max);
+            quote.approve(address(router), type(uint256).max);
+            vm.stopPrank();
+            // Native for gas only.
+            vm.deal(actors[i], 100 ether);
             // Onboard every actor BEFORE the fuzzer can touch anything.
             //
             // `registerPoG` is `whenNotPaused`, and the fuzzer holds `pause()`.
@@ -1093,8 +1133,11 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             _registerPoG(actors[i], POG_CAP);
         }
         // The creator keeps opening rounds throughout the run, each costing a
-        // launch fee the fuzzer can raise to 1 ether, so this is sized for the
+        // launch fee the fuzzer can raise to 100 BEM, so this is sized for the
         // whole sequence rather than the three projects seeded below.
+        quote.mint(creator, 100_000e8);
+        vm.prank(creator);
+        quote.approve(address(factory), type(uint256).max);
         vm.deal(creator, 1000 ether);
 
         uint256[3] memory durs = _durations();
@@ -1230,7 +1273,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}(
+        (, address h) = factory.createLaunch(
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
             projTreasury,
@@ -1274,7 +1317,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
                 owed += hook.nativeDeposited(handler.actors(j));
             }
 
-            assertGe(address(hook).balance, owed, "unlaunched hook cannot cover its outstanding deposits");
+            assertGe(quote.balanceOf(address(hook)), owed, "unlaunched hook cannot cover its outstanding deposits");
         }
     }
 
@@ -1365,7 +1408,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         asserting that the buyback engine never runs.
     function invariant_treasuryOnlyLosesEthToBuybacks() public view {
         assertGe(
-            address(ladder).balance,
+            quote.balanceOf(address(ladder)),
             handler.ghostTreasuryFloor(),
             "ladder treasury lost ETH outside a buyback: a withdrawal path exists"
         );
@@ -1489,7 +1532,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         console2.log("ok shelf mints   ", handler.okMintShelf());
         console2.log("ok pokes         ", handler.okPokeBuyback());
         console2.log("ladder listings  ", ladder.ladderTokenCount());
-        console2.log("ladder balance   ", address(ladder).balance);
+        console2.log("ladder balance   ", quote.balanceOf(address(ladder)));
         console2.log("buyback outflow  ", handler.ghostBuybackOutflow());
         console2.log("nil-fill dust wei", handler.ghostNilFillDust());
         console2.log("nil-fill legs    ", handler.ghostNilFillCount());
@@ -1517,7 +1560,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         a readable reason instead of a shrunk counterexample.
     function test_handlerPlumbingIsLive() public {
         // Genesis: a deposit must land and reach the hook's ledger.
-        handler.deposit(0, 0, 1 ether, 1);
+        handler.deposit(0, 0, 100e8, 1);
         assertEq(handler.okDeposit(), 1, "handler could not land a deposit");
 
         ToshLaunchpadHook h0 = handler.hooks(0);
@@ -1536,10 +1579,10 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         assertTrue(h0.canRefund(), "3h project should be refundable after the 7-day launch window lapses");
 
         // And the refund must actually pay out.
-        uint256 before = alice.balance;
+        uint256 before = quote.balanceOf(alice);
         handler.refund(0, 0);
         assertEq(handler.okRefund(), 1, "handler could not land a refund");
-        assertGt(alice.balance, before, "refund paid nothing");
+        assertGt(quote.balanceOf(alice), before, "refund paid nothing");
         assertEq(h0.nativeDeposited(alice), 0, "ledger not cleared after refund");
     }
 
@@ -1549,7 +1592,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // Soft cap is 5 ETH; four actors at 5 ETH each clears it on the 72h
         // project, which is still inside its genesis window.
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 5 ether, 0);
+            handler.deposit(i, 2, 500e8, 0);
         }
         ToshLaunchpadHook h2 = handler.hooks(2);
         assertGe(h2.totalNativeDeposited(), SOFT_CAP, "could not fund past the soft cap");
@@ -1578,7 +1621,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     function test_handlerCanReachBuybackAndBurn() public {
         // Fund and launch the 72h round, then list it so the ladder is non-empty.
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 5 ether, 0);
+            handler.deposit(i, 2, 500e8, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -1596,21 +1639,21 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
         // Arm the reservoir organically: the fee is an owner dial the fuzzer
         // also holds, and each new round pays it straight into the treasury.
-        handler.ownerSetLaunchFee(1 ether);
-        while (address(ladder).balance < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
+        handler.ownerSetLaunchFee(100e8);
+        while (quote.balanceOf(address(ladder)) < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
             handler.createProject(1, 0);
         }
-        assertGe(address(ladder).balance, ladder.TRIGGER_STEP(), "could not arm the buyback from launch fees");
+        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "could not arm the buyback from launch fees");
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = IERC20(address(h2.projectToken())).balanceOf(DEAD);
 
-        handler.swapBuy(0, 2, 0.5 ether);
+        handler.swapBuy(0, 2, 50e8);
         assertEq(handler.okSwapBuy(), 1, "handler could not land a swap");
 
         // The piggyback spent from the reservoir and the proceeds were burned.
         assertGt(handler.ghostBuybackOutflow(), 0, "the buyback never spent anything");
-        assertLt(address(ladder).balance, ladderBefore, "reservoir did not fall despite a buyback");
+        assertLt(quote.balanceOf(address(ladder)), ladderBefore, "reservoir did not fall despite a buyback");
         assertGt(IERC20(address(h2.projectToken())).balanceOf(DEAD), burnedBefore, "buyback proceeds were not burned");
         assertEq(handler.ghostUnexplainedTreasuryDrop(), 0, "outflow was not accounted for by a burn");
     }
@@ -1619,7 +1662,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         input tax rather than feeding the reservoir.
     function test_handlerCanReachSwapSell() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 5 ether, 0);
+            handler.deposit(i, 2, 500e8, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -1650,7 +1693,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         caller holding no role.
     function test_handlerCanReachPokeBuyback() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 5 ether, 0);
+            handler.deposit(i, 2, 500e8, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -1686,14 +1729,14 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // and spends the pot straight back down — an earlier version armed and
         // then swapped, and landed at 0.828 ether wondering why.
         for (uint256 i; i < 4; ++i) {
-            handler.swapBuy(i, 2, 1 ether);
+            handler.swapBuy(i, 2, 100e8);
         }
 
-        handler.ownerSetLaunchFee(1 ether);
-        while (address(ladder).balance < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
+        handler.ownerSetLaunchFee(100e8);
+        while (quote.balanceOf(address(ladder)) < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
             handler.createProject(1, 0);
         }
-        assertGe(address(ladder).balance, ladder.TRIGGER_STEP(), "precondition: the reservoir must be armed");
+        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "precondition: the reservoir must be armed");
 
         // Let the market settle before poking, or the leg is refused outright.
         //
@@ -1718,14 +1761,14 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // trade on this pool, so nothing disturbs that in between.
         handler.warpShort(1801);
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = token.balanceOf(DEAD);
         uint256 auditsBefore = handler.ghostLockoutAudits();
 
         handler.pokeBuyback(1);
 
         assertEq(handler.okPokeBuyback(), 1, "handler could not land a poke");
-        assertLt(address(ladder).balance, ladderBefore, "the poke spent nothing");
+        assertLt(quote.balanceOf(address(ladder)), ladderBefore, "the poke spent nothing");
         assertGt(token.balanceOf(DEAD), burnedBefore, "the poke's proceeds were not burned");
         assertEq(handler.ghostUnexplainedTreasuryDrop(), 0, "poke outflow was not accounted for by a burn");
 
@@ -1744,7 +1787,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         rather than only against sequences a unit test authored.
     function test_handlerCanReachMintShelf() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 5 ether, 0);
+            handler.deposit(i, 2, 500e8, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -1756,7 +1799,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // (and stamps the lockout); the next block is when a mint is legal.
         // That pairing — swap then mint, same-block illegal, next-block
         // legal — is the composition this action exists to put in the mix.
-        handler.swapBuy(0, 2, 0.5 ether);
+        handler.swapBuy(0, 2, 50e8);
         assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
         handler.warpShort(1 minutes);
 

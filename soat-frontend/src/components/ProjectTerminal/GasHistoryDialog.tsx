@@ -11,11 +11,11 @@ import { useEffect } from 'react'
 import { Loader2, X } from 'lucide-react'
 import type { Address } from 'viem'
 
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmt, fmtQuote } from './format'
 import type { PogChainSpend, PogScanResult } from './pogScanClient'
 import type { PogLookupPhase } from './usePogFlow'
 import { ActionButton, useActionGate } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 
 function shortAddr(a: Address): string {
@@ -197,13 +197,19 @@ export function GasHistoryDialog({
                 *
                 * Total and Floor are gas burned on ETH-settled chains, so they are
                 * ETH and stay ETH. This row is what the wallet may then DEPOSIT,
-                * which is the settlement coin. On BSC that renders "0.04 BNB"
-                * directly beneath "0.025 ETH", which looks like a bug and is not.
+                * which is the quote asset. That renders "1.16 BEM" directly beneath
+                * "0.025 ETH", which looks like a bug and is not.
                 *
-                * The note below the block exists so a user does not read it as one.
-                * Do not "fix" this by unifying the symbols: the rate is
-                * BNB-per-ETH, and making both sides agree would either overstate
-                * eligibility or misname the deposit.
+                * IT ALSO CHANGES SCALE, which the previous version of this note did
+                * not have to mention. The rows above are 18-decimal; this one is
+                * 8-decimal, so it is formatted by `fmtQuote` and the two neighbours
+                * by `fmt`. Swapping them does not fail — it prints a number 10^10
+                * out, in a place where small numbers are entirely plausible.
+                *
+                * The note below the block exists so a user does not read the unit
+                * change as an error. Do not "fix" this by unifying the symbols: the
+                * rate is quote-per-ETH, and making both sides agree would either
+                * overstate eligibility or misname the deposit.
                 */}
               {scan.maxAllocWei && eligible && (
                 <div className="flex items-baseline justify-between gap-3">
@@ -211,16 +217,33 @@ export function GasHistoryDialog({
                     Quota sized
                   </span>
                   <span className="font-mono text-note text-success">
-                    {fmt(BigInt(scan.maxAllocWei))} {NATIVE_SYMBOL}
+                    {fmtQuote(BigInt(scan.maxAllocWei))} {QUOTE_SYMBOL}
                   </span>
                 </div>
               )}
             </div>
 
-            {scan.maxAllocWei && eligible && NATIVE_SYMBOL !== 'ETH' && (
+            {/* UNCONDITIONAL NOW, where it used to be `NATIVE_SYMBOL !== 'ETH'`.
+                That guard was a way of saying "only explain the two units when they
+                differ", and it was correct on a chain whose own coin was ETH: gas
+                and quota were then the same thing and the sentence would have been
+                noise. The quota is an ERC-20 the chain has no opinion about, so the
+                two units differ on every chain and the explanation always applies.
+                Leaving the guard would have hidden it on exactly one chain —
+                Ethereum mainnet — which is the one where a reader is most likely to
+                assume a number labelled with a ticker is native. */}
+            {scan.maxAllocWei && eligible && (
               <p className="font-mono text-note text-text-tertiary leading-relaxed">
-                Gas is measured in ETH because that is what you burned; the quota is
-                in {NATIVE_SYMBOL} because that is what you deposit.
+                {/* "ETH-settled" rather than "that is what you burned", which is what
+                    this said. Both are true, but `checkChainCopy.mjs` allows a
+                    hard-coded ticker only where the surrounding SOURCE names a gas
+                    figure, and the marker it had been reading here was the
+                    `NATIVE_SYMBOL` in the condition above — which this change
+                    removed. Rewording to name the reason is the honest fix; adding
+                    `QUOTE_SYMBOL` to the guard's marker list would have let every
+                    label on the site claim the gas exception. */}
+                Gas is measured in ETH because the scanned chains are ETH-settled; the
+                quota is in {QUOTE_SYMBOL} because that is what you deposit.
               </p>
             )}
 

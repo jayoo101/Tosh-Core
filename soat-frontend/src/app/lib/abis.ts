@@ -75,6 +75,11 @@ export const FACTORY_ABI = [
         "name": "_ladderTreasury",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_quoteAsset",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -173,6 +178,19 @@ export const FACTORY_ABI = [
   {
     "type": "function",
     "name": "MIN_SOFT_CAP_PROD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "QUOTE_UNIT",
     "inputs": [],
     "outputs": [
       {
@@ -308,7 +326,7 @@ export const FACTORY_ABI = [
         "internalType": "address"
       }
     ],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -336,10 +354,15 @@ export const FACTORY_ABI = [
         "name": "referrer",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -936,6 +959,19 @@ export const FACTORY_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteAsset",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
       }
     ],
     "stateMutability": "view"
@@ -1792,11 +1828,6 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "InsufficientLaunchFee",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidAdmin",
     "inputs": []
   },
@@ -1847,6 +1878,11 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
+    "name": "NoSaltAboveFloor",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NonceConflict",
     "inputs": []
   },
@@ -1889,6 +1925,17 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "SignatureExpired",
     "inputs": []
   },
@@ -1900,6 +1947,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "SoftCapTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TokenBelowQuoteAsset",
     "inputs": []
   },
   {
@@ -1937,13 +1989,14 @@ export const HOOK_ABI = [
         "name": "_platformFeeRecipient",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_quoteAsset",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "receive",
-    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -3249,10 +3302,15 @@ export const HOOK_ABI = [
         "name": "lifetimeReferrer",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -3596,6 +3654,11 @@ export const HOOK_ABI = [
         "name": "tokenAmount",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "maxCost",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -3605,7 +3668,7 @@ export const HOOK_ABI = [
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "payable"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -3739,6 +3802,19 @@ export const HOOK_ABI = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteAsset",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
       }
     ],
     "stateMutability": "view"
@@ -4415,6 +4491,16 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "CostAboveMax",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DepositNotReceived",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ExceedsTierRemaining",
     "inputs": []
   },
@@ -4426,11 +4512,6 @@ export const HOOK_ABI = [
   {
     "type": "error",
     "name": "GenesisExpired",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InsufficientPayment",
     "inputs": []
   },
   {
@@ -4537,6 +4618,11 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "RaiseTooSmallForLadder",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -4611,13 +4697,14 @@ export const TREASURY_ABI = [
         "name": "_owner",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_quoteAsset",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "receive",
-    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -4904,6 +4991,19 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "notifyTax",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -4963,6 +5063,19 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "quoteAsset",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "removeLadderToken",
     "inputs": [
       {
@@ -4980,6 +5093,19 @@ export const TREASURY_ABI = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "reservoir",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -5276,6 +5402,17 @@ export const TREASURY_ABI = [
     "type": "error",
     "name": "PoolNotLaunched",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

@@ -12,8 +12,8 @@ import type { Phase } from './phase'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt, fmtFull } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote, fmtFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
@@ -163,7 +163,7 @@ export function ReferralPanel({
     >
       <Readout
         label="CLAIMABLE COMMISSION"
-        value={`${fmt(claimable)} ${NATIVE_SYMBOL}`}
+        value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
         hint={claimable === 0n
           ? 'accrues on deposit · unlocks at launch()'
           : fmtFull(claimable, 18)}

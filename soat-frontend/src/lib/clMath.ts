@@ -22,7 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { encodeAbiParameters, keccak256, numberToHex, type Address } from 'viem'
-import { CL_POOL_MANAGER, POOL_FEE, TICK_SPACING } from './contracts'
+import { CL_POOL_MANAGER, POOL_FEE, TICK_SPACING, QUOTE_ASSET } from './contracts'
 
 /** sqrtPriceX96 at tick -887200. */
 export const SQRT_PRICE_LOWER = 4_310_618_292n
@@ -142,7 +142,27 @@ export function clPoolParameters(
 }
 
 /**
- * ETH is `address(0)` and therefore always sorts to `currency0`.
+ * The quote asset is `currency0`, and it is held there deliberately rather than
+ * by luck.
+ *
+ * WHAT CHANGED. This used to read `currency0: NATIVE_CURRENCY` and justify itself
+ * in one line: ETH is `address(0)`, `address(0)` sorts below everything, so the
+ * ordering was a fact about arithmetic and needed no enforcement. An ERC-20 quote
+ * asset has an ordinary address, and Infinity still sorts a `PoolKey`'s currencies
+ * ascending, so roughly a third of randomly-derived token addresses would land
+ * BELOW the quote asset and invert the pair.
+ *
+ * What keeps that from happening is upstream of this file: the factory grinds the
+ * CREATE2 salt until the project token's address sits above the quote asset's, so
+ * the invariant this function encodes is maintained on-chain rather than assumed
+ * here. `test_fork_lifecycleAgainstLivePoolManager` asserts both halves — that
+ * `currency0` is the quote asset, and that the grind sorted the token above it.
+ *
+ * WHY IT IS WORTH THE GRIND. An inverted pair is not a revert. Every amount, every
+ * price and every tick simply means the other thing: `amount0Max` bounds the token
+ * leg instead of the quote leg, `sqrtPriceX96` inverts, and a deposit panel asking
+ * for "5 BEM" would take the token side of the position. The pool would work
+ * perfectly and price the asset upside down.
  *
  * `poolManager` comes from `CL_POOL_MANAGER`, which is a per-chain source
  * constant, and a chain with no Infinity deployment resolves it to the zero
@@ -162,8 +182,25 @@ export function toshPoolKey(
     )
   }
 
+  /*
+   * The ordering the grind is supposed to guarantee, checked rather than trusted.
+   *
+   * A token below the quote asset is not a case to handle by swapping the pair —
+   * the hook's own `getPoolKey()` puts the quote asset first, so a key built the
+   * other way round would hash to a different pool id and every read against it
+   * would come back empty. There is no correct key to return here, which is why
+   * this throws instead of reordering.
+   */
+  if (BigInt(token) <= BigInt(QUOTE_ASSET)) {
+    throw new Error(
+      `clMath: token ${token} does not sort above the quote asset ${QUOTE_ASSET}, so this ` +
+      'pair would invert. The factory grinds CREATE2 salts to prevent exactly this — a ' +
+      'token that fails the check was not created by the factory this app is pointed at.',
+    )
+  }
+
   return {
-    currency0: NATIVE_CURRENCY,
+    currency0: QUOTE_ASSET,
     currency1: token,
     hooks: hook,
     poolManager: CL_POOL_MANAGER,

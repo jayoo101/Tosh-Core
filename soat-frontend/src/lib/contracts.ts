@@ -19,10 +19,14 @@
 // ENV WIRING
 // ──────────
 //   NEXT_PUBLIC_FACTORY_ADDRESS     — deployed ToshFactory (required)
+//   NEXT_PUBLIC_QUOTE_ASSET         — the token `factory.quoteAsset()` returns
+//                                     (required, and deliberately has no default)
+//   NEXT_PUBLIC_QUOTE_SYMBOL        — its ticker for display; 'BEM' if unset
 //   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 97, BSC testnet)
 //   NEXT_PUBLIC_POSITION_MANAGER    — Infinity CLPositionManager; the target
 //                                     chain's address if unset
-//   NEXT_PUBLIC_PERMIT2             — Permit2; canonical address if unset
+//   NEXT_PUBLIC_PERMIT2             — Permit2; PancakeSwap's deployment if unset,
+//                                     which is NOT Uniswap's canonical address
 //   POG_SIGNER_PRIVATE_KEY          — server-only PoG oracle key (NEVER expose)
 //   POG_PRIVATE_KEY                 — spec-compliant fallback alias of the above
 //
@@ -81,6 +85,59 @@ if (/^0x0{38}[0-9a-fA-F]{2}$/.test(process.env.NEXT_PUBLIC_FACTORY_ADDRESS)) {
 }
 
 export const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS as Address
+
+/**
+ * The quote asset every raise, fee, shelf price and buyback is denominated in.
+ *
+ * REQUIRED, with no per-chain default, and that is deliberate. The authority is
+ * `factory.quoteAsset()` — an immutable with no setter on the factory, the hook
+ * implementation and the treasury alike. A default here would let the app approve
+ * one token while the factory pulls another, which does not fail at approve time:
+ * the allowance is granted, the button enables, and the deposit reverts. On chain
+ * 56 the value is BEM; on 97 BEM has no deployment at all, so whatever 8-decimal
+ * token the testnet factory was constructed against is the only correct answer and
+ * this file cannot guess it.
+ *
+ * `npm run check:quote` reconciles this against the deployed factory, the hook
+ * implementation and the treasury, and refuses a factory that has no `quoteAsset()`
+ * at all — which is what turns "required" into "verified". It is a `check:*` rather
+ * than a `guard:*` because what it reports is the state of a deployment, not of
+ * this tree.
+ */
+if (!process.env.NEXT_PUBLIC_QUOTE_ASSET) {
+  throw new Error(
+    'Missing env: NEXT_PUBLIC_QUOTE_ASSET — must be the token `factory.quoteAsset()` returns',
+  )
+}
+export const QUOTE_ASSET = process.env.NEXT_PUBLIC_QUOTE_ASSET as Address
+
+/**
+ * Eight, not eighteen, and nothing may assume otherwise.
+ *
+ * The hook's constructor asserts `decimals() == 8` and refuses to deploy against
+ * anything else, so this is a protocol invariant rather than a property of a
+ * particular token. It is mirrored here because the ten-orders-of-magnitude gap
+ * between this and the project token's 18 is the single most common way a display
+ * or an input silently misreads a balance by a factor of 10^10 — `formatUnits(x, 18)`
+ * on a quote amount shows 0.0000000928 where 9.28 belongs, and reads as a rounding
+ * artefact rather than as a bug.
+ */
+export const QUOTE_DECIMALS = 8
+
+/**
+ * What to call it on screen.
+ *
+ * Read from env so the testnet's stand-in token is not labelled BEM: chain 97 runs
+ * against some other 8-decimal token by necessity, and calling that BEM in the UI
+ * would be the interface asserting something the chain does not support.
+ */
+export const QUOTE_SYMBOL = process.env.NEXT_PUBLIC_QUOTE_SYMBOL ?? 'BEM'
+
+/** Pre-bound quote-asset tuple, for allowance reads and approve writes. */
+export const quoteContract = {
+  address: QUOTE_ASSET,
+  abi:     ERC20_ABI,
+} as const
 
 /**
  * Ladder treasury (set after deploy).  Optional: the public UI boots without
@@ -210,11 +267,22 @@ export const CL_POSITION_MANAGER: Address = envAddress(
   }),
 )
 
-/** Permit2 — canonical address on every chain, overridable just in case.
- *  The one address the migration did not have to touch. */
+/** Permit2 — PancakeSwap's deployment, NOT Uniswap's canonical address.
+ *
+ *  ⚑ This was wrong, and the wrong value was the plausible one. It read
+ *  `0x000000000022D473030F116dDEE9F6B43aC78BA3` with a comment calling it "the one
+ *  address the migration did not have to touch". That address is genuinely live on
+ *  BSC and genuinely is a working Permit2, so approving it succeeds and nothing
+ *  complains — right up to the swap or the mint, which reverts with
+ *  `AllowanceExpired` from a contract the caller never named.
+ *
+ *  PancakeSwap's periphery consults its own deployment. Both `UniversalRouter` and
+ *  `CLPositionManager` do, and the same address serves mainnet 56 and testnet 97,
+ *  confirmed by calling `CLPositionManager.permit2()` on each. `ToshV5Fork.t.sol`
+ *  asserts the agreement so a future periphery bump cannot move it silently. */
 export const PERMIT2: Address = envAddress(
   process.env.NEXT_PUBLIC_PERMIT2,
-  '0x000000000022D473030F116dDEE9F6B43aC78BA3',
+  '0x31c2F6fcFf4F8759b3Bd5Bf0e1084A055615c768',
 )
 
 /** Full-range bounds, mirroring the hook's genesis position (TICK_SPACING 200). */
@@ -351,40 +419,57 @@ export const treasuryContract = {
 
 /**
  * M-01 — minimum acceptable `defaultSoftCap` (mirrors Factory.MIN_SOFT_CAP_PROD).
- * Below this floor `p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY` truncates to zero.
- *   0.035 BNB → 3.5 × 10^16 wei, which keeps p0 around 8.3e9 wei/token and
- *   `shelfP0` at 8,749,999,999 with a 16,646,947-wei first step.
+ * Below this floor `p0 = (lpQuote * 1e18) / GENESIS_LP_SUPPLY` truncates to zero.
+ *
+ * ⚑ 100 BEM, and this floor is now LOAD-BEARING rather than a formality. It was
+ * 0.035 BNB, an 18-decimal amount that cleared the point where the shelf ladder
+ * degenerates by sixteen million to one. BEM has eight decimals: 100 BEM gives
+ * `p0` = 2380 and `shelfP0` = 2499 against a break-even of 526, a margin of 4.75.
+ * Below roughly 21 BEM two adjacent shelves round onto one price, which would let a
+ * buyer clear the upper shelf at the lower shelf's price.
+ *
+ * So lowering this is not a UX decision. `ToshV5Fuzz.t.sol`
+ * (`test_smallestReachableShelfP0_stillStepsTheLadder` and
+ * `test_belowTheSoftCapFloor_theLadderStopsStepping`) holds both sides of it, and
+ * `docs/BEM_QUOTE_ASSET.md` §2.2 is the argument.
  */
-export const MIN_SOFT_CAP_PROD: bigint = 35n * 10n ** 15n
-export const MIN_SOFT_CAP_PROD_LABEL = '0.035'
+export const MIN_SOFT_CAP_PROD: bigint = 100n * 10n ** 8n
+export const MIN_SOFT_CAP_PROD_LABEL = '100'
 
 /**
  * Ceiling on `launchFee` (mirrors `Factory.MAX_LAUNCH_FEE`).
  *
  * Mirrored here for the same reason the soft-cap floor and the cooldown maximum
  * are: the admin panel is where the value is typed, and the slip this ceiling
- * exists to catch — `0.1 ether` entered as `0.1e18 ether` — is a keystroke. A
- * bound that lives only on-chain turns that keystroke into a reverted owner
- * transaction instead of an inline refusal.
+ * exists to catch — an order-of-magnitude slip — is a keystroke. A bound that lives
+ * only on-chain turns that keystroke into a reverted owner transaction instead of
+ * an inline refusal.
+ *
+ * 928 BEM, a hundred times the 9.28 BEM default.
  */
-export const MAX_LAUNCH_FEE: bigint = 35n * 10n ** 18n
-export const MAX_LAUNCH_FEE_LABEL = '35'
+export const MAX_LAUNCH_FEE: bigint = 928n * 10n ** 8n
+export const MAX_LAUNCH_FEE_LABEL = '928'
 
 /**
- * Ceilings on the other two ETH dials (mirror `Factory.MAX_DEFAULT_SOFT_CAP` and
- * `Factory.MAX_POG_ALLOCATION_LIMIT`).
+ * Ceilings on the other two quote-denominated dials (mirror
+ * `Factory.MAX_DEFAULT_SOFT_CAP` and `Factory.MAX_POG_ALLOCATION_LIMIT`).
  *
  * Far looser than `MAX_LAUNCH_FEE`, and read the Solidity natspec before
  * tightening either: a value picked for neatness here would reject raises and
  * wallet caps this repo's own test fixtures and rehearsal scripts depend on.
- * These catch wei/ether confusion and nothing subtler — in particular a
+ * These catch order-of-magnitude confusion and nothing subtler — in particular a
  * per-wallet limit under the ceiling is not evidence that PoG still caps whales.
+ *
+ * 20,000 BEM rather than the old 1,000,000: with a fixed-supply quote asset the
+ * ceiling has to sit under the asset's own float to mean anything, and 20,000 BEM
+ * is around a tenth of supply. A 1,000,000 ceiling would have sat several times
+ * ABOVE it and refused nothing — see `ToshFactory.MAX_DEFAULT_SOFT_CAP`'s natspec.
  */
-export const MAX_DEFAULT_SOFT_CAP: bigint = 1_000_000n * 10n ** 18n
-export const MAX_DEFAULT_SOFT_CAP_LABEL = '1,000,000'
+export const MAX_DEFAULT_SOFT_CAP: bigint = 20_000n * 10n ** 8n
+export const MAX_DEFAULT_SOFT_CAP_LABEL = '20,000'
 
-export const MAX_POG_ALLOCATION_LIMIT: bigint = 1_000_000n * 10n ** 18n
-export const MAX_POG_ALLOCATION_LIMIT_LABEL = '1,000,000'
+export const MAX_POG_ALLOCATION_LIMIT: bigint = 20_000n * 10n ** 8n
+export const MAX_POG_ALLOCATION_LIMIT_LABEL = '20,000'
 
 /**
  * The 40 / 60 genesis-to-ladder split (mirrors `Hook.GENESIS_SUPPLY` and

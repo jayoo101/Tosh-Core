@@ -30,7 +30,7 @@ import Link from 'next/link'
 import { Search } from 'lucide-react'
 
 import { ACTIVE_CHAIN_LABEL, MAINNET_CHAIN_LABEL } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
 import { ProjectCard, SkeletonCard } from './ProjectCard'
 import { useDirectoryProjects, type DirectoryTab } from './useDirectoryProjects'
@@ -59,7 +59,7 @@ const PHASES: {
   {
     key: 'live',
     label: 'Funding',
-    blurb: `Proof-of-Gas ${NATIVE_SYMBOL} deposits open`,
+    blurb: `Proof-of-Gas ${QUOTE_SYMBOL} deposits open`,
     pip: 'bg-brand',
   },
   {

@@ -326,9 +326,24 @@ describe('POST /api/admin/config — the floor and the ceiling', () => {
   })
 
   it('refuses a floor that sits above the cap, collapsing the band', async () => {
-    // Above the cap every eligible wallet gets the whole ceiling, so the gas
-    // history stops ranking anybody — a band nobody would choose on purpose.
-    const res = await signedPost({ rate: 0.5, floorWei: '5000000000000000000' })
+    /*
+     * Above the cap every eligible wallet gets the whole ceiling, so the gas history
+     * stops ranking anybody — a band nobody would choose on purpose.
+     *
+     * ALL THREE DIALS ARE POSTED, where this used to send only the rate and the floor
+     * and let the ceiling default. That made the fixture depend on
+     * `DEFAULT_POG_MAX_ALLOC_WEI`, and it stopped testing anything when the quote-asset
+     * re-denomination moved that constant: a 5 ETH floor against the new 46.4-unit
+     * ceiling at rate 0.5 puts the cap at 92.8 ETH, so the band became perfectly
+     * coherent and the assertion failed on a 200. Naming the ceiling here keeps the
+     * arithmetic self-contained: 1-unit ceiling ÷ rate 0.5 caps gas at 2 ETH, and the
+     * 5 ETH floor sits above it.
+     */
+    const res = await signedPost({
+      rate: 0.5,
+      floorWei: '5000000000000000000', // 5 ETH of gas
+      maxAllocWei: '100000000',        // 1 quote unit
+    })
 
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/incoherent band/)

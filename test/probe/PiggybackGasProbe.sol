@@ -84,8 +84,8 @@ contract ProbeTreasury is ToshLadderTreasury {
 
     event ProbeSpendSet(uint256 amount);
 
-    constructor(address _poolManager, address _vault, address _owner)
-        ToshLadderTreasury(_poolManager, _vault, _owner)
+    constructor(address _poolManager, address _vault, address _owner, address _quoteAsset)
+        ToshLadderTreasury(_poolManager, _vault, _owner, _quoteAsset)
     {}
 
     function setProbeSpend(uint256 amount) external onlyOwner {
@@ -94,7 +94,10 @@ contract ProbeTreasury is ToshLadderTreasury {
     }
 
     function _nextSpendAmount() internal view override returns (uint256) {
-        uint256 bal = address(this).balance;
+        // The reservoir's holdings are an ERC20 balance now, not this contract's
+        // native balance. Reading `address(this).balance` here would have
+        // returned zero forever and measured a piggyback that never armed.
+        uint256 bal = quoteAsset.balanceOf(address(this));
         if (probeSpend == 0 || bal < probeSpend) return 0;
         return probeSpend;
     }

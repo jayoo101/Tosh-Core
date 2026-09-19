@@ -31,8 +31,8 @@
 import {
   Card, Readout, Field, ActionButton,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote } from './format'
 import { ShelfLadder } from './ShelfLadder'
 import { useBondingState } from './bondingState'
 
@@ -116,7 +116,7 @@ export function BondingLadderSection() {
 
 export function BondingBuyPanel() {
   const {
-    p, halted, quotable, nativeCost, maxEthCost,
+    p, halted, quotable, quoteCost, maxQuoteCost,
     quoteUnknown, quoteUnavailable, isDust,
     tokenAmount, setTokenAmount, txBusy, amountError, amountHint,
     gate, armed,
@@ -161,7 +161,7 @@ export function BondingBuyPanel() {
               layout="stack"
               className="px-4 py-3"
               label="QUOTED COST"
-              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmt(nativeCost)} ${NATIVE_SYMBOL}`}
+              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmtQuote(quoteCost)} ${QUOTE_SYMBOL}`}
               tone={quoteUnavailable ? 'warn' : 'ink'}
             />
             <Readout
@@ -169,11 +169,11 @@ export function BondingBuyPanel() {
               className="px-4 py-3"
               label="MOST YOU CAN PAY"
               // Only one of these three cells used to admit it was waiting. The
-              // other two read straight off `maxEthCost`, which is 0n until the
+              // other two read straight off `maxQuoteCost`, which is 0n until the
               // quote lands — so the panel spent every in-flight moment stating
               // that the order costs nothing and sends nothing. A ceiling of
               // "0 ETH" is not a pending state, it is a wrong answer.
-              value={quoteUnknown || quoteUnavailable ? '…' : `${fmt(maxEthCost)} ${NATIVE_SYMBOL}`}
+              value={quoteUnknown || quoteUnavailable ? '…' : `${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL}`}
               hint="0.5% over the quote; the difference comes back"
             />
             <Readout

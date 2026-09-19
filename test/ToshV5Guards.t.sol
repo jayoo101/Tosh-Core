@@ -24,6 +24,7 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 import {ToshCloneLib} from "../src/libraries/ToshCloneLib.sol";
 
 /// @notice v5.0 hook/token guards and views that do not need a live V4 pool.
@@ -48,6 +49,9 @@ contract ToshV5GuardsTest is Test {
     address internal pogSigner;
 
     ToshFactory internal factory;
+
+    /// @dev Stands in for BEM, at eight decimals.
+    MockQuoteAsset internal quote;
     ToshLaunchpadHook internal hook;
     ToshToken internal token;
 
@@ -64,20 +68,56 @@ contract ToshV5GuardsTest is Test {
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
+        // Real, not a mock, unlike the pool manager and the Vault: the factory's
+        // constructor deploys the hook implementation, which reads `decimals()`
+        // off the quote asset and requires 8.
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder);
-        factory.setMaxPogAllocationLimit(1000 ether);
+        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder, address(quote));
+        // 1000 BEM, the suite's working figure. `MAX_POG_ALLOCATION_LIMIT` is
+        // 20,000 BEM — a tenth of BEM's supply — so the old 1000-ETH-equivalent
+        // headroom does not exist to be used.
+        factory.setMaxPogAllocationLimit(1000e8);
         vm.stopPrank();
 
+        // Native for gas only.
         vm.deal(creator, 100 ether);
         vm.deal(user1, 100 ether);
         vm.deal(admin, 100 ether);
+
+        _endow(creator);
+        _endow(user1);
 
         (address t, address h) = _createLaunch("Guard", "GRD");
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
 
-        implAsSelf = new ToshLaunchpadHook(mockPoolManager, mockVault, address(this), ladder, treasury);
+        // The hook pulls shelf-mint payments itself, so its allowance cannot be
+        // granted before it exists.
+        vm.prank(user1);
+        quote.approve(h, type(uint256).max);
+
+        implAsSelf = new ToshLaunchpadHook(mockPoolManager, mockVault, address(this), ladder, treasury, address(quote));
+    }
+
+    function _endow(address who) internal {
+        quote.mint(who, 100_000e8);
+        vm.prank(who);
+        quote.approve(address(factory), type(uint256).max);
+    }
+
+    /// @dev Set an exact quote balance, the way `vm.deal` set an exact native one.
+    ///      The buyback reservoir's arming threshold is a token balance now, and
+    ///      `test_nextSpendAmountIsNotOverridden` lands it one base unit either
+    ///      side of `TRIGGER_STEP`, so accumulating would defeat it.
+    function _setQuote(address who, uint256 amount) internal {
+        uint256 held = quote.balanceOf(who);
+        if (held > amount) {
+            quote.burn(who, held - amount);
+        } else if (held < amount) {
+            quote.mint(who, amount - held);
+        }
     }
 
     function _buildPoGSig(address user, uint256 maxAlloc, uint256 nonce, uint256 deadline)
@@ -117,9 +157,8 @@ contract ToshV5GuardsTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (t, h) = factory.createLaunch{value: fee}(
-            n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (t, h) =
+            factory.createLaunch(n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
     }
 
     function _emptyKey() internal view returns (PoolKey memory) {
@@ -146,7 +185,7 @@ contract ToshV5GuardsTest is Test {
     }
 
     function _freshHook() internal returns (ToshLaunchpadHook) {
-        return _freshClone(1 ether, 1 ether, 24 hours);
+        return _freshClone(100e8, 100e8, 24 hours);
     }
 
     // ── Hook constructor ──────────────────────────────────────────────────────
@@ -159,17 +198,19 @@ contract ToshV5GuardsTest is Test {
 
     function test_hook_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshLaunchpadHook(address(0), mockVault, address(factory), ladder, treasury);
+        new ToshLaunchpadHook(address(0), mockVault, address(factory), ladder, treasury, address(quote));
     }
 
     function test_hook_ctor_revertsOnZeroFactory() public {
         vm.expectRevert(bytes("zero factory"));
-        new ToshLaunchpadHook(mockPoolManager, mockVault, address(0), ladder, treasury);
+        new ToshLaunchpadHook(mockPoolManager, mockVault, address(0), ladder, treasury, address(quote));
     }
 
     function test_hook_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), payable(address(0)), treasury);
+        new ToshLaunchpadHook(
+            mockPoolManager, mockVault, address(factory), payable(address(0)), treasury, address(quote)
+        );
     }
 
     /// @dev `platformFeeRecipient` is on a money path — it takes
@@ -179,7 +220,7 @@ contract ToshV5GuardsTest is Test {
     ///      exactly like `ladderTreasury`.
     function test_hook_ctor_revertsOnZeroPlatformFeeRecipient() public {
         vm.expectRevert(bytes("zero platformFeeRecipient"));
-        new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), ladder, address(0));
+        new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), ladder, address(0), address(quote));
     }
 
     function test_hook_windowConstantsAreThreeTwentyFourSeventyTwo() public view {
@@ -308,13 +349,13 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_initializeToken_rejectsZeroSoftCap() public {
-        ToshLaunchpadHook fresh = _freshClone(0, 1 ether, 24 hours);
+        ToshLaunchpadHook fresh = _freshClone(0, 100e8, 24 hours);
         vm.expectRevert(bytes("zero softCap"));
         fresh.initializeToken(makeAddr("tok"), projTreasury);
     }
 
     function test_initializeToken_rejectsZeroPerWalletCap() public {
-        ToshLaunchpadHook fresh = _freshClone(1 ether, 0, 24 hours);
+        ToshLaunchpadHook fresh = _freshClone(100e8, 0, 24 hours);
         vm.expectRevert(bytes("zero perWalletCap"));
         fresh.initializeToken(makeAddr("tok"), projTreasury);
     }
@@ -323,7 +364,7 @@ contract ToshV5GuardsTest is Test {
         uint256[3] memory allowed = [hook.DURATION_FAST(), hook.DURATION_STANDARD(), hook.DURATION_SLOW()];
 
         for (uint256 i; i < allowed.length; ++i) {
-            ToshLaunchpadHook h = _freshClone(1 ether, 1 ether, allowed[i]);
+            ToshLaunchpadHook h = _freshClone(100e8, 100e8, allowed[i]);
             h.initializeToken(makeAddr("tok"), projTreasury);
 
             assertEq(h.genesisDuration(), allowed[i], "window is frozen in the clone's code");
@@ -343,7 +384,7 @@ contract ToshV5GuardsTest is Test {
         uint256[5] memory rejected = [uint256(0), 1 seconds, 12 hours, 25 hours, 3650 days];
 
         for (uint256 i; i < rejected.length; ++i) {
-            ToshLaunchpadHook h = _freshClone(1 ether, 1 ether, rejected[i]);
+            ToshLaunchpadHook h = _freshClone(100e8, 100e8, rejected[i]);
             vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
             h.initializeToken(makeAddr("tok"), projTreasury);
         }
@@ -370,30 +411,33 @@ contract ToshV5GuardsTest is Test {
 
         assertFalse(ToshLaunchpadHook(payable(impl)).tokenInitialized(), "still uninitialised");
 
-        // And therefore unable to take value.
+        // And therefore unable to take value. Still asserted in NATIVE value,
+        // even though nothing the protocol does moves native any more: the claim
+        // is that the implementation's `receive` refuses, which is about the
+        // fallback and not about the unit of account.
         vm.deal(address(this), 1 ether);
         (bool ok,) = impl.call{value: 1 ether}("");
-        assertFalse(ok, "implementation refuses ETH");
+        assertFalse(ok, "implementation refuses native value");
     }
 
     function test_hook_deposit_revertsBeforeTokenInitialised() public {
         ToshLaunchpadHook fresh = _freshHook();
         vm.expectRevert(ToshLaunchpadHook.NotInitialized.selector);
-        fresh.deposit{value: 1}(user1, address(0), address(0));
+        fresh.deposit(user1, address(0), address(0), 1);
     }
 
     function test_hook_deposit_rejectsNonFactory() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
-        hook.deposit{value: 1 ether}(user1, address(0), address(0));
+        hook.deposit(user1, address(0), address(0), 100e8);
     }
 
     function test_deposit_revertsAfterDeadline() public {
-        _register(user1, 1 ether);
+        _register(user1, 100e8);
         vm.warp(hook.genesisDeadline());
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.GenesisExpired.selector);
-        factory.deposit{value: 0.01 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1e8);
     }
 
     // ── Admin rotation ────────────────────────────────────────────────────────
@@ -424,42 +468,42 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_canRefund_falseWhenSoftCapMet() public {
-        _register(user1, 10 ether);
+        _register(user1, 1000e8);
         vm.prank(user1);
-        factory.deposit{value: 10 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1000e8);
         vm.warp(hook.genesisDeadline() + 1);
         assertFalse(hook.canRefund());
     }
 
     function test_canRefund_falseWhenUnderCapAfterDeadline() public {
-        _register(user1, 1 ether);
+        _register(user1, 100e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1e8);
         vm.warp(hook.genesisDeadline() + 1);
         assertFalse(hook.canRefund());
     }
 
     function test_canRefund_trueAfterZombieWindowWhenSoftCapMet() public {
-        _register(user1, 10 ether);
+        _register(user1, 1000e8);
         vm.prank(user1);
-        factory.deposit{value: 10 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1000e8);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         assertTrue(hook.canRefund());
     }
 
     function test_refund_revertsBeforeDeadline() public {
-        _register(user1, 1 ether);
+        _register(user1, 100e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1e8);
         vm.prank(user1);
         vm.expectRevert(bytes("Genesis not ended yet"));
         hook.refund();
     }
 
     function test_refund_revertsIfSoftCapMet() public {
-        _register(user1, 10 ether);
+        _register(user1, 1000e8);
         vm.prank(user1);
-        factory.deposit{value: 10 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1000e8);
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(user1);
         vm.expectRevert(bytes("Refund not available"));
@@ -467,22 +511,22 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_refund_succeedsAfterZombieWhenSoftCapMet() public {
-        _register(user1, 10 ether);
+        _register(user1, 1000e8);
         vm.prank(user1);
-        factory.deposit{value: 10 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1000e8);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
 
-        uint256 before = user1.balance;
+        uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
         hook.refund();
-        assertEq(user1.balance - before, 10 ether);
+        assertEq(quote.balanceOf(user1) - before, 1000e8, "a refund pays back in the quote asset");
         assertTrue(hook.zombieRefundEnabled());
     }
 
     function test_refund_revertsUnderCapUntilLaunchWindowLapses() public {
-        _register(user1, 1 ether);
+        _register(user1, 100e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1e8);
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(user1);
         vm.expectRevert(bytes("Refund not available"));
@@ -517,9 +561,9 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_launch_revertsAfterLaunchWindowExpired() public {
-        _register(user1, 10 ether);
+        _register(user1, 1000e8);
         vm.prank(user1);
-        factory.deposit{value: 10 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 1000e8);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.LaunchWindowExpired.selector);
@@ -541,7 +585,7 @@ contract ToshV5GuardsTest is Test {
     function test_mintBondingCurve_revertsBeforeLaunch() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.NotLaunched.selector);
-        hook.mintBondingCurve{value: 1 ether}(1e18);
+        hook.mintBondingCurve(1e18, 100e8);
     }
 
     // ── Views ─────────────────────────────────────────────────────────────────
@@ -833,18 +877,22 @@ contract ToshV5GuardsTest is Test {
     ///   to ask whether a function was overridden, and an override that
     ///   reproduces this behaviour exactly is not the thing worth catching.
     function test_nextSpendAmountIsNotOverridden() public {
-        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(0xCAFE), address(this));
+        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(0xCAFE), address(this), address(quote));
 
         uint256 step = t.TRIGGER_STEP();
 
-        vm.deal(address(t), step - 1);
-        assertEq(t.nextSpendAmount(), 0, "unarmed one wei below the step");
+        // `_setQuote`, not `vm.deal`: what arms the reservoir is its quote-asset
+        // balance now, so a native deal would leave `nextSpendAmount()` reading
+        // zero at every row and the test would pass on the first assertion and
+        // fail on the second for the wrong reason.
+        _setQuote(address(t), step - 1);
+        assertEq(t.nextSpendAmount(), 0, "unarmed one base unit below the step");
 
-        vm.deal(address(t), step);
+        _setQuote(address(t), step);
         assertEq(t.nextSpendAmount(), step, "at the step, the floor applies");
 
         // Above 10x the step the proportional term overtakes the floor.
-        vm.deal(address(t), 20 * step);
+        _setQuote(address(t), 20 * step);
         assertEq(t.nextSpendAmount(), (20 * step * t.SPEND_BPS()) / 10_000, "proportional term applies");
     }
 

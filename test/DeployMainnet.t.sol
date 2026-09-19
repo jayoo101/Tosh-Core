@@ -18,6 +18,7 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {Vault} from "infinity-core/src/Vault.sol";
 import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 contract DeployMainnetTest is Test {
     /// @dev BNB Smart Chain — the chain this script is meant for
@@ -42,6 +43,12 @@ contract DeployMainnetTest is Test {
 
     CLPoolManager internal poolManager;
 
+    /// @dev Stands in for BEM. Not the real address, which is the point: the
+    ///      script reads `QUOTE_ASSET` from env and asserts `decimals() == 8`, so
+    ///      what this suite can check is the plumbing — that whatever env names
+    ///      reaches all three contracts — and not the asset.
+    MockQuoteAsset internal quoteAsset;
+
     function setUp() public {
         deployer = vm.addr(deployerPk);
 
@@ -51,7 +58,13 @@ contract DeployMainnetTest is Test {
         poolManager = new CLPoolManager(IVault(address(vault)));
         vault.registerApp(address(poolManager));
 
+        // Deployed by the TEST contract, not by `deployer`, so it leaves the
+        // deployer's nonce alone and the `computeCreateAddress(deployer, nonce + 1)`
+        // predictions below still name the factory.
+        quoteAsset = new MockQuoteAsset();
+
         vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(deployerPk)));
+        vm.setEnv("QUOTE_ASSET", vm.toString(address(quoteAsset)));
         vm.setEnv("INFINITY_CL_POOL_MANAGER", vm.toString(address(poolManager)));
         vm.setEnv("INFINITY_VAULT", vm.toString(address(vault)));
         vm.setEnv("POG_SIGNER_ADDRESS", vm.toString(pogSigner));
@@ -173,5 +186,32 @@ contract DeployMainnetTest is Test {
         ToshLaunchpadHook impl = ToshLaunchpadHook(payable(factory.hookImplementation()));
         assertEq(impl.platformFeeRecipient(), payable(platformTreasury), "hook must pay the address we deployed with");
         assertEq(impl.platformFeeRecipient(), payable(factory.platformTreasury()), "and the factory must agree");
+    }
+
+    /// @notice One `QUOTE_ASSET` must reach all three contracts, and this is the
+    ///         only place that can be checked.
+    ///
+    /// @dev    `quoteAsset` is an immutable on the treasury, the factory and the
+    ///         hook implementation, with no setter on any of them. Three separate
+    ///         constructor arguments in one script, and nothing on-chain
+    ///         reconciles them afterwards: a factory pulling token A while its
+    ///         hooks settle token B would take deposits it could never seed a pool
+    ///         with, and the repair is redeploying all three and abandoning any
+    ///         launch already created. Cheap to assert here, unfixable in
+    ///         production.
+    function test_deploy_denominatesAllThreeContractsInTheSameAsset() public {
+        vm.chainId(TARGET_CHAIN);
+
+        uint256 nonce = vm.getNonce(deployer);
+        ToshLadderTreasury treasury = ToshLadderTreasury(payable(vm.computeCreateAddress(deployer, nonce)));
+        ToshFactory factory = ToshFactory(vm.computeCreateAddress(deployer, nonce + 1));
+
+        script.run();
+
+        ToshLaunchpadHook impl = ToshLaunchpadHook(payable(factory.hookImplementation()));
+
+        assertEq(address(factory.quoteAsset()), address(quoteAsset), "factory must pull what env named");
+        assertEq(address(impl.quoteAsset()), address(quoteAsset), "and the hooks must settle the same token");
+        assertEq(address(treasury.quoteAsset()), address(quoteAsset), "and the treasury must buy back in it");
     }
 }

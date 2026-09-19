@@ -16,6 +16,8 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 
 /// @notice v5.0 property tests: monotone tier prices, genesis pro-rata, PoG
 ///         window accounting, and quoteMint never quoting a free mint.
@@ -36,10 +38,13 @@ contract ToshV5FuzzTest is Test {
     CLPoolManagerRouter internal router;
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
+
+    /// @dev Stands in for BEM, at eight decimals.
+    MockQuoteAsset internal quote;
     address internal trader = makeAddr("trader");
 
-    uint256 internal constant SOFT_CAP = 1 ether;
-    uint256 internal constant POG_CAP = 10 ether;
+    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant POG_CAP = 1000e8;
 
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
@@ -50,9 +55,13 @@ contract ToshV5FuzzTest is Test {
         vault.registerApp(address(poolManager));
         router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
-        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        factory = new ToshFactory(
+            address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
+        );
         ladder.setFactory(address(factory));
         factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -60,8 +69,24 @@ contract ToshV5FuzzTest is Test {
         factory.setQuotaWindowDuration(0);
         vm.stopPrank();
 
+        // Native for gas only.
         vm.deal(creator, 100 ether);
         vm.deal(trader, 1000 ether);
+
+        _endow(creator);
+        _endow(trader);
+    }
+
+    /// @dev Mint a quote balance and approve the factory and the router. A fuzz
+    ///      suite gets an unlimited allowance deliberately: a bounded one is a
+    ///      second resource a run can exhaust, and "the property held because the
+    ///      approval ran out" is not a property.
+    function _endow(address who) internal {
+        quote.mint(who, 1_000_000e8);
+        vm.startPrank(who);
+        quote.approve(address(factory), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        vm.stopPrank();
     }
 
     /// @dev Unlock the shelf ladder.  Shelf 0 is anchored at `1.05 x p0` and
@@ -72,7 +97,7 @@ contract ToshV5FuzzTest is Test {
         _swapBuy(hook, nativeIn);
         vm.roll(vm.getBlockNumber() + 1);
         vm.warp(block.timestamp + 1900);
-        _swapBuy(hook, 1e14);
+        _swapBuy(hook, 1e6);
         vm.roll(vm.getBlockNumber() + 1);
     }
 
@@ -88,9 +113,12 @@ contract ToshV5FuzzTest is Test {
     }
 
     function _swapBuy(ToshLaunchpadHook hook, uint256 nativeIn) internal {
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
-        router.swap{value: nativeIn}(
-            hook.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
@@ -127,7 +155,7 @@ contract ToshV5FuzzTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
+        (address t, address h) = factory.createLaunch(
             name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         token = ToshToken(t);
@@ -146,9 +174,15 @@ contract ToshV5FuzzTest is Test {
 
     function _deposit(address user, ToshLaunchpadHook hook, uint256 amount) internal {
         if (factory.pogQuota(user) == 0) _register(user, POG_CAP);
-        vm.deal(user, user.balance + amount);
+        // Mint exactly what this deposit needs on top of whatever `user` holds,
+        // and approve the factory. A fuzzed `amount` can exceed any fixed
+        // endowment, so the funding has to follow the value rather than precede
+        // it — which is what `vm.deal(user, user.balance + amount)` did.
+        quote.mint(user, amount);
         vm.prank(user);
-        factory.deposit{value: amount}(address(hook), address(0));
+        quote.approve(address(factory), type(uint256).max);
+        vm.prank(user);
+        factory.deposit(address(hook), address(0), amount);
     }
 
     function _launch(ToshLaunchpadHook hook) internal {
@@ -183,7 +217,12 @@ contract ToshV5FuzzTest is Test {
         // it reads no per-project immutable arg — so a bare implementation is a
         // sufficient host for poking the base value into storage.
         ToshLaunchpadHook h = new ToshLaunchpadHook(
-            address(poolManager), address(vault), address(factory), payable(address(ladder)), platformTreasury
+            address(poolManager),
+            address(vault),
+            address(factory),
+            payable(address(ladder)),
+            platformTreasury,
+            address(quote)
         );
         vm.store(address(h), bytes32(_shelfP0Slot(h)), bytes32(base));
 
@@ -223,7 +262,12 @@ contract ToshV5FuzzTest is Test {
     ///         arithmetic accident.
     function test_smallestReachableShelfP0_stillStepsTheLadder() public {
         ToshLaunchpadHook h = new ToshLaunchpadHook(
-            address(poolManager), address(vault), address(factory), payable(address(ladder)), platformTreasury
+            address(poolManager),
+            address(vault),
+            address(factory),
+            payable(address(ladder)),
+            platformTreasury,
+            address(quote)
         );
 
         assertEq(_firstStepAt(h, 525), 0, "525 is below the break-even: shelves 0 and 1 share a price");
@@ -232,28 +276,87 @@ contract ToshV5FuzzTest is Test {
         // Smallest raise `launch()` accepts, and the least of it that can reach
         // the LP — the referral carve takes at most `REFERRAL_BPS`.
         uint256 minRaise = factory.MIN_SOFT_CAP_PROD();
-        uint256 minLpEth = minRaise - (minRaise * h.REFERRAL_BPS()) / 10_000;
-        uint256 minShelfP0 = (((minLpEth * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
+        uint256 minLpQuote = minRaise - (minRaise * h.REFERRAL_BPS()) / 10_000;
+        uint256 minShelfP0 = (((minLpQuote * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
 
-        // 0.01 ETH → p0 2,380,952,380 → shelfP0 2,499,999,999. The factory
-        // natspec quotes the middle figure as "2.38e9"; this is the one shelf
-        // pricing actually reads. Note it is a wei under 2.5e9 and not exactly
-        // `p0 · 1.05` — both divisions floor, so even here the arithmetic gives
-        // the wei to the buyer.
-        assertEq(minShelfP0, 8_749_999_999, "smallest reachable ladder base");
+        // 100 BEM raised → 90 BEM to the LP → p0 = 9e9 × 1e18 / 3.78e24 = 2380 →
+        // shelfP0 = 2380 × 1.05 = 2499. Both divisions floor, so the base lands a
+        // unit under `p0 × 1.05`: the arithmetic gives the remainder to the buyer.
+        assertEq(minShelfP0, 2499, "smallest reachable ladder base");
 
-        assertGe(
+        // ⚠ THIS MARGIN COLLAPSED BY SIX ORDERS OF MAGNITUDE WHEN THE QUOTE ASSET
+        //   MOVED TO BEM, and it is the single most consequential number in that
+        //   decision.
+        //
+        //   The assertion here used to be `>= 4_000_000`. At 18 decimals the
+        //   smallest legal raise produced a shelf base sixteen million times the
+        //   break-even, so `MIN_SOFT_CAP_PROD` was a formality — no plausible
+        //   retune of the three constants could have brought the ladder near
+        //   degenerating. BEM has EIGHT decimals. The same chain now yields 2499
+        //   against a break-even of 526: a factor of 4.75.
+        //
+        //   What that changes: `MIN_SOFT_CAP_PROD` is now load-bearing. Below
+        //   roughly 21 BEM the base falls under 526 and two adjacent shelves round
+        //   onto one price, which lets a buyer clear the upper shelf at the lower
+        //   shelf's price. `docs/BEM_QUOTE_ASSET.md` §2.2 argued the 108x raise in
+        //   the floor; this is the assertion holding that argument to its
+        //   arithmetic, and `test_belowTheSoftCapFloor_theLadderStopsStepping`
+        //   below is the other half.
+        //
+        //   Written as a floor of 4 rather than `== 4` so a retune that WIDENS the
+        //   margin passes and only a narrowing one fails.
+        assertGe(minShelfP0 / 526, 4, "the reachable minimum must still clear the break-even with room");
+        assertLt(
             minShelfP0 / 526,
-            4_000_000,
-            "the reachable minimum must sit millions of times above the break-even, not just above it"
+            100,
+            "if this ever passes 100 again the quote asset's decimals changed -- re-read the note above"
         );
-        assertEq(_firstStepAt(h, minShelfP0), 16_646_947, "step at the reachable minimum");
+
+        assertEq(_firstStepAt(h, minShelfP0), 4, "step at the reachable minimum");
+    }
+
+    /// @notice Just below `MIN_SOFT_CAP_PROD` the ladder stops stepping, and the
+    ///         factory refuses to be configured there.
+    ///
+    /// @dev    The test above measures the margin AT the floor. This measures what
+    ///         is on the other side of it, which is what makes the floor a safety
+    ///         property rather than a preference — and it is new with BEM, because
+    ///         at 18 decimals there was no reachable other side to measure.
+    ///
+    ///         The degenerate base is reached by deriving it the way `launch()`
+    ///         does and poking it into storage, since `setDefaultSoftCap` will not
+    ///         let a real launch get there. Both halves are asserted: that the
+    ///         arithmetic really does degenerate, and that the factory really does
+    ///         refuse. Either alone would be describing a hazard without its
+    ///         guard, or a guard without its hazard.
+    function test_belowTheSoftCapFloor_theLadderStopsStepping() public {
+        ToshLaunchpadHook h = new ToshLaunchpadHook(
+            address(poolManager),
+            address(vault),
+            address(factory),
+            payable(address(ladder)),
+            platformTreasury,
+            address(quote)
+        );
+
+        // 21 BEM is the largest raise whose shelf base still falls short: 18.9 to
+        // the LP, p0 = 500, shelfP0 = 525 — one unit under the break-even.
+        uint256 degenerate = 21e8;
+        uint256 lp = degenerate - (degenerate * h.REFERRAL_BPS()) / 10_000;
+        uint256 base = (((lp * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
+
+        assertEq(base, 525, "21 BEM lands exactly on the last degenerate base");
+        assertEq(_firstStepAt(h, base), 0, "and at that base shelves 0 and 1 cost the same");
+
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.InvalidSoftCap.selector);
+        factory.setDefaultSoftCap(degenerate);
     }
 
     /// @dev Pro-rata genesis claims never overshoot GENESIS_CLAIM_SUPPLY.
     function testFuzz_claimGenesis_proRataNeverExceedsClaimSupply(uint256 d1, uint256 d2) public {
-        d1 = bound(d1, 1, 0.4 ether);
-        d2 = bound(d2, 1, 0.4 ether);
+        d1 = bound(d1, 1, 40e8);
+        d2 = bound(d2, 1, 40e8);
 
         (, ToshLaunchpadHook hook) = _createProject();
         ToshToken token = ToshToken(address(hook.projectToken()));
@@ -288,26 +391,35 @@ contract ToshV5FuzzTest is Test {
 
     /// @dev With quotaWindowDuration == 0 the PoG budget is lifetime, not a window.
     function testFuzz_pogQuota_globalAcrossDeposits(uint96 quota, uint96 deposit1, uint96 deposit2) public {
-        uint256 q = bound(uint256(quota), 1e15, factory.maxPogAllocationLimit());
+        // Floor re-based from `1e15` to `1e6`. The old figure was "a thousandth of
+        // an ether" — comfortably inside a 1000-ether ceiling. The ceiling here is
+        // 1000 BEM = 1e11, so `1e15` is now ABOVE it and `bound` rejects the range
+        // outright rather than fuzzing a narrower one.
+        uint256 q = bound(uint256(quota), 1e6, factory.maxPogAllocationLimit());
         uint256 d1 = bound(uint256(deposit1), 1, q);
         uint256 d2 = bound(uint256(deposit2), 1, q);
 
         (, ToshLaunchpadHook hook) = _createProject();
         address fuzzUser = makeAddr("fuzzPogUser");
-        // Fund both legs up front: a tight `q + 1 ether` budget is not enough
-        // when `d1 ≈q` and the revert path still has to attach `d2` as value.
-        vm.deal(fuzzUser, 2 * q + 1 ether);
+        // Fund both legs up front. The old reason was that the reverting path
+        // still had to ATTACH `d2` as value, so a budget of `q` was short; that
+        // is gone with `msg.value`, but the funding still has to cover both legs
+        // because the quota check happens after the pull is authorised and a
+        // balance-shaped revert would mask the `QuotaExceeded` this asserts.
+        quote.mint(fuzzUser, 2 * q);
+        vm.prank(fuzzUser);
+        quote.approve(address(factory), type(uint256).max);
         _register(fuzzUser, q);
 
         vm.startPrank(fuzzUser);
-        factory.deposit{value: d1}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), d1);
         assertEq(factory.totalGenesisDeposited(fuzzUser), d1);
 
         if (d1 + d2 > q) {
             vm.expectRevert(ToshFactory.QuotaExceeded.selector);
-            factory.deposit{value: d2}(address(hook), address(0));
+            factory.deposit(address(hook), address(0), d2);
         } else {
-            factory.deposit{value: d2}(address(hook), address(0));
+            factory.deposit(address(hook), address(0), d2);
             assertEq(factory.totalGenesisDeposited(fuzzUser), d1 + d2);
         }
         vm.stopPrank();
@@ -318,7 +430,7 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook hook) = _createProject();
         _deposit(makeAddr("funder"), hook, SOFT_CAP);
         _launch(hook);
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         tokens = bound(tokens, 1, hook.TIER_SIZE());
 
@@ -338,7 +450,7 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook hook) = _createProject();
         _deposit(makeAddr("funder"), hook, SOFT_CAP);
         _launch(hook);
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         uint256 cap = hook.maxMintable();
         assertGt(cap, hook.TIER_SIZE(), "the fuzz range must be able to straddle shelves");
@@ -349,12 +461,26 @@ contract ToshV5FuzzTest is Test {
         uint256 quoted = hook.quoteMint(tokens);
 
         address buyer = makeAddr("spanBuyer");
-        vm.deal(buyer, 100 ether);
+        uint256 offered = 10_000e8;
+        quote.mint(buyer, offered);
         vm.prank(buyer);
-        uint256 charged = hook.mintBondingCurve{value: 100 ether}(tokens);
+        quote.approve(address(hook), offered);
+
+        vm.prank(buyer);
+        uint256 charged = hook.mintBondingCurve(tokens, offered);
 
         assertEq(charged, quoted, "the quote must be exactly what the mint charges");
-        assertEq(buyer.balance, 100 ether - quoted, "everything above the quote is refunded");
+        // ⚠ THE OLD ASSERTION WAS ABOUT A REFUND, and there is no longer one to
+        // assert. `assertEq(buyer.balance, offered - quoted)` held because the
+        // buyer sent `offered` and got the difference back; a pull moves exactly
+        // `quoted` and never holds the rest, so the same figure now means
+        // something stronger — the surplus was never taken in the first place.
+        assertEq(quote.balanceOf(buyer), offered - quoted, "only the quoted amount may be pulled");
+        assertEq(
+            quote.allowance(buyer, address(hook)),
+            offered - quoted,
+            "and only the quoted amount may be spent from the allowance"
+        );
     }
 
     /// @dev Sweeping a span costs exactly what the same order costs when chopped
@@ -363,12 +489,12 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook swept) = _createProject("SweptFuzz", "SWF");
         _deposit(makeAddr("funderA"), swept, SOFT_CAP);
         _launch(swept);
-        _openLadder(swept, 0.01 ether);
+        _openLadder(swept, 1e8);
 
         (, ToshLaunchpadHook chopped) = _createProject("ChoppedFuzz", "CHF");
         _deposit(makeAddr("funderB"), chopped, SOFT_CAP);
         _launch(chopped);
-        _openLadder(chopped, 0.01 ether);
+        _openLadder(chopped, 1e8);
 
         assertEq(swept.shelfP0(), chopped.shelfP0(), "twins must open at the same price");
 
@@ -386,10 +512,16 @@ contract ToshV5FuzzTest is Test {
         tokens = (bound(tokens, 1e18, swept.maxMintable()) / 1e18) * 1e18;
 
         address buyer = makeAddr("spanBuyer");
-        vm.deal(buyer, 200 ether);
+        quote.mint(buyer, 20_000e8);
+        // Both hooks, because the point of this test is that the same buyer pays
+        // the same total through two different call shapes.
+        vm.startPrank(buyer);
+        quote.approve(address(swept), type(uint256).max);
+        quote.approve(address(chopped), type(uint256).max);
+        vm.stopPrank();
 
         vm.prank(buyer);
-        uint256 sweptCost = swept.mintBondingCurve{value: 50 ether}(tokens);
+        uint256 sweptCost = swept.mintBondingCurve(tokens, 5000e8);
 
         uint256 choppedCost;
         uint256 left = tokens;
@@ -397,7 +529,7 @@ contract ToshV5FuzzTest is Test {
         while (left > 0) {
             uint256 take = chopped.TIER_SIZE() - chopped.currentTierSold();
             if (take > left) take = left;
-            choppedCost += chopped.mintBondingCurve{value: 50 ether}(take);
+            choppedCost += chopped.mintBondingCurve(take, 5000e8);
             left -= take;
         }
         vm.stopPrank();

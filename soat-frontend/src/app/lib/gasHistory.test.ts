@@ -131,13 +131,19 @@ describe('the eligibility band', () => {
   })
 
   it('holds the numbers that were actually chosen', () => {
-    // Floor and cap are ETH because they measure gas; the ceiling is BNB
-    // because it bounds a deposit. Only the BNB side moved at the cutover,
-    // and the cap held at 1 ETH because the rate moved with the ceiling.
-    expect(POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)    // 0.025 ETH of gas
-    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n)   // 1 ETH of gas
-    expect(MAX_ALLOC_ETH_WEI).toBe(1_750_000_000_000_000_000n) // 1.75 BNB ceiling
-    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.75)               // BNB per ETH of gas
+    /*
+     * Floor and cap are 18-decimal ETH because they measure gas; the ceiling is
+     * 8-decimal quote units because it bounds a deposit. Only the deposit side moved
+     * at either re-denomination, and the cap held at 1 ETH both times because the
+     * rate was always moved with the ceiling.
+     *
+     * The ten-orders-of-magnitude gap between the third literal and the other two is
+     * the assertion, not an inconsistency to tidy up.
+     */
+    expect(POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH of gas
+    expect(POG_GAS_CAP_WEI).toBe(1_000_000_000_000_000_000n) // 1 ETH of gas
+    expect(MAX_ALLOC_ETH_WEI).toBe(4_640_000_000n)           // 46.4 quote units
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(46.4)             // per 1 ETH of gas
   })
 
   it('refuses anything below the floor, including one wei below', () => {
@@ -145,8 +151,9 @@ describe('the eligibility band', () => {
     expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI - 1n, BAND)).toBe(0n)
     // and admits exactly at the floor
     expect(isPogEligible(POG_GAS_FLOOR_WEI, BAND)).toBe(true)
-    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI, BAND))
-      .toBe(43_750_000_000_000_000n) // 0.04375 BNB
+    // 0.025 ETH of gas × 46.4 = 1.16 quote units. The same fraction of the ceiling
+    // as before — 1/40th — because floor, rate and ceiling all held their ratios.
+    expect(computeMaxAllocFromWei(POG_GAS_FLOOR_WEI, BAND)).toBe(116_000_000n)
   })
 
   it('never exceeds the ceiling however large the history', () => {
@@ -156,15 +163,32 @@ describe('the eligibility band', () => {
   })
 
   it('does the arithmetic in integers, so a wei-scale input is not rounded away', () => {
-    // A float path (`Number(wei)/1e18` then `* rate * 1e18`) loses the low digits
-    // of a figure this size. Two inputs one wei apart must not collapse together,
-    // because the API route and scripts/pogSigner.ts must agree exactly.
-    const tenth = { ...BAND, rate: 0.1, maxAllocWei: 10n ** 18n }
-    const a = 123_456_789_012_345_678n
-    const b = a + 10n
-    expect(computeMaxAllocFromWei(a, tenth)).toBe(12_345_678_901_234_567n)
-    expect(computeMaxAllocFromWei(b, tenth)).toBe(12_345_678_901_234_568n)
-    expect(computeMaxAllocFromWei(a, tenth)).not.toBe(computeMaxAllocFromWei(b, tenth))
+    /*
+     * A float path (`Number(wei)/1e18` then `* rate * 1e18`) loses the low digits of
+     * a figure this size. Two nearby inputs must not collapse together, because the
+     * API route and scripts/pogSigner.ts must agree exactly — one wei of divergence
+     * is two different digests and `registerPoG` accepts one of them.
+     *
+     * THE SEPARATION THIS CAN DEMONSTRATE IS NOW COARSER, and it is worth being
+     * precise about why rather than quietly widening the gap. The output is 8-decimal
+     * where the input is 18-decimal, so the result genuinely cannot distinguish every
+     * pair of adjacent gas figures: at rate 0.1 it takes 10^11 wei of gas to move the
+     * allocation by one base unit. That is a property of the units, not a rounding
+     * bug, and the integer path is still what makes it DETERMINISTIC — two signers
+     * given the same wei must land on the same side of the boundary every time.
+     *
+     * So this straddles one by a single wei. At rate 0.1 the expression reduces to
+     * `floor(gas / 1e11)`, which puts a boundary at exactly 1_234_568 × 1e11, and the
+     * two assertions below sit on either side of it one wei apart. A float path
+     * smears that edge — `Number(123456799999999999) / 1e11` rounds up — so the two
+     * signers land on different sides of it and produce different digests.
+     */
+    const tenth = { ...BAND, rate: 0.1, maxAllocWei: 10n ** 12n }
+    expect(computeMaxAllocFromWei(123_456_799_999_999_999n, tenth)).toBe(1_234_567n)
+    expect(computeMaxAllocFromWei(123_456_800_000_000_000n, tenth)).toBe(1_234_568n)
+
+    // Truncating, not rounding to nearest: nine tenths of the way up still floors.
+    expect(computeMaxAllocFromWei(123_456_789_012_345_678n, tenth)).toBe(1_234_567n)
   })
 
   it('treats a broken rate as zero rather than as a free allocation', () => {

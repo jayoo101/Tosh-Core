@@ -53,8 +53,8 @@
 
 import { encodeAbiParameters, encodePacked, type Address, type Hex } from 'viem'
 
-import { TICK_LOWER, TICK_UPPER, CL_ACTIONS } from './contracts'
-import { NATIVE_CURRENCY, POOL_KEY_PARAM, toshPoolKey } from './clMath'
+import { TICK_LOWER, TICK_UPPER, CL_ACTIONS, QUOTE_ASSET } from './contracts'
+import { POOL_KEY_PARAM, toshPoolKey } from './clMath'
 
 const MINT_PARAM_SPEC = [
   POOL_KEY_PARAM,
@@ -72,8 +72,19 @@ const UNLOCK_SPEC = [{ type: 'bytes' }, { type: 'bytes[]' }] as const
 /**
  * CL_MINT_POSITION + SETTLE_PAIR + SWEEP.
  *
- * SWEEP returns whatever the pool did not take on the ETH leg, so the caller
- * can safely send `amount0Max` as `msg.value` and let the difference bounce.
+ * SWEEP IS NOW REDUNDANT, AND IS KEPT ANYWAY. Its original job was to return
+ * whatever the pool did not take on the ETH leg, which is what made it safe to
+ * send `amount0Max` as `msg.value` and let the difference bounce back. With an
+ * ERC-20 quote asset there is no `msg.value` and nothing overpays: SETTLE_PAIR
+ * pulls exactly what the position consumed through Permit2, so the sweep finds
+ * nothing to return.
+ *
+ * It stays because "finds nothing" is a claim about the accounting, not a
+ * guarantee, and a SWEEP that returns zero costs a few thousand gas while a
+ * missing one would leave any stranded balance sitting in the position manager
+ * with no way to retrieve it. The action list is also asserted against the
+ * vendored opcodes by `checkLpActionsAbi.mjs`, so dropping it would be a change
+ * to a checked payload shape for no benefit.
  *
  * `hooksRegistrationBitmap` is `hook.getHooksRegistrationBitmap()`, read off
  * the chain by the caller and threaded through into `PoolKey.parameters`. It is
@@ -103,11 +114,11 @@ export function encodeMintPayload(args: {
   ])
   const settle = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }],
-    [NATIVE_CURRENCY, args.token],
+    [QUOTE_ASSET, args.token],
   )
   const sweep = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }],
-    [NATIVE_CURRENCY, args.owner],
+    [QUOTE_ASSET, args.owner],
   )
 
   return encodeAbiParameters(UNLOCK_SPEC, [actions, [mint, settle, sweep]])
@@ -136,7 +147,7 @@ export function encodeBurnPayload(args: {
   ])
   const take = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }, { type: 'address' }],
-    [NATIVE_CURRENCY, args.token, args.recipient],
+    [QUOTE_ASSET, args.token, args.recipient],
   )
 
   return encodeAbiParameters(UNLOCK_SPEC, [actions, [burn, take]])

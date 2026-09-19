@@ -589,9 +589,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // different tokens — the same structural argument `hookImplementation`
         // makes about itself. The decimals assertion lives in the hook's
         // constructor, so it is paid once, here, rather than per caller.
-        hookImplementation = HookDeployLib.deployImplementation(
-            _poolManager, _vault, _ladderTreasury, _platformTreasury, _quoteAsset
-        );
+        hookImplementation =
+            HookDeployLib.deployImplementation(_poolManager, _vault, _ladderTreasury, _platformTreasury, _quoteAsset);
         tokenImplementation = address(new ToshToken(address(this)));
     }
 

@@ -10,12 +10,14 @@ import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
 import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolManagerRouter.sol";
 import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
+import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @notice Stands in for Arbitrum's `ArbSys` precompile.
 ///
@@ -57,8 +59,11 @@ abstract contract ArbSysHarness is Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
-    uint256 internal constant SOFT_CAP = 1 ether;
-    uint256 internal constant POG_CAP = 10 ether;
+    /// @dev Stands in for BEM, at eight decimals.
+    MockQuoteAsset internal quote;
+
+    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant POG_CAP = 1000e8;
 
     /// @dev Mirrors the mock's slot 0 so tests can read it without a call.
     uint256 internal chainHeight;
@@ -89,9 +94,13 @@ abstract contract ArbSysHarness is Test {
 
         _installArbSys();
 
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
-        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        factory = new ToshFactory(
+            address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
+        );
         ladder.setFactory(address(factory));
         factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -99,10 +108,29 @@ abstract contract ArbSysHarness is Test {
         factory.setQuotaWindowDuration(0);
         vm.stopPrank();
 
+        // Native balances for gas only; nothing a depositor or trader does moves
+        // native value now.
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(trader, 100 ether);
+
+        _endow(creator);
+        _endow(alice);
+        _endow(bob);
+        _endow(trader);
+    }
+
+    /// @dev Mint a quote balance and approve the two platform-global spenders.
+    ///      The factory pulls launch fees and deposits; the router pulls a swap's
+    ///      input side. See `ToshV5Test._endow` for why the swap allowance names
+    ///      the router rather than the Vault.
+    function _endow(address who) internal {
+        quote.mint(who, 100_000e8);
+        vm.startPrank(who);
+        quote.approve(address(factory), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        vm.stopPrank();
     }
 
     // ─── ArbSys control ───────────────────────────────────────────────────────
@@ -161,14 +189,18 @@ abstract contract ArbSysHarness is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}(
+        (, address h) = factory.createLaunch(
             "ArbSys", "ARB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         hook = ToshLaunchpadHook(payable(h));
+        // Shelf mints are pulled by the hook itself, which does not exist until
+        // now, so this approval cannot live in `_endow`.
+        vm.prank(bob);
+        quote.approve(address(hook), type(uint256).max);
 
         _registerPoG(alice, POG_CAP);
         vm.prank(alice);
-        factory.deposit{value: SOFT_CAP}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), SOFT_CAP);
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
@@ -187,9 +219,12 @@ abstract contract ArbSysHarness is Test {
     }
 
     function _swapBuy(ToshLaunchpadHook hook, uint256 nativeIn) internal {
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
-        router.swap{value: nativeIn}(
-            hook.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
@@ -202,10 +237,10 @@ abstract contract ArbSysHarness is Test {
     ///      105 % ceiling stops being the binding constraint and the lockout is
     ///      the only thing these tests are measuring.
     function _openLadder(ToshLaunchpadHook hook) internal {
-        _swapBuy(hook, 0.01 ether);
+        _swapBuy(hook, 1e8);
         _nextBlock();
         vm.warp(block.timestamp + 1900);
-        _swapBuy(hook, 1e14);
+        _swapBuy(hook, 1e6);
         _nextBlock();
     }
 }
@@ -239,7 +274,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
         ToshLaunchpadHook hook = _launchProject();
         _nextBlock();
 
-        _swapBuy(hook, 0.01 ether);
+        _swapBuy(hook, 1e8);
 
         assertEq(hook.lastSwapBlock(), chainHeight, "stamp must be the chain's own height");
         assertTrue(hook.lastSwapBlock() != vm.getBlockNumber(), "stamp must not be block.number");
@@ -265,7 +300,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
         _openLadder(hook);
         assertGt(hook.maxMintable(), 0, "ladder must be open before the lockout is measured");
 
-        _swapBuy(hook, 1e14);
+        _swapBuy(hook, 1e6);
         assertEq(hook.maxMintable(), 0, "a swap shuts the lockout");
 
         vm.roll(vm.getBlockNumber() + 500);
@@ -273,7 +308,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve{value: 1 ether}(1e18);
+        hook.mintBondingCurve(1e18, 100e8);
     }
 
     /// @notice ...and advancing the chain's own height by one does clear it.
@@ -281,7 +316,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
         ToshLaunchpadHook hook = _launchProject();
         _openLadder(hook);
 
-        _swapBuy(hook, 1e14);
+        _swapBuy(hook, 1e6);
         assertEq(hook.maxMintable(), 0, "a swap shuts the lockout");
 
         uint256 frozenL1 = vm.getBlockNumber();
@@ -300,7 +335,7 @@ contract ToshV5NoArbSysTest is ArbSysHarness {
 
         ToshLaunchpadHook hook = _launchProject();
         _nextBlock();
-        _swapBuy(hook, 0.01 ether);
+        _swapBuy(hook, 1e8);
 
         assertEq(hook.lastSwapBlock(), vm.getBlockNumber(), "without ArbSys the stamp is block.number");
     }
@@ -309,7 +344,7 @@ contract ToshV5NoArbSysTest is ArbSysHarness {
         ToshLaunchpadHook hook = _launchProject();
         _openLadder(hook);
 
-        _swapBuy(hook, 1e14);
+        _swapBuy(hook, 1e6);
         assertEq(hook.maxMintable(), 0, "a swap shuts the lockout");
 
         _nextBlock();

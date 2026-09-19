@@ -6,8 +6,8 @@ import { HOOK_ABI } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote } from './format'
 
 
 export function RefundPanel({
@@ -50,7 +50,7 @@ export function RefundPanel({
       subtitle="The 7-day window to open trading lapsed without a launch. Take back the full amount, no penalty."
       tone="warn"
     >
-      <Readout label="Your deposit" value={`${fmt(nativeDeposited)} ${NATIVE_SYMBOL}`} tone="warn" />
+      <Readout label="Your deposit" value={`${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`} tone="warn" />
       <ActionButton gate={gate} size="lg" intent="danger" />
     </Card>
   )

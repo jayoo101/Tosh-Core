@@ -162,11 +162,7 @@ library ToshCloneLib {
     /// @dev    Standard CREATE2 derivation, split out so the grind below and the
     ///         frontend's prediction are demonstrably the same function rather
     ///         than two implementations that agree today.
-    function predictBareClone(address deployer, address implementation, bytes32 salt)
-        internal
-        pure
-        returns (address)
-    {
+    function predictBareClone(address deployer, address implementation, bytes32 salt) internal pure returns (address) {
         return address(
             uint160(
                 uint256(
@@ -235,9 +231,7 @@ library ToshCloneLib {
                 salt = bytes32(uint256(seed) + i);
 
                 address candidate = address(
-                    uint160(
-                        uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initcodeHash_)))
-                    )
+                    uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initcodeHash_))))
                 );
 
                 // Strictly above, not above-or-equal. Equality is unreachable —

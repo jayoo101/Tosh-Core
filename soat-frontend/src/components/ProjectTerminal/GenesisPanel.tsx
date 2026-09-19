@@ -4,16 +4,16 @@ import { parseUnits, formatUnits, type Address } from 'viem'
 
 import {
   FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS,
+  QUOTE_DECIMALS, QUOTE_SYMBOL,
 } from '@/lib/contracts'
 import { resolveReferrerNow } from '@/lib/useReferral'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
   Card, Readout, Field, FieldAffix,
-  ActionButton, useActionGate, revertOrder, useTxAction,
+  ActionButton, useActionGate, revertOrder, useTxAction, useQuoteApproval,
 } from '@/components/ui'
-import { fmt, fmtFull } from './format'
+import { fmt, fmtQuote, fmtQuoteFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
 import { usePogLookup } from './PogLookupProvider'
@@ -29,7 +29,7 @@ export interface GenesisProps {
   isConnected:        boolean
   totalNativeDeposited:  bigint
   softCap:            bigint
-  ethBalance:         bigint
+  quoteBalance:         bigint
   pogQuota:           bigint
   /// Straight from `factory.eligibility(user, hook)`.  The quota is refilled
   /// once per `quotaWindowDuration`, and only the factory can tell whether a
@@ -73,7 +73,7 @@ export function GenesisPanel(p: GenesisProps) {
   const amountWei = (() => {
     const t = amount.trim()
     if (!t) return 0n
-    try { return parseUnits(t, 18) } catch { return -1n }
+    try { return parseUnits(t, QUOTE_DECIMALS) } catch { return -1n }
   })()
   const amountInvalid = amountWei === -1n
 
@@ -111,7 +111,7 @@ export function GenesisPanel(p: GenesisProps) {
 
   const quotaRemaining  = p.quotaRemaining
   const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
-  const insufficientBal = amountWei > 0n && amountWei > p.ethBalance
+  const insufficientBal = amountWei > 0n && amountWei > p.quoteBalance
 
   // The soft cap is a progress target, not a ceiling: the hook keeps accepting
   // deposits right up to the deadline. Say so, so clearing the target reads as
@@ -131,7 +131,7 @@ export function GenesisPanel(p: GenesisProps) {
   const spendable = (() => {
     let cap = quotaRemaining
     if (p.perWalletCap > 0n && walletHeadroom < cap) cap = walletHeadroom
-    return cap < p.ethBalance ? cap : p.ethBalance
+    return cap < p.quoteBalance ? cap : p.quoteBalance
   })()
 
   const {
@@ -157,10 +157,28 @@ export function GenesisPanel(p: GenesisProps) {
       // once and forever, and `p.referrer` is still the zero sentinel on the
       // first frame after mount. The hook address selects this project's slot,
       // which takes precedence over the lifetime one.
-      args: [p.hookAddress, resolveReferrerNow(p.userAddress, p.hookAddress)],
-      value: amountWei,
+      // The amount is an ARGUMENT now, not `value`. `deposit` is no longer
+      // payable: it pulls `amount` from the depositor with `transferFrom`, so the
+      // figure that used to fund the call is the third parameter and the funding
+      // comes from the allowance approved below.
+      args: [p.hookAddress, resolveReferrerNow(p.userAddress, p.hookAddress), amountWei],
     })
   }, [p.hookAddress, p.userAddress, amountWei, sendDeposit])
+
+  /*
+   * The allowance in front of the deposit.
+   *
+   * Granted to the FACTORY rather than to the hook, which is not obvious and is
+   * worth stating: a depositor interacts with a project, and the natural guess is
+   * that the project's hook takes the money. It does not. `factory.deposit`
+   * receives the transfer and forwards it, so the factory is the spender and an
+   * allowance given to the hook would sit there unused while the deposit reverted.
+   *
+   * Exact, so nothing outlives the deposit. It also means the approve has to be
+   * re-sent whenever the amount in the field changes, which is why it is keyed off
+   * `amountWei` and not off some once-per-session ceiling.
+   */
+  const approval = useQuoteApproval(FACTORY_ADDRESS, amountWei > 0n ? amountWei : 0n)
 
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
@@ -180,7 +198,7 @@ export function GenesisPanel(p: GenesisProps) {
   // told its window was spent when the transaction would actually have reverted
   // `CooldownActive`: "you have none left" instead of "wait 24 hours".
   const gate = useActionGate({
-    action: `Deposit ${NATIVE_SYMBOL}`,
+    action: `Deposit ${QUOTE_SYMBOL}`,
     onAct: submitDeposit,
     tx: {
       isPending: isDepositing || pog.isPending,
@@ -192,14 +210,14 @@ export function GenesisPanel(p: GenesisProps) {
         id: 'amount-invalid',
         active: amountInvalid,
         label: 'Check the amount',
-        reason: `That is not a number this field can send as ${NATIVE_SYMBOL}.`,
+        reason: `That is not a number this field can send as ${QUOTE_SYMBOL}.`,
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !amountInvalid && amountWei === 0n,
         label: 'Enter an amount',
-        reason: `Enter the amount of ${NATIVE_SYMBOL} to deposit.`,
+        reason: `Enter the amount of ${QUOTE_SYMBOL} to deposit.`,
         tone: 'neutral',
       },
       {
@@ -255,7 +273,7 @@ export function GenesisPanel(p: GenesisProps) {
         id: 'quota-exceeded',
         active: quotaBreached,
         label: 'Over your limit',
-        reason: `That is more than this wallet may deposit in the current window · ${fmt(quotaRemaining)} ${NATIVE_SYMBOL} left.`,
+        reason: `That is more than this wallet may deposit in the current window · ${fmtQuote(quotaRemaining)} ${QUOTE_SYMBOL} left.`,
       },
       {
         id: 'window-closed',
@@ -267,15 +285,33 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'wallet-cap',
         active: walletCapBreached,
-        label: `Over the wallet cap · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} left`,
-        reason: `That is more than this project allows one wallet to hold · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} left for you.`,
+        label: `Over the wallet cap · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} left`,
+        reason: `That is more than this project allows one wallet to hold · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} left for you.`,
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: `Not enough ${NATIVE_SYMBOL}`,
-        reason: `This wallet does not hold that much ${NATIVE_SYMBOL}.`,
+        label: `Not enough ${QUOTE_SYMBOL}`,
+        reason: `This wallet does not hold that much ${QUOTE_SYMBOL}.`,
         tone: 'warn',
+      },
+      {
+        // LAST, so it wins over everything above — and that ordering is the whole
+        // point of putting it here rather than higher up. `revertOrder` surfaces
+        // the last active blocker, and a depositor who is over their quota AND
+        // unapproved should be told about the quota, because approving would not
+        // help. Once the amount is actually depositable, this is the only thing
+        // left in the way, and it is a click.
+        id: 'approve',
+        active:
+          !amountInvalid && amountWei > 0n && !insufficientBal
+          && !quotaBreached && !walletCapBreached && approval.needsApproval,
+        label: approval.tx.isBusy
+          ? 'Approving…'
+          : `Approve ${fmtQuote(amountWei)} ${QUOTE_SYMBOL}`,
+        reason: `${QUOTE_SYMBOL} is pulled rather than sent, so the factory needs your permission for this exact amount before it can take it. Approving authorises only this deposit — change the amount and it has to be approved again.`,
+        tone: 'info',
+        resolve: approval.approve,
       },
     ),
   })
@@ -297,7 +333,7 @@ export function GenesisPanel(p: GenesisProps) {
   return (
     <div className="flex flex-col">
       <Card
-        title={`Deposit ${NATIVE_SYMBOL}`}
+        title={`Deposit ${QUOTE_SYMBOL}`}
         subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
         interactive={false}
       >
@@ -381,9 +417,9 @@ export function GenesisPanel(p: GenesisProps) {
 
         {p.isConnected && (
           <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
-            <Readout label={`${NATIVE_SYMBOL} BALANCE`}
-                     value={`${fmt(p.ethBalance)} ${NATIVE_SYMBOL}`}
-                     hint={fmtFull(p.ethBalance, 18)} />
+            <Readout label={`${QUOTE_SYMBOL} BALANCE`}
+                     value={`${fmtQuote(p.quoteBalance)} ${QUOTE_SYMBOL}`}
+                     hint={fmtQuoteFull(p.quoteBalance)} />
             <Readout label="COOLDOWN"
                      value={cooldownTxt}
                      tone={onCooldown ? 'mute' : 'ink'} />
@@ -400,7 +436,7 @@ export function GenesisPanel(p: GenesisProps) {
         )}
 
         <Field
-          label={`DEPOSIT AMOUNT · ${NATIVE_SYMBOL}`}
+          label={`DEPOSIT AMOUNT · ${QUOTE_SYMBOL}`}
           value={amount}
           onValueChange={setAmount}
           placeholder="e.g. 0.05"
@@ -409,11 +445,11 @@ export function GenesisPanel(p: GenesisProps) {
           error={amountError}
           armed={armed}
           hint={p.perWalletCap > 0n
-            ? `THIS PROJECT ALLOWS ${fmt(p.perWalletCap)} ${NATIVE_SYMBOL} PER WALLET · ${fmt(walletHeadroom)} ${NATIVE_SYMBOL} LEFT FOR YOU`
+            ? `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
             : undefined}
           affix={
             <FieldAffix
-              onClick={() => setAmount(formatUnits(spendable, 18))}
+              onClick={() => setAmount(formatUnits(spendable, QUOTE_DECIMALS))}
               disabled={txBusy || !p.isConnected || windowClosed || spendable === 0n}
             />
           }

@@ -6,6 +6,7 @@ import { formatUnits, type Address } from 'viem'
 
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI, LAUNCH_WINDOW_SECONDS,
+  QUOTE_DECIMALS,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
 
@@ -283,8 +284,17 @@ export function useDirectoryProjects() {
   return { projects, counts, loading, refetch, launchCount }
 }
 
-export function fmtEth(wei: bigint): string {
-  const n = Number(formatUnits(wei, 18))
+/**
+ * A raise or a soft cap, for the cards and the feed.
+ *
+ * Renamed from `fmtQuote` and rescaled: every caller passes `totalNative` or
+ * `softCap`, both of which are quote-asset amounts at 8 decimals. Left at 18 it
+ * showed a 500-unit raise as `0.000005`, which reads as a project nobody has funded
+ * rather than as a formatting fault — so every card in the directory would have
+ * understated its progress bar by ten orders of magnitude while looking fine.
+ */
+export function fmtQuote(units: bigint): string {
+  const n = Number(formatUnits(units, QUOTE_DECIMALS))
   if (!Number.isFinite(n)) return '0'
   return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
 }

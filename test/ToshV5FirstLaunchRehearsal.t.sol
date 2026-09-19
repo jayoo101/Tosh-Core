@@ -287,7 +287,12 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertFalse(factory.paused(), "factory is paused; no launch can be created");
 
         assertEq(factory.MIN_SOFT_CAP_PROD(), REHEARSAL_SOFT_CAP, "the floor moved");
-        assertEq(factory.maxPogAllocationLimit(), 1.75 ether, "PoG limit moved");
+        // 46.4e8, not `1.75 ether`. This assertion carried the pre-quote-asset value
+        // and nothing caught it, because the whole test sits behind `_requireFork()`
+        // and skips without a mainnet fork — so it is one of the handful that the
+        // green suite does not actually exercise. The unit is base units of the quote
+        // asset now, and `1.75 ether` is neither the right number nor the right scale.
+        assertEq(factory.maxPogAllocationLimit(), 46.4e8, "PoG limit moved");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -329,7 +334,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
+        (address tokenAddr, address hookAddr) = factory.createLaunch(
             "Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
         );
         ToshToken token = ToshToken(tokenAddr);
@@ -348,7 +353,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         _registerPoG(creator, REHEARSAL_SOFT_CAP);
 
         vm.prank(creator);
-        factory.deposit{value: REHEARSAL_SOFT_CAP}(hookAddr, address(0));
+        factory.deposit(hookAddr, address(0), REHEARSAL_SOFT_CAP);
 
         assertEq(
             hook.totalNativeDeposited(), hook.softCap(), "a deposit of exactly the cap must register as exactly the cap"
@@ -431,9 +436,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch{value: fee}(
-            "Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS
-        );
+        factory.createLaunch("Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS);
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
@@ -455,7 +458,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
+        (address tokenAddr, address hookAddr) = factory.createLaunch(
             "Concentration", "CNC", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
         );
         ToshToken token = ToshToken(tokenAddr);
@@ -463,7 +466,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         _registerPoG(creator, REHEARSAL_SOFT_CAP);
         vm.prank(creator);
-        factory.deposit{value: REHEARSAL_SOFT_CAP}(hookAddr, address(0));
+        factory.deposit(hookAddr, address(0), REHEARSAL_SOFT_CAP);
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);

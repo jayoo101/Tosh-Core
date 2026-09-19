@@ -29,6 +29,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // Supplies the one env var `contracts.ts` throws on and that no suite varies.
+    // See the file for why the factory address is NOT handled the same way.
+    setupFiles: ['./vitest.setup.mts'],
     // Several suites re-import the same module under different env vars.
     // Isolation keeps one file's `vi.stubEnv` out of another's module registry.
     isolate: true,

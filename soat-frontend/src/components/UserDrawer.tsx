@@ -63,7 +63,7 @@ import {
   CHAIN_BYLINE,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
   useNowMs, CLOCK_UNSYNCED,
@@ -80,12 +80,24 @@ const DRAWER_SCAN_DEPTH = 512
 // FORMATTERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ETH_DECIMALS   = 18
 const TOKEN_DECIMALS = 18
 
-function formatEth(wei: bigint | undefined | null): string {
-  if (wei === undefined || wei === null) return '—'
-  const n = Number(formatUnits(wei, ETH_DECIMALS))
+/**
+ * A quote-asset amount: the PoG quota, what the window has spent, a deposit, a
+ * raise, a soft cap. Everything this drawer prints with a currency suffix.
+ *
+ * WAS `formatEth` AT 18 DECIMALS, which is what it should be as long as the thing
+ * being formatted is the chain's own coin. None of the five callers is: they are all
+ * quota or deposit figures, all denominated in the quote asset, and all would have
+ * rendered ten orders of magnitude small — a 1,750-unit quota shown as `0.0000175`,
+ * which a reader takes for a wallet with no allocation rather than for a bug.
+ *
+ * `ETH_DECIMALS` went with it. It existed only to feed this function and could not
+ * be corrected in place without making its own name a lie.
+ */
+function formatQuote(units: bigint | undefined | null): string {
+  if (units === undefined || units === null) return '—'
+  const n = Number(formatUnits(units, QUOTE_DECIMALS))
   return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
 }
 
@@ -631,21 +643,21 @@ function PoGQuotaPanel({
           </div>
         ) : (
           <div className="text-brand font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
-            {formatEth(remaining)}
-            <span className="text-sm text-brand/60 ml-1">{NATIVE_SYMBOL}</span>
+            {formatQuote(remaining)}
+            <span className="text-sm text-brand/60 ml-1">{QUOTE_SYMBOL}</span>
           </div>
         )}
         <div className="border-t border-border-subtle/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-text-tertiary font-mono text-label uppercase">Per-window Allocation</span>
             <span className="text-text-primary font-mono text-xs font-bold tabular-nums">
-              {unattested ? '—' : `${formatEth(pogQuota)} ${NATIVE_SYMBOL}`}
+              {unattested ? '—' : `${formatQuote(pogQuota)} ${QUOTE_SYMBOL}`}
             </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-text-tertiary font-mono text-label uppercase">Spent This Window</span>
             <span className="text-text-secondary font-mono text-xs font-bold tabular-nums">
-              {blocked ? '—' : `${formatEth(windowSpent)} ${NATIVE_SYMBOL}`}
+              {blocked ? '—' : `${formatQuote(windowSpent)} ${QUOTE_SYMBOL}`}
             </span>
           </div>
         </div>
@@ -734,7 +746,7 @@ function ParticipatedAssetsPanel({
       {empty && (
         <p className="text-label tracking-wider text-text-tertiary uppercase leading-relaxed">
           / no genesis deposits detected ·{' '}
-          <span className="text-text-primary">deposit {NATIVE_SYMBOL} in any live genesis window, then claim after launch()</span>
+          <span className="text-text-primary">deposit {QUOTE_SYMBOL} in any live genesis window, then claim after launch()</span>
         </p>
       )}
 
@@ -799,7 +811,7 @@ function AssetRow({
 
       {/* `nativeDeposited` came from an earlier read that succeeded, so it stays
           on the degraded row — it is the one number here that is still known. */}
-      <Row label="DEPOSITED" value={`${formatEth(row.nativeDeposited)} ${NATIVE_SYMBOL}`} />
+      <Row label="DEPOSITED" value={`${formatQuote(row.nativeDeposited)} ${QUOTE_SYMBOL}`} />
 
       {degraded && (
         <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">
@@ -819,7 +831,7 @@ function AssetRow({
                         text-text-tertiary flex items-baseline justify-between gap-2">
             <span>RAISE_PROGRESS</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
-              {formatEth(totalNative)} / {formatEth(softCap)} ({progressPct.toFixed(1)}%)
+              {formatQuote(totalNative)} / {formatQuote(softCap)} ({progressPct.toFixed(1)}%)
             </span>
           </p>
         </div>

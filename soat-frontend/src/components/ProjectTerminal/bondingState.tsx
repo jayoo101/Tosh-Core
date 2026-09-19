@@ -18,7 +18,7 @@
  *
  * NOTHING IN HERE IS NEW. It is `BondingPanel`'s former body, moved verbatim —
  * same reads, same cadences, same revert-ordered blocker cascade, same
- * `value: maxEthCost`. The split is a layout change and the buy path spends
+ * `value: maxQuoteCost`. The split is a layout change and the buy path spends
  * the real settlement coin, so the derivation was lifted rather than rewritten.
  *
  * WHY THIS IS NOT BEHIND `next/dynamic` the way the two halves are: a dynamic
@@ -36,13 +36,12 @@ import {
 import { parseUnits, type Address, type ContractFunctionParameters } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, QUOTE_SYMBOL,
 } from '@/lib/contracts'
 import {
-  useActionGate, revertOrder, useTxAction, type ActionGate,
+  useActionGate, revertOrder, useTxAction, useQuoteApproval, type ActionGate,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { fmt, fmtQuote } from './format'
 import type { TierStatus } from './ShelfLadder'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
@@ -59,7 +58,7 @@ export interface BondingProps {
   currentPrice: bigint
   phase2Minted: bigint
   bondingMax:   bigint
-  ethBalance:   bigint
+  quoteBalance:   bigint
   nowSec:       number
   refetch:      () => void
 }
@@ -80,8 +79,8 @@ export interface BondingState {
   tokenAmount:    string
   setTokenAmount: (v: string) => void
   quotable:         boolean
-  nativeCost:          bigint
-  maxEthCost:       bigint
+  quoteCost:          bigint
+  maxQuoteCost:       bigint
   quoteUnknown:     boolean
   quoteUnavailable: boolean
   isDust:           boolean
@@ -240,16 +239,16 @@ export function BondingStateProvider(
   // ordinary in-flight moment as dust, telling anyone who typed and looked
   // quickly to "raise it until the order is worth a wei".
   const hasQuote = quoteData !== undefined
-  const nativeCost = (quoteData as bigint | undefined) ?? 0n
+  const quoteCost = (quoteData as bigint | undefined) ?? 0n
   const quotePending = quotable && !quoteFailed && !hasQuote
   const quoteUnavailable = quotable && quoteFailed
-  const isDust = quotable && !quoteFailed && hasQuote && nativeCost === 0n
+  const isDust = quotable && !quoteFailed && hasQuote && quoteCost === 0n
   // `isQuoting` also covers a refetch over a stale figure, which is exactly when
   // showing the old number would be worst: the amount on screen no longer
   // matches the amount typed.
   const quoteUnknown = quotePending || isQuoting
-  const maxEthCost = nativeCost === 0n ? 0n : nativeCost + (nativeCost * SLIPPAGE_BPS) / 10_000n
-  const insufficientBal = maxEthCost > 0n && maxEthCost > p.ethBalance
+  const maxQuoteCost = quoteCost === 0n ? 0n : quoteCost + (quoteCost * SLIPPAGE_BPS) / 10_000n
+  const insufficientBal = maxQuoteCost > 0n && maxQuoteCost > p.quoteBalance
   const gateLocked = tokenAmountWei > 0n && !unlocked
 
   // Before anyone has minted, a shut gate is the DESIGNED opening state, not a
@@ -269,18 +268,41 @@ export function BondingStateProvider(
 
   const submitMint = useCallback(() => {
     // Belt and braces behind the `quote-pending` / `quote-unavailable` blockers
-    // below. `mintBondingCurve` is payable and a zero-value call cannot do
-    // anything but revert, so the one thing worth hard-coding here is that we
-    // never ask a wallet to sign one — a future reordering of the blocker list
-    // should cost a dead button, not the user's gas.
-    if (maxEthCost === 0n) return
+    // below. A zero-cost mint cannot do anything but revert, so the one thing
+    // worth hard-coding here is that we never ask a wallet to sign one — a future
+    // reordering of the blocker list should cost a dead button, not the user's gas.
+    if (maxQuoteCost === 0n) return
     sendMint({
       address: p.hookAddress, abi: HOOK_ABI,
       functionName: 'mintBondingCurve',
-      args: [tokenAmountWei],
-      value: maxEthCost,
+      // THE SLIPPAGE BOUND MOVED FROM `value` INTO THE ARGUMENTS, and it kept its
+      // meaning exactly: the hook charges the true cost and refuses to exceed this
+      // ceiling. What changed is that a payable call enforced the bound by simply
+      // not having more money available, whereas a pull enforces it explicitly —
+      // `maxCost` is now a promise the contract checks rather than a wallet limit.
+      //
+      // The practical consequence is the residue. The hook pulls the true cost and
+      // leaves `maxQuoteCost - cost` approved but unspent, which is why
+      // `useQuoteApproval` had to be sure BEM tolerates overwriting a live
+      // allowance. It does; see the fork test named in that file.
+      args: [tokenAmountWei, maxQuoteCost],
     })
-  }, [p.hookAddress, tokenAmountWei, maxEthCost, sendMint])
+  }, [p.hookAddress, tokenAmountWei, maxQuoteCost, sendMint])
+
+  /*
+   * The allowance in front of the mint.
+   *
+   * Granted to the HOOK, not the factory — the opposite of the genesis deposit,
+   * and the asymmetry is real rather than an oversight. `factory.deposit` receives
+   * the transfer and forwards it, so the factory is the spender there;
+   * `mintBondingCurve` is called on the hook directly and pulls for itself.
+   *
+   * Approved for `maxQuoteCost` rather than the quoted cost, because that is what
+   * the hook is permitted to take. Approving the quote exactly would make every
+   * mint fail the moment the shelf moved under it — which is the situation the
+   * slippage headroom exists to absorb.
+   */
+  const approval = useQuoteApproval(p.hookAddress, maxQuoteCost)
 
   // Rungs climbed since shelf 0, i.e. STEP^index.  Measured against the LADDER
   // base rather than the pool's opening price, so the flat 5% mint premium
@@ -372,15 +394,36 @@ export function BondingStateProvider(
         id: 'dust',
         active: isDust,
         label: 'Amount too small',
-        reason: `That amount costs less than the smallest unit of ${NATIVE_SYMBOL}. Raise it until it is worth at least a wei.`,
+        // "At least a wei" was the old wording and it is now doubly wrong: the
+        // cost is not in the native coin, and the quote asset's smallest unit is
+        // 1e-8 rather than 1e-18. The threshold is also ten orders of magnitude
+        // less forgiving than it was, so a token amount that used to round to a
+        // nonzero cost can now genuinely round to nothing — this blocker fires far
+        // more often than it did, and its copy has to be about the real limit.
+        reason: `That amount costs less than the smallest unit of ${QUOTE_SYMBOL} the shelf can charge for. Raise it until the order is worth at least 0.00000001 ${QUOTE_SYMBOL}.`,
         tone: 'warn',
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: `Not enough ${NATIVE_SYMBOL}`,
-        reason: 'This wallet does not hold the quoted cost plus its slippage headroom.',
+        label: `Not enough ${QUOTE_SYMBOL}`,
+        reason: `This wallet does not hold the quoted cost plus its slippage headroom — ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL} in total.`,
         tone: 'warn',
+      },
+      {
+        // Last, so it wins once the order is otherwise sendable. Same reasoning as
+        // the genesis panel: approving is pointless while the amount is unquotable,
+        // dust or unaffordable, so every one of those speaks first.
+        id: 'approve',
+        active:
+          maxQuoteCost > 0n && !insufficientBal && !isDust
+          && !quoteUnknown && !quoteUnavailable && approval.needsApproval,
+        label: approval.tx.isBusy
+          ? 'Approving…'
+          : `Approve ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL}`,
+        reason: `The shelf pulls ${QUOTE_SYMBOL} from your wallet rather than being sent it, so it needs permission for up to ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL} — the quoted cost plus slippage headroom. It only ever takes the real cost; the difference stays yours.`,
+        tone: 'info',
+        resolve: approval.approve,
       },
     ),
   })
@@ -417,7 +460,7 @@ export function BondingStateProvider(
     p,
     status, unlocked, halted, haltIsGlobal, haltTxt, premiumRaw,
     tokenAmount, setTokenAmount,
-    quotable, nativeCost, maxEthCost, quoteUnknown, quoteUnavailable, isDust,
+    quotable, quoteCost, maxQuoteCost, quoteUnknown, quoteUnavailable, isDust,
     txBusy, amountError, amountHint,
     sameBlockLock, awaitingFirstUnlock,
     gate, armed,

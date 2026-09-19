@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { useReadContract } from 'wagmi'
 import type { Abi } from 'viem'
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { ActionButton, useActionGate, useTxAction } from '@/components/ui'
 import { Section, ScopeNote, StatusBadge, ConfirmDialog } from './shared'
 
@@ -64,7 +64,7 @@ export function CircuitBreakerPanel() {
       <ScopeNote tone="warn">
         <span className="text-danger">Deposits are not paused.</span>{' '}
         <code>deposit</code> carries no <code>whenNotPaused</code>, so a genesis
-        round that is already open goes on taking {NATIVE_SYMBOL} for its full window while
+        round that is already open goes on taking {QUOTE_SYMBOL} for its full window while
         the platform is paused. That is the same promise that keeps refunds
         working — once the platform has taken money for a round it cannot starve
         it — but it cuts both ways: if an incident requires stopping the inflow,

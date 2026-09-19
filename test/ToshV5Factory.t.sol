@@ -10,6 +10,7 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @notice v5.0 factory surface: PoG, pause, blacklist, createLaunch, ETH deposits,
 ///         eligibility, and CREATE2 helpers.  Uses a dummy PoolManager because
@@ -37,18 +38,47 @@ contract ToshV5FactoryTest is Test {
     ///      deploys. These tests never call through either, so mocks suffice.
     address internal mockVault = makeAddr("vault");
 
+    /// @dev NOT a mock, unlike the pool manager and the Vault above, and it
+    ///      cannot be: `ToshFactory`'s constructor deploys the hook
+    ///      implementation, whose own constructor reads `decimals()` off the quote
+    ///      asset and requires 8. A `makeAddr` placeholder holds no code, so the
+    ///      whole fixture would fail to construct.
+    MockQuoteAsset internal quote;
+
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
 
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder);
-        factory.setMaxPogAllocationLimit(1000 ether);
+        factory = new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, ladder, address(quote));
+        // The suite's working ceiling. It used to be 1000 ETH, chosen so the
+        // `registerPoG` tests could use round numbers with vast headroom under
+        // `MAX_POG_ALLOCATION_LIMIT`. There is no vast headroom any more — the
+        // ceiling is 20,000 BEM, a tenth of BEM's supply — so this is now a real
+        // fraction of it rather than a rounding error against it.
+        factory.setMaxPogAllocationLimit(1000e8);
         vm.stopPrank();
 
+        // Native for gas only.
         vm.deal(creator, 100 ether);
         vm.deal(user1, 100 ether);
         vm.deal(user2, 100 ether);
         vm.deal(admin, 100 ether);
+
+        // The factory pulls the launch fee and every deposit, so anyone who might
+        // pay needs a balance and an allowance. This suite mostly asserts
+        // refusals, which happen before any transfer — but a refusal that the
+        // ERC20 raises first would be the wrong refusal, and silently so.
+        _endow(creator);
+        _endow(user1);
+        _endow(user2);
+    }
+
+    function _endow(address who) internal {
+        quote.mint(who, 100_000e8);
+        vm.prank(who);
+        quote.approve(address(factory), type(uint256).max);
     }
 
     function _buildPoGSig(address user, uint256 maxAlloc, uint256 nonce, uint256 deadline)
@@ -105,9 +135,8 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (token, hook) = factory.createLaunch{value: fee}(
-            n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, duration
-        );
+        (token, hook) =
+            factory.createLaunch(n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, duration);
     }
 
     function _h(address hook) internal pure returns (ToshLaunchpadHook) {
@@ -137,20 +166,16 @@ contract ToshV5FactoryTest is Test {
     function test_createLaunch_gasStaysUnderBudget() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
+        // Read before the prank, not inside the argument list. See the note on the
+        // same hoist in `test_gas_createLaunch`: an external getter in the argument
+        // list consumes `vm.prank`, and with a pulled fee that shows up as an
+        // allowance revert naming the test contract.
+        uint256 softCap = factory.defaultSoftCap();
+        uint256 pogCap = factory.maxPogAllocationLimit();
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch{value: fee}(
-            "Budget",
-            "BGT",
-            projTreasury,
-            projTreasury,
-            salt,
-            fee,
-            factory.defaultSoftCap(),
-            factory.maxPogAllocationLimit(),
-            24 hours
-        );
+        factory.createLaunch("Budget", "BGT", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours);
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch gas", used);
@@ -163,22 +188,22 @@ contract ToshV5FactoryTest is Test {
 
     function test_ctor_revertsOnZeroPoolManager() public {
         vm.expectRevert(bytes("zero poolManager"));
-        new ToshFactory(address(0), mockVault, pogSigner, treasury, ladder);
+        new ToshFactory(address(0), mockVault, pogSigner, treasury, ladder, address(quote));
     }
 
     function test_ctor_revertsOnZeroPogSigner() public {
         vm.expectRevert(bytes("zero pogSigner"));
-        new ToshFactory(mockPoolManager, mockVault, address(0), treasury, ladder);
+        new ToshFactory(mockPoolManager, mockVault, address(0), treasury, ladder, address(quote));
     }
 
     function test_ctor_revertsOnZeroTreasury() public {
         vm.expectRevert(bytes("zero platformTreasury"));
-        new ToshFactory(mockPoolManager, mockVault, pogSigner, address(0), ladder);
+        new ToshFactory(mockPoolManager, mockVault, pogSigner, address(0), ladder, address(quote));
     }
 
     function test_ctor_revertsOnZeroLadderTreasury() public {
         vm.expectRevert(bytes("zero ladderTreasury"));
-        new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, payable(address(0)));
+        new ToshFactory(mockPoolManager, mockVault, pogSigner, treasury, payable(address(0)), address(quote));
     }
 
     function test_ctor_wiresImmutables() public view {
@@ -193,8 +218,8 @@ contract ToshV5FactoryTest is Test {
     // ── PoG ───────────────────────────────────────────────────────────────────
 
     function test_registerPoG_setsQuota() public {
-        _register(user1, 0.05 ether);
-        assertEq(factory.pogQuota(user1), 0.05 ether);
+        _register(user1, 5e8);
+        assertEq(factory.pogQuota(user1), 5e8);
         assertEq(factory.pogNonces(user1), 1);
     }
 
@@ -202,52 +227,51 @@ contract ToshV5FactoryTest is Test {
         uint256 deadline = block.timestamp - 1;
         vm.prank(user1);
         vm.expectRevert(ToshFactory.SignatureExpired.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user1, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user1, 5e8, 0, deadline));
     }
 
     function test_registerPoG_rejectsInvalidSig() public {
         uint256 deadline = block.timestamp + 1 hours;
-        bytes32 hash = keccak256(
-                abi.encode(user1, uint256(0.05 ether), uint256(0), deadline, address(factory), block.chainid)
-            ).toEthSignedMessageHash();
+        bytes32 hash = keccak256(abi.encode(user1, uint256(5e8), uint256(0), deadline, address(factory), block.chainid))
+            .toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xDEAD, hash);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.InvalidSignature.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, abi.encodePacked(r, s, v));
+        factory.registerPoG(5e8, deadline, 0, abi.encodePacked(r, s, v));
     }
 
     function test_registerPoG_rejectsReplayedNonce() public {
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user1);
         vm.expectRevert(ToshFactory.NonceConflict.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user1, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user1, 5e8, 0, deadline));
     }
 
     function test_registerPoG_rejectsSignatureTooLong() public {
         uint256 deadline = block.timestamp + factory.MAX_SIG_VALIDITY() + 1;
         vm.prank(user1);
         vm.expectRevert(ToshFactory.SignatureTooLong.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user1, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user1, 5e8, 0, deadline));
     }
 
     function test_registerPoG_rejectsWrongNonce_skipAhead() public {
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user1);
         vm.expectRevert(ToshFactory.NonceConflict.selector);
-        factory.registerPoG(0.05 ether, deadline, 1, _buildPoGSig(user1, 0.05 ether, 1, deadline));
+        factory.registerPoG(5e8, deadline, 1, _buildPoGSig(user1, 5e8, 1, deadline));
     }
 
     function test_registerPoG_keepsHigherQuotaOnReregister() public {
-        _register(user1, 0.08 ether);
-        _register(user1, 0.03 ether);
-        assertEq(factory.pogQuota(user1), 0.08 ether);
+        _register(user1, 8e8);
+        _register(user1, 3e8);
+        assertEq(factory.pogQuota(user1), 8e8);
     }
 
     function test_registerPoG_raisesQuotaOnReregister() public {
-        _register(user1, 0.03 ether);
-        _register(user1, 0.08 ether);
-        assertEq(factory.pogQuota(user1), 0.08 ether);
+        _register(user1, 3e8);
+        _register(user1, 8e8);
+        assertEq(factory.pogQuota(user1), 8e8);
     }
 
     function test_registerPoG_revertsAboveGlobalLimit() public {
@@ -258,11 +282,16 @@ contract ToshV5FactoryTest is Test {
         factory.registerPoG(tooMuch, deadline, 0, _buildPoGSig(user1, tooMuch, 0, deadline));
     }
 
+    /// @dev Raised to the ceiling rather than past it. The old version set 300
+    ///      ETH against a 1 M ETH ceiling and registered 200; `MAX_POG_ALLOCATION_LIMIT`
+    ///      is 20,000 BEM now, so "comfortably above what we register" and "above
+    ///      the ceiling" have collapsed into the same figure.
     function test_registerPoG_noSilentClamp() public {
+        uint256 ceiling = factory.MAX_POG_ALLOCATION_LIMIT();
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(300 ether);
-        _register(user1, 200 ether);
-        assertEq(factory.pogQuota(user1), 200 ether);
+        factory.setMaxPogAllocationLimit(ceiling);
+        _register(user1, ceiling);
+        assertEq(factory.pogQuota(user1), ceiling);
     }
 
     function test_registerPoG_rejectsBlacklisted() public {
@@ -274,7 +303,7 @@ contract ToshV5FactoryTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user1);
         vm.expectRevert(ToshFactory.IsBlacklisted.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user1, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user1, 5e8, 0, deadline));
     }
 
     // ── Admin ─────────────────────────────────────────────────────────────────
@@ -429,12 +458,18 @@ contract ToshV5FactoryTest is Test {
         factory.setLaunchFee(ceiling + 1);
     }
 
-    /// @dev The slip this exists for, at its real magnitude: 0.1 ether typed as
-    ///      0.1e18 ether. Nothing in the old setter would have stopped it.
+    /// @dev The slip this exists for, at its real magnitude. It used to be
+    ///      "0.1 ether typed as 0.1e18 ether"; the quote asset has eight decimals
+    ///      now, so the live version is the fee written at EIGHTEEN — `9.28e18`
+    ///      where `9.28e8` was meant.
+    ///
+    ///      The slip got ten orders of magnitude cheaper to make and no less
+    ///      expensive to suffer: 18 is what every other token on the chain uses,
+    ///      so the wrong figure is the habitual one.
     function test_setLaunchFee_rejectsOrderOfMagnitudeSlip() public {
         vm.prank(admin);
         vm.expectRevert(ToshFactory.LaunchFeeTooHigh.selector);
-        factory.setLaunchFee(0.1e18 ether);
+        factory.setLaunchFee(9.28e18);
     }
 
     function test_setCooldownDuration_acceptsZero() public {
@@ -491,8 +526,8 @@ contract ToshV5FactoryTest is Test {
 
     function test_setMaxPogAllocationLimit_rotatesDial() public {
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(0.2 ether);
-        assertEq(factory.maxPogAllocationLimit(), 0.2 ether);
+        factory.setMaxPogAllocationLimit(20e8);
+        assertEq(factory.maxPogAllocationLimit(), 20e8);
     }
 
     function test_setMaxPogAllocationLimit_rejectsNonOwner() public {
@@ -515,41 +550,53 @@ contract ToshV5FactoryTest is Test {
         factory.setMaxPogAllocationLimit(ceiling + 1);
     }
 
-    /// @dev The slip at its real magnitude: 0.1 ether typed as 0.1e18 ether.
+    /// @dev The slip at its real magnitude: the default ceiling written at
+    ///      eighteen decimals instead of eight.
     function test_setMaxPogAllocationLimit_rejectsOrderOfMagnitudeSlip() public {
         vm.prank(admin);
         vm.expectRevert(ToshFactory.PogLimitTooHigh.selector);
-        factory.setMaxPogAllocationLimit(0.1e18 ether);
+        factory.setMaxPogAllocationLimit(46.4e18);
     }
 
-    /// @dev The reason this ceiling is 1 M ETH and not something tidy like 100x
-    ///      the default. These two values are not hypothetical: `setUp` here
-    ///      raises the limit to 1000 ETH so the `registerPoG` tests can work in
-    ///      round numbers, and `test_registerPoG_noSilentClamp` needs 300. A
-    ///      bound chosen for neatness would have failed this repo's own suite,
-    ///      which is the cheapest available evidence that it was the wrong bound.
+    /// @dev The ceiling still has to admit the values this suite actually uses,
+    ///      which is what this pins — but the headroom it is pinning shrank by
+    ///      four orders of magnitude when the protocol changed unit of account,
+    ///      and that is worth stating rather than quietly rescaling.
+    ///
+    ///      Under native settlement the ceiling was 1 M ETH against a 10 ETH
+    ///      default: a wei/ether slip catcher with a factor of 1e5 to spare, so
+    ///      "the values this suite uses" were nowhere near it. `MAX_POG_ALLOCATION_LIMIT`
+    ///      is now 20,000 BEM against a 46.4 BEM default — about 430x, not 1e5 —
+    ///      because 20,000 BEM is already a tenth of BEM's ENTIRE SUPPLY, and a
+    ///      ceiling above that would be describing allocations the asset cannot
+    ///      support regardless of typing errors.
+    ///
+    ///      So the two values below are the suite's own (`POG_CAP`, 1000 BEM) and
+    ///      the ceiling itself. The second is the interesting one: it asserts the
+    ///      boundary is inclusive, which `ceiling + 1` above only implies.
     function test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses() public {
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(1000 ether);
-        assertEq(factory.maxPogAllocationLimit(), 1000 ether);
+        factory.setMaxPogAllocationLimit(1000e8);
+        assertEq(factory.maxPogAllocationLimit(), 1000e8);
 
+        uint256 ceiling = factory.MAX_POG_ALLOCATION_LIMIT();
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(300 ether);
-        assertEq(factory.maxPogAllocationLimit(), 300 ether);
+        factory.setMaxPogAllocationLimit(ceiling);
+        assertEq(factory.maxPogAllocationLimit(), ceiling, "the ceiling itself must be admissible");
     }
 
     function test_setDefaultSoftCap_rotatesAndBakesIntoNewHook() public {
         vm.prank(admin);
-        factory.setDefaultSoftCap(2 ether);
+        factory.setDefaultSoftCap(200e8);
         (, address hook) = _createLaunch("Soft", "SFT");
-        assertEq(_h(hook).softCap(), 2 ether);
+        assertEq(_h(hook).softCap(), 200e8);
     }
 
     function test_setDefaultSoftCap_doesNotAffectExistingHooks() public {
         (, address hook) = _createLaunch("Old", "OLD");
         uint256 frozen = _h(hook).softCap();
         vm.prank(admin);
-        factory.setDefaultSoftCap(3 ether);
+        factory.setDefaultSoftCap(300e8);
         assertEq(_h(hook).softCap(), frozen);
     }
 
@@ -563,7 +610,7 @@ contract ToshV5FactoryTest is Test {
     function test_setDefaultSoftCap_rejectsNonOwner() public {
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        factory.setDefaultSoftCap(1 ether);
+        factory.setDefaultSoftCap(100e8);
     }
 
     function test_setDefaultSoftCap_atBoundary() public {
@@ -584,26 +631,34 @@ contract ToshV5FactoryTest is Test {
         factory.setDefaultSoftCap(ceiling + 1);
     }
 
-    /// @dev 10 ether typed as 10e18 ether — the default, off by the wei/ether
-    ///      confusion this ceiling exists for.
+    /// @dev The default soft cap written at eighteen decimals instead of eight —
+    ///      the slip this ceiling exists for, in its current form.
     function test_setDefaultSoftCap_rejectsOrderOfMagnitudeSlip() public {
         vm.prank(admin);
         vm.expectRevert(ToshFactory.SoftCapTooHigh.selector);
-        factory.setDefaultSoftCap(10e18 ether);
+        factory.setDefaultSoftCap(928.4e18);
     }
 
     /// @dev Companion to `test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses`.
     ///
-    ///      8000 came from a local-Anvil driver script that set it as a soft cap;
-    ///      that script is gone, deleted with its cohort for carrying a live
-    ///      private key in plaintext. The VALUE stays, because what it pins is
-    ///      not that one script's habits: `MAX_DEFAULT_SOFT_CAP` is a wei/ether
-    ///      slip catcher, not a view on how large a raise may be, and a ceiling
-    ///      tightened to something tidier would reject this first.
+    ///      The figure used to be 8000 ETH, inherited from a deleted local-Anvil
+    ///      driver script, and the point was that `MAX_DEFAULT_SOFT_CAP` is a
+    ///      typing-slip catcher rather than a view on how large a raise may be.
+    ///
+    ///      THAT IS NO LONGER TRUE, and the honest thing is to say so rather than
+    ///      rescale 8000 and move on. The ceiling is 20,000 BEM, which is a tenth
+    ///      of BEM's entire supply — so it now IS a view on how large a raise may
+    ///      be, because beyond it there is not enough of the asset in existence
+    ///      for the raise to mean anything. `docs/BEM_QUOTE_ASSET.md` §1.2 is
+    ///      where that constraint is argued.
+    ///
+    ///      What survives is the weaker claim worth keeping: a raise an order of
+    ///      magnitude above the default is admissible, so the ceiling is not
+    ///      secretly pinning the default in place.
     function test_setDefaultSoftCap_admitsALargeButRealRaise() public {
         vm.prank(admin);
-        factory.setDefaultSoftCap(8000 ether);
-        assertEq(factory.defaultSoftCap(), 8000 ether);
+        factory.setDefaultSoftCap(10_000e8);
+        assertEq(factory.defaultSoftCap(), 10_000e8);
     }
 
     // ── Pause ─────────────────────────────────────────────────────────────────
@@ -614,7 +669,7 @@ contract ToshV5FactoryTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user1);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user1, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user1, 5e8, 0, deadline));
     }
 
     function test_pause_blocksCreateLaunch() public {
@@ -626,9 +681,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch{value: fee}(
-            "P", "P", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("P", "P", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
     }
 
     /// @notice A pause stops the platform taking on new projects; it must not
@@ -641,20 +694,20 @@ contract ToshV5FactoryTest is Test {
     ///   keeps funding an in-flight round for the full window, paused or not.
     function test_pause_doesNotBlockDepositIntoALiveRound() public {
         (, address hook) = _createLaunch("Paus", "PAU");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
 
         vm.prank(admin);
         factory.pause();
 
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
 
-        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether, "a live raise keeps taking deposits while paused");
+        assertEq(_h(hook).nativeDeposited(user1), 1e8, "a live raise keeps taking deposits while paused");
     }
 
     /// @dev The other half of the same rule: no NEW exposure while paused.
     function test_pause_stillBlocksNewLaunchesAndNewQuota() public {
-        _register(user1, 0.05 ether); // registered before the pause
+        _register(user1, 5e8); // registered before the pause
 
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
@@ -666,14 +719,14 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch{value: fee}(
+        factory.createLaunch(
             "New", "NEW", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(user2);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.registerPoG(0.05 ether, deadline, 0, _buildPoGSig(user2, 0.05 ether, 0, deadline));
+        factory.registerPoG(5e8, deadline, 0, _buildPoGSig(user2, 5e8, 0, deadline));
     }
 
     function test_unpause_restoresAllPaths() public {
@@ -681,11 +734,11 @@ contract ToshV5FactoryTest is Test {
         factory.pause();
         factory.unpause();
         vm.stopPrank();
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         (, address hook) = _createLaunch("Up", "UP");
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
+        factory.deposit(hook, address(0), 1e8);
+        assertEq(_h(hook).nativeDeposited(user1), 1e8);
     }
 
     function test_pause_rejectsNonOwner() public {
@@ -704,20 +757,20 @@ contract ToshV5FactoryTest is Test {
 
     function test_pause_doesNotBlockRefund() public {
         vm.prank(admin);
-        factory.setDefaultSoftCap(5 ether);
+        factory.setDefaultSoftCap(500e8);
         (, address hook) = _createLaunch("Rfnd", "RFD");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
-        factory.deposit{value: 0.05 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 5e8);
 
         vm.prank(admin);
         factory.pause();
         vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
 
-        uint256 before = user1.balance;
+        uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
         _h(hook).refund();
-        assertEq(user1.balance - before, 0.05 ether);
+        assertEq(quote.balanceOf(user1) - before, 5e8, "a refund pays back in the quote asset");
     }
 
     // ── createLaunch ──────────────────────────────────────────────────────────
@@ -750,14 +803,37 @@ contract ToshV5FactoryTest is Test {
         assertEq(_h(hook).perWalletCap(), factory.maxPogAllocationLimit());
     }
 
-    function test_createLaunch_revertsOnUnderpayment() public {
+    /// @notice A creator who has not approved the fee cannot launch.
+    ///
+    /// @dev    ⚠ REPLACES `test_createLaunch_revertsOnUnderpayment`, which sent
+    ///         no value and expected `InsufficientLaunchFee`.
+    ///
+    ///         THAT ERROR IS GONE, deliberately. Native value arrived before the
+    ///         factory ran, so a shortfall was a local fact worth naming; a pull
+    ///         has nothing in hand, and the only check available is a read whose
+    ///         sole outcome is the revert the transfer already raises — from the
+    ///         token, carrying both the allowance and the amount. Restating that
+    ///         locally would have said less.
+    ///
+    ///         `expectRevert()` is bare on purpose: the revert belongs to the
+    ///         quote asset, and pinning `ERC20InsufficientAllowance` would tie
+    ///         this suite to OpenZeppelin's error set rather than to the
+    ///         protocol's behaviour.
+    function test_createLaunch_revertsWithoutSufficientAllowance() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        // One base unit short, rather than zero: an allowance of zero would fail
+        // the first pull a launch makes whatever the reason, while `fee - 1` can
+        // only fail on the fee.
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
-        factory.createLaunch{value: fee - 1}(
+        quote.approve(address(factory), fee - 1);
+
+        vm.prank(creator);
+        vm.expectRevert();
+        factory.createLaunch(
             "Short", "SHT", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -783,7 +859,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}(
+        (, address hook) = factory.createLaunch(
             "Any", "ANY", projTreasury, projTreasury, bytes32(0), fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertTrue(hook != address(0), "a launch on a salt V4 would have refused");
@@ -798,7 +874,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch{value: stale + 1 ether}(
+        factory.createLaunch(
             "Tok", "TOK", projTreasury, projTreasury, salt, stale, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -810,7 +886,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InvalidAdmin.selector);
-        factory.createLaunch{value: fee}(
+        factory.createLaunch(
             "Tok", "TOK", projTreasury, address(0), salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -822,9 +898,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch{value: fee}(
-            "", "TOK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("", "TOK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
     }
 
     function test_createLaunch_rejectsEmptySymbol() public {
@@ -834,9 +908,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch{value: fee}(
-            "Tok", "", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("Tok", "", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
     }
 
     function test_createLaunch_rejectsDuplicateNamePair() public {
@@ -847,7 +919,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.NameTaken.selector);
-        factory.createLaunch{value: fee}(
+        factory.createLaunch(
             "Same", "SAM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -888,13 +960,13 @@ contract ToshV5FactoryTest is Test {
     ///      creator's ticker.
     function test_releaseAbandonedName_recoversANameAfterAPartiallyFundedMiss() public {
         vm.prank(admin);
-        factory.setDefaultSoftCap(5 ether);
+        factory.setDefaultSoftCap(500e8);
 
         (, address hook) = _createLaunch("Undr", "UND");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
 
         vm.prank(user1);
-        factory.deposit{value: 0.05 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 5e8);
 
         vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
         assertTrue(_h(hook).canRefund(), "an unlaunched round must be refundable after the launch window");
@@ -911,7 +983,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(bytes("zero treasury"));
-        factory.createLaunch{value: fee}(
+        factory.createLaunch(
             "Tok", "TOK", address(0), projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -954,14 +1026,12 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
 
         vm.prank(admin);
-        factory.setDefaultSoftCap(agreedCap + 1 ether);
+        factory.setDefaultSoftCap(agreedCap + 100e8);
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch{value: fee}(
-            "Rot", "ROT", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("Rot", "ROT", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
     }
 
     /// @dev The wallet cap is the other half of the same guard, and it gets its
@@ -978,9 +1048,7 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch{value: fee}(
-            "Rot2", "RT2", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("Rot2", "RT2", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
     }
 
     /// @dev Exact, not a bound, and this is what separates the caps from
@@ -1001,9 +1069,7 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch{value: fee}(
-            "Fav", "FAV", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
-        );
+        factory.createLaunch("Fav", "FAV", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
     }
 
     /// @dev And the address the guard protects really is the one the caller
@@ -1020,7 +1086,7 @@ contract ToshV5FactoryTest is Test {
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}(
+        (, address hook) = factory.createLaunch(
             "Pred", "PRD", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
         );
 
@@ -1030,69 +1096,69 @@ contract ToshV5FactoryTest is Test {
 
     function test_createLaunch_fundsLadderTreasury() public {
         uint256 fee = factory.launchFee();
-        uint256 before = ladder.balance;
+        uint256 before = quote.balanceOf(ladder);
         _createLaunch("Fee", "FEE");
-        assertEq(ladder.balance - before, fee);
+        assertEq(quote.balanceOf(ladder) - before, fee);
     }
 
     // ── Deposits ──────────────────────────────────────────────────────────────
 
     function test_deposit_succeedsWhenEligible() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
-        factory.deposit{value: 0.05 ether}(hook, address(0));
-        assertEq(_h(hook).nativeDeposited(user1), 0.05 ether);
-        assertEq(_h(hook).totalNativeDeposited(), 0.05 ether);
+        factory.deposit(hook, address(0), 5e8);
+        assertEq(_h(hook).nativeDeposited(user1), 5e8);
+        assertEq(_h(hook).totalNativeDeposited(), 5e8);
         assertGt(factory.userLaunchCooldownEnd(user1, hook), block.timestamp);
     }
 
     function test_deposit_blockedWhenBlacklisted() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.prank(admin);
         factory.setBlacklist(bl, 1 days);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.IsBlacklisted.selector);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
     }
 
     function test_deposit_blockedWithoutPoG() public {
         (, address hook) = _createLaunch("Tok", "TOK");
         vm.prank(user1);
         vm.expectRevert(ToshFactory.NoPogQuota.selector);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
     }
 
     function test_deposit_blockedDuringCooldown() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.08 ether);
+        _register(user1, 8e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.CooldownActive.selector);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
     }
 
     function test_deposit_blockedWhenQuotaExceeded() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.02 ether);
+        _register(user1, 2e8);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.QuotaExceeded.selector);
-        factory.deposit{value: 0.03 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 3e8);
     }
 
     function test_deposit_quotaIsGlobalAcrossHooks() public {
         (, address a) = _createLaunch("A", "AAA");
         (, address b) = _createLaunch("B", "BBB");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
-        factory.deposit{value: 0.04 ether}(a, address(0));
+        factory.deposit(a, address(0), 4e8);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.QuotaExceeded.selector);
-        factory.deposit{value: 0.02 ether}(b, address(0));
+        factory.deposit(b, address(0), 2e8);
     }
 
     function test_deposit_cooldownLiftsAfterDuration() public {
@@ -1101,58 +1167,58 @@ contract ToshV5FactoryTest is Test {
         factory.setCooldownDuration(1 hours);
 
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.08 ether);
+        _register(user1, 8e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
         vm.warp(factory.userLaunchCooldownEnd(user1, hook) + 1);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).nativeDeposited(user1), 0.02 ether);
+        factory.deposit(hook, address(0), 1e8);
+        assertEq(_h(hook).nativeDeposited(user1), 2e8);
     }
 
     function test_deposit_rejectsZeroAmount() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.ZeroAmount.selector);
-        factory.deposit{value: 0}(hook, address(0));
+        factory.deposit(hook, address(0), 0);
     }
 
     function test_deposit_rejectsUnregisteredHook() public {
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.HookNotRegistered.selector);
-        factory.deposit{value: 0.01 ether}(makeAddr("nope"), address(0));
+        factory.deposit(makeAddr("nope"), address(0), 1e8);
     }
 
     function test_blacklist_blocksEvenAfterPreRegisteredQuota() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.prank(admin);
         factory.setBlacklist(bl, 1 days);
         vm.prank(user1);
         vm.expectRevert(ToshFactory.IsBlacklisted.selector);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
     }
 
     function test_blacklist_expiresAfterBanDuration() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.prank(admin);
         factory.setBlacklist(bl, 1 hours);
         vm.warp(block.timestamp + 1 hours + 1);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
+        factory.deposit(hook, address(0), 1e8);
+        assertEq(_h(hook).nativeDeposited(user1), 1e8);
     }
 
     function test_liftBlacklist_immediatelyRestores() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.startPrank(admin);
@@ -1160,23 +1226,23 @@ contract ToshV5FactoryTest is Test {
         factory.liftBlacklist(bl);
         vm.stopPrank();
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
-        assertEq(_h(hook).nativeDeposited(user1), 0.01 ether);
+        factory.deposit(hook, address(0), 1e8);
+        assertEq(_h(hook).nativeDeposited(user1), 1e8);
     }
 
     function test_blacklist_blocksAttackerAcrossAllHooks() public {
         (, address a) = _createLaunch("A", "AAA");
         (, address b) = _createLaunch("B", "BBB");
-        _register(user1, 1 ether);
+        _register(user1, 100e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.prank(admin);
         factory.setBlacklist(bl, 1 days);
         vm.startPrank(user1);
         vm.expectRevert(ToshFactory.IsBlacklisted.selector);
-        factory.deposit{value: 0.01 ether}(a, address(0));
+        factory.deposit(a, address(0), 1e8);
         vm.expectRevert(ToshFactory.IsBlacklisted.selector);
-        factory.deposit{value: 0.01 ether}(b, address(0));
+        factory.deposit(b, address(0), 1e8);
         vm.stopPrank();
     }
 
@@ -1184,7 +1250,7 @@ contract ToshV5FactoryTest is Test {
 
     function test_eligibility_returnsFalseForBlacklistedUser() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         address[] memory bl = new address[](1);
         bl[0] = user1;
         vm.prank(admin);
@@ -1201,28 +1267,28 @@ contract ToshV5FactoryTest is Test {
 
     function test_eligibility_returnsCooldownRemaining() public {
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
-        factory.deposit{value: 0.01 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 1e8);
         (bool ok,, uint256 cd) = factory.eligibility(user1, hook);
         assertFalse(ok);
         assertGt(cd, 0);
     }
 
     function test_eligibility_returnsTrueOnUnregisteredHookWithQuota() public {
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         (bool ok, uint256 remaining,) = factory.eligibility(user1, makeAddr("randomHook"));
         assertTrue(ok);
-        assertEq(remaining, 0.05 ether);
+        assertEq(remaining, 5e8);
     }
 
     function test_eligibility_returnsFalseWhenQuotaExhaustedSameHook() public {
         vm.prank(admin);
         factory.setCooldownDuration(0);
         (, address hook) = _createLaunch("Tok", "TOK");
-        _register(user1, 0.02 ether);
+        _register(user1, 2e8);
         vm.prank(user1);
-        factory.deposit{value: 0.02 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 2e8);
         (bool ok, uint256 remaining,) = factory.eligibility(user1, hook);
         assertFalse(ok);
         assertEq(remaining, 0);
@@ -1247,7 +1313,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}(
+        (, address hook) = factory.createLaunch(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertEq(predicted, hook);
@@ -1259,7 +1325,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}(
+        (, address hook) = factory.createLaunch(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertTrue(
@@ -1289,7 +1355,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch{value: fee}(
+        (, address hook) = factory.createLaunch(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertFalse(
@@ -1435,7 +1501,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
-        factory.createLaunch{value: fee}(
+        factory.createLaunch(
             "Odd", "ODD", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 12 hours
         );
     }
@@ -1457,9 +1523,9 @@ contract ToshV5FactoryTest is Test {
 
     function test_fastWindow_refundOpensAfterThreeHours() public {
         (, address hook) = _createLaunch("Quick", "QCK", 3 hours);
-        _register(user1, 0.05 ether);
+        _register(user1, 5e8);
         vm.prank(user1);
-        factory.deposit{value: 0.05 ether}(hook, address(0));
+        factory.deposit(hook, address(0), 5e8);
 
         // Still inside the window: the genesis is live, so no refund yet.
         vm.warp(block.timestamp + 3 hours - 1);

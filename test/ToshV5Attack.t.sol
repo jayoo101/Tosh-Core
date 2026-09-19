@@ -24,6 +24,7 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @notice RED-TEAM PROBES — adversarial exploration of the v5.0 "Scheme B"
 ///         (8.4 M genesis / 12.6 M ladder) configuration.
@@ -63,8 +64,11 @@ contract ToshV5AttackTest is Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
-    uint256 internal constant SOFT_CAP = 1 ether;
-    uint256 internal constant POG_CAP = 100 ether;
+    /// @dev Stands in for BEM, at eight decimals.
+    MockQuoteAsset internal quote;
+
+    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant POG_CAP = 10_000e8;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
     function setUp() public {
@@ -82,9 +86,13 @@ contract ToshV5AttackTest is Test {
 
         router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
-        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        factory = new ToshFactory(
+            address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
+        );
         ladder.setFactory(address(factory));
         factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -92,9 +100,57 @@ contract ToshV5AttackTest is Test {
         factory.setQuotaWindowDuration(0);
         vm.stopPrank();
 
+        // Native for gas only.
         vm.deal(creator, 1000 ether);
         vm.deal(alice, 1000 ether);
         vm.deal(attacker, 10_000 ether);
+
+        _endow(creator);
+        _endow(alice);
+        // The attacker gets more than anyone else, which is the point: several
+        // tests here turn on whether a well-funded adversary can force an
+        // outcome, and "they ran out of money" is never the answer being sought.
+        _endow(attacker);
+    }
+
+    /// @dev Mint a quote balance and approve the factory and the router. See
+    ///      `ToshV5Test._endow` for why the swap allowance names the router and
+    ///      not the Vault.
+    function _endow(address who) internal {
+        quote.mint(who, 1_000_000e8);
+        vm.startPrank(who);
+        quote.approve(address(factory), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// @dev Approve a freshly created hook for everyone `setUp` endowed.
+    ///
+    ///      `_endow` cannot cover per-project hooks: they do not exist until a test
+    ///      creates one, and `mintBondingCurve` pulls from the buyer directly rather
+    ///      than through the factory. Called from `_launchProject`, so every probe
+    ///      that reaches the ladder has the allowance its native-settlement
+    ///      ancestor never needed. See `ToshV5Test._approveHook` for why approving
+    ///      eagerly does not weaken the refusal tests.
+    function _approveHook(ToshLaunchpadHook hook) internal {
+        address[3] memory actors = [creator, alice, attacker];
+        for (uint256 i; i < actors.length; ++i) {
+            vm.prank(actors[i]);
+            quote.approve(address(hook), type(uint256).max);
+        }
+    }
+
+    /// @dev Set an exact quote balance, the way `vm.deal` set an exact native one.
+    ///      Needed because the buyback reservoir's arming threshold is a token
+    ///      balance now, and several tests here land it deliberately one base unit
+    ///      either side of `TRIGGER_STEP`.
+    function _setQuote(address who, uint256 amount) internal {
+        uint256 held = quote.balanceOf(who);
+        if (held > amount) {
+            quote.burn(who, held - amount);
+        } else if (held < amount) {
+            quote.mint(who, amount - held);
+        }
     }
 
     // ─── Harness ──────────────────────────────────────────────────────────────
@@ -130,15 +186,16 @@ contract ToshV5AttackTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
+        (address t, address h) = factory.createLaunch(
             "Probe", "PRB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
+        _approveHook(hook);
 
         if (factory.pogQuota(alice) == 0) _registerPoG(alice, POG_CAP);
         vm.prank(alice);
-        factory.deposit{value: raise}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), raise);
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
@@ -153,7 +210,7 @@ contract ToshV5AttackTest is Test {
     function _buy(ToshLaunchpadHook hook, address who, uint256 nativeIn) internal {
         PoolKey memory key = hook.getPoolKey();
         vm.prank(who);
-        router.swap{value: nativeIn}(
+        router.swap(
             key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
@@ -180,7 +237,7 @@ contract ToshV5AttackTest is Test {
     // FIX.  `launch()` now stamps `lastSwapBlock`, closing the launch block
     // outright regardless of which side of `p0` the truncated spot lands on.
     function test_probeA_shelfZeroInLaunchBlock() public {
-        (, ToshLaunchpadHook hook) = _launchProject(10 ether);
+        (, ToshLaunchpadHook hook) = _launchProject(1000e8);
 
         (,,, uint256 spot,, uint256 ceiling,) = hook.tierStatus();
 
@@ -192,10 +249,10 @@ contract ToshV5AttackTest is Test {
         assertEq(hook.lastSwapBlock(), block.number, "launch stamps the block");
         assertEq(hook.maxMintable(), 0, "so the view reports nothing available");
 
-        uint256 quote = hook.quoteMint(1e18);
+        uint256 quoted = hook.quoteMint(1e18);
         vm.prank(attacker);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve{value: quote}(1e18);
+        hook.mintBondingCurve(1e18, quoted);
 
         // ...and it opens normally one block later, once the market qualifies.
         _nextBlock();
@@ -210,14 +267,14 @@ contract ToshV5AttackTest is Test {
     // lands `>= TWAP_WINDOW` after `_cur`.  An attacker who controls WHEN that
     // roll happens can collapse the averaging window down to the minimum.
     function test_probeB_twapReanchorSpeed() public {
-        (, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
         uint256 t0 = block.timestamp;
         console2.log("p0", hook.p0());
 
         // 1. Pump hard.
         _nextBlock();
-        _buy(hook, attacker, 200 ether);
+        _buy(hook, attacker, 20_000e8);
         (,,, uint256 spotAfterPump,, uint256 ceilAfterPump,) = hook.tierStatus();
         console2.log("spot after pump ", spotAfterPump);
         console2.log("ceil after pump ", ceilAfterPump);
@@ -282,14 +339,14 @@ contract ToshV5AttackTest is Test {
     // trivially known average — the price was flat at `lastTick` for the whole
     // window, so that IS the TWAP.
     function test_probeB2_quietPoolTwapDoesNotFossilise() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
         PoolKey memory key = hook.getPoolKey();
         uint256 t0 = block.timestamp;
 
         // A long, HIGH-priced history, laid down by sparse trading so the
         // stale checkpoint ends up a week behind rather than 30 minutes.
         _nextBlock();
-        _buy(hook, attacker, 200 ether);
+        _buy(hook, attacker, 20_000e8);
 
         vm.warp(t0 + 7 days);
         _nextBlock();
@@ -402,11 +459,11 @@ contract ToshV5AttackTest is Test {
     // it, and it understates a full treasury by whatever multiple that
     // treasury has grown by: 10x at the 100 ETH modelled here.
     function test_probeG_sandwichThePiggyback() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
         // Mature the TWAP so the buyback floor is live rather than unbounded.
         _nextBlock();
-        _buy(hook, alice, 1 ether);
+        _buy(hook, alice, 100e8);
         vm.warp(block.timestamp + 3601);
         _nextBlock();
         _buy(hook, alice, 1 wei);
@@ -418,16 +475,16 @@ contract ToshV5AttackTest is Test {
         // Fund the reservoir.  100 ETH is a modest figure for a platform that
         // routes every launch fee, every 1 % shelf cut and the 70 bps reservoir
         // share of every buy tax into a contract with no withdraw path.
-        vm.deal(address(ladder), 100 ether);
-        console2.log("reservoir           ", address(ladder).balance);
+        _setQuote(address(ladder), 10_000e8);
+        console2.log("reservoir           ", quote.balanceOf(address(ladder)));
         console2.log("spend this cycle    ", ladder.nextSpendAmount());
         console2.log("listed tokens       ", ladder.ladderTokenCount());
 
-        uint256 pumpSize = 40 ether;
+        uint256 pumpSize = 4000e8;
 
         // ── Control: identical round trip with the reservoir disarmed ────────
         uint256 snap = vm.snapshotState();
-        vm.deal(address(ladder), 0);
+        _setQuote(address(ladder), 0);
         console2.log("=== CONTROL (reservoir emptied) ===");
         int256 controlPnl = _roundTrip(hook, token, pumpSize);
         vm.revertToState(snap);
@@ -443,7 +500,7 @@ contract ToshV5AttackTest is Test {
         console2.logInt(controlPnl);
         console2.log("attack pnl:");
         console2.logInt(attackPnl);
-        console2.log("reservoir left      ", address(ladder).balance);
+        console2.log("reservoir left      ", quote.balanceOf(address(ladder)));
         console2.log("tokens sent to 0xdead", burnedByTreasury);
 
         int256 edge = attackPnl - controlPnl;
@@ -454,16 +511,16 @@ contract ToshV5AttackTest is Test {
     /// @dev Buy `nativeIn` of the token then immediately sell the entire position
     ///      back, in the same block.  Returns the attacker's ETH P&L.
     function _roundTrip(ToshLaunchpadHook hook, ToshToken token, uint256 nativeIn) internal returns (int256) {
-        uint256 ethBefore = attacker.balance;
+        uint256 ethBefore = quote.balanceOf(attacker);
         PoolKey memory key = hook.getPoolKey();
 
-        console2.log("  reservoir at entry ", address(ladder).balance);
+        console2.log("  reservoir at entry ", quote.balanceOf(address(ladder)));
         console2.log("  attacker eth       ", ethBefore);
         console2.log("  attacker tok       ", token.balanceOf(attacker));
 
         _buy(hook, attacker, nativeIn);
 
-        console2.log("  reservoir post-buy ", address(ladder).balance);
+        console2.log("  reservoir post-buy ", quote.balanceOf(address(ladder)));
         uint256 bought = token.balanceOf(attacker);
         console2.log("  bought             ", bought);
 
@@ -479,10 +536,10 @@ contract ToshV5AttackTest is Test {
         );
         vm.stopPrank();
 
-        console2.log("  reservoir post-sell", address(ladder).balance);
-        console2.log("  attacker eth after ", attacker.balance);
+        console2.log("  reservoir post-sell", quote.balanceOf(address(ladder)));
+        console2.log("  attacker eth after ", quote.balanceOf(attacker));
 
-        return int256(attacker.balance) - int256(ethBefore);
+        return int256(quote.balanceOf(attacker)) - int256(ethBefore);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -505,12 +562,12 @@ contract ToshV5AttackTest is Test {
     // deriving them from `MAX_BUYBACK_SQRT_DEVIATION_BPS` would move the goal
     // posts along with the constant and reopen exactly the hole this closes.
     function test_probeG2_bandEdgeSitsWhereTheConstantSaysItDoes() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
         // Same TWAP-maturing dance as PROBE G: one real trade, a full window,
         // then a dust trade to roll the observation forward.
         _nextBlock();
-        _buy(hook, alice, 1 ether);
+        _buy(hook, alice, 100e8);
         vm.warp(block.timestamp + 3601);
         _nextBlock();
         _buy(hook, alice, 1 wei);
@@ -526,7 +583,7 @@ contract ToshV5AttackTest is Test {
         uint256 filled = _armAndPoke(token);
         console2.log("burned at  500 bps (inside) ", filled);
         assertGt(filled, 0, "a pool inside the band must still be bought and burned");
-        assertLt(address(ladder).balance, 100 ether, "and the reservoir must actually spend");
+        assertLt(quote.balanceOf(address(ladder)), 10_000e8, "and the reservoir must actually spend");
 
         vm.revertToState(snap);
 
@@ -535,7 +592,7 @@ contract ToshV5AttackTest is Test {
         uint256 refused = _armAndPoke(token);
         console2.log("burned at 1200 bps (outside)", refused);
         assertEq(refused, 0, "a pool past the band must not be bought into at all");
-        assertEq(address(ladder).balance, 100 ether, "and the unspent ETH must stay in the reservoir");
+        assertEq(quote.balanceOf(address(ladder)), 10_000e8, "and the unspent ETH must stay in the reservoir");
     }
 
     /// @dev Park the pool at EXACTLY `targetSqrt` by handing V4 a swap it cannot
@@ -554,11 +611,11 @@ contract ToshV5AttackTest is Test {
     ///      firing from the pump itself, before the poke under test ever ran.
     function _parkAt(ToshLaunchpadHook hook, uint256 targetSqrt) internal {
         PoolKey memory key = hook.getPoolKey();
-        uint256 offered = 5000 ether;
+        uint256 offered = 500_000e8;
         vm.deal(attacker, offered + 1 ether);
 
         vm.prank(attacker);
-        router.swap{value: offered}(
+        router.swap(
             key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: -int256(offered), sqrtPriceLimitX96: uint160(targetSqrt)
@@ -582,7 +639,7 @@ contract ToshV5AttackTest is Test {
     function _armAndPoke(ToshToken token) internal returns (uint256) {
         vm.prank(admin);
         ladder.addLadderToken(address(token));
-        vm.deal(address(ladder), 100 ether);
+        _setQuote(address(ladder), 10_000e8);
 
         uint256 before = token.balanceOf(DEAD);
         _nextBlock();
@@ -678,7 +735,7 @@ contract ToshV5AttackTest is Test {
     // catch it would mean sizing the fixture around the mutation instead of
     // around the attack.
     function test_probeG3_immatureTwapIsRefusedAtListing() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
         PoolKey memory key = hook.getPoolKey();
         (uint160 openingSqrt,,,) = poolManager.getSlot0(key.toId());
         uint256 launchTs = block.timestamp;
@@ -689,7 +746,7 @@ contract ToshV5AttackTest is Test {
         // for the reason PROBE G′ gives — a derived target moves with the
         // constant and stops testing it.
         uint256 target = (uint256(openingSqrt) * 8500) / 10_000;
-        uint256 leg = (100 ether * ladder.SPEND_BPS()) / 10_000 / ladder.BATCH_SIZE();
+        uint256 leg = (10_000e8 * ladder.SPEND_BPS()) / 10_000 / ladder.BATCH_SIZE();
 
         uint256 snap = vm.snapshotState();
 
@@ -716,7 +773,7 @@ contract ToshV5AttackTest is Test {
         // on the way past — so the refusal has to be shown to bite on the
         // spending side too, not just on the bookkeeping.  With nothing listed
         // there is nowhere for that ETH to go, and the poke says so.
-        assertGt(address(ladder).balance, 0, "the pump did fund the reservoir");
+        assertGt(quote.balanceOf(address(ladder)), 0, "the pump did fund the reservoir");
         vm.prank(attacker);
         vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
         ladder.pokeBuyback();
@@ -731,7 +788,7 @@ contract ToshV5AttackTest is Test {
         assertLt(target, (uint256(twapSqrt) * 9000) / 10_000, "and the park must sit outside the live band");
         _parkAt(hook, target);
         uint256 burnedB = _armAndPoke(token);
-        uint256 spentB = 100 ether - address(ladder).balance;
+        uint256 spentB = 10_000e8 - quote.balanceOf(address(ladder));
         uint256 proceedsB = _dumpAll(hook, token);
 
         console2.log("leg offered                 ", leg);
@@ -755,15 +812,18 @@ contract ToshV5AttackTest is Test {
     ///      under measurement.  What is being measured is what the first leg
     ///      handed back.
     function _dumpAll(ToshLaunchpadHook hook, ToshToken token) internal returns (uint256) {
-        vm.deal(address(ladder), 0);
+        _setQuote(address(ladder), 0);
 
         uint256 bal = token.balanceOf(attacker);
-        uint256 ethBefore = attacker.balance;
+        uint256 ethBefore = quote.balanceOf(attacker);
 
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.startPrank(attacker);
         token.approve(address(router), type(uint256).max);
         router.swap(
-            hook.getPoolKey(),
+            key,
             ICLPoolManager.SwapParams({
                 zeroForOne: false, amountSpecified: -int256(bal), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
@@ -772,7 +832,7 @@ contract ToshV5AttackTest is Test {
         );
         vm.stopPrank();
 
-        return attacker.balance - ethBefore;
+        return quote.balanceOf(attacker) - ethBefore;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -784,9 +844,9 @@ contract ToshV5AttackTest is Test {
     // anybody create.  Such a pool pays no 1 % tax, feeds no oracle, and
     // funds no buyback.
     function test_probeH_hooklessParallelPool() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
         _nextBlock();
-        _buy(hook, alice, 20 ether);
+        _buy(hook, alice, 2000e8);
 
         // The one hand-built PoolKey in the suite, and it gained two members in
         // the Infinity port. `poolManager` is now named IN the key — the manager
@@ -810,7 +870,7 @@ contract ToshV5AttackTest is Test {
             parameters: bytes32(0).setTickSpacing(60)
         });
 
-        uint256 treasuryBefore = address(ladder).balance;
+        uint256 treasuryBefore = quote.balanceOf(address(ladder));
 
         // A stranger can open it.  `beforeInitialize` is never consulted,
         // because V4 only calls a hook for pools that name that hook.
@@ -818,7 +878,7 @@ contract ToshV5AttackTest is Test {
         poolManager.initialize(rogue, TickMath.getSqrtRatioAtTick(0));
         console2.log("rogue hookless ETH/token pool initialised by a stranger");
 
-        assertEq(address(ladder).balance, treasuryBefore, "the rogue venue funds no buyback");
+        assertEq(quote.balanceOf(address(ladder)), treasuryBefore, "the rogue venue funds no buyback");
 
         // ACCEPTED, NOT FIXED — and the assertions below say so out loud.
         //
@@ -843,7 +903,7 @@ contract ToshV5AttackTest is Test {
     //  PROBE I — token left stranded in the hook after seeding the LP
     // ══════════════════════════════════════════════════════════════════════════
     function test_probeI_strandedGenesisTokens() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
         uint256 held = token.balanceOf(address(hook));
         uint256 claimSide = hook.GENESIS_CLAIM_SUPPLY();
@@ -891,7 +951,7 @@ contract ToshV5AttackTest is Test {
         uint256 n;
 
         for (uint256 i = 1; i <= 24; ++i) {
-            uint256 raise = i * 1 ether;
+            uint256 raise = i * 100e8;
             uint256 snap = vm.snapshotState();
 
             (, ToshLaunchpadHook hook) = _launchProject(raise);
@@ -948,20 +1008,20 @@ contract ToshV5AttackTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}(
+        (, address h) = factory.createLaunch(
             "Farm", "FRM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
 
         _registerPoG(attacker, POG_CAP);
         vm.prank(attacker);
-        factory.deposit{value: 10 ether}(address(hook), sybil);
+        factory.deposit(address(hook), sybil, 1000e8);
 
         // The deposit still succeeds — a rejected binding must never brick one.
-        assertEq(hook.nativeDeposited(attacker), 10 ether, "deposit is unaffected");
+        assertEq(hook.nativeDeposited(attacker), 1000e8, "deposit is unaffected");
         assertEq(factory.globalReferrers(attacker), address(0), "unattested referrer does not bind");
         assertEq(hook.referralAccrued(sybil), 0, "and accrues nothing");
-        assertEq(hook.orphanReferral(), 1 ether, "the 10 % falls through to buyback fuel");
+        assertEq(hook.orphanReferral(), 100e8, "the 10 % falls through to buyback fuel");
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
@@ -980,33 +1040,38 @@ contract ToshV5AttackTest is Test {
         agreedSoftCap = factory.defaultSoftCap();
         agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h2) = factory.createLaunch{value: fee}(
+        (, address h2) = factory.createLaunch(
             "Farm2", "FR2", projTreasury, projTreasury, salt2, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         ToshLaunchpadHook hook2 = ToshLaunchpadHook(payable(h2));
 
         vm.prank(alice);
-        factory.deposit{value: 10 ether}(address(hook2), realRef);
-        assertEq(hook2.referralAccrued(realRef), 0.2 ether, "an attested but unstaked referrer earns the 2 % leg");
-        assertEq(hook2.orphanReferral(), 0.8 ether, "the 8 % project leg orphans for want of a stake");
+        factory.deposit(address(hook2), realRef, 1000e8);
+        assertEq(hook2.referralAccrued(realRef), 20e8, "an attested but unstaked referrer earns the 2 % leg");
+        assertEq(hook2.orphanReferral(), 80e8, "the 8 % project leg orphans for want of a stake");
 
         // The whole 10 % is still reachable — it just costs a stake in this
         // project, which is the gate's entire purpose. `realRef` stakes hook2,
         // and the next referee to arrive on their link pays both legs.
         address referee2 = makeAddr("referee2");
+        // Both deposit, so both need a quote balance and a factory allowance. This
+        // was two `vm.deal` calls, which funded them for a `msg.value` deposit that
+        // no longer exists; the native deal stays only because they still pay gas.
+        _endow(realRef);
+        _endow(referee2);
         vm.deal(realRef, 10 ether);
         vm.deal(referee2, 100 ether);
 
         vm.prank(realRef);
-        factory.deposit{value: 1 ether}(address(hook2), address(0));
+        factory.deposit(address(hook2), address(0), 100e8);
 
         _registerPoG(referee2, POG_CAP);
         vm.prank(referee2);
-        factory.deposit{value: 10 ether}(address(hook2), realRef);
+        factory.deposit(address(hook2), realRef, 1000e8);
 
         assertEq(
             hook2.referralAccrued(realRef),
-            1.2 ether,
+            120e8,
             "0.2 from alice's lifetime leg, then 0.8 + 0.2 from a referee who arrived after the stake"
         );
     }
@@ -1050,9 +1115,9 @@ contract ToshV5AttackTest is Test {
     // already rate-limited the drain per window; this removes the concentration
     // bonus for narrowing the list at all.
     function test_probeL_ownerDirectsEntireReservoirAtOneMarket() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
         _nextBlock();
-        _buy(hook, alice, 1 ether);
+        _buy(hook, alice, 100e8);
         vm.warp(block.timestamp + 3601);
         _nextBlock();
         _buy(hook, alice, 1 wei);
@@ -1061,20 +1126,20 @@ contract ToshV5AttackTest is Test {
         vm.prank(admin);
         ladder.addLadderToken(address(token));
 
-        vm.deal(address(ladder), 100 ether);
+        _setQuote(address(ladder), 10_000e8);
 
         uint256 poolEthBefore = address(poolManager).balance;
         uint256 burnedBefore = token.balanceOf(DEAD);
 
         // Anybody can fire the poke.  One dust swap per poke, all in one block.
         uint256 pokes;
-        while (address(ladder).balance >= 1 ether && pokes < 60) {
+        while (quote.balanceOf(address(ladder)) >= 100e8 && pokes < 60) {
             _buy(hook, attacker, 1000);
             ++pokes;
         }
 
         console2.log("pokes fired                  ", pokes);
-        console2.log("reservoir left               ", address(ladder).balance);
+        console2.log("reservoir left               ", quote.balanceOf(address(ladder)));
         console2.log("ETH pushed into the one pool ", address(poolManager).balance - poolEthBefore);
         console2.log("tokens burned                ", token.balanceOf(DEAD) - burnedBefore);
         (,,, uint256 spot,,,) = hook.tierStatus();
@@ -1089,7 +1154,7 @@ contract ToshV5AttackTest is Test {
         // window rolls.  Dividing `perToken` by BATCH_SIZE sits behind that as
         // defence in depth — it shrinks the cheque a narrow list is handed, and
         // it is what bites in a pool deep enough for the floor not to.
-        assertGt(address(ladder).balance, 85 ether, "a one-token ladder cannot be drained on demand");
+        assertGt(quote.balanceOf(address(ladder)), 8500e8, "a one-token ladder cannot be drained on demand");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1105,18 +1170,18 @@ contract ToshV5AttackTest is Test {
     // is the only one available — but it is worth pinning rather than assuming,
     // because the split introduced a SECOND, wider boundary above it.
     function test_probeD_dustSwapEvadesTax() public {
-        (, ToshLaunchpadHook hook) = _launchProject(10 ether);
+        (, ToshLaunchpadHook hook) = _launchProject(1000e8);
         _nextBlock();
 
-        uint256 treasuryBefore = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 treasuryBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         // 99 wei * 100 / 10_000 == 0
         for (uint256 i; i < 20; ++i) {
             _buy(hook, attacker, 99);
         }
 
-        console2.log("treasury delta after 20 dust buys", address(ladder).balance - treasuryBefore);
+        console2.log("treasury delta after 20 dust buys", quote.balanceOf(address(ladder)) - treasuryBefore);
         console2.log("tax on 99 wei ", uint256(99 * 100) / 10_000);
         console2.log("tax on 100 wei", uint256(100 * 100) / 10_000);
 
@@ -1130,8 +1195,8 @@ contract ToshV5AttackTest is Test {
         // or to the early-return cannot silently widen the untaxed band.
         assertEq(uint256(99 * 100) / 10_000, 0, "99 wei is the largest untaxed input");
         assertEq(uint256(100 * 100) / 10_000, 1, "100 wei is the smallest taxed one");
-        assertEq(address(ladder).balance, treasuryBefore, "so 20 dust buys yield the treasury nothing");
-        assertEq(platformTreasury.balance, platformBefore, "and the platform nothing either");
+        assertEq(quote.balanceOf(address(ladder)), treasuryBefore, "so 20 dust buys yield the treasury nothing");
+        assertEq(quote.balanceOf(platformTreasury), platformBefore, "and the platform nothing either");
     }
 
     // ── PROBE D, second boundary: the platform cut's own floor ────────────────
@@ -1156,7 +1221,7 @@ contract ToshV5AttackTest is Test {
     // it into the buyback.  Which is the strictly worse outcome for anyone
     // trying to game it, and the reason the dust bias was pointed this way.
     function test_probeD_platformCutFloorsToZeroBelowThreeThirtyFour() public {
-        (, ToshLaunchpadHook hook) = _launchProject(10 ether);
+        (, ToshLaunchpadHook hook) = _launchProject(1000e8);
         _nextBlock();
 
         // The documented worked example: 110 wei is taxed one wei, and that
@@ -1194,13 +1259,13 @@ contract ToshV5AttackTest is Test {
         uint256 expectedTax,
         uint256 expectedPlatform
     ) internal {
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         _buy(hook, attacker, input);
 
-        uint256 reservoirCut = address(ladder).balance - ladderBefore;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         assertEq(platformCut, expectedPlatform, "platform cut at this input");
         assertEq(reservoirCut, expectedTax - expectedPlatform, "reservoir takes the remainder, dust included");
@@ -1214,7 +1279,7 @@ contract ToshV5AttackTest is Test {
     // `legCost = tierPrice * take / 1e18` floors in the buyer's favour.  Measure
     // the largest order that costs exactly 1 wei.
     function test_probeE_mintRoundingEdge() public {
-        (, ToshLaunchpadHook hook) = _launchProject(10 ether);
+        (, ToshLaunchpadHook hook) = _launchProject(1000e8);
         _nextBlock();
 
         uint256 price = hook.tierPriceAt(0);
@@ -1227,7 +1292,7 @@ contract ToshV5AttackTest is Test {
         console2.log("cost (wei)       ", cost);
 
         vm.prank(attacker);
-        uint256 charged = hook.mintBondingCurve{value: cost}(take);
+        uint256 charged = hook.mintBondingCurve(take, cost);
         assertEq(charged, cost, "charged == quoted");
         console2.log("tokens bought for 1 wei", take);
         console2.log("full ladder at this rate needs N txs", 12_600_000e18 / take);
@@ -1252,11 +1317,11 @@ contract ToshV5AttackTest is Test {
     // The reference is `min(spot, TWAP)` with LIVE spot.  A dump crashes spot
     // instantly, and spot only recovers when somebody arbitrages it back.
     function test_probeF_spotCrashFreezesLadder() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(100 ether);
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
         // Let the market rally so a good chunk of ladder is unlocked.
         _nextBlock();
-        _buy(hook, alice, 300 ether);
+        _buy(hook, alice, 30_000e8);
         vm.warp(block.timestamp + 3601);
         _nextBlock();
         _buy(hook, alice, 1 wei);

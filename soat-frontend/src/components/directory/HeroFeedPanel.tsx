@@ -3,8 +3,8 @@
 import Link from 'next/link'
 
 import { ProjectLogo } from '@/components/ProjectLogo'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmtEth, type DirectoryProject } from './useDirectoryProjects'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote, type DirectoryProject } from './useDirectoryProjects'
 
 /** How many launches the panel lists before it stops. */
 const ROWS = 5
@@ -72,7 +72,7 @@ function Row({ project: p, index }: { project: DirectoryProject; index: number }
 
       <span className="flex shrink-0 flex-col items-end">
         <span className="font-mono text-note text-text-primary tabular-nums">
-          {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
+          {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
         </span>
         <span className={`font-mono text-micro tabular-nums ${sub.cls}`}>{sub.text}</span>
       </span>

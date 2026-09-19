@@ -27,16 +27,16 @@
  */
 import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
-import { useAccount, useBalance, useReadContract, useReadContracts } from 'wagmi'
+import { useAccount, useReadContract, useReadContracts } from 'wagmi'
 import type { Address, ContractFunctionParameters } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX, TIER_COUNT, TIER_SIZE,
+  ERC20_ABI, QUOTE_ASSET, QUOTE_SYMBOL, TARGET_CHAIN_ID,
 } from '@/lib/contracts'
 import { isUnlisted } from '@/lib/projectRow'
 import { useBoundReferrer } from '@/lib/useReferral'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
 } from '@/components/ui'
@@ -158,11 +158,29 @@ export default function ProjectTerminal({ project, about, header }: {
   const hookAddress = project.hook_address as Address | undefined
   const symbol      = project.symbol || 'TOK'
 
-  const { data: ethBal } = useBalance({
-    address: userAddress,
-    query:   { enabled: !!userAddress },
+  /*
+   * ONE BALANCE, AND IT IS NO LONGER THE NATIVE ONE.
+   *
+   * This was `useBalance` — the wallet's BNB — threaded into three panels as
+   * `ethBalance` and compared against deposit and mint amounts. Every one of those
+   * amounts is denominated in the quote asset now, so the native balance answers a
+   * question nothing asks: no panel below asks the user to part with BNB, only to
+   * have enough of it for gas, which the wallet enforces on its own.
+   *
+   * A RENAME WOULD HAVE COMPILED, which is why the read was replaced rather than
+   * relabelled. `nativeBalance >= amountWei` type-checks perfectly while comparing
+   * an 18-decimal balance against an 8-decimal amount, and it errs PERMISSIVELY —
+   * a wallet holding 0.01 BNB reads as 10^16 against a 9.28-unit requirement of
+   * 9.28e8, so every balance gate in the terminal would have opened for everyone.
+   * The deposits would then revert inside `transferFrom`, having spent gas.
+   */
+  const { data: quoteBal } = useReadContract({
+    address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf',
+    args: userAddress ? [userAddress] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: !!userAddress },
   })
-  const ethBalance = ethBal?.value ?? 0n
+  const quoteBalance = quoteBal ?? 0n
 
   /**
    * The shared clock store, not a locally-seeded one.
@@ -400,7 +418,7 @@ export default function ProjectTerminal({ project, about, header }: {
             <p className="font-mono text-label text-warning">Refund window open</p>
             <p className="mt-1 text-note text-text-secondary leading-relaxed">
               This raise did not open a pool. Every depositor can reclaim 100% of
-              their {NATIVE_SYMBOL} — no penalty, no haircut, no expiry on the claim itself.
+              their {QUOTE_SYMBOL} — no penalty, no haircut, no expiry on the claim itself.
             </p>
           </div>
         )}
@@ -440,7 +458,7 @@ export default function ProjectTerminal({ project, about, header }: {
                 symbol={symbol}
                 userAddress={userAddress}
                 isConnected={wConnected}
-                ethBalance={ethBalance}
+                quoteBalance={quoteBalance}
                 nowSec={nowSec}
               />
             )}
@@ -492,7 +510,7 @@ export default function ProjectTerminal({ project, about, header }: {
             isConnected={wConnected}
             totalNativeDeposited={totalNativeDeposited}
             softCap={softCap}
-            ethBalance={ethBalance}
+            quoteBalance={quoteBalance}
             pogQuota={pogQuota}
             quotaRemaining={quotaRemaining}
             blacklistedUntil={blacklistedUntil}
@@ -563,7 +581,7 @@ export default function ProjectTerminal({ project, about, header }: {
           currentPrice={currentPrice}
           phase2Minted={phase2Minted}
           bondingMax={bondingMax}
-          ethBalance={ethBalance}
+          quoteBalance={quoteBalance}
           nowSec={nowSec}
           refetch={() => { void refetch() }}
         >

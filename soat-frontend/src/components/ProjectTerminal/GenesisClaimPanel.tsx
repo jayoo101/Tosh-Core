@@ -7,8 +7,8 @@ import { HOOK_ABI } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, useTxAction, revertOrder,
 } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote } from './format'
 
 
 export function GenesisClaimPanel({
@@ -67,7 +67,7 @@ export function GenesisClaimPanel({
       title={`Genesis allocation · ${symbol}`}
       subtitle="Your share of the genesis supply, in proportion to what you deposited. One claim per wallet."
     >
-      <Readout label="Your genesis deposit" value={`${fmt(nativeDeposited)} ${NATIVE_SYMBOL}`} />
+      <Readout label="Your genesis deposit" value={`${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`} />
       <ActionButton gate={gate} />
     </Card>
   )

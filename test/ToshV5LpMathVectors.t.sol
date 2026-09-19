@@ -66,7 +66,7 @@ contract ToshV5LpMathVectorsTest is Test {
     ///      the user is asked to approve.
     struct Vectors {
         uint160 sqrtP;
-        uint256 nativeIn;
+        uint256 quoteIn;
         uint256 tokenIn;
         uint256 sqrtLower;
         uint256 sqrtUpper;
@@ -80,7 +80,7 @@ contract ToshV5LpMathVectorsTest is Test {
         bytes memory src = bytes(vm.readFile(GUARD));
 
         v.sqrtP = uint160(_numberAfter(src, bytes("const SQRT_P"), "n"));
-        v.nativeIn = _numberAfter(src, bytes("const NATIVE_IN"), "n");
+        v.quoteIn = _numberAfter(src, bytes("const QUOTE_IN"), "n");
         v.tokenIn = _numberAfter(src, bytes("const TOKEN_IN"), "n");
 
         // Anchored inside the EXPECT literal so a field name that also occurs
@@ -144,7 +144,7 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            v.sqrtP, TickMath.getSqrtRatioAtTick(lower), TickMath.getSqrtRatioAtTick(upper), v.nativeIn, v.tokenIn
+            v.sqrtP, TickMath.getSqrtRatioAtTick(lower), TickMath.getSqrtRatioAtTick(upper), v.quoteIn, v.tokenIn
         );
 
         assertEq(uint256(liquidity), v.liquidity, "vector liquidity: LiquidityAmounts.getLiquidityForAmounts moved");
@@ -179,12 +179,12 @@ contract ToshV5LpMathVectorsTest is Test {
         (int24 lower, int24 upper) = _fullRangeTicks();
 
         uint128 liquidity =
-            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtRatioAtTick(upper), v.nativeIn);
+            LiquidityAmounts.getLiquidityForAmount0(v.sqrtP, TickMath.getSqrtRatioAtTick(upper), v.quoteIn);
 
         assertEq(
             SqrtPriceMath.getAmount1Delta(TickMath.getSqrtRatioAtTick(lower), v.sqrtP, liquidity, true),
             v.pairedToken,
-            "vector pairedToken: getAmount1Delta(roundUp) off the ETH leg moved"
+            "vector pairedToken: getAmount1Delta(roundUp) off the quote leg moved"
         );
     }
 
@@ -220,9 +220,7 @@ contract ToshV5LpMathVectorsTest is Test {
         assertEq(uint256(infUpper), v.sqrtUpper, "infinity sqrtUpper disagrees with the vector");
 
         assertEq(
-            uint256(
-                InfinityLiquidityAmounts.getLiquidityForAmounts(v.sqrtP, infLower, infUpper, v.nativeIn, v.tokenIn)
-            ),
+            uint256(InfinityLiquidityAmounts.getLiquidityForAmounts(v.sqrtP, infLower, infUpper, v.quoteIn, v.tokenIn)),
             v.liquidity,
             "infinity getLiquidityForAmounts disagrees with the vector"
         );
@@ -241,7 +239,7 @@ contract ToshV5LpMathVectorsTest is Test {
 
         assertEq(
             InfinitySqrtPriceMath.getAmount1Delta(
-                infLower, v.sqrtP, InfinityLiquidityAmounts.getLiquidityForAmount0(v.sqrtP, infUpper, v.nativeIn), true
+                infLower, v.sqrtP, InfinityLiquidityAmounts.getLiquidityForAmount0(v.sqrtP, infUpper, v.quoteIn), true
             ),
             v.pairedToken,
             "infinity pairedToken leg disagrees with the vector"

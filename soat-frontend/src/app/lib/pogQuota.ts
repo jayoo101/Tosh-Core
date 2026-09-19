@@ -29,19 +29,50 @@
 //     stay ETH-denominated and did NOT move at the cutover. Converting them
 //     would have raised the eligibility bar 3.5x while looking like a rename.
 //
-//   • `maxAllocWei` measures a DEPOSIT, which is now BNB.
+//   • `maxAllocWei` measures a DEPOSIT, which is now the quote asset — and the
+//     quote asset has EIGHT decimals, not eighteen. This is the part that bites:
+//     the currency changing was already accounted for, the SCALE changing was not.
 //
 //   • `rate` therefore carries a currency conversion as well as a policy
-//     choice: it is BNB of quota per 1 ETH of gas, not a dimensionless ratio.
+//     choice: it is quote units of quota per 1 ETH of gas, not a dimensionless
+//     ratio.
 //
-// `pogCapWei` divides the ceiling by the rate and so lands back in ETH, which
-// is the unit the scanner wants — the dimensions work out, but only because
-// the rate is the thing crossing between them. See `docs/BSC_MIGRATION.md` §6.
+// ─── AND THE DECIMALS DO NOT CANCEL, WHICH THEY USED TO ──────────────────────
+//
+// While both halves were 18-decimal, `alloc = gas * rate` needed no scale term:
+// the units differed but the fixed-point exponent did not, so the conversion
+// hid entirely inside `rate` and the arithmetic looked dimensionless. With the
+// deposit side at 8 decimals there is a factor of 10^10 between the two, and it
+// has to live SOMEWHERE.
+//
+// It is written explicitly as `QUOTE_SCALE_GAP` below rather than folded into
+// `rate`, deliberately. Folding it in would make the operator-facing dial read
+// 1.75e-10 quote-per-ETH — a number nobody can sanity-check, typed into an admin
+// field whose whole purpose is catching an order-of-magnitude slip. Keeping the
+// dial human and the gap explicit means a misplaced factor of ten shows up as a
+// wrong constant in one named place instead of as an unreadable rate.
+//
+// `pogCapWei` inverts the same expression and so lands back in ETH wei, which is
+// the unit the scanner wants. See `docs/BSC_MIGRATION.md` §6.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Contract-aligned constants ──────────────────────────────────────────────
 
-/** Seed for the maximum BNB one PoG attestation may allocate.
+/**
+ * The gap between gas-side and deposit-side fixed point: 18 decimals against 8.
+ *
+ * Kept as a named constant with the two exponents visible rather than as `10n **
+ * 10n`, so the day the quote asset's decimals change this reads as an expression
+ * to re-derive instead of a magic power of ten to hunt for. `QUOTE_DECIMALS` is
+ * restated here rather than imported because this file is deliberately
+ * dependency-free — see the header — and the hook's constructor asserts the same
+ * number on-chain, so a drift is caught at deploy time rather than only here.
+ */
+const GAS_DECIMALS = 18
+const QUOTE_DECIMALS = 8
+const QUOTE_SCALE_GAP: bigint = 10n ** BigInt(GAS_DECIMALS - QUOTE_DECIMALS)
+
+/** Seed for the maximum quote-asset quota one PoG attestation may allocate.
  *
  *  Also the per-wallet deposit ceiling, because `createLaunch` freezes
  *  `ToshFactory.maxPogAllocationLimit` into every new hook as its
@@ -52,7 +83,16 @@
  *  `registerPoG` with `ExceedsGlobalPogLimit`. The admin endpoint refuses a
  *  ceiling above the live dial for that reason; raising both is two
  *  transactions, and the on-chain one goes first. */
-export const DEFAULT_POG_MAX_ALLOC_WEI: bigint = 175n * 10n ** 16n  // 1.75 BNB
+/*
+ * 46.4 quote units, matching `ToshFactory.maxPogAllocationLimit` exactly — the
+ * lockstep note above is why that is not a coincidence to be maintained by hand.
+ *
+ * The old value was 1.75 BNB. The new one is not 1.75 re-scaled by some round
+ * number: the production dials were re-denominated at the measured rate of ~26.51
+ * quote units per BNB, which is where 0.35 → 9.28 for the launch fee and 35 → 928.4
+ * for the soft cap come from too. 1.75 × 26.51 ≈ 46.4.
+ */
+export const DEFAULT_POG_MAX_ALLOC_WEI: bigint = 464n * 10n ** 7n  // 46.4 quote units
 
 /** The on-chain ceiling on how far ahead a deadline may sit.
  *  Mirrors `ToshFactory.MAX_SIG_VALIDITY` (= 24 hours). Not a TTL to sign with —
@@ -110,25 +150,30 @@ export const ATTESTATION_TTL_SECONDS =
  * much gas a wallet has historically burned. Multiplying it by 3.5 along with
  * the BNB-denominated dials would have quietly tripled the eligibility bar.
  *
- * At `DEFAULT_GAS_TO_ALLOC_RATE` this floor corresponds to a 0.04375 BNB
+ * At `DEFAULT_GAS_TO_ALLOC_RATE` this floor corresponds to a 1.16 quote-unit
  * allocation — the smallest award the seeded band will issue.
  */
 export const DEFAULT_POG_GAS_FLOOR_WEI: bigint = 25n * 10n ** 15n // 0.025 ETH
 
 /** STARTING exchange rate for the Proof-of-Gas oracle.
- *  1 ETH of historical multi-chain gas spend = 1.75 BNB of genesis allocation,
- *  which fills the seeded ceiling at exactly 1 ETH of gas.
+ *  1 ETH of historical multi-chain gas spend = 46.4 quote units of genesis
+ *  allocation, which fills the seeded ceiling at exactly 1 ETH of gas.
  *
- *  Both a policy choice and a currency conversion, which is new — see the
- *  currency note in this file's header. The 1 ETH cap is unchanged from the
- *  pre-cutover band precisely because the ceiling and the rate moved by the
- *  same factor, so their quotient did not.
+ *  Both a policy choice and a currency conversion — see the currency note in this
+ *  file's header, including why the 10^10 decimal gap is NOT folded in here.
+ *
+ *  THE 1 ETH CAP HAS SURVIVED TWO RE-DENOMINATIONS UNCHANGED, and that invariant
+ *  is what to preserve rather than the numbers. It holds because the ceiling and
+ *  the rate are always moved by the same factor, so their quotient does not move:
+ *  1.75/1.75 before the BNB cutover, 46.4/46.4 after the quote-asset one. Moving
+ *  one without the other changes how much gas history it takes to qualify for a
+ *  full allocation, which is a separate decision and should be taken deliberately.
  *
  *  Not the value to sign with: the admin endpoint rotates the live band via
  *  owner-signed updates, so a signer must call `getPogBand()` from
  *  `app/lib/pogParams.ts`.  This constant is that store's seed and its
  *  fallback when the shared store is unreachable. */
-export const DEFAULT_GAS_TO_ALLOC_RATE = 1.75
+export const DEFAULT_GAS_TO_ALLOC_RATE = 46.4
 
 /** @deprecated Pre-BNB name. It said ETH on both sides of the conversion and
  *  only one side is ETH now; use `DEFAULT_GAS_TO_ALLOC_RATE`. */
@@ -151,11 +196,16 @@ export interface PogBand {
   /** Lifetime gas required to qualify at all, in **ETH** wei — the unit the
    *  scanned chains settle in, not the unit a deposit is paid in. */
   floorWei: bigint
-  /** Ceiling on one attestation, in **BNB** wei. Also the per-wallet deposit
-   *  cap, which is why it is BNB: it bounds money going in, not gas gone by. */
+  /** Ceiling on one attestation, in **quote-asset base units — 8 decimals, not
+   *  18**. Also the per-wallet deposit cap, which is why it is denominated this
+   *  way: it bounds money going in, not gas gone by. The field name says `Wei` and
+   *  is now doubly wrong about the unit; it is kept because it is the wire name in
+   *  the admin API, the Redis store and the signature payload, and renaming it
+   *  across those is a migration rather than a rename. */
   maxAllocWei: bigint
-  /** BNB of deposit quota earned per 1 ETH of historical gas. Carries the
-   *  cross-currency conversion; see this file's header. */
+  /** Quote units of deposit quota earned per 1 ETH of historical gas. Carries both
+   *  the cross-currency conversion and, via `QUOTE_SCALE_GAP` at the call sites,
+   *  a 10^10 change of fixed-point scale; see this file's header. */
   rate: number
 }
 
@@ -255,8 +305,19 @@ function scaledRate(rate: number): bigint {
  */
 export function pogCapWei(band: PogBand): bigint {
   const rate = scaledRate(band.rate)
+  // A zero rate allocates nothing at any gas level, so no cap can be derived. The
+  // ceiling is returned as an arbitrary finite bound; `pogBandProblem` rejects the
+  // band before it can be signed against.
   if (rate <= 0n) return band.maxAllocWei
-  return (band.maxAllocWei * RATE_SCALE + rate - 1n) / rate
+  /*
+   * `QUOTE_SCALE_GAP` is the inverse of the one in `computeMaxAllocFromWei`, and it
+   * has to be here or the cap comes out 10^10 too small — which does not look like
+   * a unit error from the outside. A cap of 1e8 gas wei instead of 1e18 is a tenth
+   * of a gwei: every wallet on every chain clears it, so every allocation pins to
+   * the cap and the band degenerates into "the ceiling for anyone eligible at all",
+   * with the rate having no effect and nothing reverting.
+   */
+  return (band.maxAllocWei * RATE_SCALE * QUOTE_SCALE_GAP + rate - 1n) / rate
 }
 
 /**
@@ -290,7 +351,20 @@ export function computeMaxAllocFromWei(gasWei: bigint, band: PogBand): bigint {
   const cap = pogCapWei(band)
   const capped = gasWei > cap ? cap : gasWei
 
-  const alloc = (capped * rate) / RATE_SCALE
+  /*
+   * 18-decimal gas in, 8-decimal quota out. `QUOTE_SCALE_GAP` is the whole of that
+   * conversion, and it divides rather than multiplies — dropping it would inflate
+   * every allocation by 10^10 and the signatures would still be perfectly valid,
+   * because nothing in the digest knows what the number means. The revert would
+   * arrive later, from `registerPoG`'s `ExceedsGlobalPogLimit`, pointing at the
+   * on-chain dial instead of at this line.
+   *
+   * Truncating, and in this order: multiply first so the rate's own scaling is
+   * exact, then take both divisions. Dividing early would round the gas figure to
+   * an 8-decimal grid before the rate ever applied, which is a different number and
+   * one the two independent signers would not agree on.
+   */
+  const alloc = (capped * rate) / (RATE_SCALE * QUOTE_SCALE_GAP)
   return alloc > band.maxAllocWei ? band.maxAllocWei : alloc
 }
 

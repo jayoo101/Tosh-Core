@@ -10,13 +10,13 @@ import {
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
   CHAIN_BYLINE,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useDirectoryProjects, type DirectoryProject } from '@/components/directory/useDirectoryProjects'
 import {
   Badge, Card, PageHeader, Readout, ReadoutGrid, Skeleton,
   ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { fmt, fmtFull } from '@/components/ProjectTerminal/format'
+import { fmtQuote, fmtFull } from '@/components/ProjectTerminal/format'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL LEDGER  ·  every project that owes this wallet, in one place
@@ -123,14 +123,14 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
         <Readout
           layout="stack"
           label="CLAIMABLE"
-          value={`${fmt(claimable)} ${NATIVE_SYMBOL}`}
+          value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
           hint={claimable === 0n ? 'unlocks at launch()' : fmtFull(claimable, 18)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
         <Readout
           layout="stack"
           label="EARNED"
-          value={`${fmt(accrued)} ${NATIVE_SYMBOL}`}
+          value={`${fmtQuote(accrued)} ${QUOTE_SYMBOL}`}
           hint={accrued === 0n ? 'no deposits through your link yet' : fmtFull(accrued, 18)}
           tone={accrued > 0n ? 'ink' : 'mute'}
         />
@@ -253,7 +253,7 @@ export function ReferralLedger() {
             <Readout
               layout="stack"
               label="CLAIMABLE NOW"
-              value={`${fmt(totals.claimable)} ${NATIVE_SYMBOL}`}
+              value={`${fmtQuote(totals.claimable)} ${QUOTE_SYMBOL}`}
               hint={totals.claimable === 0n ? 'across every launched project' : fmtFull(totals.claimable, 18)}
               tone={totals.claimable > 0n ? 'ok' : 'mute'}
               loading={loading}
@@ -261,7 +261,7 @@ export function ReferralLedger() {
             <Readout
               layout="stack"
               label="LOCKED UNTIL LAUNCH"
-              value={`${fmt(totals.locked)} ${NATIVE_SYMBOL}`}
+              value={`${fmtQuote(totals.locked)} ${QUOTE_SYMBOL}`}
               hint="earned on raises still in genesis"
               tone={totals.locked > 0n ? 'warn' : 'mute'}
               loading={loading}

@@ -96,12 +96,16 @@ export function useTosh() {
         address:      FACTORY_ADDRESS,
         abi:          FACTORY_ABI,
         functionName: 'createLaunch',
-        args: [
-          name, symbol, projectTreasury, projectAdmin, hookSalt,
-          expectedFee, expectedSoftCap, expectedWalletCap, genesisDuration,
-        ],
-        value:        expectedFee,
-        gas:          6_000_000n,
+          args: [
+            name, symbol, projectTreasury, projectAdmin, hookSalt,
+            expectedFee, expectedSoftCap, expectedWalletCap, genesisDuration,
+          ],
+          // No `value`. `createLaunch` is no longer payable: it pulls the fee with
+          // `transferFrom(creator, ladderTreasury)` against an allowance the caller
+          // must already hold. `expectedFee` stays in the argument list, where it is
+          // the creator's slippage bound against an owner raising the fee in the
+          // same block — it is not, and never was, the funding.
+          gas:          6_000_000n,
         chainId:      TARGET_CHAIN_ID,
       }),
     [writeA]

@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
@@ -26,6 +27,31 @@ import {HookAddress} from "../src/libraries/HookAddress.sol";
 ///      universal-router, and `execute` is the entire surface a swap needs.
 interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
+}
+
+/// @notice The one Permit2 entry point this suite needs.
+///
+/// @dev    Hand-declared rather than imported, and the reason is the same one
+///         given for the router tuple below: the deployed contract is the
+///         authority, and a `lib/` bump should not be able to change what this
+///         file believes about it. One function, no structs, no ambiguity.
+///
+///         ⚠ NEW WITH THE QUOTE ASSET. Under native settlement the router's
+///         `SETTLE_ALL` took `msg.value` and Permit2 was never in the path. An
+///         ERC20 input goes through it, so a production-path buy now requires two
+///         approvals instead of none — which is a real change to what a trader's
+///         first transaction looks like, not only to this test.
+interface IAllowanceTransfer {
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
+
+/// @notice The periphery's own answer to "which Permit2 do you use".
+///
+/// @dev    One getter, declared here rather than imported, because the point of
+///         asking is that the deployed contract is the authority and this file's
+///         beliefs are what is being checked.
+interface ICLPositionManagerPermit2 {
+    function permit2() external view returns (address);
 }
 
 /// @notice Fork suite — the whole launch lifecycle against the **deployed**
@@ -94,8 +120,49 @@ contract ToshV5ForkTest is Test {
     address internal constant POOL_MANAGER = 0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b;
     address internal constant VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
     address internal constant UNIVERSAL_ROUTER = 0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB;
-    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+    /// @dev ⚑ NOT UNISWAP'S CANONICAL PERMIT2, and the canonical address is the
+    ///      trap. `0x000000000022D473030F116dDEE9F6B43aC78BA3` IS deployed on BSC
+    ///      and does hold 9 KB of working Permit2 — so every check that looks for
+    ///      Permit2 passes against it, and approving it looks like it worked. It is
+    ///      simply not the one PancakeSwap's periphery consults.
+    ///
+    ///      Both `UniversalRouter` and `CLPositionManager` read this address
+    ///      instead; `CLPositionManager.permit2()` returns it, which is how it was
+    ///      identified. Approving the canonical one produced `AllowanceExpired`
+    ///      from a contract this suite never mentioned, because an unset allowance
+    ///      on the real Permit2 reports an expiry of zero.
+    ///
+    ///      This was invisible under native settlement: Permit2 was not in the path
+    ///      at all, so nothing in the suite had to name it correctly.
+    address internal constant PERMIT2 = 0x31c2F6fcFf4F8759b3Bd5Bf0e1084A055615c768;
+
+    /// @dev Kept only so the assertion below can state the hazard rather than
+    ///      leaving it in a comment.
+    address internal constant UNISWAP_CANONICAL_PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address internal constant POSITION_MANAGER = 0x55f4c8abA71A1e923edC303eb4fEfF14608cC226;
+
+    /// @dev BEM on BSC mainnet — the quote asset every raise is denominated in,
+    ///      and `currency0` of every pool.
+    ///
+    ///      ⚠ THIS SUITE IS NOW THE PRIMARY EVIDENCE THAT THE QUOTE ASSET WORKS,
+    ///      and that is a deliberate trade rather than a happy accident. BEM is
+    ///      not deployed on BSC testnet 97, so moving the unit of account to it
+    ///      gave up the real-network rehearsal that choosing PancakeSwap Infinity
+    ///      had been about acquiring (docs/BEM_QUOTE_ASSET.md §0, decision 1). A
+    ///      mainnet fork against BEM's real bytecode is what was accepted in its
+    ///      place.
+    ///
+    ///      What a fork still cannot substitute for is the passage of time on a
+    ///      live network: the TWAP maturing over 30 real minutes, and a deploy
+    ///      sequence that spans days. Those remain unrehearsed.
+    ///
+    ///      Balances here are written with `deal(token, to, amount)`, which
+    ///      pokes the balance slot rather than acquiring BEM through its own
+    ///      market. That is the right call for a test — BEM's only pool of
+    ///      consequence held 1,959 tokens, so a genuine market buy of a raise-sized
+    ///      amount would move the price it is trying to measure — but it does mean
+    ///      nothing here says the supply exists to be bought.
+    address internal constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
 
     /// @dev The ArbSys precompile, kept only so its ABSENCE can be asserted:
     ///      `_hasArbSys` branches on the code length at this address, and on BSC
@@ -139,8 +206,12 @@ contract ToshV5ForkTest is Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
-    uint256 internal constant SOFT_CAP = 1 ether;
-    uint256 internal constant POG_CAP = 10 ether;
+    /// @dev Real BEM, not a mock. Typed as `IERC20` rather than `MockQuoteAsset`
+    ///      precisely so nothing in this file can call `mint`.
+    IERC20 internal quote;
+
+    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant POG_CAP = 1000e8;
 
     int24 internal constant TICK_LOWER = -887200;
     int24 internal constant TICK_UPPER = 887200;
@@ -162,9 +233,16 @@ contract ToshV5ForkTest is Test {
 
         pogSigner = vm.addr(pogSignerPk);
 
+        // No mock quote asset here, unlike every other suite. The point of this
+        // file is the real deployment, and after the BEM decision that includes
+        // the real quote asset: `MockQuoteAsset` would only confirm that an
+        // 8-decimal ERC20 works, which the local suite already does.
+        quote = IERC20(BEM);
+        assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM must still be 8 decimals for any of this to hold");
+
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin);
-        factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM);
+        factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder), BEM);
         ladder.setFactory(address(factory));
 
         factory.setDefaultSoftCap(SOFT_CAP);
@@ -173,9 +251,38 @@ contract ToshV5ForkTest is Test {
         factory.setQuotaWindowDuration(0);
         vm.stopPrank();
 
+        // Native for gas only.
         vm.deal(creator, 100 ether);
         vm.deal(funder, 100 ether);
         vm.deal(trader, 100 ether);
+
+        _endow(creator);
+        _endow(funder);
+        _endow(trader);
+    }
+
+    /// @dev Write a BEM balance and approve the platform-global spenders.
+    ///
+    ///      `deal(token, ...)` rather than `mint`: BEM is somebody else's
+    ///      contract, and this fixture has no authority over it. Foundry finds
+    ///      the balance slot and writes it, which is the only way a fork test can
+    ///      hold an amount the open market could not supply.
+    ///
+    ///      100,000 BEM is over HALF OF BEM'S ENTIRE SUPPLY (191,739). That is
+    ///      acceptable in a test whose subject is the code path, and it is exactly
+    ///      the sort of figure `docs/BEM_QUOTE_ASSET.md` §1.2 is about: nothing
+    ///      here is evidence that a real depositor could assemble it.
+    function _endow(address who) internal {
+        deal(BEM, who, 100_000e8);
+        vm.startPrank(who);
+        quote.approve(address(factory), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// @dev Set an exact BEM balance, the way `vm.deal` set an exact native one.
+    ///      The buyback reservoir arms on its token balance now.
+    function _setQuote(address who, uint256 amount) internal {
+        deal(BEM, who, amount);
     }
 
     /// @dev Every test calls this first. `vm.skip` reports the test as skipped
@@ -222,7 +329,7 @@ contract ToshV5ForkTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
+        (address t, address h) = factory.createLaunch(
             "ForkTest", "FRK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         return (ToshToken(t), ToshLaunchpadHook(payable(h)));
@@ -235,7 +342,7 @@ contract ToshV5ForkTest is Test {
 
         _registerPoG(funder);
         vm.prank(funder);
-        factory.deposit{value: SOFT_CAP}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), SOFT_CAP);
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
@@ -261,6 +368,18 @@ contract ToshV5ForkTest is Test {
         assertGt(VAULT.code.length, 0, "no Vault at the cutover address");
         assertGt(UNIVERSAL_ROUTER.code.length, 0, "no UniversalRouter at the cutover address");
         assertGt(PERMIT2.code.length, 0, "no Permit2 at the cutover address");
+
+        // "There is code there" is not evidence of the right Permit2, and this is
+        // the assertion that says so: the canonical Uniswap address is ALSO live on
+        // BSC, so a presence check cannot distinguish them. The periphery's own
+        // answer can, so ask it.
+        assertGt(UNISWAP_CANONICAL_PERMIT2.code.length, 0, "fixture assumes the canonical one is live too");
+        assertTrue(PERMIT2 != UNISWAP_CANONICAL_PERMIT2, "and that these are two different contracts");
+        assertEq(
+            ICLPositionManagerPermit2(POSITION_MANAGER).permit2(),
+            PERMIT2,
+            "the periphery must agree on which Permit2 it pulls through"
+        );
         assertGt(POSITION_MANAGER.code.length, 0, "no CLPositionManager at the cutover address");
 
         // ⚠ A BYTECODE-LENGTH ASSERTION WAS REMOVED HERE, and replaced by a
@@ -309,6 +428,45 @@ contract ToshV5ForkTest is Test {
     ///         defeat the only test that asks the chain directly.
     ///         `test/ToshV5ArbSys.t.sol` still forces the two clocks apart, which
     ///         is where the branch itself is exercised.
+    /// @notice Real BEM's `approve` accepts a nonzero-to-nonzero change, and the
+    ///         whole frontend approval flow depends on it.
+    ///
+    /// @dev    Every quote-denominated action in the UI now needs an allowance, and
+    ///         `useQuoteApproval` grants exactly what the action costs rather than
+    ///         an unlimited one. That leaves a small residue behind whenever the
+    ///         charged amount comes in under the approved bound — `mintBondingCurve`
+    ///         charges the true cost against a `maxCost` ceiling — so the NEXT
+    ///         approve is routinely a nonzero-to-nonzero write.
+    ///
+    ///         Plain ERC-20 permits that. USDT-style tokens do not: they
+    ///         `require(allowance == 0)` and revert, which would strand any user
+    ///         carrying a residue behind a button that could never be unstuck
+    ///         without a manual zero-approve they have no way to discover. Whether
+    ///         BEM is one of those is a property of deployed bytecode, not of a
+    ///         standard, so it is measured here against the real contract rather
+    ///         than assumed anywhere in the frontend.
+    ///
+    ///         If this ever fails, `useQuoteApproval` needs a zero-first step and
+    ///         the mock in the unit suites needs the same behaviour to match.
+    function test_fork_realBemApproveAcceptsANonzeroToNonzeroChange() public {
+        address holder = makeAddr("approver");
+        address spender = makeAddr("puller");
+
+        vm.startPrank(holder);
+        quote.approve(spender, 1_000e8);
+        assertEq(quote.allowance(holder, spender), 1_000e8, "first approve must land");
+
+        // The case a residue produces: overwrite a live, nonzero allowance.
+        quote.approve(spender, 7e8);
+        assertEq(quote.allowance(holder, spender), 7e8, "BEM must allow a nonzero-to-nonzero approve");
+
+        // And the zero-first path still works, so the fallback remains available.
+        quote.approve(spender, 0);
+        quote.approve(spender, 42e8);
+        assertEq(quote.allowance(holder, spender), 42e8, "and zero-first must remain a valid route");
+        vm.stopPrank();
+    }
+
     function test_fork_theChainHasNoArbSysSoTheHookUsesBlockNumber() public {
         _requireFork();
 
@@ -351,8 +509,14 @@ contract ToshV5ForkTest is Test {
         // The hook holds the position, and nothing can withdraw it: there is no
         // code path in the hook that decreases this liquidity. Asserted here
         // because a fork is the only place the position is real.
-        assertEq(Currency.unwrap(key.currency0), address(0), "currency0 is not native ETH");
+        // On a fork this is a stronger statement than in the unit suites: the
+        // ordering is checked against REAL BEM's address rather than a mock's, so it
+        // is the CREATE2 grind clearing the actual floor it will have to clear in
+        // production. It used to read `address(0)`, which the native quote asset
+        // made true for free.
+        assertEq(Currency.unwrap(key.currency0), BEM, "currency0 must be BEM");
         assertEq(Currency.unwrap(key.currency1), address(token), "currency1 is not the project token");
+        assertLt(uint160(BEM), uint160(address(token)), "the grind must have sorted the token above real BEM");
     }
 
     /// @notice Our pool id does not collide with anything already live, and
@@ -378,9 +542,16 @@ contract ToshV5ForkTest is Test {
     //  The production swap path
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @dev Encode a production-path buy: native ETH in, project token out.
+    /// @dev Encode a production-path buy: BEM in, project token out.
     ///
-    ///      `zeroForOne` is always true because native ETH sorts to `currency0`.
+    ///      `zeroForOne` is still always true, but NOT for the reason it used to
+    ///      be. Native ETH sorted to `currency0` because nothing sorts below
+    ///      `address(0)`; BEM sits at `0x5ce0…` and would be `currency1` for
+    ///      roughly a third of nonce-derived token addresses. The ordering now
+    ///      holds because `ToshCloneLib.deployBareCloneAbove` grinds every project
+    ///      token above the quote asset — so this `true` is an assertion about the
+    ///      factory rather than about the address space.
+    ///
     ///      `minOut` is passed to both the swap (as `amountOutMinimum`) and to
     ///      `TAKE_ALL`, which is how the router expects a caller to state a
     ///      slippage bound.
@@ -414,10 +585,19 @@ contract ToshV5ForkTest is Test {
 
     function _buyThroughRouter(PoolKey memory key, uint128 amountIn, uint128 minOut) internal {
         bytes[] memory inputs = _buyInputs(key, amountIn, minOut);
+        // `SETTLE_ALL` on an ERC20 currency pulls through Permit2, not through
+        // `msg.value`. The router asks Permit2 for the tokens, and Permit2 asks
+        // the token for them, so BOTH approvals are needed and neither is
+        // redundant: without the first, Permit2 has no allowance to draw on;
+        // without the second, the router has no Permit2 permission to invoke.
+        vm.startPrank(trader);
+        quote.approve(PERMIT2, type(uint256).max);
+        IAllowanceTransfer(PERMIT2)
+            .approve(address(quote), UNIVERSAL_ROUTER, type(uint160).max, uint48(block.timestamp + 3600));
+        vm.stopPrank();
+
         vm.prank(trader);
-        IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60
-        );
+        IUniversalRouter(UNIVERSAL_ROUTER).execute(abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60);
     }
 
     /// @notice A buy through the **deployed UniversalRouter**, which is the path
@@ -441,16 +621,16 @@ contract ToshV5ForkTest is Test {
 
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject();
 
-        uint128 amountIn = 0.05 ether;
+        uint128 amountIn = 5e8;
         uint256 tokensBefore = token.balanceOf(trader);
-        uint256 ethBefore = trader.balance;
+        uint256 ethBefore = quote.balanceOf(trader);
 
         _buyThroughRouter(hook.getPoolKey(), amountIn, 0);
 
         assertGt(token.balanceOf(trader) - tokensBefore, 0, "the production router path delivered no tokens");
         // The router took what it was told to and no more: no leftover pull, no
         // silent sweep of the caller's remaining balance.
-        assertEq(ethBefore - trader.balance, amountIn, "router spent an amount we did not authorise");
+        assertEq(ethBefore - quote.balanceOf(trader), amountIn, "router spent an amount we did not authorise");
     }
 
     /// @notice The buy tax is **exactly** 100 bps of the input through the
@@ -480,14 +660,14 @@ contract ToshV5ForkTest is Test {
 
         (, ToshLaunchpadHook hook) = _launchProject();
 
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
-        uint128 amountIn = 0.05 ether;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
+        uint128 amountIn = 5e8;
 
         _buyThroughRouter(hook.getPoolKey(), amountIn, 0);
 
-        uint256 reservoirCut = address(ladder).balance - ladderBefore;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         uint256 expectedReservoir = (amountIn * (hook.TAX_BPS() - hook.PLATFORM_SWAP_FEE_BPS())) / 10_000;
         uint256 expectedPlatform = (amountIn * hook.PLATFORM_SWAP_FEE_BPS()) / 10_000;
@@ -518,14 +698,22 @@ contract ToshV5ForkTest is Test {
 
         // Orders of magnitude past the whole genesis supply, so this can only
         // fail to revert if the check is not happening at all.
-        uint128 amountIn = 0.05 ether;
+        uint128 amountIn = 5e8;
         bytes[] memory inputs = _buyInputs(hook.getPoolKey(), amountIn, type(uint128).max);
+
+        // Approved first, deliberately. Without this the revert would still
+        // happen and the test would still pass — on a Permit2 allowance failure
+        // rather than on the slippage bound, which is the assertion quietly
+        // evaporating. The bound is what has to do the reverting.
+        vm.startPrank(trader);
+        quote.approve(PERMIT2, type(uint256).max);
+        IAllowanceTransfer(PERMIT2)
+            .approve(address(quote), UNIVERSAL_ROUTER, type(uint160).max, uint48(block.timestamp + 3600));
+        vm.stopPrank();
 
         vm.prank(trader);
         vm.expectRevert();
-        IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60
-        );
+        IUniversalRouter(UNIVERSAL_ROUTER).execute(abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 60);
     }
 
     // ⚠ `test_fork_deployedRouterReadsTheSixthField` WAS DELETED HERE, and it is
@@ -600,10 +788,10 @@ contract ToshV5ForkTest is Test {
         // Arm the reservoir directly. Its provenance is irrelevant to what is
         // under test here — the treasury's payable fallback is the same door the
         // buy tax arrives through, and `ToshV5.t.sol` covers the tax path.
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 10 ether);
         vm.roll(block.number + 1);
 
-        uint256 reservoirBefore = address(ladder).balance;
+        uint256 reservoirBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = token.balanceOf(ladder.DEAD_ADDRESS());
         uint256 vaultTokensBefore = token.balanceOf(VAULT);
 
@@ -611,7 +799,7 @@ contract ToshV5ForkTest is Test {
         vm.prank(trader);
         ladder.pokeBuyback();
 
-        assertLt(address(ladder).balance, reservoirBefore, "the reservoir did not spend");
+        assertLt(quote.balanceOf(address(ladder)), reservoirBefore, "the reservoir did not spend");
         assertGt(token.balanceOf(ladder.DEAD_ADDRESS()), burnedBefore, "nothing was bought and burned");
 
         // The Vault is the settlement layer, not the manager: a buyback that

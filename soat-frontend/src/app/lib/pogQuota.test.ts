@@ -144,10 +144,27 @@ describe('PoG allocation band', () => {
   })
 
   it('holds the numbers that were actually chosen', () => {
-    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)    // 0.025 ETH of gas
-    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(1_750_000_000_000_000_000n) // 1.75 BNB of quota
-    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.75)                       // 1.75 BNB per 1 ETH of gas
-    // 1 ETH of gas fills the ceiling at that rate.
+    // 18-decimal ETH of gas history in, 8-decimal quote units of quota out. The two
+    // literals below differing by ten orders of magnitude is the point, not an
+    // oversight — see the currency note in pogQuota.ts.
+    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH of gas
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(4_640_000_000n)           // 46.4 quote units
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(46.4)                     // per 1 ETH of gas
+    // Matches ToshFactory.maxPogAllocationLimit. A signature above the live dial
+    // reverts registerPoG, so this is lockstep rather than a coincidence.
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(464n * 10n ** 7n)
+
+    /*
+     * 1 ETH of gas fills the ceiling, UNCHANGED THROUGH BOTH RE-DENOMINATIONS.
+     *
+     * This is the assertion that would have caught a missing `QUOTE_SCALE_GAP`.
+     * Ceiling and rate always move together so their quotient is fixed, which means
+     * this line is insensitive to the policy numbers above and sensitive to exactly
+     * one thing: whether the 10^10 scale conversion is applied. Without it the cap
+     * lands at 1e8 wei — a tenth of a gwei, which every wallet clears, so every
+     * allocation would pin to the ceiling and the gas history would stop ranking
+     * anybody. Nothing would revert.
+     */
     expect(pogCapWei(DEFAULT_POG_BAND)).toBe(10n ** 18n)
   })
 
@@ -158,9 +175,20 @@ describe('PoG allocation band', () => {
     for (const rate of [0, -1, NaN, Infinity]) {
       expect(pogBandProblem({ ...DEFAULT_POG_BAND, rate })).toMatch(/rate/)
     }
-    // A floor above the cap collapses the band: every eligible wallet gets the
-    // whole ceiling and the gas history stops ranking anybody.
-    expect(pogBandProblem({ floorWei: 2n * 10n ** 18n, maxAllocWei: 10n ** 17n, rate: 0.5 }))
+    /*
+     * A floor above the cap collapses the band: every eligible wallet gets the whole
+     * ceiling and the gas history stops ranking anybody.
+     *
+     * The fixture had to be re-derived rather than re-scaled. It was a 2 ETH floor
+     * against a 0.1-BNB ceiling at rate 0.5 — where the cap sits at 0.2 ETH, well
+     * below the floor. The same literals under 8-decimal quota put the cap at
+     * 0.1e8·2·1e10 = 2e17 wei, i.e. 0.2 ETH again by coincidence of the numbers, but
+     * `maxAllocWei: 10n ** 17n` would now mean a billion quote units rather than a
+     * tenth of one, so the fixture would be asserting the right outcome for a
+     * nonsensical band. Restated in the units the field actually carries: a 0.1-unit
+     * ceiling at rate 0.5 caps gas at 0.2 ETH, and the 2 ETH floor sits above it.
+     */
+    expect(pogBandProblem({ floorWei: 2n * 10n ** 18n, maxAllocWei: 10n ** 7n, rate: 0.5 }))
       .toMatch(/must sit below the cap/)
   })
 })

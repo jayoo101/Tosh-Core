@@ -4,7 +4,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useBytecode, useReadContract, useSignMessage } from 'wagmi'
 import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
 import {
   ActionButton, useActionGate, revertOrder,
   toshToast, isUserRejection, shortErrorMessage,
@@ -94,11 +94,29 @@ interface LiveBand {
   rateStore: 'memory' | 'redis'
 }
 
+/** A gas figure: ETH, 18 decimals. The floor and the gas cap, and nothing else. */
 const weiToEth = (wei: string) => {
   try {
     // Trimmed rather than fixed-width: these are round numbers in practice and
     // `0.025` reads as a decision where `0.025000000000000000` reads as noise.
     return (Number(BigInt(wei)) / 1e18).toString()
+  } catch {
+    return '?'
+  }
+}
+
+/**
+ * A quota figure: the quote asset, 8 decimals.
+ *
+ * Kept as its own two-line function rather than a `decimals` parameter on the one
+ * above, because a default parameter is exactly what let the mistake happen: every
+ * existing call site would have compiled unchanged and kept the 18 it no longer
+ * wanted. Two named functions make each row in the band say which unit it is
+ * printing, and a reviewer can see a swap.
+ */
+const weiToQuote = (units: string) => {
+  try {
+    return (Number(BigInt(units)) / 10 ** QUOTE_DECIMALS).toString()
   } catch {
     return '?'
   }
@@ -220,18 +238,27 @@ export function ExchangeRatePanel() {
   return (
     <Section
       id="DIAG-B" title="POG BAND (OFF-CHAIN)"
-      subtitle={`POST /api/admin/config · owner-signed message, not a transaction · 1 ETH gas = N ${NATIVE_SYMBOL} quota`}
+      subtitle={`POST /api/admin/config · owner-signed message, not a transaction · 1 ETH gas = N ${QUOTE_SYMBOL} quota`}
     >
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-note @sm:grid-cols-2">
-        {/* THE TWO UNITS IN THIS LIST ARE NOT THE SAME COIN, and the rows are
-            ordered so that is visible. `pogFloorWei` and `pogGasCapWei` measure
-            gas burned on ETH-settled chains and stay ETH; `pogMaxAllocWei` is
-            what the wallet may then deposit, so it follows the settlement chain.
+        {/* THE TWO UNITS IN THIS LIST ARE NOT THE SAME COIN OR THE SAME SCALE, and
+            the rows are ordered so that is visible. `pogFloorWei` and `pogGasCapWei`
+            measure gas burned on ETH-settled chains: ETH, 18 decimals, formatted by
+            `weiToEth`. `pogMaxAllocWei` is what the wallet may then deposit: the
+            quote asset, EIGHT decimals, formatted by `weiToQuote`.
+
+            The second formatter is new and the reason is worth stating, because the
+            first one silently did both jobs before. While the deposit side was the
+            native coin the scales matched and one `/1e18` was correct for every row
+            here. It is now correct for two of the four, and wrong on the other two
+            by a factor of 10^10 — a 46.4-unit ceiling printed as 0.0000000046, which
+            reads as a band that allocates nothing rather than as a formatting fault.
+
             The rate carries the conversion and is therefore per-ETH-of-gas, not
             dimensionless — see the currency note at the top of `pogQuota.ts`. */}
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Rate</dt>
-          <dd>{live ? `${live.globalGasToSatoRate} ${NATIVE_SYMBOL} per 1 ETH gas` : 'reading…'}</dd>
+          <dd>{live ? `${live.globalGasToSatoRate} ${QUOTE_SYMBOL} per 1 ETH gas` : 'reading…'}</dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Gas floor</dt>
@@ -239,7 +266,7 @@ export function ExchangeRatePanel() {
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Max deposit</dt>
-          <dd>{live ? `${weiToEth(live.pogMaxAllocWei)} ${NATIVE_SYMBOL}` : 'reading…'}</dd>
+          <dd>{live ? `${weiToQuote(live.pogMaxAllocWei)} ${QUOTE_SYMBOL}` : 'reading…'}</dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-text-tertiary">Counts gas up to</dt>
@@ -248,10 +275,10 @@ export function ExchangeRatePanel() {
       </dl>
 
       <Field
-        label={`NEW RATE · ${NATIVE_SYMBOL} QUOTA PER 1 ETH GAS`}
+        label={`NEW RATE · ${QUOTE_SYMBOL} QUOTA PER 1 ETH GAS`}
         value={rateInput}
         onChange={setRateInput}
-        placeholder="e.g. 0.5"
+        placeholder="e.g. 46.4"
         inputMode="decimal"
         disabled={busy}
         fluo={armed}

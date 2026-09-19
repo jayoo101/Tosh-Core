@@ -29,9 +29,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowUpRight } from 'lucide-react'
 import type { DirectoryProject } from './useDirectoryProjects'
-import { fmtEth } from './useDirectoryProjects'
+import { fmtQuote } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 import type { ProjectRow } from '@/app/lib/supabase'
 import { CLOCK_UNSYNCED, formatCountdown, useNowSec } from '@/components/ui'
 import { ProjectLogo } from '@/components/ProjectLogo'
@@ -224,7 +224,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
             />
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
-            {fmtEth(p.totalNative)} / {fmtEth(p.softCap)} {NATIVE_SYMBOL}
+            {fmtQuote(p.totalNative)} / {fmtQuote(p.softCap)} {QUOTE_SYMBOL}
           </div>
         </div>
       )}
@@ -241,7 +241,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               Raised at genesis
             </div>
             <div className="font-mono text-readout tabular-nums text-text-primary">
-              {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
+              {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
             </div>
           </div>
           {/* There is no price feed behind this app, so there is nothing to
@@ -360,7 +360,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div>
             <div className="flex items-center justify-between gap-gap text-note text-text-tertiary">
               <span className="font-mono tabular-nums text-text-primary">
-                {fmtEth(p.totalNative)} {NATIVE_SYMBOL}
+                {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>
@@ -368,7 +368,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               <div className="tosh-gradient-bg h-full rounded-pill" style={{ width: `${pct}%` }} />
             </div>
             <div className="mt-1.5 font-mono text-micro text-text-tertiary">
-              target {fmtEth(p.softCap)}
+              target {fmtQuote(p.softCap)}
             </div>
           </div>
         ) : p.tab === 'launching' ? (
@@ -380,13 +380,13 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div className="grid grid-cols-3 gap-card border-t border-border-subtle pt-4">
             <div>
               <div className="font-mono text-figure tabular-nums text-text-primary">
-                {fmtEth(p.totalNative)}
+                {fmtQuote(p.totalNative)}
               </div>
               <div className="font-mono text-micro uppercase text-text-tertiary">raised eth</div>
             </div>
             <div>
               <div className="font-mono text-figure tabular-nums text-text-primary">
-                {fmtEth(p.softCap)}
+                {fmtQuote(p.softCap)}
               </div>
               <div className="font-mono text-micro uppercase text-text-tertiary">target eth</div>
             </div>

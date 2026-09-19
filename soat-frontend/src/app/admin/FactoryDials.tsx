@@ -24,8 +24,8 @@ import {
   MAX_POG_ALLOCATION_LIMIT,
   MAX_POG_ALLOCATION_LIMIT_LABEL,
   MAX_COOLDOWN_SECONDS,
+  QUOTE_SYMBOL,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, useTxAction, revertOrder,
   type ActionBlocker,
@@ -36,7 +36,7 @@ import {
   Field,
   Readout,
   ConfirmDialog,
-  fmtEth,
+  fmtQuote,
   fmtDuration,
   parseEthInput,
 } from './shared'
@@ -108,7 +108,7 @@ export function LaunchFeePanel() {
         id: 'above-max-launch-fee',
         active: aboveCeiling,
         label: '[max_launch_fee_violation]',
-        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
+        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ${QUOTE_SYMBOL}). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
       },
     ),
   })
@@ -116,15 +116,15 @@ export function LaunchFeePanel() {
   return (
     <Section
       id="G1-A" title="LAUNCH FEE"
-      subtitle={`setLaunchFee · native ${NATIVE_SYMBOL} charged on every createLaunch · anti-spam toll, forwarded to the ladder treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}`}
+      subtitle={`setLaunchFee · native ${QUOTE_SYMBOL} charged on every createLaunch · anti-spam toll, forwarded to the ladder treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ${QUOTE_SYMBOL}`}
     >
       <Readout
         label="CURRENT FEE"
-        value={isLoading && launchFeeWei === undefined ? 'reading…' : fmtEth(launchFeeWei as bigint | undefined)}
+        value={isLoading && launchFeeWei === undefined ? 'reading…' : fmtQuote(launchFeeWei as bigint | undefined)}
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label={`NEW FEE · ${NATIVE_SYMBOL} · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
+        label={`NEW FEE · ${QUOTE_SYMBOL} · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
         value={feeInput}
         onChange={setFeeInput}
         placeholder="e.g. 0.1"
@@ -136,7 +136,7 @@ export function LaunchFeePanel() {
       <ScopeNote tone={aboveCeiling ? 'warn' : 'mute'}>
         A zero fee is legal and disables the anti-spam toll entirely. The change
         applies to the next createLaunch onward; launches already in flight paid
-        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} {NATIVE_SYMBOL} the
+        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} {QUOTE_SYMBOL} the
         factory reverts LaunchFeeTooHigh, so this button stays inert rather than
         burning gas on a typo.
       </ScopeNote>
@@ -149,10 +149,10 @@ export function LaunchFeePanel() {
         body={
           <>
             <p>
-              {fmtEth(launchFeeWei as bigint | undefined)}
+              {fmtQuote(launchFeeWei as bigint | undefined)}
               {' → '}
               <span className="text-brand">
-                {parsed.ok ? fmtEth(parsed.value) : '—'}
+                {parsed.ok ? fmtQuote(parsed.value) : '—'}
               </span>
             </p>
             <p className="mt-3 text-text-tertiary">
@@ -201,13 +201,13 @@ export function SoftCapPanel() {
         id: 'below-min-soft-cap',
         active: belowFloor,
         label: '[min_soft_cap_violation]',
-        reason: `The factory reverts InvalidSoftCap below ${MIN_SOFT_CAP_PROD_LABEL} ${NATIVE_SYMBOL}, because a smaller raise rounds p0 toward zero against the 3.78 M genesis LP supply.`,
+        reason: `The factory reverts InvalidSoftCap below ${MIN_SOFT_CAP_PROD_LABEL} ${QUOTE_SYMBOL}, because a smaller raise rounds p0 toward zero against the 3.78 M genesis LP supply.`,
       },
       {
         id: 'above-max-soft-cap',
         active: aboveCeiling,
         label: '[max_soft_cap_violation]',
-        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ${NATIVE_SYMBOL}). A raise that large is a wei/ether slip, not a decision — the cap is a progress target, not a launch gate, but a six-figure figure still means the dial was typed in wei.`,
+        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}). A raise that large is a wei/ether slip, not a decision — the cap is a progress target, not a launch gate, but a six-figure figure still means the dial was typed in wei.`,
       },
     ),
   })
@@ -215,15 +215,15 @@ export function SoftCapPanel() {
   return (
     <Section
       id="G1-B" title="DEFAULT SOFT CAP"
-      subtitle={`setDefaultSoftCap · frozen into every new hook's constructor · floor ${MIN_SOFT_CAP_PROD_LABEL} ${NATIVE_SYMBOL} · ceiling ${MAX_DEFAULT_SOFT_CAP_LABEL} ${NATIVE_SYMBOL}`}
+      subtitle={`setDefaultSoftCap · frozen into every new hook's constructor · floor ${MIN_SOFT_CAP_PROD_LABEL} ${QUOTE_SYMBOL} · ceiling ${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}`}
     >
       <Readout
         label="LIVE CAP (NEXT LAUNCH)"
-        value={isLoading && currentCapWei === undefined ? 'reading…' : fmtEth(currentCapWei as bigint | undefined)}
+        value={isLoading && currentCapWei === undefined ? 'reading…' : fmtQuote(currentCapWei as bigint | undefined)}
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label={`NEW CAP · ${NATIVE_SYMBOL} · ${MIN_SOFT_CAP_PROD_LABEL} TO ${MAX_DEFAULT_SOFT_CAP_LABEL}`}
+        label={`NEW CAP · ${QUOTE_SYMBOL} · ${MIN_SOFT_CAP_PROD_LABEL} TO ${MAX_DEFAULT_SOFT_CAP_LABEL}`}
         value={capInput}
         onChange={setCapInput}
         placeholder="e.g. 10"
@@ -236,12 +236,12 @@ export function SoftCapPanel() {
         {/* Was the literal "0.01 ETH", which survived the ×3.5 recalibration and
             so understated the live floor by 3.5×. Read off the same constant the
             blocker above reverts on, so the two cannot disagree again. */}
-        The {MIN_SOFT_CAP_PROD_LABEL} {NATIVE_SYMBOL} floor is a price-truncation guard, not a business rule:
+        The {MIN_SOFT_CAP_PROD_LABEL} {QUOTE_SYMBOL} floor is a price-truncation guard, not a business rule:
         p0 = lpNative × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
         below the floor rounds p0 toward zero. The contract reverts InvalidSoftCap
         below it, so this button stays inert rather than burning gas.
         <br /><br />
-        The {MAX_DEFAULT_SOFT_CAP_LABEL} {NATIVE_SYMBOL} ceiling catches the opposite slip and
+        The {MAX_DEFAULT_SOFT_CAP_LABEL} {QUOTE_SYMBOL} ceiling catches the opposite slip and
         is deliberately far above any real raise. It is not a view on how much a
         project should ask for — the cap is a progress target, not a launch gate.
       </ScopeNote>
@@ -289,7 +289,7 @@ export function PogLimitPanel() {
         id: 'above-max-pog-limit',
         active: aboveCeiling,
         label: '[max_pog_limit_violation]',
-        reason: `The factory reverts PogLimitTooHigh above MAX_POG_ALLOCATION_LIMIT (${MAX_POG_ALLOCATION_LIMIT_LABEL} ${NATIVE_SYMBOL}). This catches a wei/ether slip only — it is not the point at which one wallet stops being able to take a whole round, and no constant can be, because the soft cap moves separately.`,
+        reason: `The factory reverts PogLimitTooHigh above MAX_POG_ALLOCATION_LIMIT (${MAX_POG_ALLOCATION_LIMIT_LABEL} ${QUOTE_SYMBOL}). This catches a wei/ether slip only — it is not the point at which one wallet stops being able to take a whole round, and no constant can be, because the soft cap moves separately.`,
       },
     ),
   })
@@ -301,11 +301,11 @@ export function PogLimitPanel() {
     >
       <Readout
         label="LIVE CEILING"
-        value={isLoading && currentLimitWei === undefined ? 'reading…' : fmtEth(currentLimitWei as bigint | undefined)}
+        value={isLoading && currentLimitWei === undefined ? 'reading…' : fmtQuote(currentLimitWei as bigint | undefined)}
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label={`NEW CEILING · ${NATIVE_SYMBOL} · NON-ZERO · MAX ${MAX_POG_ALLOCATION_LIMIT_LABEL}`}
+        label={`NEW CEILING · ${QUOTE_SYMBOL} · NON-ZERO · MAX ${MAX_POG_ALLOCATION_LIMIT_LABEL}`}
         value={limitInput}
         onChange={setLimitInput}
         placeholder="e.g. 0.1"
@@ -329,7 +329,7 @@ export function PogLimitPanel() {
         factory now rejects it outright — use the circuit breaker in G3 to stop
         taking on new projects.
         <br /><br />
-        The {MAX_POG_ALLOCATION_LIMIT_LABEL} {NATIVE_SYMBOL} ceiling at the other end catches a
+        The {MAX_POG_ALLOCATION_LIMIT_LABEL} {QUOTE_SYMBOL} ceiling at the other end catches a
         wei/ether slip and nothing subtler. It is deliberately not an anti-whale
         bound: once this value reaches the soft cap, one wallet can fund an entire
         genesis round, and that ratio cannot be enforced here because the soft cap

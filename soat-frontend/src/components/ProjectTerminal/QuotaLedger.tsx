@@ -1,7 +1,7 @@
 import type * as React from 'react'
 
-import { fmt } from './format'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { fmtQuote } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // H-01 LEDGER  ·  pure-text reconciliation
@@ -72,15 +72,15 @@ export function QuotaLedger({
       </div>
       {row(
         'POG QUOTA · PER WINDOW',
-        blocked === 'unattested' ? '—' : `${fmt(quota)} ${NATIVE_SYMBOL}`,
+        blocked === 'unattested' ? '—' : `${fmtQuote(quota)} ${QUOTE_SYMBOL}`,
       )}
-      {row('SPENT THIS WINDOW',      stale ? '—' : `${fmt(spent)} ${NATIVE_SYMBOL}`)}
-      {row('REMAINING',              stale ? '—' : `${fmt(remaining)} ${NATIVE_SYMBOL}`)}
+      {row('SPENT THIS WINDOW',      stale ? '—' : `${fmtQuote(spent)} ${QUOTE_SYMBOL}`)}
+      {row('REMAINING',              stale ? '—' : `${fmtQuote(remaining)} ${QUOTE_SYMBOL}`)}
       {!stale && projected > 0n && (
         row(
           'PROJECTED (THIS TX)',
           <>
-            +{fmt(projected)} {NATIVE_SYMBOL}{' '}
+            +{fmtQuote(projected)} {QUOTE_SYMBOL}{' '}
             <span className="text-text-quiet">→ {projConsumed.toFixed(1)}%</span>
           </>
         )

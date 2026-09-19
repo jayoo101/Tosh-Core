@@ -22,6 +22,7 @@ import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
+import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
 /// @dev Namespaced storage slot for `ReentrantLadderHook`'s counter. File-level
 ///      so the mock that writes it and the assertion that reads it cannot drift
@@ -82,18 +83,48 @@ contract ToshV5Test is Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
+    /// @dev Stands in for BEM. Eight decimals, which is the whole reason it is
+    ///      not `MockERC20` — see `MockQuoteAsset`.
+    MockQuoteAsset internal quote;
+
     // ─── Fixture parameters ───────────────────────────────────────────────────
+
+    /// @dev EVERY QUOTE FIGURE IN THIS FILE IS IN BEM BASE UNITS (1e8), not wei.
+    ///
+    ///      The suite used to write `1 ether` and mean "one unit of the thing
+    ///      raises are denominated in", which was true while that thing was the
+    ///      native coin. It is now an 8-decimal ERC20, so `1 ether` means 1e10
+    ///      BEM — ten billion tokens, against a real total supply of 191,739 —
+    ///      and the figures that still compiled would have been describing a
+    ///      protocol nobody could fund.
+    ///
+    ///      `e8` is therefore written out rather than aliased to a unit suffix:
+    ///      Solidity has no user-defined denominations, and `1 bem` would have
+    ///      had to be a constant that reads like a keyword without being one.
 
     /// @dev Small enough that a single wallet can fill a genesis round, which
     ///      keeps multi-project tests (the piggyback ladder needs four launches)
     ///      from degenerating into twenty-wallet deposit loops.
-    uint256 internal constant SOFT_CAP = 1 ether;
+    ///
+    ///      NO LONGER FREE TO BE SMALL, and that is the constraint that set this
+    ///      number. `setDefaultSoftCap` floors at `MIN_SOFT_CAP_PROD` = 100e8,
+    ///      because below roughly that the shelf ladder's `p0` truncates to a
+    ///      value where adjacent shelves round onto the same price. The old
+    ///      fixture raised one unit; the smallest legal raise is now a hundred,
+    ///      so this sits just above the floor rather than anywhere convenient.
+    uint256 internal constant SOFT_CAP = 100e8;
 
     /// @dev Doubles as the PoG quota ceiling AND the per-project per-wallet cap
     ///      snapshotted into each hook.  Set well above `SOFT_CAP` so one wallet
     ///      can fund several projects without the cap becoming the thing under
     ///      test everywhere; the cap has its own dedicated tests.
-    uint256 internal constant POG_CAP = 10 ether;
+    uint256 internal constant POG_CAP = 1_000e8;
+
+    /// @dev What each actor is minted, and what they approve. Deliberately far
+    ///      above anything a test spends: an allowance that runs out mid-test
+    ///      surfaces as an ERC20 revert several calls deep, which reads like a
+    ///      protocol bug and is not one.
+    uint256 internal constant QUOTE_ENDOWMENT = 100_000e8;
 
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -121,10 +152,16 @@ contract ToshV5Test is Test {
 
         router = new CLPoolManagerRouter(IVault(address(vault)), ICLPoolManager(address(poolManager)));
 
+        // Before either protocol contract: both take it as an immutable, and the
+        // hook implementation's constructor reads `decimals()` off it.
+        quote = new MockQuoteAsset();
+
         vm.startPrank(admin);
         // Treasury first: the factory takes its address as an immutable.
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin);
-        factory = new ToshFactory(address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        factory = new ToshFactory(
+            address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
+        );
         ladder.setFactory(address(factory));
 
         factory.setDefaultSoftCap(SOFT_CAP);
@@ -137,12 +174,101 @@ contract ToshV5Test is Test {
         factory.setQuotaWindowDuration(0);
         vm.stopPrank();
 
+        // Native balances stay. Nothing a depositor does moves native value any
+        // more, but gas is still paid in it and a handful of tests assert that
+        // the protocol leaves native dust exactly where it found it — which is
+        // only a meaningful assertion if there was some to begin with.
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(carol, 100 ether);
         vm.deal(dave, 100 ether);
         vm.deal(trader, 100 ether);
+
+        _endow(creator);
+        _endow(alice);
+        _endow(bob);
+        _endow(carol);
+        _endow(dave);
+        _endow(trader);
+    }
+
+    /// @dev Mint `who` a quote balance and pre-approve the two platform-global
+    ///      spenders.
+    ///
+    ///      TWO SPENDERS, NOT ONE, because the pulls happen at different layers
+    ///      and neither forwards for the other. `ToshFactory` pulls the launch
+    ///      fee and every genesis deposit, so it needs an allowance from the
+    ///      creator and from each depositor. `CLPoolManagerRouter` pulls the
+    ///      input side of a swap, so a trader needs one too. Under native
+    ///      settlement neither existed: value arrived with the call.
+    ///
+    ///      THE SWAP ALLOWANCE GOES TO THE ROUTER, NOT THE VAULT, which is not
+    ///      what the money's destination suggests. `CurrencySettlement.settle` is
+    ///      an `internal` library function, so it inlines into the router and its
+    ///      `transferFrom(payer, address(vault), amount)` executes with the
+    ///      ROUTER as `msg.sender`. The tokens land in the Vault; the allowance is
+    ///      spent by the router. Approving the Vault instead compiles, reads
+    ///      correctly, and fails every swap with an allowance revert.
+    ///
+    ///      Per-project hooks are NOT covered here and cannot be: they do not
+    ///      exist until a test creates one. `mintBondingCurve` pulls from the
+    ///      buyer directly, so `_createProject` approves each new hook instead.
+    function _endow(address who) internal {
+        quote.mint(who, QUOTE_ENDOWMENT);
+        vm.startPrank(who);
+        quote.approve(address(factory), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    /// @dev Set an address's quote balance to exactly `amount`.
+    ///
+    ///      THE ASSIGNMENT IS THE POINT, and it is what `vm.deal` gave for free.
+    ///      Most call sites are arming the buyback reservoir, and the piggyback
+    ///      tests turn on whether it holds one base unit more or less than
+    ///      `TRIGGER_STEP` — so a helper that only ever added would quietly arm a
+    ///      reservoir that a previous swap had already fed, and the test asserting
+    ///      "exactly one short, therefore disarmed" would be measuring a pot that
+    ///      was over the line.
+    function _setQuote(address who, uint256 amount) internal {
+        uint256 held = quote.balanceOf(who);
+        if (held > amount) {
+            quote.burn(who, held - amount);
+        } else if (held < amount) {
+            quote.mint(who, amount - held);
+        }
+    }
+
+    /// @dev Raise `who`'s quote balance to at least `amount`, leaving a surplus
+    ///      alone. The successor to the `vm.deal(actor, cost)` calls that made
+    ///      sure a buyer could afford the thing under test without disturbing
+    ///      what they already held.
+    function _topUpQuote(address who, uint256 amount) internal {
+        if (quote.balanceOf(who) < amount) quote.mint(who, amount - quote.balanceOf(who));
+    }
+
+    /// @dev Let every actor pay `hook` for shelf mints.
+    ///
+    ///      Called from `_createProject` rather than from each mint, so that the
+    ///      ~25 direct `mintBondingCurve` call sites in this file keep the exact
+    ///      prank and `expectRevert` structure they had under native settlement.
+    ///      Wrapping them in a helper that pranks internally would have meant
+    ///      rewriting each `vm.expectRevert` pairing, which is where a conversion
+    ///      of this size silently loses assertions.
+    ///
+    ///      Approving eagerly is safe because an allowance is not a payment: a
+    ///      test that asserts a mint is REFUSED still gets its refusal from the
+    ///      hook's own guard, which is what it was asserting. The one thing this
+    ///      cannot be used to test is the allowance itself; that is
+    ///      `test_mintBondingCurve_revertsWithoutSufficientAllowance`, which
+    ///      lowers the allowance explicitly.
+    function _approveHook(ToshLaunchpadHook hook) internal {
+        address[6] memory actors = [creator, alice, bob, carol, dave, trader];
+        for (uint256 i; i < actors.length; ++i) {
+            vm.prank(actors[i]);
+            quote.approve(address(hook), type(uint256).max);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -190,12 +316,17 @@ contract ToshV5Test is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
+        // No `{value: fee}`: the fee is pulled from the creator's quote balance
+        // against the allowance `_endow` granted. `expectedFee` still travels as
+        // an argument — it is the creator's slippage cap on `launchFee`, which is
+        // a separate concern from how the money moves.
+        (address t, address h) = factory.createLaunch(
             name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
+        _approveHook(hook);
     }
 
     function _registerPoG(address user, uint256 maxAlloc) internal {
@@ -218,7 +349,11 @@ contract ToshV5Test is Test {
     function _deposit(address user, ToshLaunchpadHook hook, uint256 amount, address referrer) internal {
         _ensurePoG(user);
         vm.prank(user);
-        factory.deposit{value: amount}(address(hook), referrer);
+        // `amount` moved from `msg.value` into the argument list. It is now
+        // asserted rather than observed: the factory pulls exactly this much and
+        // the hook re-derives what arrived from its own balance, so a lying
+        // caller credits itself nothing.
+        factory.deposit(address(hook), referrer, amount);
     }
 
     /// @dev Create -> fund to the soft cap -> `launch()`.  Returns a live project
@@ -327,14 +462,42 @@ contract ToshV5Test is Test {
         return poolManager.getLiquidity(hook.getPoolKey().toId(), address(router), TICK_LOWER, TICK_UPPER, bytes32(0));
     }
 
-    /// @dev ETH -> token. `zeroForOne` because native ETH always sorts to
-    ///      `currency0`; buying pushes ETH-per-token up.
-    function _swapBuy(ToshLaunchpadHook hook, address who, uint256 nativeIn) internal {
+    /// @dev Quote -> token. `zeroForOne` is still correct, but for a different
+    ///      reason than it used to be, and the difference is the one thing the
+    ///      quote-asset migration could have broken silently.
+    ///
+    ///      It used to hold by construction: the quote side was `address(0)`, and
+    ///      Infinity sorts a `PoolKey`'s currencies by address, so nothing could
+    ///      sort below it. BEM has no such privilege — it sits at `0x5ce0…` — so
+    ///      the ordering now holds because `ToshCloneLib.deployBareCloneAbove`
+    ///      grinds every project token's address ABOVE the quote asset. If that
+    ///      grind ever regressed, this helper would spend project tokens it does
+    ///      not hold rather than fail on the ordering, so
+    ///      `test_pool_quoteAssetIsAlwaysCurrency0` asserts it directly.
+    function _swapBuy(ToshLaunchpadHook hook, address who, uint256 quoteIn) internal {
+        // ⚠ THE KEY IS READ BEFORE THE PRANK, and it has to be.
+        //
+        // `vm.prank` applies to exactly one external call. Written inline as
+        // `router.swap(hook.getPoolKey(), ...)`, the argument is itself an
+        // external call and it is evaluated FIRST — so the prank lands on
+        // `getPoolKey()` and the swap executes as the test contract.
+        //
+        // That was this helper's shape for the whole native era and nothing
+        // caught it, because `msg.value` came out of the test contract's own
+        // balance and the swap went through regardless. Moving the input side to
+        // `transferFrom` is what surfaced it: the test contract had no allowance
+        // and every ladder test died on `ERC20InsufficientAllowance` naming a
+        // payer nobody had pranked. `_swapSell` below always hoisted the key,
+        // which is why the sell side was never affected.
+        PoolKey memory key = hook.getPoolKey();
+
         vm.prank(who);
-        router.swap{value: nativeIn}(
-            hook.getPoolKey(),
+        // No `{value:}`. The router settles the input side with
+        // `transferFrom(who, vault)`, against the router allowance `_endow` gave.
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
-                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                zeroForOne: true, amountSpecified: -int256(quoteIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             _swapSettings(),
             ""
@@ -366,7 +529,10 @@ contract ToshV5Test is Test {
         _swapBuy(hook, trader, nativeIn);
         _nextBlock();
         vm.warp(block.timestamp + 1900);
-        _swapBuy(hook, trader, 1e14); // roll the oracle checkpoint at the new level
+        // Dust nudge to roll the oracle checkpoint at the new level. `1e6` is
+        // 0.01 BEM. It was `1e14` — dust as WEI, but 1,000,000 BEM as an 8-decimal
+        // base unit, which is five orders of magnitude past the whole pool.
+        _swapBuy(hook, trader, 1e6);
         _nextBlock();
     }
 
@@ -388,45 +554,95 @@ contract ToshV5Test is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  1. ETH-native factory plumbing
+    //  1. Quote-asset factory plumbing
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_createLaunch_chargesEthFeeAndFundsLadderTreasury() public {
+    function test_createLaunch_chargesQuoteFeeAndFundsLadderTreasury() public {
         uint256 fee = factory.launchFee();
-        assertEq(fee, 0.35 ether, "default launch fee should be 0.35 BNB");
+        assertEq(fee, 9.28e8, "default launch fee should be 9.28 BEM");
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         (, ToshLaunchpadHook hook) = _createProject("Matrix", "MTRX");
 
         assertTrue(factory.registeredHooks(address(hook)));
-        assertEq(address(ladder).balance - ladderBefore, fee, "launch fee must land in the buyback reservoir");
-        assertEq(platformTreasury.balance, 0, "platform treasury must not receive launch fees in v5.0");
+        assertEq(quote.balanceOf(address(ladder)) - ladderBefore, fee, "launch fee must land in the buyback reservoir");
+        assertEq(quote.balanceOf(platformTreasury), 0, "platform treasury must not receive launch fees in v5.0");
+        // The reservoir's native balance is asserted alongside its quote balance
+        // because the fee pipe changed asset, not destination: a regression that
+        // reverted to `msg.value` would still credit the right address.
+        assertEq(address(ladder).balance, 0, "no native value may reach the reservoir");
     }
 
-    function test_createLaunch_refundsOverpayment() public {
+    /// @notice A creator is debited the fee and not a wei more, however much they
+    ///         approved.
+    ///
+    /// @dev    ⚠ REPLACES `test_createLaunch_refundsOverpayment`, which sent
+    ///         `fee + 3 ether` and asserted the excess came back.
+    ///
+    ///         THERE IS NO LONGER SUCH A THING AS OVERPAYMENT. Native value
+    ///         arrives before the callee runs, so the factory received whatever
+    ///         was sent and had to hand the remainder back; a pull moves the
+    ///         computed amount and nothing else, so the refund path it needed is
+    ///         gone rather than merely untested.
+    ///
+    ///         What replaces it is the property that made the refund matter: the
+    ///         creator's balance falls by exactly `fee`. `_endow` approves
+    ///         `type(uint256).max`, which is the modern shape of "sent too much"
+    ///         — the factory is authorised to take everything the creator holds
+    ///         and must take 9.28 BEM of it.
+    function test_createLaunch_takesExactlyTheFeeFromAnUnlimitedAllowance() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
-        uint256 before = creator.balance;
+        uint256 before = quote.balanceOf(creator);
+
+        assertEq(
+            quote.allowance(creator, address(factory)),
+            type(uint256).max,
+            "precondition: the factory may take everything"
+        );
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        factory.createLaunch{value: fee + 3 ether}(
+        factory.createLaunch(
             "Over", "OVR", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
-        assertEq(before - creator.balance, fee, "overpayment must be refunded");
+        assertEq(before - quote.balanceOf(creator), fee, "exactly the fee, despite an unlimited allowance");
     }
 
-    function test_createLaunch_revertsOnUnderpayment() public {
+    /// @notice A creator who has not approved the fee cannot launch.
+    ///
+    /// @dev    ⚠ REPLACES `test_createLaunch_revertsOnUnderpayment`, which sent
+    ///         `fee - 1` and expected `InsufficientLaunchFee`.
+    ///
+    ///         THAT ERROR NO LONGER EXISTS, and its removal is deliberate rather
+    ///         than an oversight: the factory has nothing in hand to compare
+    ///         against a shortfall, so the only check it could make is a
+    ///         `balanceOf`/`allowance` read whose sole outcome is the revert the
+    ///         transfer already produces — from the token, with both figures in
+    ///         it. A local pre-check would have restated the failure less well.
+    ///
+    ///         So the revert asserted here comes from the ERC20, which is the
+    ///         point. `expectRevert()` is bare because the message belongs to the
+    ///         token: OpenZeppelin raises `ERC20InsufficientAllowance`, and
+    ///         pinning that selector would make this suite fail on a quote asset
+    ///         with a different (equally valid) revert shape.
+    function test_createLaunch_revertsWithoutSufficientAllowance() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
+
+        // One base unit short. Not zero: an allowance of zero would also fail the
+        // first `transferFrom` a launch makes for any reason, whereas `fee - 1`
+        // can only fail on the fee itself.
+        vm.prank(creator);
+        quote.approve(address(factory), fee - 1);
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
-        factory.createLaunch{value: fee - 1}(
+        vm.expectRevert();
+        factory.createLaunch(
             "Under", "UND", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -438,13 +654,13 @@ contract ToshV5Test is Test {
         uint256 quotedFee = factory.launchFee();
 
         vm.prank(admin);
-        factory.setLaunchFee(quotedFee + 1 ether);
+        factory.setLaunchFee(quotedFee + 1e8);
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch{value: 5 ether}(
+        factory.createLaunch(
             "Front", "FRT", projTreasury, projTreasury, salt, quotedFee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -501,19 +717,35 @@ contract ToshV5Test is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  2. Genesis deposits in native ETH
+    //  2. Genesis deposits in the quote asset
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_deposit_isNativeEthAndNeedsNoApproval() public {
-        (, ToshLaunchpadHook hook) = _createProject("EthDep", "EDP");
+    /// @notice A deposit moves quote tokens into the hook's custody, and the
+    ///         hook's books agree with its balance.
+    ///
+    /// @dev    ⚠ REPLACES `test_deposit_isNativeEthAndNeedsNoApproval`, whose
+    ///         title is now the opposite of the truth: a deposit needs an
+    ///         approval and nothing else about it is native.
+    ///
+    ///         `totalNativeDeposited` and `nativeDeposited` KEEP THEIR NAMES while
+    ///         holding quote-asset amounts. That is a real misnomer and it is
+    ///         deliberate for now: both are public getters that indexers and the
+    ///         frontend already read, so renaming them is an ABI break to be made
+    ///         once, with those consumers, rather than incidentally here.
+    function test_deposit_movesQuoteTokensIntoTheHook() public {
+        (, ToshLaunchpadHook hook) = _createProject("BemDep", "BDP");
         _registerPoG(alice, POG_CAP);
 
-        _deposit(alice, hook, 0.4 ether, address(0));
+        _deposit(alice, hook, 40e8, address(0));
 
-        assertEq(hook.nativeDeposited(alice), 0.4 ether);
-        assertEq(hook.totalNativeDeposited(), 0.4 ether);
-        assertEq(address(hook).balance, 0.4 ether, "hook custodies raised ETH directly");
-        assertEq(factory.totalGenesisDeposited(alice), 0.4 ether);
+        assertEq(hook.nativeDeposited(alice), 40e8);
+        assertEq(hook.totalNativeDeposited(), 40e8);
+        assertEq(quote.balanceOf(address(hook)), 40e8, "hook custodies the raised quote asset directly");
+        assertEq(factory.totalGenesisDeposited(alice), 40e8);
+        // The hook is still `payable` — it has to be, to hold the native dust a
+        // `selfdestruct` can force on it — so this asserts that nothing in the
+        // deposit path put any there.
+        assertEq(address(hook).balance, 0, "no native value moves on a deposit");
     }
 
     function test_deposit_revertsWithoutPogQuota() public {
@@ -521,7 +753,7 @@ contract ToshV5Test is Test {
 
         vm.prank(alice);
         vm.expectRevert(ToshFactory.NoPogQuota.selector);
-        factory.deposit{value: 0.1 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 10e8);
     }
 
     /// @dev The quota is a single platform-wide lifetime budget, spent across
@@ -530,12 +762,12 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook hookA) = _createProject("QuotaA", "QTA");
         (, ToshLaunchpadHook hookB) = _createProject("QuotaB", "QTB");
 
-        _registerPoG(bob, 0.5 ether);
-        _deposit(bob, hookA, 0.4 ether, address(0));
+        _registerPoG(bob, 50e8);
+        _deposit(bob, hookA, 40e8, address(0));
 
         vm.prank(bob);
         vm.expectRevert(ToshFactory.QuotaExceeded.selector);
-        factory.deposit{value: 0.2 ether}(address(hookB), address(0));
+        factory.deposit(address(hookB), address(0), 20e8);
     }
 
     /// @notice The per-project wallet cap is a SEPARATE limit from the PoG
@@ -548,16 +780,18 @@ contract ToshV5Test is Test {
         // ...then tighten the dial before the project is created, so the
         // project's cap bites well below alice's remaining quota.
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(0.1 ether);
+        factory.setMaxPogAllocationLimit(10e8);
 
         (, ToshLaunchpadHook hook) = _createProject("Capped", "CAP");
-        assertEq(hook.perWalletCap(), 0.1 ether);
+        assertEq(hook.perWalletCap(), 10e8);
 
-        _deposit(alice, hook, 0.1 ether, address(0));
+        _deposit(alice, hook, 10e8, address(0));
 
         vm.prank(alice);
         vm.expectRevert(ToshLaunchpadHook.PerWalletCapExceeded.selector);
-        factory.deposit{value: 1 wei}(address(hook), address(0));
+        // One base unit, which is 1e-8 BEM rather than 1 wei. The smallest
+        // possible overshoot either way, which is what this asserts.
+        factory.deposit(address(hook), address(0), 1);
 
         (, uint256 remaining,) = factory.eligibility(alice, address(hook));
         assertGt(remaining, 0, "global quota is untouched by the project cap");
@@ -575,21 +809,21 @@ contract ToshV5Test is Test {
         assertEq(oldProject.perWalletCap(), POG_CAP);
 
         vm.prank(admin);
-        factory.setMaxPogAllocationLimit(0.1 ether);
+        factory.setMaxPogAllocationLimit(10e8);
 
         (, ToshLaunchpadHook newProject) = _createProject("After", "AFT");
-        assertEq(newProject.perWalletCap(), 0.1 ether, "new projects adopt the new dial");
+        assertEq(newProject.perWalletCap(), 10e8, "new projects adopt the new dial");
         assertEq(oldProject.perWalletCap(), POG_CAP, "live rounds keep the cap they were deployed with");
 
         // The grandfathered round still accepts a deposit far above the new
         // platform-wide cap.
-        _deposit(alice, oldProject, 1 ether, address(0));
-        assertEq(oldProject.nativeDeposited(alice), 1 ether);
+        _deposit(alice, oldProject, 100e8, address(0));
+        assertEq(oldProject.nativeDeposited(alice), 100e8);
 
         // The same deposit into the newer round is refused.
         vm.prank(alice);
         vm.expectRevert(ToshLaunchpadHook.PerWalletCapExceeded.selector);
-        factory.deposit{value: 1 ether}(address(newProject), address(0));
+        factory.deposit(address(newProject), address(0), 100e8);
     }
 
     /// @notice Refunding gives the ETH back but NOT the quota.  Otherwise a
@@ -604,19 +838,19 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         factory.setQuotaWindowDuration(7 days);
 
-        _registerPoG(alice, 0.3 ether);
+        _registerPoG(alice, 30e8);
         (, ToshLaunchpadHook hookA) = _createProject("Refunder", "RFD");
-        _deposit(alice, hookA, 0.3 ether, address(0));
+        _deposit(alice, hookA, 30e8, address(0));
 
         vm.warp(hookA.genesisDeadline() + hookA.LAUNCH_WINDOW() + 1);
         vm.prank(alice);
         hookA.refund();
 
-        assertEq(factory.quotaSpent(alice), 0.3 ether, "refund must not credit the window back");
+        assertEq(factory.quotaSpent(alice), 30e8, "refund must not credit the window back");
 
         (, ToshLaunchpadHook hookB) = _createProject("Retry", "RTY");
         (, uint256 remaining,) = factory.eligibility(alice, address(hookB));
-        assertEq(remaining, 0.3 ether, "the lapsed window refills remaining; the spent counter did not move");
+        assertEq(remaining, 30e8, "the lapsed window refills remaining; the spent counter did not move");
     }
 
     /// @notice The quota is a cooling-off budget, not a lifetime one: once the
@@ -626,9 +860,9 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         factory.setQuotaWindowDuration(1 days);
 
-        _registerPoG(alice, 0.3 ether);
+        _registerPoG(alice, 30e8);
         (, ToshLaunchpadHook hookA) = _createProject("Window1", "WD1");
-        _deposit(alice, hookA, 0.3 ether, address(0));
+        _deposit(alice, hookA, 30e8, address(0));
 
         (bool eligible,,) = factory.eligibility(alice, address(hookA));
         assertFalse(eligible, "budget is spent for the rest of the window");
@@ -638,33 +872,33 @@ contract ToshV5Test is Test {
         // A fresh project, because hookA's own genesis window has closed.
         (, ToshLaunchpadHook hookB) = _createProject("Window2", "WD2");
         (, uint256 remaining,) = factory.eligibility(alice, address(hookB));
-        assertEq(remaining, 0.3 ether, "the lapsed window reads as refilled");
+        assertEq(remaining, 30e8, "the lapsed window reads as refilled");
 
-        _deposit(alice, hookB, 0.3 ether, address(0));
-        assertEq(factory.quotaSpent(alice), 0.3 ether, "the new window starts from zero");
-        assertEq(factory.totalGenesisDeposited(alice), 0.6 ether, "lifetime tally keeps accumulating");
+        _deposit(alice, hookB, 30e8, address(0));
+        assertEq(factory.quotaSpent(alice), 30e8, "the new window starts from zero");
+        assertEq(factory.totalGenesisDeposited(alice), 60e8, "lifetime tally keeps accumulating");
     }
 
     function test_refund_returnsEthWhenLaunchWindowLapses() public {
         (, ToshLaunchpadHook hook) = _createProject("Fail", "FAIL");
         _registerPoG(alice, POG_CAP);
-        _deposit(alice, hook, 0.3 ether, address(0));
+        _deposit(alice, hook, 30e8, address(0));
 
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         assertTrue(hook.canRefund(), "genesis should be refundable once the launch window lapses");
 
-        uint256 before = alice.balance;
+        uint256 before = quote.balanceOf(alice);
         vm.prank(alice);
         hook.refund();
 
-        assertEq(alice.balance - before, 0.3 ether, "refund must be paid in native ETH");
+        assertEq(quote.balanceOf(alice) - before, 30e8, "refund must be paid in native ETH");
         assertEq(hook.nativeDeposited(alice), 0);
     }
 
     function test_launch_succeedsBelowSoftCap() public {
         (, ToshLaunchpadHook hook) = _createProject("Thin", "THN");
         _registerPoG(alice, POG_CAP);
-        _deposit(alice, hook, 0.3 ether, address(0));
+        _deposit(alice, hook, 30e8, address(0));
         assertLt(hook.totalNativeDeposited(), hook.softCap(), "fixture must sit under the progress target");
 
         vm.warp(hook.genesisDeadline() + 1);
@@ -702,7 +936,7 @@ contract ToshV5Test is Test {
         _registerPoG(carol, POG_CAP);
 
         // First ever deposit binds alice -> bob.
-        _deposit(alice, hookA, 1 ether, bob);
+        _deposit(alice, hookA, 100e8, bob);
         assertEq(factory.globalReferrers(alice), bob, "first referrer must be bound");
         assertEq(factory.referralCount(bob), 1);
         assertEq(
@@ -710,33 +944,33 @@ contract ToshV5Test is Test {
             address(0),
             "bob holds no deposit in hookA, so the project slot must stay empty"
         );
-        assertEq(hookA.referralAccrued(bob), 0.02 ether, "referrer earns the 2% lifetime leg");
-        assertEq(hookA.orphanReferral(), 0.08 ether, "the unbound 8% leg becomes buyback fuel");
+        assertEq(hookA.referralAccrued(bob), 2e8, "referrer earns the 2% lifetime leg");
+        assertEq(hookA.orphanReferral(), 8e8, "the unbound 8% leg becomes buyback fuel");
 
         // A different project, a different (competing) code: binding is immutable.
-        _deposit(alice, hookB, 1 ether, carol);
+        _deposit(alice, hookB, 100e8, carol);
         assertEq(factory.globalReferrers(alice), bob, "binding must be permanent");
         assertEq(factory.referralCount(carol), 0, "competing code must not rebind");
         assertEq(hookB.referralAccrued(carol), 0, "competing referrer earns nothing");
-        assertEq(hookB.referralAccrued(bob), 0.02 ether, "original referrer earns on the new project too");
+        assertEq(hookB.referralAccrued(bob), 2e8, "original referrer earns on the new project too");
 
         // ...and the commission is real ETH, claimable once the project launches.
         _launch(hookB);
-        uint256 before = bob.balance;
+        uint256 before = quote.balanceOf(bob);
         vm.prank(bob);
         hookB.claimReferralReward();
-        assertEq(bob.balance - before, 0.02 ether, "referral reward is paid in ETH");
+        assertEq(quote.balanceOf(bob) - before, 2e8, "referral reward is paid in ETH");
     }
 
     function test_referral_selfReferralIsIgnored() public {
         (, ToshLaunchpadHook hook) = _createProject("SelfRef", "SRF");
         _registerPoG(alice, POG_CAP);
 
-        _deposit(alice, hook, 0.5 ether, alice);
+        _deposit(alice, hook, 50e8, alice);
 
         assertEq(factory.globalReferrers(alice), address(0), "self-referral must not bind");
         assertEq(hook.referralAccrued(alice), 0, "nobody may farm their own commission");
-        assertEq(hook.orphanReferral(), 0.05 ether, "unclaimed commission becomes buyback fuel");
+        assertEq(hook.orphanReferral(), 5e8, "unclaimed commission becomes buyback fuel");
     }
 
     /// @dev Deposits with no referrer still cut 10% —it just becomes buyback
@@ -746,11 +980,11 @@ contract ToshV5Test is Test {
         _registerPoG(alice, POG_CAP);
         _deposit(alice, hook, SOFT_CAP, address(0));
 
-        assertEq(hook.orphanReferral(), 0.1 ether);
+        assertEq(hook.orphanReferral(), 10e8);
 
-        uint256 before = address(ladder).balance;
+        uint256 before = quote.balanceOf(address(ladder));
         _launch(hook);
-        assertEq(address(ladder).balance - before, 0.1 ether, "orphan commission funds the buyback reservoir");
+        assertEq(quote.balanceOf(address(ladder)) - before, 10e8, "orphan commission funds the buyback reservoir");
         assertEq(hook.orphanReferral(), 0, "orphan pot must be drained at launch");
     }
 
@@ -766,20 +1000,20 @@ contract ToshV5Test is Test {
 
         // alice spends her one lifetime slot on carol, on a project carol has no
         // stake in.  That is the slot that follows alice from here on.
-        _deposit(alice, hookA, 1 ether, carol);
+        _deposit(alice, hookA, 100e8, carol);
         assertEq(factory.globalReferrers(alice), carol, "lifetime slot goes to the first link");
 
         // bob stakes hookB himself, which is what qualifies him to earn there.
-        _deposit(bob, hookB, 1 ether, address(0));
+        _deposit(bob, hookB, 100e8, address(0));
 
-        _deposit(alice, hookB, 1 ether, bob);
+        _deposit(alice, hookB, 100e8, bob);
 
         assertEq(factory.projectReferrers(alice, address(hookB)), bob, "project slot binds to bob");
         assertEq(factory.globalReferrers(alice), carol, "and leaves the lifetime slot alone");
         assertEq(factory.projectReferralCount(address(hookB), bob), 1, "bob recruited one wallet here");
 
-        assertEq(hookB.referralAccrued(bob), 0.08 ether, "project referrer takes 8% of the deposit");
-        assertEq(hookB.referralAccrued(carol), 0.02 ether, "lifetime referrer takes the other 2%");
+        assertEq(hookB.referralAccrued(bob), 8e8, "project referrer takes 8% of the deposit");
+        assertEq(hookB.referralAccrued(carol), 2e8, "lifetime referrer takes the other 2%");
     }
 
     /// @notice A first-time depositor arriving on one link fills BOTH slots with
@@ -789,14 +1023,14 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook hook) = _createProject("BothSlots", "BTH");
 
         _registerPoG(bob, POG_CAP);
-        _deposit(bob, hook, 1 ether, address(0));
+        _deposit(bob, hook, 100e8, address(0));
 
-        _deposit(alice, hook, 1 ether, bob);
+        _deposit(alice, hook, 100e8, bob);
 
         assertEq(factory.globalReferrers(alice), bob, "lifetime slot");
         assertEq(factory.projectReferrers(alice, address(hook)), bob, "and the project slot");
-        assertEq(hook.referralAccrued(bob), 0.1 ether, "one wallet in both slots earns the whole carve");
-        assertEq(hook.orphanReferral(), 0.1 ether, "only bob's own unreferred deposit orphans");
+        assertEq(hook.referralAccrued(bob), 10e8, "one wallet in both slots earns the whole carve");
+        assertEq(hook.orphanReferral(), 10e8, "only bob's own unreferred deposit orphans");
     }
 
     /// @notice The project slot will not bind a referrer who holds no stake in
@@ -812,21 +1046,19 @@ contract ToshV5Test is Test {
 
         // bob is attested but has staked nothing here, so the 8 % has nobody to
         // go to and becomes buyback fuel.
-        _deposit(alice, hook, 1 ether, bob);
+        _deposit(alice, hook, 100e8, bob);
         assertEq(factory.projectReferrers(alice, address(hook)), address(0), "gate rejects an unstaked referrer");
-        assertEq(hook.referralAccrued(bob), 0.02 ether, "only the lifetime leg pays");
-        assertEq(hook.orphanReferral(), 0.08 ether, "the project leg orphans");
+        assertEq(hook.referralAccrued(bob), 2e8, "only the lifetime leg pays");
+        assertEq(hook.orphanReferral(), 8e8, "the project leg orphans");
 
         // bob stakes the project, and alice's NEXT deposit binds him.  The empty
         // slot was never poisoned by the earlier rejection.
-        _deposit(bob, hook, 1 ether, address(0));
-        _deposit(alice, hook, 1 ether, bob);
+        _deposit(bob, hook, 100e8, address(0));
+        _deposit(alice, hook, 100e8, bob);
 
         assertEq(factory.projectReferrers(alice, address(hook)), bob, "binding retries and succeeds");
         assertEq(
-            hook.referralAccrued(bob),
-            0.12 ether,
-            "two lifetime legs at 2% plus one project leg at 8% on the second deposit"
+            hook.referralAccrued(bob), 12e8, "two lifetime legs at 2% plus one project leg at 8% on the second deposit"
         );
     }
 
@@ -842,23 +1074,23 @@ contract ToshV5Test is Test {
 
         // Both qualify on both projects, so the only thing deciding the bindings
         // below is which link arrived first.
-        _deposit(bob, hookA, 1 ether, address(0));
-        _deposit(bob, hookB, 1 ether, address(0));
-        _deposit(carol, hookA, 1 ether, address(0));
-        _deposit(carol, hookB, 1 ether, address(0));
+        _deposit(bob, hookA, 100e8, address(0));
+        _deposit(bob, hookB, 100e8, address(0));
+        _deposit(carol, hookA, 100e8, address(0));
+        _deposit(carol, hookB, 100e8, address(0));
 
-        _deposit(alice, hookA, 1 ether, bob);
+        _deposit(alice, hookA, 100e8, bob);
         assertEq(factory.projectReferrers(alice, address(hookA)), bob, "first link on hookA wins");
 
-        _deposit(alice, hookA, 1 ether, carol);
+        _deposit(alice, hookA, 100e8, carol);
         assertEq(factory.projectReferrers(alice, address(hookA)), bob, "and cannot be rebound");
         assertEq(hookA.referralAccrued(carol), 0, "the later sharer earns nothing on hookA");
 
         // hookB is a separate slot, and carol takes it.
-        _deposit(alice, hookB, 1 ether, carol);
+        _deposit(alice, hookB, 100e8, carol);
         assertEq(factory.projectReferrers(alice, address(hookB)), carol, "a different project binds independently");
-        assertEq(hookB.referralAccrued(carol), 0.08 ether, "carol takes the project leg there");
-        assertEq(hookB.referralAccrued(bob), 0.02 ether, "bob keeps the lifetime leg everywhere");
+        assertEq(hookB.referralAccrued(carol), 8e8, "carol takes the project leg there");
+        assertEq(hookB.referralAccrued(bob), 2e8, "bob keeps the lifetime leg everywhere");
     }
 
     /// @notice The two legs always sum back to the carve, including on amounts
@@ -874,7 +1106,17 @@ contract ToshV5Test is Test {
     function test_referralSplit_sumsToTheCarveOnAmountsThatTruncate() public {
         (, ToshLaunchpadHook hook) = _createProject("Exact", "EXA");
 
-        uint256 amount = 1_000_000_000_000_000_033;
+        // 100.00000033 BEM. The trailing 33 is the whole fixture: it has to survive
+        // `× REFERRAL_BPS / 10_000` into a carve that is NOT divisible by 5, so that
+        // `× PROJECT_REFERRAL_SHARE_BPS / 10_000` (i.e. × 4/5) truncates. Here the
+        // carve is 1_000_000_003 and the project leg floors at 800_000_002, losing
+        // the base unit that the subtraction-free derivation would strand.
+        //
+        // Re-denominated from `1_000_000_000_000_000_033` — "1 ether and 33 wei",
+        // which as an 8-decimal amount would be 100 billion BEM and blow straight
+        // through the PoG cap. The property being tested is divisibility, not
+        // magnitude, so it survives the rescale intact.
+        uint256 amount = 10_000_000_033;
 
         _registerPoG(bob, POG_CAP);
         _deposit(bob, hook, amount, address(0));
@@ -898,7 +1140,7 @@ contract ToshV5Test is Test {
         _registerPoG(bob, POG_CAP);
         assertFalse(factory.canBindProjectReferral(bob, address(hook)), "attested but holds no stake here");
 
-        _deposit(bob, hook, 1 ether, address(0));
+        _deposit(bob, hook, 100e8, address(0));
         assertTrue(factory.canBindProjectReferral(bob, address(hook)), "attested and staked");
 
         assertFalse(factory.canBindProjectReferral(address(0), address(hook)), "the zero address is nobody");
@@ -909,27 +1151,53 @@ contract ToshV5Test is Test {
     //  4. Launch + genesis claim
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_launch_seedsEthPairAndDerivesP0() public {
+    /// @notice The quote asset must be `currency0`, and with an ERC-20 quote asset
+    ///         that is no longer free.
+    ///
+    /// @dev    Infinity sorts a `PoolKey`'s currencies by address. While the quote
+    ///         asset was the native coin it was `address(0)`, so "quote is
+    ///         `currency0`" held by construction and needed no enforcing — every
+    ///         other address in the universe sorts above zero.
+    ///
+    ///         BEM is an ordinary contract address, so the ordering now depends on
+    ///         where the project token lands relative to it, and roughly a third of
+    ///         tokens would sort BELOW it. Everything downstream reads the quote
+    ///         leg as `currency0`: `p0` derivation, the buy/sell direction in
+    ///         `beforeSwap`, the tax skim, the treasury's listing gate. Rather than
+    ///         branch all of that on ordering, `ToshCloneLib` grinds a CREATE2 salt
+    ///         until the token address sits above the quote asset, which preserves
+    ///         the invariant at the cost of ~1.57 expected attempts per launch.
+    ///
+    ///         So this assertion changed meaning: it used to restate a tautology,
+    ///         and now it is the check that the salt grind actually ran.
+    function test_launch_seedsQuotePairAndDerivesP0() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Live", "LIVE", alice, address(0));
 
         assertTrue(hook.launched());
 
         PoolKey memory key = hook.getPoolKey();
-        assertTrue(key.currency0.isNative(), "ETH must be currency0");
+        assertEq(Currency.unwrap(key.currency0), address(quote), "the quote asset must be currency0");
         assertEq(Currency.unwrap(key.currency1), address(token), "project token must be currency1");
+        assertLt(uint160(address(quote)), uint160(address(token)), "and that ordering is what the CREATE2 grind buys");
 
-        // 90% of the 1 ETH raise seeds the LP against GENESIS_LP_SUPPLY (3.78 M).
-        uint256 expectedP0 = (0.9 ether * 1e18) / hook.GENESIS_LP_SUPPLY();
-        assertEq(hook.p0(), expectedP0, "p0 must be derived from the ETH/token seed ratio");
+        // 90% of the 100 BEM raise seeds the LP against GENESIS_LP_SUPPLY (3.78 M).
+        uint256 expectedP0 = (90e8 * 1e18) / hook.GENESIS_LP_SUPPLY();
+        assertEq(hook.p0(), expectedP0, "p0 must be derived from the quote/token seed ratio");
         assertGt(hook.p0(), 0, "p0 must never truncate to zero");
 
-        // Full-range seeding takes the min of both legs, so a few wei of ETH
-        // and a few wei of token stay on the hook.  There is no sweep path —
-        // same one-way-valve choice as the treasury.  Pin the magnitude so a
-        // future math change cannot silently start parking real money here.
-        uint256 leftoverEth = address(hook).balance - hook.totalReferralReserved();
+        // Full-range seeding takes the min of both legs, so a little of each stays
+        // on the hook. There is no sweep path — same one-way-valve choice as the
+        // treasury. Pin the magnitude so a future math change cannot silently
+        // start parking real money here.
+        //
+        // The quote bound is 1e7 = 0.1 BEM, and it is a far weaker statement than
+        // it was: at 18 decimals the same literal was a hundred-billionth of the
+        // raise, at 8 it is a thousandth of it. Tightening it further would be
+        // pinning the seeding remainder rather than bounding the leak, so it stays
+        // loose and this note carries the caveat.
+        uint256 leftoverQuote = quote.balanceOf(address(hook)) - hook.totalReferralReserved();
         uint256 leftoverTok = token.balanceOf(address(hook)) - hook.GENESIS_CLAIM_SUPPLY();
-        assertLt(leftoverEth, 0.001 ether, "ETH dust left on the hook after seeding");
+        assertLt(leftoverQuote, 1e7, "quote dust left on the hook after seeding");
         assertLt(leftoverTok, 1e18, "token dust left on the hook after seeding");
     }
 
@@ -1009,7 +1277,7 @@ contract ToshV5Test is Test {
         hook.claimGenesis();
 
         uint256 tokenIn = 10_000e18;
-        uint256 nativeIn = 0.01 ether;
+        uint256 nativeIn = 1e8;
         vm.prank(alice);
         token.transfer(bob, tokenIn);
 
@@ -1028,7 +1296,7 @@ contract ToshV5Test is Test {
 
         vm.startPrank(bob);
         token.approve(address(router), type(uint256).max);
-        router.modifyPosition{value: nativeIn}(
+        router.modifyPosition(
             key,
             ICLPoolManager.ModifyLiquidityParams({
                 tickLower: TICK_LOWER, tickUpper: TICK_UPPER, liquidityDelta: int256(uint256(liq)), salt: bytes32(0)
@@ -1202,16 +1470,16 @@ contract ToshV5Test is Test {
 
     function test_tierMint_sellsTheActiveShelfAndAdvances() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Mint", "MNT", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         uint256 shelf = hook.TIER_SIZE();
         uint256 cost = hook.quoteMint(shelf);
         assertEq(cost, (hook.shelfP0() * shelf) / 1e18);
 
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
 
         vm.prank(bob);
-        hook.mintBondingCurve{value: cost}(shelf);
+        hook.mintBondingCurve(shelf, cost);
 
         assertEq(token.balanceOf(bob), shelf);
         assertEq(hook.currentTierIndex(), 1, "a fully sold shelf advances the ladder");
@@ -1219,14 +1487,14 @@ contract ToshV5Test is Test {
         assertEq(hook.phase2Minted(), shelf);
 
         // The 1% platform cut is buyback fuel, not platform profit.
-        assertEq(address(ladder).balance - ladderBefore, (cost * 100) / 10_000);
+        assertEq(quote.balanceOf(address(ladder)) - ladderBefore, (cost * 100) / 10_000);
     }
 
     /// @notice An order larger than the active shelf rolls into the next one
     ///         inside a single call, instead of reverting.
     function test_tierMint_spansShelvesInOneCall() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Span", "SPN", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         uint256 shelf = hook.TIER_SIZE();
         uint256 want = shelf + 1_000e18;
@@ -1235,7 +1503,7 @@ contract ToshV5Test is Test {
         assertEq(hook.quoteMint(want), expected, "quote must price each leg on its own shelf");
 
         vm.prank(bob);
-        uint256 charged = hook.mintBondingCurve{value: expected}(want);
+        uint256 charged = hook.mintBondingCurve(want, expected);
 
         assertEq(charged, expected);
         assertEq(token.balanceOf(bob), want);
@@ -1251,8 +1519,8 @@ contract ToshV5Test is Test {
     function test_tierMint_spanIsEquivalentToSequentialShelfBuys() public {
         (ToshToken tokenA, ToshLaunchpadHook hookA) = _launchProject("SpanA", "SPA", alice, address(0));
         (ToshToken tokenB, ToshLaunchpadHook hookB) = _launchProject("SpanB", "SPB", alice, address(0));
-        _openLadder(hookA, 0.01 ether);
-        _openLadder(hookB, 0.01 ether);
+        _openLadder(hookA, 1e8);
+        _openLadder(hookB, 1e8);
 
         assertEq(hookA.shelfP0(), hookB.shelfP0(), "twin projects must open at the same price");
 
@@ -1262,14 +1530,14 @@ contract ToshV5Test is Test {
 
         // A: one sweeping call.
         vm.prank(bob);
-        uint256 sweptCost = hookA.mintBondingCurve{value: 10 ether}(want);
+        uint256 sweptCost = hookA.mintBondingCurve(want, 1000e8);
 
         // B: the same order, chopped by hand the way the old UI had to.
         uint256 pieceCost;
         vm.startPrank(carol);
-        pieceCost += hookB.mintBondingCurve{value: 10 ether}(shelf);
-        pieceCost += hookB.mintBondingCurve{value: 10 ether}(shelf);
-        pieceCost += hookB.mintBondingCurve{value: 10 ether}(tail);
+        pieceCost += hookB.mintBondingCurve(shelf, 1000e8);
+        pieceCost += hookB.mintBondingCurve(shelf, 1000e8);
+        pieceCost += hookB.mintBondingCurve(tail, 1000e8);
         vm.stopPrank();
 
         assertEq(sweptCost, pieceCost, "a swept order must not cost more or less than a split one");
@@ -1284,7 +1552,7 @@ contract ToshV5Test is Test {
     ///         the 105 % ceiling, not `MAX_TIERS_PER_TX`.
     function test_maxMintable_isTheExactAcceptedBoundary() public {
         (, ToshLaunchpadHook hook) = _launchProject("MaxMint", "MXM", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         // Independently recount the unlocked shelves against the live ceiling.
         (,,,,, uint256 ceiling,) = hook.tierStatus();
@@ -1299,10 +1567,10 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.TierPriceAboveCeiling.selector);
-        hook.mintBondingCurve{value: 10 ether}(cap + 1);
+        hook.mintBondingCurve(cap + 1, 1000e8);
 
         vm.prank(bob);
-        hook.mintBondingCurve{value: 10 ether}(cap);
+        hook.mintBondingCurve(cap, 1000e8);
         assertEq(hook.currentTierIndex(), unlocked, "the whole unlocked run cleared");
     }
 
@@ -1316,10 +1584,12 @@ contract ToshV5Test is Test {
 
         // Pump the market and let the elevated price age into the TWAP, so
         // min(spot, TWAP) —not just spot —clears far above p0.
-        _swapBuy(hook, trader, 20 ether);
+        _swapBuy(hook, trader, 2000e8);
         _nextBlock();
         vm.warp(block.timestamp + 1900);
-        _swapBuy(hook, trader, 1e18);
+        // 100 BEM, the quote-asset equal of the `1 ether` this used to send. It
+        // was left as a bare `1e18`, which the ether-literal rescale did not see.
+        _swapBuy(hook, trader, 100e8);
         _nextBlock();
 
         uint256 legCap = hook.MAX_TIERS_PER_TX();
@@ -1328,13 +1598,13 @@ contract ToshV5Test is Test {
         uint256 tooManyLegs = legCap * hook.TIER_SIZE() + 1e18;
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SpanTooManyShelves.selector);
-        hook.mintBondingCurve{value: 50 ether}(tooManyLegs);
+        hook.mintBondingCurve(tooManyLegs, 5000e8);
 
         // Splitting it across two calls in the SAME block reaches the state the
         // single call was refused —proving the cap is gas, not safety.
         vm.startPrank(bob);
-        hook.mintBondingCurve{value: 50 ether}(legCap * hook.TIER_SIZE());
-        hook.mintBondingCurve{value: 50 ether}(1e18);
+        hook.mintBondingCurve(legCap * hook.TIER_SIZE(), 5000e8);
+        hook.mintBondingCurve(1e18, 5000e8);
         vm.stopPrank();
 
         assertEq(hook.phase2Minted(), tooManyLegs);
@@ -1374,10 +1644,10 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve{value: 1 ether}(1e18);
+        hook.mintBondingCurve(1e18, 100e8);
 
         // A market that holds above p0 is what opens it.
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
         assertGt(hook.maxMintable(), 0, "a market above p0 unlocks the ladder");
     }
 
@@ -1396,7 +1666,7 @@ contract ToshV5Test is Test {
     ///   much worse thing than a brake that can cancel an opportunity.
     function test_ladderHalt_stopsMintingAndNothingElse() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Halt", "HLT", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
         assertGt(hook.maxMintable(), 0, "fixture needs an open ladder to halt");
 
         vm.prank(admin);
@@ -1407,13 +1677,13 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.LadderMintingHalted.selector);
-        hook.mintBondingCurve{value: 1 ether}(1e18);
+        hook.mintBondingCurve(1e18, 100e8);
 
         // ...but the market is untouched.  Measured as price movement rather
         // than a balance, so the assertion is about the swap having executed
         // and not about which address the test router settles to.
         (,,, uint256 spotBefore,,,) = hook.tierStatus();
-        _swapBuy(hook, trader, 0.5 ether);
+        _swapBuy(hook, trader, 50e8);
         _nextBlock();
         (,,, uint256 spotAfter,,,) = hook.tierStatus();
         assertGt(spotAfter, spotBefore, "secondary trading keeps working while the ladder is halted");
@@ -1432,7 +1702,7 @@ contract ToshV5Test is Test {
     ///   to be re-armed in public, on-chain, at most a week at a time.
     function test_ladderHalt_expiresWithoutIntervention() public {
         (, ToshLaunchpadHook hook) = _launchProject("Lapse", "LPS", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         // Hoisted: `vm.prank` arms only the next CALL, and evaluating
         // `factory.MAX_HALT_DURATION()` inline as an argument would spend it.
@@ -1464,8 +1734,8 @@ contract ToshV5Test is Test {
     function test_ladderHalt_isScopedPerHookAndGlobally() public {
         (, ToshLaunchpadHook hookA) = _launchProject("ScopeA", "SCA", alice, address(0));
         (, ToshLaunchpadHook hookB) = _launchProject("ScopeB", "SCB", alice, address(0));
-        _openLadder(hookA, 0.01 ether);
-        _openLadder(hookB, 0.01 ether);
+        _openLadder(hookA, 1e8);
+        _openLadder(hookB, 1e8);
 
         vm.prank(admin);
         factory.haltLadderMinting(address(hookA), 1 days);
@@ -1514,7 +1784,7 @@ contract ToshV5Test is Test {
     ///   wait on the soft cap, and a halt must not invent that wait.
     function test_ladderHalt_cannotHoldAnUnderCapGenesisHostage() public {
         (, ToshLaunchpadHook hook) = _createProject("Strand", "STR");
-        _deposit(alice, hook, 0.3 ether, address(0));
+        _deposit(alice, hook, 30e8, address(0));
         assertLt(hook.totalNativeDeposited(), hook.softCap());
 
         uint256 maxHalt = factory.MAX_HALT_DURATION();
@@ -1561,7 +1831,7 @@ contract ToshV5Test is Test {
         // price gate, so a bare `maxMintable() == 0` here would read zero with no
         // halt in place.  Clear both, then attribute the zero to the halt by
         // lifting it and watching the ladder come back.
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
         assertEq(hook.maxMintable(), 0, "it opens with the ladder shut, which is the point");
 
         vm.prank(admin);
@@ -1578,10 +1848,10 @@ contract ToshV5Test is Test {
         // from the constants: what this test owns is that a halt pays commission
         // out at all, so if the split ever moves, this should fail loudly and be
         // re-read rather than quietly agree with whatever the contract now does.
-        uint256 bobBefore = bob.balance;
+        uint256 bobBefore = quote.balanceOf(bob);
         vm.prank(bob);
         hook.claimReferralReward();
-        assertEq(bob.balance - bobBefore, SOFT_CAP / 50, "referral commission pays out mid-halt");
+        assertEq(quote.balanceOf(bob) - bobBefore, SOFT_CAP / 50, "referral commission pays out mid-halt");
 
         vm.prank(alice);
         hook.claimGenesis();
@@ -1600,14 +1870,14 @@ contract ToshV5Test is Test {
             uint256 snap = vm.snapshotState();
 
             (, ToshLaunchpadHook hook) = _createProject("Sweep", "SWP");
-            _deposit(alice, hook, i * 1 ether, address(0));
+            _deposit(alice, hook, i * 100e8, address(0));
             _launch(hook);
 
             assertEq(hook.maxMintable(), 0, "launch block must be shut at every raise size");
 
             vm.prank(bob);
             vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-            hook.mintBondingCurve{value: 1 ether}(1e18);
+            hook.mintBondingCurve(1e18, 100e8);
 
             vm.revertToState(snap);
         }
@@ -1633,11 +1903,11 @@ contract ToshV5Test is Test {
         assertEq(hook.twapSqrtPriceX96(), 0, "TWAP is unset in the launch block");
         assertEq(hook.maxMintable(), 0, "ladder still locked at p0");
 
-        _swapBuy(hook, trader, 5 ether);
+        _swapBuy(hook, trader, 500e8);
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve{value: 1 ether}(1e18);
+        hook.mintBondingCurve(1e18, 100e8);
 
         // Same timestamp, next block — the Foundry path where TWAP stays 0.
         _nextBlock();
@@ -1669,9 +1939,15 @@ contract ToshV5Test is Test {
     ///   the ladder —which is exactly the mechanism meant to pull it up.
     function test_sweepAndDumpIsLossMaking() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Arb", "ARB", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
+        // Endowed rather than dealt: the mint pulls quote tokens from the bot, and
+        // `_endow` does not reach ad-hoc actors like this one. The native deal stays
+        // for gas.
         address bot = makeAddr("sweepBot");
+        _endow(bot);
+        vm.prank(bot);
+        quote.approve(address(hook), type(uint256).max);
         vm.deal(bot, 100 ether);
 
         // The cross-shelf fill makes the whole unlocked run a single call, so
@@ -1680,12 +1956,12 @@ contract ToshV5Test is Test {
         assertGt(unlocked, 0, "the ladder must be open for this to be a test");
 
         vm.prank(bot);
-        uint256 spent = hook.mintBondingCurve{value: 10 ether}(unlocked);
+        uint256 spent = hook.mintBondingCurve(unlocked, 1000e8);
         assertEq(token.balanceOf(bot), unlocked);
 
-        uint256 ethAfterMint = bot.balance;
+        uint256 quoteAfterMint = quote.balanceOf(bot);
         _swapSell(hook, bot, unlocked);
-        uint256 recovered = bot.balance - ethAfterMint;
+        uint256 recovered = quote.balanceOf(bot) - quoteAfterMint;
 
         assertLt(recovered, spent, "the round trip must never be profitable");
         assertGt(spent - recovered, spent / 20, "and it should lose materially, not marginally");
@@ -1718,27 +1994,33 @@ contract ToshV5Test is Test {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Ahead", "AHD", alice, address(0));
 
         FreeRider rider = new FreeRider();
-        vm.deal(address(rider), 100 ether);
+        quote.mint(address(rider), QUOTE_ENDOWMENT);
+        rider.approveQuote(quote, address(hook));
         vm.deal(address(this), 10_000 ether); // the test contract funds the market's pumps
 
         // Organic demand, paid for by the market rather than by the sweeper.
-        _openLadder(hook, 0.5 ether);
+        _openLadder(hook, 50e8);
 
         uint256 unlocked = hook.maxMintable();
         assertGt(unlocked, 0, "the ladder must be open for this to be a test");
         uint256 cost = hook.quoteMint(unlocked);
 
-        uint256 before = address(rider).balance;
+        // Profit is measured in the quote asset, which is now a token balance
+        // rather than `address(rider).balance`. The sell side pays out through
+        // `vault.take`, so the proceeds arrive as an ERC-20 transfer and the
+        // rider's native balance never moves — reading it would have made this
+        // test assert `0 > 0` and fail for the wrong reason.
+        uint256 before = quote.balanceOf(address(rider));
         rider.mint(hook, unlocked, cost);
         _nextBlock();
         rider.sell(router, hook.getPoolKey(), token.balanceOf(address(rider)));
 
-        assertGt(address(rider).balance, before, "an appreciated market makes the sweep pay");
+        assertGt(quote.balanceOf(address(rider)), before, "an appreciated market makes the sweep pay");
 
         // No admin privilege is involved: this rider is an ordinary outsider.
         // Pinning the order of magnitude keeps a future pricing change from
         // silently widening the window.
-        uint256 profit = address(rider).balance - before;
+        uint256 profit = quote.balanceOf(address(rider)) - before;
         assertLt(profit, (cost * 3) / 2, "sweep profit must stay under 1.5x the shelf cost");
     }
 
@@ -1756,11 +2038,11 @@ contract ToshV5Test is Test {
         hook.claimGenesis();
 
         // Baseline: with the market held above p0, shelf 0 is mintable.
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
         uint256 probe = 1_000e18;
         uint256 cost = hook.quoteMint(probe);
         vm.prank(bob);
-        hook.mintBondingCurve{value: cost}(probe);
+        hook.mintBondingCurve(probe, cost);
         assertEq(hook.phase2Minted(), probe);
 
         // ── Gate 1 ────────────────────────────────────────────────────────────
@@ -1771,7 +2053,7 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve{value: 1 ether}(probe);
+        hook.mintBondingCurve(probe, 100e8);
 
         // ── Gate 2 ────────────────────────────────────────────────────────────
         // Next block: the lockout clears, but the market has collapsed well
@@ -1783,7 +2065,7 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.TierPriceAboveCeiling.selector);
-        hook.mintBondingCurve{value: 1 ether}(probe);
+        hook.mintBondingCurve(probe, 100e8);
     }
 
     /// @dev A single-block pump must not unlock a shelf: the reference price is
@@ -1800,13 +2082,13 @@ contract ToshV5Test is Test {
         _swapSell(hook, alice, 1e18); // roll the oracle checkpoint forward
 
         // Now pump spot back up hard in a single swap.
-        _swapBuy(hook, trader, 20 ether);
+        _swapBuy(hook, trader, 2000e8);
         _nextBlock();
 
         // Spot is high again, but min(spot, TWAP) is not.
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.TierPriceAboveCeiling.selector);
-        hook.mintBondingCurve{value: 5 ether}(1_000e18);
+        hook.mintBondingCurve(1_000e18, 500e8);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1824,14 +2106,14 @@ contract ToshV5Test is Test {
     function test_buyTax_splitsOnePercentEthBetweenReservoirAndPlatform() public {
         (, ToshLaunchpadHook hook) = _launchProject("BuyTax", "BTX", alice, address(0));
 
-        uint256 nativeIn = 1 ether;
-        uint256 before = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 nativeIn = 100e8;
+        uint256 before = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         _swapBuy(hook, trader, nativeIn);
 
-        uint256 reservoirCut = address(ladder).balance - before;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - before;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         assertEq(reservoirCut, (nativeIn * 70) / 10_000, "0.7% of input ETH must reach the reservoir");
         assertEq(platformCut, (nativeIn * 30) / 10_000, "0.3% of input ETH must reach the platform");
@@ -1863,13 +2145,13 @@ contract ToshV5Test is Test {
 
         (, ToshLaunchpadHook hook) = _launchProject("SafeCost", "SFC", alice, address(0));
 
-        uint256 nativeIn = 1 ether;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 nativeIn = 100e8;
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         _swapBuy(hook, trader, nativeIn);
 
         assertEq(
-            platformTreasury.balance - platformBefore,
+            quote.balanceOf(platformTreasury) - platformBefore,
             (nativeIn * 30) / 10_000,
             "a Safe-shaped recipient must be paid the same 0.3% as an EOA"
         );
@@ -1884,38 +2166,73 @@ contract ToshV5Test is Test {
         assertGt(receiveCost, 2300, "recipient must be dearer than a transfer() stipend, or this test proves nothing");
     }
 
-    /// @dev And the other edge of the same knife: a fee recipient that REVERTS
-    ///      takes every buy on every pool down with it.
+    /// @notice ⚑ THE BEM PORT CLOSED A GRIEFING VECTOR, and this test is where the
+    ///         change of behaviour is recorded rather than lost.
     ///
-    ///      This is asserted rather than merely warned about in a comment, so
-    ///      that nobody later "hardens" the fee payment into a try/catch and
-    ///      quietly converts a loud, immediate, total failure into silent fee
-    ///      loss.  The loudness is the safer behaviour here: the address is
-    ///      immutable, so a swallowed error would mean bleeding 0.3% of every
-    ///      buy into a reverting contract forever with nothing to show for it.
+    /// @dev    This test used to be called `..._revertingPlatformTreasuryBricksEveryBuy`
+    ///         and it asserted exactly that: a `platformTreasury` whose `receive()`
+    ///         reverts took down every buy on every pool, because the 0.3% cut was
+    ///         a native send and a native send calls the recipient. The address is
+    ///         immutable, so that was an unrecoverable protocol-wide halt caused by
+    ///         one contract at one address.
     ///
-    ///      v4-core bubbles the failure up as `NativeTransferFailed`, wrapped
-    ///      by the router, hence the untyped `expectRevert`.
-    ///      Not written with `_swapBuy`, and the reason is a trap worth naming:
-    ///      that helper passes `hook.getPoolKey()` as an argument, so the pool
-    ///      key is fetched by an external call that Solidity evaluates BEFORE
-    ///      the swap. `expectRevert` would bind to that getter, watch it return
-    ///      a pool key perfectly happily, and report "next call did not revert"
-    ///      — a failure that looks exactly like the protocol being fine. The
-    ///      key is read up front so the next call really is the swap.
-    function test_buyTax_revertingPlatformTreasuryBricksEveryBuy() public {
+    ///         An ERC-20 cut does not call the recipient at all. `vault.take`
+    ///         resolves to `transfer`, the tokens land, and the recipient's code
+    ///         never runs. The hazard is gone — not mitigated, not caught, absent.
+    ///
+    ///         So the assertion is inverted, and the second half is the part worth
+    ///         having: the hazard is gone ONLY because this quote asset's `transfer`
+    ///         cannot fail for the recipient. A quote asset with a blocklist, a
+    ///         pause switch, or a transfer hook would hand the same halt straight
+    ///         back, and BEM's minter sits behind an upgradeable proxy. So the
+    ///         reverting-transfer case is exercised too, to pin which property is
+    ///         actually load-bearing.
+    ///
+    ///         Not written with `_swapBuy`, and the reason is a trap worth naming:
+    ///         that helper passes `hook.getPoolKey()` as an argument, so the pool
+    ///         key is fetched by an external call that Solidity evaluates BEFORE
+    ///         the swap. `expectRevert` would bind to that getter, watch it return
+    ///         a pool key perfectly happily, and report "next call did not revert"
+    ///         — a failure that looks exactly like the protocol being fine. The
+    ///         key is read up front so the next call really is the swap.
+    function test_buyTax_revertingPlatformTreasuryNoLongerBricksBuys() public {
         vm.etch(platformTreasury, address(new RevertingReceiver()).code);
 
         (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
         PoolKey memory key = hook.getPoolKey();
 
-        uint256 nativeIn = 1 ether;
+        uint256 quoteIn = 100e8;
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
+
         vm.prank(trader);
-        vm.expectRevert();
-        router.swap{value: nativeIn}(
+        router.swap(
             key,
             ICLPoolManager.SwapParams({
-                zeroForOne: true, amountSpecified: -int256(nativeIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                zeroForOne: true, amountSpecified: -int256(quoteIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+            }),
+            _swapSettings(),
+            ""
+        );
+
+        // Paid, in full, to a contract that rejects every wei of native value.
+        assertEq(
+            quote.balanceOf(platformTreasury) - platformBefore,
+            (quoteIn * 30) / 10_000,
+            "the 0.3% cut lands even on a recipient that refuses native value"
+        );
+
+        // And the property that makes the paragraph above true: if the quote
+        // asset's `transfer` to this recipient reverts, the halt is back. Mocked at
+        // the token rather than built into `MockQuoteAsset`, so the mock stays a
+        // plain ERC-20 and this test carries its own hazard.
+        vm.mockCallRevert(address(quote), abi.encodeWithSelector(IERC20.transfer.selector, platformTreasury), "blocked");
+
+        vm.prank(trader);
+        vm.expectRevert();
+        router.swap(
+            key,
+            ICLPoolManager.SwapParams({
+                zeroForOne: true, amountSpecified: -int256(quoteIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             _swapSettings(),
             ""
@@ -1936,16 +2253,16 @@ contract ToshV5Test is Test {
 
         uint256 tokensIn = 100_000e18;
         uint256 deadBefore = token.balanceOf(DEAD);
-        uint256 ladderBefore = address(ladder).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 platformTokBefore = token.balanceOf(platformTreasury);
-        uint256 platformEthBefore = platformTreasury.balance;
+        uint256 platformEthBefore = quote.balanceOf(platformTreasury);
 
         _swapSell(hook, alice, tokensIn);
 
         assertEq(token.balanceOf(DEAD) - deadBefore, (tokensIn * 100) / 10_000, "1.0% of input tokens must be burned");
-        assertEq(address(ladder).balance, ladderBefore, "the sell leg must not route ETH to the treasury");
+        assertEq(quote.balanceOf(address(ladder)), ladderBefore, "the sell leg must not route ETH to the treasury");
         assertEq(token.balanceOf(platformTreasury), platformTokBefore, "the platform must not be paid in tokens");
-        assertEq(platformTreasury.balance, platformEthBefore, "nor in ETH on this leg");
+        assertEq(quote.balanceOf(platformTreasury), platformEthBefore, "nor in ETH on this leg");
     }
 
     /// @notice Exact-output buy: specified is TOKEN, but the tax must still
@@ -1956,13 +2273,24 @@ contract ToshV5Test is Test {
 
         uint256 tokensOut = 10_000e18;
         uint256 deadBefore = token.balanceOf(DEAD);
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
-        uint256 ethBefore = address(this).balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
+        // The TRADER's quote balance, not the test contract's native one.
+        //
+        // Under native settlement the input arrived as value from whoever the EVM
+        // had as the caller, and this read `address(this).balance` — which happened
+        // to work. The router now pays with `transferFrom(trader, vault)`, so the
+        // test contract's balance does not move at all, `nativeSpent` came out zero,
+        // and `poolIn` underflowed. A zero here is not a small error: it is the test
+        // measuring nobody.
+        uint256 traderBefore = quote.balanceOf(trader);
 
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
-        router.swap{value: 10 ether}(
-            hook.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
                 zeroForOne: true, amountSpecified: int256(tokensOut), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
@@ -1970,17 +2298,17 @@ contract ToshV5Test is Test {
             ""
         );
 
-        uint256 nativeSpent = ethBefore - address(this).balance;
-        uint256 reservoirCut = address(ladder).balance - ladderBefore;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 quoteSpent = traderBefore - quote.balanceOf(trader);
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         // Exact-output is EXCLUSIVE: the tax is charged on the input the pool
-        // consumed and the trader pays it on top, so the base is `nativeSpent`
-        // minus the whole skim, not `nativeSpent`.
-        uint256 poolIn = nativeSpent - reservoirCut - platformCut;
+        // consumed and the trader pays it on top, so the base is `quoteSpent`
+        // minus the whole skim, not `quoteSpent`.
+        uint256 poolIn = quoteSpent - reservoirCut - platformCut;
 
-        assertEq(reservoirCut, (poolIn * 70) / 10_000, "0.7% of the ETH input must reach the reservoir");
-        assertEq(platformCut, (poolIn * 30) / 10_000, "0.3% of the ETH input must reach the platform");
+        assertEq(reservoirCut, (poolIn * 70) / 10_000, "0.7% of the quote input must reach the reservoir");
+        assertEq(platformCut, (poolIn * 30) / 10_000, "0.3% of the quote input must reach the platform");
         assertEq(
             reservoirCut + platformCut, (poolIn * 100) / 10_000, "the split must conserve the whole 1.0% skim on X-out"
         );
@@ -1996,10 +2324,10 @@ contract ToshV5Test is Test {
         vm.prank(alice);
         hook.claimGenesis();
 
-        uint256 ethOut = 0.01 ether;
+        uint256 ethOut = 1e8;
         uint256 deadBefore = token.balanceOf(DEAD);
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 platformEthBefore = platformTreasury.balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformEthBefore = quote.balanceOf(platformTreasury);
         uint256 tokBefore = token.balanceOf(alice);
 
         PoolKey memory key = hook.getPoolKey();
@@ -2019,8 +2347,10 @@ contract ToshV5Test is Test {
         uint256 burned = token.balanceOf(DEAD) - deadBefore;
         uint256 poolIn = tokSpent - burned;
         assertEq(burned, (poolIn * 100) / 10_000, "1.0% of the token input must burn");
-        assertEq(address(ladder).balance, ladderBefore, "exact-output sell must not fund the treasury");
-        assertEq(platformTreasury.balance, platformEthBefore, "nor pay the platform: the sell leg is never split");
+        assertEq(quote.balanceOf(address(ladder)), ladderBefore, "exact-output sell must not fund the treasury");
+        assertEq(
+            quote.balanceOf(platformTreasury), platformEthBefore, "nor pay the platform: the sell leg is never split"
+        );
         assertEq(token.balanceOf(platformTreasury), 0, "and the platform is never paid in project tokens");
     }
 
@@ -2063,16 +2393,16 @@ contract ToshV5Test is Test {
     function testFuzz_buyTax_splitAlwaysConservesTheCreditedTax(uint256 ethInRaw) public {
         (, ToshLaunchpadHook hook) = _launchProject("FuzzSplit", "FZS", alice, address(0));
 
-        uint256 nativeIn = bound(ethInRaw, 1e6, 5 ether);
-        vm.deal(trader, nativeIn);
+        uint256 nativeIn = bound(ethInRaw, 1e6, 500e8);
+        _topUpQuote(trader, nativeIn);
 
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         _swapBuy(hook, trader, nativeIn);
 
-        uint256 reservoirCut = address(ladder).balance - ladderBefore;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
         uint256 tax = (nativeIn * hook.TAX_BPS()) / 10_000;
 
         assertEq(reservoirCut + platformCut, tax, "the two cuts must sum to the tax V4 was told about");
@@ -2095,7 +2425,7 @@ contract ToshV5Test is Test {
         vm.prank(alice);
         hook.claimGenesis();
 
-        uint256 nativeIn = 1 ether;
+        uint256 nativeIn = 100e8;
 
         vm.expectEmit(true, false, false, true, address(hook));
         emit ToshLaunchpadHook.PlatformSwapFeePaid(platformTreasury, (nativeIn * 30) / 10_000);
@@ -2142,17 +2472,33 @@ contract ToshV5Test is Test {
     function test_platformCut_doesNotSlowTheBuybackArmingVolume() public {
         (, ToshLaunchpadHook hook) = _launchProject("ArmVol", "AVL", alice, address(0));
 
-        uint256 nativeIn = 1 ether;
-        uint256 before = address(ladder).balance;
-        vm.deal(trader, nativeIn);
-        _swapBuy(hook, trader, nativeIn);
+        uint256 quoteIn = 100e8;
+        uint256 before = quote.balanceOf(address(ladder));
+        _topUpQuote(trader, quoteIn);
+        _swapBuy(hook, trader, quoteIn);
 
-        uint256 inflowPerEth = address(ladder).balance - before;
-        assertEq(inflowPerEth, 0.007 ether, "the reservoir must still fill at 70 bps of buy volume");
+        uint256 inflowPerBuy = quote.balanceOf(address(ladder)) - before;
+        assertEq(inflowPerBuy, 7e7, "the reservoir must still fill at 70 bps of buy volume");
 
-        // Volume to arm one buyback, rounded up. Unchanged from before the split.
-        uint256 volumeToArm = (ladder.TRIGGER_STEP() + inflowPerEth - 1) / inflowPerEth;
-        assertEq(volumeToArm, 500, "arming still takes ~500 BNB of buy volume, exactly as it did at a flat 0.7 %");
+        // Volume to arm one buyback, rounded up, expressed as VOLUME rather than as
+        // a count of buys.
+        //
+        // The count is now 133 where it used to be 500, and that change is entirely
+        // about the fixture: this test's unit buy is 100 BEM where it was 1 BNB, and
+        // 100 BEM is about 3.8 BNB at the rate the constants were re-pegged at
+        // (`launchFee` 0.35 BNB → 9.28 BEM, so ~26.5 BEM/BNB). Asserting the count
+        // would have made a fixture detail look like an economic change.
+        //
+        // The volume is what the test is actually about, and it did not move:
+        // 13,300 BEM is ~501 BNB at that same rate, against the 500 BNB this
+        // measured before. `TRIGGER_STEP` and the 70 bps base were re-denominated
+        // consistently, and this is the assertion that says so.
+        uint256 buysToArm = (ladder.TRIGGER_STEP() + inflowPerBuy - 1) / inflowPerBuy;
+        assertEq(
+            buysToArm * quoteIn,
+            13_300e8,
+            "arming still takes the same real volume it did at a flat 0.7 %, re-denominated"
+        );
     }
 
     /// @notice `TAX_BPS` and `PLATFORM_TAX_BPS` are both 100 and mean entirely
@@ -2188,42 +2534,44 @@ contract ToshV5Test is Test {
         // ── Path 1: a shelf mint. `PLATFORM_TAX_BPS` of the COST reaches the
         //    reservoir; the rest reaches the project. No burn, no platform fee
         //    recipient, no pool.
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         uint256 want = 1_000e18;
         uint256 cost = hook.quoteMint(want);
 
-        uint256 ladderBefore = address(ladder).balance;
-        uint256 projectBefore = projTreasury.balance;
-        uint256 platformBefore = platformTreasury.balance;
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 projectBefore = quote.balanceOf(projTreasury);
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
 
-        vm.deal(bob, cost);
+        _topUpQuote(bob, cost);
         vm.prank(bob);
-        hook.mintBondingCurve{value: cost}(want);
+        hook.mintBondingCurve(want, cost);
 
-        uint256 shelfCut = address(ladder).balance - ladderBefore;
+        uint256 shelfCut = quote.balanceOf(address(ladder)) - ladderBefore;
         assertEq(shelfCut, (cost * hook.PLATFORM_TAX_BPS()) / 10_000, "shelf cut is 1 % of the MINT COST");
-        assertEq(projTreasury.balance - projectBefore, cost - shelfCut, "and the project takes the other 99 %");
-        assertEq(platformTreasury.balance, platformBefore, "a shelf mint pays the swap tax's recipient nothing");
+        assertEq(quote.balanceOf(projTreasury) - projectBefore, cost - shelfCut, "and the project takes the other 99 %");
+        assertEq(
+            quote.balanceOf(platformTreasury), platformBefore, "a shelf mint pays the swap tax's recipient nothing"
+        );
 
         // ── Path 2: a swap. `TAX_BPS` of the INPUT is skimmed and split; the
         //    project's admin receives nothing at all, because a swap is not a
         //    mint and the shelf cut never applies to it.
         _nextBlock();
 
-        uint256 nativeIn = 1 ether;
-        ladderBefore = address(ladder).balance;
-        projectBefore = projTreasury.balance;
-        platformBefore = platformTreasury.balance;
+        uint256 nativeIn = 100e8;
+        ladderBefore = quote.balanceOf(address(ladder));
+        projectBefore = quote.balanceOf(projTreasury);
+        platformBefore = quote.balanceOf(platformTreasury);
 
-        vm.deal(trader, nativeIn);
+        _topUpQuote(trader, nativeIn);
         _swapBuy(hook, trader, nativeIn);
 
-        uint256 reservoirCut = address(ladder).balance - ladderBefore;
-        uint256 platformCut = platformTreasury.balance - platformBefore;
+        uint256 reservoirCut = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         assertEq(reservoirCut + platformCut, (nativeIn * hook.TAX_BPS()) / 10_000, "swap tax is 1 % of the SWAP INPUT");
-        assertEq(projTreasury.balance, projectBefore, "a swap pays the shelf cut's counterparty nothing");
+        assertEq(quote.balanceOf(projTreasury), projectBefore, "a swap pays the shelf cut's counterparty nothing");
 
         // The two bases are unrelated quantities: neither figure is derivable
         // from the other, which is the concrete sense in which they never apply
@@ -2320,7 +2668,7 @@ contract ToshV5Test is Test {
         assertEq(ladder.currentCursor(), 0);
 
         // Arm the engine.
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         assertEq(ladder.untilNextTrigger(), 0, "reservoir should be armed");
 
         uint256 deadB = tokenB.balanceOf(DEAD);
@@ -2329,7 +2677,7 @@ contract ToshV5Test is Test {
 
         // Any swap now carries ONE leg along with it, not the whole batch, so no
         // single trader is billed for three V4 swaps on top of their own.
-        _swapBuy(trigger, trader, 0.5 ether);
+        _swapBuy(trigger, trader, 50e8);
 
         assertGt(tokenB.balanceOf(DEAD), deadB, "the triggering trade serves the cursor token");
         assertEq(tokenC.balanceOf(DEAD), deadC, "and is billed for that one only");
@@ -2339,7 +2687,9 @@ contract ToshV5Test is Test {
         // A slice came out of a pot that was only at the floor, which puts it
         // back under the trigger — so the round pauses here rather than
         // draining the reservoir in one transaction.
-        assertLt(address(ladder).balance, ladder.TRIGGER_STEP(), "a floor-sized pot funds one leg, then disarms");
+        assertLt(
+            quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "a floor-sized pot funds one leg, then disarms"
+        );
         vm.prank(dave);
         vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
         ladder.pokeBuyback();
@@ -2365,13 +2715,13 @@ contract ToshV5Test is Test {
         ladder.addLadderToken(address(tokenD));
         vm.stopPrank();
 
-        vm.deal(address(ladder), 50 ether);
-        assertEq(ladder.nextSpendAmount(), 5 ether, "10% of 50 ETH");
+        _setQuote(address(ladder), 5000e8);
+        assertEq(ladder.nextSpendAmount(), 500e8, "10% of 50 ETH");
 
-        uint256 before = address(ladder).balance;
+        uint256 before = quote.balanceOf(address(ladder));
 
         // Leg one rides the trade; the remaining two are poked directly.
-        _swapBuy(trigger, trader, 0.5 ether);
+        _swapBuy(trigger, trader, 50e8);
         vm.prank(dave);
         ladder.pokeBuyback();
         vm.prank(dave);
@@ -2406,14 +2756,14 @@ contract ToshV5Test is Test {
         // platform's 30 bps went to a different address. The number is the
         // same one this line has always carried, but it means the reservoir's
         // rate now rather than the tax rate.
-        uint256 reservoirIn = (0.5 ether * _reservoirBps(trigger)) / 10_000;
-        uint256 spent = before + reservoirIn - address(ladder).balance;
+        uint256 reservoirIn = (50e8 * _reservoirBps(trigger)) / 10_000;
+        uint256 spent = before + reservoirIn - quote.balanceOf(address(ladder));
         // Three bounded legs, measured at 0.3009 ETH.  Tight on both sides on
         // purpose: losing the price bound again would push this far above the
         // upper limit, and legs quietly ceasing to fill would drop it below the
         // lower one.
-        assertGt(spent, 0.29 ether, "three bounded legs must fill");
-        assertLt(spent, 0.35 ether, "the band, not the offer, is what caps the spend");
+        assertGt(spent, 29e8, "three bounded legs must fill");
+        assertLt(spent, 35e8, "the band, not the offer, is what caps the spend");
         assertGt(tokenB.balanceOf(DEAD), 0);
         assertGt(tokenC.balanceOf(DEAD), 0);
         assertGt(tokenD.balanceOf(DEAD), 0);
@@ -2429,10 +2779,10 @@ contract ToshV5Test is Test {
 
         // Reservoir holds only launch fees + orphan referrals, well under the
         // trigger.
-        assertLt(address(ladder).balance, ladder.TRIGGER_STEP());
+        assertLt(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP());
         uint256 deadBefore = tokenB.balanceOf(DEAD);
 
-        _swapBuy(trigger, trader, 0.1 ether);
+        _swapBuy(trigger, trader, 10e8);
 
         assertEq(tokenB.balanceOf(DEAD), deadBefore, "no buyback below the trigger threshold");
         assertEq(ladder.currentCursor(), 0, "cursor must not move");
@@ -2459,11 +2809,11 @@ contract ToshV5Test is Test {
         // Break C's delivery leg only.
         vm.mockCallRevert(address(tokenC), abi.encodeWithSelector(IERC20.transfer.selector), "broken token");
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = tokenB.balanceOf(DEAD);
 
         // The swap must still succeed.
-        _swapBuy(trigger, trader, 0.2 ether);
+        _swapBuy(trigger, trader, 20e8);
 
         assertGt(tokenB.balanceOf(DEAD), deadBefore, "the healthy leg still executes");
     }
@@ -2521,7 +2871,7 @@ contract ToshV5Test is Test {
         ReentrantLadderHook hostile = new ReentrantLadderHook(ladder);
         vm.etch(address(hookB), address(hostile).code);
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         uint256 burnedBefore = tokenB.balanceOf(DEAD);
 
         vm.recordLogs();
@@ -2558,13 +2908,13 @@ contract ToshV5Test is Test {
 
     /// @dev The one-way valve: there is no owner path that moves ETH out.
     function test_ladderTreasury_hasNoWithdrawPath() public {
-        vm.deal(address(ladder), 5 ether);
+        _setQuote(address(ladder), 500e8);
 
         vm.prank(admin);
-        (bool ok,) = address(ladder).call(abi.encodeWithSignature("withdraw(uint256)", 1 ether));
+        (bool ok,) = address(ladder).call(abi.encodeWithSignature("withdraw(uint256)", 100e8));
         assertFalse(ok, "treasury must expose no withdraw path");
 
-        assertEq(address(ladder).balance, 5 ether);
+        assertEq(quote.balanceOf(address(ladder)), 500e8);
     }
 
     /// @notice The one-way valve, tested against the attack it actually has to
@@ -2597,10 +2947,10 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         ladder.addLadderToken(address(tokenB));
 
-        vm.deal(address(ladder), 5 ether);
+        _setQuote(address(ladder), 500e8);
         vm.prank(admin);
         vm.expectRevert(ToshLadderTreasury.OnlySelf.selector);
-        ladder.executeBuyAndBurn(address(tokenB), 1 ether);
+        ladder.executeBuyAndBurn(address(tokenB), 100e8);
     }
 
     function test_autoPiggybackBuyback_rejectsNonHookCallers() public {
@@ -2637,23 +2987,27 @@ contract ToshV5Test is Test {
         // The front-run: a whale walks the pool far past the deviation bound.
         // In the same block, so the TWAP cannot follow it.
         address sandwicher = makeAddr("sandwicher");
+        // 12,000 BEM of buy pressure, so the endowment has to cover it and the
+        // router needs the allowance `_endow` grants. Ad-hoc actor, so `setUp`
+        // never reached it.
+        _endow(sandwicher);
         vm.deal(sandwicher, 200 ether);
-        _swapBuy(victimHook, sandwicher, 120 ether);
+        _swapBuy(victimHook, sandwicher, 12_000e8);
 
         uint160 twapSqrt = victimHook.twapSqrtPriceX96();
         (uint160 spotSqrt,,,) = poolManager.getSlot0(victimHook.getPoolKey().toId());
         assertLt(spotSqrt, (uint256(twapSqrt) * 9000) / 10_000, "fixture must clear the 1000bps sqrt bound");
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = victim.balanceOf(DEAD);
-        uint256 reservoirBefore = address(ladder).balance;
+        uint256 reservoirBefore = quote.balanceOf(address(ladder));
 
         // Poke from an unrelated pool; the trader's swap must still settle.
         _nextBlock();
-        _swapBuy(trigger, trader, 0.1 ether);
+        _swapBuy(trigger, trader, 10e8);
 
         assertEq(victim.balanceOf(DEAD), deadBefore, "buyback must not fill into the manipulated price");
-        assertGe(address(ladder).balance, reservoirBefore, "unspent ETH stays in the reservoir for later");
+        assertGe(quote.balanceOf(address(ladder)), reservoirBefore, "unspent ETH stays in the reservoir for later");
     }
 
     /// @dev The bound must not cost the protocol its buybacks in the normal
@@ -2670,13 +3024,13 @@ contract ToshV5Test is Test {
         _nextBlock();
         assertGt(healthyHook.twapSqrtPriceX96(), 0, "fixture needs an established TWAP");
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
-        _swapBuy(trigger, trader, 0.1 ether);
+        _swapBuy(trigger, trader, 10e8);
 
         assertGt(healthy.balanceOf(DEAD), deadBefore, "an honest pool must still be bought and burned");
-        assertLt(address(ladder).balance, ladder.TRIGGER_STEP(), "the reservoir must actually spend");
+        assertLt(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "the reservoir must actually spend");
     }
 
     /// @notice The three fields packed into `LadderState` still fit the constants
@@ -2739,10 +3093,10 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP());
+        _setQuote(address(ladder), ladder.TRIGGER_STEP());
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
-        _swapBuy(trigger, trader, 0.01 ether);
+        _swapBuy(trigger, trader, 1e8);
 
         assertGt(healthy.balanceOf(DEAD), deadBefore, "a reservoir at the threshold must still buy and burn");
     }
@@ -2773,16 +3127,18 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        uint256 nativeIn = 0.01 ether;
+        uint256 nativeIn = 1e8;
         uint256 inflow = (nativeIn * _reservoirBps(trigger)) / 10_000;
-        vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow - 1);
+        _setQuote(address(ladder), ladder.TRIGGER_STEP() - inflow - 1);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
         _swapBuy(trigger, trader, nativeIn);
 
         assertEq(
-            address(ladder).balance, ladder.TRIGGER_STEP() - 1, "fixture must land the reservoir exactly one wei short"
+            quote.balanceOf(address(ladder)),
+            ladder.TRIGGER_STEP() - 1,
+            "fixture must land the reservoir exactly one wei short"
         );
         assertEq(healthy.balanceOf(DEAD), deadBefore, "nothing may be burned one wei below the threshold");
     }
@@ -2830,20 +3186,18 @@ contract ToshV5Test is Test {
     function test_gas_createLaunch() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
+        // Hoisted out of the argument list, where they used to be. Arguments are
+        // evaluated before the call, so each of these external getters would eat
+        // the `vm.prank` below and `createLaunch` would run as the test contract —
+        // which under native settlement still worked, because the fee came from
+        // `msg.value` and the test contract had plenty. A pulled ERC-20 fee turns
+        // the same mistake into an allowance revert. Same trap as `_swapBuy`.
+        uint256 softCap = factory.defaultSoftCap();
+        uint256 pogCap = factory.maxPogAllocationLimit();
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch{value: fee}(
-            "GasCreate",
-            "GCR",
-            projTreasury,
-            projTreasury,
-            salt,
-            fee,
-            factory.defaultSoftCap(),
-            factory.maxPogAllocationLimit(),
-            24 hours
-        );
+        factory.createLaunch("GasCreate", "GCR", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours);
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch", used);
@@ -2920,12 +3274,15 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook hook) = _launchProject("GasSwap", "GSW", alice, address(0));
         _nextBlock();
 
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
         uint256 before = gasleft();
-        router.swap{value: 0.1 ether}(
-            hook.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
-                zeroForOne: true, amountSpecified: -int256(0.1 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                zeroForOne: true, amountSpecified: -int256(10e8), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             _swapSettings(),
             ""
@@ -2948,15 +3305,18 @@ contract ToshV5Test is Test {
     function test_gas_swapBuy_warmPool() public {
         (, ToshLaunchpadHook hook) = _launchProject("GasSwap2", "GS2", alice, address(0));
         _nextBlock();
-        _swapBuy(hook, trader, 0.1 ether);
+        _swapBuy(hook, trader, 10e8);
         _nextBlock();
 
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
         uint256 before = gasleft();
-        router.swap{value: 0.1 ether}(
-            hook.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
-                zeroForOne: true, amountSpecified: -int256(0.1 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                zeroForOne: true, amountSpecified: -int256(10e8), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             _swapSettings(),
             ""
@@ -2979,14 +3339,14 @@ contract ToshV5Test is Test {
     ///         does not touch the pool at all.
     function test_gas_mintBondingCurve() public {
         (, ToshLaunchpadHook hook) = _launchProject("GasMint", "GMT", alice, address(0));
-        _openLadder(hook, 0.01 ether);
+        _openLadder(hook, 1e8);
 
         uint256 want = 1_000e18;
         uint256 cost = hook.quoteMint(want);
 
         vm.prank(bob);
         uint256 before = gasleft();
-        hook.mintBondingCurve{value: cost}(want);
+        hook.mintBondingCurve(want, cost);
         uint256 used = before - gasleft();
 
         emit log_named_uint("mintBondingCurve, one shelf", used);
@@ -3065,7 +3425,7 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
         uint256 deadBefore = healthy.balanceOf(DEAD);
         uint256 traderTokensBefore = IERC20(address(trigger.projectToken())).balanceOf(trader);
 
@@ -3074,9 +3434,7 @@ contract ToshV5Test is Test {
             (
                 trigger.getPoolKey(),
                 ICLPoolManager.SwapParams({
-                    zeroForOne: true,
-                    amountSpecified: -int256(0.01 ether),
-                    sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                    zeroForOne: true, amountSpecified: -int256(1e8), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
                 }),
                 _swapSettings(),
                 ""
@@ -3090,10 +3448,10 @@ contract ToshV5Test is Test {
         // modes.  An earlier version hardcoded 250k..500k and asserted which
         // rows ran, which passed under `--isolate` and failed plain.
         uint256 snap = vm.snapshotState();
-        vm.deal(address(ladder), 0);
+        _setQuote(address(ladder), 0);
         vm.prank(trader);
         uint256 probe = gasleft();
-        (bool okBase,) = address(router).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        (bool okBase,) = address(router).call{gas: 2_000_000}(callData);
         uint256 unarmed = probe - gasleft();
         assertTrue(okBase, "baseline swap must succeed");
         vm.revertToState(snap);
@@ -3109,7 +3467,7 @@ contract ToshV5Test is Test {
             uint256 limit = (unarmed * pct[i]) / 100;
 
             vm.prank(trader);
-            (bool ok,) = address(router).call{value: 0.01 ether, gas: limit}(callData);
+            (bool ok,) = address(router).call{gas: limit}(callData);
 
             bool traded = IERC20(address(trigger.projectToken())).balanceOf(trader) > traderTokensBefore;
             bool burned = healthy.balanceOf(DEAD) > deadBefore;
@@ -3174,9 +3532,9 @@ contract ToshV5Test is Test {
         // 30 bps is `take`n to a different address and never touches this
         // balance, so budgeting against the whole tax would leave the reservoir
         // 30 bps past the trigger before the swap even starts.
-        uint256 nativeIn = 0.01 ether;
+        uint256 nativeIn = 1e8;
         uint256 inflow = (nativeIn * _reservoirBps(trigger)) / 10_000;
-        vm.deal(address(ladder), ladder.TRIGGER_STEP() - inflow);
+        _setQuote(address(ladder), ladder.TRIGGER_STEP() - inflow);
 
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
@@ -3197,10 +3555,10 @@ contract ToshV5Test is Test {
         // figure differs by ~20 % between plain and `--isolate` runs and a magic
         // number would pass in one mode and fail in the other.
         uint256 snap = vm.snapshotState();
-        vm.deal(address(ladder), 0);
+        _setQuote(address(ladder), 0);
         vm.prank(trader);
         uint256 before = gasleft();
-        (bool okUnarmed,) = address(router).call{value: nativeIn, gas: 2_000_000}(callData);
+        (bool okUnarmed,) = address(router).call{gas: 2_000_000}(callData);
         uint256 estimate = before - gasleft();
         assertTrue(okUnarmed, "baseline swap must succeed");
         vm.revertToState(snap);
@@ -3208,16 +3566,16 @@ contract ToshV5Test is Test {
         // Sign it with a 15 % buffer on that estimate, which is the tight end of
         // what a wallet attaches.
         vm.prank(trader);
-        (bool okTight,) = address(router).call{value: nativeIn, gas: (estimate * 115) / 100}(callData);
+        (bool okTight,) = address(router).call{gas: (estimate * 115) / 100}(callData);
         assertTrue(okTight, "the tipping trade must settle on its own estimate");
         assertEq(healthy.balanceOf(DEAD), deadBefore, "and must not have been billed for a buyback");
         // The ETH is not lost, only deferred.
-        assertGe(address(ladder).balance, ladder.TRIGGER_STEP(), "the reservoir stays armed for the next poke");
+        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "the reservoir stays armed for the next poke");
         vm.revertToState(snap);
 
         // The same trade with room carries the cycle instead.
         vm.prank(trader);
-        (bool okFunded,) = address(router).call{value: nativeIn, gas: estimate * 4}(callData);
+        (bool okFunded,) = address(router).call{gas: estimate * 4}(callData);
         assertTrue(okFunded, "with headroom it goes through");
         assertGt(healthy.balanceOf(DEAD), deadBefore, "and picks up the buyback");
     }
@@ -3247,7 +3605,7 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
         uint256 deadBefore = healthy.balanceOf(DEAD);
 
         bytes memory callData = abi.encodeCall(
@@ -3255,9 +3613,7 @@ contract ToshV5Test is Test {
             (
                 trigger.getPoolKey(),
                 ICLPoolManager.SwapParams({
-                    zeroForOne: true,
-                    amountSpecified: -int256(0.01 ether),
-                    sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                    zeroForOne: true, amountSpecified: -int256(1e8), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
                 }),
                 _swapSettings(),
                 ""
@@ -3287,7 +3643,7 @@ contract ToshV5Test is Test {
         }
         vm.prank(trader);
         uint256 before = gasleft();
-        (bool okSim,) = address(router).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        (bool okSim,) = address(router).call{gas: 2_000_000}(callData);
         uint256 estimate = before - gasleft();
         assertTrue(okSim, "the simulation itself must succeed");
         assertGt(healthy.balanceOf(DEAD), deadBefore, "the simulated call must include a buyback");
@@ -3299,13 +3655,13 @@ contract ToshV5Test is Test {
         // two quotes is what one buy leg costs, measured in whichever gas
         // accounting this run is using.
         uint256 unarmedSnap = vm.snapshotState();
-        vm.deal(address(ladder), 0);
+        _setQuote(address(ladder), 0);
         for (uint256 i; i < legPath.length; ++i) {
             vm.cool(legPath[i]);
         }
         vm.prank(trader);
         uint256 probe = gasleft();
-        (bool okBase,) = address(router).call{value: 0.01 ether, gas: 2_000_000}(callData);
+        (bool okBase,) = address(router).call{gas: 2_000_000}(callData);
         uint256 unarmed = probe - gasleft();
         assertTrue(okBase, "baseline swap must succeed");
         vm.revertToState(unarmedSnap);
@@ -3322,7 +3678,7 @@ contract ToshV5Test is Test {
             uint256 inner = vm.snapshotState();
 
             vm.prank(trader);
-            (bool ok,) = address(router).call{value: 0.01 ether, gas: (estimate * pct) / 100}(callData);
+            (bool ok,) = address(router).call{gas: (estimate * pct) / 100}(callData);
             bool burned = healthy.balanceOf(DEAD) > deadBefore;
 
             assertTrue(ok, "an honestly estimated swap must go through at any buffer");
@@ -3437,16 +3793,16 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
         uint256 deadBefore = healthy.balanceOf(DEAD);
-        uint256 reservoirBefore = address(ladder).balance;
+        uint256 reservoirBefore = quote.balanceOf(address(ladder));
 
         // Permissionless: an address with no role and no stake in the platform.
         vm.prank(dave);
         ladder.pokeBuyback();
 
         assertGt(healthy.balanceOf(DEAD), deadBefore, "tokens bought and burned");
-        assertLt(address(ladder).balance, reservoirBefore, "the reservoir actually spent");
+        assertLt(quote.balanceOf(address(ladder)), reservoirBefore, "the reservoir actually spent");
     }
 
     /// @notice A treasury buyback is a swap, so it must shut the same-block
@@ -3479,7 +3835,7 @@ contract ToshV5Test is Test {
         vm.warp(block.timestamp + 1900);
         _nextBlock();
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
 
         // A block with no swap in it: the lockout is open, by construction.
         _nextBlock();
@@ -3507,7 +3863,7 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         ladder.addLadderToken(address(healthy));
 
-        vm.deal(address(ladder), ladder.TRIGGER_STEP() - 1);
+        _setQuote(address(ladder), ladder.TRIGGER_STEP() - 1);
 
         vm.prank(dave);
         vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
@@ -3517,7 +3873,7 @@ contract ToshV5Test is Test {
     /// @notice An armed reservoir with nothing listed is also unarmed, in the
     ///         only sense that matters.
     function test_pokeBuyback_revertsWithAnEmptyLadder() public {
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
 
         vm.prank(dave);
         vm.expectRevert(ToshLadderTreasury.NotArmed.selector);
@@ -3568,7 +3924,7 @@ contract ToshV5Test is Test {
 
         assertEq(ladder.LEGS_PER_POKE(), 1, "one leg per poke");
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
 
         // One poke, one burn.
         vm.prank(dave);
@@ -3631,14 +3987,17 @@ contract ToshV5Test is Test {
             ladder.addLadderToken(address(pools[i]));
         }
 
-        vm.deal(address(ladder), 10 ether);
+        _setQuote(address(ladder), 1000e8);
 
+        // Read before the prank: an argument that is itself an external call
+        // is evaluated first and would consume it. See _swapBuy.
+        PoolKey memory key = trigger.getPoolKey();
         vm.prank(trader);
         uint256 before = gasleft();
-        router.swap{value: 0.01 ether}(
-            trigger.getPoolKey(),
+        router.swap(
+            key,
             ICLPoolManager.SwapParams({
-                zeroForOne: true, amountSpecified: -int256(0.01 ether), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                zeroForOne: true, amountSpecified: -int256(1e8), sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             _swapSettings(),
             ""
@@ -3657,7 +4016,7 @@ contract ToshV5Test is Test {
 
         vm.prank(bob);
         uint256 before = gasleft();
-        factory.deposit{value: 0.1 ether}(address(hook), address(0));
+        factory.deposit(address(hook), address(0), 10e8);
         uint256 used = before - gasleft();
 
         emit log_named_uint("deposit", used);
@@ -3767,8 +4126,17 @@ contract ReentrantLadderHook {
 contract FreeRider {
     receive() external payable {}
 
+    /// @dev The quote leg is pulled now, not sent, so this contract has to hold an
+    ///      allowance of its own. It cannot borrow the test's: `mintBondingCurve`
+    ///      runs with the rider as `msg.sender`, which is the whole point of the
+    ///      fixture — the sweeper is an outsider, not the test contract wearing a
+    ///      prank.
+    function approveQuote(IERC20 quoteAsset, address spender) external {
+        quoteAsset.approve(spender, type(uint256).max);
+    }
+
     function mint(ToshLaunchpadHook hook, uint256 amount, uint256 cost) external returns (uint256) {
-        return hook.mintBondingCurve{value: cost}(amount);
+        return hook.mintBondingCurve(amount, cost);
     }
 
     /// @dev Settings are spelled out rather than shared with

@@ -16,7 +16,7 @@
 import { useEffect } from 'react'
 import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
 import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MINIMAL PRIMITIVES — every visual is a 1 px line or a typeface contrast
@@ -330,13 +330,24 @@ export function trimEthDisplay(units: string): string {
 /**
  * Every caller formats a SETTLEMENT figure — the launch fee, the default soft
  * cap, the PoG allocation ceiling, the treasury balance and its next spend —
- * so the suffix follows the chain. Nothing here formats a Proof-of-Gas floor
- * or a lifetime-gas total; those stay ETH-denominated and are printed by
- * `Monitors.tsx`, which spells the unit out per row for exactly that reason.
+ * so the suffix and the scale both follow the quote asset. Nothing here formats a
+ * Proof-of-Gas floor or a lifetime-gas total; those stay ETH-denominated and are
+ * printed by `Monitors.tsx`, which spells the unit out per row for exactly that
+ * reason.
+ *
+ * RENAMED FROM `fmtEth`, and the rename is the point rather than tidying. The old
+ * name was accurate while settlement was native, and it went on compiling after
+ * settlement moved to an 8-decimal ERC-20 — printing every one of the figures above
+ * at 18 decimals. A launch fee of 9.28 came out as `9.28e-8 BNB`: the right digits,
+ * the wrong scale, the wrong ticker, and nothing anywhere to flag it. Leaving the
+ * name would have left the next reader no reason to look.
+ *
+ * The list in the first paragraph is load-bearing. A caller that formats gas or a
+ * lifetime-ETH total belongs on `formatEstimateEth`, not here.
  */
-export function fmtEth(wei: bigint | undefined): string {
-  if (wei === undefined) return '—'
-  return `${trimEthDisplay(formatUnits(wei, 18))} ${NATIVE_SYMBOL}`
+export function fmtQuote(units: bigint | undefined): string {
+  if (units === undefined) return '—'
+  return `${trimEthDisplay(formatUnits(units, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}`
 }
 
 export function fmtDuration(sec: bigint, zeroHint: string): string {
@@ -348,12 +359,31 @@ export function fmtDuration(sec: bigint, zeroHint: string): string {
   return `${(n / 86400).toFixed(2)} d`
 }
 
-/** Parse a settlement-coin field.  Zero is a legitimate value for fees. */
+/**
+ * Parse a quote-asset field. Zero is a legitimate value for fees.
+ *
+ * ⚠ THIS IS THE WRITE PATH FOR EVERY FACTORY DIAL, so the scale here is not a
+ * display concern. `parseUnits(raw, 18)` is what it said, and against an 8-decimal
+ * quote asset that turns a typed `9.28` into 9.28e18 base units — ten orders of
+ * magnitude above the 928e8 ceiling — so `setLaunchFee`, `setDefaultSoftCap` and
+ * `setPogAllocationLimit` would each have been handed a figure the factory reverts.
+ *
+ * Which is, for once, the good outcome: `MAX_LAUNCH_FEE` and friends exist precisely
+ * to catch a slip of this size, so the transaction fails instead of setting a launch
+ * fee of 9.28 billion. The UI's own ceiling checks compare against the same 8-decimal
+ * constants and would have blocked it one step earlier still. The damage was confined
+ * to every dial being unusable — arming nothing, refusing every legal value — which
+ * is how the admin tests found it.
+ *
+ * The name keeps "Eth" only because it is referenced across the admin panels and the
+ * unit it takes is now stated here; the argument for renaming it is the same one that
+ * moved `fmtEth` to `fmtQuote`, and it is worth doing next time this file is touched.
+ */
 export function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
   const trimmed = raw.trim()
   if (!trimmed) return { ok: false, reason: null }
   try {
-    const value = parseUnits(trimmed, 18)
+    const value = parseUnits(trimmed, QUOTE_DECIMALS)
     if (value < 0n) return { ok: false, reason: 'Negative amount' }
     return { ok: true, value }
   } catch {

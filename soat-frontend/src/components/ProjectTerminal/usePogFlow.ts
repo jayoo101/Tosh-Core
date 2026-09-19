@@ -22,8 +22,8 @@ import {
   isSupportedPogChain, buildPoGScanAuthMessage,
 } from '@/lib/contracts'
 import { useTxAction, toshToast } from '@/components/ui'
-import { NATIVE_SYMBOL } from '@/lib/chain'
-import { fmt } from './format'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fmtQuote } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
 import {
   runUnsignedPogScan,
@@ -223,7 +223,7 @@ export function usePogFlow() {
 
       // The quota is what the wallet may DEPOSIT, so it is the settlement coin
       // — not the ETH the gas history that sized it was measured in.
-      toshToast.info(`Quota sized · ${fmt(BigInt(maxAlloc))} ${NATIVE_SYMBOL}`)
+      toshToast.info(`Quota sized · ${fmtQuote(BigInt(maxAlloc))} ${QUOTE_SYMBOL}`)
 
       send({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI,

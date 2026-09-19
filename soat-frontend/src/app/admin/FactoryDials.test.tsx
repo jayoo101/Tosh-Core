@@ -11,12 +11,31 @@ import {
 import { LaunchFeePanel, SoftCapPanel, PogLimitPanel, CooldownDurationPanel } from './FactoryDials'
 
 /**
- * The two 1 M ETH ceilings are typed as plain digits rather than through their
+ * The two 20,000-unit ceilings are typed as plain digits rather than through their
  * `_LABEL` exports, which carry thousands separators for the UI. `MAX_LAUNCH_FEE`
  * is small enough that its label doubles as a typeable value; these are not.
+ *
+ * Both were `'1000000'` — the 1 M ETH ceilings from before the quote-asset
+ * re-denomination. That is 50× the current bound, so the two "arms exactly at the
+ * ceiling" tests began failing outright. Worth noting that the two "refuses one wei
+ * above" tests did NOT fail: they type `1000000.000000000000000001`, which is still
+ * above the new ceiling, so they went on passing while testing something other than
+ * the boundary they name. Both are re-pinned below.
  */
-const MAX_SOFT_CAP_TYPED = '1000000'
-const MAX_POG_LIMIT_TYPED = '1000000'
+const MAX_SOFT_CAP_TYPED = '20000'
+const MAX_POG_LIMIT_TYPED = '20000'
+
+/**
+ * One base unit above each ceiling — 1e-8, not the 1e-18 these used to carry.
+ *
+ * `parseUnits(x, 8)` does not reject extra decimal places, it truncates them, so
+ * `20000.000000000000000001` parses to exactly the ceiling and arms. A test asserting
+ * a refusal one step above the bound therefore has to step by the quote asset's
+ * actual smallest unit or it is asserting nothing.
+ */
+const ONE_UNIT_ABOVE_SOFT_CAP = '20000.00000001'
+const ONE_UNIT_ABOVE_POG_LIMIT = '20000.00000001'
+const ONE_UNIT_ABOVE_LAUNCH_FEE = '928.00000001'
 
 /**
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
@@ -102,7 +121,7 @@ describe('LAUNCH FEE dial', () => {
   })
 
   it('refuses one step above the ceiling, naming the revert', () => {
-    const v = verdictFor(<LaunchFeePanel />, `${MAX_LAUNCH_FEE_LABEL}.000000000000000001`)
+    const v = verdictFor(<LaunchFeePanel />, ONE_UNIT_ABOVE_LAUNCH_FEE)
     expect(v.label).toBe('[max_launch_fee_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('LaunchFeeTooHigh')
@@ -145,7 +164,11 @@ describe('DEFAULT SOFT CAP dial', () => {
   })
 
   it('refuses below the floor, naming the revert', () => {
-    const v = verdictFor(<SoftCapPanel />, '0.009')
+    // One base unit below the floor, where this used to be `'0.009'` — a value
+    // chosen to sit just under a 0.01 ETH floor and now four orders of magnitude
+    // under a 100-unit one. It still refused, but it stopped testing the boundary
+    // and would have gone on passing if the floor check had been dropped entirely.
+    const v = verdictFor(<SoftCapPanel />, '99.99999999')
     expect(v.label).toBe('[min_soft_cap_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('InvalidSoftCap')
@@ -158,7 +181,7 @@ describe('DEFAULT SOFT CAP dial', () => {
   })
 
   it('refuses one wei above the ceiling, naming the revert', () => {
-    const v = verdictFor(<SoftCapPanel />, '1000000.000000000000000001')
+    const v = verdictFor(<SoftCapPanel />, ONE_UNIT_ABOVE_SOFT_CAP)
     expect(v.label).toBe('[max_soft_cap_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('SoftCapTooHigh')
@@ -171,11 +194,16 @@ describe('DEFAULT SOFT CAP dial', () => {
   })
 
   it('still arms at a large but real raise, because the ceiling is not a view on size', () => {
-    // 8000 is pinned on the Foundry side too, by
-    // `test_setDefaultSoftCap_admitsALargeButRealRaise`, which carries the note
-    // on where the number came from. A ceiling tightened to something tidy would
-    // fail here first.
-    const v = verdictFor(<SoftCapPanel />, '8000')
+    // 10,000 is pinned on the Foundry side too, by
+    // `test_setDefaultSoftCap_admitsALargeButRealRaise`, which carries the note on
+    // where the number came from. A ceiling tightened to something tidy would fail
+    // here first.
+    //
+    // THE TWO HAD SILENTLY DRIFTED APART: this said 8000 while the Solidity test
+    // moved to 10_000e8 at the re-denomination. Both values are under the 20,000
+    // ceiling, so both sides passed and the cross-language pin — the entire point of
+    // naming the Foundry test here — was no longer pinning anything to anything.
+    const v = verdictFor(<SoftCapPanel />, '10000')
     expect(v.label).toBe(READY)
     expect(v.disabled).toBe(false)
   })
@@ -191,7 +219,7 @@ describe('POG ALLOCATION CEILING dial', () => {
   })
 
   it('refuses one wei above the ceiling, naming the revert', () => {
-    const v = verdictFor(<PogLimitPanel />, '1000000.000000000000000001')
+    const v = verdictFor(<PogLimitPanel />, ONE_UNIT_ABOVE_POG_LIMIT)
     expect(v.label).toBe('[max_pog_limit_violation]')
     expect(v.disabled).toBe(true)
     expect(v.reason).toContain('PogLimitTooHigh')
@@ -211,7 +239,10 @@ describe('POG ALLOCATION CEILING dial', () => {
     expect(v.disabled).toBe(true)
   })
 
-  it('arms at the 1000 ETH limit this repo\'s own fixtures use', () => {
+  it('arms at the 1000-unit limit this repo\'s own fixtures use', () => {
+    // Still 1000, and still pinned by `test_setMaxPogAllocationLimit_admitsTheValues
+    // ThisSuiteUses`, which sets `1000e8`. Only the title was stale: it said "1000
+    // ETH" for a dial that has not been denominated in ETH through two cutovers.
     const v = verdictFor(<PogLimitPanel />, '1000')
     expect(v.label).toBe(READY)
     expect(v.disabled).toBe(false)

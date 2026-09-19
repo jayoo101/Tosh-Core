@@ -11,7 +11,7 @@ import {
   BADGE_NAMES_SETTLEMENT_CHAIN,
   CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { HeroFeedPanel } from './HeroFeedPanel'
 import {
   FeatureCard,
@@ -150,7 +150,7 @@ export default function AgentDirectoryHome() {
 
             <p className="max-w-md text-lede text-text-secondary">
               {CHAIN_STAGING_NOTE && `${CHAIN_STAGING_NOTE} `}
-              Fund a launch in {NATIVE_SYMBOL} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.
+              Fund a launch in {QUOTE_SYMBOL} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.
             </p>
 
             {/* `min-h-11` is 44px, the touch floor. The base rule in globals.css

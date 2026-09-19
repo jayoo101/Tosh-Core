@@ -56,4 +56,18 @@ contract MockQuoteAsset is ERC20 {
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
+
+    /// @dev Unrestricted, and paired with `mint` so a test can SET a balance
+    ///      rather than only raise one.
+    ///
+    ///      That distinction is why this exists. The suite used to arm the
+    ///      buyback reservoir with `vm.deal(address(ladder), n)`, which assigns.
+    ///      `mint` accumulates, so a test that armed the reservoir twice — or
+    ///      armed it after a swap had already fed it — would be measuring a
+    ///      larger pot than it asked for, and the piggyback tests are precisely
+    ///      the ones that turn on whether the pot is one base unit above or below
+    ///      `TRIGGER_STEP`. `ToshV5Test._setReservoir` needs both halves.
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
 }

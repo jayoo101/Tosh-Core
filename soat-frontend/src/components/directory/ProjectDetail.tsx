@@ -33,7 +33,7 @@ import { fmt } from '@/components/ProjectTerminal/format'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { QUOTE_SYMBOL } from '@/lib/contracts'
 
 function safeHref(url: string | null | undefined): string | null {
   if (!url) return null
@@ -159,7 +159,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
               <span className="font-mono text-section font-bold tabular-nums tracking-tight text-text-primary sm:text-hero">
                 {live.currentPrice > 0n ? fmt(live.currentPrice) : '—'}
                 <span className="ml-1.5 text-readout font-normal text-text-secondary">
-                  {NATIVE_SYMBOL} · active shelf
+                  {QUOTE_SYMBOL} · active shelf
                 </span>
               </span>
               {/* WAS A PERMANENT "no price feed · 24h". The mock prints a 24h

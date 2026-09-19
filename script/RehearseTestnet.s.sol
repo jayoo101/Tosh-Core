@@ -215,9 +215,7 @@ abstract contract RehearsalBase is Script {
         require(factory.ladderTreasury() == address(treasury), "factory/treasury are not wired to each other");
 
         quoteAsset = IERC20(address(factory.quoteAsset()));
-        require(
-            address(treasury.quoteAsset()) == address(quoteAsset), "factory/treasury disagree on the quote asset"
-        );
+        require(address(treasury.quoteAsset()) == address(quoteAsset), "factory/treasury disagree on the quote asset");
 
         // ⚠ WHATEVER THIS IS, IT IS NOT BEM. BEM has no deployment on 97, so a
         //   factory reachable here was necessarily constructed against some other
@@ -306,9 +304,7 @@ abstract contract RehearsalBase is Script {
         require(Currency.unwrap(key.currency0) == address(quoteAsset), "currency0 is not the quote asset");
 
         quoteAsset.approve(PERMIT2, amountIn);
-        IPermit2Approve(PERMIT2).approve(
-            address(quoteAsset), UNIVERSAL_ROUTER, amountIn, uint48(block.timestamp + 600)
-        );
+        IPermit2Approve(PERMIT2).approve(address(quoteAsset), UNIVERSAL_ROUTER, amountIn, uint48(block.timestamp + 600));
 
         bytes memory actions = abi.encodePacked(ACTION_CL_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
 

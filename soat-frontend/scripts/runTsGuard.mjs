@@ -64,6 +64,24 @@ process.env.NEXT_PUBLIC_FACTORY_ADDRESS ||= '0x111111111111111111111111111111111
 process.env.NEXT_PUBLIC_CHAIN_ID ||= '97'
 
 /**
+ * The quote asset, which `contracts.ts` also throws on and which — unlike the
+ * factory — one guard genuinely reads.
+ *
+ * `checkLpActions.ts` encodes real `modifyLiquidities` payloads, and the quote
+ * asset is `currency0` inside every `PoolKey` in them, so the value appears in the
+ * bytes being checked. It is still a placeholder rather than the real BEM address,
+ * because the guard verifies LAYOUT — which word holds which field — and a real
+ * address would invite the mistake of treating the guard as a check on the
+ * deployment. `guard:constants` is the one that reconciles against a live factory.
+ *
+ * `0x2222…` and not `0x1111…`: `toshPoolKey` refuses a token that does not sort
+ * above the quote asset, so the two placeholders have to be ordered, and a guard
+ * that tripped that refusal would look like a payload bug rather than a fixture
+ * one. The token placeholder each guard uses sits above this.
+ */
+process.env.NEXT_PUBLIC_QUOTE_ASSET ||= '0x2222222222222222222222222222222222222222'
+
+/**
  * Path aliases, read from tsconfig so a renamed alias fails loudly here
  * instead of being silently unresolved.
  */

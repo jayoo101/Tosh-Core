@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react'
-import { useBalance, useReadContract, useReadContracts } from 'wagmi'
+import { useReadContract, useReadContracts } from 'wagmi'
 import { isAddress, getAddress, type Abi, type Address } from 'viem'
 import {
   FACTORY_ABI,
@@ -17,8 +17,10 @@ import {
   hasLadderTreasury,
   DEAD_ADDRESS,
   ZERO_ADDRESS,
+  ERC20_ABI,
+  QUOTE_ASSET,
+  QUOTE_SYMBOL,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, useTxAction, revertOrder,
   type TxAction,
@@ -32,7 +34,7 @@ import {
   AddressLink,
   StatusBadge,
   ConfirmDialog,
-  fmtEth,
+  fmtQuote,
 } from './shared'
 
 /**
@@ -136,8 +138,25 @@ export function LadderTreasuryPanel() {
   const nextSpend   = coreData?.[2]?.result as bigint | undefined
   const boundFactory = coreData?.[3]?.result as Address | undefined
 
-  const { data: treasuryBalance, refetch: refetchBalance } = useBalance({
-    address: treasury,
+  /*
+   * THE RESERVOIR IS AN ERC-20 BALANCE NOW, AND THIS READ WAS MEASURING THE WRONG
+   * THING ENTIRELY.
+   *
+   * It was `useBalance({ address: treasury })` — the treasury's NATIVE balance —
+   * displayed under a label calling it the reservoir and sat next to
+   * `nextSpendAmount`, which the contract derives from what it actually holds. The
+   * two stopped describing the same pool the moment the buyback started
+   * accumulating the quote asset: the native balance would read 0 on a treasury
+   * holding thousands of BEM, so the panel would show an empty reservoir arming a
+   * non-zero spend, and an operator reading it would conclude the treasury was
+   * broken rather than that the panel was.
+   *
+   * `balanceOf` on the quote asset is the figure `nextSpendAmount` is computed
+   * from, which is the only figure worth showing beside it.
+   */
+  const { data: treasuryBalance, refetch: refetchBalance } = useReadContract({
+    address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf',
+    args: [treasury],
     query: { enabled: hasLadderTreasury, refetchInterval: 12_000 },
   })
 
@@ -291,20 +310,22 @@ export function LadderTreasuryPanel() {
                hint={boundFactory && boundFactory.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()
                  ? 'MISMATCH — this treasury is bound to a different factory'
                  : null} />
-      <Readout label={`TREASURY ${NATIVE_SYMBOL} BALANCE`} value={fmtEth(treasuryBalance?.value)} tone="fluo" />
+      {/* `treasuryBalance` is a bare bigint from `balanceOf`, not the `{ value }`
+          object `useBalance` returned — see the note on the read. */}
+      <Readout label={`TREASURY ${QUOTE_SYMBOL} BALANCE`} value={fmtQuote(treasuryBalance)} tone="fluo" />
       <Readout label="ROUND-ROBIN CURSOR" value={`${cursor.toString()} / ${tokenCount.toString()}`} />
-      <Readout label="NEXT SPEND PER TRIGGER" value={fmtEth(nextSpend)} />
+      <Readout label="NEXT SPEND PER TRIGGER" value={fmtQuote(nextSpend)} />
 
       <ScopeNote>
         One-way valve by construction. The treasury has no withdraw, no transfer
         and no owner payout path — the only exit for a wei that lands here is
-        _buyAndBurn, which swaps {NATIVE_SYMBOL} for a listed token and sends the proceeds to{' '}
+        _buyAndBurn, which swaps {QUOTE_SYMBOL} for a listed token and sends the proceeds to{' '}
         <span className="text-text-secondary">{DEAD_ADDRESS}</span>. Owner authority on
         this contract is curation only.
       </ScopeNote>
       <ScopeNote tone="warn">
         Curation is not neutral, though. That guarantee is about custody, not
-        beneficiaries: nobody can take this {NATIVE_SYMBOL}, but the roster below decides
+        beneficiaries: nobody can take this {QUOTE_SYMBOL}, but the roster below decides
         which order books absorb it, and buying pressure that ends in a burn is
         still buying pressure. Narrowing the roster to one token points what is
         left of the reservoir at a single price.
