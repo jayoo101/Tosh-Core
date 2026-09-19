@@ -115,14 +115,40 @@ deployed anywhere, and with `56` undeployed that is the only kind available.
 
 | Contract | Address |
 |---|---|
-| `ToshFactory` | `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` |
-| `ToshLadderTreasury` | `0x79de222644E8BBeea6FC55815CCBE9FF136D7674` |
+| `ToshFactory` | `0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34` |
+| `ToshLadderTreasury` | `0x20dE906A96FfB89BE6fd6267A0876A68017792F7` |
+| Quote asset (`MockQuoteAsset`, 8 decimals, `mBEM`) | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 
-Deployed 2026-09-17 at block 131563800 from commit `1030eae`, recorded in
-`broadcast/Deploy.s.sol/97/run-latest.json`. `ToshLaunchpadHook` and `ToshToken`
-are deployed as clones by the factory on every launch; the rehearsal's pair are
-`0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f` and
-`0xb3b9443a717138aFB542156D27279726BAFf5A63` (`RHRSL`).
+Deployed 2026-09-19 from `script/Deploy.s.sol`, and owned by the deployer EOA
+`0x35b232E2…874a` with the PoG signer held separately at `0x7138DEb9…e03A`.
+`ToshLaunchpadHook` and `ToshToken` are deployed as clones by the factory on every
+launch; the end-to-end run that validated this deployment produced
+`0xa878792e7F361555EeD774D4c10Cedfd2703dB4a` and
+`0xF94c8dAA829BC9480680BA7eFBFBe5BC90F12Ea0`.
+
+**The quote asset here is a mock, and the distinction is load-bearing for anyone
+reading a green testnet result.** Real BEM has no deployment on `97`, so a
+BEM-denominated factory cannot be rehearsed there against the real token.
+`MockQuoteAsset` matches it on the one property the contracts assert — 8 decimals,
+which the hook's constructor requires — and matches it on nothing else: `mint` is
+unrestricted, there is no market, and therefore no float and no depth. What `97`
+can prove is that the **plumbing** is right: `approve` then `transferFrom` on all
+three money paths, and the CREATE2 grind landing the project token above the quote
+asset so the quote side is `currency0` (verified: `0xF94c…` > `0x76bD…`). What it
+cannot prove is anything about supply or liquidity, which is where real BEM's risks
+live — see `docs/BEM_QUOTE_ASSET.md` §1.2.
+
+> **The deployment this replaced was unadministrable, which is why it was
+> replaced rather than left alongside.** Factory
+> `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` / treasury
+> `0x79de222644E8BBeea6FC55815CCBE9FF136D7674`, deployed 2026-09-17 at block
+> 131563800 from commit `1030eae`, predates the BEM denomination: no
+> `quoteAsset()`, `deposit` still payable, `launchFee` 0.35 BNB at 18 decimals. It
+> also answers `owner()` and `pogSigner()` with `0x73db078f…80cd`, a key that is
+> public **and no longer present in this tree** — so it could not be paused,
+> re-dialled or signer-rotated by anybody who would want to. Every `GOV-*` and
+> `SWITCH-*` playbook ends in an owner action, and against that factory all of
+> them were unexecutable. It is left on chain; nothing points at it.
 
 Two things to know before spending time on it.
 

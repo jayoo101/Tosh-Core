@@ -550,24 +550,42 @@ WATCHER-03 检查——状态文件记录的 chainId 与端点实际返回的 ch
 读者可用任意 chain 97 的 RPC 端点自行复核以下每一项。
 
 ```
-工厂            0xB224f26a323320376c0b4C6a3228533FA63E5bBd
-金库            0x79de222644E8BBeea6FC55815CCBE9FF136D7674
+工厂            0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34
+金库            0x20dE906A96FfB89BE6fd6267A0876A68017792F7
+计价资产 mBEM    0x76bD1ceC663AE3242e5267e232B821C51a4882EB（8 位小数的 mock）
 Infinity Vault  0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD
 Infinity CLPM   0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4
 
-演练 hook       0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f
-演练代币 RHRSL   0xb3b9443a717138aFB542156D27279726BAFf5A63
+端到端 hook      0xa878792e7F361555EeD774D4c10Cedfd2703dB4a
+端到端代币       0xF94c8dAA829BC9480680BA7eFBFBe5BC90F12Ea0
 
-cast call <工厂> "launchFee()"              → 0.35 BNB
-cast call <工厂> "defaultSoftCap()"         → 35 BNB
-cast call <工厂> "maxPogAllocationLimit()"  → 1.75 BNB
-cast call <工厂> "cooldownDuration()"       → 86400
+cast call <工厂> "quoteAsset()"             → 计价资产（旧工厂没有这个函数）
+cast call <工厂> "launchFee()"              → 928000000       = 9.28 mBEM（8 位）
+cast call <工厂> "defaultSoftCap()"         → 92840000000     = 928.4 mBEM
+cast call <工厂> "maxPogAllocationLimit()"  → 4640000000      = 46.4 mBEM
 cast call <工厂> "paused()"                 → false
-cast call <工厂> "owner()"                  → 0x73db…80cd（EOA，密钥已泄露）
+cast call <工厂> "owner()"                  → 0x35b232…874a（EOA，非多签）
+cast call <工厂> "pogSigner()"              → 0x7138DEb9…e03A（与 owner 分离）
 cast call <工厂> "ladderTreasury()"         → 金库
-cast call <金库> "ladderTokenCount()"       → 1
-cast call <代币> "totalSupply()"            → 8,400,945（含阶梯铸造的 945 枚）
 ```
+
+**计价资产是 mock，这个区别对读数的人是关键的。** 真实 BEM 在 `97` 上没有部署，所以
+BEM 计价的工厂无法在测试网对真实代币演练。`MockQuoteAsset` 只在合约断言的那一项上与
+真实 BEM 一致 —— 8 位小数，hook 构造函数强制要求 —— 其余一概不同：`mint` 无限制、没有
+市场，因此没有浮筹也没有深度。
+
+所以 `97` 能证明的是**管路是对的**：三条资金路径的 `approve` + `transferFrom` 两步流，
+以及 CREATE2 磨盐把项目代币落在计价资产之上（已验证 `0xF94c…` > `0x76bD…`，故计价一侧
+是 `currency0`）。它**不能**证明任何关于供应量和流动性的事，而那正是真实 BEM 的风险所在
+（见 `docs/BEM_QUOTE_ASSET.md` §1.2）。
+
+> **上一个 `97` 部署已弃用，原因不只是它早于 BEM。** 工厂
+> `0xB224f26a323320376c0b4C6a3228533FA63E5bBd`、金库
+> `0x79de222644E8BBeea6FC55815CCBE9FF136D7674`：它没有 `quoteAsset()`、`deposit`
+> 仍是 payable、`launchFee` 是 18 位小数的 0.35 BNB。更要紧的是它的 `owner()` 与
+> `pogSigner()` 都是 `0x73db…80cd` —— 那把私钥既是公开的，**也已经不在本仓库里了**。
+> 也就是说没人能暂停它、改它的参数、或轮换它的签名人。所有 `GOV-*` 与 `SWITCH-*`
+> 应急手册的最后一步都是 owner 操作，对那个工厂全部无法执行。它留在链上，但已无人指向。
 
 Vault 与 CLPoolManager 是两个地址而不是一个，因为 Infinity 把 V4 的 PoolManager 一个
 合约干的事拆开了：manager 负责池子逻辑，Vault 持有全部余额。移植中发现的两个 bug 都

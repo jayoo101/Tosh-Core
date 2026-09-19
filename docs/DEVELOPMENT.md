@@ -10,9 +10,10 @@ How to build, test, deploy and operate this repository. For what the protocol
 |---|---|
 | Network | BNB Smart Chain — chain `56` (mainnet, **not yet deployed**) / chain `97` (testnet, live) |
 | AMM | PancakeSwap Infinity CL (`Vault` + `CLPoolManager`) |
-| Factory (97) | [`0xB224f26a323320376c0b4C6a3228533FA63E5bBd`](https://testnet.bscscan.com/address/0xB224f26a323320376c0b4C6a3228533FA63E5bBd) |
-| Treasury (97) | [`0x79de222644E8BBeea6FC55815CCBE9FF136D7674`](https://testnet.bscscan.com/address/0x79de222644E8BBeea6FC55815CCBE9FF136D7674) |
-| Governance (97) | a **single EOA whose private key is public** — `0x73db078f…80cd`, which is also the PoG signer. Not a multi-sig. See `SECURITY.md` |
+| Factory (97) | [`0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34`](https://testnet.bscscan.com/address/0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34) |
+| Treasury (97) | [`0x20dE906A96FfB89BE6fd6267A0876A68017792F7`](https://testnet.bscscan.com/address/0x20dE906A96FfB89BE6fd6267A0876A68017792F7) |
+| Quote asset (97) | [`0x76bD1ceC663AE3242e5267e232B821C51a4882EB`](https://testnet.bscscan.com/address/0x76bD1ceC663AE3242e5267e232B821C51a4882EB) — `MockQuoteAsset`, 8 decimals, symbol `mBEM`. Real BEM has **no deployment on 97**, so the rehearsal cannot use it; see `SECURITY.md` for what a mock does and does not prove |
+| Governance (97) | a **single EOA** — `0x35b232E2…874a`, the deployer. Not a multi-sig, and the PoG signer is separate (`0x7138DEb9…e03A`). See `SECURITY.md` |
 | Governance (56) | 2-of-3 Safe [`0x02DE4629129D104C63329D13A6Ca67E43db7B310`](https://bscscan.com/address/0x02DE4629129D104C63329D13A6Ca67E43db7B310), `Ownable2Step` on both singletons — **owns nothing yet**, the deploy transfers to it |
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
