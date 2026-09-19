@@ -147,11 +147,65 @@ const GAS_DENOMINATED_SOURCE =
  *  side, because JSX wraps and the identifier often sits on the previous line. */
 const GAS_CONTEXT_LINES = 1
 
-/** Cheap text-level reject, so only candidate files pay for a parse. */
-const mightNameAChain = (text, mainnetLabel, isLabelSource) =>
+/**
+ * The quote asset's ticker, which the UI must not hard-code either.
+ *
+ * ⚠ RULE 4, AND IT IS THE THIRD TIME THIS SHAPE HAS SHIPPED. Read rules 1-3 in
+ *   order: a chain name hard-coded in `layout.tsx` outlived a whole migration,
+ *   then an AMM name did the same thing one layer down, then the coin's ticker
+ *   did it again with ~230 "ETH"s still on screen after the BNB migration. Each
+ *   time the guard was extended to cover exactly the thing that had just broken.
+ *
+ *   The denomination is the next one down, and it has moved faster than any of
+ *   them: ETH, then BNB, then BEM, inside two months. Until this rule it was the
+ *   only one of the four with no guard at all — which is precisely the state the
+ *   coin ticker was in on the day it broke.
+ *
+ * `QUOTE_SYMBOL` in `contracts.ts` is the source, and it is READ FROM ENV rather
+ * than derived from the chain, which makes hard-coding worse here than it is for
+ * `NATIVE_SYMBOL`. Chain 97 runs against an 8-decimal mock whose `symbol()`
+ * answers `mBEM`; chain 56 runs against real BEM. A literal "BEM" in a component
+ * is therefore not merely fragile, it is already false on the only chain this is
+ * deployed to — and the interface would be asserting a token that chain does not
+ * have.
+ *
+ * `[mt]?` catches the stand-in forms. `\bBEM\b` alone does not match `mBEM`,
+ * because the boundary it needs is between two word characters.
+ *
+ * Case-sensitive, following RULE 3 rather than rules 1 and 2: these are tickers
+ * and they are written in caps, while a case-insensitive match would fire on
+ * ordinary prose. Hex cannot produce a false positive — `M` is not a hex digit,
+ * so no address or hash contains `BEM`.
+ *
+ * NO EXCEPTION, unlike rule 3. The Proof-of-Gas carve-out exists because gas is
+ * genuinely denominated in a different asset from deposits, and both appear on
+ * one screen. Nothing on any screen is denominated in a quote asset other than
+ * the quote asset, so there is no second currency to name.
+ *
+ * ⚠ WHAT THIS RULE DOES NOT DO, stated because the asymmetry with rule 2 is real
+ *   and a reader would otherwise assume parity: the probe above re-evaluates
+ *   `chain.ts` once per chain in a fresh process, so it catches a string that is
+ *   true on staging and false on mainnet. There is no equivalent pass for
+ *   `QUOTE_POSITIONING`. `chain.ts` is self-contained and can be transpiled and
+ *   imported alone; `contracts.ts` pulls in generated ABIs and throws on missing
+ *   env, so probing it would mean standing up most of the app. This rule
+ *   therefore catches hard-coding, not a wrong derivation. `QUOTE_POSITIONING`
+ *   is one ternary on `IS_TESTNET` and is commented at its definition, which is
+ *   a weaker guarantee than rule 2 offers and is the honest state of it.
+ */
+const QUOTE_TICKERS = /\b[mt]?BEM\b/
+const QUOTE_SOURCE = 'src/lib/contracts.ts'
+
+/** Cheap text-level reject, so only candidate files pay for a parse.
+ *
+ *  Named for what it does rather than for rule 1. It was `mightNameAChain`,
+ *  which stopped being true when rule 3 added tickers and reads as though the
+ *  other rules were not wired in. */
+const mightCarryGuardedCopy = (text, mainnetLabel, isLabelSource) =>
   ABANDONED_CHAIN_NAMES.test(text)
   || ABANDONED_AMM_NAMES.test(text)
   || COIN_TICKERS.test(text)
+  || QUOTE_TICKERS.test(text)
   || (!isLabelSource && Boolean(mainnetLabel) && text.includes(mainnetLabel))
 
 /**
@@ -177,9 +231,10 @@ function scanLiterals(mainnetLabel) {
     const text = readFileSync(file, 'utf8')
     const rel = file.split('\\').join('/')
     const isLabelSource = rel.endsWith(LABEL_SOURCE)
+    const isQuoteSource = rel.endsWith(QUOTE_SOURCE)
     const isTest = /\.test\.tsx?$/.test(rel)
 
-    if (!mightNameAChain(text, mainnetLabel, isLabelSource)) continue
+    if (!mightCarryGuardedCopy(text, mainnetLabel, isLabelSource)) continue
 
     const srcLines = text.split('\n')
     /** Is the literal on line `n` (0-based) sitting next to a gas figure? */
@@ -221,6 +276,15 @@ function scanLiterals(mainnetLabel) {
             + ` figure, which is the Proof-of-Gas exception):`
             + ` ${JSON.stringify(value.trim().slice(0, 80))}`,
           )
+        } else if (!isQuoteSource && !isTest && QUOTE_TICKERS.test(value)) {
+          hits++
+          console.log(
+            `FAIL  ${where} — hard-codes the quote asset's ticker; use QUOTE_SYMBOL from`
+            + ` ${QUOTE_SOURCE}, or QUOTE_POSITIONING if you are writing a sentence about`
+            + ` the denomination. This is already false on chain 97, where the quote asset`
+            + ` is an 8-decimal mock whose symbol() answers "mBEM":`
+            + ` ${JSON.stringify(value.trim().slice(0, 80))}`,
+          )
         }
       }
       ts.forEachChild(node, visit)
@@ -231,8 +295,12 @@ function scanLiterals(mainnetLabel) {
   failures += hits
   console.log(
     hits === 0
-      ? `\n${files.length} source files scanned — no chain name is hard-coded outside ${LABEL_SOURCE}.`
-      : `\n${hits} hard-coded chain name(s) — see FAIL lines above.`,
+      // Four rule families, two source files. The old wording said "no chain
+      // name", which was already only rule 1 and 2 of the three then wired in —
+      // a passing line that under-reports what passed is its own small lie.
+      ? `\n${files.length} source files scanned — no chain name, AMM, coin ticker or quote`
+        + ` ticker is hard-coded outside ${LABEL_SOURCE} / ${QUOTE_SOURCE}.`
+      : `\n${hits} hard-coded string(s) — see FAIL lines above.`,
   )
 }
 
