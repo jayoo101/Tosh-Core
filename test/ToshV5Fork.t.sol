@@ -428,6 +428,12 @@ contract ToshV5ForkTest is Test {
     ///         defeat the only test that asks the chain directly.
     ///         `test/ToshV5ArbSys.t.sol` still forces the two clocks apart, which
     ///         is where the branch itself is exercised.
+    function test_fork_theChainHasNoArbSysSoTheHookUsesBlockNumber() public {
+        _requireFork();
+
+        assertEq(ARB_SYS.code.length, 0, "something lives at 0x64: the hook would read heights from ArbSys");
+    }
+
     /// @notice Real BEM's `approve` accepts a nonzero-to-nonzero change, and the
     ///         whole frontend approval flow depends on it.
     ///
@@ -448,7 +454,23 @@ contract ToshV5ForkTest is Test {
     ///
     ///         If this ever fails, `useQuoteApproval` needs a zero-first step and
     ///         the mock in the unit suites needs the same behaviour to match.
+    ///
+    ///         ⚠ THIS WENT IN WITHOUT `_requireFork()` AND TURNED CI RED FOR 18
+    ///           CONSECUTIVE RUNS. `quote` is only bound in `setUp` once the fork
+    ///           exists, so without the skip this ran on a bare EVM and called
+    ///           `address(0)` — reported as `call to non-contract address
+    ///           0x0000…0000`, which names neither BEM nor the missing RPC. It
+    ///           passed locally the whole time, because `.env` here has `BSC_RPC`
+    ///           and CI does not always have the secret.
+    ///
+    ///           It was also inserted between the ArbSys test's docstring and its
+    ///           function, so ~30 lines explaining the `0x64` discriminator were
+    ///           reattached to this test and the ArbSys one was left undocumented.
+    ///           Both are consequences of the same paste; the ordering above is
+    ///           the repair.
     function test_fork_realBemApproveAcceptsANonzeroToNonzeroChange() public {
+        _requireFork();
+
         address holder = makeAddr("approver");
         address spender = makeAddr("puller");
 
@@ -465,12 +487,6 @@ contract ToshV5ForkTest is Test {
         quote.approve(spender, 42e8);
         assertEq(quote.allowance(holder, spender), 42e8, "and zero-first must remain a valid route");
         vm.stopPrank();
-    }
-
-    function test_fork_theChainHasNoArbSysSoTheHookUsesBlockNumber() public {
-        _requireFork();
-
-        assertEq(ARB_SYS.code.length, 0, "something lives at 0x64: the hook would read heights from ArbSys");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
