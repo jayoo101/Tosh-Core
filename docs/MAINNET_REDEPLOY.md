@@ -1,22 +1,28 @@
 # Mainnet redeploy runbook — BNB Smart Chain 56
 
-> **Do not execute the 4663 steps below.** This file was written for the
-> Robinhood Chain redeploy of 2026-09-17. The live target is now BSC 56 with
-> PancakeSwap Infinity; 56 is **not deployed**. Procedure still applies
-> (clock-decides-launch, PoG band, Ownable2Step handoff) once a production env
-> names chain 56, the Infinity CLPoolManager/Vault, and split keys — the root
-> `.env.production` this used to point at was deleted on 2026-09-18 as a 4663
-> relic holding a second private key. Addresses and balances in the tables were
-> read from chain 4663 and are historical.
+> **§2 is chain-4663 history. §3 onward has been re-measured for BSC 56 and is
+> executable.** This file was written for the Robinhood Chain redeploy of
+> 2026-09-17 and the live target is now BSC 56 with PancakeSwap Infinity, which
+> is **not yet deployed**. The procedure survived both moves intact
+> (clock-decides-launch, PoG band, Ownable2Step handoff). What did not survive is
+> every number, and the numbers are the part written as instructions.
 >
-> **So are the numbers on the dials, which is the trap, because those are the
-> part written as instructions.** §5 step 3 tells you to set a fee and step 4
-> tells you to confirm two values; all three were denominated in ETH against a
-> fee the old mainnet was charging, and none of them is what the code now
-> ships. Today's defaults, read from `src/ToshFactory.sol` and confirmed on
-> chain 97 on 2026-09-18, are `launchFee` **0.35**, `defaultSoftCap` **35** and
-> `maxPogAllocationLimit` **1.75**, all in BNB. What 56 should charge instead
-> is an open decision, not a stale figure — see the note under step 3.
+> Re-measured against 56 as of 2026-09-19: §3's preconditions, §4's broadcast
+> command, §5's dials and the variable lists in steps 7 and 9. The
+> `.env.production` this used to point at was deleted on 2026-09-18 as a 4663
+> relic holding a second private key; it has since been rebuilt for 56 and
+> passes `scripts/preflightMainnet.mjs`. **Addresses, balances and outcomes in §2
+> are chain 4663 and are there as a record of what that redeploy destroyed — do
+> not act on them.**
+>
+> **The dials are now BEM, at 8 decimals, and this banner has already been wrong
+> about them twice.** It said ETH, then it said BNB. Today's defaults, read from
+> `src/ToshFactory.sol`: `launchFee` **9.28**, `defaultSoftCap` **928.4**,
+> `maxPogAllocationLimit` **46.4**, `MIN_SOFT_CAP_PROD` **100**, `MAX_LAUNCH_FEE`
+> **928** — all BEM. A figure here that carries no unit, or the wrong one, is the
+> failure this banner exists to prevent: `setLaunchFee(9.28e18)` is not a typo
+> that reverts on gas, it is fifty thousand times the entire BEM supply. What 56
+> should charge is still an open decision, not a value to copy — see step 3.
 
 Written for the redeploy that shipped two changes: **the clock decides a
 launch** (the soft cap becomes a progress target) and **the PoG band moves to
@@ -25,17 +31,20 @@ launch** (the soft cap becomes a progress target) and **the PoG band moves to
 
 The first change is now simply how the protocol works, and it survived the move
 to BSC unaltered — it is the model `MANUAL_INTERACTION.md` documents. The second
-is the historical band: the on-chain ceiling it names has since moved to **1.75
-BNB**, and the off-chain triple is config rather than deployment, so §8 rotates
-it without any of this runbook.
+is the historical band: the on-chain ceiling it names has since moved to **46.4
+BEM**, and the band is now split across two units on purpose — the floor stays in
+**ETH** because it measures gas burned on ETH-settled chains, while the rate and
+the ceiling are BEM. The off-chain triple is config rather than deployment, so §8
+rotates it without any of this runbook.
 
 `DeployMainnet.s.sol` prints its own checklist at the end of a broadcast. This
 document is the part that checklist cannot know: the order, the evidence each
 step needs before it counts as done, where you can still back out, and what
 this redeploy destroys on the way past.
 
-Every address and balance below was read from chain 4663 on 2026-09-17. Re-read
-them on the day; treat a mismatch as a reason to stop, not to adjust the doc.
+§2's addresses and balances were read from chain 4663 on 2026-09-17; §3's were
+re-read from chain 56 on 2026-09-19. Re-read them again on the day; treat a
+mismatch as a reason to stop, not to adjust the doc.
 
 ---
 
@@ -130,18 +139,29 @@ immutable and the money is back with the depositors.
 | Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | enough — the deploy costs ~0.00076 BNB (15,143,081 gas at 0.05 gwei), roughly 17x covered |
 | Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
 | Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
-| PoG signer | **`0x73db078fa94607893270079AC8F5c7492aB480cd` — LEAKED, BLOCKS THE DEPLOY** | must be rotated before `.env.production` is written. See below |
+| PoG signer | `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` | **rotated 2026-09-19, and this row is the one that changed.** It used to name `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, and blocked the deploy. Generated into an encrypted keystore; the key was never written to a log or a tracked file. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
 | Deployer BEM balance | 0 | correct — the launch fee is paid by whoever calls `createLaunch`, not by the deployer. Nothing in the deploy moves BEM |
 | Old factory `paused()` | n/a | there is no old factory on `56`; this is a first deployment, not a redeploy. See step 6 for what that changes |
 
-> **The PoG signer is the one precondition that is not a number to check.**
-> `POG_SIGNER_ADDRESS` in `.env` is still the leaked testnet deployer. Whoever
-> holds that key can sign arbitrary `maxAlloc` values, which is the ability to
-> mint deposit quota without limit — the exact thing `GOV-04` pages on. It is
-> also why this cannot be deferred past the deploy: `pogSigner` is settable, so
-> in principle it could be rotated afterwards, but the factory would be live with
-> a signer whose key is public for the length of one Safe transaction, and the
-> quota it signs is spendable within that window.
+> **The PoG signer is the one precondition that is not a number to check, and
+> it is now satisfied — but not finished.** The reason it blocked the deploy:
+> whoever holds that key can sign arbitrary `maxAlloc` values, which is the
+> ability to mint deposit quota without limit, the exact thing `GOV-04` pages on.
+> It could not be deferred past the deploy even though `pogSigner` is settable,
+> because the factory would be live with a public key for the length of one Safe
+> transaction and the quota it signs is spendable inside that window.
+>
+> What is left is not on this chain and no pre-broadcast check can see it: the
+> **private half** must reach Vercel as `POG_SIGNER_PRIVATE_KEY` before any
+> creator registers PoG. Production currently holds the chain-97 throwaway. A
+> mismatch does not fail the build or the deploy — `/api/pog/attest` signs with
+> whatever key it has, the factory recovers a different address, and every
+> `registerPoG` reverts for every user while the site reports nothing. That is
+> `PM-C7`, and it is verifiable only after the fact by registering once.
+>
+> `.env` still names the leaked `0x73db…`, which is correct: that file is the
+> chain-97 tree, where the address is a throwaway on a worthless chain. It is
+> `.env.production` that had to move, and it has.
 >
 > The new signer needs **no BNB at all** — see the note below, which is about the
 > deploy script and applies with equal force to a freshly generated key.
@@ -169,8 +189,15 @@ QUOTE_ASSET=0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a                # in the t
 DEPLOYER_ADDRESS=0x35b232E26a275f62E594e010624aEA0c46b7874a
 PROD_OWNER_SAFE=0x02DE4629129D104C63329D13A6Ca67E43db7B310
 PLATFORM_TREASURY=0x02DE4629129D104C63329D13A6Ca67E43db7B310
-POG_SIGNER_ADDRESS=<the rotated signer — NOT 0x73db…>
+POG_SIGNER_ADDRESS=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D   # rotated 2026-09-19
+ETHERSCAN_API_KEY=<an Etherscan v2 key — one key covers 56 and 97>
 ```
+
+`.env.production` in this tree is filled in and passes preflight with one
+exception: `ETHERSCAN_API_KEY` is still `REPLACE_ME_ETHERSCAN_V2_KEY`. Preflight
+does not check it, because nothing before the broadcast needs it — it is
+`--verify` that needs it, at the end of the broadcast, which is the worst place
+to discover a missing key.
 
 The Safe address is recorded here because it was recorded nowhere: it existed in
 a chat log and on chain, and was recovered by scanning `56` for a contract among
@@ -186,8 +213,9 @@ redeploy plus a migration of every pool.
 ### The environment trap
 
 `forge` auto-loads `.env` from the repo root, and `.env` currently holds
-**testnet** roles (`TARGET_CHAIN_ID=46630`, `PLATFORM_TREASURY` and
-`POG_SIGNER_ADDRESS` both set to the testnet deployer).
+**chain-97** roles: `TARGET_CHAIN_ID=97`, `QUOTE_ASSET` the 8-decimal mock
+`0x76bD1ceC663AE3242e5267e232B821C51a4882EB`, `PLATFORM_TREASURY` and
+`POG_SIGNER_ADDRESS` two throwaway EOAs.
 
 Measured behaviour: **a variable set in the shell wins over `.env`.** Verified
 by injecting `INFINITY_CL_POOL_MANAGER=0x…dEaD` into the session and watching the script
@@ -201,12 +229,37 @@ falls through to `.env`'s testnet value in silence.
 PRIVATE_KEY   ROBINHOOD_TESTNET_RPC   TREASURY_ADDRESS   HOOK_ADDRESS   TOKEN_ADDRESS
 ```
 
-`PRIVATE_KEY` is the dangerous one. `.env`'s copy is the **testnet** deployer
-`0x73db078fa94607893270079AC8F5c7492aB480cd`, and `requireDistinctRoles` would
-wave it through — it differs from the signer, the Safe and the platform
-treasury. It would fail on gas (0 mainnet balance) rather than misdeploy, but
-the failure would come at the broadcast, with the operator believing a
-different key was in play.
+⚠ **THE SAFETY NET THIS PARAGRAPH USED TO DESCRIBE IS GONE, AND THE FIX IS WHAT
+REMOVED IT.** It said `.env`'s `PRIVATE_KEY` was the leaked testnet deployer
+`0x73db…`, so a fall-through "would fail on gas (0 mainnet balance) rather than
+misdeploy". That reasoning depended on the key being **worthless**. Chain 97 was
+rebuilt on 2026-09-19 with a fresh deployer, and the key now in `.env` is
+`0x35b232E26a275f62E594e010624aEA0c46b7874a` — **the funded mainnet deployer**,
+the same address §3's first row checks the balance of. A fall-through now
+broadcasts successfully.
+
+What still fails loudly: missing `TARGET_CHAIN_ID` falls through to 97 and
+`require(block.chainid == targetChainId)` reverts against a 56 RPC. What fails
+**permanently and silently** is any *other* variable you forget to export.
+`PLATFORM_TREASURY` is the one to fear — miss it and `.env` supplies the chain-97
+throwaway `0x1230d6Cb…`, `requireDistinctRoles` waves it through because it is
+genuinely distinct from the other three roles, and that address becomes the
+immutable recipient of 0.30 % of the BEM input of every buy on every pool
+forever. Baked into the hook implementation. Not a config change — a redeploy of
+everything.
+
+This is why the `Rename-Item .env .env.testnet-parked` line below is not
+belt-and-braces any more. Exporting the right values is still sufficient *if the
+export is complete*, and moving `.env` out of the way is what makes an incomplete
+export fail instead of shipping.
+
+> **Worth deciding separately, before deploy day:** that one key is now both the
+> testnet deployer and the mainnet deployer, and it sits in plaintext in `.env`.
+> The exposure is bounded — the deployer surrenders ownership to the Safe in §5
+> steps 1 and 2, and holds ~0.013 BNB — but between broadcast and acceptance it
+> **is** the owner of the factory and the treasury. Using a separate key for 56,
+> or moving this one into an encrypted keystore the way the PoG signer was, closes
+> that window. Neither is done.
 
 The documented invocation, `set -a && source .env.production && set +a`, is
 bash. In PowerShell:
@@ -232,7 +285,9 @@ $env:PRIVATE_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
   [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
 
 # Prove the key is the one you meant before spending anything.
-cast wallet address --private-key $env:PRIVATE_KEY   # expect 0x4E41CEa9...E690
+# Expect the deployer from §3, not the address that used to be written here --
+# `0x4E41CEa9…E690` was a 4663 wallet and no longer exists in any role.
+cast wallet address --private-key $env:PRIVATE_KEY   # expect 0x35b232E2...874a
 ```
 
 The loader loop above is safe against this tree's `.env.production`: every
@@ -257,10 +312,21 @@ a wrong value there is another redeploy, not a config change.
 forge script script/DeployMainnet.s.sol:DeployMainnetScript `
   --rpc-url $env:TARGET_RPC `
   --broadcast --verify `
-  --verifier blockscout `
-  --verifier-url https://robinhoodchain.blockscout.com/api `
   -vvvv
 ```
+
+> **Plain `--verify`, and the pair that used to stand here was worse than
+> wrong.** This block read `--verifier blockscout --verifier-url
+> https://robinhoodchain.blockscout.com/api`, which is the retired chain's
+> explorer. Blockscout does not serve chain 56 at any tier, so an operator
+> following this file would have passed a verifier that **verifies nothing and
+> reports success for having done so** — the deploy would look fully verified
+> and BscScan would show unverified bytecode for the factory that holds every
+> kill switch. `DeployMainnet.s.sol`'s own header was corrected when the chain
+> changed; this file was not, which is the same instructions-outlive-the-code
+> failure as the stale dials in the banner above. Verification goes through
+> Etherscan v2 under one `ETHERSCAN_API_KEY`; `foundry.toml` already wires `bsc`
+> and `bsc_testnet` to it.
 
 Record `FACTORY_ADDRESS` and `TREASURY_ADDRESS` from the manifest.
 
@@ -280,9 +346,47 @@ the factory must not be announced in that state.
 | 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
 | 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |
-| 7 | Vercel Production: `NEXT_PUBLIC_FACTORY_ADDRESS` = new factory, `NEXT_PUBLIC_QUOTE_ASSET` = BEM | `npm run check:quote` agrees with the chain — see below |
+| 7 | Vercel Production: the **six** variables below, not two | `npm run check:quote` agrees with the chain — see below |
 | 8 | Push the five commits to `main` | CI green |
-| 9 | Point `monitoring/` at the new factory and treasury | a watch run reports the new addresses with 0 findings |
+| 9 | Repoint `monitoring/` — the **four** repo variables below | a watch run reports the new addresses with 0 findings |
+
+**Step 7 is six variables, and Production currently holds the chain-97 set.**
+Naming only the factory and the quote asset is how a half-switched frontend
+happens: the chain id would still say 97, so wallets would prompt for the wrong
+network against a mainnet factory.
+
+```
+NEXT_PUBLIC_CHAIN_ID=56                  # currently 97
+NEXT_PUBLIC_FACTORY_ADDRESS=<new>        # currently the 97 rehearsal factory
+NEXT_PUBLIC_TREASURY_ADDRESS=<new>
+NEXT_PUBLIC_QUOTE_ASSET=0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a   # currently the 8-decimal mock
+NEXT_PUBLIC_QUOTE_SYMBOL=BEM             # currently mBEM
+POG_SIGNER_PRIVATE_KEY=<the rotated signer's key>                    # currently the 97 throwaway — PM-C7
+```
+
+Set Preview to the same values or leave it on 97 deliberately; what must not
+happen is Preview silently becoming a mainnet build nobody reviewed.
+
+**Step 9's trap is `MONITOR_EXPECTED_OWNER`.** These are GitHub Actions *repo
+variables*, not files, so they do not move with a commit and nothing in CI
+notices they are stale.
+
+```
+MONITOR_FACTORY=<new>                    # currently 0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34 (97)
+MONITOR_TREASURY=<new>                   # currently 0x20dE906A96FfB89BE6fd6267A0876A68017792F7 (97)
+MONITOR_EXPECTED_OWNER=0x02DE4629129D104C63329D13A6Ca67E43db7B310    # the SAFE, not the deployer
+MONITOR_EXPECTED_POG_SIGNER=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D
+```
+
+On 97 `MONITOR_EXPECTED_OWNER` is the deployer EOA, because nothing ever handed
+that factory to a Safe. Copying that shape to 56 inverts the check: it would
+page `GOV-01` the moment step 1 succeeds, and read green for exactly as long as
+ownership is still sitting on the deployer — green during the one window that is
+actually dangerous. Set it to the Safe, matching the end state of steps 1 and 2.
+
+Leaving all four stale is the quieter failure: the watcher keeps polling a
+healthy chain-97 factory every 15 minutes and reports 0 findings, while the
+mainnet deployment nobody is watching holds every kill switch.
 
 **Step 3 is not optional, and it no longer has an answer written down.** It
 used to read `setLaunchFee(0.01 ether)`, on the reasoning that the factory
@@ -335,7 +439,7 @@ old factory tells existing depositors the wrong thing about their refunds.
 | Position | Reversible? | Cost of backing out |
 |---|---|---|
 | Before the broadcast | fully | nothing |
-| Broadcast done, Safe has not accepted | yes | the new factory exists, is owned by the deployer EOA, is unannounced and is referenced by nothing. Abandoning it costs the ~0.00074 ETH already spent. The old factory is untouched and still serving users |
+| Broadcast done, Safe has not accepted | yes | the new factory exists, is owned by the deployer EOA, is unannounced and is referenced by nothing. Abandoning it costs the ~0.00076 BNB already spent. There is no old factory on 56 to fall back to, so "backing out" here means 56 has nothing deployed, not that traffic returns somewhere |
 | Safe has accepted, Vercel not switched | yes | same as above. Ownership being correct does not make the factory live; nothing points users at it |
 | Vercel switched | **the last exit** | reverting `NEXT_PUBLIC_FACTORY_ADDRESS` restores the old directory, but any project created on the new factory in the meantime vanishes from the site and its depositors lose their route to `refund()` through the UI |
 | First launch created on the new factory | no | that hook is immutable and its depositors are committed |
@@ -343,6 +447,14 @@ old factory tells existing depositors the wrong thing about their refunds.
 If something is wrong after the switch and the old factory must take traffic
 again, revert the Vercel variable **first** and the commits second. The
 variable is one setting and takes effect on redeploy; the commits are a build.
+
+> **On 56 the last two rows are weaker than they read, because this is a first
+> deployment.** The table was written for a redeploy, where reverting the Vercel
+> variable hands traffic back to a working mainnet factory. There is no such
+> factory on 56. Reverting points production at the **chain-97 rehearsal**, so
+> the rollback is not "serve the old version", it is "take the product down to a
+> testnet" — and it only works at all if the chain id is reverted with it, which
+> is the argument for treating step 7's six variables as one atomic change.
 
 There is no `pause()`-based rollback worth planning around: pausing the new
 factory stops `createLaunch` and `registerPoG` but does nothing for a genesis
@@ -360,9 +472,18 @@ deploy.
 Remove-Item Env:\PRIVATE_KEY
 Rename-Item .env.testnet-parked .env
 
-# The key must not be in any file. This should print nothing.
+# The key must not be in any file. See the note below: on this tree it WILL
+# print one line, and that line is expected.
 Select-String -Path (Get-ChildItem .env* -Force -Exclude *.example) -Pattern '^PRIVATE_KEY=.+'
 ```
+
+> **"This should print nothing" stopped being true on 2026-09-19.** `.env` holds a
+> `PRIVATE_KEY` by design — it is how `forge` drives chain 97 — and since the 97
+> rebuild that key is the same one as the mainnet deployer. So the expected result
+> is exactly **one** hit, on `.env`, and the check no longer distinguishes "clean"
+> from "the mainnet key is lying around": both look identical. Treat a hit on any
+> file **other** than `.env` as stop-everything, and treat the `.env` hit as the
+> open item flagged at the end of §3 rather than as a pass.
 
 This used to name `.env` and `.env.production` literally, which stopped working
 the day the second file was deleted — and it failed by *erroring on the missing
