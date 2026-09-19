@@ -135,6 +135,22 @@ At today's price a 35-BNB-equivalent soft cap is **928 BEM**, which is **47% of
 all BEM in that pool**. A depositor cannot acquire it, and a raise that filled
 would seed a pool with more BEM than the open market holds.
 
+> **Re-measured 2026-09-19, 21:50 (chain 56), and it moved the wrong way.** The
+> same pool now holds **1,282.98 BEM against 73.01 WBNB** — the BEM side is down
+> **34.5%** while the WBNB side is down only 1.2%, which is liquidity leaving
+> rather than a price move. Supply is 195,806.80 BEM, so the only real pool is
+> **0.66% of it**.
+>
+> The ratio those two balances imply is 0.0569 BNB per BEM, up from 0.0377, but
+> that is a ratio and not a price for exactly the reason stated above, and it is
+> even less trustworthy when one side moved 30 points more than the other.
+>
+> What is decision-grade is the denominator. Against 1,282.98 BEM the default
+> **928.4 BEM soft cap is 72% of the pool, not 47%**, and the
+> `MIN_SOFT_CAP_PROD` floor of 100 BEM is 7.8%. Risk 4 below is unchanged in kind
+> and worse in degree; nothing in this tree caused that and nothing in it can
+> fix it.
+
 **Unchanged: 8 decimals.** This turns out to be the binding engineering
 constraint, and it is not where the trouble was expected. See §2.
 
@@ -401,8 +417,10 @@ Ordered by how badly each one ends, not by likelihood.
    lower reaches. Mitigation: raise the floor to ≥ 100 BEM and add a test at the
    minimum.
 4. **Depositors cannot acquire the quote asset.** §1. A 928-BEM soft cap is 47%
-   of the only real pool. This has no code fix: it needs either much deeper BEM
-   liquidity or a much smaller soft cap, and a smaller soft cap runs into risk 3.
+   of the only real pool — **72% as re-measured on 2026-09-19; see the callout in
+   §1.** This has no code fix: it needs either much deeper BEM liquidity or a much
+   smaller soft cap, and a smaller soft cap runs into risk 3. It is the one item
+   on the mainnet path that is not a task anyone can complete by working.
 5. **Everything the protocol holds is denominated in a supply that moved 4.81%
    in two days.** §1. The genesis pool, the treasury reservoir and every
    unclaimed refund. Internal policy rather than counterparty risk now, but

@@ -423,9 +423,23 @@ answers `quoteAsset()` with a *different* address means the env var is wrong and
 editing Vercel fixes it. A factory whose `quoteAsset()` *reverts* predates the
 denomination entirely: its `deposit` and `createLaunch` take different arguments,
 so no env value makes this frontend able to drive it, and the chain needs
-redeploying. **Chain 97 is in the second state right now** — the rehearsal
-factory there was built before the BEM move, which is also why
-`RehearseTestnet.s.sol` says the asset it rehearses against is not BEM.
+redeploying.
+
+⚠ **THIS PARAGRAPH USED TO SAY CHAIN 97 WAS IN THE SECOND STATE. IT IS NOT, AND
+  HAS NOT BEEN SINCE THE 97 REBUILD.** The factory now at
+  `0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34` answers
+  `quoteAsset()` with `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` and holds one
+  launch, so 97 is in the *first* state at worst — an env-var question, not a
+  redeploy. The claim survived because the row in step 9 above was updated to the
+  new address while the prose here was not, which is the same staleness this file
+  warns about two sections earlier.
+
+  It also argued from a fact that does not support it: `RehearseTestnet.s.sol`
+  does say the asset it rehearses against is not BEM, and that is still true —
+  BEM has no deployment on 97, so the rehearsal runs against an 8-decimal mock.
+  But that is a statement about the *token*, not about the factory. The script
+  reads `factory.quoteAsset()` to find it, which only a post-BEM factory can
+  answer. The two claims were read as one.
 
 **Steps 7 and 8 belong together.** The committed frontend copy says the soft
 cap is a progress target. That is true of the new factory and false of every
