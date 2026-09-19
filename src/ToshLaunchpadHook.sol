@@ -1134,6 +1134,22 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         The secondary market has to catch up before this shelf unlocks.
     error TierPriceAboveCeiling();
 
+    /// @notice The genesis raise is too small for the shelf ladder to rise: the
+    ///         step from shelf 0 to shelf 1 would truncate to zero, pricing a
+    ///         run of shelves identically.
+    ///
+    /// @dev    Not a cap check — the soft cap gates nothing. This is about the
+    ///         amount actually raised. See the note in `launch()` for the
+    ///         measured window and why it had no guard before.
+    ///
+    ///         A creator hitting this has three options: raise more, or let the
+    ///         launch window lapse so `refund()` returns every depositor's stake
+    ///         in full, whichever suits. There is no way to open the pool on a
+    ///         raise this small, deliberately — a flat ladder is worse for the
+    ///         depositors than no pool, because it lets a buyer clear high
+    ///         shelves at the base price against tokens they are holding.
+    error RaiseTooSmallForLadder();
+
     /// @notice The shelf sweep came to more than the caller's `maxCost`.
     ///
     /// @dev    Replaces `InsufficientPayment`, which said the same thing from the
@@ -1577,6 +1593,44 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY;
         require(p0 > 0, "p0=0");
         shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
+
+        // THE RAISE MUST BE LARGE ENOUGH FOR THE LADDER TO RISE, and until now
+        // nothing in the protocol checked that.
+        //
+        // `p0 > 0` above is a far weaker condition than it looks. It only needs
+        // `lpQuote >= GENESIS_LP_SUPPLY / 1e18` = 3,780,000 base units, which at
+        // 8 decimals is a raise of 0.042 quote units. Monotone shelves need
+        // `shelfP0 >= 526`, because shelves are geometric at +0.19025% and below
+        // that the first step truncates to zero — which needs a raise of 21.042.
+        // Between those two figures sits a 500x window in which `launch()`
+        // succeeded, the pool opened, and the first 2 to 365 shelves all carried
+        // the SAME integer price. Measured: a 1-unit raise flattens 22 shelves,
+        // letting a buyer take 69,300 tokens at shelf 0's price; a 0.042-unit
+        // raise flattens 365 and sells 1,149,750 that way.
+        //
+        // `MIN_SOFT_CAP_PROD` was documented as "the entire defence" against
+        // this, and it is not one. It floors `setDefaultSoftCap`, i.e. the CAP,
+        // and the cap has not gated anything since it became a progress target —
+        // `launch()` opens on any non-zero raise and `canRefund()` reads only the
+        // clock. A raise far below its cap is the ordinary case, so the floor was
+        // only ever protecting a quantity nobody was checking.
+        //
+        // It went unnoticed because an 18-decimal quote asset made the window
+        // unreachable: any BNB raise worth opening a pool for produced `p0` in
+        // the billions, nine orders clear of 526. BEM's 8 decimals deliver 1e10
+        // fewer base units for the same tokens, so the window moved from
+        // theoretical to one small round away.
+        //
+        // Checked as the PROPERTY rather than as a derived minimum. A
+        // `MIN_RAISE` constant would have to be re-derived by hand whenever
+        // `GENESIS_LP_SUPPLY`, `SHELF_PREMIUM_BPS` or `TIER_STEP_E18` moved, and
+        // would go stale silently; this asks the ladder itself. Testing shelf
+        // 0 -> 1 is sufficient for the geometric part: each step is
+        // `price(i) · (STEP-1)` and `price(i)` is non-decreasing, so a first step
+        // that survives truncation means every later one does.
+        // `testFuzz_tierPriceAt_strictlyMonotone` remains the general guard,
+        // since `_powE18` accumulates its own truncation across 4000 rungs.
+        if (tierPriceAt(1) <= tierPriceAt(0)) revert RaiseTooSmallForLadder();
 
         // ── 3. Mint the genesis allocation to this hook ───────────────────────
         projectToken.mint(address(this), GENESIS_SUPPLY);

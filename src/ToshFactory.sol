@@ -146,14 +146,28 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         tier ladder to a free-mint zone.  This cliff does have a backstop:
     ///         the hook's `launch()` asserts `p0 > 0`.
     ///
-    ///         The binding cliff is ladder *flattening*, it sits far above the
-    ///         first, and it has no backstop.  Shelves are geometric —
+    ///         The binding cliff is ladder *flattening*, and it sits far above
+    ///         the first.  Shelves are geometric —
     ///         `price(i) = shelfP0 · 1.001902508^i` — so monotonicity needs the
     ///         first step to survive truncation: `shelfP0 · 0.0019025 ≥ 1`, i.e.
-    ///         `shelfP0 ≥ 526`. Below that, shelf 1 rounds onto shelf 0's price
-    ///         and a buyer clears the upper shelf at the lower shelf's price.
-    ///         Nothing else in the system checks for a flat ladder, so this
-    ///         literal is the entire defence.
+    ///         `shelfP0 ≥ 526`, which needs a raise of 21.042 quote units.
+    ///
+    ///         ⚠ THIS CONSTANT IS NOT WHAT DEFENDS THAT CLIFF, whatever this
+    ///           comment used to claim. It floors the CAP, and the cap gates
+    ///           nothing: `launch()` opens on any non-zero raise and
+    ///           `canRefund()` reads only the clock, so a raise far below its cap
+    ///           is the ordinary case rather than an error. A floor on the cap
+    ///           therefore says nothing about the quantity the cliff depends on.
+    ///
+    ///           The real guard is `ToshLaunchpadHook.launch()`, which now
+    ///           refuses a raise whose shelf 0 -> 1 step truncates to zero
+    ///           (`RaiseTooSmallForLadder`). Read that comment for the window
+    ///           this constant was believed to be covering and was not.
+    ///
+    ///         What this constant still does is worth keeping: it stops an owner
+    ///         advertising a cap so small that no raise under it could open a
+    ///         pool, which would be a launch that fails at `launch()` after
+    ///         taking deposits rather than at `createLaunch`.
     ///
     ///         ⚠ THE MARGIN OVER THAT CLIFF IS NOW 4.75x, DOWN FROM 16.6 MILLION,
     ///           and that collapse is the whole reason this constant was retuned.
