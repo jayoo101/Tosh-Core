@@ -71,6 +71,10 @@ tsc-out.txt
 lint-out.txt
 check.txt
 *-out.txt
+# The `.tmp.txt` half of the same habit: `build.tmp.txt` and `tr.tmp.txt` were a
+# compile log and a single failing trace from a debugging session, and a `git add
+# -A` picked both up. `*-out.txt` above did not match either name.
+*.tmp.txt
 
 # ─── Local scratch ───────────────────────────────────────────────────────────
 # Anvil fork snapshots and one-off scratch files from debugging sessions.

@@ -57,7 +57,7 @@
  * the output is actually out.
  */
 
-import { createPublicClient, createWalletClient, http, parseAbi, formatEther, getAddress } from 'viem'
+import { createPublicClient, createWalletClient, http, parseAbi, formatUnits, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 
 import { loadRoleEnv } from './loadRoleEnv.mjs'
@@ -165,7 +165,7 @@ async function main() {
   const windowCloses = deadline + launchWindow
 
   console.log('genesis:')
-  console.log(`  softCap        ${formatEther(softCap)} ETH`)
+  console.log(`  softCap        ${formatUnits(softCap, 8)} quote`)
   console.log(`  deadline       ${stamp(deadline)}`)
   console.log(`  window closes  ${stamp(windowCloses)}  (LAUNCH_WINDOW ${human(launchWindow)})`)
   console.log(`  polling every  ${intervalSec}s${dryRun ? '   [DRY RUN: will not send]' : ''}\n`)
@@ -193,9 +193,9 @@ async function main() {
 
     if (now < deadline) {
       // Still taking deposits. Report progress but do not act: `launch()` before
-      // the deadline reverts; more ETH may still arrive.
+      // the deadline reverts; more quote may still arrive.
       const line = `  waiting · ${human(deadline - now)} to deadline`
-        + ` · raised ${formatEther(raised)}/${formatEther(softCap)} ETH${met ? ' (target met)' : ''}`
+        + ` · raised ${formatUnits(raised, 8)}/${formatUnits(softCap, 8)} quote${met ? ' (target met)' : ''}`
       if (line !== lastLine) { console.log(line); lastLine = line }
       await sleep(intervalSec * 1000)
       continue
@@ -211,7 +211,7 @@ async function main() {
 
     // Due. The soft cap is a progress target, not a gate — any non-zero raise
     // may open the pool until the 7-day launch window lapses.
-    console.log(`  due · raised ${formatEther(raised)} ETH · target ${formatEther(softCap)} ETH · simulating…`)
+    console.log(`  due · raised ${formatUnits(raised, 8)} quote · target ${formatUnits(softCap, 8)} quote · simulating…`)
     try {
       await pub.simulateContract({ address: hook, abi: HOOK_ABI, functionName: 'launch', account })
     } catch (e) {

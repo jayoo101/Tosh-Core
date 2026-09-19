@@ -57,7 +57,7 @@
 
 import {
   createPublicClient, createWalletClient, http, parseAbi,
-  parseEventLogs, formatEther, getAddress,
+  parseEventLogs, formatUnits, getAddress,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -82,9 +82,20 @@ const FACTORY_ABI = parseAbi([
   'function hookInitcodeHash(address projectTreasury, address creator, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
   'function verifyHookDeployment(address hook, address creator, address projectTreasury, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration, bytes32 rawSalt) view returns (bool)',
   'function registeredHooks(address) view returns (bool)',
-  'function createLaunch(string name, string symbol, address projectTreasury, address projectAdmin, bytes32 hookSalt, uint256 expectedFee, uint256 expectedSoftCap, uint256 expectedWalletCap, uint256 genesisDuration) payable returns (address token, address hook)',
+  'function quoteAsset() view returns (address)',
+  'function createLaunch(string name, string symbol, address projectTreasury, address projectAdmin, bytes32 hookSalt, uint256 expectedFee, uint256 expectedSoftCap, uint256 expectedWalletCap, uint256 genesisDuration) returns (address token, address hook)',
   'event LaunchCreated(uint256 indexed launchId, address indexed token, address indexed hook, address creator, string name, string symbol)',
 ]);
+
+const ERC20_ABI = parseAbi([
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+]);
+
+/** Quote-asset amounts are 8-decimal. `formatEther` here would print a 9.28 fee as 9.28e-10. */
+const quoteAmt = (units) => formatUnits(units, 8);
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name);
@@ -165,10 +176,18 @@ async function main() {
     process.exit(1);
   }
 
-  const [softCap, perWalletCap, launchFee] = await Promise.all([
-    read('defaultSoftCap'), read('maxPogAllocationLimit'), read('launchFee'),
+  const [softCap, perWalletCap, launchFee, quote] = await Promise.all([
+    read('defaultSoftCap'), read('maxPogAllocationLimit'), read('launchFee'), read('quoteAsset'),
   ]);
-  console.log(`      softCap ${formatEther(softCap)} ETH · perWalletCap ${formatEther(perWalletCap)} ETH · fee ${formatEther(launchFee)} ETH\n`);
+  const [quoteDecimals, quoteSymbol] = await Promise.all([
+    pub.readContract({ address: quote, abi: ERC20_ABI, functionName: 'decimals' }),
+    pub.readContract({ address: quote, abi: ERC20_ABI, functionName: 'symbol' }),
+  ]);
+  check('factory.quoteAsset() is an 8-decimal token', quoteDecimals === 8,
+    `${quote} · ${quoteSymbol} · ${quoteDecimals} decimals`);
+  if (quoteDecimals !== 8) process.exit(1);
+  console.log(`      quote ${quoteSymbol} ${quote}`);
+  console.log(`      softCap ${quoteAmt(softCap)} ${quoteSymbol} · perWalletCap ${quoteAmt(perWalletCap)} ${quoteSymbol} · fee ${quoteAmt(launchFee)} ${quoteSymbol}\n`);
 
   // ── 2. TS prediction vs the live factory ──────────────────────────────────
   const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, softCap, perWalletCap, duration]);
@@ -202,12 +221,31 @@ async function main() {
   const name = arg('name', `E2E Clone ${stamp}`);
   const symbol = arg('symbol', `E2E${stamp.slice(-3)}`);
 
+  // The fee is PULLED. Sending `value: launchFee` used to fund the call and now
+  // donates native coin to a function that does not read `msg.value`. The
+  // allowance has to land first, for exactly the fee, against the factory.
+  const allowance = await pub.readContract({
+    address: quote, abi: ERC20_ABI, functionName: 'allowance', args: [creator, factory],
+  });
+  if (allowance < launchFee) {
+    const approveHash = await wallet.writeContract({
+      address: quote, abi: ERC20_ABI, functionName: 'approve',
+      args: [factory, launchFee], chain: null,
+    });
+    const approveReceipt = await pub.waitForTransactionReceipt({ hash: approveHash });
+    check('approved the factory for the launch fee', approveReceipt.status === 'success',
+      `${quoteAmt(launchFee)} ${quoteSymbol} · ${approveHash}`);
+    if (approveReceipt.status !== 'success') process.exit(1);
+  } else {
+    check('factory already has the fee allowance', true, `${quoteAmt(allowance)} ${quoteSymbol}`);
+  }
+
   let gasEstimate;
   try {
     gasEstimate = await pub.estimateContractGas({
       address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
       args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-      value: launchFee, account,
+      account,
     });
     check('createLaunch estimates (salt accepted by the live factory)', true, `${gasEstimate.toLocaleString()} gas`);
   } catch (e) {
@@ -219,7 +257,7 @@ async function main() {
   const hash = await wallet.writeContract({
     address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
     args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-    value: launchFee, chain: null, gas: (gasEstimate * 12n) / 10n,
+    chain: null, gas: (gasEstimate * 12n) / 10n,
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   check('createLaunch confirmed', receipt.status === 'success', `${receipt.gasUsed.toLocaleString()} gas · ${hash}`);

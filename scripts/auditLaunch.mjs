@@ -62,6 +62,7 @@ const HOOK_ABI = [
   'function projectToken() view returns (address)',
   'function poolManager() view returns (address)',
   'function vault() view returns (address)',
+  'function quoteAsset() view returns (address)',
   'function getHooksRegistrationBitmap() view returns (uint16)',
   'function getPoolKey() view returns (tuple(address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters))',
   'function ladderTreasury() view returns (address)',
@@ -110,7 +111,7 @@ const problems = []
 const notes = []
 const fail = (m) => problems.push(m)
 
-const eth = (v) => `${ethers.formatEther(v)} native`
+const quote = (v) => `${ethers.formatUnits(v, 8)} quote`
 const tok = (v) => Number(ethers.formatUnits(v, 18)).toLocaleString('en-US', { maximumFractionDigits: 4 })
 
 /** Pass/fail on an exact bigint identity, printed either way. */
@@ -173,11 +174,11 @@ try {
 }
 
 console.log('\nThe raise')
-console.log(`        deposited         ${eth(totalNative)}`)
-console.log(`        soft cap          ${eth(softCap)}  ${totalNative >= softCap ? '(met)' : '(NOT MET)'}`)
-console.log(`        per-wallet cap    ${eth(perWalletCap)}`)
-console.log(`        referral reserved ${eth(refReserved)}   claimed ${eth(refClaimed)}`)
-console.log(`        orphan referral   ${eth(orphan)}`)
+console.log(`        deposited         ${quote(totalNative)}`)
+console.log(`        soft cap          ${quote(softCap)}  ${totalNative >= softCap ? '(met)' : '(NOT MET)'}`)
+console.log(`        per-wallet cap    ${quote(perWalletCap)}`)
+console.log(`        referral reserved ${quote(refReserved)}   claimed ${quote(refClaimed)}`)
+console.log(`        orphan referral   ${quote(orphan)}`)
 
 if (totalNative < softCap) fail('a launched hook whose raise is below its own soft cap')
 
@@ -188,10 +189,10 @@ const lpNative = totalNative - (refReserved + orphanAtLaunch)
 
 console.log('\nThe split  (lpNative = deposited - referralReserved - orphanReferral)')
 if (ev) {
-  expect('Launched.totalNative == totalNativeDeposited', ev.totalNative, totalNative, eth)
-  expect('lpNative reconciles with the reserves', ev.lpNative, lpNative, eth)
-  console.log(`        orphan at launch  ${eth(orphanAtLaunch)}`)
-  if (orphan !== 0n) fail(`orphanReferral is ${eth(orphan)} after launch — launch() forwards and zeroes it`)
+  expect('Launched.totalNative == totalNativeDeposited', ev.totalNative, totalNative, quote)
+  expect('lpNative reconciles with the reserves', ev.lpNative, lpNative, quote)
+  console.log(`        orphan at launch  ${quote(orphanAtLaunch)}`)
+  if (orphan !== 0n) fail(`orphanReferral is ${quote(orphan)} after launch — launch() forwards and zeroes it`)
 }
 
 // ── The anchor prices ────────────────────────────────────────────────────────
@@ -199,9 +200,9 @@ const wantP0 = (lpNative * 10n ** 18n) / GENESIS_LP_SUPPLY
 const wantShelf = (wantP0 * SHELF_PREMIUM_BPS) / BPS
 
 console.log('\nAnchor prices  (p0 = lpNative / 3.78M, shelfP0 = p0 * 1.05)')
-expect('p0', p0, wantP0, (v) => `${ethers.formatEther(v)} native/token`)
-expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatEther(v)} native/token`)
-if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatEther(v)} native/token`)
+expect('p0', p0, wantP0, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
+expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
+if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
 
 // ── Token supply and where it sits ───────────────────────────────────────────
 const [vaultAddr, poolKey] = await Promise.all([hook.vault(), hook.getPoolKey()])
@@ -281,10 +282,12 @@ const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
 ))
 
 const pm = new ethers.Contract(pmAddr, CL_POOL_ABI, provider)
-const [slot0, liquidity, vaultNative] = await Promise.all([
+const quoteAddr = await hook.quoteAsset()
+const quoteToken = new ethers.Contract(quoteAddr, ERC20_ABI, provider)
+const [slot0, liquidity, vaultQuote] = await Promise.all([
   pm.getSlot0(poolId),
   pm.getLiquidity(poolId),
-  provider.getBalance(vaultAddr),
+  quoteToken.balanceOf(vaultAddr),
 ])
 
 const sqrtPriceX96 = slot0.sqrtPriceX96
@@ -294,7 +297,7 @@ const lpFee = Number(slot0.lpFee)
 const tickSpacing = Number((BigInt(poolKey.parameters) >> 16n) & 0xffffffn)
 
 console.log(`\nPool   id ${poolId}`)
-console.log(`        currency0         ${poolKey.currency0} (native)`)
+console.log(`        currency0         ${poolKey.currency0} (quote)`)
 console.log(`        currency1         ${poolKey.currency1}`)
 console.log(`        poolManager       ${poolKey.poolManager}`)
 console.log(`        fee / spacing     ${poolKey.fee} / ${tickSpacing}`)
@@ -304,7 +307,7 @@ console.log(`        tick              ${tick}`)
 console.log(`        lpFee             ${lpFee}${lpFee === POOL_FEE ? '' : `  (expected ${POOL_FEE})`}`)
 console.log(`        protocolFee       ${protocolFee}`)
 console.log(`        liquidity         ${liquidity}`)
-console.log(`        vault native      ${eth(vaultNative)}  (all pools on this Vault)`)
+console.log(`        vault quote       ${quote(vaultQuote)}  (all pools on this Vault)`)
 
 if (sqrtPriceX96 === 0n) {
   fail('the pool is not initialized: getSlot0 returned sqrtPriceX96 0. '
@@ -327,7 +330,7 @@ if (ev) expect('liquidity matches the Launched event', liquidity, ev.lpLiquidity
 const Q192 = 1n << 192n
 const tokensPerNative = (sqrtPriceX96 * sqrtPriceX96) >> 192n
 const spot = tokensPerNative === 0n ? 0n : (Q192 * 10n ** 18n) / (sqrtPriceX96 * sqrtPriceX96)
-console.log(`        spot              ${ethers.formatEther(spot)} native/token  (${tokensPerNative} per native)`)
+console.log(`        spot              ${ethers.formatUnits(spot, 8)} quote/token  (${tokensPerNative} token-wei per quote-unit)`)
 
 // The pool price moves the instant anyone trades, so a difference from the
 // opening price is information rather than a fault. Only the direction has to
@@ -358,17 +361,17 @@ if (ev && sqrtPriceX96 !== ev.sqrtPriceX96) {
  */
 const poolEth = (liquidity << 96n) / sqrtPriceX96
 const poolTokens = (liquidity * sqrtPriceX96) >> 96n
-console.log(`        implied reserves  ${eth(poolEth)}  +  ${tok(poolTokens)} ${symbol}`)
+console.log(`        implied reserves  ${quote(poolEth)}  +  ${tok(poolTokens)} ${symbol}`)
 
 const within = (a, b, pct) => {
   const diff = a > b ? a - b : b - a
   return b === 0n ? a === 0n : diff * 100n <= b * BigInt(pct)
 }
 if (!within(poolEth, lpNative, 2)) {
-  fail(`the pool implies ${eth(poolEth)} of native but launch() put in ${eth(lpNative)} — `
+  fail(`the pool implies ${quote(poolEth)} of quote but launch() put in ${quote(lpNative)} — `
     + 'the raise did not land in the position it was supposed to')
 } else {
-  console.log(`  ok    pool native is the raise less commission     ${eth(lpNative)} expected`)
+  console.log(`  ok    pool quote is the raise less commission      ${quote(lpNative)} expected`)
 }
 if (!within(poolTokens, pmTokenBal, 2)) {
   notes.push(`reserves derived from L (${tok(poolTokens)}) and the manager's balance `
@@ -401,9 +404,9 @@ const [creatorDep, creatorClaimed, creatorRef] = await Promise.all([
 ])
 const creatorShare = totalNative === 0n ? 0n : (creatorDep * GENESIS_CLAIM_SUPPLY) / totalNative
 console.log(`\nCreator ${creator}`)
-console.log(`        deposited         ${eth(creatorDep)} of ${eth(totalNative)}`)
+console.log(`        deposited         ${quote(creatorDep)} of ${quote(totalNative)}`)
 console.log(`        genesis claim     ${tok(creatorShare)} ${symbol} ${creatorClaimed ? '(claimed)' : '(unclaimed)'}`)
-console.log(`        referral accrued  ${eth(creatorRef)}`)
+console.log(`        referral accrued  ${quote(creatorRef)}`)
 
 // ── Verdict ──────────────────────────────────────────────────────────────────
 if (notes.length > 0) {

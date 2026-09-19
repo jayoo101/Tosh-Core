@@ -1,13 +1,11 @@
 # Moving the quote asset to BEM
 
-Status: **approved, not started in code.** §6's three blocking questions have
-been answered; the answers are in §0 with what each one costs, because two of
-them were decided against the recommendation here. A first wiring pass began
-and was reverted the same session: changing the three constructors without the
-365 test sites, the CREATE2 token grind, the `msg.value` → `transferFrom` paths
-and the frontend left the tree unable to build, which is a worse state than
-leaving the assessment to be implemented as one piece. The structural choice in
-§0.1 survived that pass and is recorded so the next one does not re-derive it.
+Status: **approved and implemented in this tree.** §6's three blocking questions
+were answered in §0; the constructors, CREATE2 grind, `transferFrom` paths,
+tests, frontend money paths and the script guards are in. What is still missing
+is a live factory: `56` has not been deployed against BEM, and `97` has no BEM
+to rehearse on. The structural choice in §0.1 (quote asset as an
+implementation-level immutable) is what shipped.
 
 It reverses a decision already recorded in `docs/PANCAKESWAP_INFINITY.md` §6
 ("Quote asset: BNB, decided"), so it has to answer that document rather than

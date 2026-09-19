@@ -360,6 +360,17 @@ cites that fact directly in its argument about the quiet failure mode. Moving to
 an ERC20 quote asset would turn deposits from `msg.value` into `transferFrom` and
 rewrite the refund and buyback paths — a larger change than this whole port.
 
+> ⚠ **This section was overruled on 2026-09-19. The quote asset is BEM.** The
+> paragraph above is kept because its reasoning was correct and the cost it
+> predicted is the cost that was paid: deposits did become `transferFrom`, and the
+> refund and buyback paths were rewritten. What it got wrong was only the
+> conclusion that the price was too high. The `currency0` assumption did not
+> survive as a fact and is now an enforced invariant instead — the factory grinds
+> each project token's CREATE2 salt until it sorts above BEM, so the quote asset
+> is still `currency0`, but by construction rather than by arithmetic. The token's
+> own risks named above (single-address mint authority, a 1,959-token float) were
+> accepted, not resolved. See `docs/BEM_QUOTE_ASSET.md`.
+
 ---
 
 ## 7 · Addresses used, and how to re-check them

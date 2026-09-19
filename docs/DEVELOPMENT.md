@@ -17,14 +17,17 @@ How to build, test, deploy and operate this repository. For what the protocol
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
 | Verification | Etherscan v2 via `.github/workflows/verify.yml`. `ToshLadderTreasury` is verified on `97`; `ToshFactory` is deliberately not — see `SECURITY.md`. Nothing on `56` is verified because nothing on `56` is deployed |
-| Tests | 389 passing of 393 across 16 suites, including stateful invariants and adversarial probes |
+| Quote asset | **BEM**, an 8-decimal ERC-20 (`0x5ce0…695a` on `56`). BNB pays gas only |
+| Tests | 392 passing of 396 across 16 suites, including stateful invariants and adversarial probes |
 | Toolchain | Foundry · Next.js + wagmi + viem · Node |
 
-> There is no platform token. Launch fees, genesis deposits and shelf purchases
-> are all native BNB. Notes mentioning `MockSATO`, `harvestAndBurn`, graduation
-> or the `0x2200` / `0x20CC` hook address mask describe v3.4/v4.x / Uniswap V4
-> and no longer apply. Infinity registers permissions via
-> `getHooksRegistrationBitmap()`.
+> There is no platform token, and the quote asset is not the chain's coin either.
+> Launch fees, genesis deposits, shelf purchases, refunds and buyback ammunition
+> are all **BEM**, pulled with `transferFrom` — nothing on a money path is
+> `payable`. Notes mentioning native-coin deposits, `msg.value`, `MockSATO`,
+> `harvestAndBurn`, graduation or the `0x2200` / `0x20CC` hook address mask
+> describe earlier denominations or Uniswap V4 and no longer apply. Infinity
+> registers permissions via `getHooksRegistrationBitmap()`.
 
 ---
 
@@ -35,7 +38,7 @@ code that exists or code that is absent, and each is checkable from chain.
 
 **Depositors always have a way out.** If the creator never calls `launch()`
 within the 7-day `LAUNCH_WINDOW` after genesis closes, every depositor reclaims
-100% of their native coin with no penalty. Missing the raise target does not fail the
+100% of their BEM with no penalty. Missing the raise target does not fail the
 round — time-up is what opens `launch()`, with whatever was raised. "Raised the
 money and vanished" is not a state that can trap funds.
 
@@ -57,7 +60,7 @@ positions and come and go freely.
 **The treasury cannot be drained.** `ToshLadderTreasury` has no `withdraw`, no
 `sweep`, no `rescue` and no `delegatecall`. Its only outbound path buys on a
 Tosh pool and sends the tokens to `0xdead`. The owner chooses which tokens are
-in the buyback rotation; the owner cannot choose where the native coin goes.
+in the buyback rotation; the owner cannot choose where the BEM goes.
 
 **Contracts are not upgradeable.** `ToshToken` never grants
 `DEFAULT_ADMIN_ROLE`, so `MINTER_ROLE` is frozen on the project's hook forever.
@@ -107,17 +110,28 @@ so the two 1.05 factors cancel and the condition carries no magic number.
 
 | Fee | Rate | Destination |
 |---|---|---|
-| Launch fee | `launchFee()` — currently **0.35 BNB** | `ladderTreasury` (buyback fuel) |
+Every figure below is in **BEM**, the quote asset — an 8-decimal ERC-20, not the
+chain's own coin. BNB pays gas and nothing else.
+
+| Fee | Rate | Destination |
+|---|---|---|
+| Launch fee | `launchFee()` — default **9.28 BEM** | `ladderTreasury` (buyback fuel) |
 | Shelf proceeds | 99% | `projectAdmin` |
 | Shelf platform cut | 1% | `ladderTreasury` |
 | Referral commission | 10% of each deposit | referrer(s), or the treasury if unbound |
-| Swap tax — buy | 1.00% of the BNB input | 0.70% → `ladderTreasury`, 0.30% → `platformTreasury` |
+| Swap tax — buy | 1.00% of the BEM input | 0.70% → `ladderTreasury`, 0.30% → `platformTreasury` |
 | Swap tax — sell | 1.00% of the token input | burned to `0xdead`, not split |
 | Pool fee | 0.30% | third-party LPs, settled natively by the Infinity CL pool |
 | **Total trader friction** | **1.30%** | 0.30% LPs + 0.70% burn + 0.30% platform |
 
-The launch fee is an owner-tunable parameter with a `MAX_LAUNCH_FEE` = 35 BNB
+The launch fee is an owner-tunable parameter with a `MAX_LAUNCH_FEE` = 928 BEM
 ceiling and zero permitted; read `launchFee()` rather than trusting this table.
+
+**Nothing on a money path is `payable` any more.** `createLaunch`, `deposit` and
+`mintBondingCurve` all pull with `transferFrom` against an allowance the caller
+must already hold, so each is two transactions. The spender is not the same
+contract in both directions and guessing costs a reverted deposit: `deposit`
+pulls through the **factory**, `mintBondingCurve` through the **hook**.
 
 **The 0.30% platform cut is the one fee not committed to buy-and-burn.** It is
 platform operating revenue, it applies to the buy leg only, and
@@ -207,8 +221,10 @@ address, so the factory used to search salts until it found one carrying the
 `0x20CC` mask; Infinity calls `getHooksRegistrationBitmap()` instead, and any
 unused salt will do. See "Salts: there is nothing left to mine" below.
 
-**Phase 1 — genesis.** Depositors call `factory.deposit(hook, referrer)` with
-native BNB. The window is a hard deadline chosen at creation; the soft cap is a
+**Phase 1 — genesis.** Depositors approve the **factory** for BEM, then call
+`factory.deposit(hook, referrer, amount)` — two transactions, and the allowance
+goes to the factory rather than to the project's own hook, which is the one a
+depositor would guess. The window is a hard deadline chosen at creation; the soft cap is a
 floor, not a ceiling, so a round keeps accepting deposits for its whole window
 after the cap is met.
 
@@ -237,8 +253,8 @@ refunded.
 `claimReferralReward()` per project, or use the aggregated ledger at
 `/referrals`.
 
-**Buyback.** Once the treasury holds `TRIGGER_STEP` (3.5 BNB) the reservoir is
-armed and `max(3.5 BNB, 10% of balance)` is due. One poke spends
+**Buyback.** Once the treasury holds `TRIGGER_STEP` (92.8 BEM) the reservoir is
+armed and `max(92.8 BEM, 10% of balance)` is due. One poke spends
 `spend / BATCH_SIZE` on one roster token in round-robin order and sends it to
 `0xdead`, under a TWAP-relative floor
 (`MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000). Two things poke it:
@@ -249,7 +265,7 @@ armed and `max(3.5 BNB, 10% of balance)` is due. One poke spends
   finish. Without the gate, the trade whose own tax armed the reservoir paid for
   the whole cycle, every cycle.
 - **`pokeBuyback()`, from anyone** — the liveness backstop, since the gas gate
-  means trading alone no longer guarantees the reservoir empties. It moves no BNB
+  means trading alone no longer guarantees the reservoir empties. It moves no BEM
   to the caller and chooses nothing but the timing: venue comes from the hook,
   size from the balance, order from the cursor, price floor from the same TWAP.
 
@@ -264,13 +280,16 @@ would bill every trader for the privilege. `STATE-06` in
 Genesis deposits are quota-gated. The oracle sums an address's historical gas
 spend across Ethereum, Arbitrum, Optimism, Base and Robinhood; below the band's
 floor (seeded at 0.025 ETH) it is refused, and above it the quota is converted at
-the live rate (seeded at 1.75 BNB of quota per 1 ETH of gas), capped by the
-band's own ceiling (seeded at 1.75 BNB), then clamped on-chain by
-`maxPogAllocationLimit()` (1.75 BNB) regardless of what the oracle signed.
+the live rate (seeded at 46.4 BEM of quota per 1 ETH of gas), capped by the
+band's own ceiling (seeded at 46.4 BEM), then clamped on-chain by
+`maxPogAllocationLimit()` (46.4 BEM) regardless of what the oracle signed.
 
-The two units in that sentence are not a typo. The floor and the derived gas cap
-measure **gas history**, which was spent on ETH-settled chains and stays in ETH;
-the rate and the ceiling measure a **deposit**, which is BNB. `pogQuota.ts` says
+The two units in that sentence are not a typo, and since the BEM move they are
+not even the same **scale** — the floor is 18-decimal and the ceiling is
+8-decimal. The floor and the derived gas cap measure **gas history**, which was
+spent on ETH-settled chains and stays in ETH; the rate and the ceiling measure a
+**deposit**, which is BEM. 1 ETH of gas fills the ceiling exactly, as it did
+under all three denominations (1.75/1.75, then 46.4/46.4). `pogQuota.ts` says
 the same thing at its `floorWei` and `maxAllocWei` declarations. Note also what
 the scanner still covers: Ethereum, Arbitrum, Optimism, Base and Robinhood —
 **not** BSC. A wallet's BSC gas history does not count toward its own quota on
@@ -623,13 +642,35 @@ and the two `.env*.example` templates; this table is a convenience, and
 |---|---|---|
 | CL PoolManager | `0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
 | Vault | `0x238a358808379702088667322f80aC48bAd5e6c4` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
-| UniversalRouter | `0x55f4c8abA71A1e923edC303eb4fEfF14608cC226` | `0x77DedB52EC6260daC4011313DBEE09616d30d122` |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | same |
+| UniversalRouter | `0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB` | `0x87FD5305E6a40F378da124864B2D479c2028BD86` |
+| CLPositionManager | `0x55f4c8abA71A1e923edC303eb4fEfF14608cC226` | `0x77DedB52EC6260daC4011313DBEE09616d30d122` |
+| Permit2 | `0x31c2F6fcFf4F8759b3Bd5Bf0e1084A055615c768` | same |
 
-Measured on chain 2026-09-18 rather than cited: manager 20,885 bytes on `56` and
-20,886 on `97`, Vault 8,347 on both, UniversalRouter 24,004 on both. And each
-manager's own `vault()` returns the Vault in its column — so the pairing above
-is the managers' answer, not this table's claim.
+Measured on chain 2026-09-19 rather than cited: manager 20,885 bytes on `56` and
+20,886 on `97`, Vault 8,347 on both, UniversalRouter 24,350 on both,
+CLPositionManager 24,004 on both, Permit2 7,020 on both. And each manager's own
+`vault()` returns the Vault in its column — so the pairing above is the managers'
+answer, not this table's claim.
+
+Two rows in that table were wrong, and both were wrong in the same way: the value
+was plausible and something else answered to it.
+
+- **The `UniversalRouter` row held the `CLPositionManager` addresses.** The
+  byte-count sentence said "UniversalRouter 24,004 on both", which is genuinely
+  `CLPositionManager`'s size — so the measurement corroborated the mislabelling
+  instead of catching it. Both contracts now have their own row.
+- **The `Permit2` row held Uniswap's canonical address.** `0x0000…78BA3` is
+  deployed on BSC and is a working Permit2 (9,152 bytes), so an approval to it
+  succeeds and a presence check passes. PancakeSwap's periphery does not consult
+  it. Both `UniversalRouter` and `CLPositionManager` pull through
+  `0x31c2F6fc…c768`, which is what `CLPositionManager.permit2()` returns on both
+  chains. Approving the canonical one leaves a swap or an LP mint reverting with
+  `AllowanceExpired` from a contract the caller never named.
+
+The Permit2 mistake was invisible until the quote asset became an ERC-20: under
+native settlement Permit2 was not in the swap path at all. `ToshV5Fork.t.sol`
+now asserts `CLPositionManager.permit2()` against the constant, so a periphery
+bump cannot move it back quietly.
 
 There is no `StateView` and no `Quoter` row because Infinity ships neither. Pool
 state is read from `CLPoolManager.getSlot0` / `getLiquidity` directly, which is
@@ -861,7 +902,7 @@ Tosh-Core/
 | `addLadderToken` reverts `TokenNotLaunchedHere` | Only tokens launched by the bound factory can be listed. |
 | `addLadderToken` reverts `InvalidPoolKey` / `PoolNotLaunched` | The hook exists but has not run `launch()`, so there is no pool yet. |
 | `addLadderToken` reverts `TwapNotMature` | The pool's TWAP has not matured; listing is refused until it answers. |
-| Treasury holds ≥ 3.5 BNB and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
+| Treasury holds ≥ 92.8 BEM and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
 | `pokeBuyback` reverts `NotArmed` | Reservoir below `TRIGGER_STEP`, or the roster is empty. |
 | `pokeBuyback` reverts `PiggybackInProgress` | A buyback is already mid-flight in this call stack. Retry after it settles. |
 | Every swap on a pool reverts | Check `treasury.factory()` is wired. This now degrades to skipped buybacks rather than bricking pools. |

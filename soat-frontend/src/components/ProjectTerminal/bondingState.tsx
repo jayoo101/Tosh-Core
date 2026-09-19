@@ -16,10 +16,10 @@
  * second component would mean two `quoteMint` polls disagreeing about the cost
  * of the same order, and two places able to issue `mintBondingCurve`.
  *
- * NOTHING IN HERE IS NEW. It is `BondingPanel`'s former body, moved verbatim —
- * same reads, same cadences, same revert-ordered blocker cascade, same
- * `value: maxQuoteCost`. The split is a layout change and the buy path spends
- * the real settlement coin, so the derivation was lifted rather than rewritten.
+ * NOTHING IN HERE IS NEW except the settlement. It is `BondingPanel`'s former
+ * body, moved verbatim — same reads, same cadences, same revert-ordered blocker
+ * cascade. The buy path used to send `value: maxQuoteCost`; it now approves that
+ * amount and passes it as `maxCost`. The split is still a layout change.
  *
  * WHY THIS IS NOT BEHIND `next/dynamic` the way the two halves are: a dynamic
  * component's fallback renders INSTEAD of its children, and this provider wraps
@@ -439,7 +439,7 @@ export function BondingStateProvider(
   const amountError =
       tokenAmountInvalid ? 'NOT A NUMBER'
     : exceedsMax         ? 'TOO BIG FOR ONE ORDER'
-    : isDust             ? 'COSTS LESS THAN A WEI'
+    : isDust             ? 'COSTS LESS THAN A UNIT'
     : insufficientBal    ? 'ABOVE YOUR BALANCE'
     : null
 

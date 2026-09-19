@@ -711,7 +711,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit PogSignerUpdated(newSigner);
     }
 
-    /// @notice Set the native-ETH toll charged by `createLaunch`.
+    /// @notice Set the quote-asset toll charged by `createLaunch`, in base units
+    ///         (8 decimals, so 9.28 BEM is `9.28e8`).
     /// @dev    Bounded above by `MAX_LAUNCH_FEE`; see that constant for why.
     ///         Zero is legal.  Not retroactive in any sense — `createLaunch`
     ///         reads it live and `expectedFee` protects the creator against a

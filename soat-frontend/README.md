@@ -24,12 +24,18 @@ before the dev server binds a port rather than halfway through a page load.
 
 ```dotenv
 NEXT_PUBLIC_FACTORY_ADDRESS=0x...
+NEXT_PUBLIC_QUOTE_ASSET=0x...        # must equal factory.quoteAsset(); no default
+NEXT_PUBLIC_QUOTE_SYMBOL=BEM         # display ticker; leave as BEM on 56
 NEXT_PUBLIC_CHAIN_ID=97              # 56 for production, once it is deployed
 BSC_RPC=https://...                  # server-side only; keyed mainnet endpoint
 BSC_TESTNET_RPC=https://...          # server-side only; keyed testnet endpoint
 # NEXT_PUBLIC_RPC_URL=              # leave unset in production
 POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
 ```
+
+`NEXT_PUBLIC_QUOTE_ASSET` is required and has no fallback. Approving the wrong
+token succeeds; the factory then pulls a different one and the deposit reverts.
+`scripts/checkQuoteAsset.mjs` reconciles the env value against the live factory.
 
 Two rules the guards enforce, both learned the hard way:
 

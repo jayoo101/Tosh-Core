@@ -4,9 +4,9 @@
  *
  * THREE DIALS, ONE SIGNATURE
  *
- *   --rate       ETH of deposit quota per 1 ETH of historical gas
+ *   --rate       quote units of deposit quota per 1 ETH of historical gas
  *   --floor      lifetime gas required to qualify, in ETH
- *   --max-alloc  ceiling on one wallet's deposit, in ETH
+ *   --max-alloc  ceiling on one wallet's deposit, in quote units (8 decimals)
  *
  * `--rate` is always signed. The other two are optional and sign as the literal
  * `keep` when omitted, so "move the rate only" is a different signature from
@@ -52,8 +52,8 @@
  * single rate, and to a nonce the server will refuse to see twice.
  *
  * Usage:
- *   node scripts/rotateGasRate.mjs request --rate 0.5 [--floor 0.025]
- *                                          [--max-alloc 0.5] [--ttl 21600]
+ *   node scripts/rotateGasRate.mjs request --rate 46.4 [--floor 0.025]
+ *                                          [--max-alloc 46.4] [--ttl 21600]
  *   node scripts/rotateGasRate.mjs verify  [scripts/.rate-signatures.json]
  *   node scripts/rotateGasRate.mjs submit
  *
@@ -206,6 +206,11 @@ function buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt }) {
  * ETH in and wei out, because the dial is wei on the wire and in the signature
  * but nobody types eighteen zeros correctly. `parseEther` rejects the slips
  * that matter — a bare `.5`, an `0x` paste, a thousands separator.
+ *
+ * ONLY `--floor` uses this. The floor measures gas burned on ETH-settled chains
+ * and stayed in ETH through both re-denominations. `--max-alloc` is a quote-asset
+ * amount and goes through `quoteFlag` — feeding it to this function would take
+ * "46.4" as 46.4 ETH and sign a ceiling 10^10 too large.
  */
 function weiFlag(name) {
   const raw = flag(name)
@@ -218,6 +223,26 @@ function weiFlag(name) {
   }
   if (wei <= 0n) fail(`--${name} must be positive, got ${raw}`)
   return wei
+}
+
+/**
+ * Read a quote-denominated flag into 8-decimal base units.
+ *
+ * Same job as `weiFlag`, for the other scale. The ceiling is what a wallet may
+ * deposit, and deposits are in the quote asset, so "46.4" here means 46.4 BEM
+ * and not 46.4 of anything 18-decimal.
+ */
+function quoteFlag(name) {
+  const raw = flag(name)
+  if (raw === undefined) return null
+  let units
+  try {
+    units = ethers.parseUnits(raw, 8)
+  } catch {
+    return fail(`--${name} must be an amount in quote units, e.g. --${name} 46.4 (got ${raw})`)
+  }
+  if (units <= 0n) fail(`--${name} must be positive, got ${raw}`)
+  return units
 }
 
 // ─── Safe message hashing ────────────────────────────────────────────────────
@@ -356,7 +381,7 @@ async function request() {
   if (!Number.isInteger(ttl) || ttl <= 0) fail(`--ttl must be a positive integer of seconds`)
 
   const floorWei = weiFlag('floor')
-  const maxAllocWei = weiFlag('max-alloc')
+  const maxAllocWei = quoteFlag('max-alloc')
 
   const { chainId, owner, safe } = await connect()
   const [owners, threshold] = await Promise.all([safe.getOwners(), safe.getThreshold()])
@@ -417,8 +442,8 @@ async function request() {
 
   console.log(`\n  safe          ${owner}  (${threshold}-of-${owners.length})`)
   console.log(`  rate          ${rate}`)
-  console.log(`  floor         ${floorWei === null ? 'unchanged' : ethers.formatEther(floorWei) + ' ETH'}`)
-  console.log(`  max alloc     ${maxAllocWei === null ? 'unchanged' : ethers.formatEther(maxAllocWei) + ' ETH'}`)
+  console.log(`  floor         ${floorWei === null ? 'unchanged' : ethers.formatEther(floorWei) + ' ETH of gas'}`)
+  console.log(`  max alloc     ${maxAllocWei === null ? 'unchanged' : ethers.formatUnits(maxAllocWei, 8) + ' quote units'}`)
   console.log(`  nonce         ${nonce}`)
   console.log(`  expires       ${new Date(expiresAt * 1000).toISOString()}  (${ttl}s)`)
   console.log(`  hash to sign  ${local}  ✓ matches the Safe's own getMessageHash`)
@@ -547,7 +572,7 @@ function template() {
   const text = buildMessage({
     rate,
     floorWei: weiFlag('floor'),
-    maxAllocWei: weiFlag('max-alloc'),
+    maxAllocWei: quoteFlag('max-alloc'),
     nonce,
     expiresAt,
   })

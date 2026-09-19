@@ -275,10 +275,12 @@ recovered by whoever parked the price.
 
 Those two figures are **denominated in ETH because that is the build they were
 measured on**, and they are left unconverted rather than rescaled. `TRIGGER_STEP`
-is now `3.5 ether` of BNB over a `BATCH_SIZE` of 3, so the leg a present-day
-attacker would be reaching for is a different number; multiplying the old
-measurement by the currency rescale would produce a figure nobody measured and
-present it in the same sentence as one somebody did.
+has since been re-denominated twice — ETH, then 3.5 BNB, and now **92.8 BEM** at
+8 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
+attacker would be reaching for is a different number. Multiplying the old
+measurement through two currency rescales would produce a figure nobody measured
+and present it in the same sentence as one somebody did. If this window is ever
+reopened, the measurement has to be redone rather than converted.
 
 **Closed in source on 2026-09-11, on 4663 on 2026-09-12, and carried into every
 deployment since — including `97`.** The next two paragraphs are 4663 history;

@@ -62,6 +62,14 @@ not by citation:
 CREATE2 hook mining, the `0x20CC` flag encoding and Permit2's canonical address
 are all chain-independent.
 
+> ⚠ **The last clause did not survive the move to PancakeSwap.** Permit2's
+> canonical address is chain-independent, but that only matters if the periphery
+> in use consults it. PancakeSwap's does not: its `UniversalRouter` and
+> `CLPositionManager` both pull through their own Permit2 at
+> `0x31c2F6fcFf4F8759b3Bd5Bf0e1084A055615c768`, on `56` and `97` alike. The
+> canonical address is live on BSC and is a working Permit2, which is what made
+> the wrong answer survive — see `docs/DEVELOPMENT.md` §"Infinity periphery".
+
 ---
 
 ## 2. The router: one address is correct, the other is a trap
@@ -271,6 +279,14 @@ assumption `scripts/checkV4RouterTuple.mjs` cites directly when arguing about it
 quiet failure mode. An ERC20 quote asset turns deposits from `msg.value` into
 `transferFrom` and rewrites the refund and buyback paths. That is a larger change
 than the whole BSC migration.
+
+> ⚠ **Overruled on 2026-09-19: the quote asset is now BEM.** The size estimate
+> above was accurate — the change did cost more than the BSC migration itself —
+> and it was made anyway. `currency0` is still the quote asset, but now because
+> the factory grinds each project token's CREATE2 salt to sort above it, not
+> because `address(0)` sorts below everything. The single-address mint authority
+> named above remains an accepted risk. `docs/BEM_QUOTE_ASSET.md` carries the
+> decision and what each part of it costs.
 
 See `docs/PANCAKESWAP_INFINITY.md` §6 for the same record from the AMM side.
 

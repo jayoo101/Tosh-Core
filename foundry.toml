@@ -142,7 +142,7 @@ runs = 256
 # and the refund invariants would be vacuously true. Depth also has to be
 # enough to reach a *funded* treasury: the buyback invariants need a launched
 # pool, a listed ladder token and a full `TRIGGER_STEP` of accumulated tax
-# (3.5 BNB) before anything can leave, which is several actions deep past launch.
+# (92.8 BEM) before anything can leave, which is several actions deep past launch.
 #
 # depth stays 100 HERE, and the deeper setting lives in `.github/workflows/
 # soak.yml` instead. It was raised to 250 on 2026-09-06 and moved back out the

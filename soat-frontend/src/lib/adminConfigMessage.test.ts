@@ -104,10 +104,19 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
     }
   })
 
-  it('agrees with the CLI on the wei dials too, ETH in and wei signed', () => {
+  it('agrees with the CLI on the two dials, and on their two different scales', () => {
     // The CLI takes `--floor 0.025` because nobody types eighteen zeros
-    // correctly, and signs the wei. A conversion that disagreed with this side
-    // would sign a floor nobody chose.
+    // correctly, and signs the base units. A conversion that disagreed with this
+    // side would sign a floor nobody chose.
+    //
+    // ⚠ THE TWO DIALS ARE NOT ON THE SAME SCALE, and that is the whole point of
+    //   this case. `--floor` measures gas history on ETH-settled chains, so it is
+    //   18-decimal. `--max-alloc` measures a deposit, which is BEM, so it is
+    //   8-decimal. Identical-looking inputs of `0.5` therefore have to come out
+    //   10^10 apart, and a CLI that scaled both the same way would look right in
+    //   every review: the band stays internally coherent, `pogBandProblem`
+    //   accepts it, and the error only appears as every wallet pinning to the
+    //   on-chain cap. See pogQuota.ts's QUOTE_SCALE_GAP note.
     const out = execFileSync(
       process.execPath,
       [
@@ -120,8 +129,8 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
 
     const expected = buildAdminConfigMessage({
       rate: 0.5,
-      floorWei: 25_000_000_000_000_000n,
-      maxAllocWei: 500_000_000_000_000_000n,
+      floorWei: 25_000_000_000_000_000n,  // 0.025 ETH at 18 decimals
+      maxAllocWei: 50_000_000n,           // 0.5 BEM at 8 decimals
       nonce: 1757000000000n,
       expiresAt: 1757021600,
     })

@@ -28,9 +28,25 @@ something, this document does not claim it.
 This document used to say "deployed on a production chain" without qualification,
 which was true of Robinhood Chain `4663` and is true of nothing today. The
 protocol is mid-move to BNB Smart Chain: the AMM changed with it, from Uniswap V4
-to PancakeSwap Infinity, because BSC has no V4 deployment. Every currency figure
-below is BNB, rescaled ×3.5 from its ETH value — except the Proof-of-Gas floor,
-which stays in ETH on purpose and says so where it appears.
+to PancakeSwap Infinity, because BSC has no V4 deployment.
+
+**Every currency figure below is BEM**, an 8-decimal ERC-20, and this is the second
+re-denomination rather than the first. The protocol settled in ETH, then in BNB
+(×3.5), and now in BEM at the measured rate of ≈26.51 BEM per BNB — which is where
+0.35 → 9.28 for the launch fee and 35 → 928.4 for the default soft cap come from.
+Two consequences are worth stating before any number below is read:
+
+- **Eight decimals, not eighteen.** The hook's constructor asserts `decimals() == 8`
+  and refuses to deploy against anything else, so this is a protocol invariant and
+  not a property of one token. Base units and display units differ by 10^8 here
+  where every other figure in this repo differs by 10^18.
+- **Nothing is `payable` any more.** BNB is now gas and gas only. The launch fee,
+  every genesis deposit, every shelf mint and every buyback moves by
+  `transferFrom`, which means each of them needs an ERC-20 approval first and can
+  fail for a reason that has nothing to do with the protocol.
+
+The Proof-of-Gas floor is the one exception and stays in ETH on purpose; it says so
+where it appears.
 
 What that costs in confidence is stated rather than glossed. The 4663 deployment
 had verified bytecode on two independent services and a pinned build tag; the BSC
@@ -190,61 +206,84 @@ corrected because the scan set is a live decision, not a typo.
 requesting wallet's real gas spend across major chains. Fresh wallets and
 bulk-generated airdrop farms fall below the floor and are refused.
 
-That figure is in ETH, and it is still in ETH now that deposits settle in BNB.
+That figure is in ETH, and it has stayed in ETH through both re-denominations.
 This is deliberate rather than a leftover. The floor is a threshold on gas
 already paid to Ethereum, Arbitrum, Optimism and Base, all of which settle in
-ETH, and what the settlement chain's own coin is worth has no bearing on how
-much gas a wallet has historically burned. Rescaling it along with the
-BNB-denominated dials would have raised the eligibility bar by the same factor
-while reading as nothing more than a rename. Everything on the *deposit* side of
-Proof-of-Gas — the ceiling below, and the quota the rate grants — is BNB, so the
-rate is BNB of quota per 1 ETH of gas and carries a currency conversion as well
-as a policy choice. `soat-frontend/src/app/lib/pogQuota.ts` states the same
-split at the constants, and `docs/BSC_MIGRATION.md` §6 records why it was made.
+ETH, and what the deposit asset is worth has no bearing on how much gas a wallet
+has historically burned. Rescaling it along with the settlement dials would have
+raised the eligibility bar by the same factor while reading as nothing more than a
+rename. Everything on the *deposit* side of Proof-of-Gas — the ceiling below, and
+the quota the rate grants — is BEM, so the rate is BEM of quota per 1 ETH of gas
+and carries a currency conversion as well as a policy choice.
+
+The band therefore spans two units, and since the move to BEM it spans two
+**scales** as well: 18 decimals on the gas side against 8 on the deposit side. That
+factor of 10^10 used to cancel and no longer does, so it is carried explicitly as
+`QUOTE_SCALE_GAP` rather than folded into the rate — folding it in would make the
+operator-facing dial read `1.75e-10`, which is not a figure anyone can sanity-check
+in a field whose entire purpose is catching an order-of-magnitude slip.
+`soat-frontend/src/app/lib/pogQuota.ts` states the same split at the constants, and
+`docs/BSC_MIGRATION.md` §6 records why it was made.
 
 Worth stating precisely, because it is a trust boundary rather than an invariant:
 this floor lives in the off-chain oracle (`soat-frontend/src/app/lib/pogQuota.ts`
 seeds it, `pogParams.ts` holds the live value), not in the factory. What the
 *contract* enforces is the clamp below.
 
-**2 · The on-chain ceiling (`maxPogAllocationLimit` = 1.75 BNB).** Gas history
+**2 · The on-chain ceiling (`maxPogAllocationLimit` = 46.4 BEM).** Gas history
 establishes that an address is real; it does not buy unlimited allocation. A
-wallet that has burned 100 ETH in fees still deposits at most 1.75 BNB in
+wallet that has burned 100 ETH in fees still deposits at most 46.4 BEM in
 genesis, because the factory clamps whatever the oracle signed. That ceiling is
 what disperses the opening float across hundreds or thousands of organic
 addresses instead of a handful of large ones.
 
-At the seeded rate of 1.75 BNB of quota per 1 ETH of historical gas, the ceiling
+At the seeded rate of 46.4 BEM of quota per 1 ETH of historical gas, the ceiling
 binds from 1 ETH of lifetime gas upward, and more history past that point buys
-nothing. That 1 ETH is where the gate sat before deposits moved to BNB as well:
-the ceiling and the rate were rescaled by the same factor, and the gas at which
-the rate first reaches the ceiling is their quotient, so it did not move.
+nothing. **That 1 ETH is where the gate sat under all three denominations.** The
+ceiling and the rate have always been moved by the same factor, and the gas at
+which the rate first reaches the ceiling is their quotient, so it does not move:
+1.75/1.75 under BNB, 46.4/46.4 under BEM. Anyone changing one without the other is
+changing how much gas history a full allocation costs, which is a separate decision
+from re-denominating.
 
 **3 · The attacker's cost inverts.** Suppose a farm wants 100 genesis slots:
 
 | | Cost to obtain 100 slots | Allocation unlocked |
 |---|---|---|
 | Conventional launchpad | ~0, generate 100 keypairs | whatever the cap allows |
-| Tosh | 100 × 0.025 ETH = **2.5 ETH** genuinely burned in fees first | 100 × 0.04375 BNB = 4.375 BNB |
+| Tosh | 100 × 0.025 ETH = **2.5 ETH** genuinely burned in fees first | 100 × 1.16 BEM = 116 BEM |
 
 The two columns are in different currencies, for the reason given in point 1:
-the left is gas already paid on ETH-settled chains and the right is a BNB
-deposit allowance, so putting them side by side takes a conversion. The rate was
-set against 3.5 BNB to the ETH, at which 4.375 BNB is 1.25 ETH — a wallet
-sitting exactly on the floor earns half of what the floor cost it, and a hundred
-minimum-viable sybils burn 2.5 ETH of gas to unlock the equivalent of 1.25 ETH
-of allocation. Buying the full 1.75 BNB ceiling per wallet costs 1 ETH of real
-gas per wallet, and that one figure needs no conversion at all: the cap is the
-ceiling divided by the rate, and dividing BNB by BNB-per-ETH lands back in ETH.
+the left is gas already paid on ETH-settled chains and the right is a BEM deposit
+allowance, so putting them side by side takes a conversion. At the rate the dials
+were set against — 3.5 BNB to the ETH and 26.51 BEM to the BNB, so 92.8 BEM to the
+ETH — 116 BEM is 1.25 ETH. A wallet sitting exactly on the floor earns half of what
+the floor cost it, and a hundred minimum-viable sybils burn 2.5 ETH of gas to unlock
+the equivalent of 1.25 ETH of allocation. Buying the full 46.4 BEM ceiling costs
+1 ETH of real gas per wallet, and that one figure needs no conversion at all: the cap
+is the ceiling divided by the rate, and dividing BEM by BEM-per-ETH lands back in ETH.
 
-Read the 2:1 as a design margin rather than as arithmetic. It was arithmetic
-while both sides were ETH — a fixed property of two constants, true at any
-price. Now it is a ratio between two currencies and it moves with theirs: at
-3.3624 BNB to the ETH, spot on the day the conversion factor was chosen, the
-same hundred sybils burn 2.5 ETH to unlock about 1.30 ETH of allowance, so the
-margin is nearer 1.9:1 than 2:1, and it narrows further if BNB appreciates
-against ETH. The rate is the dial that restores it and it rotates without a
-redeploy, which makes this a number to keep watching rather than a redeployment.
+**The margin is unchanged from the BNB era, and that is the point of how the
+re-denomination was done** — every dial moved by the same factor, so every ratio
+between them held. The 2:1 above was 2:1 before, the 1 ETH ceiling cost was 1 ETH
+before, and nothing in this section had to be re-derived rather than re-labelled.
+
+Read the 2:1 as a design margin rather than as arithmetic, and read it with more
+caution than the last version of this document asked for. It was arithmetic while
+both sides were ETH — a fixed property of two constants, true at any price. Under BNB
+it became a ratio across one exchange rate. Under BEM it is a ratio across **two,
+chained**: BEM/BNB and BNB/ETH. At 3.3624 BNB to the ETH, spot on the day the
+conversion factor was chosen, the same hundred sybils burn 2.5 ETH to unlock about
+1.30 ETH of allowance, so the margin is nearer 1.9:1 than 2:1.
+
+The added link is the one to watch, and it is the weaker of the two. BNB/ETH is deep
+and slow; BEM/BNB is neither. At the time these dials were set, BEM's pool showed
+market depth around 74 WBNB, its supply had grown 4.81% in two days, and its price
+against BNB had fallen 24% over the same window. A margin that depends on that rate
+is a margin that can be moved by someone with a modest amount of capital and a
+reason to want cheaper genesis allocations. The rate dial is what restores it and it
+rotates without a redeploy — which makes this a number to monitor actively, not an
+assumption to bank.
 
 Either way the fees are spent before any position is taken and cannot be
 recovered by selling, which removes the profit from the sybil model rather than
@@ -323,7 +362,19 @@ The creator pays the launch fee and picks a fundraising window:
 
 The soft cap is written into the hook from the factory's `defaultSoftCap` at
 creation time and cannot go below the production floor
-`MIN_SOFT_CAP_PROD` = 0.035 BNB.
+`MIN_SOFT_CAP_PROD` = 100 BEM.
+
+That floor is the one dial the BEM move did **not** simply rescale, and the reason
+is worth reading before anyone treats 100 as round-number caution. The ladder's
+break-even is pure base-unit arithmetic — it cares how many base units arrive, not
+what one is worth. Under an 18-decimal quote asset a 35-unit cap cleared that cliff
+by a factor of 16.6 million, wide enough to ignore. BEM has 8 decimals, so the same
+number of *tokens* arrives as 10^10 fewer base units, and the whole margin had to be
+bought back out of the token count. At this floor it is **4.75×**. Raises below about
+21 BEM cannot produce a monotone ladder at all, which makes
+`testFuzz_tierPriceAt_strictlyMonotone` load-bearing rather than a sanity check, and
+lowering this constant a change to ladder correctness rather than to policy.
+`ToshFactory.MIN_SOFT_CAP_PROD`'s natspec carries the full derivation.
 
 **Two refund guarantees, both at 100% of principal with no penalty:**
 
@@ -386,10 +437,10 @@ number. Of the proceeds, 99% goes to `projectAdmin` and 1%
 
 ### 4.3 Phase 3 · The deflation engine
 
-Once the treasury's native balance reaches `TRIGGER_STEP` = 3.5 BNB, any
-`afterSwap` on a Tosh pool will attempt a **piggyback buyback**:
+Once the treasury's BEM balance reaches `TRIGGER_STEP` = 92.8 BEM, any `afterSwap`
+on a Tosh pool will attempt a **piggyback buyback**:
 
-- **Size.** $\max(3.5\text{ BNB},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
+- **Size.** $\max(92.8\text{ BEM},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
 - **Rotation.** `BATCH_SIZE` = 3 spreads the spend across pools, advancing
   `LEGS_PER_POKE` = 1 per poke in round-robin order.
 - **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, anchored to the
@@ -403,7 +454,7 @@ Once the treasury's native balance reaches `TRIGGER_STEP` = 3.5 BNB, any
   `PIGGYBACK_MIN_GAS` = 270,000 left, the protocol skips the buyback so the
   user's own trade always completes. Because skipping means trading alone no
   longer guarantees the reservoir drains, anyone may call the permissionless
-  `pokeBuyback()` to advance it. That call moves no BNB to the caller and
+  `pokeBuyback()` to advance it. That call moves nothing to the caller and
   chooses nothing but the timing.
 
 ---
@@ -428,7 +479,7 @@ of `MINTER_ROLE`.
 
 ### 5.2 Where the 10% opening premium comes from
 
-Let $R$ be the total BNB raised in genesis. The protocol always carves off 10%
+Let $R$ be the total BEM raised in genesis. The protocol always carves off 10%
 for referrals, whether or not anyone was referred, so the pool is seeded with
 $0.9R$.
 
@@ -453,6 +504,13 @@ guarantees primary issuance never undercuts the people who funded it.
 Because it is a ratio rather than a pair of magnitudes, resizing the genesis block
 leaves the premium at exactly 1.10. Moving the split or the referral rate moves
 it, and a test pins the identity so it cannot be changed silently.
+
+The algebra above is exact; the integers underneath it are not. $p_0$ is computed as
+`lpQuote * 1e18 / GENESIS_LP_SUPPLY` and truncates, which was invisible at 18
+decimals and is not at 8 — at the `MIN_SOFT_CAP_PROD` floor, $p_0$ comes out as 2380,
+a four-digit integer. The premium still holds to well within rounding at any raise a
+real launch would take, but this is why the floor exists and why raises near it are
+governed by the ladder's monotonicity rather than by this identity.
 
 ### 5.3 What the 40/60 split does to early sell pressure
 
@@ -479,10 +537,10 @@ a quarter of the live supply.
 | Fee | Rate | Where it goes |
 |---|---|---|
 | Infinity pool fee | 0.30% | liquidity providers, settled natively by the AMM |
-| Swap tax — buy | 1.00% of BNB in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
+| Swap tax — buy | 1.00% of BEM in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
 | Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
 | Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
-| Launch fee | currently 0.35 BNB | treasury in full |
+| Launch fee | currently 9.28 BEM | treasury in full |
 | Orphaned commission | the 10% carve, when unbound | treasury at `launch()` |
 
 **Total trader friction is 1.30%** — 0.30% to LPs, 0.70% to buy-and-burn, 0.30%
@@ -515,7 +573,7 @@ require the referrer to hold a registered PoG quota, so farming links costs an
 attestation per throwaway wallet — a cost the oracle can price or refuse, which
 is a cost rather than a wall and is documented as such. The project slot asks for
 one thing more: a live deposit in that same project, read from state before the
-new depositor's own BNB arrives. `canBindProjectReferral` is the read-only mirror
+new depositor's own BEM arrives. `canBindProjectReferral` is the read-only mirror
 of that gate, so the UI does not have to reproduce it in TypeScript.
 
 Self-referral is ignored, and so is a stale link — silently, because this runs
@@ -584,9 +642,9 @@ transfer requires the recipient to call `acceptOwnership()`.
 
 | The owner can | The owner cannot |
 |---|---|
-| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 35 BNB, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
-| Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 0.035 BNB) | Change `platformTreasury`, which is `immutable` |
-| Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or BNB from the genesis liquidity position |
+| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 928 BEM, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
+| Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 100 BEM, ceiling `MAX_DEFAULT_SOFT_CAP` = 20,000 BEM) | Change `platformTreasury`, which is `immutable` |
+| Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or BEM from the genesis liquidity position |
 | Pause `createLaunch` and `registerPoG`, or blacklist an address | Use the ladder halt to withhold refunds, genesis claims or commission |
 | Curate the treasury's buyback roster | Grant mint authority to any third party |
 | Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
@@ -627,26 +685,38 @@ build should see the gap rather than an unqualified list.
   `deploy-4663-2026-09-12`. `HOOK_CREATION_CODEHASH` is still cross-checked against
   this tree by `RecomputeInitcodeHash`, which is checkable from chain and from this
   repository without trusting anyone — but there is no BSC tag to pin to yet.
-- **Tests — current.** 389 passing of 393 across 16 suites, covering the lifecycle state
+- **Tests — current.** 392 passing of 396 across 16 suites, covering the lifecycle state
   machine, the premium identity, the same-block lock, retail LP isolation from the
   genesis position, and that a ladder halt cannot withhold refunds. CI runs the
   suite twice — once normally and once under `--isolate`, which charges each call
   the way a real transaction does. The port to Infinity is inside this count, and
   it found two real bugs: settlement was being paid to the pool manager rather
   than the Vault, and the treasury's callback still authenticated the manager.
-  A further four tests report as skipped: they check a `56` deployment and stay
-  dormant until there is one.
-- **Live-chain rehearsal — current, complete on `97`.** The whole lifecycle has
-  been driven against the real PancakeSwap Infinity deployment on testnet `97`,
-  not only against a fork — genesis, launch, the ladder listing, a buy, and a
-  ladder mint, each as its own transaction. It earned its place by finding what
-  the forks could not. Listing a token on the ladder turned out to be impossible
-  in the same transaction as the launch, because `addLadderToken` reads a TWAP
-  that `launch()` has just zeroed; it is now a phase of its own, run a
-  `TWAP_WINDOW` later. The launch itself went through under the soft cap, which
-  is the intended behaviour rather than a fault — the soft cap is a progress
-  target, not a fail condition (§4.1). And both value-moving calls charged what
-  they had quoted, to the wei: a 0.002 BNB buy and a 945-token ladder mint.
+  The move to a BEM quote asset is also inside this count, including a fork suite
+  that exercises the real BEM bytecode on `56` rather than a mock. A further four
+  tests report as skipped: they check a `56` deployment and stay dormant until
+  there is one.
+- **Live-chain rehearsal — ⚠ stale, needs redoing on `97`.** The whole lifecycle
+  was driven against the real PancakeSwap Infinity deployment on testnet `97`, not
+  only against a fork — genesis, launch, the ladder listing, a buy, and a ladder
+  mint, each as its own transaction. **It was driven against a native-coin quote
+  asset, and that build is gone.** The factory standing on `97` has no
+  `quoteAsset()`, every money-path signature changed with the BEM move, and
+  nothing `payable` survives; the rehearsal therefore no longer evidences the code
+  in this tree and has to be repeated against a redeployed `97`. It is marked
+  rather than deleted because what it found still stands, and is the reason the
+  redeploy is not optional:
+  - Listing a token on the ladder turned out to be impossible in the same
+    transaction as the launch, because `addLadderToken` reads a TWAP that
+    `launch()` has just zeroed; it is now a phase of its own, run a `TWAP_WINDOW`
+    later.
+  - The launch itself went through under the soft cap, which is the intended
+    behaviour rather than a fault — the soft cap is a progress target, not a fail
+    condition (§4.1).
+  - Both value-moving calls charged what they had quoted, to the base unit: a
+    0.002-unit buy and a 945-token ladder mint. That check is worth *more* now
+    than it was then, because the unit is 10^10 coarser and an approve-then-pull
+    flow has a failure mode a `payable` call did not.
 - **Static analysis, pinned.** `forge lint` and Slither both run in CI against
   committed baselines, so a finding cannot start or stop firing without somebody
   deciding about it. There has been no third-party audit; see below.
@@ -825,19 +895,20 @@ precondition for mainnet, and it is a hard one.
 | `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open |
 | `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
 | `PIGGYBACK_MIN_GAS` | 270,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
-| `MIN_SOFT_CAP_PROD` | 0.035 BNB | `ToshFactory` | production floor for the default soft cap |
-| `MAX_LAUNCH_FEE` | 35 BNB | `ToshFactory` | ceiling on the launch fee |
+| `MIN_SOFT_CAP_PROD` | 100 BEM | `ToshFactory` | production floor for the default soft cap — retuned, not rescaled; §4.1 |
+| `MAX_LAUNCH_FEE` | 928 BEM | `ToshFactory` | ceiling on the launch fee |
+| `MAX_DEFAULT_SOFT_CAP` | 20,000 BEM | `ToshFactory` | ceiling on the default soft cap |
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
 | `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |
-| `TRIGGER_STEP` | 3.5 BNB | `ToshLadderTreasury` | balance that arms a buyback |
+| `TRIGGER_STEP` | 92.8 BEM | `ToshLadderTreasury` | balance that arms a buyback |
 | `SPEND_BPS` | 1000 | `ToshLadderTreasury` | share of balance spent per cycle — 10% |
 | `BATCH_SIZE` | 3 | `ToshLadderTreasury` | pools a cycle is spread across |
 | `LEGS_PER_POKE` | 1 | `ToshLadderTreasury` | legs advanced per poke |
 | `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | `ToshLadderTreasury` | buyback slippage band against TWAP |
-| `DEFAULT_POG_GAS_FLOOR_WEI` | 0.025 ETH | off-chain oracle (`pogQuota.ts` seed) | lifetime gas required to qualify — ETH, not BNB, and see below |
-| `DEFAULT_GAS_TO_ALLOC_RATE` | 1.75 | off-chain oracle (`pogQuota.ts` seed) | BNB of quota granted per 1 ETH of historical gas |
-| `DEFAULT_POG_MAX_ALLOC_WEI` | 1.75 BNB | off-chain oracle (`pogQuota.ts` seed) | ceiling the oracle signs against |
-| `maxPogAllocationLimit` | 1.75 BNB | `ToshFactory` | **on-chain** per-wallet genesis clamp |
+| `DEFAULT_POG_GAS_FLOOR_WEI` | 0.025 ETH | off-chain oracle (`pogQuota.ts` seed) | lifetime gas required to qualify — ETH, not BEM, and see below |
+| `DEFAULT_GAS_TO_ALLOC_RATE` | 46.4 | off-chain oracle (`pogQuota.ts` seed) | BEM of quota granted per 1 ETH of historical gas |
+| `DEFAULT_POG_MAX_ALLOC_WEI` | 46.4 BEM | off-chain oracle (`pogQuota.ts` seed) | ceiling the oracle signs against |
+| `maxPogAllocationLimit` | 46.4 BEM | `ToshFactory` | **on-chain** per-wallet genesis clamp |
 
 The last four rows are the trust boundary worth reading carefully: the floor,
 rate, and off-chain ceiling are owner-tunable policy the oracle applies — the
@@ -848,11 +919,19 @@ endpoint enforces that direction.
 
 They are also not all in one currency, which is the other thing to read
 carefully. The floor is ETH because it measures gas spent on ETH-settled chains;
-the two ceilings are BNB because they bound a deposit; and the rate is the term
+the two ceilings are BEM because they bound a deposit; and the rate is the term
 that crosses between them, so it is neither dimensionless nor a typo. §2.2
 argues the split. The rate constant was called `DEFAULT_GAS_TO_ETH_RATE` while
 both sides were ETH, and that name is kept as a deprecated alias so existing
 callers still resolve.
+
+Since the BEM move they are not all on one **scale** either. The floor is 18-decimal
+wei; the ceilings are 8-decimal base units. `pogQuota.ts` carries that 10^10 as
+`QUOTE_SCALE_GAP` rather than folding it into the rate, so the rate above reads 46.4
+and not 4.64e-9. The `_WEI` suffix on two of these names is now a misnomer on the
+ceiling and accurate on the floor; the names were kept because they are on the wire
+in signed attestations, and renaming them would invalidate every quota already
+issued.
 
 ---
 

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Tosh Protocol — canonical on-chain bindings (v5.0, BNB-native, PancakeSwap Infinity).
+// Tosh Protocol — canonical on-chain bindings (v5.0, BEM quote asset, PancakeSwap Infinity).
 //
 // SINGLE SOURCE OF TRUTH for:
 //   • Physical constants (addresses, chain IDs, hard floors mirrored from
@@ -319,7 +319,7 @@ export const PLATFORM_TAX_BPS = 100
  * THE TWO LEGS DO DIFFERENT THINGS WITH IT, which is why the UI cannot
  * describe it as one destination:
  *
- *   • buy  — split. `PLATFORM_SWAP_FEE_BPS` (30) of the BNB input goes to the
+ *   • buy  — split. `PLATFORM_SWAP_FEE_BPS` (30) of the quote-asset input goes to the
  *            platform, the remaining 70 bps to the ladder treasury.
  *   • sell — not split. The full 100 bps of the TOKEN input is burned.
  *
@@ -329,7 +329,7 @@ export const TAX_BPS = 100
 
 /**
  * `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS` — the platform's share of the buy
- * leg's `TAX_BPS`, in basis points of the BNB input.
+ * leg's `TAX_BPS`, in basis points of the quote-asset input.
  *
  * Only the buy leg splits, and only this slice is platform revenue. An indexer
  * that sums `BuyTaxToTreasury` as well is double-counting; see the wire notes
