@@ -270,6 +270,25 @@ re-denomination was done** — every dial moved by the same factor, so every rat
 between them held. The 2:1 above was 2:1 before, the 1 ETH ceiling cost was 1 ETH
 before, and nothing in this section had to be re-derived rather than re-labelled.
 
+⚠ **That table is one draw per wallet, and the one-deposit rule (§4.1) is what
+makes it one draw.** Quota refills every `quotaWindowDuration` — 24 hours — while
+`nativeDeposited` accumulates and never resets, so the two clocks agreeing at 24
+hours used to let a wallet deposit into the *same* project once per refill. On a
+`DURATION_SLOW` launch that was three draws, and it did not merely weaken the row
+above, it reversed it: 100 floor-sitting sybils reached 3 × 116 = 348 BEM, or 3.75
+ETH of allocation at 92.8 BEM to the ETH, against the 2.5 ETH of gas they had to
+burn to get there. A 2:1 deterrent on the two shorter windows was a 1.5:1 *subsidy*
+on the longest one. Raising the cooldown past `DURATION_SLOW` bounds a wallet's
+stake in any one project to a single $Q(A)$ — less, if it spent quota elsewhere in
+the same window — which is the assumption the table was always written under.
+
+The property rests on `cooldownDuration >= DURATION_SLOW`: a mutable dial on the
+factory against a constant on the hook, in files that do not reference each other,
+with no margin at 72 against 72. Lowering the dial or adding a longer window rung
+brings the instalment path back and nothing reverts to announce it, so
+`test_cooldown_isAtLeastTheLongestGenesis` pins the relationship and
+`test_deposit_slowGenesisAllowsExactlyOnePerWallet` exercises the tight case.
+
 Read the 2:1 as a design margin rather than as arithmetic, and read it with more
 caution than the last version of this document asked for. It was arithmetic while
 both sides were ETH — a fixed property of two constants, true at any price. Under BNB
@@ -464,6 +483,21 @@ The creator pays the launch fee and picks a fundraising window:
 | `DURATION_FAST` | 3 hours |
 | `DURATION_STANDARD` | 24 hours |
 | `DURATION_SLOW` | 72 hours |
+
+**A wallet deposits into a given project once.** The gate is `cooldownDuration`,
+a per-(wallet, hook) clock currently set to **72 hours** — not shorter than the
+longest window in the table above. That single relationship is what makes the
+rule hold: a second deposit would need the cooldown to expire before the genesis
+deadline it has to beat, and it cannot, because the cooldown starts no earlier
+than the project was created and runs at least as long as the whole window. The
+tightest case is a `DURATION_SLOW` project whose first deposit lands in the
+creation block, which makes the two instants *equal* and still fails, since
+`deposit` requires `block.timestamp < genesisDeadline` strictly.
+
+For a participant this means the amount entered is final: it is not a first
+instalment, there is no topping up, and unused per-wallet headroom stays unused.
+The protocol neither warns about this before the transaction nor compensates for
+it afterwards — sizing the deposit is the depositor's call.
 
 The soft cap is written into the hook from the factory's `defaultSoftCap` at
 creation time and cannot go below the production floor
@@ -750,9 +784,23 @@ transfer requires the recipient to call `acceptOwnership()`.
 | Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 928 BEM, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
 | Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 100 BEM, ceiling `MAX_DEFAULT_SOFT_CAP` = 20,000 BEM) | Change `platformTreasury`, which is `immutable` |
 | Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or BEM from the genesis liquidity position |
+| **Repeal the one-deposit rule**, by setting `cooldownDuration` below `DURATION_SLOW` | Reach a deposit, a refund or a claim already recorded against a wallet |
 | Pause `createLaunch` and `registerPoG`, or blacklist an address | Use the ladder halt to withhold refunds, genesis claims or commission |
 | Curate the treasury's buyback roster | Grant mint authority to any third party |
 | Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
+
+The one-deposit row is listed on its own because it is the only power here whose
+exercise is *silent*. Every other dial in the left column announces itself: a
+changed fee or soft cap is visible on the next launch screen, a pause or a
+blacklist blocks a transaction that would otherwise have gone through. Dropping
+`cooldownDuration` below `DURATION_SLOW` reverts nothing, emits only the routine
+`CooldownDurationUpdated`, and leaves every screen looking the same — while
+restoring the instalment path that §2.2 prices at a 1.5:1 *subsidy* to
+floor-sitting sybils on a `DURATION_SLOW` launch. It is a deliberate trade: the
+rule is a market parameter rather than an invariant, so revisiting it costs a
+Safe transaction instead of a redeploy. The compensating control is that the
+monitor watches the event, and it is the reason this is a row in the table rather
+than a footnote to the one above it.
 
 `pause()` does not close a genesis round that is already open — a raise already
 taking money keeps taking it, because the designed failure is a raise that never
@@ -1066,6 +1114,7 @@ precondition for mainnet, and it is a hard one.
 | `MAX_LAUNCH_FEE` | 928 BEM | `ToshFactory` | ceiling on the launch fee |
 | `MAX_DEFAULT_SOFT_CAP` | 20,000 BEM | `ToshFactory` | ceiling on the default soft cap |
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
+| `cooldownDuration` | 72 hours | `ToshFactory` | per-(wallet, hook) re-deposit clock — at ≥ `DURATION_SLOW` it is the one-deposit-per-project rule, §4.1 |
 | `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |
 | `TRIGGER_STEP` | 92.8 BEM | `ToshLadderTreasury` | balance that arms a buyback |
 | `SPEND_BPS` | 1000 | `ToshLadderTreasury` | share of balance spent per cycle — 10% |

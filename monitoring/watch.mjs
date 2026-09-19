@@ -652,6 +652,51 @@ try {
 }
 
 /**
+ * STATE-08 — the one-deposit rule, which is a dial rather than an invariant.
+ *
+ * A wallet gets one deposit per project only while
+ * `cooldownDuration >= DURATION_SLOW`: the cooldown starts no earlier than the
+ * project was created and runs at least as long as the whole genesis window, so
+ * the second deposit's time window is empty. Drop the dial below that and the
+ * instalment path returns — the quota refills every `quotaWindowDuration` while
+ * `nativeDeposited` accumulates, so a floor-sitting wallet can reach
+ * `perWalletCap` in pieces its quota never justified at once. README §2.2 prices
+ * that at a 1.5:1 subsidy to 100 sybils on a `DURATION_SLOW` launch, against the
+ * 2:1 deterrent the design is written around.
+ *
+ * ⚠ THE ONLY OTHER THING HOLDING THIS IS A UNIT TEST, WHICH RUNS AGAINST THE
+ *   SOURCE AND NOT AGAINST THE DEPLOYMENT. `test_cooldown_isAtLeastTheLongestGenesis`
+ *   pins the default in `ToshFactory.sol`; it says nothing about what the dial
+ *   was set to afterwards, and `setCooldownDuration` needs one Safe transaction
+ *   and reverts nothing. PARAM-06 sees the event, but an event cannot tell 72 → 96
+ *   from 72 → 24, so the conditional has to be a state read. This is it.
+ *
+ * `DURATION_SLOW` is read off `hookImplementation` rather than hardcoded here,
+ * for the reason the treasury's quote asset is read off the treasury: the
+ * deployment is the authority on its own constants, and a literal 259200 in this
+ * file would be a second opinion that goes stale the moment a window rung
+ * changes — which is one of the two ways this check exists to catch. The
+ * implementation is deployed in the factory's constructor and is `immutable`, so
+ * it answers on every chain whether or not any launch has happened.
+ */
+try {
+  const cooldown = BigInt(await call(FACTORY, 'cooldownDuration()'))
+  const impl = asAddress(await call(FACTORY, 'hookImplementation()'))
+  const slow = BigInt(await call(impl, 'DURATION_SLOW()'))
+  if (cooldown < slow) {
+    record('STATE-08', sev('STATE-08'), pages('STATE-08'),
+      `factory.cooldownDuration() is ${cooldown}s, below DURATION_SLOW (${slow}s) — the ` +
+      `one-deposit-per-project rule is OFF, and a wallet can build up to perWalletCap in ` +
+      `instalments across refilled quota windows on a ${slow}s launch`,
+      { cooldownSeconds: Number(cooldown), durationSlowSeconds: Number(slow),
+        playbook: 'one-deposit rule: setCooldownDuration(' + slow + ') via the Safe, then check ' +
+                  'whether any live genesis took a second deposit from one wallet while it was off' })
+  }
+} catch (err) {
+  record('STATE-08', 'P1', false, `one-deposit rule check failed: ${err.message}`)
+}
+
+/**
  * STATE-05 — a gas floor, for a wallet that does not exist yet.
  *
  * This deliberately does NOT watch the PoG signer. That signer never sends a
