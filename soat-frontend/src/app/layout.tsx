@@ -37,7 +37,11 @@ const geist = Geist({
 // of the four surfaces that guard was built around. Search engines and link
 // previews were quoting the wrong chain for as long as the string sat here.
 export const metadata: Metadata = {
-  title: 'TOSH // Cryptographic Console',
+  // `ToshX`, matching the navbar wordmark and the domain. It read
+  // `TOSH // Cryptographic Console`, which made the product answer to two names
+  // across three surfaces: the tab said TOSH, the wordmark renders
+  // `Tosh<span>X</span>`, and the site is served from toshx.xyz.
+  title: 'ToshX',
   description:
     'Tosh Protocol v5.0 — fair-launch terminal with PancakeSwap Infinity hooks. '
   + 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '

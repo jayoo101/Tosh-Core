@@ -15,7 +15,7 @@ import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
  * is a client component because it reads the factory and every hook on it.
  */
 export const metadata: Metadata = {
-  title: 'Referral Ledger // TOSH',
+  title: 'Referral Ledger // ToshX',
   description:
     'Commission earned across every Tosh Protocol launch — claimable balances, '
     + `amounts still locked until launch, and wallets bound to you on ${MAINNET_CHAIN_LABEL}.`,

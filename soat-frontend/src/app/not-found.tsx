@@ -12,7 +12,10 @@ import Link from 'next/link'
  */
 
 export const metadata = {
-  title: 'TOSH // 404 // NO_SUCH_ROUTE',
+  // Brand token matches layout.tsx and the navbar wordmark. The `//` route
+  // marker stays: this title has a job the root one does not, which is saying
+  // which page failed.
+  title: 'ToshX // 404 // NO_SUCH_ROUTE',
 }
 
 export default function NotFound() {

@@ -16,7 +16,7 @@ import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
  * a client component because it polls the factory.
  */
 export const metadata: Metadata = {
-  title: 'Agent Directory // TOSH',
+  title: 'Agent Directory // ToshX',
   description:
     'Every agent token on Tosh Protocol — open funding windows, launches '
     + `awaiting their pool, and live shelf-ladder trading on ${MAINNET_CHAIN_LABEL}.`,
