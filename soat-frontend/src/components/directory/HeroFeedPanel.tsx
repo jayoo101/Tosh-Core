@@ -30,7 +30,7 @@ const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
  *
  * The redesign puts a price and a 24h delta here. We publish neither: there is
  * no price feed and no volume index behind this app, and the only numbers the
- * chain hands back per launch are the native coin deposited and the cap it is measured
+ * chain hands back per launch are the quote asset deposited and the cap it is measured
  * against. Inventing the other two was the single largest piece of fiction in
  * the mock, so the column states what the figure above it IS instead.
  */

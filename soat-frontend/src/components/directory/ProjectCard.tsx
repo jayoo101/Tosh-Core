@@ -382,13 +382,21 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               <div className="font-mono text-figure tabular-nums text-text-primary">
                 {fmtQuote(p.totalNative)}
               </div>
-              <div className="font-mono text-micro uppercase text-text-tertiary">raised eth</div>
+              {/* `normal-case` on the symbol only. The label is uppercased by
+                  design, but the ticker is not ours to case: chain 97's is
+                  `mBEM`, and `MBEM` is a different string that matches no
+                  token. The two words around it stay uppercase. */}
+              <div className="font-mono text-micro uppercase text-text-tertiary">
+                raised <span className="normal-case">{QUOTE_SYMBOL}</span>
+              </div>
             </div>
             <div>
               <div className="font-mono text-figure tabular-nums text-text-primary">
                 {fmtQuote(p.softCap)}
               </div>
-              <div className="font-mono text-micro uppercase text-text-tertiary">target eth</div>
+              <div className="font-mono text-micro uppercase text-text-tertiary">
+                target <span className="normal-case">{QUOTE_SYMBOL}</span>
+              </div>
             </div>
             <div>
               <div className="font-mono text-figure tabular-nums text-text-primary">
