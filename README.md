@@ -34,7 +34,8 @@ to PancakeSwap Infinity, because BSC has no V4 deployment.
 re-denomination rather than the first. The protocol settled in ETH, then in BNB
 (×3.5), and now in BEM at the measured rate of ≈26.51 BEM per BNB — which is where
 0.35 → 9.28 for the launch fee and 35 → 928.4 for the default soft cap come from.
-Two consequences are worth stating before any number below is read:
+**§3.1 is what BEM is, the three jobs it does in the protocol, and what the choice
+costs.** Two consequences are worth stating before any number below is read:
 
 - **Eight decimals, not eighteen.** The hook's constructor asserts `decimals() == 8`
   and refuses to deploy against anything else, so this is a protocol invariant and
@@ -308,6 +309,109 @@ supplies.
 
 ## 3. Architecture
 
+### 3.1 BEM, the quote asset
+
+Tosh does not raise, price or settle in the chain's own coin. **Every project on
+the platform is funded in BEM and every project's pool is a BEM pair.** BNB is
+present only to pay gas.
+
+BEM is `0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a` on BNB Smart Chain — an
+8-decimal ERC-20 whose `minter()` is operated by the platform. That last fact is
+what separates this from picking an arbitrary third-party token: supply policy is
+internal policy rather than counterparty risk. It does not make the token
+risk-free, and §3.1.3 states what it does not fix.
+
+#### 3.1.1 The three jobs BEM does
+
+One asset occupies all three sides of the protocol's economy, which is the point
+— each flow feeds the next without a swap in between.
+
+| Role | What moves | Where it is enforced |
+|---|---|---|
+| **Fundraising currency** | Genesis deposits, the launch fee, and every shelf purchase are paid in BEM | `ToshFactory.deposit`, `createLaunch`, `ToshLaunchpadHook.mintBondingCurve` |
+| **Pool base asset** | `launch()` pairs the raised BEM against the project token in a full-range Infinity position | `ToshLaunchpadHook.launch`, `getPoolKey()` |
+| **Buyback ammunition** | The 0.70% buy-side tax, the 1% shelf cut, the launch fee and orphaned commission accumulate as BEM, and the treasury spends BEM buying project tokens to burn | `ToshLadderTreasury` |
+
+So a BEM raise becomes BEM liquidity, trading that liquidity accrues BEM revenue,
+and that revenue is spent buying the project's own token off its own pool and
+burning it. Nothing in that loop exits to another asset, and none of it depends on
+an oracle: the pool that receives the raise is the same pool the buyback executes
+against.
+
+#### 3.1.2 How it is wired, and why it cannot be changed later
+
+`quoteAsset` is a **constructor immutable on all three platform contracts** —
+`ToshFactory`, `ToshLaunchpadHook` (the implementation, so every clone inherits
+it) and `ToshLadderTreasury`. There is no setter on any of them. Repointing the
+protocol at a different asset is a redeploy, not a governance action, which is
+deliberate: a mutable quote asset would let the platform owner change the
+denomination of a raise that had already taken deposits.
+
+Three consequences are load-bearing rather than incidental:
+
+- **Eight decimals is a protocol invariant.** The hook's constructor asserts
+  `decimals() == 8` and refuses to deploy against anything else, so the assertion
+  lives in one place instead of being restated at every call site. Base units and
+  display units differ by 10^8 throughout this repo.
+- **BEM is always `currency0`.** Infinity sorts a pool's two currencies by
+  address. Under a native-coin quote asset this held for free — `address(0)` sorts
+  below everything — and 91 sites in the hook depend on it. It is now *enforced*
+  in two layers, because a regression would silently invert every `zeroForOne` in
+  the protocol rather than revert: `createLaunch` grinds the project token's
+  CREATE2 salt until the token address sorts above BEM (1.57 attempts on average),
+  and then refuses the launch outright with `TokenBelowQuoteAsset` if it somehow
+  did not. `ToshV5Fork.t.sol` asserts the ordering against real BEM's address.
+- **Nothing on a money path is `payable`.** Each of the three user actions is now
+  two transactions — approve, then act — and the spender is not the same contract
+  in both directions. `deposit` and `createLaunch` pull through the **factory**;
+  `mintBondingCurve` pulls through the **hook**. Approving the wrong one is the
+  most likely way for an otherwise correct deposit to revert.
+
+Checkable against a read-only RPC, on any chain the protocol is deployed to:
+
+```bash
+cast call <factory>  "quoteAsset()(address)"   # all three must agree
+cast call <treasury> "quoteAsset()(address)"
+cast call <hook>     "quoteAsset()(address)"
+cast call 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a "decimals()(uint8)"  # 8
+```
+
+`scripts/preflightMainnet.mjs` check 5c runs the same comparison before a mainnet
+broadcast, and `soat-frontend/scripts/checkQuoteAsset.mjs` runs it against
+whatever chain the site is pointed at.
+
+#### 3.1.3 What choosing BEM costs
+
+Stated here rather than in the disclosures section, because a reader deciding
+whether to deposit needs it next to the mechanism and not eighty lines later. All
+three figures were measured on `56` on 2026-09-19 and will have moved; the point
+is the shape, not the decimals.
+
+- **The float is thin.** BEM's only real market is a single PancakeSwap v3 1% tier
+  holding about **1,959 BEM**. A default soft cap of 928.4 BEM is roughly **47% of
+  that pool**. A depositor cannot assemble a full raise at anything near spot, and
+  a raise that did fill would seed a Tosh pool holding more BEM than the open
+  market does. There is no BEM/USDT pair.
+- **Supply moves.** `totalSupply()` rose **4.81% in about two days** while this was
+  being written, and BEM fell about 24% against BNB over the same window. Every
+  figure in this document is denominated in a quantity under active management.
+- **The mint path is a proxy.** `minter()` is a UUPS (ERC-1967) proxy, so the mint
+  logic is upgradeable in principle. `owner()` through it returns the **zero
+  address**, which — if upgrade authority is the conventional `onlyOwner` — means
+  the implementation is frozen and nobody can change mint policy. That reading is
+  favourable to depositors and it is still a reading: it has not been confirmed
+  against what the contract will accept.
+- **The smallest raise got 108× larger.** `MIN_SOFT_CAP_PROD` is 100 BEM rather
+  than a rescaled 0.035-BNB equivalent, because 8 decimals collapse the shelf
+  ladder's granularity margin from ~16,600,000× to 4.75×. Small projects can no
+  longer launch. That is a decision, not a side effect — see §4.1.
+
+`docs/BEM_QUOTE_ASSET.md` is the full decision record, including the three
+objections from `docs/PANCAKESWAP_INFINITY.md` §6 that this reverses and the two
+that still stand.
+
+### 3.2 Contracts and clones
+
 Two platform singletons per chain. Each project gets a CREATE2-derived pair of
 EIP-1167 minimal clones.
 
@@ -327,7 +431,7 @@ ToshFactory (0xB224f26a…) ──────────► ToshLadderTreasury
           │ CREATE2 (EIP-1167 minimal clone, 131 bytes)
           ▼
 ToshLaunchpadHook (one per project) ──► Infinity CLPoolManager (0x36A12c70…)
-   ├─ Phase 1: deposit / refund / launch    │  runs the pool: full-range BNB ⇄ token
+   ├─ Phase 1: deposit / refund / launch    │  runs the pool: full-range BEM ⇄ token
    ├─ Phase 2: 4,000 shelves / genesis      └─► Infinity Vault (0x2CdB3EC8…)
    │  claims                                      holds every balance; settlement
    └─ ICLHooks: beforeSwap / afterSwap             is paid HERE, not to the manager
@@ -940,6 +1044,7 @@ issued.
 | Document | What it covers |
 |---|---|
 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, deploy, environment, CREATE2 salts, guards, troubleshooting |
+| [`docs/BEM_QUOTE_ASSET.md`](docs/BEM_QUOTE_ASSET.md) | Why the protocol is denominated in BEM, measured against `56`, including what the choice costs and which earlier objections it overrules — §3.1 is the summary |
 | [`SECURITY.md`](SECURITY.md) | Reporting channel, scope, and verification anchors |
 
 If this document and the source disagree, the source wins.
