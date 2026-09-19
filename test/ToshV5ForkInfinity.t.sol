@@ -237,9 +237,25 @@ contract ToshV5ForkInfinityTest is Test {
         assertEq(hook.lastHookData(), payload, "hookData was dropped or truncated on the way to the hook");
     }
 
-    /// @notice Production pools are native-coin/token, so `currency0` is zero.
-    ///         Several arguments in this repository lean on that, so it is
-    ///         asserted rather than assumed to carry over.
+    /// @notice `SpikeHook`'s own pool is native-coin/token, so its `currency0` is
+    ///         zero. Asserted because every other test in this suite reads
+    ///         `key.currency0` and would pass against a pool wired differently.
+    ///
+    /// @dev    ⚠ THIS IS THE FIXTURE'S SHAPE AND NO LONGER PRODUCTION'S. The
+    ///           docstring here used to open "Production pools are native-coin/
+    ///           token, so `currency0` is zero. Several arguments in this
+    ///           repository lean on that" — true when written, false since the
+    ///           quote asset became BEM, and misleading in the specific way that
+    ///           matters: a reader checking whether the protocol's `currency0` is
+    ///           zero would find a green fork test appearing to confirm it.
+    ///
+    ///           Production pools are BEM/token, and BEM is `currency0` because
+    ///           `createLaunch` grinds the token's salt to sort above it. That
+    ///           ordering is asserted in `ToshV5Fork.t.sol`
+    ///           (`test_fork_lifecycleAgainstLivePoolManager`, against real BEM's
+    ///           address), which is the suite that fixtures the real hook. This
+    ///           one deliberately does not — see the contract docstring: it is
+    ///           scoped to the Infinity mechanism, not to `ToshLaunchpadHook`.
     function test_forkInfinity_poolIsNativeCoinAndToken() public onFork {
         PoolKey memory key = hook.poolKey();
         assertEq(Currency.unwrap(key.currency0), address(0), "currency0 is not the native coin");

@@ -8,11 +8,12 @@
 //   2. node scripts/extractAbis.js
 //
 // v5.0 wire-level notes the launch UI MUST honour:
-//   • Factory constructor is 5-arg: (poolManager, vault, pogSigner,
-//     platformTreasury, ladderTreasury).  Infinity splits the AMM: the CL
-//     manager runs the pool, the Vault holds every balance.
-//   • createLaunch is payable (native-coin launch fee)
-//   • deposit(hook, referrer) is payable
+//   • Factory constructor is 6-arg: (poolManager, vault, pogSigner,
+//     platformTreasury, ladderTreasury, quoteAsset).  Infinity splits the AMM:
+//     the CL manager runs the pool, the Vault holds every balance. The quote
+//     asset is an implementation-level immutable — same token for every clone.
+//   • createLaunch is nonpayable: it pulls the fee with transferFrom
+//   • deposit(hook, referrer, amount) is nonpayable: the amount is an argument
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —
 //     Infinity reads permissions from getHooksRegistrationBitmap(), not from
@@ -25,16 +26,18 @@
 //     answers the OLD signature and reverts on this one.  If the launch page
 //     reports 'hookInitcodeHash reverted', check hookImplementation() first:
 //     it exists only on clone-era factories, and the real fix is a redeploy.
-//   • Hook constructor is 5-arg: (poolManager, vault, factory, ladderTreasury,
-//     platformFeeRecipient).  It builds the shared IMPLEMENTATION; per-project
-//     config lives in the clone's immutable args, not in a constructor call.
-//   • mintBondingCurve(tokenAmount) is payable; quoteMint returns the native-coin cost
+//   • Hook constructor is 6-arg: (poolManager, vault, factory, ladderTreasury,
+//     platformFeeRecipient, quoteAsset).  It builds the shared IMPLEMENTATION;
+//     per-project config lives in the clone's immutable args, not in a
+//     constructor call. The constructor asserts decimals() == 8.
+//   • mintBondingCurve(tokenAmount, maxCost) is nonpayable; quoteMint returns
+//     the quote-asset cost in 8-decimal units
 //   • Hook permissions are the uint16 returned by getHooksRegistrationBitmap()
 //     (offsets 0, 2, 6, 7, 10, 11 → 0x0CC5), repeated in PoolKey.parameters.
 //     The Uniswap V4 address mask 0x20CC is gone with the miner.
 //   • Swap tax is TAX_BPS = 100 (1.00 % of the swap INPUT), on top of the
 //     0.30 % POOL_FEE that Infinity pays to LPs — total trader friction is 1.30 %.
-//     The buy leg SPLITS it: PLATFORM_SWAP_FEE_BPS (30) of the native-coin input goes
+//     The buy leg SPLITS it: PLATFORM_SWAP_FEE_BPS (30) of the quote-asset input goes
 //     to platformFeeRecipient and emits PlatformSwapFeePaid, the remaining
 //     70 bps goes to the ladder treasury and emits BuyTaxToTreasury.  The sell
 //     leg is NOT split: the full 100 bps of the token input is burned and

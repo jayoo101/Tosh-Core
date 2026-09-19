@@ -3240,6 +3240,27 @@ contract ToshV5Test is Test {
     ///           Worth knowing because it lands on the creator, once, on a chain
     ///           where gas is cheap: at 1 gwei on BSC the extra 34k is about
     ///           0.000034 BNB. It would matter on a chain where it did not.
+    ///
+    ///         ⚠ AND THEN THE BEM MOVE ADDED 43,479 MORE, 655,948 → 699,427, on a
+    ///           budget nobody re-measured: `git log -L` on the assertion line
+    ///           shows it last moved in the Infinity port, so the denomination
+    ///           change rode straight through it and `--isolate` was red while a
+    ///           plain `forge test` stayed green. Recorded the same way the 82k
+    ///           was, for the same reason — it is a structural cost of the
+    ///           denomination, not something to hunt.
+    ///
+    ///           Where it goes: settling `currency0` used to be ONE call with the
+    ///           coin attached, `vault.settle{value: owed}()`. An ERC-20 quote
+    ///           asset cannot do that, so `_settleQuote` is now three — a
+    ///           `vault.sync` to snapshot the Vault's balance, a `safeTransfer`
+    ///           into it, then `settle` to have the delta credited — and the
+    ///           transfer itself writes two balance slots the native path never
+    ///           touched. The orphaned-commission sweep at the end of `launch()`
+    ///           went the same way, from a value send to `safeTransfer`.
+    ///
+    ///           `currency1` was always the project token and always settled this
+    ///           way, which is the useful cross-check on the figure: the quote
+    ///           side simply became as expensive as the token side already was.
     function test_gas_launch() public {
         (, ToshLaunchpadHook hook) = _createProject("GasLaunch", "GLN");
         _deposit(alice, hook, SOFT_CAP, address(0));
@@ -3252,7 +3273,8 @@ contract ToshV5Test is Test {
 
         emit log_named_uint("launch", used);
         emit log_named_uint("was, on Uniswap V4 before the Infinity port", 577_000);
-        assertLt(used, 660_000, "launch path regressed");
+        emit log_named_uint("was, on Infinity with a native quote asset", 655_948);
+        assertLt(used, 705_000, "launch path regressed");
     }
 
     /// @notice A buy through the pool: the full router-to-hook path a trader
@@ -4010,6 +4032,25 @@ contract ToshV5Test is Test {
 
     /// @notice A genesis deposit through the factory, including the PoG quota
     ///         bookkeeping and the referral accrual.
+    ///
+    /// @dev    ⚠ MEASURE UNDER `--isolate`, as with every budget in this file.
+    ///
+    ///         This one was 1,572 gas from failing and nobody had looked. The
+    ///         budget dates to the initial commit and `--isolate` reads 209,428
+    ///         against it, which is 0.74% — and the BEM move is what ate the
+    ///         margin, since `deposit` is nonpayable now and pulls the amount with
+    ///         `safeTransferFrom` where it used to read `msg.value` for free.
+    ///
+    ///         It was passing, so nothing was red. That is the problem with
+    ///         leaving it: at 0.74% the number no longer distinguishes a
+    ///         regression from noise, so it would have fired on whichever
+    ///         unrelated change came next and been read as that change's fault.
+    ///         Re-baselined against a measurement instead, with the roughly 1.5%
+    ///         the other budgets here carry.
+    ///
+    ///         Deliberately NOT widened further. A deposit is the one call in this
+    ///         protocol that every participant makes, so it is the figure most
+    ///         worth keeping honest.
     function test_gas_deposit() public {
         (, ToshLaunchpadHook hook) = _createProject("GasDep", "GDP");
         _ensurePoG(bob);
@@ -4020,7 +4061,7 @@ contract ToshV5Test is Test {
         uint256 used = before - gasleft();
 
         emit log_named_uint("deposit", used);
-        assertLt(used, 211_000, "deposit path regressed");
+        assertLt(used, 213_000, "deposit path regressed");
     }
 
     /// @dev CLPoolManagerRouter refunds unspent `msg.value` to the caller after an
