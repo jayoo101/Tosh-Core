@@ -10,6 +10,7 @@
 | Version | v5.0 |
 | Date | 2026-09-18 |
 | Network | Migrating to BNB Smart Chain. Rehearsed end to end on testnet `97`; mainnet `56` **not yet deployed** |
+| Quote asset | **BEM** — 8-decimal ERC-20, see §3.1. `97` runs the same denomination against an 8-decimal mock, since real BEM has no testnet deployment; §A.2 says what that does and does not prove |
 | Previously | Robinhood Chain `4663` — retired, see Appendix A |
 | Site | [toshx.xyz](https://toshx.xyz) |
 | Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |
@@ -896,27 +897,89 @@ withdraw path.
 
 ### A.2 BNB Smart Chain testnet `97` — rehearsed end to end
 
+This deployment is BEM-denominated, as `src/` is, and it was redeployed on
+2026-09-19 to make that true. The pair it replaced is in §A.2.1, and the reason it
+had to be replaced rather than kept alongside is worth reading before trusting any
+testnet result.
+
+| Component | Address |
+|---|---|
+| `ToshFactory` | `0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34` |
+| `ToshLadderTreasury` | `0x20dE906A96FfB89BE6fd6267A0876A68017792F7` |
+| Quote asset — `MockQuoteAsset`, 8 decimals, `mBEM` | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
+| Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
+| Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
+
+Two Infinity addresses, not one, because Infinity splits what V4's PoolManager did
+alone: the manager runs the pool and the Vault holds every balance. That split is
+the source of both bugs the port surfaced — see §10.1.
+
+⚠ **THE QUOTE ASSET HERE IS A MOCK, AND A GREEN TESTNET RESULT IS EXACTLY WHERE
+THAT WOULD BE MISREAD.** Real BEM has no deployment on `97`, so a BEM-denominated
+factory cannot be rehearsed there against the real token. `MockQuoteAsset` matches
+real BEM on the one property the contracts assert — 8 decimals, which the hook's
+constructor requires — and on nothing else: `mint` is unrestricted, there is no
+market, and so there is no float and no depth.
+
+What `97` therefore proves is that the **plumbing** is right, and that is not a
+small claim: every money path is `approve` then `transferFrom` rather than
+`msg.value`, and the CREATE2 grind lands the project token above the quote asset so
+the quote side is `currency0`, which 91 sites in the hook depend on. What it proves
+nothing about is supply and liquidity — which is where real BEM's risks actually
+live, see §3.1 and `docs/BEM_QUOTE_ASSET.md` §1.2. Cite `97` for mechanism. Do not
+cite it for economics.
+
+The end-to-end run that validated this deployment is checkable:
+
+| Component | Address |
+|---|---|
+| `ToshLaunchpadHook` | `0xa878792e7F361555EeD774D4c10Cedfd2703dB4a` |
+| `ToshToken` | `0xF94c8dAA829BC9480680BA7eFBFBe5BC90F12Ea0` |
+
+The token address is the assertion worth making yourself: `0xF94c…` is numerically
+above the quote asset's `0x76bD…`, which is not luck. `createLaunch` grinds the
+clone's CREATE2 salt until it lands there, because a token sorting *below* the
+quote asset would silently invert every pool's sides. Reproduce it with
+`node scripts/e2eLaunchFlow.mjs --factory 0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34`.
+
+#### A.2.1 The previous `97` pair — retired, and unadministrable
+
 | Component | Address |
 |---|---|
 | `ToshFactory` | `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` |
 | `ToshLadderTreasury` | `0x79de222644E8BBeea6FC55815CCBE9FF136D7674` |
-| Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
-| Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
-
-Two addresses, not one, because Infinity splits what V4's PoolManager did alone:
-the manager runs the pool and the Vault holds every balance. That split is the
-source of both bugs the port surfaced — see §10.1.
-
-The rehearsal project itself is `RHRSL`, and it is checkable:
-
-| Component | Address |
-|---|---|
-| `ToshLaunchpadHook` | `0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f` |
+| `ToshLaunchpadHook` (`RHRSL`) | `0x46e8ADDa65b8acE41B2818A4cf0B1249c03E393f` |
 | `ToshToken` (`RHRSL`) | `0xb3b9443a717138aFB542156D27279726BAFf5A63` |
 
-Its supply reads 8,400,945 rather than the round `GENESIS_SUPPLY` of 8,400,000,
-and the difference is the point: 945 tokens are what the ladder minted in the
-last phase, so the total is itself evidence the buyback leg ran on a live chain.
+Deployed 2026-09-17 at block 131563800 from commit `1030eae`. `RHRSL`'s supply
+reads 8,400,945 rather than the round `GENESIS_SUPPLY` of 8,400,000, and the
+difference is the point: 945 tokens are what the ladder minted in the last phase,
+so the total is itself evidence the buyback leg ran on a live chain. That result
+still stands — it was a real end-to-end run, and it is why this pair is documented
+rather than deleted.
+
+**It predates the BEM denomination.** Read against the chain on 2026-09-19:
+
+| Call | What this pair answers | What `src/` says today |
+|---|---|---|
+| `quoteAsset()` | **reverts** — the function does not exist | BEM on `56`, `0x5ce0…695a` |
+| `launchFee()` | `350000000000000000` — 0.35 **BNB**, 18 decimals | `9.28e8` — 9.28 BEM, 8 decimals |
+| `defaultSoftCap()` | `35000000000000000000` — 35 **BNB** | `928.4e8` — 928.4 BEM |
+| `deposit` | `payable`, reads `msg.value` | nonpayable, pulls with `transferFrom` |
+
+**And nobody could administer it, which is the reason it was replaced rather than
+left running.** It answers both `owner()` and `pogSigner()` with
+`0x73db078f…80cd` — a key that is public, and that is no longer present in this
+repository. So it could not be paused, re-dialled, or signer-rotated by its
+operator any more than by anyone else. Every `GOV-*` and `SWITCH-*` playbook in
+`monitoring/alerts.json` ends in an owner action, and against this factory all of
+them were unexecutable; an alert whose playbook cannot be run is not a control.
+`quoteAsset` is `immutable` on all three contracts, so neither problem was fixable
+in place — a redeploy was the only available move, and §A.2 is it.
+
+It is left on chain. Nothing points at it: the monitor's `MONITOR_FACTORY` and
+`MONITOR_TREASURY` variables, `alerts.json`, `SECURITY.md` and
+`docs/RESEARCH_BRIEF_zh.md` were all repointed in the same change.
 
 ⚠ An earlier factory at `0xe94F79A0c44b124b5987Afe55Add16EF0c80FFb2` is abandoned.
 Its immutable `platformTreasury` is Anvil's account #1, whose private key ships
