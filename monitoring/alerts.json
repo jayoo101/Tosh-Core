@@ -31,7 +31,7 @@
     "",
     "GOV-05 IS GONE, ON PURPOSE. It watched TreasuryUpdated(address), the companion",
     "event to setPlatformTreasury. Both were deleted when platformTreasury went back",
-    "onto a money path — it now takes 0.30 % of the BNB input of every buy — because a",
+    "onto a money path — it now takes 0.30 % of the BEM input of every buy — because a",
     "mutable fee-routing target is audit finding M-2, so the mutability went rather",
     "than the inflow. The field is immutable on the factory and the same address is",
     "baked into the hook implementation as platformFeeRecipient. The event can",
@@ -183,8 +183,8 @@
       "topic0": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
       "severity": "P0",
       "page": true,
-      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised, and this is the contract holding BNB.",
-      "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds BNB."
+      "playbook": "governance: the pending owner can still be overwritten, so do not accept. Correlate against the Safe transaction history; an authorised-but-wrong transfer is abandoned by having the owner call transferOwnership() again with the intended address. If no Safe transaction matches, the owner key is compromised, and this is the contract holding the reservoir.",
+      "why": "GOV-01 for the treasury. This entry was missing from the first draft of this file and scripts/verifyAlertTopics.js is what found it — the factory got both halves of the two-step transfer and the treasury only got the second, which would have left the abandonable window unwatched on the contract that actually holds the money."
     },
     {
       "id": "GOV-04",
@@ -296,7 +296,7 @@
       "severity": "P2",
       "page": false,
       "playbook": null,
-      "why": "Curation of buyback targets. The contract already refuses tokens this factory did not launch, so the abuse case is bounded — but it decides where treasury BNB goes. One thing the contract does NOT refuse is a pool younger than TWAP_WINDOW, whose buyback legs are unbounded; STATE-07 is the check for that, and this alert is where a human first sees the listing that trips it."
+      "why": "Curation of buyback targets. The contract already refuses tokens this factory did not launch, so the abuse case is bounded — but it decides where treasury BEM goes. One thing the contract does NOT refuse is a pool younger than TWAP_WINDOW, whose buyback legs are unbounded; STATE-07 is the check for that, and this alert is where a human first sees the listing that trips it."
     },
     {
       "id": "PARAM-05",
@@ -350,7 +350,7 @@
       "alertOn": "rate",
       "threshold": "more than 3 in 24h for the same token, or any occurrence for more than half the curated set",
       "playbook": null,
-      "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating BNB it can no longer spend, which is the one-way valve failing closed rather than open."
+      "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating BEM it can no longer spend, which is the one-way valve failing closed rather than open."
     },
     {
       "id": "LIFE-01",
@@ -410,8 +410,8 @@
       "id": "STATE-02",
       "severity": "P0",
       "cadence": "every 15 minutes",
-      "check": "ladderTreasury BNB balance is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
-      "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract.",
+      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury), NOT eth_getBalance -- is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
+      "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract. NOTE THE ASSET, because getting it wrong is undetectable: the reservoir became an ERC-20 balance when the quote asset became BEM, and watch.mjs read eth_getBalance for one commit afterwards. The treasury's native balance is 0 and cannot fall, so this check passed every run while watching nothing -- it produced no error and no gap, only a clean pass. Any reimplementation against a different alerting product has to read balanceOf.",
       "action": "Treat as funds-at-risk: pause the factory via the Safe, then correlate the fall against buyback events and Safe transactions in the same window. A fall matching neither is a governance compromise, and once the reservoir is spent there is no on-chain remedy — announce."
     },
     {
@@ -447,7 +447,7 @@
       "id": "STATE-06",
       "severity": "P2",
       "cadence": "hourly",
-      "check": "ladderTreasury BNB balance has been >= TRIGGER_STEP continuously for 24h with no PiggybackExecuted in that window",
+      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury) -- has been >= TRIGGER_STEP (92.8 BEM, i.e. 92.8e8 base units) continuously for 24h with no PiggybackExecuted in that window",
       "why": "The gas gate in ToshLaunchpadHook.afterSwap skips the buyback when the triggering trade cannot afford it, which is what stops that trade from reverting. The cost is that the reservoir no longer deploys itself from trading alone: a market where wallets attach tight gas limits leaves it armed and idle, emitting NOTHING. There is deliberately no event for a skipped poke — skipping is the common case, and logging it would bill every trader for the privilege. So this has to be a balance-and-silence poll; it is the only signal that the reservoir has stopped deploying.",
       "action": "Call pokeBuyback() on the treasury. Permissionless — no role, no Safe transaction, any address can clear it."
     },
@@ -474,7 +474,7 @@
       "The three tax events are per-swap and none of them may page. They are also the",
       "revenue ledger, so how they compose matters to whoever builds the dashboard:",
       "a BUY emits BuyTaxToTreasury AND PlatformSwapFeePaid in the same swap, carrying",
-      "70 bps and 30 bps of the BNB input respectively; a SELL emits only SellTaxBurned,",
+      "70 bps and 30 bps of the BEM input respectively; a SELL emits only SellTaxBurned,",
       "carrying the full 100 bps of the token input, because the sell leg is not split.",
       "BuyTaxToTreasury therefore is NOT the buy-side tax total — it is the buyback",
       "reservoir's share of it. Summing it as though it were understates the tax by 30 %",

@@ -683,9 +683,32 @@ if (KEEPER_ADDRESS) {
 }
 
 // STATE-02 and STATE-06 — the treasury's balance, read two different ways.
+//
+// ⚠ THIS READ WAS `eth_getBalance` UNTIL THE BEM MOVE, AND THAT MADE BOTH CHECKS
+//   SILENTLY GREEN FOREVER — the worst possible failure for a monitor, and the
+//   second time this file has had it (see the 0x20CC bitmap filter above).
+//   The reservoir is an ERC-20 balance now. The native balance of the treasury is
+//   0 and stays 0, so STATE-02 saw a balance that could never fall and STATE-06
+//   compared 0 against a TRIGGER_STEP of 92.8e8 and was never armed. Neither
+//   would have errored, logged, or shown up as a gap; the watcher would have
+//   reported a clean pass over a treasury it was no longer looking at.
+//
+//   The asset comes off the treasury rather than from env for the reason
+//   RehearseTestnet.s.sol gives: the contract is the authority on what it is
+//   denominated in, and a MONITOR_QUOTE_ASSET would be a second opinion with
+//   nothing reconciling the two.
 let treasuryBalance = null
+// Read, not assumed: the protocol requires 8 and the hook constructor asserts it,
+// but a monitor that hardcodes the scale reports a number 1e10 off if it is ever
+// pointed at a treasury built against something else, and being off by a constant
+// is how a reading stops being checkable.
+let quoteDecimals = 8
+let quoteUnit = 1e8
 try {
-  treasuryBalance = BigInt(await rpc('eth_getBalance', [TREASURY, 'latest']))
+  const quoteAsset = '0x' + (await call(TREASURY, 'quoteAsset()')).slice(-40)
+  treasuryBalance = BigInt(await call(quoteAsset, 'balanceOf(address)', word(BigInt(TREASURY))))
+  quoteDecimals = Number(BigInt(await call(quoteAsset, 'decimals()')))
+  quoteUnit = 10 ** quoteDecimals
 
   // STATE-02: a drop with no buyback to explain it means either a withdrawal
   // path exists or we are watching the wrong contract.
@@ -714,8 +737,8 @@ try {
     if (treasuryBalance < before) {
       const spent = findings.some(f => /Buyback|Piggyback/.test(f.message))
       record('STATE-02', sev('STATE-02'), true,
-        `ladderTreasury balance fell from ${(Number(before) / 1e18).toFixed(6)} to ` +
-        `${(Number(treasuryBalance) / 1e18).toFixed(6)} ETH` +
+        `ladderTreasury balance fell from ${(Number(before) / quoteUnit).toFixed(4)} to ` +
+        `${(Number(treasuryBalance) / quoteUnit).toFixed(4)} BEM` +
         (spent ? ' — a buyback in this window explains it, confirm the amounts match'
                : ' with NO buyback event in this window'),
         { playbook: 'treasury: correlate the fall against buyback events in the same window before assuming a leak', correlate: true })
@@ -730,8 +753,13 @@ try {
   // as a gap every run so it can never be the reason production went quiet.
   let trigger = BigInt(await call(TREASURY, 'TRIGGER_STEP()'))
   if (process.env.MONITOR_TRIGGER_STEP_WEI) {
+    // The name still says WEI and the value is now 8-decimal base units. Kept
+    // rather than renamed because it is set in CI secrets and in the monitoring
+    // repo's workflow, where a rename is a silently-ignored variable — the same
+    // shape of failure this whole block was just fixed for.
     const override = BigInt(process.env.MONITOR_TRIGGER_STEP_WEI)
-    gap('STATE-06', `TRIGGER_STEP overridden to ${override} wei (chain says ${trigger}) — testing only`)
+    gap('STATE-06', `TRIGGER_STEP overridden to ${override} base units (${quoteDecimals} decimals; `
+      + `chain says ${trigger}) — testing only`)
     trigger = override
   }
   const piggybacked = findings.some(f => /Piggyback/.test(f.message))
