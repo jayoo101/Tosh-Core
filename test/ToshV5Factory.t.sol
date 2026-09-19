@@ -1538,4 +1538,73 @@ contract ToshV5FactoryTest is Test {
         vm.warp(_h(hook).genesisDeadline() + _h(hook).LAUNCH_WINDOW() + 1);
         assertTrue(_h(hook).canRefund(), "refund opens once the 7-day launch window lapses");
     }
+
+    /// @dev The coupling that makes `cooldownDuration` a one-deposit rule rather
+    ///      than a throttle, pinned because nothing structural holds it.
+    ///
+    ///      `cooldownDuration` is a dial on the factory and `DURATION_SLOW` is a
+    ///      constant on the hook. The one-deposit property holds only while the
+    ///      first is at least the second, and at 72 h against 72 h there is no
+    ///      margin at all — a fourth, longer genesis rung, or a lowered dial,
+    ///      restores instalment deposits and nothing would revert to say so.
+    ///
+    ///      Same shape as `test_factory_liveInitcodeHash_tracksStandardDuration`
+    ///      above: two constants that must move together, in files that do not
+    ///      reference each other.
+    function test_cooldown_isAtLeastTheLongestGenesis() public {
+        (, address hook) = _createLaunch("Pin2", "PN2");
+
+        assertGe(
+            factory.cooldownDuration(),
+            _h(hook).DURATION_SLOW(),
+            "cooldown below the longest genesis: a wallet can deposit into one project twice"
+        );
+    }
+
+    /// @notice On the longest genesis, a wallet gets exactly one deposit per
+    ///         project — the refilled PoG quota buys it nothing.
+    ///
+    /// @dev    The behavioural half of the test above, and it exercises the worst
+    ///         case rather than a comfortable one. Nothing warps between
+    ///         `_createLaunch` and the deposit, so the first deposit lands in the
+    ///         creation block: `cooldownEnd == t1 + 72h == genesisDeadline`
+    ///         EXACTLY. If the property survives here it survives everywhere,
+    ///         because any later first deposit pushes the cooldown further past
+    ///         the deadline.
+    ///
+    ///         The two gates hand off with zero overlap, which is what the two
+    ///         assertions below are: one second before the deadline the cooldown
+    ///         is what rejects, and at the deadline itself the cooldown has just
+    ///         lapsed and the genesis window is what rejects. There is no instant
+    ///         at which both allow.
+    ///
+    ///         `CooldownActive` is checked before the quota in
+    ///         `ToshFactory.deposit`, so the first assertion is not accidentally
+    ///         passing on `QuotaExceeded`: 72 h is three quota windows, the spend
+    ///         has been rolled back to zero, and there is room for this amount.
+    function test_deposit_slowGenesisAllowsExactlyOnePerWallet() public {
+        (, address hook) = _createLaunch("Once", "ONCE", 72 hours);
+        _register(user1, 40e8);
+
+        vm.prank(user1);
+        factory.deposit(hook, address(0), 5e8);
+
+        uint256 deadline = _h(hook).genesisDeadline();
+
+        // One second before the window shuts: quota has refilled twice over, and
+        // the cooldown is the thing standing in the way.
+        vm.warp(deadline - 1);
+        vm.prank(user1);
+        vm.expectRevert(ToshFactory.CooldownActive.selector);
+        factory.deposit(hook, address(0), 5e8);
+
+        // At the deadline the cooldown has lapsed to the instant — and the
+        // genesis has shut on the same instant.
+        vm.warp(deadline);
+        vm.prank(user1);
+        vm.expectRevert(ToshLaunchpadHook.GenesisExpired.selector);
+        factory.deposit(hook, address(0), 5e8);
+
+        assertEq(_h(hook).nativeDeposited(user1), 5e8, "the wallet is held to its single deposit");
+    }
 }

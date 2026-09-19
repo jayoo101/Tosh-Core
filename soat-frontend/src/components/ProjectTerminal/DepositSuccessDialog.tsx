@@ -20,8 +20,9 @@
  * Because it is not the only copy. The referral desk stays on the page and says
  * the same thing permanently, so dismissing this costs nothing — which is
  * exactly the licence a modal needs. It is shown on a confirmed deposit and not
- * on a schedule of its own, and the factory's 24h per-hook cooldown means that
- * is at most once a day per project.
+ * on a schedule of its own, and the factory's per-(wallet, hook) cooldown now
+ * runs at least as long as the longest genesis, so that is once per project
+ * rather than the once a day this used to say.
  */
 
 import { useEffect } from 'react'

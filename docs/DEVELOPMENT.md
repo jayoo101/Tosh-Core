@@ -344,7 +344,22 @@ has already burned on major chains — a history that cannot be fabricated.
 Quotas are a platform-wide budget spent across all projects, refilling once per
 `quotaWindowDuration`. Refunds never credit back. Lowering
 `maxPogAllocationLimit` does not claw back quotas already issued.
-`cooldownDuration` is a separate per-(wallet, hook) throttle.
+
+`cooldownDuration` is a separate per-(wallet, hook) clock, and at its current
+**72 h** it is not a throttle but a one-deposit rule. It is at least
+`DURATION_SLOW`, the longest genesis, so a wallet's second deposit into a given
+project can never land inside the window its first one was made in — the
+cooldown expires no earlier than the deadline the deposit would have to beat.
+
+That matters because the two clocks used to agree at 24 h: a wallet on a 72 h
+genesis got three quota refills and could accumulate up to `perWalletCap` in
+instalments its quota never justified in one transaction. The quota refills;
+`nativeDeposited` does not reset.
+
+The relationship is a dial against a constant in another contract, with nothing
+structural holding them together and zero margin at 72 h against 72 h, so
+`test_cooldown_isAtLeastTheLongestGenesis` pins it and
+`test_deposit_slowGenesisAllowsExactlyOnePerWallet` exercises the tight case.
 
 ---
 

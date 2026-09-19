@@ -299,7 +299,45 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Per-(wallet, hook) re-deposit throttle.  Orthogonal to the
     ///         PoG quota window — a wallet can be off cooldown and still
     ///         out of quota, or vice versa.  `0` disables the throttle.
-    uint256 public cooldownDuration = 24 hours;
+    ///
+    /// @dev    ⚠ AT 72 h THIS IS NO LONGER A THROTTLE, IT IS A ONE-DEPOSIT RULE,
+    ///           and that is why the value moved from 24 h.
+    ///
+    ///         At 24 h it throttled without bounding: the PoG quota window is
+    ///         also 24 h, so a wallet on a 72 h genesis got three refills and
+    ///         three deposits into the same project, accumulating up to
+    ///         `perWalletCap` in instalments its quota never justified in one
+    ///         go. The quota refills; `nativeDeposited` does not reset. So the
+    ///         two clocks agreeing was what let a small quota add up to a large
+    ///         position.
+    ///
+    ///         At 72 h the second deposit is unreachable for every legal genesis,
+    ///         and the proof is a one-liner rather than a margin:
+    ///
+    ///           first deposit at t1, necessarily t1 >= tCreate and
+    ///           t1 < tCreate + D with D <= DURATION_SLOW = 72 h;
+    ///           cooldown ends at t1 + 72 h >= tCreate + 72 h >= tCreate + D,
+    ///           i.e. never before the genesis deadline the deposit must beat.
+    ///
+    ///         The worst case is tight, not comfortable: a 72 h genesis whose
+    ///         first deposit lands in the creation block makes the two instants
+    ///         EQUAL, and it still fails because `deposit` needs
+    ///         `block.timestamp < genesisDeadline` strictly.
+    ///
+    ///         ⚠ ZERO MARGIN IS THE WHOLE RISK. This holds because
+    ///           `cooldownDuration >= DURATION_SLOW`, and nothing structural ties
+    ///           them — they are a dial on this contract and a constant on the
+    ///           hook. Adding a fourth, longer genesis rung, or lowering this
+    ///           dial, silently restores instalment deposits with no error
+    ///           anywhere. `test_cooldown_isAtLeastTheLongestGenesis` is what
+    ///           makes that a failing build instead of a discovery.
+    ///
+    ///         It is still a dial, so this is policy rather than an invariant:
+    ///         the owner can set it back. Deliberate — the one-deposit rule is a
+    ///         market decision, and making it structural would cost a redeploy to
+    ///         revisit. `MONITOR_` coverage of the dial is the compensating
+    ///         control.
+    uint256 public cooldownDuration = 72 hours;
 
     /// @notice How long a wallet's PoG spend ledger lasts before it rolls
     ///         back to zero.  Independent of `cooldownDuration`.

@@ -342,7 +342,8 @@ the factory must not be announced in that state.
 | 1 | Safe calls `acceptOwnership()` on the **factory** | `owner()` is the Safe and `pendingOwner()` is `address(0)` |
 | 2 | Safe calls `acceptOwnership()` on the **treasury** | same two reads on the treasury |
 | 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the base units you decided on, not the 9.28 BEM default |
-| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals |
+| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals — and `cooldownDuration()` = `259200` (72 h) |
+| 4a | Read the cooldown as policy, not as a throttle | At 72 h it is at least `DURATION_SLOW`, so it is the **one-deposit-per-wallet-per-project** rule. Lowering it restores instalment deposits, silently: nothing reverts, the UI stops saying "one deposit per wallet", and a wallet can accumulate to `perWalletCap` across refilled quota windows. Treat it as a market parameter, not a spam knob |
 | 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
 | 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |

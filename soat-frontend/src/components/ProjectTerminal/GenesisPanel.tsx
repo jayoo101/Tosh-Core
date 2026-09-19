@@ -125,6 +125,26 @@ export function GenesisPanel(p: GenesisProps) {
   const walletHeadroom = p.perWalletCap > p.userDeposited
     ? p.perWalletCap - p.userDeposited
     : 0n
+
+  /**
+   * Whether this wallet's deposit was its only one for this project.
+   *
+   * ⚠ HEADROOM STOPPED MEANING "AVAILABLE" WHEN THE COOLDOWN WENT TO 72 h. The
+   *   cooldown is per-(wallet, hook) and now runs at least as long as the
+   *   longest genesis, so a wallet's second deposit cannot land inside the
+   *   window its first one was made in. `perWalletCap - userDeposited` is still
+   *   arithmetically right and is no longer an offer: the field was telling a
+   *   depositor "41.4 BEM LEFT FOR YOU" about a project that would reject every
+   *   one of them.
+   *
+   *   Derived from the two timestamps rather than from the dial, so it stays
+   *   true if an owner lowers `cooldownDuration` again — at which point the
+   *   headroom really is spendable and the copy goes back to offering it, with
+   *   no code change and nothing to remember.
+   */
+  const capSpentForThisRound = p.userDeposited > 0n
+                            && p.cooldownEnd >= p.genesisDeadline
+                            && p.genesisDeadline > 0n
   const walletCapBreached = p.perWalletCap > 0n && amountWei > 0n && amountWei > walletHeadroom
 
   // The binding ceiling is whichever of the two runs out first.
@@ -196,7 +216,7 @@ export function GenesisPanel(p: GenesisProps) {
   // per-wallet cap.  The cascade this replaces had `onCooldown` sitting after
   // `quotaBreached`, so a wallet that was both cooling down and over budget was
   // told its window was spent when the transaction would actually have reverted
-  // `CooldownActive`: "you have none left" instead of "wait 24 hours".
+  // `CooldownActive`: "you have none left" instead of "wait out the cooldown".
   const gate = useActionGate({
     action: `Deposit ${QUOTE_SYMBOL}`,
     onAct: submitDeposit,
@@ -265,8 +285,16 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'cooldown',
         active: onCooldown,
-        label: `Cooldown · ${cooldownTxt}`,
-        reason: `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
+        // Two different facts wear the same countdown. While the cooldown ends
+        // before the window does, it is a wait and saying "another 04:12:​09"
+        // tells the reader what to do. Once it ends at or after the deadline it
+        // is not a wait at all — nothing the reader can do will make it clear in
+        // time — and a countdown there reads as an invitation to come back,
+        // which is the one thing that will not work.
+        label: capSpentForThisRound ? 'Already deposited' : `Cooldown · ${cooldownTxt}`,
+        reason: capSpentForThisRound
+          ? `This project takes one deposit per wallet, and yours has landed · ${fmtQuote(p.userDeposited)} ${QUOTE_SYMBOL} committed. The cooldown outlasts the genesis window, so there is no second deposit to wait for.`
+          : `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
         tone: 'warn',
       },
       {
@@ -445,7 +473,9 @@ export function GenesisPanel(p: GenesisProps) {
           error={amountError}
           armed={armed}
           hint={p.perWalletCap > 0n
-            ? `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
+            ? capSpentForThisRound
+              ? `ONE DEPOSIT PER WALLET · YOU COMMITTED ${fmtQuote(p.userDeposited)} ${QUOTE_SYMBOL} AND THIS ROUND TAKES NO MORE FROM YOU`
+              : `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
             : undefined}
           affix={
             <FieldAffix
