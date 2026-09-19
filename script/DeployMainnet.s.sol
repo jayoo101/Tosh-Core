@@ -36,6 +36,10 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //    TARGET_CHAIN_ID       — chain this run is authorised for (56 = BSC)
 //    INFINITY_CL_POOL_MANAGER — PancakeSwap Infinity CLPoolManager on the target
 //    INFINITY_VAULT        — PancakeSwap Infinity Vault (the CL manager's vault())
+//    QUOTE_ASSET           — BEM, 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a on 56.
+//                            Must have 8 decimals; the hook's constructor asserts
+//                            it. Immutable on all three contracts, so a wrong
+//                            value is a full redeploy, not a config fix.
 //    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
 //                            — a NEW EOA, not reused from testnet. The private
 //                            key lives in Vercel Production, not in this file.
@@ -176,6 +180,35 @@ contract DeployMainnetScript is Script {
         address vault = vm.envAddress("INFINITY_VAULT");
         require(vault != address(0), "INFINITY_VAULT unset");
 
+        // The quote asset: what every raise is denominated in, and `currency0` of
+        // every pool this factory will ever create. BEM,
+        // `0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a` on 56.
+        //
+        // Immutable on all three contracts with no setter anywhere, so a wrong
+        // value is a redeploy of the whole set — not a config fix. Two properties
+        // the checks below cannot establish and a human must:
+        //
+        //   1. IT MUST HAVE 8 DECIMALS. The hook's constructor asserts this, so a
+        //      wrong token fails the broadcast rather than shipping. It is
+        //      asserted rather than assumed because `MIN_SOFT_CAP_PROD` and the
+        //      shelf ladder's usable range were computed against 8, and at 18 the
+        //      ladder's flattening cliff moves somewhere nobody has checked.
+        //
+        //   2. ITS SUPPLY POLICY IS A TRUST ASSUMPTION. BEM's minter is an
+        //      upgradeable ERC-1967 proxy, so whoever controls it can inflate the
+        //      asset every raise is denominated in. That is acceptable only
+        //      because it is OURS; if this address ever names a token controlled
+        //      by someone else, re-read docs/BEM_QUOTE_ASSET.md §1.1 first.
+        //
+        // No rehearsal exists for this configuration. BEM has no deployment on
+        // testnet 97, so the deposit, refund and settlement paths reach mainnet
+        // having been exercised only in tests and against a fork. That was a
+        // decision, not an oversight — docs/BEM_QUOTE_ASSET.md §3 — and the fork
+        // suite against real BEM bytecode is the compensation.
+        address quoteAsset = vm.envAddress("QUOTE_ASSET");
+        require(quoteAsset != address(0), "QUOTE_ASSET unset");
+        require(quoteAsset.code.length > 0, "QUOTE_ASSET holds no code on this chain");
+
         address pogSigner = vm.envAddress("POG_SIGNER_ADDRESS");
         require(pogSigner != address(0), "POG_SIGNER_ADDRESS unset");
 
@@ -220,10 +253,11 @@ contract DeployMainnetScript is Script {
         // the Safe via the same two-step dance as the factory.  The window is
         // harmless: the treasury has no withdraw path at all, so even a fully
         // compromised deployer key could only mis-curate the buyback ladder.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
-        ToshFactory factory = new ToshFactory(poolManager, vault, pogSigner, platformTreasury, address(treasury));
+        ToshFactory factory =
+            new ToshFactory(poolManager, vault, pogSigner, platformTreasury, address(treasury), quoteAsset);
         console2.log("ToshFactory deployed      :", address(factory));
 
         // ── 3. Close the treasury <-> factory loop ──────────────────────────

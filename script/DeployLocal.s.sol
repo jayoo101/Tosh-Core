@@ -40,10 +40,25 @@ contract DeployLocal is Script {
         address platformTreasury = vm.envAddress("PLATFORM_TREASURY");
         require(platformTreasury != address(0), "PLATFORM_TREASURY unset");
 
+        // REQUIRED, and it cannot be stubbed the way the manager and Vault are.
+        //
+        // `address(1)` works for those because nothing in the constructors calls
+        // them. The quote asset is different: the hook's constructor calls
+        // `decimals()` on it and requires 8, so a stub address reverts the deploy.
+        // That is deliberate — the alternative is a local factory whose pools
+        // would sort the wrong way and whose ladder geometry would be computed
+        // against the wrong precision.
+        //
+        // For local work, deploy an 8-decimal mock first and pass it here. Do not
+        // reach for an 18-decimal one: it will be rejected, and if the assertion
+        // were ever relaxed the shelf ladder would silently change shape.
+        address quoteAsset = vm.envAddress("QUOTE_ASSET");
+        require(quoteAsset != address(0), "QUOTE_ASSET unset");
+
         vm.startBroadcast(deployerPk);
 
         // Treasury first — the factory needs its address at construction time.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
         console.log("ToshLadderTreasury deployed at:", address(treasury));
 
         ToshFactory factory = new ToshFactory(
@@ -51,7 +66,8 @@ contract DeployLocal is Script {
             vault, // _vault            (Infinity Vault)
             deployer, // _pogSigner        (deployer signs PoG attestations)
             platformTreasury, // _platformTreasury (0.30 % of every buy, immutable)
-            address(treasury) // _ladderTreasury
+            address(treasury), // _ladderTreasury
+            quoteAsset // _quoteAsset       (also currency0 of every pool)
         );
 
         treasury.setFactory(address(factory));

@@ -7,6 +7,7 @@ import "forge-std/console2.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {Currency} from "infinity-core/src/types/Currency.sol";
 // Imported rather than restated, unlike `test/ToshV5ForkInfinity.t.sol`, which
 // keeps its own copy so the guard has a handwritten tuple to diff against
 // upstream. A rehearsal wants the opposite: if PancakeSwap reshapes the params,
@@ -109,6 +110,13 @@ interface IUniversalRouter {
 
 /// @dev Shared fixture. Deliberately thin: the point of a rehearsal is to drive
 ///      the deployed contracts, not to build a second harness around them.
+/// @dev The one Permit2 entry point this script needs. Declared locally rather
+///      than imported because the repo has no Permit2 dependency and adding one
+///      for a four-argument setter would pull in a library for a signature.
+interface IPermit2Approve {
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
+
 abstract contract RehearsalBase is Script {
     using MessageHashUtils for bytes32;
 
@@ -122,26 +130,34 @@ abstract contract RehearsalBase is Script {
     /// exactly — as this one did while the gate existed — exercises only the
     /// path that worked before the change.
     ///
-    /// ⚠ THESE ARE BNB, and the ×3.5 pass that converted every other denominated
-    ///   constant missed this file. The result was not a wrong number in a log:
-    ///   `REHEARSAL_RAISE` at its old 0.01 fell BELOW the factory's rescaled
-    ///   `MIN_SOFT_CAP_PROD` of 0.035, so phase 1 reverted on its own assertion
-    ///   the first time it was pointed at a real BSC factory. Kept as a note
-    ///   because the ratios below are what the rehearsal is about, and rescaling
-    ///   them one at a time is how those ratios get quietly broken.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 0.175 ether;
-    uint256 internal constant REHEARSAL_WALLET_CAP = 0.035 ether;
-    uint256 internal constant REHEARSAL_LAUNCH_FEE = 0.0035 ether;
+    /// ⚠ THESE ARE QUOTE-ASSET BASE UNITS — 8 decimals, so `e8` and never
+    ///   `ether`. This file has now been missed by a denomination pass twice: the
+    ///   ×3.5 BNB conversion skipped it, and `REHEARSAL_RAISE` at its old 0.01
+    ///   fell BELOW the factory's `MIN_SOFT_CAP_PROD`, so phase 1 reverted on its
+    ///   own assertion the first time it met a real BSC factory. The assertion in
+    ///   `_scaleParameters` is what caught it, and it is the reason to keep
+    ///   reading these as ratios rather than as numbers.
+    ///
+    ///   THE SHORTFALL IS NO LONGER FREE, which is the substantive change here.
+    ///   The raise had to stay at the contract floor and the cap at five times it,
+    ///   because the floor is what keeps the shelf ladder monotone — and that
+    ///   floor is now 100 BEM against a 4.75x margin over the flattening cliff,
+    ///   not a 16.6-million-to-one margin over it. So this rehearsal costs 500 BEM
+    ///   of allowance for the cap and 100 BEM actually deposited, where the BNB
+    ///   version cost 0.035. Dropping the raise to make it cheaper does not widen
+    ///   the shortfall, it flattens the ladder, which is the thing under test.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 500e8;
+    uint256 internal constant REHEARSAL_WALLET_CAP = 100e8;
+    uint256 internal constant REHEARSAL_LAUNCH_FEE = 10e8;
 
     /// What one wallet actually deposits: 20 % of the cap.
     ///
     /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`, and asserted against the
     /// contract in `_scaleParameters` rather than trusted — which is what caught
     /// the missed rescaling above. The floor binds the RAISE, not the cap: below
-    /// it `p0 = lpNative / GENESIS_LP_SUPPLY` truncates toward zero. Going lower
-    /// to widen the shortfall would trade the thing under test for a degenerate
-    /// pool.
-    uint256 internal constant REHEARSAL_RAISE = 0.035 ether;
+    /// it the ladder flattens before `p0` ever truncates. Going lower to widen
+    /// the shortfall would trade the thing under test for a degenerate pool.
+    uint256 internal constant REHEARSAL_RAISE = 100e8;
 
     /// PancakeSwap Infinity's UniversalRouter on BSC testnet (97). Table and
     /// re-check commands in docs/PANCAKESWAP_INFINITY.md §7.
@@ -152,6 +168,11 @@ abstract contract RehearsalBase is Script {
     /// passes the length floor and decodes into a different struct. See
     /// `_buyThroughRouter`.
     address internal constant UNIVERSAL_ROUTER = 0x87FD5305E6a40F378da124864B2D479c2028BD86;
+
+    /// Permit2, canonical on every chain and the one address the BSC migration
+    /// did not have to touch. Mirrors `PERMIT2` in soat-frontend/src/lib/contracts.ts.
+    /// Needed now that the swap's input leg is an ERC20 — see `_buyThroughRouter`.
+    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // From pancakeswap/infinity-universal-router `Commands.sol` and
     // infinity-periphery `Actions.sol`.
@@ -172,6 +193,12 @@ abstract contract RehearsalBase is Script {
     ToshFactory internal factory;
     ToshLadderTreasury internal treasury;
 
+    /// @dev Read off the factory rather than from env, so the rehearsal cannot
+    ///      approve one token while the factory pulls another. The factory is the
+    ///      authority on what it is denominated in; a `QUOTE_ASSET` in `.env`
+    ///      would be a second opinion with nothing reconciling the two.
+    IERC20 internal quoteAsset;
+
     function _setUp() internal {
         require(block.chainid == 97, "RehearseTestnet is BSC testnet (97) only");
 
@@ -186,6 +213,23 @@ abstract contract RehearsalBase is Script {
         require(address(factory).code.length > 0, "FACTORY_ADDRESS holds no code");
         require(factory.owner() == deployer, "deployer does not own the factory");
         require(factory.ladderTreasury() == address(treasury), "factory/treasury are not wired to each other");
+
+        quoteAsset = IERC20(address(factory.quoteAsset()));
+        require(
+            address(treasury.quoteAsset()) == address(quoteAsset), "factory/treasury disagree on the quote asset"
+        );
+
+        // ⚠ WHATEVER THIS IS, IT IS NOT BEM. BEM has no deployment on 97, so a
+        //   factory reachable here was necessarily constructed against some other
+        //   8-decimal token. The phases below therefore rehearse the SHAPE of the
+        //   flows — approve, pull, settle, refund — and not the asset. What they
+        //   cannot rehearse is the part of the risk that is specific to BEM: a
+        //   float of 1,959 tokens in its only real pool, and a mint authority
+        //   behind an upgradeable proxy. See docs/BEM_QUOTE_ASSET.md §3.
+        require(
+            quoteAsset.balanceOf(deployer) >= REHEARSAL_LAUNCH_FEE + REHEARSAL_RAISE,
+            "deployer holds too little quote asset for the fee plus the raise -- mint or acquire some first"
+        );
 
         // Nothing to install. On Robinhood this is where `_installArbSys()`
         // etched a mock over 0x64 so the local simulation would not abort on
@@ -236,7 +280,36 @@ abstract contract RehearsalBase is Script {
     ///      pins this struct against infinity-periphery, and
     ///      `test_forkInfinity_theUniswapShapedTupleIsNotInterchangeable`
     ///      measures the near-miss; see docs/PANCAKESWAP_INFINITY.md §10.
+    /// @dev Buys `currency1` with `amountIn` of `currency0` through Infinity's
+    ///      UniversalRouter.
+    ///
+    ///      ⚠ THE INPUT LEG NOW GOES THROUGH PERMIT2, AND THIS PATH IS UNVERIFIED
+    ///        ON-CHAIN. While `currency0` was native, `execute{value: amountIn}`
+    ///        was the whole settlement: `SETTLE_ALL` saw the value already sitting
+    ///        in the router. An ERC20 input has no such arrival, so the router
+    ///        pulls it, and PancakeSwap's UniversalRouter pulls through Permit2
+    ///        rather than a direct `transferFrom`. That makes the buyer's approval
+    ///        a TWO-STEP grant: the token to Permit2 once, then Permit2 to the
+    ///        router with an expiry.
+    ///
+    ///        Unverified because nobody has run this. BEM does not exist on 97,
+    ///        the 97 rehearsal was deliberately skipped, and the fork suite
+    ///        exercises the hook's own swap accounting rather than the router's
+    ///        settlement. Treat the two approvals below as the intended shape and
+    ///        expect to debug them the first time this is actually executed —
+    ///        specifically whether this router honours the canonical Permit2 and
+    ///        whether `SETTLE_ALL` wants `payerIsUser` set differently for ERC20.
     function _buyThroughRouter(PoolKey memory key, uint128 amountIn, uint128 minOut) internal {
+        // `quoteAsset` rather than unwrapping `key.currency0`, which is the same
+        // token by construction and is re-asserted here. If they ever diverge the
+        // pool's sides are inverted and this swap would be selling, not buying.
+        require(Currency.unwrap(key.currency0) == address(quoteAsset), "currency0 is not the quote asset");
+
+        quoteAsset.approve(PERMIT2, amountIn);
+        IPermit2Approve(PERMIT2).approve(
+            address(quoteAsset), UNIVERSAL_ROUTER, amountIn, uint48(block.timestamp + 600)
+        );
+
         bytes memory actions = abi.encodePacked(ACTION_CL_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL);
 
         bytes[] memory params = new bytes[](3);
@@ -251,9 +324,10 @@ abstract contract RehearsalBase is Script {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(actions, params);
 
-        IUniversalRouter(UNIVERSAL_ROUTER).execute{value: amountIn}(
-            abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 600
-        );
+        // No `{value:}`. The router takes the input from the Permit2 allowance
+        // granted above; sending BNB alongside would leave it stranded in the
+        // router with nothing in this calldata instructing a refund.
+        IUniversalRouter(UNIVERSAL_ROUTER).execute(abi.encodePacked(CMD_INFI_SWAP), inputs, block.timestamp + 600);
     }
 
     function _logHeader(string memory title) internal view {
@@ -283,7 +357,19 @@ contract Phase1Genesis is RehearsalBase {
         bytes32 salt = _pickSalt();
         _registerPoG(REHEARSAL_WALLET_CAP);
 
-        (address token, address hook) = factory.createLaunch{value: REHEARSAL_LAUNCH_FEE}(
+        // Two approvals, not a `{value:}`. The factory pulls the launch fee and
+        // the genesis deposit with `transferFrom`, so the rehearsal has to grant
+        // an allowance first — which is itself part of what is being rehearsed,
+        // since it is the extra transaction every real creator and depositor now
+        // pays for.
+        //
+        // Approved exactly, and separately, rather than once for the sum. An
+        // allowance sized to cover both would let a bug in either pull draw on
+        // the other's budget and still succeed, which is the failure this
+        // rehearsal exists to catch.
+        quoteAsset.approve(address(factory), REHEARSAL_LAUNCH_FEE);
+
+        (address token, address hook) = factory.createLaunch(
             "Tosh Rehearsal",
             "RHRSL",
             deployer, // projectTreasury
@@ -300,7 +386,8 @@ contract Phase1Genesis is RehearsalBase {
         );
 
         // One wallet, one fifth of the cap. The shortfall is the point.
-        factory.deposit{value: REHEARSAL_RAISE}(hook, address(0));
+        quoteAsset.approve(address(factory), REHEARSAL_RAISE);
+        factory.deposit(hook, address(0), REHEARSAL_RAISE);
 
         vm.stopBroadcast();
 
@@ -456,7 +543,7 @@ contract Phase2Launch is RehearsalBase {
         console2.log("============================================================");
         console2.log("launched        :", hook.launched());
         console2.log("token totalSupply:", token.totalSupply());
-        console2.log("treasury balance :", address(treasury).balance);
+        console2.log("treasury balance :", treasury.reservoir());
         console2.log("------------------------------------------------------------");
         console2.log("RH-F2 -- which clock did the hook stamp?");
         console2.log("  lastSwapBlock (via _blockNumber) :", stamped);
@@ -552,7 +639,7 @@ contract Phase3Buy is RehearsalBase {
         (ToshLaunchpadHook hook, ToshToken token) = _loadProject();
         require(hook.launched(), "not launched -- run Phase2Launch first");
 
-        uint256 reservoirBefore = address(treasury).balance;
+        uint256 reservoirBefore = treasury.reservoir();
         uint256 tokensBefore = IERC20(address(token)).balanceOf(deployer);
 
         console2.log("lastSwapBlock before :", hook.lastSwapBlock());
@@ -575,15 +662,15 @@ contract Phase3Buy is RehearsalBase {
     {
         uint256 stamped = hook.lastSwapBlock();
         uint256 received = IERC20(address(token)).balanceOf(deployer) - tokensBefore;
-        uint256 taxed = address(treasury).balance - reservoirBefore;
+        uint256 taxed = treasury.reservoir() - reservoirBefore;
 
         console2.log("============================================================");
         console2.log("PHASE 3 COMPLETE");
         console2.log("============================================================");
-        console2.log("ETH in            :", BUY_AMOUNT);
+        console2.log("quote asset in    :", BUY_AMOUNT);
         console2.log("tokens received   :", received);
         console2.log("dark tax to reservoir:", taxed);
-        console2.log("treasury ETH now  :", address(treasury).balance);
+        console2.log("treasury reservoir:", treasury.reservoir());
         console2.log("nextSpendAmount   :", treasury.nextSpendAmount());
         console2.log("------------------------------------------------------------");
         console2.log("lastSwapBlock re-armed to :", stamped);
@@ -639,10 +726,24 @@ contract Phase4Ladder is RehearsalBase {
         console2.log("minting          :", amount);
         console2.log("quoted cost      :", cost);
 
+        // 1 % over the quote, for a quote that can be a shelf boundary out by the
+        // time this lands. What that 1 % IS has changed, and the distinction is
+        // worth rehearsing rather than discovering: it used to be an overpayment
+        // the hook refunded, and it is now only a slippage ceiling. The hook pulls
+        // exactly `cost` and there is nothing to refund, so `charged` below should
+        // equal the quote whenever no shelf boundary was crossed — a `charged`
+        // above `quoted` means another buyer got there first, which is the state
+        // this tolerance exists to absorb.
+        uint256 tolerance = cost + cost / 100;
+
         vm.startBroadcast(deployerPk);
-        // 1 % over the quote. `mintBondingCurve` refunds the excess, and a quote
-        // taken one block earlier can be a shelf boundary out.
-        uint256 charged = hook.mintBondingCurve{value: cost + cost / 100}(amount);
+        // Approved to the HOOK, not the factory. The shelf payment is pulled by
+        // the hook straight to `ladderTreasury` and `projectAdmin`, so the
+        // allowance a buyer needs in Phase 2 is a different one from the
+        // allowance a depositor needed in Phase 1 — a real second approval per
+        // project, which the frontend has to ask for.
+        quoteAsset.approve(address(hook), tolerance);
+        uint256 charged = hook.mintBondingCurve(amount, tolerance);
         vm.stopBroadcast();
 
         _reportMint(token, tokensBefore, cost, charged);
@@ -668,7 +769,7 @@ contract Phase4Ladder is RehearsalBase {
 
         console2.log("------------------------------------------------------------");
         console2.log("BUYBACK");
-        console2.log("  treasury ETH   :", address(treasury).balance);
+        console2.log("  treasury reserv:", treasury.reservoir());
         console2.log("  nextSpendAmount:", spend);
 
         if (spend == 0) {
@@ -682,17 +783,17 @@ contract Phase4Ladder is RehearsalBase {
         // is unchanged by design and a supply delta would always read zero.
         address dead = treasury.DEAD_ADDRESS();
         uint256 deadBefore = IERC20(address(token)).balanceOf(dead);
-        uint256 ethBefore = address(treasury).balance;
+        uint256 quoteBefore = treasury.reservoir();
 
         vm.startBroadcast(deployerPk);
         treasury.pokeBuyback();
         vm.stopBroadcast();
 
-        console2.log("  ETH spent      :", ethBefore - address(treasury).balance);
+        console2.log("  quote spent    :", quoteBefore - treasury.reservoir());
         console2.log("  tokens to dead :", IERC20(address(token)).balanceOf(dead) - deadBefore);
         console2.log("  dead balance   :", IERC20(address(token)).balanceOf(dead));
         console2.log("  totalSupply    :", token.totalSupply(), "(unchanged by design)");
-        console2.log("  treasury ETH   :", address(treasury).balance);
+        console2.log("  treasury reserv:", treasury.reservoir());
         console2.log("  lastSwapBlock  :", hook.lastSwapBlock());
         require(
             IERC20(address(token)).balanceOf(dead) > deadBefore,

@@ -79,6 +79,33 @@ contract DeployScript is Script {
         address vault = vm.envAddress("INFINITY_VAULT");
         require(vault != address(0), "INFINITY_VAULT unset");
 
+        // The quote asset: what raises are denominated in, and `currency0` of
+        // every pool this factory creates.
+        //
+        // ⚠ BEM DOES NOT EXIST ON 97, so this script can no longer rehearse the
+        //   mainnet configuration. BEM is `0x5ce0…695a` on 56 and that address
+        //   holds no code on testnet, so a deploy here has to name some OTHER
+        //   8-decimal ERC20 — a mock the operator deploys first. That is a
+        //   legitimate way to exercise the plumbing and it is NOT a rehearsal of
+        //   mainnet: a mock has whatever supply and depth the operator gives it,
+        //   while the risk BEM actually carries is that its only pool of
+        //   consequence held 1,959 tokens against a 928.4-token default soft cap.
+        //
+        //   Recorded because the whole argument for porting to PancakeSwap
+        //   Infinity was that a real testnet existed to rehearse on, and moving
+        //   the quote asset to BEM gives that back up for the deposit,
+        //   refund and settlement paths. See docs/BEM_QUOTE_ASSET.md §3.
+        //
+        // No default. Defaulting would pick a wrong token silently, and the
+        // factory's `quoteAsset` has no setter — a wrong value here means
+        // redeploying the factory, the treasury and the hook implementation.
+        address quoteAsset = vm.envAddress("QUOTE_ASSET");
+        require(quoteAsset != address(0), "QUOTE_ASSET unset");
+        // Caught here rather than in the hook's constructor, which asserts
+        // `decimals() == 8` and would revert mid-broadcast with a bare
+        // `EvmError` on an address holding no code at all.
+        require(quoteAsset.code.length > 0, "QUOTE_ASSET holds no code on this chain");
+
         address pogSigner = vm.envOr("POG_SIGNER_ADDRESS", deployer);
 
         // REQUIRED, no default.  This used to be `vm.envOr(..., deployer)`,
@@ -114,7 +141,7 @@ contract DeployScript is Script {
         // ── 1. ToshLadderTreasury ─────────────────────────────────────────────
         // Must exist BEFORE the factory: the factory takes its address as an
         // immutable constructor argument, and every hook inherits it from there.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
         // ── 2. ToshFactory ────────────────────────────────────────────────────
@@ -123,7 +150,8 @@ contract DeployScript is Script {
             vault, // _vault            (Infinity Vault)
             pogSigner, // _pogSigner        (PoG oracle backend)
             platformTreasury, // _platformTreasury
-            address(treasury) // _ladderTreasury   (buyback reservoir)
+            address(treasury), // _ladderTreasury   (buyback reservoir)
+            quoteAsset // _quoteAsset       (also currency0 of every pool)
         );
         console2.log("ToshFactory deployed:", address(factory));
 
