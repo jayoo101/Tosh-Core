@@ -117,19 +117,71 @@ immutable and the money is back with the depositors.
 
 ## 3. Preconditions
 
-| Check | Value on 2026-09-17 | Verdict |
+> ⚠ **EVERY ADDRESS IN THE TABLE BELOW USED TO BE A ROBINHOOD ONE**, and that is
+> a worse failure than an absent table: the deployer, the owner Safe and the PoG
+> signer were all `4663` addresses quoted in ETH, and the old Safe
+> `0x2953957774482efA660921df85A1E7634ccfe27A` **has no code on 56**. An operator
+> working down the list would have funded a wallet that cannot deploy and pointed
+> ownership at an address that does not exist on the target chain. Re-measured
+> against chain `56` on 2026-09-19.
+
+| Check | Value on 2026-09-19, chain `56` | Verdict |
 |---|---|---|
-| Deployer `0x4E41CEa950cF40FA59774B409988D6F9F399E690` balance | 0.003695 ETH | enough — the deploy costs ~0.00074 ETH (15,143,081 gas at 0.0487 gwei), roughly 5x covered |
-| Executing Safe owner's EOA balance | check on the day | must cover three Safe transactions |
-| Owner Safe `0x2953957774482efA660921df85A1E7634ccfe27A` | 0.000006 ETH | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe |
-| PoG signer `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736` | 0 ETH | correct, leave it. See the note below |
-| Old factory `paused()` | `false` | see step 6 |
+| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | enough — the deploy costs ~0.00076 BNB (15,143,081 gas at 0.05 gwei), roughly 17x covered |
+| Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
+| Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
+| PoG signer | **`0x73db078fa94607893270079AC8F5c7492aB480cd` — LEAKED, BLOCKS THE DEPLOY** | must be rotated before `.env.production` is written. See below |
+| Deployer BEM balance | 0 | correct — the launch fee is paid by whoever calls `createLaunch`, not by the deployer. Nothing in the deploy moves BEM |
+| Old factory `paused()` | n/a | there is no old factory on `56`; this is a first deployment, not a redeploy. See step 6 for what that changes |
+
+> **The PoG signer is the one precondition that is not a number to check.**
+> `POG_SIGNER_ADDRESS` in `.env` is still the leaked testnet deployer. Whoever
+> holds that key can sign arbitrary `maxAlloc` values, which is the ability to
+> mint deposit quota without limit — the exact thing `GOV-04` pages on. It is
+> also why this cannot be deferred past the deploy: `pogSigner` is settable, so
+> in principle it could be rotated afterwards, but the factory would be live with
+> a signer whose key is public for the length of one Safe transaction, and the
+> quota it signs is spendable within that window.
+>
+> The new signer needs **no BNB at all** — see the note below, which is about the
+> deploy script and applies with equal force to a freshly generated key.
 
 > **The deploy script's checklist item 5 is stale.** It says to pre-fund the PoG
 > signer with ~0.05 ETH. `registerPoG` binds its digest to `msg.sender` and
 > recovers the signer only to compare addresses, so the signer never sends a
-> transaction. The live mainnet signer has held 0 ETH throughout and PoG has
+> transaction. The Robinhood mainnet signer
+> `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736` held 0 ETH throughout and PoG
 > worked the whole time. Funding it would be harmless and pointless.
+
+### The values to write into `.env.production`
+
+Three of these are already correct in `.env.production.example` and need no
+decision; they are listed so that a filled-in file can be diffed against
+something. The BSC `56` Infinity addresses were taken from the deployment the
+fork suite runs against, and `QUOTE_ASSET` is checked on chain by preflight `5c`
+for code, 8 decimals and identity.
+
+```
+TARGET_CHAIN_ID=56
+INFINITY_CL_POOL_MANAGER=0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b   # in the template
+INFINITY_VAULT=0x238a358808379702088667322f80aC48bAd5e6c4             # in the template
+QUOTE_ASSET=0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a                # in the template — BEM
+DEPLOYER_ADDRESS=0x35b232E26a275f62E594e010624aEA0c46b7874a
+PROD_OWNER_SAFE=0x02DE4629129D104C63329D13A6Ca67E43db7B310
+PLATFORM_TREASURY=0x02DE4629129D104C63329D13A6Ca67E43db7B310
+POG_SIGNER_ADDRESS=<the rotated signer — NOT 0x73db…>
+```
+
+The Safe address is recorded here because it was recorded nowhere: it existed in
+a chat log and on chain, and was recovered by scanning `56` for a contract among
+the candidate addresses with a `getThreshold()` of 2. That is not a procedure
+anybody should need on deploy day.
+
+`PLATFORM_TREASURY` being the same address as `PROD_OWNER_SAFE` is the decision
+taken deliberately, and `verifyOwnerSafe.mjs` is the gate for it: it is
+**immutable** in both the factory and the hook implementation, it receives 0.30 %
+of the BEM input of every buy on every pool forever, and rotating it is a factory
+redeploy plus a migration of every pool.
 
 ### The environment trap
 
