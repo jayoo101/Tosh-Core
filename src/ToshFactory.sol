@@ -545,7 +545,20 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @dev    Replaces what `InvalidHookSalt` used to catch by accident. See
     ///         `createLaunch`'s `expectedSoftCap` parameter.
     error CapsChanged();
-    /// @notice Native-ETH transfer to a treasury or refund recipient failed.
+    /// @notice A native-coin transfer to a treasury or refund recipient failed.
+    ///
+    /// @dev    Unreachable, and retained for the reason the hook's identically
+    ///         named error is — so the ABI does not lose a selector indexers may
+    ///         already match on. `_sendNative`, its only `revert` site, was
+    ///         deleted when Slither reported it as dead code: the launch fee and
+    ///         every deposit move with `SafeERC20.safeTransferFrom` now, and this
+    ///         contract declares no `receive()` and no payable function, so it
+    ///         cannot hold a native balance to send in the first place.
+    ///
+    ///         The function was deleted rather than baselined because a
+    ///         `call{value:}` helper sitting in a contract with no native
+    ///         accounting behind it is an invitation to a future edit that
+    ///         believes there is.
     error NativeTransferFailed();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
@@ -1052,7 +1065,26 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // the grind because it is already unique per factory, and because it
         // makes the resulting address predictable from the name alone. See
         // `ToshCloneLib.deployBareCloneAbove`.
+        //
+        // THE DISCARDED SECOND RETURN IS THE WINNING SALT, and dropping it is
+        // deliberate — Slither reports it as `unused-return` at Medium, so the
+        // reasoning is written here rather than left in a baseline file that
+        // records only which line was triaged.
+        //
+        // Nothing on chain needs it: the address is the whole product of the
+        // grind, and the line below re-checks the one property the salt was
+        // ground for instead of trusting that the loop delivered it. Nothing
+        // off chain needs it either, because the loop is deterministic given
+        // `nameKey` — `ToshCloneLib.predictBareClone` is the shared derivation
+        // both the grind and the frontend run, so a caller reproduces the
+        // sequence from the project's name alone. Storing or emitting the salt
+        // would add a word of state per launch to carry a value that is already
+        // recomputable from one that is stored.
         (token,) = ToshCloneLib.deployBareCloneAbove(tokenImplementation, address(quoteAsset), nameKey);
+        // Belt to the grind's braces. `deployBareCloneAbove` reverts
+        // `NoSaltAboveFloor` rather than returning a low address, so this is
+        // unreachable — and it is the invariant 91 sites in the hook depend on,
+        // which is the kind that gets asserted rather than argued.
         if (token <= address(quoteAsset)) revert TokenBelowQuoteAsset();
         ToshToken(token).initialize(hook, name, symbol);
         ToshLaunchpadHook(payable(hook)).initializeToken(token, projectAdmin);
@@ -1346,10 +1378,5 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
             return 0;
         }
         return quotaSpent[user];
-    }
-
-    function _sendNative(address to, uint256 amount) internal {
-        (bool ok,) = payable(to).call{value: amount}("");
-        if (!ok) revert NativeTransferFailed();
     }
 }

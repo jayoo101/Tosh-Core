@@ -15,13 +15,28 @@
  *
  * The last check is the one that cannot be undone later. Per the decision to
  * let the owner Safe also be PLATFORM_TREASURY, this address will receive
- * 0.30 % of the BNB input of every buy on every pool, forever, and it is
+ * 0.30 % of the BEM input of every buy on every pool, forever, and it is
  * IMMUTABLE — baked into both the factory and the hook implementation's
  * `platformFeeRecipient`. Rotating it is a factory redeploy and a migration of
- * every pool. It is also paid on a path that is not fault-isolated: v4-core's
- * `CurrencyLibrary.transfer` bubbles a failed native send up as
- * `NativeTransferFailed`, so a recipient that reverts on receive does not lose
- * one fee — it bricks every buy on every pool.
+ * every pool.
+ *
+ * ⚠ THE FAULT-ISOLATION WARNING HERE USED TO BE ABOUT THE WRONG THING, and the
+ *   correction matters because it moves what this check should worry about. It
+ *   read: a failed native send bubbles up as `NativeTransferFailed`, so a
+ *   recipient that reverts on receive bricks every buy on every pool. True under
+ *   a native quote asset. Under BEM the payout is
+ *   `vault.take(currency0, platformFeeRecipient, cut)` — an ERC-20 transfer,
+ *   which does not call the recipient at all. A Safe that "reverts on receive"
+ *   is no longer a hazard, and checking for one would be checking a risk that no
+ *   longer exists.
+ *
+ *   The risk did not disappear, it changed owner. The buy leg is still not
+ *   fault-isolated, but what can now brick it is the QUOTE ASSET refusing the
+ *   transfer — a blacklist, a pause, or a transfer hook on BEM naming this
+ *   address. That is not a property of the Safe, so this script cannot check it;
+ *   it is a property of a token whose mint authority sits behind a proxy. See
+ *   docs/BEM_QUOTE_ASSET.md §1 and the identically-shaped note on
+ *   `ToshLaunchpadHook.NativeTransferFailed`.
  *
  * Usage:  node scripts/verifyOwnerSafe.mjs <safe-address> [safe-owners.json]
  */
