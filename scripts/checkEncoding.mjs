@@ -1,6 +1,6 @@
 /**
- * Fails if any source file is not valid UTF-8, or carries the signature of a
- * round-trip through GBK.
+ * Fails if any source file is not valid UTF-8, carries the signature of a
+ * round-trip through GBK, or has CRLF line endings.
  *
  * WHY THIS EXISTS: an editing pass once round-tripped two test files through a
  * lossy ANSI encoder, which turned the final byte of `—` (E2 80 94) into `?`
@@ -128,6 +128,42 @@ const MOJIBAKE = [
   },
 ]
 
+/**
+ * WHY LINE ENDINGS ARE CHECKED BY AN *ENCODING* GUARD: both failures are the
+ * same failure. A file's bytes are an input to something that hashes them, and
+ * an editor changed the bytes without changing the text.
+ *
+ * `.gitattributes` spells out the consequence and is worth reading in full, but
+ * the short version is that solc hashes the source bytes into the contract
+ * metadata, the metadata hash goes into the creation code, and the creation
+ * code determines the CREATE2 address the frontend mines against. A `.sol` file
+ * saved CRLF therefore produces a hook at an address nobody predicted:
+ * `InvalidHookSalt` at launch, and explorer verification that fails against the
+ * deployed bytecode.
+ *
+ * ⚠ THAT COMMENT ENDS "THAT IS LUCK, NOT A PROPERTY", AND IT WAS RIGHT. Nothing
+ *   enforced it. At the time this pass was added the working tree held five
+ *   CRLF files — none of them `.sol`, which is the whole of why the warning had
+ *   stayed theoretical. `core.autocrlf=true` is the Git for Windows default and
+ *   `* text=auto eol=lf` only governs what a *checkout* writes; an editor
+ *   saving CRLF afterwards is outside it, and git then shows the file as
+ *   modified with an empty diff, which reads as noise rather than as a warning.
+ *
+ * CI checks out fresh and gets LF from `.gitattributes`, so this passes there
+ * by construction. Its value is local: it catches the editor before the habit
+ * reaches a `.sol` file.
+ */
+function crlfLines(buf) {
+  const lines = []
+  for (let i = 1, line = 1; i < buf.length; i++) {
+    if (buf[i] === 0x0a) {
+      if (buf[i - 1] === 0x0d) lines.push(line)
+      line++
+    }
+  }
+  return lines
+}
+
 /** Returns one hit per offending character, with 1-based line and column. */
 function mojibakeHits(text) {
   const hits = []
@@ -162,6 +198,20 @@ for (const file of files) {
     continue
   }
 
+  // Reported independently of the mojibake pass rather than with `continue`:
+  // a file can be both CRLF and mangled, they are fixed by different actions,
+  // and a guard that hides the second until the first is cleared costs a round
+  // trip for no reason.
+  const crlf = crlfLines(buf)
+  if (crlf.length > 0) {
+    failed++
+    const shown = crlf.slice(0, 5).join(', ')
+    console.error(`${file}: ${crlf.length} CRLF line ending(s), first at line ${crlf[0]}` +
+                  (crlf.length > 5 ? ` (lines ${shown}, …)` : ` (lines ${shown})`))
+    console.error(`  Source bytes are hashed into contract metadata and thence into the CREATE2`)
+    console.error(`  address — see .gitattributes. Re-save as LF.`)
+  }
+
   const hits = mojibakeHits(buf.toString('utf8'))
   if (hits.length === 0) continue
 
@@ -178,4 +228,4 @@ if (failed > 0) {
   console.error(`\n${failed} file(s) with broken encoding.`)
   process.exit(1)
 }
-console.log('All source files are valid UTF-8, with no GBK round-trip damage.')
+console.log(`All ${files.length} source files are valid UTF-8 and LF-only, with no GBK round-trip damage.`)

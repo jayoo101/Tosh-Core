@@ -413,7 +413,14 @@ jobs:
       # box-drawing characters as replacement bytes, and it has happened in
       # this repository. The damage is invisible in a diff viewer that renders
       # both sides the same way, so it needs a byte-level check.
-      - name: Check every source file is valid UTF-8
+      #
+      # The same script now also rejects CRLF, which is the same accident with a
+      # worse ending: .gitattributes explains that solc hashes source bytes into
+      # the contract metadata and thence into the CREATE2 address, so a .sol
+      # saved CRLF puts the hook somewhere nobody mined for. This step passes
+      # here by construction — a fresh checkout gets LF from .gitattributes —
+      # and the check is aimed at the working tree it cannot see.
+      - name: Check every source file is valid UTF-8 and LF-only
         run: node scripts/checkEncoding.mjs
 
       # The status page lives in another repository so that it stays up when
