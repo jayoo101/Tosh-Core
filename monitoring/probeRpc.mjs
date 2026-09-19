@@ -42,14 +42,14 @@ import { createRpc } from './rpc.mjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
 
-// argv[2] wins, then the watcher's MONITOR_RPC, then the old testnet names.
-// The testnet URL remains the last-resort default so a bare `node
-// monitoring/probeRpc.mjs` still does something; the chain-mismatch banner
-// below is what stops that something being mistaken for a mainnet result.
+// argv[2] wins, then the watcher's MONITOR_RPC, then BSC_TESTNET_RPC, then
+// the public chain-97 dataseed. A bare `node monitoring/probeRpc.mjs` must
+// land on the chain alerts.json actually names (97), not a retired one.
+// The chain-mismatch banner below still fires if those disagree.
 const RPC = process.argv[2]
   || process.env.MONITOR_RPC
-  || process.env.ROBINHOOD_TESTNET_RPC
-  || 'https://rpc.testnet.chain.robinhood.com'
+  || process.env.BSC_TESTNET_RPC
+  || 'https://data-seed-prebsc-1-s1.bnbchain.org:8545'
 
 const rpc = createRpc(RPC)
 

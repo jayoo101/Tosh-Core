@@ -66,8 +66,10 @@ const PHASES: {
     key: 'launching',
     label: 'Awaiting launch',
     // The mock reads "Floor cleared · ladder deploying". Nothing deploys by
-    // itself: `launch()` is creator-only. See v0 audit §D2.
-    blurb: 'Floor cleared · waiting on creator',
+    // itself: `launch()` is creator-only, and the soft cap is not a gate —
+    // this phase is "genesis window closed, creator has not called launch()".
+    // See v0 audit §D2. `canRefund()` reads only the 7-day launch window.
+    blurb: 'Window closed · waiting on creator',
     pip: 'bg-warning',
   },
   {
@@ -79,7 +81,7 @@ const PHASES: {
   {
     key: 'archived',
     label: 'Archived',
-    blurb: 'Floor missed · deposits refundable',
+    blurb: 'Launch window expired · deposits refundable',
     pip: 'bg-text-secondary',
   },
 ]

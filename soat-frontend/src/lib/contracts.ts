@@ -251,7 +251,7 @@ export const PLATFORM_TAX_BPS = 100
  * THE TWO LEGS DO DIFFERENT THINGS WITH IT, which is why the UI cannot
  * describe it as one destination:
  *
- *   • buy  — split. `PLATFORM_SWAP_FEE_BPS` (30) of the ETH input goes to the
+ *   • buy  — split. `PLATFORM_SWAP_FEE_BPS` (30) of the BNB input goes to the
  *            platform, the remaining 70 bps to the ladder treasury.
  *   • sell — not split. The full 100 bps of the TOKEN input is burned.
  *
@@ -261,7 +261,7 @@ export const TAX_BPS = 100
 
 /**
  * `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS` — the platform's share of the buy
- * leg's `TAX_BPS`, in basis points of the ETH input.
+ * leg's `TAX_BPS`, in basis points of the BNB input.
  *
  * Only the buy leg splits, and only this slice is platform revenue. An indexer
  * that sums `BuyTaxToTreasury` as well is double-counting; see the wire notes

@@ -74,7 +74,7 @@ const STEPS = [
     tag: 'Genesis',
     title: 'A window that cannot close early',
     description:
-      `Deposits run in ${NATIVE_SYMBOL} for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. If the raise misses its floor, every depositor takes back the full amount.`,
+      `Deposits run in ${NATIVE_SYMBOL} for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. If the creator never calls launch() inside the 7-day window after that, every depositor takes back the full amount.`,
   },
   {
     step: '04',

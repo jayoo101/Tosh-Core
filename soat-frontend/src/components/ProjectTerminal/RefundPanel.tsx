@@ -47,7 +47,7 @@ export function RefundPanel({
     <Card
       id="P-3"
       title="Claim refund"
-      subtitle="The raise missed its floor, or the 7-day window to open trading lapsed. Take back the full amount, no penalty."
+      subtitle="The 7-day window to open trading lapsed without a launch. Take back the full amount, no penalty."
       tone="warn"
     >
       <Readout label="Your deposit" value={`${fmt(nativeDeposited)} ${NATIVE_SYMBOL}`} tone="warn" />

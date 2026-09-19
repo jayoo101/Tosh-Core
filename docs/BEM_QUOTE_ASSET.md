@@ -1,7 +1,13 @@
-# Moving the quote asset to BEM — assessment
+# Moving the quote asset to BEM
 
-Status: **assessment only. No production code has been changed.** This document
-exists to be rejected or approved before anything is touched.
+Status: **approved, not started in code.** §6's three blocking questions have
+been answered; the answers are in §0 with what each one costs, because two of
+them were decided against the recommendation here. A first wiring pass began
+and was reverted the same session: changing the three constructors without the
+365 test sites, the CREATE2 token grind, the `msg.value` → `transferFrom` paths
+and the frontend left the tree unable to build, which is a worse state than
+leaving the assessment to be implemented as one piece. The structural choice in
+§0.1 survived that pass and is recorded so the next one does not re-derive it.
 
 It reverses a decision already recorded in `docs/PANCAKESWAP_INFINITY.md` §6
 ("Quote asset: BNB, decided"), so it has to answer that document rather than
@@ -15,6 +21,79 @@ tree. Where a number is computed rather than measured, it says so, and the
 arithmetic is shown so it can be checked.
 
 BEM is `0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a`.
+
+---
+
+## 0 · Decisions taken
+
+**1. No test BEM on `97`. There will be no real-network rehearsal.** §4 called
+this blocking and it was overruled; recording that plainly is the point of this
+entry. What the decision actually costs is narrower than §4 implies, and worth
+separating into what is recoverable and what is not.
+
+Recoverable, and now the main line of defence: real BEM exists on `56`, so the
+mainnet-fork suites (`ToshV5Fork.t.sol`, `ToshV5ForkInfinity.t.sol`, driven by
+`BSC_RPC`) can exercise **real BEM bytecode** — the 8-decimal arithmetic, actual
+`transferFrom` semantics, and a real Infinity pool with BEM as `currency0`. That
+covers the failure classes this change is most likely to introduce, and the
+`--isolate` run covers the per-call gas accounting. Fork coverage is therefore
+not optional here; it is the substitute, and it should be held to a higher bar
+than it was for the Infinity port, where `97` was available as a backstop.
+
+Not recoverable: **multi-day time passage on a real network.** The `97`
+rehearsal is what caught `addLadderToken` being unable to follow `launch()`
+because the TWAP needs its full 1,800 seconds, and it is what exercised the
+deploy-wiring sequence against real block production. On a fork `vm.warp` skips
+that in one jump and always succeeds. So the residual risk is concentrated in
+time-dependent and deploy-sequence behaviour, not in the ERC-20 mechanics — and
+`preflightMainnet.mjs` plus `VerifyDeployment.s.sol` are the only things standing
+in front of the deploy sequence now.
+
+**2. Force the token address above BEM with CREATE2 (§3.1b).** Taken as
+recommended. Reintroduces a weak salt grind, 1.57 expected attempts, and
+preserves the "quote asset is always `currency0`" invariant that 91 hook sites
+depend on.
+
+**3. `MIN_SOFT_CAP_PROD` = 100 BEM.** Taken as recommended — the margin option,
+where adjacent shelves differ by 4.75 integer units rather than 1. This raises
+the smallest possible raise from 0.035 BNB-equivalent to about 3.8, roughly
+108×. Small projects can no longer launch, by decision rather than by accident.
+
+### 0.1 Where the quote asset lives, and why there
+
+Decided while wiring, and recorded because it is the one structural choice that
+would be expensive to revisit.
+
+`quoteAsset` becomes an **implementation-level immutable** on
+`ToshLaunchpadHook`, `ToshFactory` and `ToshLadderTreasury` — a constructor
+argument, not one of the five per-project clone arguments. The hook already
+holds `poolManager`, `vault` and `factory` this way: they are baked into the
+implementation's bytecode and shared by every clone, while only `creator`,
+`projectTreasury`, `softCap`, `perWalletCap` and `genesisDuration` are appended
+per project.
+
+This matters for three reasons. It leaves the 131-byte clone initcode tuple
+untouched, so `hookInitcodeHash`'s argument list, `checkCloneInitcodeTuple.mjs`
+and the frontend's address prediction all keep their current shape. It keeps the
+quote asset out of a hot path — `_key()` runs inside `beforeSwap`, and reading
+the factory for it would add an external call per swap. And it inherits the
+reasoning already written at `ToshLaunchpadHook.sol:704`–713 about why
+`poolManager` is an immutable rather than a factory field: a mutable one would
+let the platform owner repoint economics under a launch that had already taken
+money. The quote asset is exactly that kind of value, so changing it must
+require a new implementation and a new factory, and now does.
+
+They cannot disagree, and a constructor equality check would have been the
+wrong tool. The factory deploys the hook implementation from inside its own
+constructor via `HookDeployLib.deployImplementation`, which is a DELEGATECALL
+so `address(this)` inside the library is the factory mid-construction. Both
+immutables are therefore written from the same `_quoteAsset` argument in the
+same construction. That is the same structural argument
+`hookImplementation` already makes about itself, and it is why the first
+wiring pass did not add a cross-check: there is no deploy ordering in which
+the two can name different tokens. The hook constructor still asserts
+`decimals() == 8`, so that claim is checked once, there, rather than in
+every caller.
 
 ---
 

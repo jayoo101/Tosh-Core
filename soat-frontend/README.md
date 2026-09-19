@@ -24,8 +24,9 @@ before the dev server binds a port rather than halfway through a page load.
 
 ```dotenv
 NEXT_PUBLIC_FACTORY_ADDRESS=0x...
-NEXT_PUBLIC_CHAIN_ID=46630           # 4663 for production
-ROBINHOOD_RPC=https://...            # server-side only; where a KEYED endpoint goes
+NEXT_PUBLIC_CHAIN_ID=97              # 56 for production, once it is deployed
+BSC_RPC=https://...                  # server-side only; keyed mainnet endpoint
+BSC_TESTNET_RPC=https://...          # server-side only; keyed testnet endpoint
 # NEXT_PUBLIC_RPC_URL=              # leave unset in production
 POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
 ```
@@ -37,7 +38,7 @@ unknown id throws at boot instead of falling back to a default, because a UI
 silently pointed at a chain nobody asked for is worse than one that will not
 start.
 
-**A keyed RPC endpoint belongs in `ROBINHOOD_RPC` and nowhere else.**
+**A keyed RPC endpoint belongs in `BSC_RPC` / `BSC_TESTNET_RPC` and nowhere else.**
 `NEXT_PUBLIC_RPC_URL` is read first by both `providers.tsx` and `serverRpc.ts`,
 so a keyed URL there ships the key in every browser bundle *and* preempts the
 server-side variable — the paid node stays configured, stays billed, and is
@@ -54,7 +55,7 @@ gas-to-quota rate, the admin nonce) are configured through their own variables;
 | Route | Purpose |
 |---|---|
 | `/` | Directory and genesis dashboard |
-| `/launch` | Create a launch — duration picker, client-side CREATE2 salt mining |
+| `/launch` | Create a launch — duration picker, client-side CREATE2 salt and address prediction |
 | `/projects` | All launches, filtered by lifecycle phase |
 | `/projects/[address]` | Project terminal: deposit, launch, mint, claim, LP, referral desk |
 | `/referrals` | Aggregated referral ledger and per-project commission claims |

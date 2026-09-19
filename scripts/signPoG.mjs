@@ -56,7 +56,8 @@ import { loadRoleEnv } from './loadRoleEnv.mjs'
 // `CHAIN_ID` is accepted but has never existed in either env file; the files
 // spell it `TARGET_CHAIN_ID`, which is what Foundry reads.
 loadRoleEnv([
-  'FACTORY_ADDRESS', 'TARGET_CHAIN_ID', 'CHAIN_ID', 'ROBINHOOD_RPC',
+  'FACTORY_ADDRESS', 'TARGET_CHAIN_ID', 'CHAIN_ID',
+  'BSC_RPC', 'BSC_TESTNET_RPC', 'NEXT_PUBLIC_RPC_URL',
   'POG_SIGNER_PRIVATE_KEY', 'PRIVATE_KEY',
 ])
 
@@ -113,7 +114,12 @@ if (getAddress(recovered) !== getAddress(account.address)) {
 // and this factory are the ones `registerPoG` will accept. Skipped, loudly, when
 // no endpoint answers: an operator signing offline is a supported case, and
 // failing here would push them toward removing the check rather than reading it.
-const rpc = arg('rpc', process.env.ROBINHOOD_RPC)
+const rpc = arg(
+  'rpc',
+  String(chainId) === '97'
+    ? (process.env.BSC_TESTNET_RPC || process.env.BSC_RPC || process.env.NEXT_PUBLIC_RPC_URL)
+    : (process.env.BSC_RPC || process.env.BSC_TESTNET_RPC || process.env.NEXT_PUBLIC_RPC_URL),
+)
 if (rpc) {
   try {
     const pub = createPublicClient({ transport: http(rpc) })
@@ -148,7 +154,7 @@ if (rpc) {
     console.error('  Signing anyway. The digest is locally consistent but UNCHECKED against the chain.\n')
   }
 } else {
-  console.error('⚠ no --rpc and no ROBINHOOD_RPC: signer and chain id are UNCHECKED against the chain.\n')
+  console.error('⚠ no --rpc and no BSC_RPC / BSC_TESTNET_RPC: signer and chain id are UNCHECKED against the chain.\n')
 }
 
 console.log('signer      : ' + account.address + '   (must equal factory.pogSigner())')
