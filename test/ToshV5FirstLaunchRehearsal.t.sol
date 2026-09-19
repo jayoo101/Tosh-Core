@@ -412,15 +412,30 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         been executed at a 100 BEM raise. The assertions worth reading
     ///         are the two exact ones:
     ///
-    ///           - `totalNativeDeposited == softCap()` exactly, which is what makes
-    ///             `launch()`'s `>=` a boundary rather than a margin. A single
-    ///             base unit of rounding anywhere in `deposit` would strand the
-    ///             raise one unit short of a cap it was supposed to have met, and
-    ///             the failure would look like nothing at all until the 7-day
-    ///             `LAUNCH_WINDOW` closed. The storage field is still named
-    ///             `totalNativeDeposited` and now counts BEM; `deposit` pulls the
-    ///             amount rather than reading `msg.value`, so the exactness this
-    ///             asserts is a property of the transfer, not of the call value.
+    ///           - `totalNativeDeposited == softCap()` exactly. The storage field
+    ///             is still named `totalNativeDeposited` and now counts BEM;
+    ///             `deposit` pulls the amount rather than reading `msg.value`, so
+    ///             the exactness this asserts is a property of the transfer, not
+    ///             of the call value.
+    ///
+    ///             ⚠ THIS BULLET USED TO CALL THAT `launch()`'s `>=` BOUNDARY, and
+    ///               say that landing one base unit short would strand the round
+    ///               silently until `LAUNCH_WINDOW` closed. **There is no such
+    ///               boundary.** `launch()` gates on the caller being the creator,
+    ///               the window having ended, not having launched already, the
+    ///               raise being non-zero, and the 7-day window not having expired
+    ///               — and nothing else. `ToshLaunchpadHook.sol` says so where the
+    ///               ladder check is defined: the cap "has not gated anything since
+    ///               it became a progress target".
+    ///
+    ///               So hitting the cap exactly is a statement about `deposit`'s
+    ///               arithmetic, which is worth asserting, and not about whether
+    ///               the round can open, which it always could. The real lower
+    ///               bound is `RaiseTooSmallForLadder` — a raise of about 21.04 BEM,
+    ///               where `shelfP0` reaches 526 and the first geometric step stops
+    ///               truncating to zero. That is 5x BELOW this rehearsal's 100 BEM,
+    ///               so this run clears it comfortably and does not exercise it;
+    ///               `ToshV5Fuzz` is where that edge lives.
     ///
     ///           - `shelfP0 == 8_749_999_999`, the figure
     ///             `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`

@@ -147,9 +147,26 @@ would seed a pool with more BEM than the open market holds.
 >
 > What is decision-grade is the denominator. Against 1,282.98 BEM the default
 > **928.4 BEM soft cap is 72% of the pool, not 47%**, and the
-> `MIN_SOFT_CAP_PROD` floor of 100 BEM is 7.8%. Risk 4 below is unchanged in kind
-> and worse in degree; nothing in this tree caused that and nothing in it can
-> fix it.
+> `MIN_SOFT_CAP_PROD` floor of 100 BEM is 7.8%.
+>
+> ⚠ **BUT NEITHER OF THOSE IS A MINIMUM ANYONE HAS TO RAISE**, and stating them
+>   without saying so — as the paragraph above and risk 4 below both did — reads
+>   as though a thin pool blocks launching. It does not. The soft cap has gated
+>   nothing since it became a progress target: `launch()` requires the creator,
+>   an ended window, no prior launch, a **non-zero** raise and the 7-day window,
+>   and `p0` is derived from the raise that actually arrived
+>   (`p0 = lpQuote · 1e18 / GENESIS_LP_SUPPLY`), not from the cap. A round that
+>   collects 40 BEM against a 928.4 BEM target opens a correctly priced pool.
+>
+>   The binding floor is `RaiseTooSmallForLadder`: `shelfP0` must reach 526 or the
+>   first geometric shelf step truncates to zero, which needs `lpQuote ≥ 18.94`
+>   and therefore a raise of about **21.04 BEM** once the 10% referral commission
+>   is taken out. Against 1,282.98 BEM in the pool that is **1.6%**, and it is the
+>   number that decides whether this asset can support a launch at all.
+>
+>   So what thin depth actually costs is *ambition*: the headline target is not
+>   reachable, and a raise large enough to matter would move the price against the
+>   depositors making it. That is a real cost and it is not a blocker.
 
 **Unchanged: 8 decimals.** This turns out to be the binding engineering
 constraint, and it is not where the trouble was expected. See §2.
@@ -416,11 +433,17 @@ Ordered by how badly each one ends, not by likelihood.
    `MIN_SOFT_CAP_PROD` ships a launchpad whose shelf ladder is flat for its
    lower reaches. Mitigation: raise the floor to ≥ 100 BEM and add a test at the
    minimum.
-4. **Depositors cannot acquire the quote asset.** §1. A 928-BEM soft cap is 47%
-   of the only real pool — **72% as re-measured on 2026-09-19; see the callout in
-   §1.** This has no code fix: it needs either much deeper BEM liquidity or a much
-   smaller soft cap, and a smaller soft cap runs into risk 3. It is the one item
-   on the mainnet path that is not a task anyone can complete by working.
+4. **Depositors cannot acquire the quote asset at the headline size.** §1. A
+   928-BEM soft cap is 47% of the only real pool — **72% as re-measured on
+   2026-09-19; see the callout in §1.** This has no code fix: it needs either much
+   deeper BEM liquidity or a much smaller headline target.
+
+   Scoped deliberately: the cap is a progress target, so this caps how big a round
+   can get, not whether one can open. The floor that decides *that* is
+   `RaiseTooSmallForLadder` at about 21.04 BEM — 1.6% of the pool. An earlier
+   version of this line called the depth "the one item on the mainnet path that is
+   not a task anyone can complete by working", which overstated it by treating the
+   cap as a gate.
 5. **Everything the protocol holds is denominated in a supply that moved 4.81%
    in two days.** §1. The genesis pool, the treasury reservoir and every
    unclaimed refund. Internal policy rather than counterparty risk now, but

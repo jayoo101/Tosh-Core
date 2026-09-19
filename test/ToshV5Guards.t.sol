@@ -462,12 +462,27 @@ contract ToshV5GuardsTest is Test {
     }
 
     // ── Refund / launch gates (no V4) ─────────────────────────────────────────
+    //
+    // ⚠ FOUR OF THESE WERE NAMED `...WhenSoftCapMet`, WHICH ATTRIBUTES THE
+    //   BEHAVIOUR TO THE WRONG CAUSE, and the pair below is the proof: the
+    //   over-cap case and the under-cap case both return false, from the same
+    //   clock position. `canRefund()` reads only the clock —
+    //   `ToshLaunchpadHook.sol` says as much where `RaiseTooSmallForLadder` is
+    //   raised, and the cap has gated nothing since it became a progress target.
+    //
+    //   The assertions were right the whole time; only the names claimed a rule
+    //   that no longer exists. Names are read far more often than bodies, and
+    //   these were read as evidence that the cap still gates refunds.
+    //
+    //   Kept as `overCap` / `underCap` because the deposit size is still the
+    //   thing that varies between them, and having both is what makes the point
+    //   that it does not matter.
 
     function test_canRefund_falseWhileActive() public view {
         assertFalse(hook.canRefund());
     }
 
-    function test_canRefund_falseWhenSoftCapMet() public {
+    function test_canRefund_falseInsideLaunchWindow_overCap() public {
         _register(user1, 1000e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1000e8);
@@ -475,7 +490,7 @@ contract ToshV5GuardsTest is Test {
         assertFalse(hook.canRefund());
     }
 
-    function test_canRefund_falseWhenUnderCapAfterDeadline() public {
+    function test_canRefund_falseInsideLaunchWindow_underCap() public {
         _register(user1, 100e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1e8);
@@ -483,7 +498,7 @@ contract ToshV5GuardsTest is Test {
         assertFalse(hook.canRefund());
     }
 
-    function test_canRefund_trueAfterZombieWindowWhenSoftCapMet() public {
+    function test_canRefund_trueAfterZombieWindow_overCap() public {
         _register(user1, 1000e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1000e8);
@@ -500,7 +515,7 @@ contract ToshV5GuardsTest is Test {
         hook.refund();
     }
 
-    function test_refund_revertsIfSoftCapMet() public {
+    function test_refund_revertsInsideLaunchWindow_overCap() public {
         _register(user1, 1000e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1000e8);
@@ -510,7 +525,7 @@ contract ToshV5GuardsTest is Test {
         hook.refund();
     }
 
-    function test_refund_succeedsAfterZombieWhenSoftCapMet() public {
+    function test_refund_succeedsAfterZombieWindow_overCap() public {
         _register(user1, 1000e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1000e8);
