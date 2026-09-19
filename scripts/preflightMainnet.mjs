@@ -615,6 +615,25 @@ if (!gasPrice) {
   // DeployMainnet does slightly more than the rehearsal it is priced from — it
   // also stages two ownership transfers — and the gas price read here is a
   // single sample. Hence a margin rather than a bare comparison.
+  //
+  // ⚠ THE MARGIN USED TO BE `need * 2`, AND A RELATIVE MARGIN COLLAPSES EXACTLY
+  //   WHEN SPOT IS AT THE FLOOR. BSC validators moved to 0.05 gwei, so 2x of
+  //   spot is 0.1 gwei — a margin against a 2x move, on a chain whose ordinary
+  //   price was 1 gwei until recently and still reaches it under load. At the
+  //   time this was written the deployer held 0.0130 BNB and passed "over 2x"
+  //   with 17x of headroom, while needing 0.0151 BNB at 1 gwei: comfortably
+  //   green, and short by a fifth if the network got busy before the broadcast.
+  //
+  //   So the margin is now the greater of 2x spot and a stress price. 1 gwei is
+  //   not a guess: it was BSC's network minimum before the 2024-25 reductions,
+  //   it is what most wallets still default to, and it is the level congestion
+  //   returns to rather than a tail. Pricing against it costs the operator a
+  //   few cents of idle BNB and buys the one thing this check exists for, which
+  //   is not being half-deployed.
+  const STRESS_GAS_PRICE = ethers.parseUnits('1', 'gwei')
+  const stressPrice = gasPrice * 2n > STRESS_GAS_PRICE ? gasPrice * 2n : STRESS_GAS_PRICE
+  const wantMargin = requiredGas * stressPrice
+
   if (balance < need) {
     fail(
       `deployer cannot afford C1 — holds ${ethers.formatEther(balance)} BNB, needs ~${ethers.formatEther(need)} BNB`,
@@ -624,20 +643,25 @@ if (!gasPrice) {
       + 'factory alone was 7.95 M gas in rehearsal. A broadcast that runs out of gas '
       + 'part-way leaves exactly the half-deployed platform this script exists to prevent, '
       + 'with some contracts live and unowned.',
-      `Fund ${deployer} with at least ${ethers.formatEther(need * 2n - balance)} BNB more `
-      + '(2x the measured cost, so a gas-price move between this check and the broadcast '
-      + 'does not strand it).',
+      `Fund ${deployer} with at least ${ethers.formatEther(wantMargin - balance)} BNB more `
+      + `(${requiredGas} gas at ${ethers.formatUnits(stressPrice, 'gwei')} gwei, so a gas-price `
+      + 'move between this check and the broadcast does not strand it).',
     )
-  } else if (balance < need * 2n) {
+  } else if (balance < wantMargin) {
     notes.push(
-      `deployer holds ${ethers.formatEther(balance)} BNB against a measured requirement of `
-      + `${ethers.formatEther(need)} BNB — enough at the current gas price with less than 2x `
-      + 'margin. The price above is one sample; if it rises before the broadcast this '
-      + 'becomes insufficient mid-deploy.',
+      `deployer holds ${ethers.formatEther(balance)} BNB, which covers C1 at the current `
+      + `${ethers.formatUnits(gasPrice, 'gwei')} gwei but NOT at ${ethers.formatUnits(stressPrice, 'gwei')} gwei, `
+      + `where the same ${requiredGas} gas costs ${ethers.formatEther(wantMargin)} BNB. `
+      + `Top up by ${ethers.formatEther(wantMargin - balance)} BNB. The price above is one `
+      + 'sample taken at a historic low; BSC ran at 1 gwei until recently and returns there '
+      + 'under load, and a broadcast that runs dry part-way leaves the half-deployed platform '
+      + 'this script exists to prevent.',
     )
-    pass('deployer can afford C1', 'but with under 2x margin — see notes')
+    pass('deployer can afford C1 at spot', 'but not at the stress price — see notes')
   } else {
-    pass('deployer can afford C1', `${ethers.formatEther(balance)} BNB, over 2x the measured cost`)
+    pass('deployer can afford C1',
+      `${ethers.formatEther(balance)} BNB, covers ${requiredGas} gas at `
+      + `${ethers.formatUnits(stressPrice, 'gwei')} gwei`)
   }
 }
 
