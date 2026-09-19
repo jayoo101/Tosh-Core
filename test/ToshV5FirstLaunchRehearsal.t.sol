@@ -83,6 +83,13 @@ import {HookAddress} from "../src/libraries/HookAddress.sol";
 ///         Skips rather than fails when `BSC_RPC` or `BSC_FACTORY_ADDRESS` is
 ///         unset, matching `ToshV5Fork.t.sol` — a fork suite that goes red on a
 ///         missing credential teaches everyone to ignore red.
+///
+///         **Set and wrong is the other case, and it fails.** A value that is
+///         absent is a credential nobody has; a value that names another chain is
+///         a claim that is false, and `setUp` rejects both an RPC that is not 56
+///         and a factory address with no code there, each with a message naming
+///         the cause. The distinction matters because the two arrive looking
+///         identical from the outside: one red suite either way.
 contract ToshV5FirstLaunchRehearsalTest is Test {
     using MessageHashUtils for bytes32;
     using PoolIdLibrary for PoolKey;
@@ -199,9 +206,44 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         vm.createSelectFork(rpc);
         forked = true;
 
+        // Every address this file pins — `POOL_MANAGER`, `VAULT`, `BEM` — is a
+        // chain-56 literal, and `BSC_TESTNET_RPC` exists as a separate variable,
+        // so a fork that is not 56 is a mangled env rather than a choice. CI says
+        // the same thing in prose: test.yml tells the operator to "check that the
+        // value names chain 56 and not 97".
+        //
+        // Asserted HERE as well as in the two tests that already check it, because
+        // `setUp` dereferences the factory a few lines down — so on the wrong chain
+        // those assertions are never reached to report anything.
+        require(
+            block.chainid == 56,
+            "BSC_RPC does not name BNB Smart Chain mainnet (56); every address pinned in this file is a 56 literal"
+        );
+
         factoryAddr = vm.envOr("BSC_FACTORY_ADDRESS", address(0));
         if (factoryAddr == address(0)) return;
         factoryBound = true;
+
+        // ⚠ THIS CHECK USED TO EXIST ONLY IN `test_rehearsal_liveFactoryIsWhatWeThinkItIs`,
+        //   whose docstring claimed it ran "before anything else depends on it".
+        //   It did not. `factory.owner()` below is the first dereference, so a
+        //   wrong address failed THERE instead — as `[FAIL: call to non-contract
+        //   address 0x9CC550…] setUp()`, which takes out all four tests at once
+        //   and names neither the factory, nor the chain, nor the env var that
+        //   pointed at it. The file's own diagnostic was unreachable by
+        //   construction, and the failure it was written to explain is the exact
+        //   one that reached it.
+        //
+        //   Which is how it read when a `BSC_FACTORY_ADDRESS` left exported in a
+        //   shell during the chain-97 rebuild met a mainnet `BSC_RPC`: a suite
+        //   that looks broken, rather than an env that is. Both halves were
+        //   individually valid — a real factory, a real endpoint, different
+        //   chains — and that pairing is the likely shape of the mistake at the
+        //   56 cutover too, so it is worth naming in the message.
+        require(
+            factoryAddr.code.length > 0,
+            "no code at BSC_FACTORY_ADDRESS on chain 56: a testnet factory address exported into this shell lands here"
+        );
 
         // No `ArbSys` etch: BSC does not have the precompile, so the hook's
         // fallback to `block.number` is what production runs. See the docstring.
@@ -292,8 +334,16 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///
     ///         The code-length check is what replaces the pinned literal this
     ///         file used to carry: `BSC_FACTORY_ADDRESS` set to a typo skips
-    ///         nothing and fails here, by name, instead of surfacing four tests
-    ///         later as an unexplained revert.
+    ///         nothing and fails by name, instead of surfacing four tests later
+    ///         as an unexplained revert.
+    ///
+    ///         That check now runs in `setUp` and is repeated here. It was only
+    ///         ever here, and this docstring used to say it ran "before anything
+    ///         else depends on it" — which was false, because `setUp` reads
+    ///         `owner()` first and therefore reached the bad address before this
+    ///         test could describe it. Keeping the duplicate is deliberate: it
+    ///         costs one `extcodesize` and it is what states the requirement
+    ///         where a reader looks for it.
     ///
     ///         `pogSigner` is no longer compared to a pinned address — there is
     ///         no deployment yet to pin — but it is still asserted non-zero,
