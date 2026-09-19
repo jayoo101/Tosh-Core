@@ -37,6 +37,27 @@ jobs:
       # a separate leftover — so the throw that was supposed to be loud was
       # sitting behind a louder one.
       NEXT_PUBLIC_CHAIN_ID: "97"
+      # Same throw-at-import contract as the factory address above, and the
+      # reason this job was red for 18 consecutive runs: the BEM move made
+      # `NEXT_PUBLIC_QUOTE_ASSET` required with no per-chain default — correctly,
+      # since the app must not approve one token while the factory pulls another
+      # — and nothing added it here. Every local check stayed green because every
+      # developer has it in .env.local, so the first thing that noticed was
+      # `next build` collecting page data for /_not-found.
+      #
+      # A distinct placeholder from the factory's, rather than the same
+      # `0x1111…`: two addresses that differ make a CI log say which variable a
+      # call was aimed at, and the quote asset being the factory is not a shape
+      # worth teaching the build to accept.
+      NEXT_PUBLIC_QUOTE_ASSET: "0x2222222222222222222222222222222222222222"
+      # `mBEM`, not `BEM`, and not left to the `?? 'BEM'` fallback. The chain id
+      # above is 97, where the quote asset is an unrestricted-mint 8-decimal mock
+      # with no market — `contracts.ts` says as much where `QUOTE_POSITIONING` is
+      # defined, and that string is what link previews render. Taking the
+      # fallback would have this job build copy claiming the real asset on a
+      # testnet id, which is the exact class of quiet lie checkChainCopy exists
+      # to fail on.
+      NEXT_PUBLIC_QUOTE_SYMBOL: "mBEM"
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""
