@@ -47,10 +47,19 @@ const DOC_DIR = join(REPO, 'docs');
 //   runs commands out of, where a drifted script name is discovered at the
 //   shell rather than by a reviewer.
 //
+//   WHITEPAPER_zh.md was added for the reason the README is here, only more so.
+//   It exists because the version before it described a treasury that releases
+//   funds to the team on price milestones — a mechanism with no code behind it,
+//   in a contract whose only outbound path burns. Nothing caught that, because
+//   nothing was reading it. This guard cannot catch a wrong mechanism either,
+//   but it does catch the cheaper half of the same failure: a document that
+//   names `releaseFunds` or `unlockTier` and sounds authoritative for it.
+//
 //   Note what this does NOT cover: `isCandidate` drops SCREAMING_SNAKE_CASE,
-//   so the Solidity constants in the README appendix are still ungated here
-//   and were checked against `src/` by hand.
-const DOCS = ['DEVELOPMENT.md', '../README.md'];
+//   so the Solidity constants in the README appendix and the whitepaper's
+//   parameter tables are still ungated here and were checked against `src/` by
+//   hand. For the whitepaper that hand-check is the one recorded in §0.
+const DOCS = ['DEVELOPMENT.md', 'WHITEPAPER_zh.md', '../README.md'];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for
@@ -95,6 +104,14 @@ const PROSE = new Set([
 // something outside the tree. Each needs a reason; an entry without one is a
 // place to hide the next `_verifyPoGSignature`.
 const ALLOW = new Map([
+  // The whitepaper's §6 is built around this name being absent, and the guard
+  // catching it on the first run is the cheapest possible demonstration of why
+  // that section had to be written the way it was: the previous version listed
+  // a "TapeOut Integration Bridge" among the core contracts, and a reader had
+  // no way to discover that the tree contains no such thing. Keep the entry
+  // even if an integration lands later — at that point the reason below stops
+  // being true, which is the signal to revisit §6 rather than to delete a line.
+  ['TapeOut', 'asserted ABSENT — §6.2 names it to record that NO integration exists in this tree'],
   ['_headers', 'asserted ABSENT — §5.1 proves no Cloudflare/Netlify edge config exists'],
   ['webSocket', 'asserted ABSENT — §5.1 proves no viem webSocket() transport is used'],
   ['master', 'a git branch name in the submodule pin table, not a code symbol'],
