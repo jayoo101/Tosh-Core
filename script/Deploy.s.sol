@@ -205,8 +205,15 @@ contract DeployScript is Script {
         console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
         console2.log("     predicted    = HookAddress.computeAddress(factory, finalSalt, initcodeHash)");
         console2.log("     the only test on `predicted` is that it holds no code yet");
-        console2.log("4. createLaunch is PAYABLE -- send `launchFee` (default 0.35 BNB) as msg.value.");
-        console2.log("5. deposit(hook, referrer) is PAYABLE -- send the native coin, no ERC20 approve.");
+        // ⚠ THESE TWO LINES SAID THE OPPOSITE UNTIL THE BEM MOVE, and they were
+        //   the most expensive wrong lines in this file: they told an integrator
+        //   to attach `msg.value`. Against a nonpayable function that reverts, but
+        //   against the ones that stayed payable it is a donation with no receipt.
+        console2.log("4. createLaunch is NONPAYABLE -- approve the factory for `launchFee` first;");
+        console2.log("     it pulls the fee with transferFrom. Attaching msg.value reverts.");
+        console2.log("5. deposit(hook, referrer, amount) is NONPAYABLE -- approve the FACTORY");
+        console2.log("     (not the hook) for `amount`, which is now an argument.");
+        console2.log("     mintBondingCurve(tokenAmount, maxCost) approves the HOOK instead.");
         console2.log("6. Curate the buyback ladder: treasury.addLadderToken(token).");
         console2.log("     The pool is derived from the token's hook -- listing a token this");
         console2.log("     factory did not launch is rejected.");

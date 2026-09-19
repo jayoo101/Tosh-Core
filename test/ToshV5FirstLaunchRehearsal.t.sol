@@ -3,6 +3,8 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
@@ -15,7 +17,7 @@ import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
 
 /// @notice Rehearsal for the mainnet FIRST launch, against the **deployed**
-///         factory, at the **0.035 BNB soft-cap floor**.
+///         factory, at the **100 BEM soft-cap floor**.
 ///
 /// @dev    ── Why this file exists, when `ToshV5Fork.t.sol` already forks 4663 ──
 ///
@@ -115,6 +117,16 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///      manager runs the pool, the Vault holds every balance.
     address internal constant VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
 
+    /// @dev BEM on BSC mainnet — the asset the whole rehearsal is denominated in.
+    ///      Pinned to the same literal `ToshV5Fork.t.sol` uses, and asserted
+    ///      against the live factory's own `quoteAsset()` in
+    ///      `test_rehearsal_liveFactoryIsWhatWeThinkItIs` rather than trusted:
+    ///      this file's job is to disagree out loud with a deployment that was
+    ///      built against something else.
+    address internal constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+
+    IERC20 internal quote = IERC20(BEM);
+
     /// @dev Read from `BSC_FACTORY_ADDRESS`; see the contract docstring for what
     ///      that costs and how it is paid for.
     address internal factoryAddr;
@@ -131,7 +143,23 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     /// @dev The whole point: `MIN_SOFT_CAP_PROD`, the floor nothing has launched
     ///      at. Asserted against the deployed constant rather than trusted, so a
     ///      factory built from different source than this checkout says so.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 0.035 ether;
+    ///
+    ///      ⚠ THIS WAS `0.035 ether` UNTIL AFTER THE BEM MOVE — wrong currency
+    ///        and wrong scale, 3.5e16 against a floor of 1e10 — and it is the
+    ///        second value in this file to survive a migration for the same
+    ///        reason the PoolManager address did: all four tests behind
+    ///        `_requireFork()` skip until `BSC_FACTORY_ADDRESS` is set, so a
+    ///        green suite is not evidence that anything here compiles against
+    ///        reality. The `maxPogAllocationLimit` assertion below was caught by
+    ///        hand in the same sweep; this one was not, and the pair is the
+    ///        argument for reading this file whenever a dial is re-denominated.
+    ///
+    ///        100 BEM, in base units. `MIN_SOFT_CAP_PROD` did not track the
+    ///        26.51 BEM/BNB rate the other dials were converted at — it was
+    ///        raised deliberately, because 8 decimals collapse the shelf-ladder
+    ///        granularity margin from ~16,000,000x to ~4.75x. See
+    ///        docs/BEM_QUOTE_ASSET.md §2.1.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 100e8;
 
     /// @dev Enforced on chain by `ToshLaunchpadHook.initializeToken`, which
     ///      rejects anything but the three rungs with `InvalidDuration`. 3 h is
@@ -184,7 +212,26 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         // `DeployMainnet` handed ownership to, and this file predates it.
         ownerSafe = factory.owner();
 
+        // Native coin for gas, and that is now ALL it is for. Before the BEM
+        // move this line funded the launch fee and the raise as well, which is
+        // why nothing here acquired a token balance.
         vm.deal(creator, 1 ether);
+
+        // The fee and the raise are both pulled with `transferFrom` now, so the
+        // creator needs a balance and an allowance or `createLaunch` reverts
+        // before any of this file's assertions are reached.
+        //
+        // `deal(token, ...)` pokes BEM's balance slot rather than buying any:
+        // BEM's only real pool holds about 1,959 tokens, so the raise rehearsed
+        // here is not an amount the open market could supply, and nothing in this
+        // file is evidence that it could. See docs/BEM_QUOTE_ASSET.md §1.2.
+        //
+        // The spender is the FACTORY for both the fee and the deposit. The hook
+        // is the spender only for `mintBondingCurve`, which this rehearsal does
+        // not reach.
+        deal(BEM, creator, 10_000e8);
+        vm.prank(creator);
+        quote.approve(factoryAddr, type(uint256).max);
     }
 
     function _requireFork() internal {
@@ -286,6 +333,14 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertTrue(factory.pogSigner() != address(0), "pogSigner was never set; no attestation can verify");
         assertFalse(factory.paused(), "factory is paused; no launch can be created");
 
+        // The asset before the amounts, because every amount below is meaningless
+        // if this disagrees — and unlike the dials, it has no setter. A factory on
+        // 56 denominated in anything but BEM is not a dial to correct, it is a
+        // redeploy, and this is the assertion that says so before the rehearsal
+        // spends four more tests describing the wrong money.
+        assertEq(address(factory.quoteAsset()), BEM, "the live factory is denominated in something else: ABORT");
+        assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM is not 8 decimals; every figure in this file is rescaled");
+
         assertEq(factory.MIN_SOFT_CAP_PROD(), REHEARSAL_SOFT_CAP, "the floor moved");
         // 46.4e8, not `1.75 ether`. This assertion carried the pre-quote-asset value
         // and nothing caught it, because the whole test sits behind `_requireFork()`
@@ -304,15 +359,18 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         initialised pool with the genesis liquidity locked in it.
     ///
     /// @dev    This is the path the mainnet run takes, and the first time it has
-    ///         been executed at a 0.035 BNB raise. The assertions worth reading
+    ///         been executed at a 100 BEM raise. The assertions worth reading
     ///         are the two exact ones:
     ///
     ///           - `totalNativeDeposited == softCap()` exactly, which is what makes
     ///             `launch()`'s `>=` a boundary rather than a margin. A single
-    ///             wei of rounding anywhere in `deposit` would strand the raise
-    ///             one wei short of a cap it was supposed to have met, and the
-    ///             failure would look like nothing at all until the 7-day
-    ///             `LAUNCH_WINDOW` closed.
+    ///             base unit of rounding anywhere in `deposit` would strand the
+    ///             raise one unit short of a cap it was supposed to have met, and
+    ///             the failure would look like nothing at all until the 7-day
+    ///             `LAUNCH_WINDOW` closed. The storage field is still named
+    ///             `totalNativeDeposited` and now counts BEM; `deposit` pulls the
+    ///             amount rather than reading `msg.value`, so the exactness this
+    ///             asserts is a property of the transfer, not of the call value.
     ///
     ///           - `shelfP0 == 8_749_999_999`, the figure
     ///             `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`
@@ -342,8 +400,8 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         // ── Step 4: read the frozen dials back, first thing ──────────────────
         // The plan's abort condition. If `createLaunch` raced a dial change it
-        // would have frozen the OLD 10 ETH cap into this clone permanently, and
-        // this is where that is caught.
+        // would have frozen the OLD 928.4 BEM default into this clone
+        // permanently, and this is where that is caught.
         assertEq(hook.softCap(), REHEARSAL_SOFT_CAP, "clone froze the wrong soft cap: ABORT");
         assertEq(hook.perWalletCap(), factory.maxPogAllocationLimit(), "clone froze the wrong per-wallet cap");
         assertEq(hook.genesisDuration(), GENESIS, "clone froze the wrong genesis duration");
@@ -440,14 +498,17 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
-    ///         tranche: 4,620,000 tokens, 22% of `MAX_SUPPLY`, for 0.035 BNB.
+    ///         tranche: 4,620,000 tokens, 22% of `MAX_SUPPLY`, for 100 BEM.
     ///
     /// @dev    Not a defect — the tranche is always pro-rata, so this is what
     ///         "one wallet, one raise" necessarily means. It is asserted because
     ///         it is the permanent consequence that decides whether the first
     ///         launch may carry a real project's name: the pool can be deepened
     ///         later by anyone via the position manager, but a cap table showing
-    ///         22% of supply to one address for ~$30 cannot be undone.
+    ///         22% of supply to one address for 100 BEM cannot be undone. The
+    ///         dollar figure that used to sit here is deliberately gone: BEM's
+    ///         only real market is ~1,959 tokens deep, so quoting 100 BEM in USD
+    ///         would put a number on a price this raise would itself move.
     function test_rehearsal_loneDepositorTakesTheWholeGenesisTranche() public {
         _requireFork();
 

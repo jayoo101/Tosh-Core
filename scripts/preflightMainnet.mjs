@@ -97,6 +97,12 @@ const ADDRESS_ROLES = [
   'POG_SIGNER_ADDRESS',
   'PLATFORM_TREASURY',
   'PROD_OWNER_SAFE',
+  // Same argument as INFINITY_VAULT, and it arrived the same way: the BEM move
+  // made `QUOTE_ASSET` a required `vm.envAddress` in DeployMainnet.s.sol while
+  // neither env template declared it, so a deploy from a filled-in template
+  // reverted at broadcast. Check 5c does more than presence — a wrong token here
+  // is not a revert but a factory permanently denominated in something else.
+  'QUOTE_ASSET',
 ]
 
 /**
@@ -472,6 +478,84 @@ if (vaultCode === '0x') {
     )
   } else if (declared) {
     pass('the manager names this Vault itself', 'vault() agrees with .env.production')
+  }
+}
+
+// ── 5c. Permanent: the asset the whole protocol is denominated in ────────────
+//
+// `quoteAsset` is an immutable on the factory, on the hook IMPLEMENTATION and on
+// the treasury, with no setter on any of the three. Getting it wrong is not a
+// revert and not a migration — it is a factory that prices every raise, fee,
+// shelf and buyback in a token nobody meant, and the only remedy is deploying a
+// new one and abandoning this.
+//
+// THE DECIMALS ARE THE LOAD-BEARING PART. The hook's constructor asserts
+// `decimals() == 8`, so an 18-decimal token fails the broadcast — loudly, which
+// is fine. The dangerous case is a DIFFERENT 8-decimal token: it deploys
+// perfectly, and every dial then means something else by a factor nobody
+// notices, because 9.28 of the wrong token is still 9.28 on screen.
+console.log('\n5c. permanent — QUOTE_ASSET is the token every figure is denominated in')
+const quoteAsset = ethers.getAddress(process.env.QUOTE_ASSET)
+const quoteCode = await codeOf(quoteAsset)
+if (quoteCode === '0x') {
+  fail(
+    'QUOTE_ASSET has no code on this chain',
+    'DeployMainnet.s.sol requires it to hold code, so this would revert at broadcast. More to '
+    + 'the point, an address with no token behind it cannot be the asset three immutable fields '
+    + 'are about to be set to.',
+    'Set QUOTE_ASSET to the quote token on this chain. On 56 that is BEM, '
+    + '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a.',
+  )
+} else {
+  pass('QUOTE_ASSET is a contract', `${(quoteCode.length - 2) / 2} bytes`)
+
+  const erc20 = new ethers.Contract(quoteAsset, [
+    'function decimals() view returns (uint8)',
+    'function symbol() view returns (string)',
+    'function totalSupply() view returns (uint256)',
+  ], provider)
+
+  let decimals = null
+  try {
+    decimals = Number(await erc20.decimals())
+  } catch (err) {
+    fail(
+      'QUOTE_ASSET does not answer decimals()',
+      `Called decimals() on ${quoteAsset} and it reverted (${err.shortMessage ?? err.message}). `
+      + 'The hook constructor calls the same function and asserts it returns 8, so this address '
+      + 'cannot be deployed against whatever else it is.',
+      'Set QUOTE_ASSET to an ERC-20 with 8 decimals.',
+    )
+  }
+
+  if (decimals !== null && decimals !== 8) {
+    fail(
+      `QUOTE_ASSET has ${decimals} decimals, not 8`,
+      'ToshLaunchpadHook\'s constructor requires exactly 8, so the broadcast would revert. The '
+      + 'constant mirrors in soat-frontend and every scaled figure in the test suite assume 8 as '
+      + 'well — this is a protocol invariant, not a property of one token.',
+      'Set QUOTE_ASSET to the 8-decimal quote token for this chain.',
+    )
+  } else if (decimals === 8) {
+    let label = ''
+    try {
+      const [symbol, supply] = await Promise.all([erc20.symbol(), erc20.totalSupply()])
+      label = `${symbol} · supply ${ethers.formatUnits(supply, 8)}`
+    } catch { label = '8 decimals' }
+    pass('QUOTE_ASSET is an 8-decimal token', label)
+
+    // Named rather than enforced. A deploy to a chain other than 56 legitimately
+    // uses a different token, and on 97 it MUST, since BEM has no deployment
+    // there. So this reports the disagreement and leaves the judgement with the
+    // operator instead of refusing a rehearsal.
+    const BEM_56 = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
+    if (chainId === 56n && quoteAsset !== ethers.getAddress(BEM_56)) {
+      notes.push(
+        `QUOTE_ASSET on chain 56 is ${quoteAsset}, not BEM (${BEM_56}). Every document in this `
+        + 'tree says the mainnet quote asset is BEM. If that changed, the docs are now wrong; if '
+        + 'it did not, this is the one value you cannot fix after broadcast.',
+      )
+    }
   }
 }
 

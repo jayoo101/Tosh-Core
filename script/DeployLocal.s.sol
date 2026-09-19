@@ -79,7 +79,8 @@ contract DeployLocal is Script {
         console.log("PoG Signer      :", deployer);
         console.log("Platform Treasury (0.30% of buys, IMMUTABLE):", platformTreasury);
         console.log("====================================");
-        console.log("v5.0: launch fee and deposits are the native coin (no approve).");
+        console.log("v5.0: launch fee and deposits are the QUOTE ASSET -- approve first.");
+        console.log("      quote asset:", quoteAsset);
         // The 0x20CC line that used to sit here was Uniswap V4's hook-permission
         // mask, and it was the last place in the deploy scripts still telling an
         // operator to mine an address. Infinity reads permissions from the hook's

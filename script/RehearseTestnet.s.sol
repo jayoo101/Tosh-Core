@@ -258,9 +258,15 @@ abstract contract RehearsalBase is Script {
         require(factory.registeredHooks(address(hook)), "hook is not registered with this factory");
     }
 
-    /// @dev A native-BNB buy through the deployed Infinity UniversalRouter —
-    ///      the path real traffic takes. `zeroForOne` is always true because the
-    ///      native coin sorts to `currency0`.
+    /// @dev A quote-asset buy through the deployed Infinity UniversalRouter —
+    ///      the path real traffic takes. `zeroForOne` is still always true, but
+    ///      the reason changed and the old reason was the safer one: it used to
+    ///      hold because the native coin is `address(0)` and sorts below
+    ///      everything, which is arithmetic. It now holds because the factory
+    ///      grinds each project token's CREATE2 salt until it sorts ABOVE the
+    ///      quote asset, which is a property something has to maintain. If that
+    ///      grind ever regresses, this flag silently sells instead of buying —
+    ///      `test_fork_lifecycleAgainstLivePoolManager` asserts the ordering.
     ///
     ///      The tuple has FIVE fields, and the count is the thing to be careful
     ///      about. Uniswap's has six: it carries `minHopPriceX36` and its

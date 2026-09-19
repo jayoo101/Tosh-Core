@@ -223,30 +223,53 @@ the factory must not be announced in that state.
 |---|---|---|
 | 1 | Safe calls `acceptOwnership()` on the **factory** | `owner()` is the Safe and `pendingOwner()` is `address(0)` |
 | 2 | Safe calls `acceptOwnership()` on the **treasury** | same two reads on the treasury |
-| 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the wei you decided on, not the 0.35 BNB default |
-| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = 35 ether, `maxPogAllocationLimit()` = 1.75 ether — i.e. 35 and 1.75 **BNB** |
+| 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the base units you decided on, not the 9.28 BEM default |
+| 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals |
+| 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
 | 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |
-| 7 | Vercel Production: `NEXT_PUBLIC_FACTORY_ADDRESS` = new factory | redeploy finishes and the directory renders |
+| 7 | Vercel Production: `NEXT_PUBLIC_FACTORY_ADDRESS` = new factory, `NEXT_PUBLIC_QUOTE_ASSET` = BEM | `npm run check:quote` agrees with the chain — see below |
 | 8 | Push the five commits to `main` | CI green |
 | 9 | Point `monitoring/` at the new factory and treasury | a watch run reports the new addresses with 0 findings |
 
 **Step 3 is not optional, and it no longer has an answer written down.** It
 used to read `setLaunchFee(0.01 ether)`, on the reasoning that the factory
 default was 0.1 ether and mainnet was charging a tenth of that. Both halves
-are now obsolete: the default is **0.35 BNB** (`src/ToshFactory.sol`, confirmed
-on chain 97), and there is no "what mainnet charges today", because 56 has
-never launched anything. The old figure is a price in ETH and cannot be carried
-across a currency by editing the unit.
+are obsolete twice over: the default is now **9.28 BEM**
+(`src/ToshFactory.sol`), and there is no "what mainnet charges today", because
+56 has never launched anything. The old figure was a price in ETH, and it
+cannot be carried across two re-denominations by editing the unit.
 
 So the fee is a decision owed before the broadcast, not a value to copy out of
-this table. What constrains it: `MAX_LAUNCH_FEE` is 35 BNB, so anything
-sensible is legal; it is charged as `msg.value` on `createLaunch`, so it is
-paid once per project by the creator and is the first number a creator sees;
-and it is settable afterwards by the Safe, so it is reversible in a way the
-immutable dials are not. Left at the default, the first creator pays 0.35 BNB
-to open a round — whether that is right is the question, and it is the kind of
-question a runbook must not answer by inertia.
+this table. What constrains it: `MAX_LAUNCH_FEE` is 928 BEM, so anything
+sensible is legal; it is **pulled with `transferFrom`** on `createLaunch`, so
+the creator has to approve it first and it is the first number — and the first
+extra signature — a creator meets; and it is settable afterwards by the Safe,
+so it is reversible in a way the immutable dials are not. Left at the default,
+the first creator pays 9.28 BEM to open a round — whether that is right is the
+question, and it is the kind of question a runbook must not answer by inertia.
+
+**Write the figure in base units when you send it.** BEM has 8 decimals, so
+`setLaunchFee(9.28e8)` is the fee and `setLaunchFee(9.28e18)` is 9.28 billion
+BEM — roughly fifty thousand times the entire supply, which reverts against
+`MAX_LAUNCH_FEE` rather than landing. The near miss that does land is an
+order-of-magnitude slip inside the ceiling; `test_setLaunchFee_rejectsOrderOfMagnitudeSlip`
+is the guard, and it only covers the extreme.
+
+**Step 7 has a check, and it is not in CI on purpose.** `npm run check:quote`
+asks the factory what it is denominated in and compares that against
+`NEXT_PUBLIC_QUOTE_ASSET`. It needs a live RPC and a deployed factory, so it
+cannot be a source-text guard like the rest of `npm run guards` — it is a
+deploy-day step, run against the chain being pointed at.
+
+Two failures it distinguishes, because the remedies are opposite. A factory that
+answers `quoteAsset()` with a *different* address means the env var is wrong and
+editing Vercel fixes it. A factory whose `quoteAsset()` *reverts* predates the
+denomination entirely: its `deposit` and `createLaunch` take different arguments,
+so no env value makes this frontend able to drive it, and the chain needs
+redeploying. **Chain 97 is in the second state right now** — the rehearsal
+factory there was built before the BEM move, which is also why
+`RehearseTestnet.s.sol` says the asset it rehearses against is not BEM.
 
 **Steps 7 and 8 belong together.** The committed frontend copy says the soft
 cap is a progress target. That is true of the new factory and false of every
