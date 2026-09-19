@@ -101,6 +101,11 @@ library ToshCloneLib {
     error CapTooLargeToPack();
     error DurationTooLargeToPack();
     error CloneDeployFailed();
+    /// @dev `deployBareCloneAbove` exhausted `MAX_SALT_ATTEMPTS` without finding
+    ///      an address above the floor. See that function for why this is a
+    ///      once-in-the-universe event and why it is still an error rather than
+    ///      an unbounded loop.
+    error NoSaltAboveFloor();
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Bare clones — no immutable args (used for the project token)
@@ -140,18 +145,122 @@ library ToshCloneLib {
         );
     }
 
-    /// @notice Deploy a bare clone with CREATE.
+    /// @dev Iteration ceiling for the ordering grind below.
     ///
-    /// @dev    CREATE, not CREATE2: unlike a hook, a token address carries no V4
-    ///         permission bits, so nothing needs to predict or mine it.  This
-    ///         keeps the nonce-derived address the `new ToshToken(...)` it
-    ///         replaces already produced.
-    function deployBareClone(address implementation) internal returns (address deployed) {
+    ///      Sized to be unreachable rather than to be tight. Against BEM's
+    ///      `0x5ce0…`, each candidate clears the floor with probability ≈ 0.638,
+    ///      so the chance of 256 consecutive failures is 0.362^256 ≈ 1e-113.
+    ///      The bound exists so the loop is provably finite, not because anyone
+    ///      expects to approach it — a quote asset whose address began `0xffff…`
+    ///      would make the grind genuinely improbable, and this is where that
+    ///      would surface as a clean revert instead of an out-of-gas.
+    uint256 internal constant MAX_SALT_ATTEMPTS = 256;
+
+    /// @notice The address `bareCloneInitcode(implementation)` would occupy under
+    ///         `salt`, deployed by `deployer`.
+    ///
+    /// @dev    Standard CREATE2 derivation, split out so the grind below and the
+    ///         frontend's prediction are demonstrably the same function rather
+    ///         than two implementations that agree today.
+    function predictBareClone(address deployer, address implementation, bytes32 salt)
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(bytes1(0xff), deployer, salt, keccak256(bareCloneInitcode(implementation)))
+                    )
+                )
+            )
+        );
+    }
+
+    /// @notice Deploy a bare clone at an address strictly above `floor`, by
+    ///         grinding the CREATE2 salt upward from `seed`.
+    ///
+    /// @dev    CREATE2 REPLACED CREATE BECAUSE THE QUOTE ASSET STOPPED BEING
+    ///         NATIVE, and the reason is worth stating in full because nothing
+    ///         about a token address looks like it should matter.
+    ///
+    ///         Infinity sorts a `PoolKey`'s two currencies by address, so
+    ///         `currency0` is whichever is numerically lower. While the quote
+    ///         asset was `address(0)` that settled itself: nothing sorts below
+    ///         zero, so the quote side was `currency0` for every project that
+    ///         would ever exist, and 91 call sites in the hook could read
+    ///         `amount0` as "quote" and `amount1` as "project token" without a
+    ///         branch. An ERC20 quote asset has no such privilege. BEM sits at
+    ///         `0x5ce0…`, roughly 36% of the way up the address space, so a
+    ///         nonce-derived token address would land BELOW it about a third of
+    ///         the time and invert the pool's sides — silently, since the pool
+    ///         initialises fine either way, and per project, since each launch
+    ///         rolls independently.
+    ///
+    ///         The alternative was to branch on ordering at each of those 91
+    ///         sites and carry a `quoteIsZero` flag through the hook, the
+    ///         treasury's buy direction, the LP payload encoder, the TWAP sign
+    ///         convention and the frontend's maths. Grinding the address instead
+    ///         keeps the invariant that made all of it correct, and confines the
+    ///         change to this function.
+    ///
+    ///         GROUND ON-CHAIN, not supplied by the caller. A `tokenSalt`
+    ///         parameter was the obvious shape — it mirrors `hookSalt` — but it
+    ///         puts a correctness condition into the caller's hands for no gain:
+    ///         every wrong value is a reverted launch, and there is nothing a
+    ///         creator could want to express by choosing one. The grind is also
+    ///         nearly free. Each attempt is a keccak over 85 bytes, ~40 gas, and
+    ///         the expected count is 1.57, against the ~421k of non-code-deposit
+    ///         cost `createLaunch` already pays. Off-chain predictability
+    ///         survives because the loop is deterministic given `seed`: callers
+    ///         reproduce it with `predictBareClone`.
+    ///
+    /// @param  seed  Starting salt. MUST BE UNIQUE PER DEPLOYMENT. The factory
+    ///               passes `nameKey`, which `nameTaken` already enforces as
+    ///               unique, so no two launches can grind into the same
+    ///               candidate sequence. A reused seed would not be unsafe —
+    ///               CREATE2 onto an occupied address fails and the loop steps
+    ///               past it — but it would waste the attempt budget.
+    /// @param  floor The address the deployment must exceed; the quote asset.
+    function deployBareCloneAbove(address implementation, address floor, bytes32 seed)
+        internal
+        returns (address deployed, bytes32 salt)
+    {
         bytes memory initcode = bareCloneInitcode(implementation);
-        assembly ("memory-safe") {
-            deployed := create(0, add(initcode, 0x20), mload(initcode))
+        bytes32 initcodeHash_ = keccak256(initcode);
+
+        unchecked {
+            for (uint256 i = 0; i < MAX_SALT_ATTEMPTS; ++i) {
+                salt = bytes32(uint256(seed) + i);
+
+                address candidate = address(
+                    uint160(
+                        uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initcodeHash_)))
+                    )
+                );
+
+                // Strictly above, not above-or-equal. Equality is unreachable —
+                // it would mean this clone deployed to the quote asset's own
+                // address, which already holds code — but `>` is what the pool
+                // ordering actually requires, so it is what is written.
+                if (candidate <= floor) continue;
+
+                assembly ("memory-safe") {
+                    deployed := create2(0, add(initcode, 0x20), mload(initcode), salt)
+                }
+
+                // Zero means the address was occupied: this initcode cannot
+                // revert (it is a CODECOPY and a RETURN) and cannot run out of
+                // gas independently of its caller. Step to the next salt rather
+                // than failing the launch — a collision is someone else's clone
+                // sitting where ours would have gone, which is a reason to move,
+                // not to stop.
+                if (deployed != address(0)) return (deployed, salt);
+            }
         }
-        if (deployed == address(0)) revert CloneDeployFailed();
+
+        revert NoSaltAboveFloor();
     }
 
     // ══════════════════════════════════════════════════════════════════════════

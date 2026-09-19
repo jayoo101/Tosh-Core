@@ -75,12 +75,26 @@ library HookDeployLib {
     ///                         the implementation as an immutable, which is why
     ///                         the factory holds the same address immutably —
     ///                         see `ToshFactory.platformTreasury` on M-2.
+    /// @param quoteAsset       The ERC20 every value flow is denominated in and
+    ///                         `currency0` of every project pool. Threaded from
+    ///                         the factory's constructor, which is what makes
+    ///                         the pair impossible to mis-wire: both hold it
+    ///                         immutably and both take it from the same
+    ///                         argument in the same construction, so no deploy
+    ///                         ordering exists in which they name different
+    ///                         tokens and a cross-check would be dead code. The
+    ///                         hook asserts its decimals; see `QUOTE_DECIMALS`.
     /// @return impl            The shared implementation.
-    function deployImplementation(address poolManager, address vault, address ladderTreasury, address platformTreasury)
-        external
-        returns (address impl)
-    {
-        impl = address(new ToshLaunchpadHook(poolManager, vault, address(this), ladderTreasury, platformTreasury));
+    function deployImplementation(
+        address poolManager,
+        address vault,
+        address ladderTreasury,
+        address platformTreasury,
+        address quoteAsset
+    ) external returns (address impl) {
+        impl = address(
+            new ToshLaunchpadHook(poolManager, vault, address(this), ladderTreasury, platformTreasury, quoteAsset)
+        );
     }
 
     /// @notice keccak256 of ToshLaunchpadHook.creationCode.

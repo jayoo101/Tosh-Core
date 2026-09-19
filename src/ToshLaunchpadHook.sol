@@ -60,6 +60,7 @@ import {LiquidityAmounts} from "infinity-periphery/src/pool-cl/libraries/Liquidi
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "../lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Local
@@ -561,7 +562,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
     ///         equal.  Reading it from the treasury instead would cost the very
     ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 3.5 ether;
+    uint256 public constant PIGGYBACK_TRIGGER_STEP = 92.8e8;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.
@@ -691,6 +692,43 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     IVault public immutable vault;
 
     address public immutable factory;
+
+    /// @notice The ERC20 every value flow here is denominated in: genesis
+    ///         deposits, refunds, shelf payments, the buy-side tax, the
+    ///         buyback reservoir, and the pool's own quote side.
+    ///
+    /// @dev    IMMUTABLE FOR THE SAME REASON AS `platformFeeRecipient` below,
+    ///         and the lever is larger. A settable quote asset would let the
+    ///         platform owner change what a raise is denominated in AFTER
+    ///         depositors had paid into it — every unclaimed refund and the
+    ///         whole genesis position would be re-denominated under them.
+    ///         Changing it therefore needs a new hook implementation AND a new
+    ///         factory, the bar `poolManager` is already held to.
+    ///
+    ///         Implementation-level, not one of the five per-project clone
+    ///         arguments, so it stays out of the 131-byte clone initcode and
+    ///         `hookInitcodeHash` keeps its current five-argument shape. It is
+    ///         also read inside `beforeSwap` via `_key()`, where an external
+    ///         call to the factory for it would be paid on every swap.
+    ///
+    ///         IT IS ALSO `currency0` OF EVERY POOL, which is load-bearing far
+    ///         beyond this declaration. Native settlement got that for free —
+    ///         `address(0)` sorts below every token. An ERC20 does not, so the
+    ///         factory grinds each project token's CREATE2 salt until the token
+    ///         address exceeds this one. See `ToshFactory.createLaunch` and
+    ///         `ToshCloneLib.deployBareCloneAbove`.
+    IERC20 public immutable quoteAsset;
+
+    /// @dev The quote asset's decimals, asserted in the constructor rather than
+    ///      assumed, because the ladder's usable range was computed against it.
+    ///      BEM has 8. `p0 = lpQuote * 1e18 / GENESIS_LP_SUPPLY` therefore
+    ///      carries ten fewer decimal digits than an 18-decimal quote would,
+    ///      and adjacent shelf prices differ by an INTEGER — so below roughly
+    ///      21 quote units of raise, neighbouring shelves round onto the same
+    ///      price and the 4,000-shelf ladder degenerates into a step function.
+    ///      That is what `MIN_SOFT_CAP_PROD` is sized against; see
+    ///      docs/BEM_QUOTE_ASSET.md 2.1 for the table.
+    uint8 internal constant QUOTE_DECIMALS = 8;
 
     /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
     ///         share of the buy-side dark tax and any orphaned referral
@@ -1060,6 +1098,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `DURATION_STANDARD` / `DURATION_SLOW`.
     error InvalidDuration();
     error Unauthorized();
+    /// @dev Unreachable and retained as documentation. `_payQuote` moves the
+    ///      quote asset with `SafeERC20.safeTransfer`, which bubbles the token's
+    ///      own revert rather than a flag, so nothing raises this any more. The
+    ///      condition it named — a recipient that rejects an incoming payment —
+    ///      has not gone away, it has changed shape: a `projectAdmin` blocked by
+    ///      the quote asset itself would now fail a shelf mint with that token's
+    ///      error. Kept so the ABI does not lose a selector indexers may match.
     error NativeTransferFailed();
 
     /// @notice Every shelf has been cleared — Phase 2 issuance is complete.
@@ -1089,8 +1134,22 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         The secondary market has to catch up before this shelf unlocks.
     error TierPriceAboveCeiling();
 
-    /// @notice `msg.value` did not cover the quoted shelf cost.
-    error InsufficientPayment();
+    /// @notice The shelf sweep came to more than the caller's `maxCost`.
+    ///
+    /// @dev    Replaces `InsufficientPayment`, which said the same thing from the
+    ///         other side while `msg.value` was the bound.
+    error CostAboveMax();
+
+    /// @notice A caller-supplied quote-asset amount is not backed by tokens this
+    ///         contract actually holds.
+    ///
+    /// @dev    Fires in `deposit`, the one place that is told an amount rather
+    ///         than sent one. It is reached only from the factory, so this is the
+    ///         shape a bug takes, not an attack: a mis-ordered transfer, a
+    ///         partial-transfer token, or an amount computed from one figure and
+    ///         moved from another. Failing here means the mistake costs a
+    ///         reverted transaction instead of an uncollateralised credit.
+    error DepositNotReceived();
 
     /// @notice No referral commission accrued to the caller.
     error NoReferralReward();
@@ -1121,19 +1180,27 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         address _vault,
         address _factory,
         address _ladderTreasury,
-        address _platformFeeRecipient
+        address _platformFeeRecipient,
+        address _quoteAsset
     ) {
         require(_poolManager != address(0), "zero poolManager");
         require(_vault != address(0), "zero vault");
         require(_factory != address(0), "zero factory");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
         require(_platformFeeRecipient != address(0), "zero platformFeeRecipient");
+        require(_quoteAsset != address(0), "zero quoteAsset");
+        // Asserted, not assumed: `MIN_SOFT_CAP_PROD` and the ladder's usable
+        // range were both computed against 8 decimals. A quote asset with any
+        // other precision silently moves where the shelf ladder degenerates,
+        // and a deploy is the worst place to discover that.
+        require(IERC20Metadata(_quoteAsset).decimals() == QUOTE_DECIMALS, "quote decimals");
 
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
         platformFeeRecipient = payable(_platformFeeRecipient);
+        quoteAsset = IERC20(_quoteAsset);
         _self = address(this);
         _hasArbSys = ARB_SYS.code.length != 0;
     }
@@ -1190,14 +1257,26 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return block.number;
     }
 
-    /// @dev Accepts ETH from the factory's genesis gateway and from any V4
-    ///      `take` that settles native currency to this hook.
+    /// @dev DELETED WITH THE NATIVE QUOTE ASSET, and the deletion is the safer
+    ///      option rather than the tidier one.
     ///
-    ///      `onlyClone` here is not a security boundary — the implementation has
-    ///      no path that pays ETH out to anyone — it just stops value being
-    ///      burned by a mistaken send to the shared implementation, which no
-    ///      code path could ever return.
-    receive() external payable onlyClone {}
+    ///      It existed to accept the genesis gateway's `msg.value` and any Vault
+    ///      `take` that settled native currency here. Both now move BEM, which
+    ///      needs no `receive()`, so keeping one would only accept BNB that no
+    ///      code path can pay out — `_payQuote` moves the quote asset and there
+    ///      is no native withdrawal anywhere in this contract. A payable fallback
+    ///      would therefore be a one-way door: it would take someone's BNB and
+    ///      burn it, silently, with a successful transaction receipt.
+    ///
+    ///      Without it, such a send reverts. The sender keeps their BNB and finds
+    ///      out immediately. That is the whole argument.
+    ///
+    ///      ⚠ CONSEQUENCE FOR TOOLING: this contract is no longer `payable`, so
+    ///        `payable(hook)` casts and `ToshLaunchpadHook(payable(...))` wrappers
+    ///        elsewhere are now merely harmless rather than required. They are
+    ///        left in place — removing them is a wide, mechanical diff across the
+    ///        factory and the test suite for no behavioural gain — but do not read
+    ///        one as evidence this contract takes native value.
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Modifiers
@@ -1348,13 +1427,37 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         special-cased.  Two credits to one address sum to the same
     ///         thing as one credit of the total, and keeping the legs
     ///         independent means neither branch has to know about the other.
-    function deposit(address user, address projectReferrer, address lifetimeReferrer) external payable {
+    ///
+    /// @param amount           Quote-asset units the factory has ALREADY
+    ///                         transferred to this contract, immediately before
+    ///                         this call.
+    ///
+    ///                         ⚠ THE TOKENS ARRIVE BEFORE THIS RUNS, which is
+    ///                           the one structural difference from the native
+    ///                           version and the reason for the balance check
+    ///                           below. `msg.value` was self-evidencing: the EVM
+    ///                           moved the value as part of the call, so the
+    ///                           amount could not be misstated. An ERC20 arrives
+    ///                           by a transfer this contract never observes, so
+    ///                           `amount` is a CLAIM. It comes from the factory,
+    ///                           which is trusted, but "trusted" and "checked"
+    ///                           are different properties and the cost of
+    ///                           checking is one `balanceOf`.
+    function deposit(address user, address projectReferrer, address lifetimeReferrer, uint256 amount) external {
         if (msg.sender != factory) revert OnlyFactory();
         if (!tokenInitialized) revert NotInitialized();
         if (block.timestamp >= genesisDeadline) revert GenesisExpired();
-        if (msg.value == 0) revert ZeroAmount();
+        if (amount == 0) revert ZeroAmount();
 
-        uint256 amount = msg.value;
+        // The claim, measured. Everything credited so far is owed to somebody —
+        // depositors via `nativeDeposited`, referrers via `referralAccrued` —
+        // so the balance must cover the old obligations plus this new one.
+        //
+        // `>=` rather than `==` because a donation or a rounding surplus can
+        // leave this contract holding MORE than it owes, and refusing that would
+        // let anyone brick a genesis round by sending it one unit of BEM. The
+        // surplus is not credited to anyone here; it joins the LP at `launch()`.
+        if (quoteAsset.balanceOf(address(this)) < totalNativeDeposited + amount) revert DepositNotReceived();
 
         // Per-project cap, enforced against the snapshot taken at creation so
         // a later platform-wide retune cannot move the goalposts on a round
@@ -1436,7 +1539,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             emit ZombieRefund(totalNativeDeposited);
         }
 
-        _sendNative(msg.sender, dep);
+        _payQuote(msg.sender, dep);
         emit Refunded(msg.sender, dep);
     }
 
@@ -1519,7 +1622,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (orphanReferral > 0) {
             uint256 orphan = orphanReferral;
             orphanReferral = 0;
-            _sendNative(ladderTreasury, orphan);
+            _payQuote(ladderTreasury, orphan);
             emit OrphanReferralForwarded(orphan);
         }
 
@@ -1560,7 +1663,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         referralAccrued[msg.sender] = 0;
         totalReferralClaimed += amount;
 
-        _sendNative(msg.sender, amount);
+        _payQuote(msg.sender, amount);
         emit ReferralClaimed(msg.sender, amount);
     }
 
@@ -1609,10 +1712,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @param tokenAmount Tokens to buy.  May span several shelves; capped by
     ///                    `maxMintable()`, which folds in both the 105 %
     ///                    ceiling and `MAX_TIERS_PER_TX`.
-    /// @return nativeCharged ETH actually spent; any excess `msg.value` is refunded.
-    function mintBondingCurve(uint256 tokenAmount)
+    /// @param maxCost     Most quote asset the caller will pay. Pass the figure
+    ///                    `quoteBondingCurve` returned, plus whatever tolerance
+    ///                    you want for another buyer filling the active shelf
+    ///                    first. Replaces the ceiling `msg.value` used to impose;
+    ///                    see the note at the check.
+    /// @return nativeCharged Quote asset actually spent. Always the exact sweep
+    ///                    cost — nothing is over-collected, so nothing is
+    ///                    refunded.
+    function mintBondingCurve(uint256 tokenAmount, uint256 maxCost)
         external
-        payable
         initialized
         nonReentrant
         returns (uint256 nativeCharged)
@@ -1680,7 +1789,18 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         }
 
         if (cost == 0) revert ZeroAmount();
-        if (msg.value < cost) revert InsufficientPayment();
+        // Slippage bound, and it has to be stated now that it cannot be implied.
+        //
+        // `msg.value < cost` was doing this job as a side effect: the buyer sent
+        // an amount, the call could not spend more than was sent, and the excess
+        // came back as change. That mattered because the price genuinely moves
+        // between quote and execution — another buyer filling the active shelf
+        // first pushes this order onto higher ones, so the same `tokenAmount`
+        // costs more than `quoteBondingCurve` said. With a pull there is no
+        // amount sent, and an allowance is a standing permission rather than a
+        // per-call ceiling, so without `maxCost` a buyer with a round-number
+        // approval would silently fund whatever the sweep came to.
+        if (cost > maxCost) revert CostAboveMax();
 
         // EFFECTS
         //
@@ -1699,13 +1819,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint256 platformCut = (cost * PLATFORM_TAX_BPS) / BPS_DENOMINATOR;
         uint256 projectCut = cost - platformCut;
 
-        if (platformCut > 0) _sendNative(ladderTreasury, platformCut);
-        if (projectCut > 0) _sendNative(projectAdmin, projectCut);
+        // Pulled from the buyer straight to each recipient, so this contract
+        // never custodies a shelf payment. Under native settlement it had no
+        // choice — `msg.value` landed here first — and the change refund existed
+        // to give back what it should not have been holding. A pull moves exactly
+        // `cost`, split at the source, and THERE IS NO CHANGE TO REFUND: the
+        // amount transferred is computed, not offered.
+        if (platformCut > 0) SafeERC20.safeTransferFrom(quoteAsset, msg.sender, ladderTreasury, platformCut);
+        if (projectCut > 0) SafeERC20.safeTransferFrom(quoteAsset, msg.sender, projectAdmin, projectCut);
 
         projectToken.mint(msg.sender, tokenAmount);
-
-        uint256 change = msg.value - cost;
-        if (change > 0) _sendNative(msg.sender, change);
 
         nativeCharged = cost;
     }
@@ -2014,8 +2137,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // a leg turns out to be. A skipped cycle costs nothing — the ETH stays
         // in the reservoir, and `pokeBuyback()` can deploy it with no swap at
         // all.
+        // NOTE THE ARM CHECK IS NO LONGER `BALANCE`, and the cheap-read argument
+        // above is weaker as a result. `ladderTreasury.balance` was an opcode on
+        // a warm account, 100 gas. The reservoir is an ERC20 balance now, so this
+        // is a CALL into the quote asset plus its SLOAD — roughly 2,700 cold,
+        // ~2,200 warm on a pool the swap has already touched. Still cheaper than
+        // the call chain it avoids (a CALL into the treasury, another into the
+        // manager for `isUnlocked`, and a cold `ladderTokens.length`), so the
+        // conclusion holds; the margin is a few thousand gas rather than two
+        // orders of magnitude.
         uint256 avail = gasleft();
-        if (ladderTreasury.balance >= PIGGYBACK_TRIGGER_STEP && avail >= PIGGYBACK_MIN_GAS) {
+        if (quoteAsset.balanceOf(ladderTreasury) >= PIGGYBACK_TRIGGER_STEP && avail >= PIGGYBACK_MIN_GAS) {
             try IToshLadderTreasury(ladderTreasury).autoPiggybackBuyback{gas: avail - PIGGYBACK_TAIL_RESERVE}() {}
             catch {
                 emit PiggybackPokeFailed(ladderTreasury);
@@ -2191,8 +2323,18 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      bitmap. Both are derived, so neither adds an SLOAD to the count
     ///      above.
     function _key() internal view returns (PoolKey memory) {
+        // `currency0` is the QUOTE ASSET and `currency1` is the project token,
+        // and that assignment is an assertion about addresses rather than a
+        // choice. Infinity requires `currency0 < currency1` and rejects the pool
+        // otherwise, so writing them in this order only works because the
+        // factory ground the token's CREATE2 salt until it exceeded the quote
+        // asset. If that grind is ever removed, `initialize` here starts
+        // reverting for roughly a third of launches — which is the good failure.
+        // The bad one is code that sorts the pair at runtime and then reads
+        // `amount0` as the quote leg regardless, which is what the ~90 sites
+        // downstream of this function do. Keep the grind; do not sort here.
         return PoolKey({
-            currency0: CurrencyLibrary.NATIVE,
+            currency0: Currency.wrap(address(quoteAsset)),
             currency1: Currency.wrap(address(projectToken)),
             hooks: IHooks(address(this)),
             poolManager: IPoolManager(address(poolManager)),
@@ -2277,11 +2419,18 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         int128 d0 = delta.amount0();
         int128 d1 = delta.amount1();
 
-        // currency0 == native ETH
+        // currency0 == the quote asset
+        //
+        // Now settled exactly like currency1 below, which is the visible payoff
+        // of the move off native: the two legs used to take different code paths
+        // — `settle{value:}` against an implicit amount, versus
+        // sync/transfer/settle against a measured one — and now they differ only
+        // in which token and which delta.
         if (d0 < 0) {
             uint256 owed = uint256(uint128(-d0));
-            vault.sync(CurrencyLibrary.NATIVE);
-            vault.settle{value: owed}();
+            vault.sync(Currency.wrap(address(quoteAsset)));
+            SafeERC20.safeTransfer(quoteAsset, address(vault), owed);
+            vault.settle();
         }
         // currency1 == project token
         //
@@ -2463,9 +2612,25 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         }
     }
 
-    function _sendNative(address to, uint256 amount) internal {
-        (bool ok,) = payable(to).call{value: amount}("");
-        if (!ok) revert NativeTransferFailed();
+    /// @dev The single exit for quote asset leaving this contract: refunds,
+    ///      referral claims, orphaned commission, and both legs of the shelf
+    ///      payment split.
+    ///
+    ///      REENTRANCY GOT SIMPLER HERE, not harder, and that is worth recording
+    ///      because the opposite is the usual result of moving to ERC20. The
+    ///      native version was a bare `call` with all remaining gas to an
+    ///      arbitrary address, so every caller had to be ordered
+    ///      effects-before-interactions on the assumption the recipient would
+    ///      re-enter — `refund()` zeroes `nativeDeposited` before paying for
+    ///      exactly that reason. `safeTransfer` on a fixed, known token calls
+    ///      only that token, and BEM's transfer runs no recipient hook.
+    ///
+    ///      The orderings stay as they are. They are correct either way, they
+    ///      cost nothing, and they are the only thing standing between this
+    ///      contract and a re-entrancy bug if the quote asset is ever a token
+    ///      with callbacks. Do not "simplify" them on the strength of this note.
+    function _payQuote(address to, uint256 amount) internal {
+        SafeERC20.safeTransfer(quoteAsset, to, amount);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

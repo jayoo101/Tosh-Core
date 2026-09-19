@@ -17,6 +17,8 @@ import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManage
 
 import {Ownable2Step} from "../lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title  ToshLadderTreasury (v5.0)
 /// @notice Platform-wide dark-tax reservoir and round-robin buyback executor.
@@ -95,17 +97,25 @@ contract ToshLadderTreasury is Ownable2Step {
     // ─── Constants ────────────────────────────────────────────────────────────
 
     /// @notice Balance threshold that arms a piggyback buyback, and the
-    ///         minimum BNB a cycle will spend.  A fuller reservoir spends
+    ///         minimum a cycle will spend.  A fuller reservoir spends
     ///         `SPEND_BPS` of its balance instead, so ammunition does not
     ///         pile up through quiet trading hours.
     ///
     /// @dev    Sized by intent rather than by a spot rate, because it is a
     ///         constant and a constant outlives the rate that set it.  The
     ///         question it answers is "how much ammunition is worth one shot,
-    ///         net of the gas to fire it", and 3.5 BNB sits where 1 ETH sat
-    ///         when this was written.  A cheaper trigger spends the reservoir
-    ///         on fees; a dearer one lets it idle.
-    uint256 public constant TRIGGER_STEP = 3.5 ether;
+    ///         net of the gas to fire it", and 92.8 BEM sits where 3.5 BNB sat,
+    ///         which sat where 1 ETH sat when this was written.  A cheaper
+    ///         trigger spends the reservoir on fees; a dearer one lets it idle.
+    ///
+    ///         ⚠ MUST EQUAL `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP`. Both are
+    ///           `constant` with no setter, in separately deployed contracts, so
+    ///           nothing on-chain reconciles them. If the hook's copy is the
+    ///           higher of the two, `afterSwap` stops poking at balances this
+    ///           contract would have acted on and the buyback simply goes quiet —
+    ///           a skipped poke emits nothing by design, so the symptom is
+    ///           silence. `ToshV5Guards.t.sol` pins the pair.
+    uint256 public constant TRIGGER_STEP = 92.8e8;
 
     /// @notice Fraction of the reservoir spent per piggyback cycle, in
     ///         basis points.  1000 = 10 %.  Floored at `TRIGGER_STEP`.
@@ -187,6 +197,22 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         Vault, while the swap itself still goes to the manager.
     IVault public immutable vault;
 
+    /// @notice The ERC20 this reservoir accumulates and spends — the same quote
+    ///         asset the factory and every hook hold.
+    ///
+    /// @dev    Immutable for the reason every sink here is: the reservoir's only
+    ///         exit is a buy-and-burn, and a settable spend currency would let
+    ///         the owner point that exit at a token nobody deposited. Changing
+    ///         it means a new treasury.
+    ///
+    ///         This is what the four revenue pipes now arrive as. Under native
+    ///         settlement they arrived as `msg.value` and `receive()` was the
+    ///         entry point; an ERC20 has no such hook, so a transfer in is
+    ///         invisible to this contract and `TaxReceived` can no longer be
+    ///         emitted on arrival. Accounting reads `balanceOf` instead — see
+    ///         `reservoir()`.
+    IERC20 public immutable quoteAsset;
+
     // ─── State ────────────────────────────────────────────────────────────────
 
     /// @notice ToshFactory, used to authenticate calling hooks.  Set once.
@@ -255,20 +281,53 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      `vault()` from `ProtocolFees`, but `ICLPoolManager` does not declare
     ///      it, and hand-rolling an interface for a getter would put a claim
     ///      about the live pair into a local declaration instead of a test.
-    constructor(address _poolManager, address _vault, address _owner) Ownable(_owner) {
-        if (_poolManager == address(0) || _vault == address(0) || _owner == address(0)) revert ZeroAddress();
+    constructor(address _poolManager, address _vault, address _owner, address _quoteAsset) Ownable(_owner) {
+        if (_poolManager == address(0) || _vault == address(0) || _owner == address(0) || _quoteAsset == address(0)) {
+            revert ZeroAddress();
+        }
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
+        quoteAsset = IERC20(_quoteAsset);
     }
 
     // ─── Funding ──────────────────────────────────────────────────────────────
 
-    /// @notice Accepts the 1 % dark tax from hooks, launch fees from the
-    ///         factory, orphaned referral commission, and unsolicited donations.
-    ///         Every wei that lands here is buyback ammunition — there is no
-    ///         path back out except `_buyAndBurn`.
-    receive() external payable {
-        emit TaxReceived(msg.sender, msg.value);
+    /// @notice What this reservoir holds and can spend.
+    ///
+    /// @dev    THE FOUR REVENUE PIPES NO LONGER ANNOUNCE THEMSELVES, and that is
+    ///         the one behavioural loss in moving off native settlement. The 1%
+    ///         dark tax, launch fees, orphaned commission and donations used to
+    ///         arrive as `msg.value` through `receive()`, which emitted
+    ///         `TaxReceived` on every one. An ERC20 `transfer` runs no code here,
+    ///         so arrivals are now silent and `TaxReceived` only fires where a
+    ///         caller routes through `notifyTax`.
+    ///
+    ///         Consequence for anything watching: do not reconstruct the
+    ///         reservoir by summing `TaxReceived`. It will undercount. Read this
+    ///         getter, or diff it across blocks. `STATE-05`/`STATE-06` in
+    ///         monitoring/alerts.json poll the balance for exactly this reason.
+    ///
+    ///         `balanceOf` rather than a counter because a counter would be a
+    ///         second source of truth that a direct transfer could desynchronise
+    ///         permanently, and this contract has no way to notice one.
+    function reservoir() public view returns (uint256) {
+        return quoteAsset.balanceOf(address(this));
+    }
+
+    /// @notice Optional receipt for a caller that has just funded this reservoir.
+    ///
+    /// @dev    Emits `TaxReceived` for an amount the caller claims to have just
+    ///         transferred. NOT TRUSTED AND NOT TRUSTABLE: the transfer already
+    ///         happened, this cannot verify it, and anyone may call this with any
+    ///         figure. It exists so the hook's tax path keeps producing the event
+    ///         indexers were built against, and it is unauthenticated because
+    ///         gating it to hooks would mean an authentication read on every
+    ///         swap's tax leg for a log line.
+    ///
+    ///         Treat the event as a hint about provenance, never as an amount.
+    ///         `reservoir()` is the amount.
+    function notifyTax(uint256 amount) external {
+        emit TaxReceived(msg.sender, amount);
     }
 
     // ─── Modifiers ────────────────────────────────────────────────────────────
@@ -424,10 +483,27 @@ contract ToshLadderTreasury is Ownable2Step {
 
         PoolKey memory key = IToshHookPoolKey(hook).getPoolKey();
 
-        // ETH must be currency0 and `token` must be currency1, otherwise the
-        // hard-wired `zeroForOne = true` buy direction in `_buyAndBurn` would
-        // swap the wrong way round.
-        if (!key.currency0.isNative()) revert InvalidPoolKey();
+        // The quote asset must be currency0 and `token` must be currency1,
+        // otherwise the hard-wired `zeroForOne = true` buy direction in
+        // `_buyAndBurn` would swap the wrong way round.
+        //
+        // THIS CHECK CARRIES MORE WEIGHT THAN IT USED TO. `isNative()` was a
+        // property of the key — `address(0)` cannot be anything but currency0,
+        // because no address sorts below it — so the old check could only fail
+        // if the hook returned a key for the wrong pool entirely. An ERC20 quote
+        // asset has no such guarantee: roughly two thirds of random addresses
+        // sort above BEM and one third below, and a token in the latter group
+        // would produce a pool with the token as currency0 and BEM as
+        // currency1. `_buyAndBurn` would then spend the PROJECT TOKEN to buy
+        // BEM — burning the reservoir's ammunition to acquire what it already
+        // holds, once per cycle, permanently.
+        //
+        // The factory prevents such a token existing by grinding CREATE2 salts
+        // until the address clears `quoteAsset` (`ToshCloneLib.deployBareCloneAbove`).
+        // This is the independent confirmation at the listing gate: it fails
+        // closed on a token from an older factory, a mis-ground salt, or a hook
+        // whose quote asset is not this treasury's.
+        if (Currency.unwrap(key.currency0) != address(quoteAsset)) revert InvalidPoolKey();
         if (Currency.unwrap(key.currency1) != token) revert InvalidPoolKey();
         if (address(key.hooks) != hook) revert InvalidPoolKey();
 
@@ -634,21 +710,29 @@ contract ToshLadderTreasury is Ownable2Step {
         int128 owed = delta.amount0();
         uint256 spent = owed < 0 ? uint256(uint128(-owed)) : 0;
         if (spent > 0) {
-            // `sync(native)` resets the synced-currency slot so `settle`
-            // attributes our msg.value to the native currency even if an outer
-            // frame had synced an ERC-20.
+            // Infinity's ERC-20 settle is three steps, and the ORDER IS THE
+            // PROTOCOL: `sync` latches the currency and snapshots the Vault's
+            // balance of it, the transfer moves the tokens in, and `settle`
+            // credits us the difference the Vault now measures. Transferring
+            // before the sync credits nothing — the snapshot would already
+            // include our tokens — and the swap would revert on a non-zero
+            // delta, taking the innocent trader's transaction with it.
             //
-            // This CLOBBERS that outer frame's slot, and V4 gives us no way to
-            // read it back or restore it.  Harmless for the canonical settle
-            // pattern, where `sync` immediately precedes the transfer it pairs
-            // with and therefore runs after any swap that could poke us; it
-            // would corrupt an integrator who instead syncs, then swaps, then
-            // settles.  Documented rather than fixed because the fix does not
-            // exist at the V4 interface level — and because the alternative,
-            // omitting the sync, breaks our own settle in the far more common
-            // case where an outer frame left an ERC-20 latched.
-            vault.sync(CurrencyLibrary.NATIVE);
-            vault.settle{value: spent}();
+            // The clobbering hazard the native path carried is unchanged in
+            // kind: `sync` overwrites whatever currency an outer frame had
+            // latched, with no way to read it back or restore it. What changed
+            // is that it is no longer avoidable in principle. Under native
+            // settlement `settle{value:}` at least described its own amount, so
+            // omitting the sync only mis-attributed it; here the amount IS the
+            // synced balance delta, so there is no settling without syncing.
+            //
+            // Safe for the canonical pattern, where a caller syncs immediately
+            // before the transfer it pairs with and therefore after any swap
+            // that could poke us. Still corrupts a caller who syncs, then swaps,
+            // then settles.
+            vault.sync(key.currency0);
+            SafeERC20.safeTransfer(quoteAsset, address(vault), spent);
+            vault.settle();
         }
 
         int128 out = delta.amount1();
@@ -756,13 +840,13 @@ contract ToshLadderTreasury is Ownable2Step {
         return _poolKeyOf[token];
     }
 
-    /// @notice ETH still needed before the next piggyback arms.
+    /// @notice Quote asset still needed before the next piggyback arms.
     function untilNextTrigger() external view returns (uint256) {
-        uint256 bal = address(this).balance;
+        uint256 bal = reservoir();
         return bal >= TRIGGER_STEP ? 0 : TRIGGER_STEP - bal;
     }
 
-    /// @notice ETH the next piggyback cycle will spend, or 0 if unarmed.
+    /// @notice Quote asset the next piggyback cycle will spend, or 0 if unarmed.
     function nextSpendAmount() external view returns (uint256) {
         return _nextSpendAmount();
     }
@@ -793,7 +877,7 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      bytecode is byte-identical with and without the keyword — verified,
     ///      not assumed. See `docs/ROBINHOOD_MIGRATION.md` §F.7.
     function _nextSpendAmount() internal view virtual returns (uint256 spend) {
-        uint256 bal = address(this).balance;
+        uint256 bal = reservoir();
         if (bal < TRIGGER_STEP) return 0;
         spend = (bal * SPEND_BPS) / BPS_DENOMINATOR;
         if (spend < TRIGGER_STEP) spend = TRIGGER_STEP;

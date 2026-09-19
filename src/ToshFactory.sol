@@ -8,6 +8,8 @@ import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.so
 import {Pausable} from "../lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ToshToken} from "./ToshToken.sol";
 import {ToshLaunchpadHook} from "./ToshLaunchpadHook.sol";
 import {HookAddress} from "./libraries/HookAddress.sol";
@@ -57,7 +59,18 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant MAX_SIG_VALIDITY = 24 hours;
     uint256 public constant MAX_COOLDOWN = 7 days;
 
-    /// @notice Ceiling on `launchFee`, denominated in BNB.
+    /// @dev One whole unit of the quote asset. BEM has 8 decimals, so this is
+    ///      1e8 and not 1e18, and `ether` must not appear anywhere near these
+    ///      dials any more.
+    ///
+    ///      Spelled out as its own constant because the literals below read as
+    ///      plausible numbers either way: `928.4e8` and `928.4 ether` are both
+    ///      well-formed Solidity and differ by ten orders of magnitude, with
+    ///      nothing in the syntax to suggest which was meant. Writing
+    ///      `928.4 * QUOTE_UNIT` makes the unit part of the expression.
+    uint256 public constant QUOTE_UNIT = 1e8;
+
+    /// @notice Ceiling on `launchFee`, denominated in quote-asset units.
     ///
     /// @dev    `setLaunchFee` was the one setter on this contract with no
     ///         validation of any kind — no floor, no ceiling, no zero-check —
@@ -66,90 +79,112 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     ///         The failure it admits is not an exploit, it is an accident with
     ///         no undo short of a second owner transaction: the fee is quoted in
-    ///         wei, and the difference between `0.35 ether` and `0.35e18 ether`
-    ///         is one keystroke in a Safe transaction builder.  Above the ceiling
-    ///         `createLaunch` becomes unaffordable for everyone, which is a
-    ///         platform-wide outage produced by a typo rather than by an
-    ///         attacker.
+    ///         base units, and the difference between `9.28 * QUOTE_UNIT` and
+    ///         `9.28 ether` is one keystroke in a Safe transaction builder.
+    ///         Above the ceiling `createLaunch` becomes unaffordable for
+    ///         everyone, which is a platform-wide outage produced by a typo
+    ///         rather than by an attacker.
     ///
-    ///         Deliberately generous — 100x the 0.35 BNB default — because this
+    ///         Deliberately generous — 100x the 9.28 BEM default — because this
     ///         guards against an order-of-magnitude slip, not against pricing
     ///         judgement.  Zero stays legal: a fee-free platform is a policy
     ///         choice, and `test_setLaunchFee_allowsZero` pins it.
-    uint256 public constant MAX_LAUNCH_FEE = 35 ether;
+    uint256 public constant MAX_LAUNCH_FEE = 928e8;
 
-    /// @notice Ceilings on the two other BNB-denominated dials, in wei.
+    /// @notice Ceilings on the two other quote-denominated dials, in base units.
     ///
-    /// @dev    Same failure mode as `MAX_LAUNCH_FEE` — a wei-denominated field
-    ///         typed into a Safe transaction builder — but deliberately many
-    ///         orders of magnitude looser, and the difference is the point.
+    /// @dev    Same failure mode as `MAX_LAUNCH_FEE` — a base-unit field typed
+    ///         into a Safe transaction builder — and looser, because a raise or a
+    ///         wallet cap has no comfortable range the way a launch fee does.
+    ///         They guard **unit confusion**: `928.4 ether` where
+    ///         `928.4 * QUOTE_UNIT` was meant is a factor of 1e10.
     ///
-    ///         A launch fee above 35 BNB cannot be a considered choice, so that
-    ///         ceiling can double as a sanity bound on pricing judgement.  These
-    ///         two have no such comfortable range: this repo's own suites set a
-    ///         1000-unit per-wallet limit in a fixture and a 300-unit one to pin
-    ///         `test_registerPoG_noSilentClamp`, and an 8000-unit soft cap
-    ///         appears in a local rehearsal script.  A tight bound here would
-    ///         not be conservative, it would be wrong.
+    ///         THESE WERE CUT FROM 1,000,000 TO 20,000 AND THAT IS NOT A
+    ///         RESCALING. Under a native quote asset, 1 M units was chosen to be
+    ///         so far above any conceivable raise that it could only ever catch a
+    ///         typo — it was well under 1% of BNB's supply. BEM's entire supply is
+    ///         191,739.22 BEM (19,173,922,124,972 base units, measured on 56).
+    ///         A 1 M ceiling would therefore have sat five times ABOVE the total
+    ///         number of tokens in existence, which is not a loose bound, it is
+    ///         no bound: every value it admits includes values that cannot be
+    ///         raised because the units do not exist.
     ///
-    ///         So these guard exactly one class of mistake: **unit confusion**.
-    ///         `35 ether` entered as `35e18 ether` is eighteen orders of
-    ///         magnitude, and 1 M BNB is both far above any conceivable raise or
-    ///         wallet cap — well under 1% of BNB's supply, but several thousand
-    ///         times the largest raise this platform could plausibly host — and
-    ///         ~1e14 below that slip.  Do not read them as anything more.
-    ///         Deliberately left at 1 M rather than rescaled with the other
-    ///         dials: these bound a typo, not a value, so the factor that
-    ///         matters is the distance to `1e18 ether` and that is unchanged.
-    ///         In particular a
-    ///         `maxPogAllocationLimit` under this ceiling is **not** evidence
-    ///         that PoG still limits whales: once the per-wallet cap reaches the
-    ///         soft cap a single wallet can fill an entire genesis round, and no
-    ///         constant can enforce that ratio, because `defaultSoftCap` moves
-    ///         independently and coupling the two would make the outcome depend
-    ///         on which setter the owner happened to call first.  That sizing is
-    ///         a policy judgement and stays one.
-    uint256 public constant MAX_DEFAULT_SOFT_CAP = 1_000_000 ether;
+    ///         20,000 BEM is ~10.4% of supply — still far above any raise this
+    ///         platform could fill, still 1e10 clear of the `ether` slip, and now
+    ///         actually a statement about reachable amounts.
+    ///
+    ///         ⚠ NEITHER CEILING IS A LIQUIDITY CHECK, and with BEM the gap
+    ///           between "exists" and "obtainable" is where the real risk lives.
+    ///           BEM's only pool of consequence held 1,959 BEM when last
+    ///           measured, so even the 928.4 BEM DEFAULT soft cap asks for
+    ///           roughly half the float. A cap under this ceiling says nothing
+    ///           about whether depositors can buy the tokens to fill it. See
+    ///           docs/BEM_QUOTE_ASSET.md §1.2.
+    ///
+    ///         A `maxPogAllocationLimit` under this ceiling is likewise **not**
+    ///         evidence that PoG still limits whales: once the per-wallet cap
+    ///         reaches the soft cap a single wallet can fill an entire genesis
+    ///         round, and no constant can enforce that ratio, because
+    ///         `defaultSoftCap` moves independently and coupling the two would
+    ///         make the outcome depend on which setter the owner happened to call
+    ///         first.  That sizing is a policy judgement and stays one.
+    uint256 public constant MAX_DEFAULT_SOFT_CAP = 20_000e8;
 
     /// @dev    See `MAX_DEFAULT_SOFT_CAP`; identical reasoning, kept as its own
     ///         constant so the two can diverge without a migration.
-    uint256 public constant MAX_POG_ALLOCATION_LIMIT = 1_000_000 ether;
+    uint256 public constant MAX_POG_ALLOCATION_LIMIT = 20_000e8;
 
-    /// @notice Minimum acceptable `defaultSoftCap`, denominated in BNB (v5.0).
+    /// @notice Minimum acceptable `defaultSoftCap`, in quote-asset base units.
     ///
     /// @dev    Guards two cliffs, and the one this comment used to name alone is
     ///         not the binding one.
     ///
     ///         The obvious cliff is `p0 = 0`.  The hook derives
-    ///         `p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY` with
+    ///         `p0 = (lpQuote * 1e18) / GENESIS_LP_SUPPLY` with
     ///         `GENESIS_LP_SUPPLY = 3.78e24`, so `p0` truncates to zero once
-    ///         `lpNative < 3_780_000` wei — which would collapse the entire tier
-    ///         ladder to a free-mint zone.  This cliff does have a backstop:
+    ///         `lpQuote < 3_780_000` base units — which would collapse the entire
+    ///         tier ladder to a free-mint zone.  This cliff does have a backstop:
     ///         the hook's `launch()` asserts `p0 > 0`.
     ///
     ///         The binding cliff is ladder *flattening*, it sits far above the
-    ///         first, and it has no backstop.  Shelf monotonicity breaks below
-    ///         `shelfP0 = 526` wei: at 525 the step to shelf 1 rounds to 0 wei,
-    ///         which would let a buyer clear the upper shelf at the lower
-    ///         shelf's price.  Dropping this floor to 1 gwei yields `p0 = 238`
-    ///         and `shelfP0 = 249` — non-zero, so `launch()`'s assert still
-    ///         passes, yet shelves 0 and 1 come out identically priced.
+    ///         first, and it has no backstop.  Shelves are geometric —
+    ///         `price(i) = shelfP0 · 1.001902508^i` — so monotonicity needs the
+    ///         first step to survive truncation: `shelfP0 · 0.0019025 ≥ 1`, i.e.
+    ///         `shelfP0 ≥ 526`. Below that, shelf 1 rounds onto shelf 0's price
+    ///         and a buyer clears the upper shelf at the lower shelf's price.
     ///         Nothing else in the system checks for a flat ladder, so this
     ///         literal is the entire defence.
     ///
-    ///         Both cliffs are pure wei arithmetic and know nothing about what
-    ///         the native coin is worth, which is why the BNB cutover could
-    ///         move this floor without re-deriving them.  `p0` scales linearly
-    ///         with the cap, so raising the floor only ever widens the margin:
-    ///         at the old 0.01 it was around 2.38e9 wei/token with a 4,756,270
-    ///         wei step, and at 0.035 `shelfP0` is 8,749,999,999 with a step of
-    ///         16,646,947 wei — a margin of 16.6 million to one over break-even,
-    ///         3.5x the headroom the ETH figure had — while still permitting
-    ///         small testnet raises.  Pinned by
+    ///         ⚠ THE MARGIN OVER THAT CLIFF IS NOW 4.75x, DOWN FROM 16.6 MILLION,
+    ///           and that collapse is the whole reason this constant was retuned.
+    ///
+    ///           Both cliffs are pure base-unit arithmetic — they know nothing
+    ///           about what a unit is worth, only how many of them arrive. The
+    ///           native quote asset had 18 decimals, so a 35-unit soft cap
+    ///           delivered `lpQuote = 3.15e19` and `shelfP0 = 8,749,999,999`:
+    ///           16.6 million times the break-even, a margin so wide it could be
+    ///           treated as infinite. BEM has 8 decimals. The SAME NUMBER OF
+    ///           TOKENS now arrives as 1e10 fewer base units, so the entire
+    ///           margin has to be bought back out of the token count.
+    ///
+    ///           At this floor: `lpQuote = 9e9` (100 BEM less the 10% commission
+    ///           carve), `p0 = 2380`, `shelfP0 = 2499`, first step 4 units.
+    ///           2499 / 526 = 4.75.
+    ///
+    ///           What that costs in practice: raises below ~21 BEM cannot produce
+    ///           a monotone ladder AT ALL, so the floor is no longer a formality
+    ///           that only testnet dust could hit — it is close enough to the
+    ///           cliff that `testFuzz_tierPriceAt_strictlyMonotone` is now a
+    ///           load-bearing test rather than a sanity check, and lowering this
+    ///           value is a change to ladder correctness rather than to policy.
+    ///           Do not treat 100 as round-number caution.
+    ///
+    ///         `p0` scales linearly with the cap, so raising the floor only ever
+    ///         widens the margin. Pinned by
     ///         `test_setDefaultSoftCap_rejectsBelowFloor` and
     ///         `testFuzz_tierPriceAt_strictlyMonotone`; derived in
-    ///         `docs/SECURITY_AUDIT.md` §5.11.
-    uint256 public constant MIN_SOFT_CAP_PROD = 0.035 ether;
+    ///         `docs/SECURITY_AUDIT.md` §5.11 and docs/BEM_QUOTE_ASSET.md §2.1.
+    uint256 public constant MIN_SOFT_CAP_PROD = 100e8;
 
     // ─── Immutables ───────────────────────────────────────────────────────────
 
@@ -167,6 +202,24 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Platform buyback reservoir; receives every launch fee.
     address payable public immutable ladderTreasury;
+
+    /// @notice The ERC20 launch fees and genesis deposits are paid in, and
+    ///         `currency0` of every project pool.
+    ///
+    /// @dev    Same value the hook implementation holds, from the same
+    ///         constructor argument — see the note in the constructor for why
+    ///         the two cannot disagree and no cross-check is warranted.
+    ///
+    ///         Held here as well as on the hook because this contract is the
+    ///         one that pulls: `createLaunch` collects `launchFee` and
+    ///         `deposit` collects the depositor's stake, both by
+    ///         `transferFrom`, and both need the token without an extra hop.
+    ///
+    ///         ALSO THE FLOOR EVERY PROJECT TOKEN ADDRESS MUST CLEAR.
+    ///         `currency0` is the lower of the two addresses, so keeping the
+    ///         quote asset on that side means every token must sort above it.
+    ///         `createLaunch` enforces that against this value.
+    IERC20 public immutable quoteAsset;
 
     bytes32 public immutable HOOK_CREATION_CODEHASH;
 
@@ -247,10 +300,18 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         without a cool-off) without that coupling.
     uint256 public quotaWindowDuration = 24 hours;
 
-    /// @notice BNB charged on `createLaunch`. Default: 0.35 BNB (v5.0).
-    uint256 public launchFee = 0.35 ether;
+    /// @notice Quote asset charged on `createLaunch`. Default: 9.28 BEM.
+    ///
+    /// @dev    Converted from 0.35 BNB at 26.5 BEM/BNB, the rate the whole dial
+    ///         set was rebased on. THAT RATE IS A SNAPSHOT AND THIS FIGURE DOES
+    ///         NOT TRACK IT: BEM is now the unit of account, so a move in BEM/BNB
+    ///         re-prices the fee in BNB terms and nothing here notices. The fee
+    ///         is 9.28 BEM until an owner transaction says otherwise, which is
+    ///         the same property the BNB figure had against USD, one asset
+    ///         further from anything stable.
+    uint256 public launchFee = 9.28e8;
 
-    /// @notice Per-wallet BNB cap. Serves double duty: it ceilings the PoG
+    /// @notice Per-wallet quote-asset cap. Serves double duty: it ceilings the PoG
     ///         `maxAlloc` an oracle attestation may grant, and it is
     ///         snapshotted into every NEW hook as that project's per-wallet
     ///         deposit limit.
@@ -267,16 +328,42 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         reverts `ExceedsGlobalPogLimit`, so the off-chain dial may be
     ///         lowered freely and raised only after this one moves.
     ///
-    ///         Note the two dials are no longer in the same currency as the
-    ///         gas history the oracle reads.  `maxAlloc` is BNB because a
-    ///         deposit is BNB; the gas history it is derived from is ETH,
-    ///         because the chains scanned for it settle in ETH.  The rate
-    ///         between them carries the conversion, and
-    ///         `docs/BSC_MIGRATION.md` §6 is where that split is argued.
-    uint256 public maxPogAllocationLimit = 1.75 ether;
+    ///         THE UNIT GAP BETWEEN THIS DIAL AND ITS INPUT IS NOW TWO HOPS, not
+    ///         one, and it is the weakest link in the PoG chain.  `maxAlloc` is
+    ///         BEM because a deposit is BEM; the gas history it is derived from is
+    ///         ETH, because the chains scanned for it settle in ETH. So the
+    ///         oracle's rate has to carry ETH → BNB → BEM.
+    ///
+    ///         The first hop is two deep, liquid markets. The second is BEM,
+    ///         whose only pool of consequence held 1,959 BEM. A rate derived
+    ///         through it is therefore as stable as that pool is deep, and an
+    ///         allocation signed against a stale one is wrong in BEM terms the
+    ///         moment anyone trades. `docs/BSC_MIGRATION.md` §6 argues the first
+    ///         hop; docs/BEM_QUOTE_ASSET.md §2.7 is where the second is the
+    ///         open problem.
+    uint256 public maxPogAllocationLimit = 46.4e8;
 
-    /// @notice Global default soft-cap baked into every NEW hook, in BNB (v5.0).
-    uint256 public defaultSoftCap = 35 ether;
+    /// @notice Global default soft-cap baked into every NEW hook, in quote-asset
+    ///         base units. Default: 928.4 BEM.
+    ///
+    /// @dev    ⚠ THIS DEFAULT ASKS FOR MORE BEM THAN THE MARKET CAN SUPPLY, and it
+    ///           is left here as the arithmetic conversion of 35 BNB rather than
+    ///           as a defensible target.
+    ///
+    ///           928.4 BEM is 0.48% of BEM's 191,739-token supply and roughly
+    ///           HALF the 1,959 BEM sitting in its only pool of consequence. A
+    ///           round at this cap cannot be filled by depositors buying BEM on
+    ///           the open market; it can only be filled by holders who already
+    ///           have it. The soft cap is not a gate — `launch()` opens on any
+    ///           non-zero raise and `canRefund()` reads only the clock — so the
+    ///           consequence is a progress bar that reads near-empty on a
+    ///           perfectly healthy round, not a failed launch.
+    ///
+    ///           It is a dial, not a constant, and lowering it is a single owner
+    ///           transaction floored at `MIN_SOFT_CAP_PROD` (100 BEM). Do that
+    ///           before the first mainnet launch rather than shipping a default
+    ///           that misrepresents every project using it.
+    uint256 public defaultSoftCap = 928.4e8;
 
     // ─── Eligibility maps ─────────────────────────────────────────────────────
 
@@ -425,8 +512,17 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice The launch still has a live claim on its name.
     error NameStillHeld();
 
-    /// @notice `msg.value` did not cover `launchFee`.
-    error InsufficientLaunchFee();
+    /// @notice The ground token address failed to clear the quote asset.
+    ///
+    /// @dev    UNREACHABLE IF `ToshCloneLib.deployBareCloneAbove` IS CORRECT,
+    ///         which is why it is here. The grind's whole contract is that the
+    ///         address it returns exceeds the floor, and the consequence of a
+    ///         silent failure is a pool whose sides are inverted for this one
+    ///         project — a condition the treasury would reject at listing and
+    ///         nothing would reject before then. Re-asserting the postcondition
+    ///         at the call site costs a comparison and turns an offset bug in the
+    ///         grind from a shipped project into a reverted transaction.
+    error TokenBelowQuoteAsset();
     /// @notice Owner raised `launchFee` above the caller's slippage cap.
     error FeeChanged();
     /// @notice `defaultSoftCap` or `maxPogAllocationLimit` moved between the
@@ -450,27 +546,38 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         address _vault,
         address _pogSigner,
         address _platformTreasury,
-        address _ladderTreasury
+        address _ladderTreasury,
+        address _quoteAsset
     ) Ownable(msg.sender) {
         require(_poolManager != address(0), "zero poolManager");
         require(_vault != address(0), "zero vault");
         require(_pogSigner != address(0), "zero pogSigner");
         require(_platformTreasury != address(0), "zero platformTreasury");
         require(_ladderTreasury != address(0), "zero ladderTreasury");
+        require(_quoteAsset != address(0), "zero quoteAsset");
 
         poolManager = _poolManager;
         vault = _vault;
         pogSigner = _pogSigner;
         platformTreasury = _platformTreasury;
         ladderTreasury = payable(_ladderTreasury);
+        quoteAsset = IERC20(_quoteAsset);
 
         HOOK_CREATION_CODEHASH = HookDeployLib.creationCodeHash();
 
         // Deploying the implementation here is what lets it hold `factory` as an
         // ordinary immutable: the library call is a DELEGATECALL, so
         // `address(this)` inside it is this factory, mid-construction.
-        hookImplementation =
-            HookDeployLib.deployImplementation(_poolManager, _vault, _ladderTreasury, _platformTreasury);
+        //
+        // It is also why `quoteAsset` gets no cross-check against the
+        // implementation's copy. Both are written from `_quoteAsset` inside this
+        // one construction, so there is no deploy ordering in which they name
+        // different tokens — the same structural argument `hookImplementation`
+        // makes about itself. The decimals assertion lives in the hook's
+        // constructor, so it is paid once, here, rather than per caller.
+        hookImplementation = HookDeployLib.deployImplementation(
+            _poolManager, _vault, _ladderTreasury, _platformTreasury, _quoteAsset
+        );
         tokenImplementation = address(new ToshToken(address(this)));
     }
 
@@ -856,13 +963,26 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 expectedSoftCap,
         uint256 expectedWalletCap,
         uint256 genesisDuration
-    ) external payable whenNotPaused nonReentrant returns (address token, address hook) {
+    ) external whenNotPaused nonReentrant returns (address token, address hook) {
         require(projectTreasury != address(0), "zero treasury");
         if (projectAdmin == address(0)) revert InvalidAdmin();
 
         uint256 fee = launchFee;
         if (fee > expectedFee) revert FeeChanged();
-        if (msg.value < fee) revert InsufficientLaunchFee();
+        // NO `msg.value < fee` PRE-CHECK ANY MORE, and nothing replaces it.
+        //
+        // That check existed because native value arrives before the callee runs:
+        // the fee was already in hand, so the only question was whether it was
+        // enough, and a shortfall had to be named locally. A pull is the reverse
+        // — nothing has moved yet — so the equivalent check would be a
+        // `balanceOf`/`allowance` read whose only outcome is the revert that the
+        // transfer itself already produces, from the token, with the two figures
+        // in it.
+        //
+        // `InsufficientLaunchFee` is therefore no longer reachable and is gone.
+        // Callers seeing an approval-shaped revert instead should read
+        // `launchFee()` and approve at least that much; the frontend does this
+        // before offering the button.
 
         // ── Squat / front-run defence ─────────────────────────────────────────
         if (bytes(name).length == 0 || bytes(symbol).length == 0) revert EmptyName();
@@ -913,7 +1033,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         );
         if (hook == address(0)) revert DeployFailed();
 
-        token = ToshCloneLib.deployBareClone(tokenImplementation);
+        // Ground so the token sorts ABOVE the quote asset, which is what keeps
+        // the quote side as `currency0` in this project's pool. `nameKey` seeds
+        // the grind because it is already unique per factory, and because it
+        // makes the resulting address predictable from the name alone. See
+        // `ToshCloneLib.deployBareCloneAbove`.
+        (token,) = ToshCloneLib.deployBareCloneAbove(tokenImplementation, address(quoteAsset), nameKey);
+        if (token <= address(quoteAsset)) revert TokenBelowQuoteAsset();
         ToshToken(token).initialize(hook, name, symbol);
         ToshLaunchpadHook(payable(hook)).initializeToken(token, projectAdmin);
 
@@ -927,13 +1053,24 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
         emit LaunchCreated(launchId, token, hook, msg.sender, name, symbol);
 
-        // ── Route the fee to the buyback reservoir, refund any overpayment ────
+        // ── Pull the fee straight through to the buyback reservoir ────────────
+        //
+        // One hop, creator to treasury, with this contract as neither source nor
+        // destination. Pulling to itself and forwarding would be two transfers
+        // for the same movement and would leave the fee briefly custodied here,
+        // where a failure in the second leg would strand it.
+        //
+        // THE OVERPAYMENT REFUND IS GONE, and it is not an omission. It existed
+        // because `msg.value` is whatever the caller sent — a fee that dropped
+        // between quote and execution left change that had to go back, and a
+        // caller could overpay by accident with no way to take it back. A pull
+        // moves exactly `fee`; there is no such thing as overpaying one. An
+        // allowance above the fee is not an overpayment either, only unused
+        // headroom, and it stays with the creator.
         if (fee > 0) {
-            _sendNative(ladderTreasury, fee);
+            SafeERC20.safeTransferFrom(quoteAsset, msg.sender, ladderTreasury, fee);
             emit LaunchFeeForwarded(fee);
         }
-        uint256 change = msg.value - fee;
-        if (change > 0) _sendNative(msg.sender, change);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -961,8 +1098,14 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///                  — and the caller cannot choose which.  See
     ///                  `_recordProjectReferral` for the extra gate the project
     ///                  slot applies.
-    function deposit(address hook, address referrer) external payable nonReentrant {
-        uint256 amount = msg.value;
+    /// @param  amount   Quote-asset units to deposit. AN EXPLICIT ARGUMENT NOW,
+    ///                  where it used to be `msg.value`, and the difference is
+    ///                  worth one line of caution: the caller states the figure
+    ///                  and the allowance merely has to cover it, so an approval
+    ///                  granted once for a large round can be drawn on by a later
+    ///                  call for a different amount. Approve what you intend to
+    ///                  deposit, not what you intend to deposit eventually.
+    function deposit(address hook, address referrer, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (!registeredHooks[hook]) revert HookNotRegistered();
         if (block.timestamp < blacklistedUntil[msg.sender]) revert IsBlacklisted();
@@ -992,7 +1135,17 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         quotaSpent[msg.sender] = alreadyIn + amount;
         totalGenesisDeposited[msg.sender] += amount;
 
-        ToshLaunchpadHook(payable(hook)).deposit{value: amount}(msg.sender, boundProject, boundLifetime);
+        // Straight to the hook, not through this contract. Each project's
+        // deposits live in its own hook — that isolation is why the protocol
+        // deploys a clone per launch rather than one shared hook — and a pull
+        // into the factory followed by a push out would put every open round's
+        // genesis money in one place for the length of a transaction.
+        //
+        // The transfer precedes the call, so the hook re-derives the arrival from
+        // its own balance rather than taking `amount` on our word. See its
+        // `deposit`.
+        SafeERC20.safeTransferFrom(quoteAsset, msg.sender, hook, amount);
+        ToshLaunchpadHook(payable(hook)).deposit(msg.sender, boundProject, boundLifetime, amount);
 
         emit GenesisDeposit(msg.sender, hook, amount, boundProject, boundLifetime);
     }
