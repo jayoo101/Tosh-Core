@@ -1,16 +1,16 @@
 {
-  "lastBlock": 132186032,
+  "lastBlock": 132186554,
   "hooks": [
     "0x56cfa921cf6ff62a4b6b2fa5fb05169254f8a2e3",
     "0x6d238c34f6d4fbe4678b4dad64794ee30751c0b2"
   ],
   "armedSince": null,
   "lastPiggybackBlock": null,
-  "lastRun": "2026-09-20T18:57:19.547Z",
+  "lastRun": "2026-09-20T19:01:14.184Z",
   "chainId": 97,
   "factory": "0x38067b1b38a09f3d472258cae80de3f0b157c9b1",
   "treasury": "0x4e37752ecf007c8bc6a1f56ad0a2e4437d62f9b9",
   "treasuryBalanceOf": "0x4e37752ecf007c8bc6a1f56ad0a2e4437d62f9b9",
-  "lastRunEvent": "schedule",
+  "lastRunEvent": "repository_dispatch",
   "treasuryBalance": "0"
 }
