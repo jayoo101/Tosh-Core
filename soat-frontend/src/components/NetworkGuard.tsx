@@ -1,12 +1,13 @@
 'use client'
 
-import { useAccount, useChainId, useSwitchChain } from 'wagmi'
+import { useAccount, useSwitchChain } from 'wagmi'
 import {
   TARGET_CHAIN_ID,
   MAINNET_CHAIN_LABEL,
   ACTIVE_CHAIN_LABEL,
   IS_TESTNET,
 } from '@/lib/contracts'
+import { useWalletChainId } from '@/lib/useWalletChainId'
 import { toshToast, useIsHydrated } from '@/components/ui'
 
 /** Wrong-network strip — wallet connected but not on the settlement chain. */
@@ -19,7 +20,7 @@ export function NetworkGuard() {
   const hydrated = useIsHydrated()
 
   const { isConnected } = useAccount()
-  const chainId         = useChainId()
+  const chainId         = useWalletChainId()
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain()
 
   if (!hydrated || !isConnected || chainId === TARGET_CHAIN_ID) return null

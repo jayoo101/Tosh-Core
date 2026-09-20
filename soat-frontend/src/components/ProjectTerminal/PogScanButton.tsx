@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback } from 'react'
-import { useChainId, usePublicClient, useSignMessage } from 'wagmi'
+import { usePublicClient, useSignMessage } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
@@ -20,6 +20,7 @@ import { fmt, fmtQuote } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
 import { runUnsignedPogScan } from './pogScanClient'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { useWalletChainId } from '@/lib/useWalletChainId'
 
 type Phase = 'idle' | 'scanning' | 'signing'
 
@@ -30,7 +31,7 @@ export function PogScanButton({
   hookAddress: Address | undefined
   refetch:     () => void
 }) {
-  const chainId = useChainId()
+  const chainId = useWalletChainId()
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
   const [phase, setPhase] = useState<Phase>('idle')
@@ -44,7 +45,7 @@ export function PogScanButton({
     if (!userAddress) { toshToast.error('Connect a wallet first'); return }
     if (!hookAddress) { toshToast.error('No hook bound to this project'); return }
     if (!isSupportedPogChain(chainId)) {
-      toshToast.error(`Unsupported chain (got ${chainId})`)
+      toshToast.error(`Unsupported chain (got ${chainId ?? 'none'})`)
       return
     }
 

@@ -200,6 +200,16 @@ jobs:
       - name: Calls to payable functions send a value
         run: npm run guard:payable
 
+      # `useChainId()` answers with the CONFIG's chain and wagmi refuses to move
+      # that value onto a chain the config does not list, so every
+      # `chainId !== TARGET_CHAIN_ID` built on it read 97 !== 97 and passed. A
+      # wallet parked on 4663 — this build's previous target — got no
+      # wrong-network strip, a live Deploy button, and `ChainMismatchError`
+      # thrown by viem after the click. The gate meant to catch it was comparing
+      # the config against itself.
+      - name: Wrong-network checks read the wallet, not the config
+        run: npm run guard:walletchain
+
       # The guards above are static checks on source text; these exercise the
       # code. Both are needed: a guard cannot tell whether a rate-limit bucket
       # is actually keyed on the entry it reads, and a test cannot see a

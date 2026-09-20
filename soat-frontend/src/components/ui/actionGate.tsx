@@ -40,8 +40,9 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { useAccount, useChainId, useConnect, useSwitchChain } from 'wagmi'
+import { useAccount, useConnect, useSwitchChain } from 'wagmi'
 import { TARGET_CHAIN_ID, ACTIVE_CHAIN_LABEL } from '@/lib/contracts'
+import { useWalletChainId } from '@/lib/useWalletChainId'
 import { useIsHydrated } from './useClock'
 import { toshToast } from './toast'
 import type { Tone } from './Badge'
@@ -248,7 +249,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
 
   const hydrated = useIsHydrated()
   const { isConnected } = useAccount()
-  const chainId = useChainId()
+  const chainId = useWalletChainId()
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain()
   const ambient = useAmbientGate()
@@ -297,7 +298,9 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
       return {
         kind: 'switch',
         label: isSwitching ? 'Switching…' : `Switch to ${ACTIVE_CHAIN_LABEL}`,
-        reason: `This wallet is on chain ${chainId}. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from here.`,
+        reason: chainId === undefined
+          ? `This wallet has not reported a chain. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from anywhere else.`
+          : `This wallet is on chain ${chainId}. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from here.`,
         tone: 'warn',
         disabled: isSwitching,
         act: () => {

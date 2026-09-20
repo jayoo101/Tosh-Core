@@ -31,8 +31,9 @@
     "guard:lpactions": "node scripts/runTsGuard.mjs scripts/checkLpActions.ts",
     "guard:constants": "node scripts/runTsGuard.mjs scripts/checkContractConstants.ts",
     "guard:payable": "node scripts/runTsGuard.mjs scripts/checkPayableCalls.ts",
+    "guard:walletchain": "node scripts/runTsGuard.mjs scripts/checkWalletChain.ts",
     "check:quote": "node scripts/checkQuoteAsset.mjs",
-    "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:chainaddr && npm run guard:rpc && npm run guard:supabase && npm run guard:clmath && npm run guard:lpactions && npm run guard:constants && npm run guard:payable",
+    "guards": "npm run guard:envshadow && npm run guard:chain && npm run guard:env && npm run guard:chainaddr && npm run guard:rpc && npm run guard:supabase && npm run guard:clmath && npm run guard:lpactions && npm run guard:constants && npm run guard:payable && npm run guard:walletchain",
     "verify": "node scripts/checkTokens.mjs --strict && tsc --noEmit && eslint && npm run guards && npm test && next build"
   },
   "dependencies": {

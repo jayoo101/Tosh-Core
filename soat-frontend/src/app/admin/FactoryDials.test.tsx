@@ -88,8 +88,11 @@ vi.mock('wagmi', () => ({
   useWaitForTransactionReceipt: () => ({
     data: undefined, isLoading: false, isSuccess: false, error: null,
   }),
-  useAccount: () => ({ isConnected: true }),
-  useChainId: () => 97,
+  // `chainId` here, not on `useChainId`: the wrong-network gate reads the
+  // connection, because the config's chain cannot report a chain the config
+  // does not list. A mock without it is a wallet on no chain, which the gate
+  // correctly refuses.
+  useAccount: () => ({ isConnected: true, chainId: 97 }),
   useConnect: () => ({ connectAsync: vi.fn(), connectors: [{}], isPending: false }),
   useSwitchChain: () => ({ switchChainAsync: vi.fn(), isPending: false }),
 }))

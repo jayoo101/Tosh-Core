@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useAccount, useChainId, usePublicClient, useSignMessage } from 'wagmi'
+import { useAccount, usePublicClient, useSignMessage } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
@@ -23,6 +23,7 @@ import {
 } from '@/lib/contracts'
 import { useTxAction, toshToast } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { useWalletChainId } from '@/lib/useWalletChainId'
 import { fmtQuote } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
 import {
@@ -65,7 +66,7 @@ function markDialogDismissed(address: string): void {
 
 export function usePogFlow() {
   const { address: userAddress } = useAccount()
-  const chainId = useChainId()
+  const chainId = useWalletChainId()
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
 
@@ -109,7 +110,7 @@ export function usePogFlow() {
         address: key,
         phase: 'failed',
         scan: null,
-        error: `Unsupported chain (got ${chainId})`,
+        error: `Unsupported chain (got ${chainId ?? 'none'})`,
       })
       return
     }
@@ -170,7 +171,7 @@ export function usePogFlow() {
   const registerQuota = useCallback(async () => {
     if (!userAddress) { toshToast.error('Connect a wallet first'); return }
     if (!isSupportedPogChain(chainId)) {
-      toshToast.error(`Unsupported chain (got ${chainId})`)
+      toshToast.error(`Unsupported chain (got ${chainId ?? 'none'})`)
       return
     }
     if (!scan?.eligible) {

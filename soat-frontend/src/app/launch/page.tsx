@@ -48,7 +48,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode } fro
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  useAccount, useBalance, useChainId, useSwitchChain,
+  useAccount, useBalance, useSwitchChain,
   useReadContracts, usePublicClient, useEstimateFeesPerGas,
   useSignMessage,
 } from 'wagmi'
@@ -84,6 +84,7 @@ import {
   LAUNCH_WINDOW_SECONDS,
 } from '@/lib/contracts'
 import { NATIVE_SYMBOL } from '@/lib/chain'
+import { useWalletChainId } from '@/lib/useWalletChainId'
 import type { ProjectPayload } from '../api/projects/route'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
@@ -265,7 +266,7 @@ function SectionNote({ children }: { children: ReactNode }) {
 
 export default function GenesisConsole() {
   const { address, isConnected } = useAccount()
-  const chainId = useChainId()
+  const chainId = useWalletChainId()
   const { switchChainAsync } = useSwitchChain()
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()

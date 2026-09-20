@@ -105,8 +105,15 @@ const SUPPORTED_POG_CHAIN_IDS: readonly number[] =
     ? [TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID]
     : [TARGET_CHAIN_ID]
 
-export function isSupportedPogChain(chainId: number): boolean {
-  return SUPPORTED_POG_CHAIN_IDS.includes(chainId)
+/**
+ * Takes `number | undefined` and narrows, because the callers now read the
+ * wallet's chain rather than the config's and a disconnected wallet reports
+ * none. "No chain" is not supported, which is the same answer as "the wrong
+ * chain" and wants the same branch — forcing a `?? 0` at each call site would
+ * only have invented a chain id to reject.
+ */
+export function isSupportedPogChain(chainId: number | undefined): chainId is number {
+  return chainId !== undefined && SUPPORTED_POG_CHAIN_IDS.includes(chainId)
 }
 
 /** For error messages that need to name what IS accepted. */

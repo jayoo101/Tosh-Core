@@ -54,7 +54,6 @@ const signMessageAsync = vi.fn(async () => '0xsig' as `0x${string}`)
 let readContract = vi.fn(async () => SIGNER as string)
 
 vi.mock('wagmi', () => ({
-  useChainId: () => 97,
   usePublicClient: () => ({ readContract: (...a: unknown[]) => readContract(...(a as [])) }),
   useSignMessage: () => ({ signMessageAsync }),
   useWriteContract: () => ({
@@ -64,7 +63,11 @@ vi.mock('wagmi', () => ({
   useWaitForTransactionReceipt: () => ({
     data: undefined, isLoading: false, isSuccess: false, error: null,
   }),
-  useAccount: () => ({ isConnected: true }),
+  // `chainId` here, not on `useChainId`: both the wrong-network gate and this
+  // button's own `isSupportedPogChain` check read the connection, because the
+  // config's chain cannot report a chain the config does not list. A mock
+  // without it is a wallet on no chain, which both correctly refuse.
+  useAccount: () => ({ isConnected: true, chainId: 97 }),
   useConnect: () => ({ connectAsync: vi.fn(), connectors: [{}], isPending: false }),
   useSwitchChain: () => ({ switchChainAsync: vi.fn(), isPending: false }),
 }))
