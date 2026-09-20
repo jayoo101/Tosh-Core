@@ -196,6 +196,64 @@ const GAS_CONTEXT_LINES = 1
 const QUOTE_TICKERS = /\b[mt]?BEM\b/
 const QUOTE_SOURCE = 'src/lib/contracts.ts'
 
+/**
+ * RULE 5: the launch fee is the one figure NOT denominated in the quote asset,
+ * so copy that names it must not reach for `QUOTE_SYMBOL`.
+ *
+ * ⚠ THIS IS A DIFFERENT SHAPE FROM RULES 1-4 AND THAT IS THE WHOLE POINT. Those
+ *   catch a hard-coded literal where a derived constant belongs. This catches
+ *   the RIGHT KIND of constant with the WRONG ONE of two chosen — which rule 3
+ *   cannot see by construction, because `GAS_DENOMINATED_SOURCE` grants any line
+ *   mentioning a currency constant an exception for being "currency-aware".
+ *   Interpolating `QUOTE_SYMBOL` is maximally currency-aware and still wrong.
+ *
+ * It shipped. `TrustPipeline` step 02 read "Pay the launch fee in ${QUOTE_SYMBOL}"
+ * on the landing page, directly above step 03's correct "Deposits run in
+ * ${QUOTE_SYMBOL}" — so the first sentence a creator read told them to fund the
+ * wrong coin, and the adjacency is why one symbol got pasted over both.
+ *
+ * The fee's denomination has now moved three times — native, then BEM, then back
+ * to native — and each move leaves prose behind. Everything else on every screen
+ * (deposits, refunds, shelf buys, the buyback reservoir) is the quote asset;
+ * `launchFee` alone is `msg.value` at 18 decimals, settling at
+ * `platformTreasury`, which cannot even receive the quote asset.
+ *
+ * A source-window test rather than a literal test, for the reason rule 3 gives:
+ * a template literal reaches the AST already torn into chunks, so the sentence
+ * and the interpolation it is wrong about are never the same node. The window is
+ * the same width as the gas exception's.
+ *
+ * Tests are out of scope, as in rules 2-4: they quote copy on purpose. Comments
+ * are NOT excluded here, unlike the literal scan — `shared.tsx` listed the
+ * launch fee among `fmtQuote`'s callers long after the fee left the quote asset,
+ * and a stale comment that routes the next reader to the 8-decimal parser is the
+ * failure this rule is named after. A comment that discusses the mistake has to
+ * say so; the phrasing below does.
+ */
+const FEE_COPY = /launch fee/i
+const FEE_WRONG_SYMBOL = /QUOTE_SYMBOL|QUOTE_DECIMALS|fmtQuote|parseEthInput/
+/**
+ * What earns the exception: naming the native side through the constant or
+ * helper that derives it.
+ *
+ * ⚠ IDENTIFIERS, NOT PHRASING, and the first draft of this rule got that wrong
+ *   in a way worth recording. It also accepted prose — "not the quote asset",
+ *   "native" — and then flagged a corrected sentence that said "the chain's own
+ *   coin rather than {QUOTE_SYMBOL}", which is about as currency-aware as copy
+ *   can get. Matching English gives a rule two ways to be wrong at once: it
+ *   misses the phrasings nobody predicted and fires on the ones that are fine.
+ *
+ *   Rule 3 already settled this for tickers — its exception is keyed on the
+ *   identifiers that hold gas, "because the copy does not always say 'gas' where
+ *   it shows one" and "identifiers are also the harder thing to fake". Same
+ *   reasoning, same conclusion: the exemption is a claim the source makes
+ *   mechanically, so satisfying it means naming `NATIVE_SYMBOL` rather than
+ *   describing it. That is better copy regardless — the admin reads `tBNB`
+ *   instead of a periphrasis for it.
+ */
+const FEE_COPY_AWARE = /NATIVE_SYMBOL|fmtNative|parseNativeInput|nativeDisplay|formatEstimateEth|msg\.value/
+const FEE_CONTEXT_LINES = 1
+
 /** Cheap text-level reject, so only candidate files pay for a parse.
  *
  *  Named for what it does rather than for rule 1. It was `mightNameAChain`,
@@ -304,6 +362,58 @@ function scanLiterals(mainnetLabel) {
   )
 }
 
+/**
+ * Rule 5's pass. Separate from `scanLiterals` because that one is gated on
+ * `mightCarryGuardedCopy`, which looks for tickers — and the bug this catches
+ * hard-codes no ticker at all. Reusing that gate would have skipped the very
+ * file the rule was written for.
+ */
+function scanFeeDenomination() {
+  const files = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (/\.tsx?$/.test(entry)) files.push(p)
+    }
+  }
+  walk('src')
+
+  let hits = 0
+  for (const file of files) {
+    const rel = file.split('\\').join('/')
+    if (/\.test\.tsx?$/.test(rel)) continue
+
+    const text = readFileSync(file, 'utf8')
+    if (!FEE_COPY.test(text)) continue
+
+    const lines = text.split('\n')
+    for (let n = 0; n < lines.length; n++) {
+      if (!FEE_COPY.test(lines[n])) continue
+      const window = lines
+        .slice(Math.max(0, n - FEE_CONTEXT_LINES), n + FEE_CONTEXT_LINES + 1)
+        .join('\n')
+      if (!FEE_WRONG_SYMBOL.test(window)) continue
+      if (FEE_COPY_AWARE.test(window)) continue
+      hits++
+      console.log(
+        `FAIL  ${rel}:${n + 1} — names the launch fee beside the quote asset's symbol,`
+        + ` scale or formatter. The fee is the one figure that is NOT the quote asset:`
+        + ` it is native, 18 decimals, arrives as msg.value and settles at`
+        + ` platformTreasury. Use NATIVE_SYMBOL / fmtNative / parseNativeInput:`
+        + ` ${JSON.stringify(lines[n].trim().slice(0, 90))}`,
+      )
+    }
+  }
+
+  failures += hits
+  console.log(
+    hits === 0
+      ? `\n${files.length} source files scanned — no launch-fee copy reaches for the quote asset.`
+      : `\n${hits} launch-fee denomination mismatch(es) — see FAIL lines above.`,
+  )
+}
+
 let mainnetLabel = ''
 
 try {
@@ -405,6 +515,10 @@ if (!mainnetLabel) {
 } else {
   scanLiterals(mainnetLabel)
 }
+
+// Independent of `mainnetLabel`: rule 5 reads no chain label, so it runs even
+// when the probe above could not.
+scanFeeDenomination()
 
 console.log(
   failures === 0

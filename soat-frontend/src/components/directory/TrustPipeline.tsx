@@ -1,6 +1,7 @@
 import { BarChart3, Fuel, Lock, Rocket, Timer, type LucideIcon } from 'lucide-react'
 
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 /**
  * The five-step explainer under the directory.
@@ -67,7 +68,16 @@ const STEPS = [
     tag: 'Launch',
     title: 'Anyone can open one',
     description:
-      `Pay the launch fee in ${QUOTE_SYMBOL} and the token deploys together with its own PancakeSwap Infinity pool. No pre-mine, no team allocation, no supply held back for insiders.`,
+      // ⚠ THE FEE IS THE ONE AMOUNT ON THIS PAGE THAT IS NOT THE QUOTE ASSET,
+      //   and this sentence said `${QUOTE_SYMBOL}` — so the first thing a
+      //   creator read told them to fund the wrong coin. Deposits, refunds and
+      //   shelf buys are all the quote asset; the launch fee is native, settles
+      //   at `platformTreasury` rather than the buyback reservoir, and arrives
+      //   as `msg.value`. Step 03 below is the QUOTE_SYMBOL one and stays that
+      //   way: the two are adjacent on screen, which is exactly why one symbol
+      //   got pasted over both. Rule 5 in `checkChainCopy.mjs` now fails the
+      //   build on it.
+      `Pay the launch fee in ${NATIVE_SYMBOL} and the token deploys together with its own PancakeSwap Infinity pool. No pre-mine, no team allocation, no supply held back for insiders.`,
   },
   {
     step: '03',
@@ -88,7 +98,14 @@ const STEPS = [
     tag: 'Hardened',
     title: 'The contract enforces it, not this page',
     description:
-      'Deposit accounting, the raise-target dial and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
+      // ⚠ "THE RAISE-TARGET DIAL" WAS STILL HERE, and there is no raise target
+      //   to dial. It was the soft cap, which `launch()` does not read and which
+      //   no longer appears anywhere in the UI. Naming it in the step that says
+      //   "the contract enforces it" was the worst place for it to survive: it
+      //   claimed on-chain authority for a number nothing on chain consults.
+      //   What does gate a deposit is the per-wallet cap the PoG signature sets,
+      //   which is the real dial and is genuinely enforced.
+      'Deposit accounting, the per-wallet deposit ceiling and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
   },
 ] as const
 

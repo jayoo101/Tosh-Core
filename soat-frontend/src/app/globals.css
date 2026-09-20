@@ -155,7 +155,7 @@
    *    `success` stays green now that brand does not. It is the only token in
    *    this block that was previously in danger of being read as the CTA, and
    *    the ambiguity is gone by hue - see the header. ---------------------- */
-  --tosh-success: #00C37B;  /* soft cap met, pool open, tx acknowledged */
+  --tosh-success: #00C37B;  /* pool open, genesis window ticking, tx acknowledged */
   --tosh-warning: #EBAA2D;  /* cooldown, price gate, deadline approaching */
   --tosh-danger:  #ED3151;  /* revert, halt, refund, blacklist */
   --tosh-info:    #42A3FD;  /* phase-2 ladder, neutral explanation */

@@ -329,12 +329,19 @@ export function trimEthDisplay(units: string): string {
 }
 
 /**
- * Every caller formats a SETTLEMENT figure — the launch fee, the default soft
- * cap, the PoG allocation ceiling, the treasury balance and its next spend —
- * so the suffix and the scale both follow the quote asset. Nothing here formats a
+ * Every caller formats a SETTLEMENT figure — the default soft cap, the PoG
+ * allocation ceiling, the treasury balance and its next spend — so the suffix
+ * and the scale both follow the quote asset. Nothing here formats a
  * Proof-of-Gas floor or a lifetime-gas total; those stay ETH-denominated and are
  * printed by `Monitors.tsx`, which spells the unit out per row for exactly that
  * reason.
+ *
+ * ⚠ THE LAUNCH FEE WAS ON THAT LIST AND IS NOT A SETTLEMENT FIGURE. It went
+ *   back to the chain's own coin at 18 decimals; `fmtNative` prints it and
+ *   `parseNativeInput` reads it, which is what `FactoryDials` actually calls.
+ *   The list below says it is load-bearing, and it was: naming the fee here
+ *   pointed the next reader at the 8-decimal pair, and that direction is the
+ *   silent one — a typed `0.005` parses to 500000 wei and sets successfully.
  *
  * RENAMED FROM `fmtEth`, and the rename is the point rather than tidying. The old
  * name was accurate while settlement was native, and it went on compiling after
