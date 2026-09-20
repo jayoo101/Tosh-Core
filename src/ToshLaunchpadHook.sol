@@ -1147,12 +1147,27 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         amount actually raised. See the note in `launch()` for the
     ///         measured window and why it had no guard before.
     ///
-    ///         A creator hitting this has three options: raise more, or let the
-    ///         launch window lapse so `refund()` returns every depositor's stake
-    ///         in full, whichever suits. There is no way to open the pool on a
-    ///         raise this small, deliberately — a flat ladder is worse for the
-    ///         depositors than no pool, because it lets a buyer clear high
-    ///         shelves at the base price against tokens they are holding.
+    ///         A CREATOR WHO HITS THIS HAS EXACTLY ONE OUTCOME AVAILABLE, and
+    ///         saying so is the point of this paragraph: it used to offer
+    ///         "raise more" as an alternative, which the code forbids. The two
+    ///         windows are disjoint by construction — `deposit` refuses at
+    ///         `block.timestamp >= genesisDeadline` and `launch` refuses below
+    ///         it — so the first moment this error can be reached is already
+    ///         past the last moment a deposit could have arrived. There is no
+    ///         top-up, and no abort, cancel or early-refund path either.
+    ///
+    ///         So the launch window lapses unused, and seven days after
+    ///         `genesisDeadline` every depositor may `refund()` their stake in
+    ///         full. Referrers are owed nothing: the 10 % carve is realised at
+    ///         `launch()` and nowhere else, so on a failed genesis
+    ///         `referralAccrued` is simply never claimable. The wait is
+    ///         unavoidable even though the outcome is settled the moment
+    ///         deposits close.
+    ///
+    ///         Failing here is deliberate rather than a missing feature. A flat
+    ///         ladder is worse for the depositors than no pool, because it lets
+    ///         a buyer clear high shelves at the base price against tokens they
+    ///         are holding.
     error RaiseTooSmallForLadder();
 
     /// @notice The shelf sweep came to more than the caller's `maxCost`.
