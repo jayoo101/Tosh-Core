@@ -10,14 +10,14 @@ How to build, test, deploy and operate this repository. For what the protocol
 |---|---|
 | Network | BNB Smart Chain — chain `56` (mainnet, **not yet deployed**) / chain `97` (testnet, live) |
 | AMM | PancakeSwap Infinity CL (`Vault` + `CLPoolManager`) |
-| Factory (97) | [`0x38067B1B38a09F3D472258caE80dE3f0B157C9B1`](https://testnet.bscscan.com/address/0x38067B1B38a09F3D472258caE80dE3f0B157C9B1) |
-| Treasury (97) | [`0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9`](https://testnet.bscscan.com/address/0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9) |
+| Factory (97) | [`0x51Bb18FE739e21A07d5F092b37504988Ae81C546`](https://testnet.bscscan.com/address/0x51Bb18FE739e21A07d5F092b37504988Ae81C546) |
+| Treasury (97) | [`0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC`](https://testnet.bscscan.com/address/0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC) |
 | Quote asset (97) | [`0x76bD1ceC663AE3242e5267e232B821C51a4882EB`](https://testnet.bscscan.com/address/0x76bD1ceC663AE3242e5267e232B821C51a4882EB) — `MockQuoteAsset`, 8 decimals, symbol `mBEM`. Real BEM has **no deployment on 97**, so the rehearsal cannot use it; see `SECURITY.md` for what a mock does and does not prove |
 | Governance (97) | a **single EOA** — `0x35b232E2…874a`, the deployer. Not a multi-sig, and the PoG signer is separate (`0x7138DEb9…e03A`). See `SECURITY.md` |
 | Governance (56) | 2-of-3 Safe [`0x02DE4629129D104C63329D13A6Ca67E43db7B310`](https://bscscan.com/address/0x02DE4629129D104C63329D13A6Ca67E43db7B310), `Ownable2Step` on both singletons — **owns nothing yet**, the deploy transfers to it |
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
-| Verification | Etherscan v2 via `.github/workflows/verify.yml`. `ToshLadderTreasury` is verified on `97`; `ToshFactory` is deliberately not — see `SECURITY.md`. Nothing on `56` is verified because nothing on `56` is deployed |
+| Verification | Etherscan v2 via `.github/workflows/verify.yml`. **Neither live `97` contract has published source** — the only verified BSC contract is a retired treasury, `0x79de…7674`, because the key's submission allowance was spent and every redeploy since inherited the refusal; see `SECURITY.md`. Nothing on `56` is verified because nothing on `56` is deployed |
 | Quote asset | **BEM**, an 8-decimal ERC-20 (`0x5ce0…695a` on `56`). BNB pays gas and the launch fee, nothing else |
 | Tests | 392 passing of 396 across 16 suites, including stateful invariants and adversarial probes |
 | Toolchain | Foundry · Next.js + wagmi + viem · Node |

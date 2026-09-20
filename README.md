@@ -1016,15 +1016,16 @@ withdraw path.
 
 ### A.2 BNB Smart Chain testnet `97` — rehearsed end to end
 
-This deployment is BEM-denominated, as `src/` is, and it was redeployed on
-2026-09-19 to make that true. The pair it replaced is in §A.2.1, and the reason it
-had to be replaced rather than kept alongside is worth reading before trusting any
-testnet result.
+This deployment is BEM-denominated, as `src/` is, and it carries **both** refund
+doors. It was redeployed on 2026-09-20 for the second reason: the hook gained
+`ladderViable()`, and an implementation already on chain cannot grow a function.
+The pairs it replaced are in §A.2.1, and the reason each had to be replaced rather
+than kept alongside is worth reading before trusting any testnet result.
 
 | Component | Address |
 |---|---|
-| `ToshFactory` | `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` |
-| `ToshLadderTreasury` | `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9` |
+| `ToshFactory` | `0x51Bb18FE739e21A07d5F092b37504988Ae81C546` |
+| `ToshLadderTreasury` | `0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC` |
 | Quote asset — `MockQuoteAsset`, 8 decimals, `mBEM` | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 | Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
 | Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
@@ -1052,16 +1053,61 @@ The end-to-end run that validated this deployment is checkable:
 
 | Component | Address |
 |---|---|
-| `ToshLaunchpadHook` | `0xa878792e7F361555EeD774D4c10Cedfd2703dB4a` |
-| `ToshToken` | `0xF94c8dAA829BC9480680BA7eFBFBe5BC90F12Ea0` |
+| `ToshLaunchpadHook` | `0x0b959B545Da0Bdb4AedA4Ac61C14F280206F1409` |
+| `ToshToken` | `0xD84aa1C3c3d19B25Dd0aEB2f7fd847c5BB9427bB` |
 
-The token address is the assertion worth making yourself: `0xF94c…` is numerically
+The token address is the assertion worth making yourself: `0xD84a…` is numerically
 above the quote asset's `0x76bD…`, which is not luck. `createLaunch` grinds the
 clone's CREATE2 salt until it lands there, because a token sorting *below* the
 quote asset would silently invert every pool's sides. Reproduce it with
-`node scripts/e2eLaunchFlow.mjs --factory 0x38067B1B38a09F3D472258caE80dE3f0B157C9B1`.
+`node scripts/e2eLaunchFlow.mjs --factory 0x51Bb18FE739e21A07d5F092b37504988Ae81C546`.
 
-#### A.2.1 The previous `97` pair — retired, and unadministrable
+That run also settles the launch fee, which is the part a Solidity test cannot
+reach: `createLaunch` is `payable` and the 0.005 BNB arrives as `msg.value`, so a
+caller that builds the transaction without a `value` field reverts
+`InsufficientLaunchFee` no matter how correct its arguments are. The script
+attaches it the way the app does and the fee landed — 519,395 gas in
+[`0x223c720e…74e3`](https://testnet.bscscan.com/tx/0x223c720e69f0400e5084a3768100961f75f0c2e0de7af9540b8b1d97859874e3).
+`soat-frontend/scripts/checkPayableCalls.ts` is the static half of the same claim.
+
+#### A.2.1 The previous `97` pairs — retired
+
+**Retired 2026-09-20, and the only one here that was retired while working.**
+
+| Component | Address |
+|---|---|
+| `ToshFactory` | `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` |
+| `ToshLadderTreasury` | `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9` |
+| `ToshLaunchpadHook` | `0xa878792e7F361555EeD774D4c10Cedfd2703dB4a` |
+| `ToshToken` | `0xF94c8dAA829BC9480680BA7eFBFBe5BC90F12Ea0` |
+
+Deployed 2026-09-19, BEM-denominated, owned by a key that is held, every `GOV-*`
+playbook executable against it. Nothing on the list that condemns the pairs below
+applies to it. It was replaced for one reason: **`src/` grew a second refund door
+and this factory's hook implementation cannot have it.**
+
+The new door is §4.1's — a raise too small to carry a monotone buyback ladder
+refunds at `genesisDeadline`, rather than making depositors wait out the 7-day
+launch window for a `launch()` that would revert `RaiseTooSmallForLadder` every
+time. It arrives as `ladderViable()`, and `canRefund()` was rewritten to answer
+for both doors at once.
+
+`ladderViable()`'s selector `0xa82cb2f7` **is not in the bytecode** of this
+factory's implementation `0x85d482…7864`; it is in the new one's
+`0xD8b533…28EC`. Checked by selector against `eth_getCode` on both, because
+"the ABI has it" proves only what the repository believes. So this pair's hooks
+answer the new getter with a bare revert, and the app — which now offers that
+refund on the strength of it — would have been promising a withdrawal the chain
+could not perform. **An interface cannot be patched onto a deployed clone**: the
+implementation address is what the EIP-1167 proxy forwards to, and it is fixed at
+the factory's construction. A redeploy was the only available move.
+
+Its one launch is still readable and its genesis is long expired. It is left on
+chain; nothing points at it, having been repointed in the same change as
+`monitoring/alerts.json`, `SECURITY.md`, `docs/DEVELOPMENT.md`,
+`docs/RESEARCH_BRIEF_zh.md` and both dotenvs.
+
+**Retired 2026-09-19 — and unadministrable.**
 
 | Component | Address |
 |---|---|
@@ -1094,11 +1140,13 @@ operator any more than by anyone else. Every `GOV-*` and `SWITCH-*` playbook in
 `monitoring/alerts.json` ends in an owner action, and against this factory all of
 them were unexecutable; an alert whose playbook cannot be run is not a control.
 `quoteAsset` is `immutable` on all three contracts, so neither problem was fixable
-in place — a redeploy was the only available move, and §A.2 is it.
+in place — a redeploy was the only available move, and the 2026-09-19 pair above
+is it.
 
 It is left on chain. Nothing points at it: the monitor's `MONITOR_FACTORY` and
 `MONITOR_TREASURY` variables, `alerts.json`, `SECURITY.md` and
-`docs/RESEARCH_BRIEF_zh.md` were all repointed in the same change.
+`docs/RESEARCH_BRIEF_zh.md` were all repointed away from it on 2026-09-19, and
+again past its successor on 2026-09-20.
 
 ⚠ An earlier factory at `0xe94F79A0c44b124b5987Afe55Add16EF0c80FFb2` is abandoned.
 Its immutable `platformTreasury` is Anvil's account #1, whose private key ships

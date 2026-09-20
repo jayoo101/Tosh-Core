@@ -408,8 +408,8 @@ variables*, not files, so they do not move with a commit and nothing in CI
 notices they are stale.
 
 ```
-MONITOR_FACTORY=<new>                    # currently 0x38067B1B38a09F3D472258caE80dE3f0B157C9B1 (97)
-MONITOR_TREASURY=<new>                   # currently 0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9 (97)
+MONITOR_FACTORY=<new>                    # currently 0x51Bb18FE739e21A07d5F092b37504988Ae81C546 (97)
+MONITOR_TREASURY=<new>                   # currently 0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC (97)
 MONITOR_EXPECTED_OWNER=0x02DE4629129D104C63329D13A6Ca67E43db7B310    # the SAFE, not the deployer
 MONITOR_EXPECTED_POG_SIGNER=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D
 ```
@@ -463,7 +463,7 @@ redeploying.
 
 ⚠ **THIS PARAGRAPH USED TO SAY CHAIN 97 WAS IN THE SECOND STATE. IT IS NOT, AND
   HAS NOT BEEN SINCE THE 97 REBUILD.** The factory now at
-  `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` answers
+  `0x51Bb18FE739e21A07d5F092b37504988Ae81C546` answers
   `quoteAsset()` with `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` and holds one
   launch, so 97 is in the *first* state at worst — an env-var question, not a
   redeploy. The claim survived because the row in step 9 above was updated to the

@@ -115,11 +115,11 @@ deployed anywhere, and with `56` undeployed that is the only kind available.
 
 | Contract | Address |
 |---|---|
-| `ToshFactory` | `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` |
-| `ToshLadderTreasury` | `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9` |
+| `ToshFactory` | `0x51Bb18FE739e21A07d5F092b37504988Ae81C546` |
+| `ToshLadderTreasury` | `0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC` |
 | Quote asset (`MockQuoteAsset`, 8 decimals, `mBEM`) | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 
-Deployed 2026-09-19 from `script/Deploy.s.sol`, and owned by the deployer EOA
+Deployed 2026-09-20 from `script/Deploy.s.sol`, and owned by the deployer EOA
 `0x35b232E2…874a` with the PoG signer held separately at `0x7138DEb9…e03A`.
 
 **This deployment is not kept byte-identical to `HEAD`, deliberately.** Comment
@@ -178,25 +178,28 @@ rotating a key — only by redeploying. **"I can drain / halt / mint on `97`" is
 therefore not a finding**, and neither is anything else that follows from
 holding that key. It is left standing so the addresses above keep resolving.
 
-**Half of BSC is verified, and the missing half is the factory.**
-`ToshLadderTreasury` at `0x79de…7674` has its source published on
+**Nothing in the standing `97` deployment has published source, and the one
+BSC contract that does belongs to a retired pair.** `ToshLadderTreasury` at
+`0x79de…7674` — the 2026-09-17 generation, retired twice over — is published on
 testnet.bscscan.com, compiler `v0.8.26+commit.8a97fa7a`, submitted from
-`.github/workflows/verify.yml`. `ToshFactory` does not, and the reason is
-worth stating because it is not a decision: Etherscan refuses further
+`.github/workflows/verify.yml`. Neither contract of the pair above is, and the
+reason is worth stating because it is not a decision: Etherscan refuses further
 submissions on chain 97 to this key with *"Free API access is not supported
 for this chain"* — after accepting one. It behaves like a spent allowance
 rather than a plan boundary, since reads on the same key and chain never
-stopped working.
+stopped working. Every redeploy since has inherited that refusal, so the
+published contract has drifted a generation behind the live one twice without
+anyone choosing it.
 
 **Leaving it unverified is a decision, not a backlog item.** `97` is a
 rehearsal whose keys are public; buying an API plan to publish source on it
 would be spending money to improve the provenance of a deployment that holds
 nothing. The workflow is idempotent and skips what is already published, so
-whoever wants the factory on BscScan can re-run it any time and it will
-attempt only that one contract. For `56` this stops being optional.
+whoever wants the live pair on BscScan can re-run it any time and it will
+attempt only what is missing. For `56` this stops being optional.
 
 So the provenance chain below — two independent verifications of the 4663
-build — has one BSC counterpart out of two. What covers the gap meanwhile is
+build — has no BSC counterpart at the live addresses. What covers the gap is
 the local anchor, which needs no explorer and no trust: the deploy artefact at
 `broadcast/Deploy.s.sol/97/run-latest.json` plus `HOOK_CREATION_CODEHASH`.
 

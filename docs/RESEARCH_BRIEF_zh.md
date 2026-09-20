@@ -608,14 +608,15 @@ WATCHER-03 检查——状态文件记录的 chainId 与端点实际返回的 ch
 读者可用任意 chain 97 的 RPC 端点自行复核以下每一项。
 
 ```
-工厂            0x38067B1B38a09F3D472258caE80dE3f0B157C9B1
-金库            0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9
+工厂            0x51Bb18FE739e21A07d5F092b37504988Ae81C546
+金库            0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC
+hook 实现        0xD8b533AB5132d362BA5572821cCa48CF4a0c28EC
 计价资产 mBEM    0x76bD1ceC663AE3242e5267e232B821C51a4882EB（8 位小数的 mock）
 Infinity Vault  0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD
 Infinity CLPM   0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4
 
-端到端 hook      0x56cfa921cF6FF62a4B6B2FA5fb05169254f8a2e3（121 字节克隆）
-端到端代币       0x7B361dfD7cb4aFE90B604c76e5fc47E779e1Ba8C
+端到端 hook      0x0b959B545Da0Bdb4AedA4Ac61C14F280206F1409（121 字节克隆）
+端到端代币       0xD84aa1C3c3d19B25Dd0aEB2f7fd847c5BB9427bB
 
 cast call <工厂> "quoteAsset()"             → 计价资产（旧工厂没有这个函数）
 cast call <工厂> "launchFee()"              → 5000000000000000 = 0.005 BNB（18 位）
@@ -640,17 +641,29 @@ BEM 计价的工厂无法在测试网对真实代币演练。`MockQuoteAsset` �
 市场，因此没有浮筹也没有深度。
 
 所以 `97` 能证明的是**管路是对的**：三条资金路径的 `approve` + `transferFrom` 两步流，
-以及 CREATE2 磨盐把项目代币落在计价资产之上（已验证 `0xF94c…` > `0x76bD…`，故计价一侧
+以及 CREATE2 磨盐把项目代币落在计价资产之上（已验证 `0xD84a…` > `0x76bD…`，故计价一侧
 是 `currency0`）。它**不能**证明任何关于供应量和流动性的事，而那正是真实 BEM 的风险所在
 （见 `docs/BEM_QUOTE_ASSET.md` §1.2）。
 
-> **上一个 `97` 部署已弃用，原因不只是它早于 BEM。** 工厂
+> **上一个 `97` 部署（2026-09-20 退役）本身没有毛病。** 工厂
+> `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1`、金库
+> `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9`：它已是 BEM 计价，owner 那把私钥也在
+> 手上，应急手册条条可执行。换掉它只有一个原因 —— `src/` 多了第二道退款门，而已经
+> 上链的实现长不出新函数。新门是 §4.1 的那道：募资小到撑不起单调回购梯的项目，在
+> `genesisDeadline` 就退款，不必再干等 7 天发射窗口耗尽。它以 `ladderViable()` 的形式
+> 出现，`canRefund()` 也改写为同时回答两道门。用 `eth_getCode` 按选择器核对过：
+> `0xa82cb2f7` 不在旧实现 `0x85d482…7864` 的字节码里，在新实现 `0xD8b533…28EC` 里。
+> 所以旧那套的 hook 对新 getter 只会 revert，而前端已按它开放退款 —— 承诺了链上做不到
+> 的提款。EIP-1167 代理的实现地址在工厂构造时就固定，补不上接口，只能重部。
+>
+> **再上一个 `97` 部署被弃用，原因不只是它早于 BEM。** 工厂
 > `0xB224f26a323320376c0b4C6a3228533FA63E5bBd`、金库
 > `0x79de222644E8BBeea6FC55815CCBE9FF136D7674`：它没有 `quoteAsset()`、`deposit`
 > 仍是 payable、`launchFee` 是 18 位小数的 0.35 BNB。更要紧的是它的 `owner()` 与
 > `pogSigner()` 都是 `0x73db…80cd` —— 那把私钥既是公开的，**也已经不在本仓库里了**。
 > 也就是说没人能暂停它、改它的参数、或轮换它的签名人。所有 `GOV-*` 与 `SWITCH-*`
-> 应急手册的最后一步都是 owner 操作，对那个工厂全部无法执行。它留在链上，但已无人指向。
+> 应急手册的最后一步都是 owner 操作，对那个工厂全部无法执行。两套都留在链上，但已无人
+> 指向。
 
 Vault 与 CLPoolManager 是两个地址而不是一个，因为 Infinity 把 V4 的 PoolManager 一个
 合约干的事拆开了：manager 负责池子逻辑，Vault 持有全部余额。移植中发现的两个 bug 都
