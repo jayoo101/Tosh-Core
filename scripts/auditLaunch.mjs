@@ -143,7 +143,17 @@ const [
 console.log(`\nHook   ${HOOK}`)
 console.log(`RPC    ${RPC}`)
 
-if (!launched) fail('this hook has not launched — nothing below describes a live pool')
+// A hard stop, not a `fail()`. Everything below reads a live pool, and on a
+// pre-genesis hook `sqrtPriceX96` is 0, so the accumulating form used to walk
+// into a division by zero and die on a raw RangeError — losing this very
+// message, the only one that explained what was wrong.
+// `CheckFailed` prints no message of its own, by design — the thrower does.
+if (!launched) {
+  console.log('\nFAIL  this hook has not launched — nothing below describes a live pool.')
+  console.log('      A hook still in genesis is read through the app\'s `resolvePhase`,')
+  console.log('      or with `cast call <hook> "canRefund()(bool)"`. Not with this script.')
+  throw new CheckFailed('this hook has not launched')
+}
 if (!tokenInit) fail('tokenInitialized() is false on a launched hook')
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
@@ -376,6 +386,14 @@ if (ev && sqrtPriceX96 !== ev.sqrtPriceX96) {
  * that dropping them costs a fraction of a percent, so this is checked as a
  * magnitude — it answers "the native is in there", not "to the wei".
  */
+// An uninitialised pool on a launched hook is a finding, not a crash: report it
+// and stop, rather than dividing by a zero price.
+if (sqrtPriceX96 === 0n) {
+  fail('the pool has no price on a launched hook — `launch()` did not initialise it')
+  console.log(`\n${problems.length} problem(s):`)
+  for (const p of problems) console.log(`  ✗ ${p}`)
+  throw new CheckFailed('the pool this hook publishes was never initialised')
+}
 const poolEth = (liquidity << 96n) / sqrtPriceX96
 const poolTokens = (liquidity * sqrtPriceX96) >> 96n
 console.log(`        implied reserves  ${quote(poolEth)}  +  ${tok(poolTokens)} ${symbol}`)
