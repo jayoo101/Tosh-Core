@@ -84,6 +84,7 @@ const HOOK_ABI = [
   'function currentTierSold() view returns (uint256)',
   'function phase2Minted() view returns (uint256)',
   'function canRefund() view returns (bool)',
+  'function ladderViable() view returns (bool)',
   'function refundAnnounced() view returns (bool)',
   'function nativeDeposited(address) view returns (uint256)',
   'function genesisShareClaimed(address) view returns (bool)',
@@ -175,12 +176,28 @@ try {
 
 console.log('\nThe raise')
 console.log(`        deposited         ${quote(totalNative)}`)
-console.log(`        soft cap          ${quote(softCap)}  ${totalNative >= softCap ? '(met)' : '(NOT MET)'}`)
+console.log(`        soft cap          ${quote(softCap)}  (not a gate — read by nothing)`)
 console.log(`        per-wallet cap    ${quote(perWalletCap)}`)
 console.log(`        referral reserved ${quote(refReserved)}   claimed ${quote(refClaimed)}`)
 console.log(`        orphan referral   ${quote(orphan)}`)
 
-if (totalNative < softCap) fail('a launched hook whose raise is below its own soft cap')
+// ⚠ THIS USED TO `fail()` ON `totalNative < softCap`, WHICH FAILS A HEALTHY
+//   LAUNCH. Nothing reads the soft cap — deposits do not stop at it, `launch()`
+//   does not check it — so a raise below it is the ordinary case and the live
+//   97 rehearsal is one. An audit that reports FAIL on a correct hook trains
+//   its reader to ignore it, which costs more than the check was ever worth.
+//
+//   The door `launch()` actually came through is `ladderViable()`, so that is
+//   what gets asserted. It reads `totalNativeDeposited` net of the commission
+//   carve, and `launch()` zeroes `orphanReferral` on its way out — so the
+//   post-launch answer is computed over a slightly LARGER quote than the one
+//   the door saw. It can therefore only be true here if it was true then,
+//   which is the direction that makes this safe to check after the fact.
+const viable = await hook.ladderViable()
+if (!viable) {
+  fail('a launched hook whose raise cannot carry a monotone ladder — '
+    + 'launch() reverts RaiseTooSmallForLadder on this, so it should not exist')
+}
 
 // `launch()` zeroes `orphanReferral` after forwarding it, so present state can
 // only reproduce the split if the event says how much was forwarded.

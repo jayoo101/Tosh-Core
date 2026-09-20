@@ -941,10 +941,12 @@ for (const hook of state.hooks) {
     const refundable = BigInt(await call(hook, 'canRefund()')) === 1n
     if (!refundable) continue
 
-    /* `canRefund()` is true only after the 7-day launch window lapses unused.
-     * An abandoned launch that raised nothing is still refundable then, but
-     * nobody is owed an announcement. Read the deposited quantity instead of
-     * inferring depositors from the refund gate. */
+    /* `canRefund()` covers both doors — a raise too small to carry a ladder
+     * at genesis close, and the 7-day launch window lapsing unused — which is
+     * why this polls the hook rather than deriving a deadline. Either way an
+     * abandoned launch that raised nothing is refundable and nobody is owed an
+     * announcement, so read the deposited quantity instead of inferring
+     * depositors from the refund gate. */
     const deposited = BigInt(await call(hook, 'totalNativeDeposited()'))
     if (deposited === 0n) {
       gap('STATE-01', `${hook} is refundable but raised nothing, so no depositor is owed an announcement`)

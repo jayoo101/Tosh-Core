@@ -4,7 +4,6 @@ import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider, createConfig, http, fallback } from 'wagmi'
-import { foundry } from 'wagmi/chains'
 import { injected } from 'wagmi/connectors'
 import type { ToasterProps } from 'react-hot-toast'
 import { targetChain, BSC_ID, BSC_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
@@ -100,18 +99,43 @@ function buildFoundryTransport() {
 // This is also what `useActionGate` reaches for when it renders the
 // Connect Wallet verdict: it takes `connectors[0]`, so the order of this
 // array is the connect UX.
+//
+// ⚠ EXACTLY ONE CHAIN IS REGISTERED, AND THAT IS THE POINT. This used to list
+//   `[targetChain, foundry]`, which handed every unpinned read a second chain
+//   it could wander onto. `createConfig`'s `syncConnectedChain` subscriber
+//   moves `config.state.chainId` onto the wallet's chain whenever the config
+//   lists it, and `useReadContract`/`useReadContracts` default to that state —
+//   so a wallet on Foundry's 31337 silently rerouted every protocol read
+//   through `buildFoundryTransport()`, i.e. `http://127.0.0.1:8545`, on a
+//   build whose addresses only exist on the target chain.
+//
+//   That is not a hypothetical: "Localhost 8545" is a stock network entry in
+//   MetaMask, so any wallet that has ever touched a local node can be parked
+//   on it. The visible result was the worst kind of contradiction — the
+//   network guard correctly saying "wrong network" while the factory guard
+//   read an empty localhost and announced there was no contract at the
+//   factory address, which reads as "the protocol is gone" rather than "your
+//   wallet is on the wrong chain".
+//
+//   Writes were already pinned to the target. Listing one chain gives the
+//   reads the same guarantee structurally, instead of requiring every one of
+//   the ~40 read sites to remember a `chainId` argument forever. A wallet on
+//   an unlisted chain leaves `config.state.chainId` on the target, which is
+//   precisely the behaviour wanted — and the wrong-network verdict still
+//   fires, because `useWalletChainId` reads the connection rather than this
+//   config.
+//
+//   Local development sets `NEXT_PUBLIC_CHAIN_ID=31337`, which makes Foundry
+//   the target and gets it registered through the same single slot.
 function makeConfig() {
-  const chains = targetChain.id === FOUNDRY_CHAIN_ID
-    ? [foundry] as const
-    : [targetChain, foundry] as const
+  const isFoundry = targetChain.id === FOUNDRY_CHAIN_ID
   return createConfig({
-    chains,
+    chains: [targetChain],
     connectors: [
       injected({ shimDisconnect: true }),
     ],
     transports: {
-      [targetChain.id]: buildTargetTransport(),
-      [foundry.id]:     buildFoundryTransport(),
+      [targetChain.id]: isFoundry ? buildFoundryTransport() : buildTargetTransport(),
     },
   })
 }

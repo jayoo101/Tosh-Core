@@ -23,8 +23,13 @@
  *
  *   - already launched
  *   - the caller is not `creator()`
- *   - the raise never reached `softCap()` and the deadline has passed
+ *   - the raise cannot carry a monotone ladder (`RaiseTooSmallForLadder`)
  *   - the launch window has closed
+ *
+ * The third used to read "the raise never reached `softCap()`", which was
+ * never a state `launch()` refuses: nothing reads the cap. The real floor is
+ * `ladderViable()`, and it is terminal for the same reason the cap would not
+ * have been — deposits are shut at the deadline, so the raise is final.
  *
  * The last two are terminal by design. Reporting them as failures rather than
  * looping is the whole value: a watcher that retries forever against a closed
@@ -79,7 +84,6 @@ const HOOK_ABI = parseAbi([
   'function launched() view returns (bool)',
   'function genesisDeadline() view returns (uint256)',
   'function totalNativeDeposited() view returns (uint256)',
-  'function softCap() view returns (uint256)',
   'function LAUNCH_WINDOW() view returns (uint256)',
   'function launch()',
 ])
@@ -159,13 +163,15 @@ async function main() {
     )
   }
 
-  const [deadline, softCap, launchWindow] = await Promise.all([
-    read('genesisDeadline'), read('softCap'), read('LAUNCH_WINDOW'),
+  // No `softCap` read. It was printed at startup and used as the denominator
+  // of the progress line below, which framed it as a target the raise had to
+  // reach. Nothing reads it, so the line was reporting progress toward nothing.
+  const [deadline, launchWindow] = await Promise.all([
+    read('genesisDeadline'), read('LAUNCH_WINDOW'),
   ])
   const windowCloses = deadline + launchWindow
 
   console.log('genesis:')
-  console.log(`  softCap        ${formatUnits(softCap, 8)} quote`)
   console.log(`  deadline       ${stamp(deadline)}`)
   console.log(`  window closes  ${stamp(windowCloses)}  (LAUNCH_WINDOW ${human(launchWindow)})`)
   console.log(`  polling every  ${intervalSec}s${dryRun ? '   [DRY RUN: will not send]' : ''}\n`)
@@ -189,13 +195,14 @@ async function main() {
       )
     }
 
-    const met = raised >= softCap && raised > 0n
-
     if (now < deadline) {
       // Still taking deposits. Report progress but do not act: `launch()` before
       // the deadline reverts; more quote may still arrive.
+      //
+      // The raise is reported as a figure, not as a fraction. It used to read
+      // `raised/softCap … (target met)`, and there is no target to meet.
       const line = `  waiting · ${human(deadline - now)} to deadline`
-        + ` · raised ${formatUnits(raised, 8)}/${formatUnits(softCap, 8)} quote${met ? ' (target met)' : ''}`
+        + ` · raised ${formatUnits(raised, 8)} quote`
       if (line !== lastLine) { console.log(line); lastLine = line }
       await sleep(intervalSec * 1000)
       continue
@@ -209,9 +216,11 @@ async function main() {
       )
     }
 
-    // Due. The soft cap is a progress target, not a gate — any non-zero raise
-    // may open the pool until the 7-day launch window lapses.
-    console.log(`  due · raised ${formatUnits(raised, 8)} quote · target ${formatUnits(softCap, 8)} quote · simulating…`)
+    // Due. No raise target gates this — any raise that can carry a ladder may
+    // open the pool until the 7-day launch window lapses. The simulation below
+    // is what reports the one floor that does exist, as
+    // `RaiseTooSmallForLadder`.
+    console.log(`  due · raised ${formatUnits(raised, 8)} quote · simulating…`)
     try {
       await pub.simulateContract({ address: hook, abi: HOOK_ABI, functionName: 'launch', account })
     } catch (e) {

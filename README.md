@@ -866,14 +866,20 @@ calls `launch()` inside its window, and gating deposits would hand the owner a
 unilateral veto over a project it already accepted money for. A shelf halt can
 make a buyer miss a price. It cannot cost anyone a balance already on the books.
 
-Note what the designed failure is *not*: missing the soft cap. `canRefund()`
-reads `block.timestamp > genesisDeadline + LAUNCH_WINDOW` and nothing else, and
-no `require` or `revert` anywhere in the contracts compares a raise against
-`softCap()` — it is a snapshot taken at clone time, per §4.1, and as of this
-revision it is not even exposed for display. An earlier version of this
-paragraph said the soft cap was the designed failure, which contradicted §4.1
-and §10.1 on the same page and would have told a depositor to expect a refund
-on a ground that does not exist.
+Note what the designed failures are *not*: missing the soft cap. No `require`
+or `revert` anywhere in the contracts compares a raise against `softCap()` — it
+is a snapshot taken at clone time, per §4.1, and is not exposed for display.
+An earlier version of this paragraph said the soft cap was the designed
+failure, which contradicted §4.1 and §10.1 on the same page and would have told
+a depositor to expect a refund on a ground that does not exist.
+
+The correction to that then over-corrected, and this sentence is the repair:
+it went on to say `canRefund()` "reads `block.timestamp > genesisDeadline +
+LAUNCH_WINDOW` and nothing else", which was true of the hook it described and
+is no longer. `canRefund()` reads `ladderViable()` first, so a raise too small
+to open a pool refunds at genesis close without waiting out a window it has no
+use for. §4.1 has the table. Both doors are designed failures; the seven-day
+one is merely the one the owner's powers are shaped around.
 
 This is governance, not the absence of governance. The boundaries are real and so
 are the powers.

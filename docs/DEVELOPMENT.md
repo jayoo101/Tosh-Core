@@ -934,6 +934,7 @@ Tosh-Core/
 | `mintBondingCurve` reverts `SameBlockMintForbidden` | A swap landed in this block. Wait one block. |
 | `mintBondingCurve` reverts on the price gate | The market has not risen to meet the shelf. This is the gate working. |
 | `launch` reverts `LaunchWindowExpired` | More than 7 days since the deadline; depositors can `refund()`. |
+| `launch` reverts `RaiseTooSmallForLadder` | The raise cannot price a ladder that rises, so no pool can open. Terminal — deposits are already shut, and `refund()` is open from the deadline. |
 | `deposit` reverts `QuotaExceeded` | Platform-wide PoG budget spent for this window. Wait out `quotaWindowDuration`. |
 | `deposit` reverts `PerWalletCapExceeded` | Per-project cap snapshotted at creation, separate from the PoG budget. |
 | `addLadderToken` reverts `TokenNotLaunchedHere` | Only tokens launched by the bound factory can be listed. |

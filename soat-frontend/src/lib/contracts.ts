@@ -518,6 +518,12 @@ export const BONDING_MAX: bigint = 12_600_000n * 10n ** 18n
  * (mirrors `Hook.LAUNCH_WINDOW`).  Once it lapses the hook opens `refund()` to
  * everyone instead, so the UI has to count it down rather than leave a raise
  * looking merely idle.
+ *
+ * ⚠ THIS IS NOT WHEN REFUNDS OPEN — it is the LATER of the two moments they
+ *   can. A raise that closed too small to carry a ladder is refundable at the
+ *   genesis deadline itself, with this window never running. Anything deciding
+ *   whether a refund is available must read `canRefund()`; this constant is
+ *   only good for drawing the creator's remaining time to act.
  */
 export const LAUNCH_WINDOW_SECONDS: bigint = 7n * 24n * 60n * 60n
 

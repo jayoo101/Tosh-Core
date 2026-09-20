@@ -85,14 +85,20 @@ export const targetChain: Chain = resolveTargetChain()
  * to be unconditional, so a deployed production build accepted `chainId: 31337`
  * and carried the request all the way to an RPC attempt against loopback before
  * failing 503. That fails closed, and the attestation digest binds
- * `block.chainid` so a 31337-bound signature is unusable on 4663 — but it is a
- * chain the deployment can never serve, reached through the oracle's own signing
- * path, and "the only thing stopping it is that nothing listens on localhost" is
- * not a control.
+ * `block.chainid` so a 31337-bound signature is unusable on the target — but it
+ * is a chain the deployment can never serve, reached through the oracle's own
+ * signing path, and "the only thing stopping it is that nothing listens on
+ * localhost" is not a control.
  *
  * `next build` sets `NODE_ENV=production` for a testnet deployment too, which is
  * the wanted behaviour: a deployed testnet build has no loopback node either. A
  * developer running `next dev` against the public testnet keeps the devnet.
+ *
+ * That last sentence is now about the ROUTE and not about the UI. `providers.tsx`
+ * registers only the target chain, so a `next dev` build pointed at the testnet
+ * no longer follows a wallet onto 31337 — the wrong-network verdict fires first
+ * and the signing path is never reached. The entry survives so that the API
+ * route stays callable directly during local work; it is not a way into the UI.
  *
  * Exported only as a predicate, and the list is not exported, because this
  * decision used to be written twice — here, and again inline in

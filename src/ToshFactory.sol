@@ -163,10 +163,10 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     ///         ⚠ THIS CONSTANT IS NOT WHAT DEFENDS THAT CLIFF, whatever this
     ///           comment used to claim. It floors the CAP, and the cap gates
-    ///           nothing: `launch()` opens on any non-zero raise and
-    ///           `canRefund()` reads only the clock, so a raise far below its cap
-    ///           is the ordinary case rather than an error. A floor on the cap
-    ///           therefore says nothing about the quantity the cliff depends on.
+    ///           nothing: neither `launch()` nor `canRefund()` reads it, so a
+    ///           raise far below its cap is the ordinary case rather than an
+    ///           error. A floor on the cap therefore says nothing about the
+    ///           quantity the cliff depends on.
     ///
     ///           The real guard is `ToshLaunchpadHook.launch()`, which now
     ///           refuses a raise whose shelf 0 -> 1 step truncates to zero
@@ -451,10 +451,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///           HALF the 1,959 BEM sitting in its only pool of consequence. A
     ///           round at this cap cannot be filled by depositors buying BEM on
     ///           the open market; it can only be filled by holders who already
-    ///           have it. The soft cap is not a gate — `launch()` opens on any
-    ///           non-zero raise and `canRefund()` reads only the clock — so the
-    ///           consequence is a progress bar that reads near-empty on a
-    ///           perfectly healthy round, not a failed launch.
+    ///           have it. The soft cap is not a gate — neither `launch()` nor
+    ///           `canRefund()` reads it — so the consequence of setting it
+    ///           absurdly high is nothing at all, not a failed launch. The
+    ///           floor that does exist is `ladderViable()`, and it is derived
+    ///           from the ladder rather than from this dial.
     ///
     ///           It is a dial, not a constant, and lowering it is a single owner
     ///           transaction floored at `MIN_SOFT_CAP_PROD` (100 BEM). Do that
@@ -1338,8 +1339,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     /// @notice Hand a name/symbol back to the pool once its launch is provably
-    ///         dead, i.e. the hook's own refund path has opened because the
-    ///         7-day launch window lapsed unused.
+    ///         dead, i.e. the hook's own refund path has opened — either
+    ///         because the raise closed too small to carry a ladder, or
+    ///         because the 7-day launch window lapsed unused.  This reads
+    ///         `canRefund()` rather than a clock precisely so that it does not
+    ///         have to know which door opened.
     ///
     /// @dev    Permissionless on purpose.  The condition is objective and read
     ///         from the hook, there is nothing to steal — a live or launched

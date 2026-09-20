@@ -213,7 +213,7 @@ export function SoftCapPanel() {
         id: 'above-max-soft-cap',
         active: aboveCeiling,
         label: '[max_soft_cap_violation]',
-        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}). A raise that large is a wei/ether slip, not a decision — the cap is a progress target, not a launch gate, but a six-figure figure still means the dial was typed in wei.`,
+        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}). A raise that large is a wei/ether slip, not a decision — the cap gates nothing, but a six-figure figure still means the dial was typed in wei.`,
       },
     ),
   })
@@ -249,7 +249,10 @@ export function SoftCapPanel() {
         <br /><br />
         The {MAX_DEFAULT_SOFT_CAP_LABEL} {QUOTE_SYMBOL} ceiling catches the opposite slip and
         is deliberately far above any real raise. It is not a view on how much a
-        project should ask for — the cap is a progress target, not a launch gate.
+        project should ask for — nothing reads the cap after the clone is
+        addressed, so it is neither a target nor a gate. The floor a raise does
+        have to clear is ladderViable(), derived from the ladder rather than
+        from this dial.
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />
