@@ -913,9 +913,14 @@ build should see the gap rather than an unqualified list.
     0.002-unit buy and a 945-token ladder mint. That check is worth *more* now
     than it was then, because the unit is 10^10 coarser and an approve-then-pull
     flow has a failure mode a `payable` call did not.
-- **Static analysis, pinned.** `forge lint` and Slither both run in CI against
-  committed baselines, so a finding cannot start or stop firing without somebody
-  deciding about it. There has been no third-party audit; see below.
+- **Static analysis, pinned.** `forge lint`, Slither and Cyfrin Aderyn all run
+  in CI against committed baselines, so a finding cannot start or stop firing
+  without somebody deciding about it. The two analysers are kept because they
+  disagree usefully — Slither reasons over a control-flow graph, Aderyn over the
+  AST — and on their current runs they overlap on almost nothing. Every finding
+  from both has a written disposition in [`docs/AUDIT.md`](docs/AUDIT.md),
+  including the one that is genuine and deliberately deferred. There has been no
+  third-party audit; see below.
 
 ### 10.2 Limits and disclosures
 

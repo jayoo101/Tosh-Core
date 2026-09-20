@@ -531,6 +531,48 @@ jobs:
       - name: Check the Slither triage matches a real run
         run: node scripts/checkSlitherFindings.mjs
 
+      # Aderyn is the second analyser, and it earns its minute by disagreeing
+      # with the first rather than by confirming it. Slither reasons over a
+      # CFG; Aderyn walks the AST. On the first run against this tree the two
+      # genuine findings it produced — a dead `error` declaration and three
+      # unreferenced imports — were in a category Slither reports nothing in,
+      # and its 19 detectors overlapped Slither's on almost none of the rest.
+      #
+      # It is also the cheaper of the two by a wide margin: ~6 s against this
+      # tree with no compile of its own, where Slither's pip install alone
+      # costs more than the whole Aderyn step.
+      #
+      # Same shape as the gate above — baseline keyed by (detector, file,
+      # scope) and counted, version pinned — with one difference that matters
+      # when editing it: Aderyn's JSON gives a line number and no enclosing
+      # function, so the script RECOVERS the scope by parsing back from the
+      # reported line. See its header for what that costs.
+      #
+      # No install step. Aderyn publishes a single static binary and the
+      # action below fetches the pinned one; `pip install` has no equivalent
+      # here. The version in the `with:` block and the constant in the script
+      # have to change together, same as Slither's.
+      - name: Install Aderyn
+        run: |
+          set -euo pipefail
+          VERSION=0.6.8
+          URL="https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${VERSION}/aderyn-x86_64-unknown-linux-gnu.tar.xz"
+          curl -sSfL "$URL" -o /tmp/aderyn.tar.xz
+          curl -sSfL "${URL}.sha256" -o /tmp/aderyn.sha256
+          # Compare the digest rather than running `sha256sum -c`: the
+          # published file names the artefact with the build host's path
+          # prefix, so `-c` fails to resolve it and reports "no file was
+          # verified" — which exits 1 and looks like a mismatch.
+          PUBLISHED=$(awk '{print $1}' /tmp/aderyn.sha256)
+          ACTUAL=$(sha256sum /tmp/aderyn.tar.xz | awk '{print $1}')
+          [ "$PUBLISHED" = "$ACTUAL" ] || { echo "aderyn checksum mismatch"; exit 1; }
+          tar -xJf /tmp/aderyn.tar.xz -C /tmp
+          install -m 0755 "$(find /tmp -name aderyn -type f | head -1)" /usr/local/bin/aderyn
+          aderyn --version
+
+      - name: Check the Aderyn triage matches a real run
+        run: node scripts/checkAderynFindings.mjs
+
       # `scripts/` carries its own package.json. Two steps below need what it
       # installs — the typecheck, and the drill-page guard, which talks to
       # 46630 through ethers. Hoisted into its own step so that dependency is
