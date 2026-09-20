@@ -291,10 +291,25 @@ jobs:
       # and reported skipped, because `describe.runIf(POG_LIVE_SCAN === '1')`
       # gates them and CI does not set it — so the number does not move when
       # somebody runs the live scan by hand.
+      #
+      # 297 -> 355 on 2026-09-21, found by the pre-mainnet sweep rather than by
+      # this step, which is the whole problem with it. The floor had trailed the
+      # suite by 58 across the countdown, referral-desk and quote-scale work, so
+      # every test added since 09-14 — `ReferralPanel.test.tsx`, the
+      # `genesisWindow` direction tests, the `HeroStats` quote-scale test — sat
+      # below it and could have stopped being collected with this step green.
+      #
+      # That is the SECOND time this floor has been found 58-or-100 adrift (see
+      # the 188 -> 290 entry, which says "raise it in the same commit as any
+      # addition" and was then not followed). Two occurrences of the same drift
+      # is a sign the instruction in prose is not enough; the durable repair is
+      # a step that reads the floor off the run and fails when it is more than a
+      # few below, so that growing the suite without raising the floor is itself
+      # the red check. Worth doing next time this file is opened.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=297
+          floor=355
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

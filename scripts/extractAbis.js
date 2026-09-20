@@ -33,6 +33,45 @@ const factoryAbi  = loadAbi(path.join('ToshFactory.sol', 'ToshFactory.json'));
 const hookAbi     = loadAbi(path.join('ToshLaunchpadHook.sol', 'ToshLaunchpadHook.json'));
 const treasuryAbi = loadAbi(path.join('ToshLadderTreasury.sol', 'ToshLadderTreasury.json'));
 
+// The header below is prose, and prose next to a generated artefact drifts from
+// it silently. It did: the header claimed `createLaunch is nonpayable: it pulls
+// the fee with transferFrom` for the whole of the native-BNB fee migration. The
+// generated file in the tree had been corrected BY HAND, which is worse than
+// either state on its own — re-running this extractor would have reverted the
+// truthful comment to the false one, and until somebody did, CI's artifact-sync
+// step stayed red against a file nobody had edited.
+//
+// So the three mutability claims the header makes about the money path are now
+// checked against the ABI they are describing. They are the claims a reader
+// acts on — whether to send `value`, whether to approve first — and each is one
+// word that a Solidity change can invert with nothing else moving.
+function assertMutability(abi, contractName, fname, want) {
+    const entries = abi.filter((e) => e.type === 'function' && e.name === fname);
+    if (entries.length === 0) {
+        throw new Error(
+            `[extractAbis] ${contractName}.${fname} is not in the ABI. The header ` +
+            `describes its mutability as '${want}', so either the function was ` +
+            `renamed and the header must follow, or the artifact is stale.`,
+        );
+    }
+    for (const e of entries) {
+        if (e.stateMutability !== want) {
+            throw new Error(
+                `[extractAbis] ${contractName}.${fname} is '${e.stateMutability}' ` +
+                `but the header in this file says '${want}'. One of the two is ` +
+                `wrong and the frontend believes the header: a 'payable' read as ` +
+                `'nonpayable' means no \`value\` is sent and every call reverts, ` +
+                `and the reverse means an approval nobody asked for. Fix the ` +
+                `header text above, then re-run.`,
+            );
+        }
+    }
+}
+
+assertMutability(factoryAbi, 'ToshFactory', 'createLaunch', 'payable');
+assertMutability(factoryAbi, 'ToshFactory', 'deposit', 'nonpayable');
+assertMutability(hookAbi, 'ToshLaunchpadHook', 'mintBondingCurve', 'nonpayable');
+
 const header = `// AUTO-GENERATED from Foundry artifacts — do not edit by hand.
 // Source: out/ToshFactory.sol/ToshFactory.json
 //         out/ToshLaunchpadHook.sol/ToshLaunchpadHook.json
@@ -47,7 +86,8 @@ const header = `// AUTO-GENERATED from Foundry artifacts — do not edit by hand
 //     platformTreasury, ladderTreasury, quoteAsset).  Infinity splits the AMM:
 //     the CL manager runs the pool, the Vault holds every balance. The quote
 //     asset is an implementation-level immutable — same token for every clone.
-//   • createLaunch is nonpayable: it pulls the fee with transferFrom
+//   • createLaunch is payable: the launch fee is native BNB as msg.value.
+//     The quote asset is pulled only on deposit / shelf mint, not here.
 //   • deposit(hook, referrer, amount) is nonpayable: the amount is an argument
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —

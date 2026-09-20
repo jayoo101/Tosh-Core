@@ -15,14 +15,14 @@ vi.hoisted(() => {
 
 /**
  * The genesis cell held a bar filling toward the soft cap, and the soft cap
- * gates nothing 鈥?deposits run past it and `launch()` never reads it. It now
+ * gates nothing — deposits run past it and `launch()` never reads it. It now
  * holds a clock instead, which is a fraction of something real: one of three
  * fixed windows chosen at `createLaunch`.
  *
  * SCOPE. This file covers the drawing only: which phases get a meter, that the
  * raise keeps its figure beside the clock, and that the two meters never stack.
  * Whether the fraction counts down or up is decided in `genesisWindow` and
- * pinned in genesisWindow.test.ts 鈥?the component is handed a number and has no
+ * pinned in genesisWindow.test.ts — the component is handed a number and has no
  * opinion about which direction it came from.
  *
  * The fixtures below are still kept CONSISTENT with that direction (an
