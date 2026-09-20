@@ -253,7 +253,13 @@ export default function ProjectTerminal({ project, about, header }: {
   const bondingMax         = (data?.[7]?.result  as bigint  | undefined) ?? BONDING_MAX
   const currentPrice       = (data?.[8]?.result  as bigint  | undefined) ?? 0n
   const userEthDeposited   = (data?.[9]?.result  as bigint  | undefined) ?? 0n
-  const pogQuota           = (data?.[10]?.result as bigint  | undefined) ?? 0n
+  // No `?? 0n`, for the same reason as `ladderViable` above: zero is a real
+  // answer here — "this wallet has no attestation" — and a pending read is not
+  // it. Coalescing them made `GenesisPanel` print NO ATTESTATION and lock the
+  // Deposit button for an attested wallet for as long as the 12s bulk call took
+  // to land, which is a legal deposit refused on missing data.
+  // `PogLookupProvider` already draws this distinction; the panel now does too.
+  const pogQuota           = data?.[10]?.result as bigint  | undefined
   const cooldownEnd        = (data?.[12]?.result as bigint  | undefined) ?? 0n
   const shelfP0           = (data?.[13]?.result as bigint  | undefined) ?? 0n
   const blacklistedUntil   = (data?.[14]?.result as bigint  | undefined) ?? 0n
@@ -263,7 +269,10 @@ export default function ProjectTerminal({ project, about, header }: {
   // credited back yet.  `cooldownEnd` above still drives the ticking countdown;
   // this tuple only supplies the spendable headroom.
   const eligibility        = data?.[11]?.result as readonly [boolean, bigint, bigint] | undefined
-  const quotaRemaining     = eligibility?.[1] ?? 0n
+  // Also left `undefined` while pending. A zero here reads as "this window is
+  // spent", so coalescing it told a wallet with full headroom that the amount it
+  // typed was above its remaining window.
+  const quotaRemaining     = eligibility?.[1]
 
   // Read separately rather than appended to the bulk call above: the token
   // address is fixed at deploy, so polling it every 12s would be waste.

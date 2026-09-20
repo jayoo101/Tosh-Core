@@ -274,10 +274,18 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     address public pogSigner;
 
-    /// @notice Legacy platform fee destination.
+    /// @notice Platform fee destination. Receives exactly two flows:
+    ///         the 0.30 % maintenance cut of every buy's quote input (BEM), and
+    ///         the native launch fee that `createLaunch` forwards as BNB.
     ///
-    /// @notice Receives the platform's 0.30 % maintenance cut of every buy's
-    ///         ETH input, and nothing else.
+    /// @dev    THE SUMMARY ABOVE USED TO READ "the 0.30 % cut of every buy's ETH
+    ///         input, and nothing else", and both halves of that were wrong once
+    ///         the launch fee moved back to native value: the swap cut is the
+    ///         8-decimal quote asset rather than ETH, and `createLaunch` forwards
+    ///         BNB here on every launch. "And nothing else" is the part that
+    ///         costs something -- explorers and generated docs publish the
+    ///         summary line, so an operator reconciling this address would watch
+    ///         only the BEM ledger and never see the BNB toll arrive.
     ///
     /// @dev    ON A MONEY PATH AGAIN, AND IMMUTABLE BECAUSE OF IT.
     ///
@@ -738,17 +746,33 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         `deposit` is therefore not gated: a wallet that already holds
     ///         quota can keep funding an in-flight raise for the whole window.
     ///
-    ///         The reason is that a genesis round fails by NOT reaching its soft
-    ///         cap.  Gating `deposit` would hand the owner a switch that starves
-    ///         a live raise into failure and forces every depositor into refund
-    ///         — a unilateral veto over projects the platform already accepted.
-    ///         Pausing must be able to stop the platform growing without being
-    ///         able to kill what it has already taken money for.
+    ///         The reason is that a genesis round fails by NOT raising enough to
+    ///         seed the ladder — `ToshLaunchpadHook.ladderViable()`, since the
+    ///         soft cap stopped gating anything. Gating `deposit` would hand the
+    ///         owner a switch that starves a live raise into failure and forces
+    ///         every depositor into refund. Pausing must be able to stop the
+    ///         platform growing without killing what it has already taken money
+    ///         for.
+    ///
+    ///         ⚠ THAT IS A PROPERTY OF `pause()`, NOT A GUARANTEE ABOUT THE
+    ///           OWNER. This paragraph used to call it "a unilateral veto over
+    ///           projects the platform already accepted" and imply the owner has
+    ///           no such veto. The owner does: `setBlacklist` gates `deposit`
+    ///           directly, takes 200 addresses per call, and `PoGRegistered` is
+    ///           on-chain, so the attested wallets funding a live raise can be
+    ///           enumerated and blocked mid-window. The boundary this function
+    ///           draws is real and worth keeping; the claim about what the owner
+    ///           cannot do was not this function's to make.
+    ///
+    ///         What no owner power reaches is money already committed: `refund`,
+    ///         `claimGenesis` and `claimReferralReward` live on the hook and read
+    ///         no pause, no halt and no blacklist. A banned depositor still gets
+    ///         their quote asset back.
     ///
     ///         `registerPoG` stays gated because it mints new spending budget
     ///         against an oracle signature, which is the one thing that needs a
     ///         faster brake than `setPogSigner` if the signer key leaks.  It
-    ///         blocks new entrants only; committed ETH and existing quota are
+    ///         blocks new entrants only; committed quote and existing quota are
     ///         untouched.
     function pause() external onlyOwner {
         _pause();

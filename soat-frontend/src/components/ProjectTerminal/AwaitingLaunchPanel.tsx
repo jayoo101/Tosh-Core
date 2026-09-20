@@ -53,7 +53,14 @@ export function AwaitingLaunchPanel({
     blockersInRevertOrder: revertOrder(
       {
         id: 'launch-window-expired',
-        active: nowSec > 0 && secsLeft <= 0,
+        // STRICTLY LATER THAN `expiresAt`, matching the hook: `launch()` reverts
+        // on `block.timestamp > genesisDeadline + LAUNCH_WINDOW`, so the final
+        // second is still a legal launch. `secsLeft <= 0` blocked at equality
+        // and took the button away one second before the contract did — the same
+        // off-by-one `phase.ts` already carries a warning about for refunds,
+        // where `resolvePhase` uses `>` and would still say `awaiting_launch`
+        // here. Only the button disagreed.
+        active: nowSec > 0 && BigInt(nowSec) > expiresAt,
         label: 'Launch window closed',
         reason: 'The window to open trading has closed, so the only thing this project can still do is issue refunds.',
         tone: 'warn',

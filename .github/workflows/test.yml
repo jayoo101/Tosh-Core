@@ -185,10 +185,21 @@ jobs:
       # was raised in the same commit. See the note there: two independent
       # floors both left to rot is the argument for computing the drift in CI
       # rather than asking a reader to remember.
+      #
+      # 405 -> 407 the same day: `test_requireMainnetTarget_refusesTestnet` and
+      # `_acceptsMainnet`. `DeployMainnet.s.sol` checked that the RPC agreed with
+      # `TARGET_CHAIN_ID` and never that either named mainnet, so the mainnet
+      # script would broadcast to 97 on a restored `.env` with every check green.
+      #
+      # They drive `requireMainnetTarget(uint256)` directly rather than `run()`,
+      # and that is not stylistic: reaching the branch through `run()` needs
+      # `vm.setEnv`, which writes the process environment, which is outside the
+      # state Forge snapshots. Measured — one env-based test leaked 97 into four
+      # others, and restoring the value on the next line still left two red.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=405
+          floor=407
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

@@ -306,10 +306,17 @@ jobs:
       # a step that reads the floor off the run and fails when it is more than a
       # few below, so that growing the suite without raising the floor is itself
       # the red check. Worth doing next time this file is opened.
+      #
+      # 355 -> 357 the same day: two cases in `ReferralPanel.test.tsx` covering
+      # the other two reads that collapsed a pending result into a pessimistic
+      # answer. `quotaKnown` had fixed one of three. The sharper of the two is
+      # `claimableReferral`, where a `?? 0n` unmounted the entire card on a
+      # launched project that owed the wallet commission — verified by inverting
+      # both guards, which turns exactly these two red and nothing else.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=355
+          floor=357
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

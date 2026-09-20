@@ -82,6 +82,14 @@ import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 //////////////////////////////////////////////////////////////////////////*/
 
 contract DeployMainnetScript is Script {
+    /// @notice The only chain this script will broadcast to.
+    /// @dev    Kept beside the code that enforces it rather than read from the
+    ///         environment, because it is the one value the environment must not
+    ///         be able to choose. See the require in `run()` for why the
+    ///         RPC-versus-env check was not enough on its own. Must be changed
+    ///         together with `TARGET_CHAIN` in `test/DeployMainnet.t.sol`.
+    uint256 internal constant MAINNET_CHAIN_ID = 56;
+
     /// @dev Public so the test can exercise the 46630 collapse without
     ///      mutating process env — `vm.setEnv` is not snapshotted, and this
     ///      tree's `.env` already has deployer and signer as the same address.
@@ -95,6 +103,31 @@ contract DeployMainnetScript is Script {
     ///      refusing for the same reason it always was, plus one more: the PoG
     ///      signer's key is online by design, so pointing revenue at it is
     ///      strictly worse than pointing revenue at the deployer.
+    /// @notice Refuse a target that is not mainnet, however the environment got that way.
+    /// @dev    The `block.chainid == targetChainId` check in `run()` only proves the RPC
+    ///         agrees with the environment — not that either names the chain this script
+    ///         is for. `TARGET_CHAIN_ID=97` against a 97 RPC satisfied it completely, and
+    ///         the filename is not an assertion: a parked `.env` restored by habit, or a
+    ///         shell still carrying the testnet export, broadcast the MAINNET script to
+    ///         testnet with every check green. `Deploy.s.sol` has pinned 97 since it was
+    ///         written; this side had nothing.
+    ///
+    ///         `DeployMainnet.t.sol` argues the chain guard should be env-driven rather
+    ///         than hard-coded, because the target has changed four times. That holds for
+    ///         which chain is *configured*; it does not extend to a script whose name
+    ///         promises one.
+    ///
+    ///         `public pure`, taking the id as an argument, for the same reason
+    ///         `requireDistinctRoles` is: it lets the test reach this branch without
+    ///         `vm.setEnv`. That matters more than it looks. `setEnv` writes the process
+    ///         environment, which is outside the state Forge snapshots, and `setUp` runs
+    ///         once — so a test that varied `TARGET_CHAIN_ID` to get here leaked 97 into
+    ///         every later test in the file. Measured: four failures from one new test,
+    ///         and restoring the value on the next line only brought it down to two.
+    function requireMainnetTarget(uint256 targetChainId) public pure {
+        require(targetChainId == MAINNET_CHAIN_ID, "TARGET_CHAIN_ID is not mainnet: use Deploy.s.sol for testnet");
+    }
+
     function requireDistinctRoles(address deployer, address pogSigner, address prodOwnerSafe, address platformTreasury)
         public
         pure
@@ -165,6 +198,9 @@ contract DeployMainnetScript is Script {
         // factory onto the wrong chain wired to that chain's non-existent V4.
         uint256 targetChainId = vm.envUint("TARGET_CHAIN_ID");
         require(targetChainId != 0, "TARGET_CHAIN_ID unset");
+
+        requireMainnetTarget(targetChainId);
+
         require(block.chainid == targetChainId, "chain id mismatch: wrong --rpc-url for this deploy");
 
         address poolManager = vm.envAddress("INFINITY_CL_POOL_MANAGER");

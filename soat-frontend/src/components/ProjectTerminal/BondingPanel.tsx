@@ -174,7 +174,15 @@ export function BondingBuyPanel() {
               // that the order costs nothing and sends nothing. A ceiling of
               // "0 ETH" is not a pending state, it is a wrong answer.
               value={quoteUnknown || quoteUnavailable ? '…' : `${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL}`}
-              hint="0.5% over the quote; the difference comes back"
+              // Not "the difference comes back". A shelf mint is a pull, not a
+              // payment: the hook charges the true cost with `transferFrom` and
+              // never takes the ceiling, so there is nothing to refund and no
+              // BEM ever leaves this wallet unspent. What the 0.5% buys is
+              // unused ALLOWANCE, which is the wording `useQuoteApproval`
+              // already uses. The old line was left over from the native-value
+              // era, when the call really did carry `msg.value` and really did
+              // send change back.
+              hint="0.5% over the quote; you are only charged the true cost"
             />
             <Readout
               layout="stack"

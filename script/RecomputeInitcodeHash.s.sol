@@ -20,8 +20,25 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //  The frontend's `hookAddress.ts` precomputes the (factory, salt, initcode)
 //  CREATE2 address.  When `ToshLaunchpadHook.sol` changes — even by a
 //  single bytecode-level peephole — the runtime `initcodeHash` shifts.
-//  Mining against a stale hash produces wrong predicted addresses, and
-//  every `createLaunch()` reverts on the on-chain `InvalidHookSalt` check.
+//  Mining against a stale hash produces wrong predicted addresses.
+//
+//  ⚠ AND NOTHING ON CHAIN REFUSES THEM ANY MORE. This paragraph used to end
+//    "every `createLaunch()` reverts on the on-chain `InvalidHookSalt` check",
+//    which was true under Uniswap V4 and is not true now: the PancakeSwap
+//    Infinity port deleted the address-bit gate, because Infinity reads hook
+//    permissions from `getHooksRegistrationBitmap()` rather than from the low
+//    bits of the address. `hookSalt` may be any value, `InvalidHookSalt` no
+//    longer exists, and a stale prediction DEPLOYS SUCCESSFULLY — at an address
+//    the UI then cannot name.
+//
+//    So the failure changed shape from a revert every caller sees to a silent
+//    mismatch, and the things that still catch it are off-chain and must stay in
+//    the pipeline: `scripts/checkCloneInitcodeTuple.mjs` (in `test.yml` and
+//    `precheck.ps1`), `test_hookInitcodeHash_matchesHandBuiltCloneInitcode`, and
+//    reading `factory.hookInitcodeHash(...)` live rather than pasting a constant.
+//    Do not carry a hash from one chain to another: the factory is CREATE'd, so
+//    the deployer differs, and the hook implementation address inside the clone
+//    initcode differs with it.
 //
 //  Usage (against an ALREADY-deployed factory address — env or arg).
 //  The contract declares both `run()` and `run(address)`, so forge cannot

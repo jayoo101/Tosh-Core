@@ -92,6 +92,28 @@ contract DeployMainnetTest is Test {
         script.run();
     }
 
+    /// @notice The test above only proves the RPC and the environment agree. It
+    ///         passes when BOTH name testnet, which is the shape the miss took:
+    ///         a restored `.env`, or a shell still carrying the testnet export,
+    ///         and the MAINNET script broadcasts to 97 with every check green.
+    ///         The filename is not an assertion, so the script now pins 56.
+    /// @dev    Driven through `requireMainnetTarget` rather than through `run()`,
+    ///         which is why it takes an argument at all. Reaching the branch via
+    ///         `run()` means `vm.setEnv("TARGET_CHAIN_ID", ...)`, and that writes
+    ///         the process environment — outside the state Forge snapshots, with
+    ///         `setUp` running once. Measured: one env-based test leaked 97 into
+    ///         four others, and restoring the value on the following line still
+    ///         left two failing. Same reason the `requireDistinctRoles` cases
+    ///         call their helper directly.
+    function test_requireMainnetTarget_refusesTestnet() public {
+        vm.expectRevert(bytes("TARGET_CHAIN_ID is not mainnet: use Deploy.s.sol for testnet"));
+        script.requireMainnetTarget(97);
+    }
+
+    function test_requireMainnetTarget_acceptsMainnet() public view {
+        script.requireMainnetTarget(TARGET_CHAIN);
+    }
+
     function test_run_deploysFactoryAndQueuesOwnershipHandoff() public {
         vm.chainId(TARGET_CHAIN);
 

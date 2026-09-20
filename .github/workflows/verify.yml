@@ -1,5 +1,18 @@
 name: Verify deployment
 
+# ⚠ THE RUN NAME CARRIES THE CHAIN, and that is a safety control rather than a
+#   nicety. Both inputs below are `choice` with testnet defaults, so a dispatch
+#   that accepts them reads `broadcast/Deploy.s.sol/97/run-latest.json` — a file
+#   already in this tree — verifies testnet, and goes green. An operator who
+#   opened this workflow to publish MAINNET source then has a green
+#   "Verify deployment" against their name and no reason to look further.
+#
+#   The inputs are internally coherent in that case, so the guard in the verify
+#   step cannot catch it; only the label can. In the Actions list this now reads
+#   "Verify Deploy.s.sol on chain 97", which is unmistakable at a glance and
+#   stays in the run history as the record of what was actually published.
+run-name: Verify ${{ inputs.script }} on chain ${{ inputs.chain }}
+
 # Manual only. Verification is not idempotent in a useful way -- a second run
 # against an already-verified address answers "already verified" and costs a
 # call -- and it needs a credential, so it does not belong on push.
@@ -150,6 +163,20 @@ jobs:
             echo "::error::ETHERSCAN_API_KEY is not set in repository secrets. foundry.toml interpolates it, so Foundry will fail to read its own config before it gets as far as verifying."
             exit 1
           fi
+
+          # Each deploy script pins its own chain -- `Deploy.s.sol` refuses
+          # anything but 97, `DeployMainnet.s.sol` anything but 56 -- so a
+          # crossed pair names a broadcast log that cannot exist. Caught here
+          # with the reason, rather than below as a missing file: "commit the
+          # broadcast artefact" is the wrong instruction for an operator who has
+          # simply left one of the two dropdowns alone.
+          case "${CHAIN}:${SCRIPT}" in
+            56:DeployMainnet.s.sol|97:Deploy.s.sol) ;;
+            *)
+              echo "::error::chain ${CHAIN} and script ${SCRIPT} do not go together. Deploy.s.sol deploys chain 97; DeployMainnet.s.sol deploys chain 56. Re-dispatch with both inputs set for the same chain."
+              exit 1
+              ;;
+          esac
 
           log="broadcast/${SCRIPT}/${CHAIN}/run-latest.json"
           if [ ! -f "$log" ]; then

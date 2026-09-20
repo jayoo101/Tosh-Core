@@ -29,12 +29,19 @@ export interface GenesisProps {
   isConnected:        boolean
   totalNativeDeposited:  bigint
   quoteBalance:         bigint
-  pogQuota:           bigint
+  /// `undefined` while the read is in flight, and that is NOT the same as `0n`.
+  /// Zero means "this wallet has no attestation" and is a definite refusal; the
+  /// panel must not make that claim, nor lock the Deposit button, on a read that
+  /// has not landed. See `quotaKnown` below.
+  pogQuota:           bigint | undefined
   /// Straight from `factory.eligibility(user, hook)`.  The quota is refilled
   /// once per `quotaWindowDuration`, and only the factory can tell whether a
   /// lapsed window has already been credited back, so this is never derived
   /// client-side from a cumulative deposit total.
-  quotaRemaining:     bigint
+  ///
+  /// `undefined` while pending, on the same reasoning: a zero here reads as
+  /// "your window is spent" and would refuse an amount the factory would accept.
+  quotaRemaining:     bigint | undefined
   /// `eligibility` short-circuits on a ban and on a missing attestation into the
   /// same `(false, 0, 0)` an exhausted window produces, so the ban stamp is read
   /// alongside `pogQuota` to tell the three apart.
@@ -80,8 +87,17 @@ export function GenesisPanel(p: GenesisProps) {
   // then the cooldown, then the window budget — and `eligibility` collapses the
   // first two into the same zero the last one produces.  Mirror that order here
   // so a ban never reads as an allowance the user can simply wait out.
+  //
+  // ⚠ EVERY ONE OF THESE IS A DEFINITE REFUSAL, so none may be asserted from a
+  //   read that has not landed. `quotaKnown` is the gate: while either the
+  //   attestation or the eligibility tuple is in flight the panel says it is
+  //   still reading, rather than picking the pessimistic reading of a `0n` it
+  //   invented. Both false negatives were live — an attested wallet was shown
+  //   NO ATTESTATION with Deposit locked, and a wallet with a full window was
+  //   told its amount was above the headroom it had not been told about yet.
+  const quotaKnown      = p.pogQuota !== undefined && p.quotaRemaining !== undefined
   const banned          = p.blacklistedUntil > 0n && BigInt(p.nowSec) < p.blacklistedUntil
-  const unattested      = p.isConnected && !banned && p.pogQuota === 0n
+  const unattested      = p.isConnected && !banned && quotaKnown && p.pogQuota === 0n
   const onCooldown      = !banned && !unattested
                        && p.cooldownEnd > 0n && BigInt(p.nowSec) < p.cooldownEnd
   const quotaBlock: QuotaBlock = banned
@@ -108,8 +124,12 @@ export function GenesisPanel(p: GenesisProps) {
   })
   const banLiftsAt = formatHorizonUtc(banHorizon)
 
-  const quotaRemaining  = p.quotaRemaining
-  const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
+  // Coalesced only AFTER `quotaKnown` has been decided, so the zero below can
+  // never reach a refusal — it only feeds display and the `spendable` ceiling,
+  // both of which read as "nothing offered yet" rather than as a verdict.
+  const quotaRemaining  = p.quotaRemaining ?? 0n
+  const quotaBreached   = quotaKnown && quotaBlock === null
+                       && amountWei > 0n && amountWei > quotaRemaining
   const insufficientBal = amountWei > 0n && amountWei > p.quoteBalance
 
   // ⚠ THE "OVERSUBSCRIBED" BANNER IS GONE, along with the soft cap it was
@@ -303,6 +323,21 @@ export function GenesisPanel(p: GenesisProps) {
         tone: 'warn',
       },
       {
+        // Sits where the quota check sits in the factory's own order, because
+        // that is the check it stands in for. Not arming is the point: with the
+        // attestation or the window still in flight nothing here can tell a
+        // depositable amount from one the factory will reject, and a Deposit
+        // sent on that guess reverts `NoPogQuota` after the user has paid gas.
+        //
+        // `approve` below still outranks it, which is wanted — approving is
+        // useful, harmless and unrelated to eligibility, so the first 12s offer
+        // that rather than a spinner.
+        id: 'quota-pending',
+        active: p.isConnected && !banned && !quotaKnown && amountWei > 0n,
+        label: 'Reading your allowance…',
+        reason: 'Waiting on this wallet’s attestation and deposit window from the factory.',
+      },
+      {
         id: 'quota-exceeded',
         active: quotaBreached,
         label: 'Over your limit',
@@ -438,9 +473,12 @@ export function GenesisPanel(p: GenesisProps) {
           </div>
         )}
 
-        {p.isConnected && (
+        {/* Gated on `quotaKnown` rather than drawn with the coalesced zero: a
+            ledger reading 0 / 0 is a statement about this wallet, and it was
+            being made before either figure had arrived. */}
+        {p.isConnected && quotaKnown && (
           <QuotaLedger
-            quota={p.pogQuota}
+            quota={p.pogQuota ?? 0n}
             remaining={quotaRemaining}
             projected={amountWei > 0n ? amountWei : 0n}
             blocked={quotaBlock}

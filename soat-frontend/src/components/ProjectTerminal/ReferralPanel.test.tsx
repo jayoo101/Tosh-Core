@@ -114,6 +114,19 @@ describe('ReferralPanel · what the link is worth, said first', () => {
     expect(open.button('copy anyway')).toBeTruthy()
   })
 
+  it('says nothing about the rate while only the project leg is in flight', () => {
+    // The sibling of the case above, and it survived the first repair because
+    // `quotaKnown` was added to one read and not the other. With the quota
+    // landed and `canBindProjectReferral` still pending, every attested sharer
+    // was told the link pays 2% instead of 10% — then watched it change.
+    reads = { pogQuota: 1n, canBindProjectReferral: undefined }
+    open = show('genesis')
+
+    expect(open.text()).not.toMatch(/pays 2%, not 10%/i)
+    expect(open.text()).not.toMatch(/pays the full/i)
+    expect(open.text()).not.toMatch(/pays nothing yet/i)
+  })
+
   it('separates the 2%-only case from the dead one', () => {
     reads = { pogQuota: 1n, canBindProjectReferral: false }
     open = show('genesis')
@@ -171,5 +184,21 @@ describe('ReferralPanel · the claim block earns its space', () => {
     open = show('bonding')
 
     expect(open.text()).toMatch(/CLAIMABLE COMMISSION/i)
+  })
+
+  it('does not unmount the whole card while the claimable read is in flight', () => {
+    // The sharpest version of the `?? 0n` fault in this file: after genesis the
+    // panel returns `null` when there is nothing to collect, and an unresolved
+    // read coalesced to `0n` satisfied that test. So a launched project that
+    // owed this wallet commission showed no claim button on its own page, and
+    // /referrals became the only route to the money — which is the outcome the
+    // early return's own comment says it exists to prevent.
+    reads = {
+      pogQuota: 1n, canBindProjectReferral: true,
+      claimableReferral: undefined, referralAccrued: undefined,
+    }
+    open = show('bonding')
+
+    expect(open.text()).toMatch(/referral/i)
   })
 })

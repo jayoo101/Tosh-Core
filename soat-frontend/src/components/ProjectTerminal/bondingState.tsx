@@ -44,8 +44,14 @@ import {
 import { fmt, fmtQuote } from './format'
 import type { TierStatus } from './ShelfLadder'
 
-/** Buy-side slippage tolerance in basis points (0.5 %).  Padded into the
- *  on-chain quote and sent as `msg.value`; the excess is refunded by the hook. */
+/** Buy-side slippage tolerance in basis points (0.5 %).
+ *
+ *  Padded into `maxCost`, the CEILING argument — not into a payment. Since the
+ *  quote asset became an ERC-20 the hook pulls the true cost with
+ *  `transferFrom`, so the excess is never transferred and there is nothing to
+ *  refund; what the padding actually spends is allowance. The previous wording
+ *  described the native-value era and promised the buyer change that no longer
+ *  exists as a concept on this path. */
 const SLIPPAGE_BPS = 50n
 
 export interface BondingProps {
@@ -247,7 +253,23 @@ export function BondingStateProvider(
   // showing the old number would be worst: the amount on screen no longer
   // matches the amount typed.
   const quoteUnknown = quotePending || isQuoting
-  const maxQuoteCost = quoteCost === 0n ? 0n : quoteCost + (quoteCost * SLIPPAGE_BPS) / 10_000n
+  // ⚠ THE HEADROOM FLOORS TO ZERO ON SMALL ORDERS, and `maxCost == cost` is a
+  //   ceiling the hook can miss by one unit. `(cost * 50) / 10_000` is integer
+  //   division, so anything under 200 base units of quote gets no headroom at
+  //   all — and the quote asset has 8 decimals, not 18, so 200 units is
+  //   0.000002 BEM rather than a rounding error nobody can reach. A single
+  //   shelf tick priced there quoted exactly, sent exactly, and reverted
+  //   `CostAboveMax` on the first tick of drift.
+  //
+  //   One unit is the smallest headroom that is still headroom. It keeps the
+  //   0.5% intent everywhere it is representable and refuses to send a ceiling
+  //   that only holds if the price does not move at all.
+  const quoteSlippage = (() => {
+    if (quoteCost === 0n) return 0n
+    const bps = (quoteCost * SLIPPAGE_BPS) / 10_000n
+    return bps > 0n ? bps : 1n
+  })()
+  const maxQuoteCost = quoteCost === 0n ? 0n : quoteCost + quoteSlippage
   const insufficientBal = maxQuoteCost > 0n && maxQuoteCost > p.quoteBalance
   const gateLocked = tokenAmountWei > 0n && !unlocked
 

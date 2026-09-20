@@ -78,6 +78,13 @@ export function ReferralPanel({
     args:         userAddress ? [userAddress] : undefined,
     query:        { enabled: !!userAddress, refetchInterval: 15_000 },
   })
+  // Split for the same reason as `quotaKnown` below, and with a sharper
+  // consequence: this figure decides whether the whole card unmounts after
+  // launch. A pending or failed read coalesced to `0n` therefore removed the
+  // claim button from the project page of a launched project that owed the
+  // wallet money, leaving `/referrals` as the only route to it — the exact
+  // outcome the comment at the early return was written to prevent.
+  const claimableKnown = typeof claimableRaw === 'bigint'
   const claimable = (claimableRaw as bigint | undefined) ?? 0n
 
   // What the link has EARNED, which is not what it can withdraw: commission
@@ -126,6 +133,12 @@ export function ReferralPanel({
     args:         userAddress ? [userAddress, hookAddress] : undefined,
     query:        { enabled: !!userAddress, refetchInterval: 30_000 },
   })
+  // Third read, third instance of the same distinction. `false` here is a
+  // definite "the 8% leg will not bind for you", and while the read was in
+  // flight every attested sharer was told the link pays 2% instead of 10% — a
+  // number that then changed under them with no explanation. `pays` treats
+  // unknown as unknown and draws no strip at all.
+  const projectLegKnown = typeof projectLegRaw === 'boolean'
   const projectLegIsLive = (projectLegRaw as boolean | undefined) ?? false
 
   const { send, isPending, isConfirming } = useTxAction({
@@ -173,7 +186,10 @@ export function ReferralPanel({
   //
   // Placed after every hook rather than at the top: the reads decide the answer,
   // and returning before them would change the hook order between phases.
-  if (phase !== 'genesis' && claimable === 0n) return null
+  // `claimableKnown` is what makes "there is nothing to collect" an answer
+  // rather than an assumption. Unmounting on an unresolved read is the one
+  // failure this guard must not have.
+  if (phase !== 'genesis' && claimableKnown && claimable === 0n) return null
 
   // ── What this link is worth right now, as one line ─────────────────────────
   //
@@ -183,9 +199,11 @@ export function ReferralPanel({
   // button sat fully enabled above it, so the default path was to copy a dead
   // link and read why afterwards.
   //
-  // `null` while the quota read is in flight — see `quotaKnown`. An unknown
-  // state draws no strip rather than guessing at the pessimistic one.
-  const pays = !quotaKnown ? null
+  // `null` while EITHER read is in flight — see `quotaKnown` and
+  // `projectLegKnown`. An unknown state draws no strip rather than guessing at
+  // the pessimistic one, and both legs have to be known before the difference
+  // between "nothing", "2%" and "the full 10%" can be stated.
+  const pays = !quotaKnown || !projectLegKnown ? null
     : !hasAttestation ? {
       tone: 'text-danger' as const,
       headline: 'This link pays nothing yet',
