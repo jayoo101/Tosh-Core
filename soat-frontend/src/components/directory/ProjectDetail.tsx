@@ -29,7 +29,7 @@ import { ArrowLeft, AtSign, Globe, Send } from 'lucide-react'
 import type { ProjectRow } from '@/app/lib/supabase'
 import ProjectTerminal, { type TerminalHeaderState } from '@/components/ProjectTerminal'
 import { PHASE_BADGE } from '@/components/ProjectTerminal/HeroStats'
-import { fmt } from '@/components/ProjectTerminal/format'
+import { fmtQuote } from '@/components/ProjectTerminal/format'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
@@ -157,7 +157,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
           {tradable && live && (
             <div className="flex items-end gap-6 sm:flex-col sm:items-end sm:gap-1">
               <span className="font-mono text-section font-bold tabular-nums tracking-tight text-text-primary sm:text-hero">
-                {live.currentPrice > 0n ? fmt(live.currentPrice) : '—'}
+                {live.currentPrice > 0n ? fmtQuote(live.currentPrice) : '—'}
                 <span className="ml-1.5 text-readout font-normal text-text-secondary">
                   {QUOTE_SYMBOL} · active shelf
                 </span>

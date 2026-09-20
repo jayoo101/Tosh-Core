@@ -1517,8 +1517,21 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         //
         // `>=` rather than `==` because a donation or a rounding surplus can
         // leave this contract holding MORE than it owes, and refusing that would
-        // let anyone brick a genesis round by sending it one unit of BEM. The
-        // surplus is not credited to anyone here; it joins the LP at `launch()`.
+        // let anyone brick a genesis round by sending it one unit of BEM.
+        //
+        // WHERE A SURPLUS ACTUALLY GOES: nowhere. It is credited to no
+        // depositor, and it does NOT join the LP — `launch()` seeds the pool
+        // with `lpNative`, derived from `totalNativeDeposited`, and no path in
+        // this contract reads `balanceOf` for an amount to pay out. There is no
+        // sweep. Donated quote is locked in the hook permanently. That is
+        // acceptable (nobody is entitled to a gift nobody asked for) but it was
+        // documented here as joining the LP, which it never did.
+        //
+        // ⚠ AND IT WEAKENS THIS CHECK BY ITS OWN SIZE. The comparison is
+        //   defence-in-depth against the factory crediting an `amount` it did
+        //   not actually transfer; a pre-existing surplus of S lets a claim of
+        //   up to S pass unbacked. Nothing enforces a zero surplus, so treat
+        //   this as a guard against accident, not against a factory that lies.
         if (quoteAsset.balanceOf(address(this)) < totalNativeDeposited + amount) revert DepositNotReceived();
 
         // Per-project cap, enforced against the snapshot taken at creation so

@@ -84,8 +84,8 @@ export function HeroStats({
    * So the raise lost its bar and kept its figure. What took the empty slot is
    * the genesis clock, which passes the test the cap failed: the window is one
    * of three fixed durations chosen at `createLaunch`, it cannot be extended,
-   * and reaching the end of it actually closes deposits. It drains rather than
-   * fills — see where `pct` is derived in `index.tsx`.
+   * and reaching the end of it actually closes deposits. It fills left to
+   * right as time elapses — see `elapsedPct` in `genesisWindow`.
    *
    * The raise itself still has no percentage, because it still has no whole.
    */
@@ -109,7 +109,7 @@ export function HeroStats({
         layout="stack"
         size="figure"
         label="Price"
-        value={price > 0n ? fmt(price) : '—'}
+        value={price > 0n ? fmtQuote(price) : '—'}
         hint={price > 0n ? `${QUOTE_SYMBOL} · ${priceHint}` : priceHint}
         tone="ok"
       />

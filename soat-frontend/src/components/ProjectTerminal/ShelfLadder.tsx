@@ -174,14 +174,14 @@ export function ShelfLadder({
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle
                       font-mono text-label text-text-tertiary tabular-nums">
         <span>opening = <span className="text-text-primary">{fmtQuote(p0)} {QUOTE_SYMBOL}</span></span>
-        <span>now = <span className="text-text-primary">{fmt(spotPrice)}</span></span>
+        <span>now = <span className="text-text-primary">{fmtQuote(spotPrice)}</span></span>
         {/* A zero average is the contract's "no full window yet" signal, not a
             price of zero — the ceiling caps against the opening price until the
             window matures, which is what the fallback text has to say. */}
         <span>
           average ={' '}
           {twapPrice > 0n
-            ? <span className="text-text-primary">{fmt(twapPrice)}</span>
+            ? <span className="text-text-primary">{fmtQuote(twapPrice)}</span>
             : <span className="text-text-tertiary">SETTLING · {TWAP_WINDOW_LABEL} WINDOW · CEILING HELD AT OPENING</span>}
         </span>
       </div>

@@ -210,6 +210,14 @@ jobs:
       - name: Wrong-network checks read the wallet, not the config
         run: npm run guard:walletchain
 
+      # `fmt` / `fmtFull` default to 18 decimals. After the quote asset moved
+      # to 8-decimal BEM, headline prices and commission hints kept calling
+      # the default, so every figure was understated by 10^10 and still
+      # looked like a price. `fmtQuote` exists for this; this guard fails
+      # any call site that goes back to the default on a quote-priced name.
+      - name: Quote amounts use the quote scale
+        run: npm run guard:quoteformat
+
       # The guards above are static checks on source text; these exercise the
       # code. Both are needed: a guard cannot tell whether a rate-limit bucket
       # is actually keyed on the entry it reads, and a test cannot see a

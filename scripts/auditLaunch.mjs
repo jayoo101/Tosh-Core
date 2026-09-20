@@ -408,9 +408,9 @@ if (!within(poolEth, lpNative, 2)) {
 } else {
   console.log(`  ok    pool quote is the raise less commission      ${quote(lpNative)} expected`)
 }
-if (!within(poolTokens, pmTokenBal, 2)) {
-  notes.push(`reserves derived from L (${tok(poolTokens)}) and the manager's balance `
-    + `(${tok(pmTokenBal)}) differ by more than 2% — worth a look if it grows`)
+if (!within(poolTokens, vaultTokenBal, 2)) {
+  notes.push(`reserves derived from L (${tok(poolTokens)}) and the vault's token balance `
+    + `(${tok(vaultTokenBal)}) differ by more than 2% — worth a look if it grows`)
 }
 
 // ── Phase 2 / the shelf ladder ───────────────────────────────────────────────

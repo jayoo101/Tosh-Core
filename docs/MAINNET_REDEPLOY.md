@@ -15,14 +15,16 @@
 > are chain 4663 and are there as a record of what that redeploy destroyed — do
 > not act on them.**
 >
-> **The dials are now BEM, at 8 decimals, and this banner has already been wrong
-> about them twice.** It said ETH, then it said BNB. Today's defaults, read from
-> `src/ToshFactory.sol`: `launchFee` **9.28**, `defaultSoftCap` **928.4**,
-> `maxPogAllocationLimit` **46.4**, `MIN_SOFT_CAP_PROD` **100**, `MAX_LAUNCH_FEE`
-> **928** — all BEM. A figure here that carries no unit, or the wrong one, is the
-> failure this banner exists to prevent: `setLaunchFee(9.28e18)` is not a typo
-> that reverts on gas, it is fifty thousand times the entire BEM supply. What 56
-> should charge is still an open decision, not a value to copy — see step 3.
+> **The dials are split across two currencies, and this banner has already been
+> wrong about them three times.** It said ETH, then BNB, then "all BEM". Today's
+> defaults, read from `src/ToshFactory.sol`: `launchFee` **0.005 BNB**,
+> `MAX_LAUNCH_FEE` **0.5 BNB** — native wei, collected as `msg.value` on
+> `createLaunch`. `defaultSoftCap` **928.4 BEM**, `maxPogAllocationLimit`
+> **46.4 BEM**, `MIN_SOFT_CAP_PROD` **100 BEM** — quote, 8 decimals. A figure
+> here that carries no unit, or the wrong one, is the failure this banner
+> exists to prevent: `setLaunchFee(9.28e8)` on a native-fee factory is not a
+> BEM typo, it is 928 million BNB. What 56 should charge is still an open
+> decision, not a value to copy — see step 3.
 
 Written for the redeploy that shipped two changes: **the clock decides a
 launch** (the soft cap becomes a progress target) and **the PoG band moves to
@@ -425,28 +427,28 @@ healthy chain-97 factory every 15 minutes and reports 0 findings, while the
 mainnet deployment nobody is watching holds every kill switch.
 
 **Step 3 is not optional, and it no longer has an answer written down.** It
-used to read `setLaunchFee(0.01 ether)`, on the reasoning that the factory
-default was 0.1 ether and mainnet was charging a tenth of that. Both halves
-are obsolete twice over: the default is now **9.28 BEM**
-(`src/ToshFactory.sol`), and there is no "what mainnet charges today", because
-56 has never launched anything. The old figure was a price in ETH, and it
-cannot be carried across two re-denominations by editing the unit.
+used to read `setLaunchFee(0.01 ether)`, then `setLaunchFee(9.28e8)` after
+the BEM move. Both halves are obsolete: the fee is **native BNB again**
+(`launchFee = 0.005 ether` in `src/ToshFactory.sol`), and there is no "what
+mainnet charges today", because 56 has never launched anything. The old
+figures were prices in ETH and then BEM, and neither can be carried across by
+editing the unit.
 
 So the fee is a decision owed before the broadcast, not a value to copy out of
-this table. What constrains it: `MAX_LAUNCH_FEE` is 928 BEM, so anything
-sensible is legal; it is **pulled with `transferFrom`** on `createLaunch`, so
-the creator has to approve it first and it is the first number — and the first
-extra signature — a creator meets; and it is settable afterwards by the Safe,
-so it is reversible in a way the immutable dials are not. Left at the default,
-the first creator pays 9.28 BEM to open a round — whether that is right is the
+this table. What constrains it: `MAX_LAUNCH_FEE` is **0.5 BNB**, so anything
+sensible is legal; it is collected as **`msg.value`** on `createLaunch`, so
+the creator pays it in the same transaction that opens the round and does
+**not** approve BEM first; and it is settable afterwards by the Safe, so it
+is reversible in a way the immutable dials are not. Left at the default, the
+first creator pays 0.005 BNB to open a round — whether that is right is the
 question, and it is the kind of question a runbook must not answer by inertia.
 
-**Write the figure in base units when you send it.** BEM has 8 decimals, so
-`setLaunchFee(9.28e8)` is the fee and `setLaunchFee(9.28e18)` is 9.28 billion
-BEM — roughly fifty thousand times the entire supply, which reverts against
-`MAX_LAUNCH_FEE` rather than landing. The near miss that does land is an
-order-of-magnitude slip inside the ceiling; `test_setLaunchFee_rejectsOrderOfMagnitudeSlip`
-is the guard, and it only covers the extreme.
+**Write the figure in native wei when you send it.** `setLaunchFee(0.005
+ether)` is the factory default. `setLaunchFee(9.28e8)` is 928 million BNB
+and reverts against `MAX_LAUNCH_FEE`. The near miss that does land is an
+order-of-magnitude slip inside the 0.5 BNB ceiling;
+`test_setLaunchFee_rejectsOrderOfMagnitudeSlip` is the guard, and it only
+covers the extreme.
 
 **Step 7 has a check, and it is not in CI on purpose.** `npm run check:quote`
 asks the factory what it is denominated in and compares that against
@@ -477,10 +479,11 @@ redeploying.
   reads `factory.quoteAsset()` to find it, which only a post-BEM factory can
   answer. The two claims were read as one.
 
-**Steps 7 and 8 belong together.** The committed frontend copy says the soft
-cap is a progress target. That is true of the new factory and false of every
-hook on the old one, so shipping the copy while the site still points at the
-old factory tells existing depositors the wrong thing about their refunds.
+**Steps 7 and 8 belong together.** The committed frontend copy shows a
+countdown to the genesis deadline and does not name a raise target. That is
+true of the new factory and false of every hook that still treated `softCap`
+as a refund door, so shipping the copy while the site still points at an old
+factory tells existing depositors the wrong thing about their refunds.
 
 ---
 

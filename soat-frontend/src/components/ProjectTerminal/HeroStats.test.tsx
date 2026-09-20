@@ -93,4 +93,13 @@ describe('HeroStats genesis countdown', () => {
     expect(container.textContent).toContain('Ladder')
     expect(container.textContent).not.toContain('Raised')
   })
+
+  it('draws p0 on the quote scale, not the 18-decimal default', () => {
+    // p0 is quote-wei per whole token. 1000n is 0.00001 quote. Drawn at 18
+    // decimals it is 1.00e-15 — ten orders small, and still a plausible
+    // meme-coin price, which is why the inversion survived a look.
+    const { container } = render('genesis')
+    expect(container.textContent).toContain('1.00e-5')
+    expect(container.textContent).not.toContain('1.00e-15')
+  })
 })

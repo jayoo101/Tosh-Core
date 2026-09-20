@@ -46,7 +46,7 @@
  *
  * Read-only.  It holds no key, signs nothing and sends nothing.
  *
- * Usage:  node scripts/preflightLadderListing.mjs <token> [treasury]
+ * Usage:  node scripts/preflightLadderListing.mjs <token> <treasury>
  * Exit:   0 safe to sign · 1 do not sign · 2 could not determine
  */
 
@@ -58,14 +58,11 @@ const MAINNET_ID = 56n
 // `BSC_RPC` is the same name the fork suites, the preflight and the frontend's
 // server leg already read.
 //
-// ⚠ THE LIVE_TREASURY BELOW IS ON CHAIN 4663 and there is no chain-56 equivalent
-//   yet, because nothing is deployed there. Every check downstream that compares
-//   against it is therefore meaningless on 56 and will say so through the
-//   chain-id note below. Replace the address in the same edit as the first BSC
-//   ladder deploy; leaving a retired address here is safer than a plausible
-//   guess, since a wrong-but-live address is the one that gets signed against.
+// No default treasury. The previous one was a retired chain-4663 reservoir
+// (`0x255722…`), and omitting the argument ran every check against that
+// address on a BSC RPC — which is the shape of a "safe to sign" that is
+// talking about a contract that is not on the chain being signed for.
 const RPC = process.env.BSC_RPC || 'https://bsc-dataseed1.bnbchain.org'
-const LIVE_TREASURY = '0x255722226720914eF5B2CD54647f21f584BD4Ea2'
 
 // `error TwapNotMature()`, kept only to decode a revert that arrives without an
 // ABI match. It is NOT a bytecode fingerprint — see the header for why the scan
@@ -101,9 +98,11 @@ const HOOK_ABI = [
 ]
 
 const token = process.argv[2]
-const treasuryAddr = process.argv[3] || LIVE_TREASURY
-if (!token || !ethers.isAddress(token)) {
-  console.error('usage: node scripts/preflightLadderListing.mjs <token> [treasury]')
+const treasuryAddr = process.argv[3]
+if (!token || !ethers.isAddress(token) || !treasuryAddr || !ethers.isAddress(treasuryAddr)) {
+  console.error('usage: node scripts/preflightLadderListing.mjs <token> <treasury>')
+  console.error('  treasury is required. There is no default — a missing one used to')
+  console.error('  silently point at a retired chain-4663 address on a BSC RPC.')
   process.exit(1)
 }
 
@@ -115,8 +114,7 @@ const provider = new ethers.JsonRpcProvider(RPC)
 const net = await provider.getNetwork()
 console.log(`rpc      ${RPC}`)
 console.log(`chain    ${net.chainId}${net.chainId === MAINNET_ID ? '' : `  (NOT mainnet ${MAINNET_ID})`}`)
-console.log(`treasury ${ethers.getAddress(treasuryAddr)}` +
-  `${ethers.getAddress(treasuryAddr) === ethers.getAddress(LIVE_TREASURY) ? '  (the live reservoir)' : ''}`)
+console.log(`treasury ${ethers.getAddress(treasuryAddr)}`)
 console.log(`token    ${ethers.getAddress(token)}`)
 console.log()
 

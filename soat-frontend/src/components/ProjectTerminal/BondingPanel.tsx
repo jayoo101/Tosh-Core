@@ -182,7 +182,7 @@ export function BondingBuyPanel() {
               label="ORDER SIZE"
               value={quoteUnknown ? '…' : isDust ? 'Below minimum' : 'Accepted'}
               tone={isDust ? 'warn' : 'ok'}
-              hint={isDust ? 'Raise the amount until it costs at least a wei' : undefined}
+              hint={isDust ? `Raise the amount until it costs at least 0.00000001 ${QUOTE_SYMBOL}` : undefined}
             />
           </div>
         </div>

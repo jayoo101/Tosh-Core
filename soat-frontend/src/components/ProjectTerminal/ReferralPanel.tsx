@@ -13,7 +13,7 @@ import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { fmtQuote, fmtFull } from './format'
+import { fmtQuote, fmtQuoteFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
@@ -269,7 +269,7 @@ export function ReferralPanel({
           value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
           hint={claimable === 0n
             ? `${fmtQuote(accrued)} ${QUOTE_SYMBOL} earned · unlocks at launch()`
-            : fmtFull(claimable, 18)}
+            : fmtQuoteFull(claimable)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
       )}

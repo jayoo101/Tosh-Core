@@ -12,7 +12,8 @@
 //     platformTreasury, ladderTreasury, quoteAsset).  Infinity splits the AMM:
 //     the CL manager runs the pool, the Vault holds every balance. The quote
 //     asset is an implementation-level immutable — same token for every clone.
-//   • createLaunch is nonpayable: it pulls the fee with transferFrom
+//   • createLaunch is payable: the launch fee is native BNB as msg.value.
+//     The quote asset is pulled only on deposit / shelf mint, not here.
 //   • deposit(hook, referrer, amount) is nonpayable: the amount is an argument
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —

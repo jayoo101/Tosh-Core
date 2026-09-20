@@ -16,7 +16,7 @@ import {
   Badge, Card, PageHeader, Readout, ReadoutGrid, Skeleton,
   ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { fmtQuote, fmtFull } from '@/components/ProjectTerminal/format'
+import { fmtQuote, fmtQuoteFull } from '@/components/ProjectTerminal/format'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL LEDGER  ·  every project that owes this wallet, in one place
@@ -130,14 +130,14 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
           layout="stack"
           label="CLAIMABLE"
           value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
-          hint={claimable === 0n ? 'unlocks at launch()' : fmtFull(claimable, 18)}
+          hint={claimable === 0n ? 'unlocks at launch()' : fmtQuoteFull(claimable)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
         <Readout
           layout="stack"
           label="EARNED"
           value={`${fmtQuote(accrued)} ${QUOTE_SYMBOL}`}
-          hint={accrued === 0n ? 'no deposits through your link yet' : fmtFull(accrued, 18)}
+          hint={accrued === 0n ? 'no deposits through your link yet' : fmtQuoteFull(accrued)}
           tone={accrued > 0n ? 'ink' : 'mute'}
         />
         <Readout
@@ -268,7 +268,7 @@ export function ReferralLedger() {
               layout="stack"
               label="CLAIMABLE NOW"
               value={`${fmtQuote(totals.claimable)} ${QUOTE_SYMBOL}`}
-              hint={totals.claimable === 0n ? 'across every launched project' : fmtFull(totals.claimable, 18)}
+              hint={totals.claimable === 0n ? 'across every launched project' : fmtQuoteFull(totals.claimable)}
               tone={totals.claimable > 0n ? 'ok' : 'mute'}
               loading={loading}
             />

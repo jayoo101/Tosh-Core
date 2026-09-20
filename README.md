@@ -457,7 +457,7 @@ abstract boxes is harder to check than one you can paste into an explorer, not
 because they are production.
 
 ```
-ToshFactory (0x38067B1B…) ──────────► ToshLadderTreasury (0x4e37752e…)
+ToshFactory (0x51Bb18FE…) ──────────► ToshLadderTreasury (0x5BBcA0BE…)
    ├─ createLaunch / PoG verification      ├─ revenue in: shelf cut, buy-side
    ├─ genesis deposit gateway              │  tax, orphaned commission
    │  and two-tier referral ledger         └─ only way out ──► 0xdead (buy & burn)
