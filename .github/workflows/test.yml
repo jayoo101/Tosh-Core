@@ -566,8 +566,14 @@ jobs:
           PUBLISHED=$(awk '{print $1}' /tmp/aderyn.sha256)
           ACTUAL=$(sha256sum /tmp/aderyn.tar.xz | awk '{print $1}')
           [ "$PUBLISHED" = "$ACTUAL" ] || { echo "aderyn checksum mismatch"; exit 1; }
-          tar -xJf /tmp/aderyn.tar.xz -C /tmp
-          install -m 0755 "$(find /tmp -name aderyn -type f | head -1)" /usr/local/bin/aderyn
+          # Extract into a dedicated directory and address the binary by its
+          # known path. Searching /tmp for it walks the runner's whole temp
+          # tree, which both floods the log with "Permission denied" on
+          # systemd's private directories and would happily install any other
+          # file that happened to be called aderyn.
+          mkdir -p /tmp/aderyn-dist
+          tar -xJf /tmp/aderyn.tar.xz -C /tmp/aderyn-dist --strip-components=1
+          install -m 0755 /tmp/aderyn-dist/aderyn /usr/local/bin/aderyn
           aderyn --version
 
       - name: Check the Aderyn triage matches a real run
