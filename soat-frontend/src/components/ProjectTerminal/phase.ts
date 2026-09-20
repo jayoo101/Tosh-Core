@@ -12,11 +12,19 @@ export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
 ///     raise size does NOT open it — the creator still has to call `launch()`,
 ///     and cannot even do that until the genesis deadline passes. Showing the
 ///     bonding panel early handed users a mint button that could only revert.
-///   • Deposits stay open for the whole genesis window. The soft cap is a
-///     progress target, not a floor: time-up is what opens `launch()`, and a
-///     raise of any non-zero size may seed the pool.
+///   • Deposits stay open for the whole genesis window. There is no raise
+///     target and nothing reads the soft cap: time-up is what opens
+///     `launch()`, on whatever was raised.
 ///   • Refunds open on either of two failures, and they run on different
 ///     clocks — see `ladderViable` below.
+///
+/// ⚠ EVERY COMPARISON BELOW IS STRICT WHERE THE CONTRACT'S IS, and that is not
+///   pedantry. `canRefund()` needs `block.timestamp > genesisDeadline`, and
+///   `launch()` stays open through `genesisDeadline + LAUNCH_WINDOW`
+///   inclusive. A `>=` on either boundary puts this page one second ahead of
+///   the chain and mounts a refund panel whose button reverts with "Refund not
+///   available" — the one failure mode a derived phase must not invent, since
+///   the user cannot tell a UI that is early from a chain that is broken.
 ///
 /// PRECONDITION: `nowSec` must be a synced wall clock, never the shared clock
 /// store's `CLOCK_UNSYNCED` (0).  At 0 every comparison below reads as "the
@@ -58,9 +66,9 @@ export function resolvePhase({
   // would put the page a week behind the chain — `awaiting_launch`, with a
   // countdown to a deadline that means nothing, over a refund the depositor
   // could already take.
-  if (ladderViable === false) return 'refund'
+  if (ladderViable === false && BigInt(nowSec) > genesisDeadline) return 'refund'
 
-  const zombie = BigInt(nowSec) >= genesisDeadline + LAUNCH_WINDOW_SECONDS
+  const zombie = BigInt(nowSec) > genesisDeadline + LAUNCH_WINDOW_SECONDS
   return zombie ? 'refund' : 'awaiting_launch'
 }
 

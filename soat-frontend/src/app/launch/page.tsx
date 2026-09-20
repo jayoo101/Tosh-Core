@@ -29,11 +29,12 @@
  * the guard that a failed search used to provide by accident — refusing a launch
  * whose factory dials moved mid-flight — is an explicit `CapsChanged` check.
  *
- * NO "GENESIS TARGET" FIELD. See `LaunchPreview` — the minimum raise is one
- * factory dial shared by every launch, not a per-launch input, so an editable
- * target would be a number the creator sets and the contract ignores. The
- * window is genuinely theirs to choose and stays a control; the raise it is
- * measured against is reported beside it.
+ * NO "GENESIS TARGET" FIELD, AND NOTHING THIS PAGE COULD PUT IN ITS PLACE.
+ * There is no raise target on this protocol: the soft cap gates nothing, and
+ * the only floor is `ladderViable()` — a property of the shelf arithmetic, not
+ * a number anybody sets. An editable target would be a figure the creator
+ * types and the contract ignores. The window is genuinely theirs to choose and
+ * stays a control.
  *
  * THE THREE PANELS THE MOCK HAS NO ROOM FOR — the immutable pact, the
  * two-transaction cost breakdown and the live factory dials — are all kept, and
@@ -296,10 +297,16 @@ export default function GenesisConsole() {
    *
    * A `boolean` here made consent portable between different pacts, which is
    * the one thing it must not be. The creator agrees to a specific launch fee
-   * and a specific minimum raise; both are owner-tunable dials read live off
-   * the factory. Storing only "yes" let a tick survive the numbers it was
-   * given for — the same failure the salt effect below already guards against
-   * for the soft cap and the wallet cap, which is where the shape came from.
+   * against a specific set of factory dials, all owner-tunable and all read
+   * live off the factory. Storing only "yes" let a tick survive the numbers it
+   * was given for — the same failure the salt effect below already guards
+   * against for the soft cap and the wallet cap, which is where the shape came
+   * from.
+   *
+   * `softCap` is still one of the two, and NOT because it is a term the
+   * creator is agreeing to — nothing reads it. It is an immutable constructor
+   * arg, so it decides the CREATE2 address, and a tick that survived it moving
+   * would be consent to a deploy at a different address than the one quoted.
    */
   const [ackedTerms, setAckedTerms] = useState<{ fee: bigint; softCap: bigint } | null>(null)
   const [projectAdmin, setProjectAdmin] = useState('')
@@ -964,7 +971,7 @@ export default function GenesisConsole() {
         id: 'dials-unread',
         active: !dialsReady && !dialsFailed,
         label: 'Reading the terms…',
-        reason: 'Fetching the launch fee, the raise target and the per-wallet cap before quoting what you owe.',
+        reason: 'Fetching the launch fee and the factory dials your hook address is derived from, before quoting what you owe.',
         tone: 'neutral',
       },
       {
@@ -1425,10 +1432,8 @@ export default function GenesisConsole() {
                       WRONG WINDOW AND POINTED IT AT THE WRONG PERSON.
 
                       `LAUNCH_WINDOW_SECONDS` is the creator's deadline to call
-                      `launch()` after genesis closes. Refunds open when it
-                      EXPIRES, and `canRefund()` tests nothing but
-                      `block.timestamp > genesisDeadline + LAUNCH_WINDOW`, so
-                      once open they never close.
+                      `launch()` after genesis closes. Letting it expire is what
+                      opens refunds, and once open they never close.
 
                       So the old label was wrong twice over: these 7 days are
                       the window before refunds rather than the window for them,
@@ -1436,7 +1441,13 @@ export default function GenesisConsole() {
                       of this panel is the creator, and "Refund window: 7 days"
                       invites them to conclude their depositors have a week to
                       pull out — when in fact THEY have a week to ship, and
-                      missing it is what hands the money back. */}
+                      missing it is what hands the money back.
+
+                      It is still only HALF the refund story, which is why the
+                      footnote below carries the other half rather than this
+                      row: a raise too small to carry a ladder refunds at
+                      genesis close and never reaches this clock at all. That
+                      is not a deadline, so it is not a row here. */}
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Your deadline to launch</dt>
                     <dd className="text-text-primary">
@@ -1450,7 +1461,10 @@ export default function GenesisConsole() {
                   claims and the rest to pool liquidity, which is what opens the market
                   above what they paid. The clock starts when genesis closes: open the
                   pool inside it, or every depositor can take back 100% of their{' '}
-                  {QUOTE_SYMBOL} — with no deadline of their own to beat.
+                  {QUOTE_SYMBOL} — with no deadline of their own to beat. A raise that
+                  finishes too small to open a pool skips the clock entirely and refunds
+                  the moment genesis closes; there is nothing you could have done with
+                  the week, so you do not get one.
                 </p>
               </Card>
 
@@ -1595,18 +1609,19 @@ export default function GenesisConsole() {
                     <>
                       I accept the immutable pact: {feeDisplay} {NATIVE_SYMBOL} launch fee, a genesis
                       window that cannot close early, and a{' '}
-                      <span className="text-warning">full refund</span> if the{' '}
-                      {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
+                      <span className="text-warning">full refund</span> to every depositor if I
+                      let the {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading
+                      expire — or, whatever I do, if the raise finishes too small to open a pool.
                     </>
                   ) : dialsFailed ? (
                     <span className="text-danger">
-                      The factory did not answer on chain {TARGET_CHAIN_ID}, so the launch fee and
-                      raise target are unknown. There are no terms to accept yet.
+                      The factory did not answer on chain {TARGET_CHAIN_ID}, so the launch fee is
+                      unknown. There are no terms to accept yet.
                     </span>
                   ) : (
                     <span className="text-text-tertiary">
-                      Reading the launch fee and the raise target off the factory — the pact
-                      appears here with its real numbers in it.
+                      Reading the launch fee off the factory — the pact appears here with its
+                      real numbers in it.
                     </span>
                   )}
                 </span>

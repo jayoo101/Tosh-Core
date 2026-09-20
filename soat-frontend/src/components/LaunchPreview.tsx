@@ -13,12 +13,15 @@ import { ProjectLogo } from '@/components/ProjectLogo'
  *
  * WHAT THE MOCK'S THIRD ROW ASKED FOR AND THIS DOES NOT OFFER. The prototype
  * labels it "Genesis target" and wires it to an editable field, which this
- * protocol has no room for: the minimum raise is `defaultSoftCap`, a single
- * owner-tunable dial on the factory that every launch is measured against. A
- * per-launch target would be a number the creator could type and the contract
- * would ignore — the same class of fiction as the mock's price column. The row
- * survives, because a creator does need to know what their raise has to clear,
- * and it is labelled as the factory's number rather than theirs.
+ * protocol has no room for, and the reason is stronger than "the creator does
+ * not get to set it": THERE IS NO TARGET AT ALL. `defaultSoftCap` gates
+ * nothing — deposits run past it, `launch()` never reads it, a raise far below
+ * it opens a pool exactly the same way. The only floor is `ladderViable()`,
+ * which is a property of the shelf arithmetic rather than a dial, and a
+ * creator who cleared it has nothing left to aim at. So the row is gone
+ * outright rather than relabelled to the factory's number: an earlier pass
+ * kept it "because a creator does need to know what their raise has to clear",
+ * and that sentence was describing a requirement that does not exist.
  *
  * The shell is the reference's, at its measurements: a bordered header strip
  * carrying the eyebrow, then one padded block with the `.tosh-glow` overlay

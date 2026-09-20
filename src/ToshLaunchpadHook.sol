@@ -824,8 +824,23 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return ToshCloneLib.argProjectTreasury();
     }
 
-    /// @notice Minimum ETH that must be raised by `genesisDeadline`.
-    ///         Snapshotted from `ToshFactory.defaultSoftCap` at deploy time.
+    /// @notice ⚠ READ BY NOTHING. Snapshotted from `ToshFactory.defaultSoftCap`
+    ///         at deploy time and kept only because it is a clone immutable,
+    ///         so it feeds the CREATE2 address.
+    ///
+    /// @dev    THIS DOCSTRING SAID "minimum ETH that must be raised by
+    ///         `genesisDeadline`", which was the last place in the contract
+    ///         still asserting it. No raise has to clear it: `deposit` does not
+    ///         stop at it, `launch()` does not check it, and `canRefund()` does
+    ///         not read it. A round far below it launches normally, and that is
+    ///         the ordinary case rather than an edge one.
+    ///
+    ///         The only floor that exists is `ladderViable()`, which is a
+    ///         property of the shelf arithmetic and not a dial anybody sets.
+    ///         Do not reach for this value to approximate it — they are
+    ///         unrelated numbers that were briefly confused for each other, and
+    ///         `MIN_SOFT_CAP_PROD` was documented as a defence it could not
+    ///         provide precisely because of that confusion.
     function softCap() public view returns (uint256) {
         return ToshCloneLib.argSoftCap();
     }
@@ -1589,10 +1604,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         next time `GENESIS_LP_SUPPLY`, `SHELF_PREMIUM_BPS` or
     ///         `TIER_STEP_E18` moves.
     ///
-    ///         Not a soft-cap check. The cap is a progress target and gates
-    ///         nothing; this is about the amount actually raised, net of the
-    ///         commission carve — so the deposit total that clears it sits a
-    ///         little above the bare 21.042 whenever referrers are involved.
+    ///         Not a soft-cap check. Nothing reads the cap at all; this is
+    ///         about the amount actually raised, net of the commission carve —
+    ///         so the deposit total that clears it sits a little above the bare
+    ///         21.042 whenever referrers are involved.
     function ladderViable() public view returns (bool) {
         uint256 lpQuote = _projectedLpQuote();
         if (lpQuote == 0) return false;
@@ -1624,8 +1639,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///             lapses. Here the round COULD have opened a pool, so the
     ///             window is the creator's to use and the wait is the point.
     ///
-    ///         The soft cap is neither of them. It is a progress target and has
-    ///         gated nothing since it became one.
+    ///         The soft cap is neither of them, and is not a third: nothing
+    ///         reads it.
     function canRefund() public view returns (bool) {
         if (launched) return false;
         if (block.timestamp <= genesisDeadline) return false;
@@ -1679,8 +1694,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Finalise genesis: seed the ETH/token V4 pool, lock the LP, and
     ///         open the Phase-2 ladder.
     ///
-    ///   1. Enforce the 7-day launch window. The soft cap is a progress
-    ///      target, not a gate: any non-zero raise may open the pool.
+    ///   1. Enforce the 7-day launch window. There is no raise target: any
+    ///      raise that can carry a ladder may open the pool, however far below
+    ///      the soft cap it lands.
     ///   2. Split the raise: 90 % → LP, 10 % → referral commission pool.
     ///   3. Forward orphaned commission to the ladder treasury.
     ///   4. Mint 8.4 M tokens; 3.78 M into the LP, 4.62 M held for claims.
@@ -1722,10 +1738,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         //
         // `MIN_SOFT_CAP_PROD` was documented as "the entire defence" against
         // this, and it is not one. It floors `setDefaultSoftCap`, i.e. the CAP,
-        // and the cap has not gated anything since it became a progress target —
-        // `launch()` opens on any non-zero raise and `canRefund()` reads only the
-        // clock. A raise far below its cap is the ordinary case, so the floor was
-        // only ever protecting a quantity nobody was checking.
+        // and no code path reads the cap: deposits do not stop at it, `launch()`
+        // does not check it, `canRefund()` does not either. A raise far below its
+        // cap is the ordinary case, so the floor was only ever protecting a
+        // quantity nobody was checking.
         //
         // It went unnoticed because an 18-decimal quote asset made the window
         // unreachable: any BNB raise worth opening a pool for produced `p0` in

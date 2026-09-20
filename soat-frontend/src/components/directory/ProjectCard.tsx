@@ -266,7 +266,11 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
 
       {p.tab === 'archived' && (
         <div className="mt-card rounded-input border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-micro uppercase text-danger">
-          Launch window closed · deposits refundable
+          {/* NOT "launch window closed". A raise too small to open a pool is
+              archived the moment genesis ends, with most of the window still
+              unspent, so naming the window would be false on half these cards.
+              The refund is what both failures have in common. */}
+          Refunds open · full deposit reclaimable
         </div>
       )}
 

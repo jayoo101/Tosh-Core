@@ -71,4 +71,28 @@ describe('resolvePhase', () => {
   it('reads an unresolved deadline as loading, not as expired', () => {
     expect(at(0, { genesisDeadline: 0n, ladderViable: false })).toBe('genesis')
   })
+
+  /**
+   * Both boundaries are strict in the contract, and a `>=` on either one puts
+   * this page a second ahead of the chain — offering a refund whose button
+   * reverts with "Refund not available".
+   *
+   *   deposit()   reverts at  t >= genesisDeadline
+   *   launch()    reverts at  t <  genesisDeadline  and at  t > deadline + WINDOW
+   *   canRefund() requires    t >  genesisDeadline
+   *
+   * So at t == genesisDeadline exactly, and again at t == deadline + WINDOW
+   * exactly, the only true statement is "launch is still open, refunds are
+   * not" — which is `awaiting_launch` in both cases, including for a raise
+   * that can never launch. That last one reads as a wrong answer and is not:
+   * for that one second the chain will refuse the launch AND refuse the
+   * refund, and the page's job is to report the state, not to improve on it.
+   */
+  it('does not open refunds one second before the contract does', () => {
+    expect(at(Number(DEADLINE), { ladderViable: false })).toBe('awaiting_launch')
+    expect(at(Number(DEADLINE) + 1, { ladderViable: false })).toBe('refund')
+
+    expect(at(Number(DEADLINE) + WINDOW, { ladderViable: true })).toBe('awaiting_launch')
+    expect(at(Number(DEADLINE) + WINDOW + 1, { ladderViable: true })).toBe('refund')
+  })
 })

@@ -66,9 +66,11 @@ const PHASES: {
     key: 'launching',
     label: 'Awaiting launch',
     // The mock reads "Floor cleared · ladder deploying". Nothing deploys by
-    // itself: `launch()` is creator-only, and the soft cap is not a gate —
-    // this phase is "genesis window closed, creator has not called launch()".
-    // See v0 audit §D2. `canRefund()` reads only the 7-day launch window.
+    // itself: `launch()` is creator-only, and no raise target gates it — this
+    // phase is "genesis window closed, a launch is still possible, creator has
+    // not called it". See v0 audit §D2. A raise that CANNOT launch never lands
+    // here; it goes straight to `archived`, because `canRefund()` opens for it
+    // at genesis close.
     blurb: 'Window closed · waiting on creator',
     pip: 'bg-warning',
   },
@@ -81,7 +83,11 @@ const PHASES: {
   {
     key: 'archived',
     label: 'Archived',
-    blurb: 'Launch window expired · deposits refundable',
+    // NOT "launch window expired". Two failures land here and only one of them
+    // ran out of time: a raise too small to open a pool is archived at genesis
+    // close, with six days of window still on the clock. The refund is the
+    // half that is true of both.
+    blurb: 'Refunds open · full deposit reclaimable',
     pip: 'bg-text-secondary',
   },
 ]

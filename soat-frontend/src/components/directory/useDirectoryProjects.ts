@@ -5,7 +5,7 @@ import { useReadContract, useReadContracts } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI, LAUNCH_WINDOW_SECONDS,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI,
   QUOTE_DECIMALS,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
@@ -20,6 +20,8 @@ export interface DirectoryProject {
   launched:        boolean
   genesisDeadline: bigint
   totalNative:        bigint
+  /** The hook's `canRefund()`. The `archived` tab is this and nothing else. */
+  canRefund:       boolean
   symbol:          string
   name:            string
   logoUrl:         string | null
@@ -30,6 +32,30 @@ export interface DirectoryProject {
 }
 
 const SCAN_DEPTH = 48
+
+/**
+ * The per-hook reads, in the order `rows` unpacks them.
+ *
+ * ONE list, so the stride cannot drift from the batch. These were written out
+ * as literals in the `useReadContracts` call with a separate `i * 3` below and
+ * a comment warning that the two "silently mis-read every field if they
+ * disagree" — which is a hazard, not a mitigation. Adding `canRefund` was
+ * exactly the edit that comment was afraid of, so the length now comes from
+ * the list itself.
+ *
+ * `canRefund` costs the chain call `softCap` used to, and buys the one thing
+ * the tabs cannot work out locally: whether a closed genesis owes refunds
+ * today or in a week. The soft cap bought nothing — by the time it came out it
+ * was displayed nowhere and bucketed on nothing.
+ */
+const HOOK_READS = [
+  'launched',
+  'genesisDeadline',
+  'totalNativeDeposited',
+  'canRefund',
+] as const
+
+const READS_PER_HOOK = HOOK_READS.length
 
 interface RegistryRow {
   name:          string
@@ -43,26 +69,39 @@ interface RegistryRow {
   telegram:      string | null
 }
 
-/// Order matters.
-///
 /// Order matters, and neither boundary is a funding level.
 ///
 ///   • `launching` once fired as soon as the soft cap was touched, while the
 ///     window was still open. Nothing is launching then: deposits are still
 ///     accepted and the creator cannot call `launch()` until the deadline
 ///     passes.
-///   • After the deadline, every unlaunched raise is `launching` until the
-///     7-day launch window lapses. Filing an under-target raise as `archived`
-///     advertised a refund the hook would reject.
+///   • After the deadline, an unlaunched raise is `launching` only while a
+///     launch is still possible. `archived` means the refund door is open.
+///
+/// ⚠ THIS USED TO DERIVE `archived` FROM THE 7-DAY CLOCK, and that is now a
+///   week late on every raise too small to carry a ladder. Those refund the
+///   moment genesis closes — `launch()` is arithmetically impossible on them,
+///   so there is no window to wait out — and the old rule filed them under
+///   `launching` for seven days: a countdown to a launch that could never
+///   happen, sitting on top of a refund the depositor could already take.
+///
+///   The justification that used to be here read "filing an under-target raise
+///   as `archived` advertised a refund the hook would reject". That sentence
+///   was true of the old hook and is now exactly backwards.
+///
+///   So the tab reads `canRefund()` instead of re-deriving it. That view is
+///   the contract's own answer and already folds in both doors, which is the
+///   whole reason it is worth a chain call: any local re-derivation is a
+///   second copy of a rule that has now changed once.
 ///
 /// ⚠ THE SOFT CAP PARAMETER IS GONE, and its absence is the point rather than
 ///   a tidy-up. It was `_softCap`, underscored because this function never
 ///   read it — two revisions of a tab rule that both concluded the raise's
-///   size decides nothing about its phase. Only `launched` and the clock do.
-///   Keeping the argument invited the next reader to wire it back in.
-function bucket(
+///   size decides nothing about its phase. Keeping the argument invited the
+///   next reader to wire it back in.
+export function bucket(
   launched: boolean,
-  _totalEth: bigint,
+  canRefund: boolean,
   genesisDeadline: bigint,
   nowSec: number,
 ): DirectoryTab {
@@ -71,8 +110,10 @@ function bucket(
   // nowSec === 0 means the clock has not ticked yet; do not call it expired.
   if (nowSec === 0 || Number(genesisDeadline) > nowSec) return 'live'
 
-  const launchWindowEnd = Number(genesisDeadline) + Number(LAUNCH_WINDOW_SECONDS)
-  return nowSec < launchWindowEnd ? 'launching' : 'archived'
+  // A failed read defaults `canRefund` to false, which lands here as
+  // `launching`. That is the safe direction: it understates a refund rather
+  // than advertising one the hook would reject.
+  return canRefund ? 'archived' : 'launching'
 }
 
 /**
@@ -192,14 +233,9 @@ export function useDirectoryProjects() {
   })
 
   const phaseQuery = useReadContracts({
-    contracts: launches.flatMap(l => [
-      { address: l.hook, abi: HOOK_ABI, functionName: 'launched'          as const },
-      { address: l.hook, abi: HOOK_ABI, functionName: 'genesisDeadline'   as const },
-      { address: l.hook, abi: HOOK_ABI, functionName: 'totalNativeDeposited' as const },
-      // No `softCap` read. Dropping it took a chain call per project off the
-      // grid — 48 of them at `SCAN_DEPTH` — for a figure nothing displayed or
-      // bucketed on any more.
-    ]),
+    contracts: launches.flatMap(l =>
+      HOOK_READS.map(functionName => ({ address: l.hook, abi: HOOK_ABI, functionName })),
+    ),
     query: {
       enabled: launches.length > 0,
       refetchInterval: 20_000,
@@ -215,20 +251,22 @@ export function useDirectoryProjects() {
     const ident = identityQuery.data
     const out: Omit<DirectoryProject, 'tab'>[] = []
     for (let i = 0; i < launches.length; i++) {
-      // Three reads per hook, not four. This stride moves with the contract
-      // list above and silently mis-reads every field if the two disagree.
-      const off = i * 3
+      // Four reads per hook. This stride moves with the contract list above
+      // and silently mis-reads every field if the two disagree — it was three
+      // until `canRefund` joined the batch.
+      const off = i * READS_PER_HOOK
       const ioff = i * 2
       const l = launches[i]
       const launched        = d[off]?.status === 'success' ? (d[off].result as boolean) : false
       const genesisDeadline = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
       const totalNative        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
+      const canRefund       = d[off + 3]?.status === 'success' ? (d[off + 3].result as boolean) : false
       const symbol          = ident?.[ioff]?.status === 'success' ? (ident[ioff].result as string) : '???'
       const name            = ident?.[ioff + 1]?.status === 'success' ? (ident[ioff + 1].result as string) : 'Unknown'
       const reg             = registry.get(l.token.toLowerCase())
       out.push({
         ...l,
-        launched, genesisDeadline, totalNative,
+        launched, genesisDeadline, totalNative, canRefund,
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
@@ -248,7 +286,7 @@ export function useDirectoryProjects() {
   // below pure and lets it hold its result until a tab genuinely flips.
   const tabKey = useMemo(
     () => rows
-      .map(r => bucket(r.launched, r.totalNative, r.genesisDeadline, nowSec))
+      .map(r => bucket(r.launched, r.canRefund, r.genesisDeadline, nowSec))
       .join(','),
     [rows, nowSec],
   )
