@@ -115,8 +115,8 @@ deployed anywhere, and with `56` undeployed that is the only kind available.
 
 | Contract | Address |
 |---|---|
-| `ToshFactory` | `0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34` |
-| `ToshLadderTreasury` | `0x20dE906A96FfB89BE6fd6267A0876A68017792F7` |
+| `ToshFactory` | `0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE` |
+| `ToshLadderTreasury` | `0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA` |
 | Quote asset (`MockQuoteAsset`, 8 decimals, `mBEM`) | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 
 Deployed 2026-09-19 from `script/Deploy.s.sol`, and owned by the deployer EOA
@@ -143,7 +143,11 @@ live — see `docs/BEM_QUOTE_ASSET.md` §1.2.
 > `0xB224f26a323320376c0b4C6a3228533FA63E5bBd` / treasury
 > `0x79de222644E8BBeea6FC55815CCBE9FF136D7674`, deployed 2026-09-17 at block
 > 131563800 from commit `1030eae`, predates the BEM denomination: no
-> `quoteAsset()`, `deposit` still payable, `launchFee` 0.35 BNB at 18 decimals. It
+> `quoteAsset()`, and `deposit` still payable. Note that `launchFee` is *not*
+> one of the tells — it reads 0.35 BNB there and 0.005 BNB here, both native at
+> 18 decimals, because the fee went to BEM after that deployment and has since
+> come back to BNB. Only the size differs, so tell the two apart by
+> `quoteAsset()` reverting. It
 > also answers `owner()` and `pogSigner()` with `0x73db078f…80cd`, a key that is
 > public **and no longer present in this tree** — so it could not be paused,
 > re-dialled or signer-rotated by anybody who would want to. Every `GOV-*` and

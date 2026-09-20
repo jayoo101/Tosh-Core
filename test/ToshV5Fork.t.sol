@@ -329,7 +329,7 @@ contract ToshV5ForkTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch(
+        (address t, address h) = factory.createLaunch{value: fee}(
             "ForkTest", "FRK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         return (ToshToken(t), ToshLaunchpadHook(payable(h)));

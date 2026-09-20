@@ -1,12 +1,31 @@
 /**
- * Fails if any source file is not valid UTF-8, carries the signature of a
- * round-trip through GBK, or has CRLF line endings.
+ * Fails if any source file is not valid UTF-8, contains a NUL byte, carries the
+ * signature of a round-trip through GBK, or has CRLF line endings.
  *
  * WHY THIS EXISTS: an editing pass once round-tripped two test files through a
  * lossy ANSI encoder, which turned the final byte of `—` (E2 80 94) into `?`
  * (E2 80 3F).  solc rejects the whole file with "stream did not contain valid
  * UTF-8" and names no line, so the failure is both total and untraceable.
  * Comments are full of em-dashes here, so the blast radius is wide.
+ *
+ * ⚠ THE ENCODER IS USUALLY POWERSHELL, AND IT DAMAGES FILES THREE SEPARATE
+ *   WAYS. All three have been caught in this repo, all three from scripted
+ *   bulk edits, and they fail differently enough to be worth telling apart:
+ *
+ *     1. READING.  `Get-Content -Raw` on Windows decodes UTF-8 as the ANSI
+ *        code page, so every em dash is already wrong before any edit is
+ *        applied; writing the string back mangles the whole file at once.
+ *        This is the accident described above.
+ *     2. WRITING an escape by accident.  In a double-quoted PowerShell string
+ *        `` `0 `` is the null character, so a replacement containing the text
+ *        `` `0x1111` `` writes a NUL — see `nulOffsets` below for what that
+ *        then costs.
+ *     3. LINE ENDINGS.  A PowerShell write defaults to CRLF, which
+ *        `.gitattributes` forbids and `crlfLines` below explains.
+ *
+ *   The conclusion this repo has reached twice is the same one: do not edit
+ *   tracked files through PowerShell string replacement. Use an editor, or
+ *   node with an explicit `'utf8'` on both ends.
  *
  * WHY THE UTF-8 CHECK ALONE IS NOT ENOUGH: the same accident has a second,
  * quieter form.  When the mangled text is *re-saved* as UTF-8 rather than left
@@ -22,31 +41,57 @@
  *   node scripts/checkEncoding.mjs
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, extname } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { extname } from 'node:path'
 
-/** `docs` is here because it is the highest-density em-dash surface in the
- *  repository — the prose documents use them constantly — and it was the one
- *  place the first version of this guard did not look. The targeted rules
- *  below match mangled punctuation rather than CJK, so a Chinese draft in
- *  `docs/` (if one returns) would still pass. */
-const ROOTS = ['src', 'test', 'script', 'docs', 'soat-frontend/src', 'soat-frontend/scripts']
 const EXTS = new Set(['.sol', '.ts', '.tsx', '.js', '.mjs', '.json', '.md'])
 
-/** Tracked generated artefacts that no ROOT reaches. `gasreport.txt` is captured
- *  from forge's stdout, which is exactly where a non-UTF-8 console does this
- *  damage, so it is the one file most likely to reacquire it. */
-const EXTRA_FILES = ['gasreport.txt']
+/**
+ * Generated artefacts, excluded by prefix.
+ *
+ * `broadcast/` and `verify-out/` are forge's own JSON output. They are tracked
+ * as deployment provenance and are never hand-edited, so they cannot acquire
+ * the damage this guard looks for — and they are 38 files of machine noise in
+ * any failure listing.
+ */
+const GENERATED = ['broadcast/', 'verify-out/']
 
-function walk(dir, out = []) {
-  let entries
-  try { entries = readdirSync(dir) } catch { return out }
-  for (const e of entries) {
-    const p = join(dir, e)
-    if (statSync(p).isDirectory()) walk(p, out)
-    else if (EXTS.has(extname(p))) out.push(p)
-  }
-  return out
+/**
+ * Every tracked file of a source extension, asked of git rather than walked.
+ *
+ * ⚠ THIS USED TO BE A HARDCODED LIST OF SIX DIRECTORIES, AND THE LIST WAS THE
+ *   BUG. It read `['src', 'test', 'script', 'docs', 'soat-frontend/src',
+ *   'soat-frontend/scripts']` plus one named extra, which covered 219 of the
+ *   327 tracked source files in this repository. The 108 it did not see
+ *   included:
+ *
+ *     - `scripts/` — 41 files, among them `preflightMainnet.mjs` and this
+ *       guard itself. Note `script/` (forge) was listed and `scripts/` (node)
+ *       was not, which is a one-character difference between covered and not.
+ *     - `README.md` and `SECURITY.md` — the two longest prose documents in the
+ *       repo and, after `docs/`, the densest em-dash surfaces in it. `docs/`
+ *       had been added by name after an earlier miss; the root-level documents
+ *       were never added, so the fix that occasioned that comment stopped one
+ *       directory short.
+ *     - `monitoring/` — 8 files including `alerts.json`, whose contents are
+ *       read by an on-call human at the worst possible moment.
+ *
+ *   The list could be extended again, and would go stale again the next time
+ *   somebody adds a directory. Asking git removes the failure mode instead of
+ *   patching this instance of it: anything tracked is checked, and the only
+ *   maintained set is the generated output above, which is a much slower-
+ *   moving thing than the source tree.
+ *
+ * Tracked, not on-disk: an untracked scratch file is not going to be committed
+ * with damage in it, and node_modules is not ours to police.
+ */
+function trackedSourceFiles() {
+  const out = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 })
+  return out.split('\0')
+    .filter(Boolean)
+    .filter(f => EXTS.has(extname(f)))
+    .filter(f => !GENERATED.some(g => f.startsWith(g)))
 }
 
 /** Returns the byte offsets of malformed sequences, with context. */
@@ -75,8 +120,14 @@ function invalidSequences(buf) {
  * The GBK renderings of the UTF-8 lead bytes of the punctuation this repo
  * actually uses.  A three-byte UTF-8 sequence read as GBK turns its first two
  * bytes into one character, so each entry below identifies a whole Unicode
- * block: `鈥` means "something from U+2000-U+203F was mangled", and in prose
+ * block: U+9225 means "something from U+2000-U+203F was mangled", and in prose
  * that is an em dash nine times out of ten.
+ *
+ * ⚠ THAT SENTENCE USED TO PRINT THE CHARACTER ITSELF, and the header's claim
+ *   that this file "can never fail its own check" was true only because the
+ *   file was not in scope. The first run after the scan widened to every
+ *   tracked file flagged line 104 of this guard — correctly. Codepoints, not
+ *   glyphs, anywhere the table is discussed.
  *
  * Every character here is a rare Han character that no plausible comment,
  * fixture or document in this repo would contain on purpose.  Deliberately NOT
@@ -87,7 +138,8 @@ function invalidSequences(buf) {
  * this class.  Adding one is a single line if that day comes.
  *
  * The characters are written as escapes throughout, so that this file can never
- * fail its own check.
+ * fail its own check — which it is now subject to, and was not when that
+ * sentence was written.
  */
 const MOJIBAKE = [
   {
@@ -164,6 +216,33 @@ function crlfLines(buf) {
   return lines
 }
 
+/**
+ * Returns the byte offsets of NUL bytes, which are valid UTF-8 and are still
+ * corruption.
+ *
+ * ⚠ ADDED AFTER THIS GUARD PASSED A FILE IT SHOULD HAVE FAILED. A scripted edit
+ *   to `FactoryDials.tsx` wrote a PowerShell double-quoted string containing
+ *   `` `0 ``, which is that shell's escape for the null character, so a literal
+ *   NUL landed mid-comment. U+0000 is perfectly well-formed UTF-8, carries no
+ *   GBK signature and is not a line ending, so all three passes above said the
+ *   file was clean.
+ *
+ *   Git was not fooled: it re-classified the file as BINARY, which silently
+ *   costs every diff, every blame and every merge on it — `git diff` reported
+ *   `Bin 17577 -> 17820 bytes` where the review needed to see nineteen changed
+ *   lines. That is the damage, and it is the kind that survives review because
+ *   the file still opens, still compiles and still passes tsc.
+ *
+ * Zero tolerance rather than a heuristic: no source file in any of these
+ * extensions has a legitimate reason to contain a NUL, so there is no
+ * false-positive case to scope around the way `U+6E2D` needed scoping.
+ */
+function nulOffsets(buf) {
+  const hits = []
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 0x00) hits.push(i)
+  return hits
+}
+
 /** Returns one hit per offending character, with 1-based line and column. */
 function mojibakeHits(text) {
   const hits = []
@@ -178,7 +257,7 @@ function mojibakeHits(text) {
   return hits
 }
 
-const files = [...ROOTS.flatMap(r => walk(r)), ...EXTRA_FILES]
+const files = trackedSourceFiles()
 
 let failed = 0
 for (const file of files) {
@@ -196,6 +275,19 @@ for (const file of files) {
     // Decoding this file would substitute U+FFFD everywhere it is broken, so the
     // mojibake pass below would only restate what was just reported.
     continue
+  }
+
+  const nuls = nulOffsets(buf)
+  if (nuls.length > 0) {
+    failed++
+    const first = nuls[0]
+    const ctx = buf.subarray(Math.max(0, first - 40), first + 40)
+      .toString('utf8').replace(/\n/g, '\\n').replace(/\u0000/g, '<NUL>')
+    console.error(`${file}: ${nuls.length} NUL byte(s), first @${first}`)
+    console.error(`  ...${ctx}...`)
+    console.error(`  Valid UTF-8, but git treats the file as binary — no diff, no blame, no merge.`)
+    console.error(`  Usually a shell escape that ran: PowerShell reads \`0 in a double-quoted`)
+    console.error(`  string as the null character.`)
   }
 
   // Reported independently of the mojibake pass rather than with `continue`:
@@ -228,4 +320,4 @@ if (failed > 0) {
   console.error(`\n${failed} file(s) with broken encoding.`)
   process.exit(1)
 }
-console.log(`All ${files.length} source files are valid UTF-8 and LF-only, with no GBK round-trip damage.`)
+console.log(`All ${files.length} source files are valid UTF-8, NUL-free and LF-only, with no GBK round-trip damage.`)

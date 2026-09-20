@@ -495,7 +495,7 @@ contract ToshInvariantHandler is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        try factory.createLaunch(
+        try factory.createLaunch{value: fee}(
             name, name, projTreasury, projTreasury, rawSalt, fee, agreedSoftCap, agreedWalletCap, dur
         ) returns (
             address, address h
@@ -896,10 +896,18 @@ contract ToshInvariantHandler is Test {
     }
 
     function ownerSetLaunchFee(uint256 fee) external {
-        // Capped at 1 ether so the creator can keep affording to open rounds;
-        // a 100-ether fee bankrupts them in a few calls and shuts off the one
-        // action the rest of the sequence depends on.
-        fee = bound(fee, 0, 100e8);
+        // Kept well under `MAX_LAUNCH_FEE` so the creator can keep affording to
+        // open rounds; a fee near the ceiling bankrupts them in a few calls and
+        // shuts off the one action the rest of the sequence depends on.
+        //
+        // ⚠ THE UNIT CHANGED HERE AND THE BOUND HAD TO MOVE WITH IT. This read
+        //   `bound(fee, 0, 100e8)` — 100 BEM, when the fee was quote-asset base
+        //   units. Against a native fee, 100e8 is 1e-8 BNB: the dial would have
+        //   been fuzzed across a range entirely below the default, so every
+        //   creator could always afford it and the affordability pressure this
+        //   bound exists to apply would have quietly stopped existing. The
+        //   tests would all still pass.
+        fee = bound(fee, 0, 0.05 ether);
         vm.prank(admin);
         try factory.setLaunchFee(fee) {
             ++okOwnerAction;
@@ -1273,7 +1281,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch(
+        (, address h) = factory.createLaunch{value: fee}(
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
             projTreasury,
@@ -1637,13 +1645,23 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         handler.ownerAddLadderToken(2);
         assertEq(ladder.ladderTokenCount(), 1, "handler could not list a ladder token");
 
-        // Arm the reservoir organically: the fee is an owner dial the fuzzer
-        // also holds, and each new round pays it straight into the treasury.
-        handler.ownerSetLaunchFee(100e8);
-        while (quote.balanceOf(address(ladder)) < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
-            handler.createProject(1, 0);
-        }
-        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "could not arm the buyback from launch fees");
+        // ⚠ THE LAUNCH-FEE ROUTE TO AN ARMED RESERVOIR IS GONE. This used to
+        //   raise the fee dial and open rounds until the pot filled, which
+        //   worked because the fee was BEM pulled to this treasury. It is
+        //   native BNB paid to `platformTreasury` now, and creating a project
+        //   moves this balance by nothing at all.
+        //
+        //   A donation replaces it, and that is not a way around the rule this
+        //   test's docstring sets. The rule forbids `vm.deal` — value minted
+        //   from nothing, which desynchronises the drop audit from the balances
+        //   it reconciles. This is an ordinary transfer of BEM an actor already
+        //   holds, and donations sit alongside the buy tax and orphaned
+        //   commission in the reservoir's own list of revenue pipes. The pot is
+        //   real and the accounting still adds up.
+        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        vm.prank(handler.actors(0));
+        quote.transfer(address(ladder), shortfall);
+        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "could not arm the buyback");
 
         uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = IERC20(address(h2.projectToken())).balanceOf(DEAD);
@@ -1732,10 +1750,15 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             handler.swapBuy(i, 2, 100e8);
         }
 
-        handler.ownerSetLaunchFee(100e8);
-        while (quote.balanceOf(address(ladder)) < ladder.TRIGGER_STEP() && handler.hookCount() < 10) {
-            handler.createProject(1, 0);
-        }
+        // Donated rather than paid in as launch fees, for the reason
+        // `test_handlerCanReachBuybackAndBurn` sets out at length: the fee is
+        // native BNB going to `platformTreasury` now and never touches this
+        // balance. Still not `vm.deal` — BEM an actor already holds, moved by
+        // an ordinary transfer, through one of the reservoir's documented
+        // revenue pipes.
+        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        vm.prank(handler.actors(1));
+        quote.transfer(address(ladder), shortfall);
         assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "precondition: the reservoir must be armed");
 
         // Let the market settle before poking, or the leg is refused outright.

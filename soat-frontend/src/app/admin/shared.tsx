@@ -17,6 +17,7 @@ import { useEffect } from 'react'
 import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
 import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
 import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MINIMAL PRIMITIVES — every visual is a 1 px line or a typeface contrast
@@ -380,15 +381,49 @@ export function fmtDuration(sec: bigint, zeroHint: string): string {
  * moved `fmtEth` to `fmtQuote`, and it is worth doing next time this file is touched.
  */
 export function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
+  return parseAtScale(raw, QUOTE_DECIMALS)
+}
+
+/**
+ * The same parse at 18 decimals, for the one dial denominated in the chain's
+ * own coin.
+ *
+ * ⚠ `launchFee` IS THAT DIAL AND IT IS THE ONLY ONE. Everything else the admin
+ *   console writes — `defaultSoftCap`, `maxPogAllocationLimit` — is 8-decimal
+ *   BEM and belongs on `parseEthInput`. Routing the fee through that one parses
+ *   a typed `0.005` into 500000 wei, which is not a revert and not a visible
+ *   error: it is a fee of half a millionth of a cent, set successfully, and
+ *   discovered when the anti-spam toll stops deterring anything.
+ *
+ *   The reverse slip is louder and therefore safer — a BEM dial sent through
+ *   this one lands ten orders of magnitude above `MAX_DEFAULT_SOFT_CAP` and
+ *   the panel refuses it inline. Only this direction is silent, which is why
+ *   the two are separate functions rather than a decimals argument with a
+ *   default.
+ */
+export function parseNativeInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
+  return parseAtScale(raw, 18)
+}
+
+function parseAtScale(
+  raw: string,
+  decimals: number,
+): { ok: true; value: bigint } | { ok: false; reason: string | null } {
   const trimmed = raw.trim()
   if (!trimmed) return { ok: false, reason: null }
   try {
-    const value = parseUnits(trimmed, QUOTE_DECIMALS)
+    const value = parseUnits(trimmed, decimals)
     if (value < 0n) return { ok: false, reason: 'Negative amount' }
     return { ok: true, value }
   } catch {
     return { ok: false, reason: 'Invalid number format' }
   }
+}
+
+/** A native-coin amount, for the launch fee readout. */
+export function fmtNative(wei: bigint | undefined): string {
+  if (wei === undefined) return '—'
+  return `${trimEthDisplay(formatUnits(wei, 18))} ${NATIVE_SYMBOL}`
 }
 
 export function shortErr(e: { message?: string } | null | undefined): string | null {

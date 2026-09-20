@@ -70,7 +70,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///      `928.4 * QUOTE_UNIT` makes the unit part of the expression.
     uint256 public constant QUOTE_UNIT = 1e8;
 
-    /// @notice Ceiling on `launchFee`, denominated in quote-asset units.
+    /// @notice Ceiling on `launchFee`, denominated in **native BNB wei**.
     ///
     /// @dev    `setLaunchFee` was the one setter on this contract with no
     ///         validation of any kind — no floor, no ceiling, no zero-check —
@@ -78,18 +78,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         `setDefaultSoftCap` is floored at `MIN_SOFT_CAP_PROD`.
     ///
     ///         The failure it admits is not an exploit, it is an accident with
-    ///         no undo short of a second owner transaction: the fee is quoted in
-    ///         base units, and the difference between `9.28 * QUOTE_UNIT` and
-    ///         `9.28 ether` is one keystroke in a Safe transaction builder.
-    ///         Above the ceiling `createLaunch` becomes unaffordable for
-    ///         everyone, which is a platform-wide outage produced by a typo
-    ///         rather than by an attacker.
+    ///         no undo short of a second owner transaction: the difference
+    ///         between `0.005 ether` and `5 ether` is one keystroke in a Safe
+    ///         transaction builder. Above the ceiling `createLaunch` becomes
+    ///         unaffordable for everyone, which is a platform-wide outage
+    ///         produced by a typo rather than by an attacker.
     ///
-    ///         Deliberately generous — 100x the 9.28 BEM default — because this
+    ///         Deliberately generous — 100x the 0.005 BNB default — because this
     ///         guards against an order-of-magnitude slip, not against pricing
     ///         judgement.  Zero stays legal: a fee-free platform is a policy
     ///         choice, and `test_setLaunchFee_allowsZero` pins it.
-    uint256 public constant MAX_LAUNCH_FEE = 928e8;
+    ///
+    ///         ⚠ THE UNIT-CONFUSION ARGUMENT NOW CUTS THE OTHER WAY, and that is
+    ///           why `ether` is spelled here while `QUOTE_UNIT` guards the dials
+    ///           below. The fee is the one figure on this contract denominated
+    ///           in the chain's own coin rather than in the quote asset, so
+    ///           `0.005 * QUOTE_UNIT` — the shape every neighbouring constant
+    ///           takes — would be the mistake here. The two unit systems now
+    ///           coexist on one contract deliberately: see `launchFee`.
+    uint256 public constant MAX_LAUNCH_FEE = 0.5 ether;
 
     /// @notice Ceilings on the two other quote-denominated dials, in base units.
     ///
@@ -352,16 +359,44 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         without a cool-off) without that coupling.
     uint256 public quotaWindowDuration = 24 hours;
 
-    /// @notice Quote asset charged on `createLaunch`. Default: 9.28 BEM.
+    /// @notice Native BNB toll charged by `createLaunch`. Default: 0.005 BNB.
     ///
-    /// @dev    Converted from 0.35 BNB at 26.5 BEM/BNB, the rate the whole dial
-    ///         set was rebased on. THAT RATE IS A SNAPSHOT AND THIS FIGURE DOES
-    ///         NOT TRACK IT: BEM is now the unit of account, so a move in BEM/BNB
-    ///         re-prices the fee in BNB terms and nothing here notices. The fee
-    ///         is 9.28 BEM until an owner transaction says otherwise, which is
-    ///         the same property the BNB figure had against USD, one asset
-    ///         further from anything stable.
-    uint256 public launchFee = 9.28e8;
+    /// @dev    ⚠ THIS IS THE ONE DIAL ON THIS CONTRACT NOT DENOMINATED IN THE
+    ///           QUOTE ASSET. Everything else here — `defaultSoftCap`,
+    ///           `maxPogAllocationLimit` — is BEM at 8 decimals and is written
+    ///           `x * QUOTE_UNIT` so the unit cannot be misread. This is BNB at
+    ///           18, written with `ether`. Two unit systems on one contract is
+    ///           a hazard, and the spelling is the mitigation: if a literal here
+    ///           ever acquires a `QUOTE_UNIT` it is wrong by ten orders of
+    ///           magnitude, and if one below acquires an `ether` so is that.
+    ///
+    ///         It was 9.28 BEM before, and moving it back to the chain's own
+    ///         coin is not a reversal of the BEM migration but a recognition of
+    ///         what this particular payment is. The quote asset denominates
+    ///         everything a project RAISES, prices and settles in, so a fee paid
+    ///         in it made the creator acquire BEM before they could even deploy.
+    ///         A launch toll is not part of the raise; it is the cost of using
+    ///         the platform, and asking for it in the coin the creator already
+    ///         holds for gas removes an approval and an acquisition from the
+    ///         path to a first launch.
+    ///
+    ///         ⚠ IT ALSO STOPS BEING BUYBACK FUEL, AND THAT IS A REAL LOSS, JUST
+    ///           A SMALL ONE. The fee used to be pulled to `ladderTreasury`,
+    ///           whose whole outflow is buy-and-burn; it now goes to
+    ///           `platformTreasury`. The reservoir cannot spend BNB — it settles
+    ///           `quoteAsset` and `reservoir()` reads only that balance — so
+    ///           routing BNB there would strand it permanently, and the treasury
+    ///           has no `receive()` to accept it in the first place. What makes
+    ///           this affordable is the price rather than the plumbing: at 0.005
+    ///           BNB against a `TRIGGER_STEP` of 92.8 BEM (~3.5 BNB), roughly
+    ///           700 launches arm one buyback, where 9.28 BEM was a tenth of a
+    ///           step and ten launches did. The fee had already ceased to be
+    ///           meaningful ammunition before it changed denomination.
+    ///
+    ///         Not pegged to anything. 0.005 BNB is 0.005 BNB until an owner
+    ///         transaction says otherwise, which is the same property the BEM
+    ///         figure had — one asset closer to what the creator already holds.
+    uint256 public launchFee = 0.005 ether;
 
     /// @notice Per-wallet quote-asset cap. Serves double duty: it ceilings the PoG
     ///         `maxAlloc` an oracle attestation may grant, and it is
@@ -497,6 +532,33 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
+    /// @dev `creator` is the one unindexed address here, and that is a choice
+    ///      rather than an omission: three topics is the EVM ceiling for a
+    ///      non-anonymous event and all three are spent.
+    ///
+    ///      `hook` earns its topic outright — `/api/projects/launch-tx` filters
+    ///      on it to recover the creating transaction. `token` keys the public
+    ///      route (`/projects/{token}`). `launchId` is the weakest of the three
+    ///      and would be the one to trade if a creator filter is ever wanted,
+    ///      since `launches(i)` already answers by index for a single `call`,
+    ///      whereas nothing else can answer "every launch by this address"
+    ///      without a scan.
+    ///
+    ///      Nothing needs that today, which is why this is a note and not a
+    ///      change: moving `indexed` would shift a field from `data` to
+    ///      `topics`, so `monitoring/watch.mjs`, `alerts.json`,
+    ///      `e2eLaunchFlow.mjs` and the two documents quoting the signature
+    ///      would all have to move with it, and logs already emitted on `97`
+    ///      would decode differently from new ones. Note that topic0 itself is
+    ///      unaffected — it hashes the type signature, which `indexed` does not
+    ///      enter.
+    ///
+    ///      Slither's `unindexed-event-address` does not fire on this: it wants
+    ///      *some* indexed parameter, and there are three. It fires twice on
+    ///      this repo, both inside `lib/openzeppelin-contracts` on `Pausable`,
+    ///      and the gated baseline filters `lib/` — so if you are reading a
+    ///      `slither_report.md` that lists them, it was generated without
+    ///      `_filterPaths`.
     event LaunchCreated(
         uint256 indexed launchId,
         address indexed token,
@@ -583,20 +645,28 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     /// @dev    Replaces what `InvalidHookSalt` used to catch by accident. See
     ///         `createLaunch`'s `expectedSoftCap` parameter.
     error CapsChanged();
+    /// @notice `createLaunch` was sent less than `launchFee`.
+    ///
+    /// @dev    Reachable again. It was removed when the fee became a BEM pull,
+    ///         because a pull has nothing in hand to be short of and the
+    ///         token's own allowance revert carried the two figures. The fee is
+    ///         native once more, so the shortfall is local and gets a local
+    ///         name rather than an ERC20 error the creator has to translate.
+    error InsufficientLaunchFee();
     /// @notice A native-coin transfer to a treasury or refund recipient failed.
     ///
-    /// @dev    Unreachable, and retained for the reason the hook's identically
-    ///         named error is — so the ABI does not lose a selector indexers may
-    ///         already match on. `_sendNative`, its only `revert` site, was
-    ///         deleted when Slither reported it as dead code: the launch fee and
-    ///         every deposit move with `SafeERC20.safeTransferFrom` now, and this
-    ///         contract declares no `receive()` and no payable function, so it
-    ///         cannot hold a native balance to send in the first place.
+    /// @dev    Reachable again, and the history is the point. `_sendNative` was
+    ///         deleted when Slither called it dead code, which it was: every
+    ///         value path had become `SafeERC20.safeTransferFrom`, and this
+    ///         contract had no payable function to hold a native balance with.
+    ///         The error was kept anyway so the ABI would not lose a selector
+    ///         indexers might match on.
     ///
-    ///         The function was deleted rather than baselined because a
-    ///         `call{value:}` helper sitting in a contract with no native
-    ///         accounting behind it is an invitation to a future edit that
-    ///         believes there is.
+    ///         That turned out to be the right call for the wrong reason.
+    ///         "Unused" was a fact about one denomination, not about the
+    ///         design: `createLaunch` takes BNB again, `_sendNative` is back,
+    ///         and this reverts when `platformTreasury` or a creator taking
+    ///         change refuses the transfer.
     error NativeTransferFailed();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
@@ -762,8 +832,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit PogSignerUpdated(newSigner);
     }
 
-    /// @notice Set the quote-asset toll charged by `createLaunch`, in base units
-    ///         (8 decimals, so 9.28 BEM is `9.28e8`).
+    /// @notice Set the native BNB toll charged by `createLaunch`, in wei
+    ///         (18 decimals, so 0.005 BNB is `5e15`).
     /// @dev    Bounded above by `MAX_LAUNCH_FEE`; see that constant for why.
     ///         Zero is legal.  Not retroactive in any sense — `createLaunch`
     ///         reads it live and `expectedFee` protects the creator against a
@@ -985,7 +1055,8 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     /// @notice Deploy a new launch (Hook + ToshToken pair) under a creator-bound
-    ///         CREATE2 salt, paying `launchFee` in native ETH.
+    ///         CREATE2 salt, paying `launchFee` in native BNB as `msg.value`.
+    ///         Anything above the fee is returned in the same transaction.
     ///
     /// @param  expectedFee Slippage cap on `launchFee`; pass the value read in
     ///                     the same block to prevent an owner fee-bump front-run.
@@ -1028,26 +1099,18 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 expectedSoftCap,
         uint256 expectedWalletCap,
         uint256 genesisDuration
-    ) external whenNotPaused nonReentrant returns (address token, address hook) {
+    ) external payable whenNotPaused nonReentrant returns (address token, address hook) {
         require(projectTreasury != address(0), "zero treasury");
         if (projectAdmin == address(0)) revert InvalidAdmin();
 
         uint256 fee = launchFee;
         if (fee > expectedFee) revert FeeChanged();
-        // NO `msg.value < fee` PRE-CHECK ANY MORE, and nothing replaces it.
-        //
-        // That check existed because native value arrives before the callee runs:
-        // the fee was already in hand, so the only question was whether it was
-        // enough, and a shortfall had to be named locally. A pull is the reverse
-        // — nothing has moved yet — so the equivalent check would be a
-        // `balanceOf`/`allowance` read whose only outcome is the revert that the
-        // transfer itself already produces, from the token, with the two figures
-        // in it.
-        //
-        // `InsufficientLaunchFee` is therefore no longer reachable and is gone.
-        // Callers seeing an approval-shaped revert instead should read
-        // `launchFee()` and approve at least that much; the frontend does this
-        // before offering the button.
+        // The fee is native again, so it is already in hand when this runs and
+        // the only question is whether it is enough. That is a local check with
+        // a local name, unlike the pull it replaces — a `transferFrom` reverts
+        // from inside the token, and the creator has to work out that an
+        // ERC20 allowance error was about a platform fee.
+        if (msg.value < fee) revert InsufficientLaunchFee();
 
         // ── Squat / front-run defence ─────────────────────────────────────────
         if (bytes(name).length == 0 || bytes(symbol).length == 0) revert EmptyName();
@@ -1137,24 +1200,54 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
         emit LaunchCreated(launchId, token, hook, msg.sender, name, symbol);
 
-        // ── Pull the fee straight through to the buyback reservoir ────────────
+        // ── Forward the fee, and give back the change ─────────────────────────
         //
-        // One hop, creator to treasury, with this contract as neither source nor
-        // destination. Pulling to itself and forwarding would be two transfers
-        // for the same movement and would leave the fee briefly custodied here,
-        // where a failure in the second leg would strand it.
+        // ⚠ THE DESTINATION MOVED WITH THE DENOMINATION, AND IT HAD TO. This
+        //   used to pull BEM to `ladderTreasury`, the buy-and-burn reservoir.
+        //   That contract settles `quoteAsset`, sizes itself from
+        //   `quoteAsset.balanceOf`, and — since native settlement was dropped —
+        //   has no `receive()` at all, so a BNB send there would revert every
+        //   launch, and a `receive()` bolted on would only let the coin arrive
+        //   somewhere nothing can ever spend it. See `launchFee` for why losing
+        //   the fee as ammunition costs little at this price.
         //
-        // THE OVERPAYMENT REFUND IS GONE, and it is not an omission. It existed
-        // because `msg.value` is whatever the caller sent — a fee that dropped
-        // between quote and execution left change that had to go back, and a
-        // caller could overpay by accident with no way to take it back. A pull
-        // moves exactly `fee`; there is no such thing as overpaying one. An
-        // allowance above the fee is not an overpayment either, only unused
-        // headroom, and it stays with the creator.
+        // `platformTreasury` is `immutable`, so this destination is fixed at
+        // deployment and no owner transaction can redirect the toll.
+        //
+        // THE OVERPAYMENT REFUND IS BACK, because native value makes
+        // overpayment possible again. `expectedFee` is a ceiling rather than an
+        // equality, so a fee the owner LOWERS between the caller reading it and
+        // this executing is explicitly allowed — and a caller who sent the old
+        // figure would otherwise have the difference quietly kept. Requiring
+        // `msg.value == fee` would instead revert that caller for being early
+        // to good news.
         if (fee > 0) {
-            SafeERC20.safeTransferFrom(quoteAsset, msg.sender, ladderTreasury, fee);
+            _sendNative(platformTreasury, fee);
             emit LaunchFeeForwarded(fee);
         }
+        uint256 change = msg.value - fee;
+        if (change > 0) _sendNative(msg.sender, change);
+    }
+
+    /// @dev Native transfer that does not swallow failure, and forwards more
+    ///      than the 2300 gas stipend.
+    ///
+    ///      ⚠ THIS WAS DELETED AS DEAD CODE DURING THE BEM MIGRATION, ON A
+    ///        SLITHER FINDING, AND IT WAS DEAD — every value path had become an
+    ///        ERC20 transfer. It is back because the launch fee is native
+    ///        again, which is the thing to notice: "unused" was a fact about
+    ///        one denomination, not about the design.
+    ///
+    ///      `call` rather than `transfer` because both recipients are contracts
+    ///      in the expected case. `platformTreasury` is a Gnosis Safe, whose
+    ///      receive costs ~27k gas and would fail outright on a 2300 stipend;
+    ///      `msg.sender` taking change may be a Safe or a smart account too.
+    ///      `verifyOwnerSafe.mjs` checks the Safe accepts plain BNB before a
+    ///      deployment names it, because a treasury that reverts on receive
+    ///      bricks `createLaunch` for the whole platform.
+    function _sendNative(address to, uint256 amount) private {
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert NativeTransferFailed();
     }
 
     // ══════════════════════════════════════════════════════════════════════════

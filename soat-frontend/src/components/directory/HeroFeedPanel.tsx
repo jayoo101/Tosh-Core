@@ -29,17 +29,27 @@ const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
  * The second line of each row's figure column.
  *
  * The redesign puts a price and a 24h delta here. We publish neither: there is
- * no price feed and no volume index behind this app, and the only numbers the
- * chain hands back per launch are the quote asset deposited and the cap it is measured
- * against. Inventing the other two was the single largest piece of fiction in
- * the mock, so the column states what the figure above it IS instead.
+ * no price feed and no volume index behind this app, and the only number the
+ * chain hands back per launch is the quote asset deposited. Inventing the
+ * other two was the single largest piece of fiction in the mock, so the column
+ * states what the figure above it IS instead.
+ *
+ * ⚠ TWO OF THESE FOUR CITED A CAP, AND ONE OF THEM WAS SIMPLY FALSE.
+ *   `live` read "{n}% of cap" and `launching` read "cap met". Nothing is met:
+ *   `launching` means the genesis window closed and the creator has not called
+ *   `launch()` yet, and it is reached at the deadline whatever was raised — a
+ *   project that took a single deposit lands there labelled "cap met" beside
+ *   one that took a thousand. The percentage was the same soft cap in the
+ *   denominator, which gates nothing.
+ *
+ *   Both now say what the tab actually means, which is a fact about the clock.
  */
 function subFigure(p: DirectoryProject): { text: string; cls: string } {
   switch (p.tab) {
-    case 'live':      return { text: `${p.progress.toFixed(0)}% of cap`, cls: 'text-brand' }
-    case 'launching': return { text: 'cap met',    cls: 'text-text-tertiary' }
-    case 'completed': return { text: 'at genesis', cls: 'text-success' }
-    case 'archived':  return { text: 'refundable', cls: 'text-danger' }
+    case 'live':      return { text: 'raised so far', cls: 'text-brand' }
+    case 'launching': return { text: 'window closed', cls: 'text-text-tertiary' }
+    case 'completed': return { text: 'at genesis',    cls: 'text-success' }
+    case 'archived':  return { text: 'refundable',    cls: 'text-danger' }
   }
 }
 

@@ -82,8 +82,8 @@
   "chainId": 97,
 
   "addresses": {
-    "factory": "0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34",
-    "ladderTreasury": "0x20dE906A96FfB89BE6fd6267A0876A68017792F7",
+    "factory": "0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE",
+    "ladderTreasury": "0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA",
     "gnosisSafe": null,
     "$gnosisSafe": [
       "Null because chain 97 has no Safe, and writing an address here that is not",

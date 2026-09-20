@@ -205,12 +205,25 @@ contract DeployScript is Script {
         console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
         console2.log("     predicted    = HookAddress.computeAddress(factory, finalSalt, initcodeHash)");
         console2.log("     the only test on `predicted` is that it holds no code yet");
-        // ⚠ THESE TWO LINES SAID THE OPPOSITE UNTIL THE BEM MOVE, and they were
-        //   the most expensive wrong lines in this file: they told an integrator
-        //   to attach `msg.value`. Against a nonpayable function that reverts, but
-        //   against the ones that stayed payable it is a donation with no receipt.
-        console2.log("4. createLaunch is NONPAYABLE -- approve the factory for `launchFee` first;");
-        console2.log("     it pulls the fee with transferFrom. Attaching msg.value reverts.");
+        // ⚠ THE PAYABILITY OF THESE TWO HAS NOW FLIPPED TWICE, IN OPPOSITE
+        //   DIRECTIONS, AND THEY NO LONGER AGREE WITH EACH OTHER.
+        //
+        //   Before the BEM move both took `msg.value`. The move made both
+        //   nonpayable, and the note that replaced this one called these "the
+        //   most expensive wrong lines in this file" because they had been
+        //   telling integrators to attach value to a function that would
+        //   revert on it. That was right, and it is now half wrong again:
+        //   `createLaunch` went back to native BNB and is `payable`, while
+        //   `deposit` stayed in BEM and did not.
+        //
+        //   So the failure mode this text guards against has inverted for line
+        //   4 and held for line 5. Anyone editing either must check
+        //   `ToshFactory` rather than pattern-match the other line — that is
+        //   precisely the assumption that made these wrong both times.
+        console2.log("4. createLaunch is PAYABLE -- send the fee as msg.value, in native BNB.");
+        console2.log("     No approval: the fee is no longer the quote asset. Overpayment is");
+        console2.log("     refunded in the same transaction; msg.value below launchFee reverts");
+        console2.log("     InsufficientLaunchFee.");
         console2.log("5. deposit(hook, referrer, amount) is NONPAYABLE -- approve the FACTORY");
         console2.log("     (not the hook) for `amount`, which is now an argument.");
         console2.log("     mintBondingCurve(tokenAmount, maxCost) approves the HOOK instead.");

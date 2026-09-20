@@ -57,6 +57,11 @@ slither-run.txt
 # `git add .` from a 21 MB commit.
 .slither-*.json
 slither-*.log
+# The markdown rendering is the same output in a friendlier wrapper and goes
+# stale identically. It reached a commit once, which is why it is named here
+# rather than left to the patterns above — `slither_report` matches none of
+# them, the underscore being the whole reason.
+slither_report.md
 # NOT ignored: slither-baseline.json, the distilled (detector, file, scope)
 # set that scripts/checkSlitherFindings.mjs gates §5.7 against. It is ~20 KB,
 # it is the thing a re-run is compared to, and it has to be in the tree.

@@ -6,7 +6,9 @@
  *
  *   1. Price     — P₀ during genesis; the live shelf once the ladder is open
  *   2. Phase     — the state machine, as a badge, not a sentence
- *   3. Progress  — raise vs soft cap, or ladder minted vs BONDING_MAX
+ *   3. Progress  — the amount raised during genesis, or ladder minted vs
+ *                  BONDING_MAX once the ladder is open. Only the second is a
+ *                  bar, because only it has a ceiling to be a fraction of.
  *   4. Your stake — the settlement coin this wallet has in, or is owed back
  */
 
@@ -34,7 +36,7 @@ export const PHASE_BADGE: Record<Phase, { label: string; tone: Tone; live: boole
 export function HeroStats({
   phase, symbol,
   p0, currentPrice, shelfP0,
-  totalNativeDeposited, softCap,
+  totalNativeDeposited,
   phase2Minted, bondingMax,
   userEthDeposited,
   windowLabel,
@@ -45,7 +47,6 @@ export function HeroStats({
   currentPrice: bigint
   shelfP0: bigint
   totalNativeDeposited: bigint
-  softCap: bigint
   phase2Minted: bigint
   bondingMax: bigint
   userEthDeposited: bigint
@@ -62,17 +63,25 @@ export function HeroStats({
     : p0 > 0n           ? 'genesis P₀'
     : 'opens at launch'
 
-  const raisePct = softCap > 0n
-    ? Number((totalNativeDeposited * 10_000n) / softCap) / 100
-    : 0
+  /*
+   * ⚠ ONLY THE LADDER GETS A BAR NOW, AND IT IS THE ONLY ONE THAT EVER HAD A
+   *   DENOMINATOR.
+   *
+   * This cell used to switch between `minted / BONDING_MAX` and
+   * `raised / softCap`. Those look alike and are not: `BONDING_MAX` is a hard
+   * ceiling — the ladder cannot mint past it, so 100% means finished — while
+   * the soft cap was never a limit, a gate or a fail condition. Deposits ran
+   * past it, `launch()` ignored it, and a raise that never reached it launched
+   * exactly the same way. A bar filling toward it told the reader the project
+   * was on its way to something, and there was nothing there.
+   *
+   * Genesis therefore shows what is true of it: an amount, and a clock. No
+   * percentage, because there is no whole for it to be a percentage of.
+   */
+  const progressIsLadder = phase === 'bonding'
   const ladderPct = bondingMax > 0n
     ? Number((phase2Minted * 10_000n) / bondingMax) / 100
     : 0
-  const progressIsLadder = phase === 'bonding'
-  const pct = progressIsLadder ? ladderPct : raisePct
-  const progressCaption = progressIsLadder
-    ? `${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`
-    : `${fmtQuote(totalNativeDeposited)} / ${fmtQuote(softCap)} ${QUOTE_SYMBOL}`
 
   const stakeHint =
     phase === 'refund'  ? 'claimable in full'
@@ -108,13 +117,24 @@ export function HeroStats({
         )}
       </div>
       <div className="col-span-2 flex flex-col gap-gap-tight @lg:col-span-1">
-        <Progress
-          pct={pct}
-          variant="bar"
-          tone={phase === 'refund' ? 'warn' : 'ok'}
-          label={progressIsLadder ? 'Ladder' : 'Raise'}
-          caption={progressCaption}
-        />
+        {progressIsLadder ? (
+          <Progress
+            pct={ladderPct}
+            variant="bar"
+            tone="ok"
+            label="Ladder"
+            caption={`${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`}
+          />
+        ) : (
+          <Readout
+            layout="stack"
+            size="figure"
+            label="Raised"
+            value={fmtQuote(totalNativeDeposited)}
+            hint={QUOTE_SYMBOL}
+            tone={phase === 'refund' ? 'mute' : 'ok'}
+          />
+        )}
       </div>
       <Readout
         layout="stack"

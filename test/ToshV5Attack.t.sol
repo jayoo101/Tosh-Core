@@ -186,7 +186,7 @@ contract ToshV5AttackTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch(
+        (address t, address h) = factory.createLaunch{value: fee}(
             "Probe", "PRB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         token = ToshToken(t);
@@ -1008,7 +1008,7 @@ contract ToshV5AttackTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch(
+        (, address h) = factory.createLaunch{value: fee}(
             "Farm", "FRM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
@@ -1040,7 +1040,7 @@ contract ToshV5AttackTest is Test {
         agreedSoftCap = factory.defaultSoftCap();
         agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h2) = factory.createLaunch(
+        (, address h2) = factory.createLaunch{value: fee}(
             "Farm2", "FR2", projTreasury, projTreasury, salt2, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         ToshLaunchpadHook hook2 = ToshLaunchpadHook(payable(h2));

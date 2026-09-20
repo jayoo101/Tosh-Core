@@ -28,7 +28,6 @@ export interface GenesisProps {
   userAddress:        Address | undefined
   isConnected:        boolean
   totalNativeDeposited:  bigint
-  softCap:            bigint
   quoteBalance:         bigint
   pogQuota:           bigint
   /// Straight from `factory.eligibility(user, hook)`.  The quota is refilled
@@ -113,10 +112,16 @@ export function GenesisPanel(p: GenesisProps) {
   const quotaBreached   = quotaBlock === null && amountWei > 0n && amountWei > quotaRemaining
   const insufficientBal = amountWei > 0n && amountWei > p.quoteBalance
 
-  // The soft cap is a progress target, not a ceiling: the hook keeps accepting
-  // deposits right up to the deadline. Say so, so clearing the target reads as
-  // momentum rather than as a closed door.
-  const oversubscribed = p.softCap > 0n && p.totalNativeDeposited >= p.softCap
+  // ⚠ THE "OVERSUBSCRIBED" BANNER IS GONE, along with the soft cap it was
+  //   measured against. It fired when the raise passed `softCap` and said the
+  //   target was cleared but deposits stayed open — true, and an answer to a
+  //   question the product no longer poses. Nothing is subscribed to: the raise
+  //   has no target, nothing happens at any particular figure, and a banner
+  //   celebrating one implied a threshold the contract does not consult.
+  //
+  //   The panel keeps the two limits that are real and reachable — the window
+  //   closing, and this wallet's per-project cap — because those stop a
+  //   deposit. The soft cap never did.
 
   // The hook rejects `deposit` outright once the window closes, and separately
   // once this wallet's total for THIS project passes the per-project cap.
@@ -365,12 +370,6 @@ export function GenesisPanel(p: GenesisProps) {
         subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
         interactive={false}
       >
-        {oversubscribed && !windowClosed && (
-          <p className="font-mono text-label tracking-[0.32em] uppercase text-brand leading-relaxed">
-            → OVERSUBSCRIBED · SOFT CAP CLEARED, DEPOSITS STAY OPEN UNTIL THE WINDOW ENDS
-          </p>
-        )}
-
         {windowClosed && (
           <p className="font-mono text-label tracking-[0.32em] uppercase text-warning leading-relaxed">
             → WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED

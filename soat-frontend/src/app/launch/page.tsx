@@ -49,7 +49,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   useAccount, useBalance, useChainId, useSwitchChain,
-  useReadContract, useReadContracts, usePublicClient, useEstimateFeesPerGas,
+  useReadContracts, usePublicClient, useEstimateFeesPerGas,
   useSignMessage,
 } from 'wagmi'
 import {
@@ -66,13 +66,13 @@ import {
   GENESIS_DURATION_SLOW,
 } from '../lib/hookAddress'
 import {
-  CREATE_LAUNCH_GAS_TOTAL, LAUNCH_GAS_TOTAL, PROJECT_GAS_TOTAL,
+  CREATE_LAUNCH_GAS_TOTAL, LAUNCH_GAS_TOTAL,
   gasCostWei, formatEstimateEth,
 } from '../lib/launchGas'
 import {
   FACTORY_ADDRESS,
-  FACTORY_ABI, ERC20_ABI, TARGET_CHAIN_ID,
-  QUOTE_ASSET, QUOTE_DECIMALS, QUOTE_SYMBOL,
+  FACTORY_ABI, TARGET_CHAIN_ID,
+  QUOTE_DECIMALS, QUOTE_SYMBOL,
   ACTIVE_CHAIN_LABEL, MAINNET_CHAIN_LABEL,
   CHAIN_STATUS_BADGE, CHAIN_STAGING_NOTE, BADGE_NAMES_SETTLEMENT_CHAIN,
   testnetExplorerTx,
@@ -93,7 +93,6 @@ import {
   AddressLink, Badge, Card, Field,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
   shortErrorMessage, EM_DASH, toshToast, truncateHex,
-  useQuoteApproval,
 } from '@/components/ui'
 
 const trimEth = (s: string) =>
@@ -412,16 +411,12 @@ export default function GenesisConsole() {
   const refetchDials = feeRead.refetch
   const { data: ethBal } = useBalance({ address, query: { enabled: walletEnabled } })
 
-  // The fee's asset, read separately from the gas asset. `useBalance` would do it
-  // with `token:`, but the quote balance is wanted as a bare bigint in the same
-  // shape as every other quote figure on this page, and `balanceOf` is the read
-  // the factory itself will make.
-  const { data: quoteBal } = useReadContract({
-    address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    chainId: TARGET_CHAIN_ID,
-    query: { enabled: walletEnabled && address !== undefined },
-  })
+  // ⚠ THE BEM BALANCE READ WAS DELETED HERE. It existed because the fee was
+  //   pulled in BEM and the creator had to be shown whether they held enough
+  //   of a second asset. The fee is native BNB, so `useBalance` above already
+  //   answers the only funding question this page has, and a creator with no
+  //   BEM at all can deploy — they need it to DEPOSIT into their own round,
+  //   which is a different page and a later decision.
 
   // A zero launch fee is legal, so an unread dial must never collapse into 0n:
   // that reading is both a lie in the pact the depositor ticks and the wrong
@@ -449,14 +444,17 @@ export default function GenesisConsole() {
   const launchFeeWei = dialsReady ? (dials[0].result as bigint) : 0n
   const softCapWei = dialsReady ? (dials[1].result as bigint) : 0n
   const perWalletCapWei = dialsReady ? (dials[2].result as bigint) : 0n
+  // 18 decimals, not `QUOTE_DECIMALS`: the fee is native BNB and every cap
+  // around it is still 8-decimal BEM. Reading this dial with the quote scale
+  // renders 0.005 BNB as 50000000000, which is a plausible enough figure to
+  // ship.
   const feeDisplay = useMemo(
-    () => (dialsReady ? trimEth(formatUnits(launchFeeWei, QUOTE_DECIMALS)) : EM_DASH),
+    () => (dialsReady ? formatEstimateEth(launchFeeWei) : EM_DASH),
     [dialsReady, launchFeeWei],
   )
-  const softCapDisplay = useMemo(
-    () => (dialsReady ? trimEth(formatUnits(softCapWei, QUOTE_DECIMALS)) : EM_DASH),
-    [dialsReady, softCapWei],
-  )
+  // No `softCapDisplay`. `softCapWei` is still read and still passed to
+  // `createLaunch` — it is an immutable arg of the hook clone and therefore an
+  // input to the CREATE2 address — but nothing on this page renders it.
 
   /**
    * Whether the pact currently on screen is the one that was agreed to.
@@ -477,34 +475,37 @@ export default function GenesisConsole() {
   const { data: fees } = useEstimateFeesPerGas()
   const feePerGas = fees?.maxFeePerGas ?? fees?.gasPrice
   const createGasWei = gasCostWei(CREATE_LAUNCH_GAS_TOTAL, feePerGas)
-  const projectGasWei = gasCostWei(PROJECT_GAS_TOTAL, feePerGas)
+  // `PROJECT_GAS_TOTAL` (create + launch) no longer has a row. The panel used
+  // to end on "Gas, both together", which summed two transactions the creator
+  // signs days apart; with `Due now` restored as the headline that row was the
+  // second total on a four-row list, and the less actionable one.
   /*
-   * TWO CURRENCIES NOW, AND THEY CANNOT BE ADDED.
+   * ONE CURRENCY AGAIN, SO THESE ADD UP AGAIN.
    *
-   * This block used to read `launchFeeWei + createGasWei` and call the result
-   * "Due now". That was correct while the fee was paid in the native coin and is
-   * arithmetic on unlike units now that it is paid in the quote asset: the fee is
-   * 8-decimal base units, the gas is 18-decimal wei. Summing them produced a
-   * number ten orders of magnitude larger than the gas it was meant to include,
-   * displayed it as the headline cost, and — worse — fed it to the sufficiency
-   * gate below, where it compared a BEM-plus-BNB figure against a BNB balance and
-   * so declared every wallet underfunded.
+   * The history is worth keeping, because the bug it records would return the
+   * moment anyone re-denominates the fee. This read `launchFeeWei +
+   * createGasWei` while the fee was native, which was right. The BEM migration
+   * made the fee 8-decimal base units against 18-decimal gas wei, and the sum
+   * silently became arithmetic on unlike units: ten orders of magnitude too
+   * large, shown as the headline cost, and — worse — fed to the sufficiency
+   * gate, where a BEM-plus-BNB figure compared against a BNB balance declared
+   * every wallet underfunded. It was split into two lines to fix that.
    *
-   * The two are kept apart from here down. Nothing in this file adds a quote
-   * amount to a native one, and the cost panel lists them as two lines because
-   * they are two lines: a creator needs both, held separately, and a wallet with
-   * ample BNB and no BEM is a specific failure the old single total could not say.
+   * The fee is native BNB once more, so the split has nothing left to separate
+   * and the sum is honest. ⚠ IF THE FEE EVER LEAVES THE NATIVE COIN AGAIN THIS
+   * LINE IS THE FIRST THING THAT BREAKS, and it will break quietly, in the
+   * direction of blocking every creator rather than of letting one through.
    */
   const gasNowWei = createGasWei
-  const gasTotalWei = projectGasWei
+  const dueNowWei = dialsReady && gasNowWei !== null ? launchFeeWei + gasNowWei : null
 
   /** Native coin, 18 decimals — gas only. */
   const nativeDisplay = (wei: bigint | null) =>
     wei === null ? EM_DASH : `${formatEstimateEth(wei)} ${NATIVE_SYMBOL}`
 
-  /** Quote asset, 8 decimals — the launch fee and every cap. */
-  const quoteDisplay = (units: bigint | null) =>
-    units === null ? EM_DASH : `${trimEth(formatUnits(units, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}`
+  // `quoteDisplay` was deleted with the last BEM figure this page showed. It
+  // formatted 8-decimal quote amounts, and the launch fee — its only remaining
+  // caller once the caps came off the panel — is native BNB now.
 
   const adminAddr = isAddress(projectAdmin) ? projectAdmin as Address : undefined
 
@@ -585,38 +586,37 @@ export default function GenesisConsole() {
   const symbolTrimmed = symbol.trim().toUpperCase()
   const identityComplete = Boolean(nameTrimmed) && Boolean(symbolTrimmed) && Boolean(address) && Boolean(adminAddr)
   const ethBalance = ethBal?.value ?? 0n
-  const quoteBalance = quoteBal ?? 0n
 
   /*
-   * ONE GATE BECAME TWO, for the reason above: a creator now has to hold two
-   * different assets and can be short of either.
+   * TWO GATES BECAME ONE AGAIN, and the merged one is stricter than either.
    *
-   * The original note here argued that gas belongs in the gate, because checking
-   * the fee alone admits a wallet holding exactly the fee and then unable to pay
-   * for the transaction that spends it. That argument survives intact — it just
-   * cannot be expressed as one comparison any more. Both gates still fall open
-   * when their input is unavailable, since a lapsed gate is better than one that
-   * blocks a funded wallet on a quiet oracle.
+   * While the fee was BEM these had to be separate comparisons against separate
+   * balances, and a creator could be short of one asset while holding plenty of
+   * the other. Both are BNB now, so the honest question is whether the wallet
+   * covers the fee AND the gas to spend it — the original argument for putting
+   * gas in the gate at all, which the split could only approximate by asking it
+   * twice.
+   *
+   * ⚠ THIS NO LONGER LETS THROUGH A WALLET HOLDING EXACTLY THE FEE. That wallet
+   *   passed both old gates and then failed in the mempool.
+   *
+   * Still falls open when its input is unavailable: a lapsed gate beats one
+   * that blocks a funded wallet on a quiet fee oracle.
    */
-  const insufficientQuote =
-    walletEnabled && dialsReady && quoteBal !== undefined && quoteBalance < launchFeeWei
-  const insufficientGas =
-    walletEnabled && gasNowWei !== null && ethBalance < gasNowWei
+  const insufficientFunds =
+    walletEnabled && dueNowWei !== null && ethBalance < dueNowWei
 
   /*
-   * THE ALLOWANCE GATE — new, and the one failure mode that looks like nothing.
+   * ⚠ THE ALLOWANCE GATE IS GONE, AND SO IS THE APPROVE TRANSACTION.
    *
-   * `createLaunch` pulls the fee with `transferFrom`. Without an allowance it
-   * reverts, and it reverts from inside the factory rather than from anything the
-   * form can see: the simulation below catches it, but only after the creator has
-   * filled in every field. Gating the button on the allowance instead turns a
-   * late confusing revert into an approve step taken before anything is signed.
+   * `createLaunch` took the fee with `transferFrom` and reverted from inside
+   * the factory without an allowance, so the button had to be gated on one and
+   * a creator signed twice to deploy. The fee is `msg.value` again: nothing is
+   * pulled, nothing needs approving, and deploying is one signature.
    *
-   * Approved for exactly `launchFeeWei`, which is also the slippage bound quoted
-   * to the factory, so an owner raising the fee between the approve and the deploy
-   * fails the `expectedFee` check rather than silently spending more.
+   * `useQuoteApproval` is still imported and used elsewhere on this page for
+   * nothing — check before re-adding a step here.
    */
-  const feeApproval = useQuoteApproval(FACTORY_ADDRESS, dialsReady ? launchFeeWei : 0n)
 
   const handleLaunch = useCallback(async () => {
     if (!address || !adminAddr) return
@@ -961,38 +961,21 @@ export default function GenesisConsole() {
         tone: 'warn',
       },
       /*
-       * THREE BLOCKERS WHERE THERE WAS ONE, in the order a creator hits them.
+       * ⚠ BACK TO ONE BLOCKER FROM THREE. There were three because the creator
+       *   needed two assets and an allowance: `insufficient-gas`,
+       *   `insufficient-fee` and `approve-fee`, ordered bottom-up so that a
+       *   wallet short of everything was told about the missing BEM before
+       *   being invited to approve a balance it did not have.
        *
-       * `revertOrder` shows the LAST active blocker, so these read bottom-up: a
-       * wallet short of both assets and holding no allowance is told about the
-       * missing quote asset first, because approving a balance you do not have is
-       * not a step worth taking.
+       *   Both costs are BNB now and nothing is approved, so there is one
+       *   question left and it is asked once.
        */
       {
-        id: 'insufficient-gas',
-        active: insufficientGas,
-        label: `Need ${nativeDisplay(gasNowWei)} for gas`,
-        reason: `The fee is paid in ${QUOTE_SYMBOL}, but the transaction itself still costs about ${nativeDisplay(gasNowWei)} in ${NATIVE_SYMBOL}. This wallet does not hold that much.`,
+        id: 'insufficient-funds',
+        active: insufficientFunds,
+        label: `Need ${nativeDisplay(dueNowWei)}`,
+        reason: `Deploying costs ${nativeDisplay(launchFeeWei)} in launch fee plus about ${nativeDisplay(gasNowWei)} in gas, both in ${NATIVE_SYMBOL}. This wallet does not hold the ${nativeDisplay(dueNowWei)} that comes to.`,
         tone: 'warn',
-      },
-      {
-        // Nothing to approve against an empty balance, so this sits below the
-        // allowance blocker and therefore wins over it.
-        id: 'insufficient-fee',
-        active: insufficientQuote,
-        label: `Need ${quoteDisplay(launchFeeWei)}`,
-        reason: `The factory pulls ${feeDisplay} ${QUOTE_SYMBOL} as the launch fee. This wallet does not hold that much.`,
-        tone: 'warn',
-      },
-      {
-        id: 'approve-fee',
-        active: !insufficientQuote && feeApproval.needsApproval,
-        label: feeApproval.tx.isBusy ? 'Approving…' : `Approve ${quoteDisplay(launchFeeWei)}`,
-        reason: `${QUOTE_SYMBOL} is pulled, not sent: the factory calls \`transferFrom\` for the fee, so it needs your permission for ${feeDisplay} ${QUOTE_SYMBOL} first. One extra transaction, and it authorises exactly the fee — nothing more stays approved afterwards.`,
-        tone: 'info',
-        // Actionable rather than merely informative: the blocker IS the button, so
-        // the approve costs the creator a click and not a hunt for where to do it.
-        resolve: feeApproval.approve,
       },
       {
         id: 'salt',
@@ -1223,26 +1206,19 @@ export default function GenesisConsole() {
                     })}
                   </div>
 
-                  {/* THE MINIMUM RAISE READOUT IS GONE FROM HERE. It was a
+                  {/* THE MINIMUM RAISE READOUT IS GONE FROM HERE, and it has
+                      since gone from the other three places too. It was a
                       `Minimum raise / <softCapDisplay> / Set on the factory,
                       not per launch` block on the right of this row — the
                       fourth place on one screen showing one number.
 
-                      That figure was written here as the literal "0.01 ETH",
-                      which was the factory floor before the BNB cutover
-                      recalibrated it ×3.5 to 0.035. It is not quoted as a
-                      number any more: this row read `softCapWei` live, and the
-                      three surviving call sites still do, so naming the
-                      variable rather than a frozen value is what stops this
-                      tombstone from going stale a second time. The live floor
-                      constant, if you want it spelled out, is
-                      `MIN_SOFT_CAP_PROD_LABEL` in `lib/contracts.ts`.
-
-                      The other three are the
-                      preview panel's MINIMUM RAISE, the factory dials in the
-                      aside (as `Soft cap`, which is why that label is now the
-                      same words as these were), and the consent line the
-                      creator actually ticks.
+                      Deduplicating it was the right first move and the wrong
+                      diagnosis. The problem was not that `defaultSoftCap`
+                      appeared four times; it was that no wording for it was
+                      true, so each pass renamed it rather than removing it.
+                      The preview's row, the aside's dial and the consent line
+                      have all now gone the same way as this one, for the
+                      reasons written where each used to be.
 
                       Two of those four earn their place: the preview because it
                       is a mock-up of the listing, and the consent because it is
@@ -1424,8 +1400,24 @@ export default function GenesisConsole() {
                     <dt className="text-text-tertiary">Opening price</dt>
                     <dd className="text-text-primary">1.10× genesis</dd>
                   </div>
+                  {/* ⚠ THIS ROW WAS LABELLED "Refund window", WHICH NAMED THE
+                      WRONG WINDOW AND POINTED IT AT THE WRONG PERSON.
+
+                      `LAUNCH_WINDOW_SECONDS` is the creator's deadline to call
+                      `launch()` after genesis closes. Refunds open when it
+                      EXPIRES, and `canRefund()` tests nothing but
+                      `block.timestamp > genesisDeadline + LAUNCH_WINDOW`, so
+                      once open they never close.
+
+                      So the old label was wrong twice over: these 7 days are
+                      the window before refunds rather than the window for them,
+                      and the refund itself has no deadline at all. The reader
+                      of this panel is the creator, and "Refund window: 7 days"
+                      invites them to conclude their depositors have a week to
+                      pull out — when in fact THEY have a week to ship, and
+                      missing it is what hands the money back. */}
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Refund window</dt>
+                    <dt className="text-text-tertiary">Your deadline to launch</dt>
                     <dd className="text-text-primary">
                       {Number(LAUNCH_WINDOW_SECONDS / 86400n)} days
                     </dd>
@@ -1435,8 +1427,9 @@ export default function GenesisConsole() {
                   Fixed at deploy, and unsold supply is never re-mintable. Genesis
                   splits {shareOf(GENESIS_CLAIM_SUPPLY, GENESIS_SUPPLY)} to depositor
                   claims and the rest to pool liquidity, which is what opens the market
-                  above what they paid. Miss the refund window and every depositor takes
-                  back 100% of their {QUOTE_SYMBOL}.
+                  above what they paid. The clock starts when genesis closes: open the
+                  pool inside it, or every depositor can take back 100% of their{' '}
+                  {QUOTE_SYMBOL} — with no deadline of their own to beat.
                 </p>
               </Card>
 
@@ -1453,30 +1446,35 @@ export default function GenesisConsole() {
                     the branch, and "gas, open pool later" became a sibling row
                     that says so. The old labels were long enough to wrap their
                     own values onto a second line in a third of this column. */}
-                {/* NO TOTALS ANY MORE, and their absence is the point.
+                {/* THE TOTAL IS BACK, because it is a quantity again.
 
-                    This panel used to lead with "Due now" and "Total to open",
-                    each the sum of the launch fee and a gas estimate. That sum is
-                    no longer a quantity: the fee is charged in the quote asset and
-                    the gas in the native coin, so the two rows measure different
-                    money and adding them yields a figure in no currency at all.
-                    Presenting one anyway would be worse than omitting it, because
-                    a creator would budget against it.
+                    It was removed when the fee moved to BEM: "Due now" had been
+                    the launch fee plus the create gas, and once those were
+                    8-decimal quote units and 18-decimal wei the sum was a figure
+                    in no currency at all. Four rows in two assets was the honest
+                    shape of that, and it made the creator notice they needed
+                    both.
 
-                    What replaces it is the honest shape of the requirement — two
-                    assets, both needed, listed under their own headings. A creator
-                    reading this has to notice they need BOTH, which is exactly the
-                    thing a single total let them miss. The second transaction stays
-                    called out separately for the original reason: only the creator
-                    can send it, and a wallet drained by the first strands a raise
-                    that succeeded. */}
+                    The fee is native BNB again, so the same addition is sound
+                    and the four rows are now four ways of saying BNB. `Due now`
+                    leads because it is the number a creator budgets against, and
+                    it is the only one that can stop this transaction.
+
+                    The second transaction stays broken out for the original
+                    reason, which never depended on the denomination: only the
+                    creator can send it, and a wallet drained by the first
+                    strands a raise that already succeeded. */}
                 <dl className="flex flex-col gap-gap-tight font-mono text-note">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Launch fee</dt>
-                    <dd className="text-text-primary">{quoteDisplay(dialsReady ? launchFeeWei : null)}</dd>
+                    <dt className="text-text-tertiary">Due now</dt>
+                    <dd className="text-text-primary">{nativeDisplay(dueNowWei)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Gas, deploy now</dt>
+                    <dt className="text-text-tertiary">└ launch fee</dt>
+                    <dd className="text-text-secondary">{nativeDisplay(dialsReady ? launchFeeWei : null)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-text-tertiary">└ gas, deploy now</dt>
                     <dd className="text-text-secondary">{nativeDisplay(gasNowWei)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
@@ -1485,17 +1483,13 @@ export default function GenesisConsole() {
                       {nativeDisplay(gasCostWei(LAUNCH_GAS_TOTAL, feePerGas))}
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Gas, both together</dt>
-                    <dd className="text-text-primary">{nativeDisplay(gasTotalWei)}</dd>
-                  </div>
                 </dl>
                 <p className="text-micro leading-relaxed text-text-quiet">
-                  You need both: {QUOTE_SYMBOL} for the fee, {NATIVE_SYMBOL} for gas.
-                  The fee is approved first and then pulled, so deploying costs two
-                  signatures. Gas is estimated at the current rate, which moves
-                  before you sign. Opening the pool is a later transaction only you
-                  can send.
+                  {NATIVE_SYMBOL} only, and one signature — the fee is sent with the
+                  transaction, not approved first. Send more than the fee and the
+                  difference comes straight back. Gas is estimated at the current
+                  rate, which moves before you sign. Opening the pool is a later
+                  transaction only you can send.
                 </p>
               </Card>
             </div>
@@ -1511,9 +1505,37 @@ export default function GenesisConsole() {
                 full value in `title`, an explorer link and a copy button — so
                 the thing a reader actually wants to do with a contract address
                 takes one click instead of a careful drag-select. */}
+            {/* ⚠ THIS LINE USED TO CLAIM TWO THINGS THAT WERE NOT TRUE, on the
+                one page whose entire argument is that a creator can go and
+                check. It read: "No proxy, no admin key, no upgrade. Only this
+                project's own contract can ever mint the token, and nobody holds
+                an admin role over it."
+
+                "No proxy" was false on inspection. The hook and the token are
+                both CREATE2 clones — 131 bytes that `delegatecall` a fixed
+                implementation — so a reader who opens the bytecode finds a
+                proxy in the first instruction. The true and stronger claim is
+                that the implementation address is part of the clone's own code
+                and cannot be pointed anywhere else.
+
+                "Nobody holds an admin role over it" contradicted the factory's
+                own natspec, which calls `haltLadderMinting` a "break-glass
+                brake" and "the new trust assumption". The owner can freeze this
+                project's shelf minting for up to `MAX_HALT_DURATION`, renewably.
+                Governance §9 of the README has always listed it; only this
+                sentence denied it.
+
+                What survives is what holds: minting is the hook's alone, the
+                deployed parameters are immutable, and the brake is bounded and
+                cannot touch anyone's balance. Saying that is more persuasive
+                than the overclaim was, and it does not fall over when someone
+                reads the contract. */}
             <p className="flex flex-wrap items-center gap-x-gap-tight text-note leading-relaxed text-text-quiet">
-              No proxy, no admin key, no upgrade. Only this project&apos;s own contract
-              can ever mint the token, and nobody holds an admin role over it.
+              No upgrade path and no admin key over your token: the terms above are
+              fixed in the contract&apos;s own bytecode at deploy, and only this
+              project&apos;s contract can ever mint. The platform keeps one bounded
+              brake — it can pause shelf minting for up to 7 days at a time, on the
+              record, and it can never reach a deposit, a refund or a claim.
               <AddressLink value={FACTORY_ADDRESS} label={`Factory ${truncateHex(FACTORY_ADDRESS)}`} className="text-micro" />
             </p>
 
@@ -1550,8 +1572,8 @@ export default function GenesisConsole() {
                 <span className="text-note leading-relaxed text-text-secondary">
                   {dialsReady ? (
                     <>
-                      I accept the immutable pact: {feeDisplay} {QUOTE_SYMBOL} launch fee, {softCapDisplay} {QUOTE_SYMBOL}
-                      raise target, a genesis window that cannot close early, and a{' '}
+                      I accept the immutable pact: {feeDisplay} {NATIVE_SYMBOL} launch fee, a genesis
+                      window that cannot close early, and a{' '}
                       <span className="text-warning">full refund</span> if the{' '}
                       {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading expires unused.
                     </>
@@ -1644,7 +1666,6 @@ export default function GenesisConsole() {
                 description={description}
                 logoUrl={logoUrl}
                 windowLabel={`${activeWindow.seconds / 3600n}h`}
-                minimumRaise={dialsReady ? `${softCapDisplay} ${QUOTE_SYMBOL}` : EM_DASH}
                 poolAddress={predictedHook}
               />
 
@@ -1666,23 +1687,28 @@ export default function GenesisConsole() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Launch fee</dt>
                     <dd className="text-text-primary">
-                      {dialsReady ? `${feeDisplay} ${QUOTE_SYMBOL}` : EM_DASH}
+                      {dialsReady ? `${feeDisplay} ${NATIVE_SYMBOL}` : EM_DASH}
                     </dd>
                   </div>
-                  {/* `Minimum raise`, not `Soft cap`. It is the same
-                      `defaultSoftCap` the preview and the consent line both
-                      publish, and it was the only place on the page calling it
-                      by the contract's name — so one number wore two labels in
-                      two panels a scroll apart, which reads as two dials. The
-                      creator-facing words win; `softCapWei` keeps the
-                      contract's name in the code, where the ambiguity costs
-                      nothing. */}
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Raise target</dt>
-                    <dd className="text-text-primary">
-                      {dialsReady ? `${softCapDisplay} ${QUOTE_SYMBOL}` : EM_DASH}
-                    </dd>
-                  </div>
+                  {/* ⚠ THE `Raise target` ROW IS GONE, and the label it carried
+                      was the second attempt at describing something that is not
+                      there. It began as `Soft cap`, the contract's own name for
+                      `defaultSoftCap`; that was renamed to `Minimum raise` so
+                      one dial would not wear two labels in two panels, then to
+                      `Raise target`.
+
+                      All three were wrong in the same way. It is not a cap —
+                      deposits run past it. It is not a minimum — a raise below
+                      it launches, and the real floor is the one that makes a
+                      ladder solvable, which `RaiseTooSmallForLadder` puts near
+                      21 BEM and which this figure sits far above. It is not a
+                      target either, because nothing reads it: `launch()` does
+                      not consult it, and reaching it does nothing at all.
+
+                      `softCapWei` stays in the code. It is an argument to
+                      `createLaunch` and part of the hook's initcode, so it
+                      still decides the CREATE2 address — it simply has nothing
+                      to say to a creator. */}
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">Per-wallet cap</dt>
                     <dd className="text-text-primary">

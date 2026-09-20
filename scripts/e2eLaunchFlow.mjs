@@ -57,7 +57,7 @@
 
 import {
   createPublicClient, createWalletClient, http, parseAbi,
-  parseEventLogs, formatUnits, getAddress,
+  parseEventLogs, formatUnits, formatEther, getAddress,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -94,7 +94,15 @@ const ERC20_ABI = parseAbi([
   'function symbol() view returns (string)',
 ]);
 
-/** Quote-asset amounts are 8-decimal. `formatEther` here would print a 9.28 fee as 9.28e-10. */
+/**
+ * Quote-asset amounts are 8-decimal. `formatEther` here would print a 46.4
+ * wallet cap as 4.64e-11.
+ *
+ * ⚠ NOT FOR THE LAUNCH FEE. That one is native BNB at 18 decimals and is the
+ *   only factory figure that is — passing it through here printed 0.005 BNB
+ *   as "50000000 mBEM", which is both the wrong magnitude and the wrong
+ *   asset. Use `formatEther` for it; the caps and the raise stay here.
+ */
 const quoteAmt = (units) => formatUnits(units, 8);
 
 function arg(name, fallback) {
@@ -187,7 +195,7 @@ async function main() {
     `${quote} · ${quoteSymbol} · ${quoteDecimals} decimals`);
   if (quoteDecimals !== 8) process.exit(1);
   console.log(`      quote ${quoteSymbol} ${quote}`);
-  console.log(`      softCap ${quoteAmt(softCap)} ${quoteSymbol} · perWalletCap ${quoteAmt(perWalletCap)} ${quoteSymbol} · fee ${quoteAmt(launchFee)} ${quoteSymbol}\n`);
+  console.log(`      softCap ${quoteAmt(softCap)} ${quoteSymbol} · perWalletCap ${quoteAmt(perWalletCap)} ${quoteSymbol} · fee ${formatEther(launchFee)} BNB\n`);
 
   // ── 2. TS prediction vs the live factory ──────────────────────────────────
   const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, softCap, perWalletCap, duration]);
@@ -221,33 +229,38 @@ async function main() {
   const name = arg('name', `E2E Clone ${stamp}`);
   const symbol = arg('symbol', `E2E${stamp.slice(-3)}`);
 
-  // The fee is PULLED. Sending `value: launchFee` used to fund the call and now
-  // donates native coin to a function that does not read `msg.value`. The
-  // allowance has to land first, for exactly the fee, against the factory.
-  const allowance = await pub.readContract({
-    address: quote, abi: ERC20_ABI, functionName: 'allowance', args: [creator, factory],
-  });
-  if (allowance < launchFee) {
-    const approveHash = await wallet.writeContract({
-      address: quote, abi: ERC20_ABI, functionName: 'approve',
-      args: [factory, launchFee], chain: null,
-    });
-    const approveReceipt = await pub.waitForTransactionReceipt({ hash: approveHash });
-    check('approved the factory for the launch fee', approveReceipt.status === 'success',
-      `${quoteAmt(launchFee)} ${quoteSymbol} · ${approveHash}`);
-    if (approveReceipt.status !== 'success') process.exit(1);
-  } else {
-    check('factory already has the fee allowance', true, `${quoteAmt(allowance)} ${quoteSymbol}`);
-  }
+  // ⚠ THE FEE IS SENT, NOT PULLED, AND THE COMMENT HERE SAID THE OPPOSITE.
+  //   It read "the fee is PULLED; sending `value: launchFee` donates native
+  //   coin to a function that does not read `msg.value`", which was true for
+  //   as long as the fee was charged in the quote asset. `createLaunch` is
+  //   `payable` again and the fee is native BNB, so this script was doing
+  //   both halves wrong: approving mBEM the factory will never pull, then
+  //   calling with no value and reverting `InsufficientLaunchFee`.
+  //
+  //   The approval step is gone rather than made conditional. There is no
+  //   allowance to check: the factory no longer touches the quote asset in
+  //   `createLaunch` at all.
+  //
+  //   Note the units. `launchFee` is 18-decimal native now, and the run that
+  //   caught this printed it through `quoteAmt` — the 8-decimal formatter —
+  //   as "fee 50000000 mBEM" for what is 0.005 BNB. Nine orders of magnitude
+  //   and the wrong ticker, on the line a reader uses to sanity-check the
+  //   number before signing. Native amounts go through `formatEther`.
+  const feeLabel = `${formatEther(launchFee)} BNB`;
+  const nativeBal = await pub.getBalance({ address: creator });
+  check('creator can cover the native launch fee', nativeBal >= launchFee,
+    `have ${formatEther(nativeBal)} BNB · fee ${feeLabel}`);
+  if (nativeBal < launchFee) process.exit(1);
 
   let gasEstimate;
   try {
     gasEstimate = await pub.estimateContractGas({
       address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
       args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-      account,
+      account, value: launchFee,
     });
-    check('createLaunch estimates (salt accepted by the live factory)', true, `${gasEstimate.toLocaleString()} gas`);
+    check('createLaunch estimates (salt accepted by the live factory)', true,
+      `${gasEstimate.toLocaleString()} gas · ${feeLabel} attached`);
   } catch (e) {
     check('createLaunch estimates (salt accepted by the live factory)', false,
       (e.shortMessage ?? e.message ?? '').split('\n')[0]);
@@ -257,7 +270,7 @@ async function main() {
   const hash = await wallet.writeContract({
     address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
     args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-    chain: null, gas: (gasEstimate * 12n) / 10n,
+    chain: null, gas: (gasEstimate * 12n) / 10n, value: launchFee,
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   check('createLaunch confirmed', receipt.status === 'success', `${receipt.gasUsed.toLocaleString()} gas · ${hash}`);

@@ -457,7 +457,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch(
+        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
             "Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
         );
         ToshToken token = ToshToken(tokenAddr);
@@ -559,7 +559,9 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch("Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS);
+        factory.createLaunch{value: fee}(
+            "Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS
+        );
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
@@ -584,7 +586,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch(
+        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
             "Concentration", "CNC", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
         );
         ToshToken token = ToshToken(tokenAddr);

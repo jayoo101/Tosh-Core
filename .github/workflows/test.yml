@@ -420,7 +420,20 @@ jobs:
       # saved CRLF puts the hook somewhere nobody mined for. This step passes
       # here by construction — a fresh checkout gets LF from .gitattributes —
       # and the check is aimed at the working tree it cannot see.
-      - name: Check every source file is valid UTF-8 and LF-only
+      #
+      # It also rejects NUL bytes, which are valid UTF-8 and make git treat the
+      # file as binary: no diff, no blame, no merge, and a review that sees
+      # "Bin 17577 -> 17820 bytes" instead of the changed lines. That is the
+      # one failure in this family that CI genuinely adds something to, since
+      # a NUL survives checkout intact where a line ending does not.
+      #
+      # ⚠ SCOPE IS NOW `git ls-files`, NOT A LIST OF DIRECTORIES. The previous
+      #   hardcoded list reached 219 of 327 tracked source files and silently
+      #   skipped `scripts/`, `monitoring/`, `README.md` and `SECURITY.md`.
+      #   Widening it immediately found real CRLF damage in `scripts/`, so the
+      #   gap was not theoretical. Nothing needs adding here when a directory
+      #   is created.
+      - name: Check every tracked source file is valid UTF-8, NUL-free and LF-only
         run: node scripts/checkEncoding.mjs
 
       # The status page lives in another repository so that it stays up when

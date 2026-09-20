@@ -469,10 +469,18 @@ export const MIN_SOFT_CAP_PROD_LABEL = '100'
  * only on-chain turns that keystroke into a reverted owner transaction instead of
  * an inline refusal.
  *
- * 928 BEM, a hundred times the 9.28 BEM default.
+ * 0.5 BNB, a hundred times the 0.005 BNB default.
+ *
+ * ⚠ 18 DECIMALS, UNLIKE EVERY OTHER CONSTANT AROUND IT. The launch fee is the
+ *   one factory dial charged in the chain's own coin; the soft cap and the PoG
+ *   limit below are 8-decimal BEM. Scaling this by `10n ** 8n` to match its
+ *   neighbours would put the ceiling at 5e9 wei — five gwei — and the admin
+ *   panel would refuse every legal fee including the one already deployed.
+ *   `checkContractConstants.ts` compares this against the Solidity constant and
+ *   is what catches it if that happens.
  */
-export const MAX_LAUNCH_FEE: bigint = 928n * 10n ** 8n
-export const MAX_LAUNCH_FEE_LABEL = '928'
+export const MAX_LAUNCH_FEE: bigint = 5n * 10n ** 17n
+export const MAX_LAUNCH_FEE_LABEL = '0.5'
 
 /**
  * Ceilings on the other two quote-denominated dials (mirror

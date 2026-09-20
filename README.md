@@ -31,21 +31,30 @@ which was true of Robinhood Chain `4663` and is true of nothing today. The
 protocol is mid-move to BNB Smart Chain: the AMM changed with it, from Uniswap V4
 to PancakeSwap Infinity, because BSC has no V4 deployment.
 
-**Every currency figure below is BEM**, an 8-decimal ERC-20, and this is the second
-re-denomination rather than the first. The protocol settled in ETH, then in BNB
-(×3.5), and now in BEM at the measured rate of ≈26.51 BEM per BNB — which is where
-0.35 → 9.28 for the launch fee and 35 → 928.4 for the default soft cap come from.
-**§3.1 is what BEM is, the three jobs it does in the protocol, and what the choice
-costs.** Two consequences are worth stating before any number below is read:
+**Almost every currency figure below is BEM**, an 8-decimal ERC-20, and this is
+the second re-denomination rather than the first. The protocol settled in ETH,
+then in BNB (×3.5), and now in BEM at the measured rate of ≈26.51 BEM per BNB.
+**§3.1 is what BEM is, the jobs it does in the protocol, and what the choice
+costs.** Three consequences are worth stating before any number below is read:
 
 - **Eight decimals, not eighteen.** The hook's constructor asserts `decimals() == 8`
   and refuses to deploy against anything else, so this is a protocol invariant and
   not a property of one token. Base units and display units differ by 10^8 here
   where every other figure in this repo differs by 10^18.
-- **Nothing is `payable` any more.** BNB is now gas and gas only. The launch fee,
-  every genesis deposit, every shelf mint and every buyback moves by
-  `transferFrom`, which means each of them needs an ERC-20 approval first and can
-  fail for a reason that has nothing to do with the protocol.
+- **One thing is still `payable`, and it is the launch fee.** Every genesis
+  deposit, every shelf mint and every buyback moves in BEM by `transferFrom`,
+  so each needs an ERC-20 approval first. `createLaunch` does not: it is paid
+  in native **BNB** as `msg.value`, currently **0.005 BNB**, and refunds any
+  overpayment in the same transaction. An earlier revision of this document
+  said "nothing is `payable` any more", which was true for exactly as long as
+  the fee was charged in BEM. §5.1 has the reasoning; the short version is that
+  a creator arriving with a funded wallet and no BEM should be able to deploy,
+  and an approval before the first transaction was the wrong toll gate.
+- **The soft cap is not a cap, a target or a minimum, and is no longer shown to
+  anyone.** `defaultSoftCap` is still a factory dial and still an immutable
+  argument of every hook clone — so it still decides the CREATE2 address — but
+  `launch()` does not read it, deposits run past it, and a raise below it
+  launches normally. §4.1 covers what replaced it in the interface.
 
 The Proof-of-Gas floor is the one exception and stays in ETH on purpose; it says so
 where it appears.
@@ -348,9 +357,13 @@ One asset occupies all three sides of the protocol's economy, which is the point
 
 | Role | What moves | Where it is enforced |
 |---|---|---|
-| **Fundraising currency** | Genesis deposits, the launch fee, and every shelf purchase are paid in BEM | `ToshFactory.deposit`, `createLaunch`, `ToshLaunchpadHook.mintBondingCurve` |
+| **Fundraising currency** | Genesis deposits and every shelf purchase are paid in BEM | `ToshFactory.deposit`, `ToshLaunchpadHook.mintBondingCurve` |
 | **Pool base asset** | `launch()` pairs the raised BEM against the project token in a full-range Infinity position | `ToshLaunchpadHook.launch`, `getPoolKey()` |
-| **Buyback ammunition** | The 0.70% buy-side tax, the 1% shelf cut, the launch fee and orphaned commission accumulate as BEM, and the treasury spends BEM buying project tokens to burn | `ToshLadderTreasury` |
+| **Buyback ammunition** | The 0.70% buy-side tax, the 1% shelf cut and orphaned commission accumulate as BEM, and the treasury spends BEM buying project tokens to burn | `ToshLadderTreasury` |
+
+The launch fee is the one flow that sits outside this loop. It is charged in
+native BNB and forwarded to the platform treasury, not the ladder treasury, so
+it is neither BEM nor buyback fuel — see §5.1.
 
 So a BEM raise becomes BEM liquidity, trading that liquidity accrues BEM revenue,
 and that revenue is spent buying the project's own token off its own pool and
@@ -408,10 +421,12 @@ three figures were measured on `56` on 2026-09-19 and will have moved; the point
 is the shape, not the decimals.
 
 - **The float is thin.** BEM's only real market is a single PancakeSwap v3 1% tier
-  holding about **1,959 BEM**. A default soft cap of 928.4 BEM is roughly **47% of
-  that pool**. A depositor cannot assemble a full raise at anything near spot, and
-  a raise that did fill would seed a Tosh pool holding more BEM than the open
-  market does. There is no BEM/USDT pair.
+  holding about **1,959 BEM**. The per-wallet cap of 46.4 BEM is **2.4% of that
+  pool** for a single depositor, and a raise of any size worth having would move
+  it: twenty filled wallets is **47%** of the float. A depositor cannot assemble
+  a large position at anything near spot, and a raise that did would seed a Tosh
+  pool holding a meaningful fraction of all circulating BEM. There is no BEM/USDT
+  pair.
 - **Supply moves.** `totalSupply()` rose **4.81% in about two days** while this was
   being written, and BEM fell about 24% against BNB over the same window. Every
   figure in this document is denominated in a quantity under active management.
@@ -476,7 +491,8 @@ ToshToken (one per project)
 
 ### 4.1 Phase 1 · Genesis
 
-The creator pays the launch fee and picks a fundraising window:
+The creator pays the launch fee — **0.005 BNB**, native, sent as `msg.value` —
+and picks a fundraising window:
 
 | Option | Duration |
 |---|---|
@@ -499,11 +515,23 @@ instalment, there is no topping up, and unused per-wallet headroom stays unused.
 The protocol neither warns about this before the transaction nor compensates for
 it afterwards — sizing the deposit is the depositor's call.
 
-The soft cap is written into the hook from the factory's `defaultSoftCap` at
+**There is no funding target, and the interface no longer implies one.** The
+soft cap is written into the hook from the factory's `defaultSoftCap` at
 creation time and cannot go below the production floor
-`MIN_SOFT_CAP_PROD` = 100 BEM.
+`MIN_SOFT_CAP_PROD` = 100 BEM — but nothing consults it after that. `launch()`
+does not check it, `canRefund()` does not check it, deposits continue past it,
+and a raise that never approaches it launches on exactly the same terms. Its
+one remaining job is structural: it is an immutable argument of the hook clone,
+so it is an input to the CREATE2 address the creator mines against.
 
-That floor is the one dial the BEM move did **not** simply rescale, and the reason
+Accordingly the site shows an amount raised and a clock, and no percentage.
+Progress bars, `Raise target`, `Minimum raise`, `% of cap` and an
+"oversubscribed" banner have all been removed: each expressed the raise as a
+fraction of a number that decides nothing, and the bars had to be clamped at
+100% because raises routinely overshot — which is the tell. The only bar left
+in the product is the ladder against `BONDING_MAX`, which is a real ceiling.
+
+The floor is the one dial the BEM move did **not** simply rescale, and the reason
 is worth reading before anyone treats 100 as round-number caution. The ladder's
 break-even is pure base-unit arithmetic — it cares how many base units arrive, not
 what one is worth. Under an 18-decimal quote asset a 35-unit cap cleared that cliff
@@ -518,9 +546,11 @@ lowering this constant a change to ladder correctness rather than to policy.
 **Two refund guarantees, both at 100% of principal with no penalty:**
 
 The genesis window always runs to its deadline. At that point the creator may
-call `launch()` with whatever was raised — the soft cap is a progress target,
-not a fail condition. The empty raise (`totalNativeDeposited == 0`) cannot seed a
-pool and is the only size `launch()` still rejects.
+call `launch()` with whatever was raised. The empty raise
+(`totalNativeDeposited == 0`) cannot seed a pool, and a raise too small to
+produce a monotone ladder reverts with `RaiseTooSmallForLadder` — around 21 BEM
+in practice. Those two are the only sizes `launch()` rejects, and neither is
+the soft cap.
 
 Refunds open when nobody called `launch()` within the `LAUNCH_WINDOW` of 7 days
 that follows the deadline. Use the `canRefund()` view rather than re-deriving
@@ -679,8 +709,15 @@ a quarter of the live supply.
 | Swap tax — buy | 1.00% of BEM in | 70 bps → treasury (buy & burn); 30 bps → `platformTreasury` |
 | Swap tax — sell | 1.00% of tokens in | all 100 bps burned to `0xdead`; the platform takes nothing |
 | Shelf purchase | 1.00% | treasury as buyback fuel; the other 99% to `projectAdmin` |
-| Launch fee | currently 9.28 BEM | treasury in full |
+| Launch fee | currently 0.005 **BNB** (native, adjustable) | `platformTreasury` in full |
 | Orphaned commission | the 10% carve, when unbound | treasury at `launch()` |
+
+The launch fee is the only row denominated in BNB, and the only one that does
+not reach the ladder treasury. That treasury spends BEM and has no `receive()`,
+so native coin sent to it would be stranded; routing the fee to
+`platformTreasury` instead keeps it spendable. The buyback loses nothing that
+matters — at 0.005 BNB a launch it was never meaningful fuel next to the 70 bps
+buy tax.
 
 **Total trader friction is 1.30%** — 0.30% to LPs, 0.70% to buy-and-burn, 0.30%
 to the platform.
@@ -737,8 +774,10 @@ commission is ever paid.
 
 `ToshLadderTreasury` accumulates value and terminates it.
 
-- **In:** launch fees, orphaned commission, the 1% shelf cut, the 70 bps buy-side
-  tax.
+- **In:** orphaned commission, the 1% shelf cut, the 70 bps buy-side tax — all in
+  BEM. Launch fees used to arrive here and no longer do; they are native BNB now
+  and go to `platformTreasury`, because this contract spends BEM and has no
+  `receive()` to accept a coin it could never spend.
 - **Out:** the internal `_buyAndBurn` only. It buys the token through Infinity
   and sends it to `0xdead`.
 - **Absent by design:** `withdraw`, `sweep`, `rescue`, `delegatecall`. The owner
@@ -781,7 +820,7 @@ transfer requires the recipient to call `acceptOwnership()`.
 
 | The owner can | The owner cannot |
 |---|---|
-| Adjust the launch fee (ceiling `MAX_LAUNCH_FEE` = 928 BEM, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
+| Adjust the launch fee in native BNB (ceiling `MAX_LAUNCH_FEE` = 0.5 BNB, zero permitted) | Withdraw treasury funds, or anything held for depositors, referrers or LPs |
 | Adjust the default soft cap (floor `MIN_SOFT_CAP_PROD` = 100 BEM, ceiling `MAX_DEFAULT_SOFT_CAP` = 20,000 BEM) | Change `platformTreasury`, which is `immutable` |
 | Adjust the PoG ceiling and cooldown (`MAX_COOLDOWN` = 7 days) | Remove any token or BEM from the genesis liquidity position |
 | **Repeal the one-deposit rule**, by setting `cooldownDuration` below `DURATION_SLOW` | Reach a deposit, a refund or a claim already recorded against a wallet |
@@ -790,9 +829,11 @@ transfer requires the recipient to call `acceptOwnership()`.
 | Halt shelf minting per project or globally (`MAX_HALT_DURATION` = 7 days, auto-expiring) | Alter the immutable parameters of a deployed hook |
 
 The one-deposit row is listed on its own because it is the only power here whose
-exercise is *silent*. Every other dial in the left column announces itself: a
-changed fee or soft cap is visible on the next launch screen, a pause or a
-blacklist blocks a transaction that would otherwise have gone through. Dropping
+exercise is *silent*. Most other dials in the left column announce themselves: a
+changed fee is visible on the next launch screen, a pause or a blacklist blocks
+a transaction that would otherwise have gone through. (The soft cap is a second
+quiet one, now that no screen prints it — but it also does nothing, which is why
+it is not called out here.) Dropping
 `cooldownDuration` below `DURATION_SLOW` reverts nothing, emits only the routine
 `CooldownDurationUpdated`, and leaves every screen looking the same — while
 restoring the instalment path that §2.2 prices at a 1.5:1 *subsidy* to
@@ -811,10 +852,11 @@ make a buyer miss a price. It cannot cost anyone a balance already on the books.
 Note what the designed failure is *not*: missing the soft cap. `canRefund()`
 reads `block.timestamp > genesisDeadline + LAUNCH_WINDOW` and nothing else, and
 no `require` or `revert` anywhere in the contracts compares a raise against
-`softCap()` — it is a snapshot taken at clone time and exposed for display, per
-§4.1. An earlier version of this paragraph said the soft cap was the designed
-failure, which contradicted §4.1 and §10.1 on the same page and would have told
-a depositor to expect a refund on a ground that does not exist.
+`softCap()` — it is a snapshot taken at clone time, per §4.1, and as of this
+revision it is not even exposed for display. An earlier version of this
+paragraph said the soft cap was the designed failure, which contradicted §4.1
+and §10.1 on the same page and would have told a depositor to expect a refund
+on a ground that does not exist.
 
 This is governance, not the absence of governance. The boundaries are real and so
 are the powers.
@@ -863,9 +905,10 @@ build should see the gap rather than an unqualified list.
     transaction as the launch, because `addLadderToken` reads a TWAP that
     `launch()` has just zeroed; it is now a phase of its own, run a `TWAP_WINDOW`
     later.
-  - The launch itself went through under the soft cap, which is the intended
-    behaviour rather than a fault — the soft cap is a progress target, not a fail
-    condition (§4.1).
+  - The launch itself went through well under the soft cap, which is the
+    intended behaviour rather than a fault: nothing reads that figure (§4.1).
+    This rehearsal is the evidence for that claim, which is part of why the
+    interface no longer shows it.
   - Both value-moving calls charged what they had quoted, to the base unit: a
     0.002-unit buy and a 945-token ladder mint. That check is worth *more* now
     than it was then, because the unit is 10^10 coarser and an approve-then-pull
@@ -952,8 +995,8 @@ testnet result.
 
 | Component | Address |
 |---|---|
-| `ToshFactory` | `0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34` |
-| `ToshLadderTreasury` | `0x20dE906A96FfB89BE6fd6267A0876A68017792F7` |
+| `ToshFactory` | `0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE` |
+| `ToshLadderTreasury` | `0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA` |
 | Quote asset — `MockQuoteAsset`, 8 decimals, `mBEM` | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 | Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
 | Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
@@ -988,7 +1031,7 @@ The token address is the assertion worth making yourself: `0xF94c…` is numeric
 above the quote asset's `0x76bD…`, which is not luck. `createLaunch` grinds the
 clone's CREATE2 salt until it lands there, because a token sorting *below* the
 quote asset would silently invert every pool's sides. Reproduce it with
-`node scripts/e2eLaunchFlow.mjs --factory 0x9CC550A3cEdEfB29dC81AdDeE5d1FdCa55d76E34`.
+`node scripts/e2eLaunchFlow.mjs --factory 0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE`.
 
 #### A.2.1 The previous `97` pair — retired, and unadministrable
 
@@ -1011,8 +1054,8 @@ rather than deleted.
 | Call | What this pair answers | What `src/` says today |
 |---|---|---|
 | `quoteAsset()` | **reverts** — the function does not exist | BEM on `56`, `0x5ce0…695a` |
-| `launchFee()` | `350000000000000000` — 0.35 **BNB**, 18 decimals | `9.28e8` — 9.28 BEM, 8 decimals |
-| `defaultSoftCap()` | `35000000000000000000` — 35 **BNB** | `928.4e8` — 928.4 BEM |
+| `launchFee()` | `350000000000000000` — 0.35 **BNB**, 18 decimals | `5e15` — 0.005 BNB, 18 decimals. Same coin, ×70 cheaper; it went to BEM in between and came back |
+| `defaultSoftCap()` | `35000000000000000000` — 35 **BNB** | `928.4e8` — 928.4 BEM, and read by nothing |
 | `deposit` | `payable`, reads `msg.value` | nonpayable, pulls with `transferFrom` |
 
 **And nobody could administer it, which is the reason it was replaced rather than
@@ -1111,8 +1154,9 @@ precondition for mainnet, and it is a hard one.
 | `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
 | `PIGGYBACK_MIN_GAS` | 270,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
 | `MIN_SOFT_CAP_PROD` | 100 BEM | `ToshFactory` | production floor for the default soft cap — retuned, not rescaled; §4.1 |
-| `MAX_LAUNCH_FEE` | 928 BEM | `ToshFactory` | ceiling on the launch fee |
+| `MAX_LAUNCH_FEE` | 0.5 **BNB** | `ToshFactory` | ceiling on the launch fee — the one constant here at 18 decimals, because the fee is native |
 | `MAX_DEFAULT_SOFT_CAP` | 20,000 BEM | `ToshFactory` | ceiling on the default soft cap |
+| `launchFee` | 0.005 **BNB** | `ToshFactory` | charged as `msg.value` on `createLaunch`, forwarded to `platformTreasury`, overpayment refunded |
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
 | `cooldownDuration` | 72 hours | `ToshFactory` | per-(wallet, hook) re-deposit clock — at ≥ `DURATION_SLOW` it is the one-deposit-per-project rule, §4.1 |
 | `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |

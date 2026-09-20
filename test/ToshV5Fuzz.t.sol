@@ -155,7 +155,7 @@ contract ToshV5FuzzTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch(
+        (address t, address h) = factory.createLaunch{value: fee}(
             name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         token = ToshToken(t);

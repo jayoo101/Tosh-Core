@@ -26,6 +26,7 @@ import {
   MAX_COOLDOWN_SECONDS,
   QUOTE_SYMBOL,
 } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, useTxAction, revertOrder,
   type ActionBlocker,
@@ -37,8 +38,10 @@ import {
   Readout,
   ConfirmDialog,
   fmtQuote,
+  fmtNative,
   fmtDuration,
   parseEthInput,
+  parseNativeInput,
 } from './shared'
 
 /**
@@ -80,7 +83,10 @@ export function LaunchFeePanel() {
   })
 
   const tx = useTxAction({ action: 'update the launch fee', onConfirmed: () => { void refetch() } })
-  const parsed = parseEthInput(feeInput)
+  // parseNativeInput, not parseEthInput: this is the one dial charged in
+  // the chain's own coin. See the note on that function for what the 8-decimal
+  // parse does to a typed `0.005 — it succeeds, quietly, at 500000 wei.
+  const parsed = parseNativeInput(feeInput)
   const aboveCeiling = parsed.ok && parsed.value > MAX_LAUNCH_FEE
 
   // Not wrapped in `useCallback`, like every other panel in this file. Reading
@@ -108,7 +114,7 @@ export function LaunchFeePanel() {
         id: 'above-max-launch-fee',
         active: aboveCeiling,
         label: '[max_launch_fee_violation]',
-        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ${QUOTE_SYMBOL}). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
+        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
       },
     ),
   })
@@ -116,18 +122,18 @@ export function LaunchFeePanel() {
   return (
     <Section
       id="G1-A" title="LAUNCH FEE"
-      subtitle={`setLaunchFee · native ${QUOTE_SYMBOL} charged on every createLaunch · anti-spam toll, forwarded to the ladder treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ${QUOTE_SYMBOL}`}
+      subtitle={`setLaunchFee · native ${NATIVE_SYMBOL} charged on every createLaunch · anti-spam toll, forwarded to the platform treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}`}
     >
       <Readout
         label="CURRENT FEE"
-        value={isLoading && launchFeeWei === undefined ? 'reading…' : fmtQuote(launchFeeWei as bigint | undefined)}
+        value={isLoading && launchFeeWei === undefined ? 'reading…' : fmtNative(launchFeeWei as bigint | undefined)}
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
       <Field
-        label={`NEW FEE · ${QUOTE_SYMBOL} · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
+        label={`NEW FEE · ${NATIVE_SYMBOL} · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
         value={feeInput}
         onChange={setFeeInput}
-        placeholder="e.g. 0.1"
+        placeholder="e.g. 0.005"
         inputMode="decimal"
         disabled={tx.isBusy}
         errored={aboveCeiling}
@@ -136,7 +142,7 @@ export function LaunchFeePanel() {
       <ScopeNote tone={aboveCeiling ? 'warn' : 'mute'}>
         A zero fee is legal and disables the anti-spam toll entirely. The change
         applies to the next createLaunch onward; launches already in flight paid
-        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} {QUOTE_SYMBOL} the
+        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} {NATIVE_SYMBOL} the
         factory reverts LaunchFeeTooHigh, so this button stays inert rather than
         burning gas on a typo.
       </ScopeNote>
@@ -149,10 +155,10 @@ export function LaunchFeePanel() {
         body={
           <>
             <p>
-              {fmtQuote(launchFeeWei as bigint | undefined)}
+              {fmtNative(launchFeeWei as bigint | undefined)}
               {' → '}
               <span className="text-brand">
-                {parsed.ok ? fmtQuote(parsed.value) : '—'}
+                {parsed.ok ? fmtNative(parsed.value) : '—'}
               </span>
             </p>
             <p className="mt-3 text-text-tertiary">
@@ -308,7 +314,10 @@ export function PogLimitPanel() {
         label={`NEW CEILING · ${QUOTE_SYMBOL} · NON-ZERO · MAX ${MAX_POG_ALLOCATION_LIMIT_LABEL}`}
         value={limitInput}
         onChange={setLimitInput}
-        placeholder="e.g. 0.1"
+        // Was `e.g. 0.1`, left over from when this dial was BNB. It is BEM at
+        // 46.4, so the hint was suggesting a figure three orders of magnitude
+        // under the live value — on the field that sets the per-wallet cap.
+        placeholder="e.g. 46.4"
         inputMode="decimal"
         disabled={tx.isBusy}
         errored={zero || aboveCeiling}

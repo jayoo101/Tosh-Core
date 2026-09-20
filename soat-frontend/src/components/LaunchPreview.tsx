@@ -34,7 +34,6 @@ export function LaunchPreview({
   description,
   logoUrl,
   windowLabel,
-  minimumRaise,
   poolAddress,
 }: {
   name: string
@@ -43,13 +42,16 @@ export function LaunchPreview({
   logoUrl: string
   /** The immutable genesis window, already short — `3h`, `24h`, `72h`. */
   windowLabel: string
-  /** The factory's `defaultSoftCap`, formatted, or an em dash while unread. */
-  minimumRaise: string
   /** The mined CREATE2 hook address, empty until a deploy grinds one. */
   poolAddress: string
 }) {
+  // ⚠ NO `Raise target` ROW. It carried the factory's `defaultSoftCap` under
+  //   three labels over time — `Soft cap`, `Minimum raise`, `Raise target` —
+  //   and none of them held: deposits pass it, a raise under it launches
+  //   normally, and `launch()` never reads it. This panel is a mock-up of the
+  //   listing a depositor will see, so a figure that implies a threshold is
+  //   worse here than anywhere else on the page.
   const rows: { label: string; value: string; pending?: boolean }[] = [
-    { label: 'Raise target', value: minimumRaise },
     { label: 'Window', value: windowLabel },
     {
       label: 'Pool address',

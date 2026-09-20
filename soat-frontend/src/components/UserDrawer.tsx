@@ -765,7 +765,7 @@ function AssetRow({
   snapshot:  HookSnapshot
   onClaimed: () => void
 }) {
-  const { row, degraded, launched, totalNative, softCap, hasClaimed, claimable, symbol } = snapshot
+  const { row, degraded, launched, totalNative, hasClaimed, claimable, symbol } = snapshot
 
   // Routed through useTxAction rather than a bare useWriteContract: this row
   // previously read neither the write error nor the receipt, so a rejected
@@ -785,12 +785,12 @@ function AssetRow({
     })
   }
 
-  // Raise progress is bounded at 100 % even if totalNative over-shoots softCap
-  // (it can in practice — the contract allows the last deposit to push past
-  // the soft cap before sealing genesis).
-  const progressPct = softCap > 0n
-    ? Math.min(100, Number((totalNative * 10000n) / softCap) / 100)
-    : 0
+  // ⚠ NO PERCENTAGE. This computed `totalNative / softCap`, clamped at 100%
+  //   because raises routinely overshot — which was the tell: a figure that
+  //   goes past its own maximum and has to be clipped was never a maximum.
+  //   The soft cap gates nothing, so the ratio measured nothing, and a
+  //   depositor reading "82%" on their own stake row inferred a target the
+  //   project had to hit for their money to be safe. It does not exist.
 
   return (
     <li className="rounded-xl border border-border-subtle/70 bg-surface-card/30 p-4 mb-3">
@@ -821,17 +821,11 @@ function AssetRow({
 
       {!launched && !degraded && (
         <div className="mt-3">
-          <div className="relative h-1 bg-surface-card border border-border-subtle">
-            <div
-              className="absolute inset-y-0 left-0 bg-text-primary"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
           <p className="mt-1.5 text-micro tracking-[0.32em] uppercase
                         text-text-tertiary flex items-baseline justify-between gap-2">
-            <span>RAISE_PROGRESS</span>
+            <span>RAISE_TOTAL</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
-              {formatQuote(totalNative)} / {formatQuote(softCap)} ({progressPct.toFixed(1)}%)
+              {formatQuote(totalNative)}
             </span>
           </p>
         </div>

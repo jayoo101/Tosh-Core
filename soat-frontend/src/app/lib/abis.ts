@@ -329,7 +329,7 @@ export const FACTORY_ABI = [
         "internalType": "address"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1827,6 +1827,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "HookNotRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLaunchFee",
     "inputs": []
   },
   {

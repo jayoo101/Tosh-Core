@@ -164,7 +164,6 @@ function Remaining({
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
   const phase = PHASE[p.tab]
-  const pct = Math.min(p.progress, 100)
   const desc = p.description?.trim()
 
   return (
@@ -211,20 +210,23 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
 
       {/* ── The per-phase body ─────────────────────────────────────────────── */}
 
+      {/* ⚠ NO FUNDING BAR, AND NO PERCENTAGE. This read
+          "Funding {pct}%" over a gradient bar over "{raised} / {softCap}",
+          and the denominator in all three was the soft cap — which is not a
+          target the raise has to reach, not a cap it stops at, and not
+          consulted by `launch()`. A bar at 40% said the project was 40% of
+          the way to something. There is no something.
+
+          What is left is the pair that decides whether to deposit: how much
+          is in, and how long is left. */}
       {p.tab === 'live' && (
         <div className="mt-card">
           <div className="flex items-center justify-between font-mono text-micro uppercase text-text-tertiary">
-            <span>Funding {pct.toFixed(0)}%</span>
+            <span>Raised</span>
             <Remaining deadline={p.genesisDeadline} tab={p.tab} />
           </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-pill bg-surface-hover">
-            <div
-              className="h-full rounded-pill bg-gradient-to-r from-brand to-brand-violet"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
-            {fmtQuote(p.totalNative)} / {fmtQuote(p.softCap)} {QUOTE_SYMBOL}
+            {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
           </div>
         </div>
       )}
@@ -309,7 +311,6 @@ export const ProjectCard = memo(ProjectCardImpl)
 function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
   const phase = PHASE[p.tab]
-  const pct = Math.min(p.progress, 100)
   const desc = p.description?.trim()
 
   return (
@@ -364,12 +365,6 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-pill bg-surface-hover">
-              <div className="tosh-gradient-bg h-full rounded-pill" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="mt-1.5 font-mono text-micro text-text-tertiary">
-              target {fmtQuote(p.softCap)}
-            </div>
           </div>
         ) : p.tab === 'launching' ? (
           <div className="flex items-center justify-between gap-gap rounded-input border border-warning/30 bg-warning/5 px-3 py-2 font-mono text-micro uppercase text-warning">
@@ -377,32 +372,22 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
             <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-card border-t border-border-subtle pt-4">
-            <div>
-              <div className="font-mono text-figure tabular-nums text-text-primary">
-                {fmtQuote(p.totalNative)}
-              </div>
-              {/* `normal-case` on the symbol only. The label is uppercased by
-                  design, but the ticker is not ours to case: chain 97's is
-                  `mBEM`, and `MBEM` is a different string that matches no
-                  token. The two words around it stay uppercase. */}
-              <div className="font-mono text-micro uppercase text-text-tertiary">
-                raised <span className="normal-case">{QUOTE_SYMBOL}</span>
-              </div>
+          /* ⚠ ONE FIGURE WHERE THERE WERE THREE, because two of the three were
+              the soft cap wearing different clothes: `target` was the cap, and
+              `funded %` was the raise divided by it. Neither described the
+              project — a launched raise "60% funded" launched in full, opened
+              its pool in full, and paid every depositor in full. The label was
+              the only thing implying otherwise.
+
+              `normal-case` on the symbol only. The label is uppercased by
+              design, but the ticker is not ours to case: chain 97's is `mBEM`,
+              and `MBEM` is a different string that matches no token. */
+          <div className="border-t border-border-subtle pt-4">
+            <div className="font-mono text-figure tabular-nums text-text-primary">
+              {fmtQuote(p.totalNative)}
             </div>
-            <div>
-              <div className="font-mono text-figure tabular-nums text-text-primary">
-                {fmtQuote(p.softCap)}
-              </div>
-              <div className="font-mono text-micro uppercase text-text-tertiary">
-                target <span className="normal-case">{QUOTE_SYMBOL}</span>
-              </div>
-            </div>
-            <div>
-              <div className="font-mono text-figure tabular-nums text-text-primary">
-                {pct.toFixed(0)}%
-              </div>
-              <div className="font-mono text-micro uppercase text-text-tertiary">funded</div>
+            <div className="font-mono text-micro uppercase text-text-tertiary">
+              raised at genesis <span className="normal-case">{QUOTE_SYMBOL}</span>
             </div>
           </div>
         )}

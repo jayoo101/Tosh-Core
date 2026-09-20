@@ -67,6 +67,13 @@ export function useTosh() {
   //     read `factory.launchFee()` immediately before invoking this and pass
   //     that exact value.  The factory aborts with FeeChanged if the live
   //     fee has since been bumped above the quote.
+  //
+  //     IT IS ALSO THE `value` NOW, and those are two jobs rather than one.
+  //     As the argument it is a ceiling the factory refuses to exceed; as the
+  //     send it is the funding. They are the same figure because the caller
+  //     read one fee and agreed to it, not because the contract ties them: a
+  //     fee the owner LOWERS in the meantime is accepted, charged at the lower
+  //     figure, and the difference is refunded in the same transaction.
   //   • expectedSoftCap / expectedWalletCap → the `factory.defaultSoftCap()` and
   //     `factory.maxPogAllocationLimit()` the caller derived their predicted hook
   //     address from. EXACT, not bounds: the factory aborts with CapsChanged on
@@ -100,11 +107,11 @@ export function useTosh() {
             name, symbol, projectTreasury, projectAdmin, hookSalt,
             expectedFee, expectedSoftCap, expectedWalletCap, genesisDuration,
           ],
-          // No `value`. `createLaunch` is no longer payable: it pulls the fee with
-          // `transferFrom(creator, ladderTreasury)` against an allowance the caller
-          // must already hold. `expectedFee` stays in the argument list, where it is
-          // the creator's slippage bound against an owner raising the fee in the
-          // same block — it is not, and never was, the funding.
+          // `value` is back, and no allowance is involved any more. The fee is
+          // native BNB sent to `platformTreasury`; it was briefly a BEM
+          // `transferFrom` to `ladderTreasury`, which is why the launch page
+          // used to run an approve step before this one. It does not now.
+          value:        expectedFee,
           gas:          6_000_000n,
         chainId:      TARGET_CHAIN_ID,
       }),

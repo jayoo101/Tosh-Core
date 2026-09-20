@@ -380,7 +380,6 @@ export default function ProjectTerminal({ project, about, header }: {
             currentPrice={currentPrice}
             shelfP0={shelfP0}
             totalNativeDeposited={totalNativeDeposited}
-            softCap={softCap}
             phase2Minted={phase2Minted}
             bondingMax={bondingMax}
             userEthDeposited={userEthDeposited}
@@ -509,7 +508,6 @@ export default function ProjectTerminal({ project, about, header }: {
             userAddress={userAddress}
             isConnected={wConnected}
             totalNativeDeposited={totalNativeDeposited}
-            softCap={softCap}
             quoteBalance={quoteBalance}
             pogQuota={pogQuota}
             quotaRemaining={quotaRemaining}

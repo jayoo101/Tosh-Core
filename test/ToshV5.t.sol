@@ -320,7 +320,7 @@ contract ToshV5Test is Test {
         // against the allowance `_endow` granted. `expectedFee` still travels as
         // an argument — it is the creator's slippage cap on `launchFee`, which is
         // a separate concern from how the money moves.
-        (address t, address h) = factory.createLaunch(
+        (address t, address h) = factory.createLaunch{value: fee}(
             name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
@@ -557,92 +557,112 @@ contract ToshV5Test is Test {
     //  1. Quote-asset factory plumbing
     // ══════════════════════════════════════════════════════════════════════════
 
-    function test_createLaunch_chargesQuoteFeeAndFundsLadderTreasury() public {
+    /// @notice The launch fee is native BNB and it lands in the platform
+    ///         treasury, not in the buyback reservoir.
+    ///
+    /// @dev    ⚠ BOTH HALVES OF THIS CHANGED AT ONCE, AND THE SECOND HALF WAS
+    ///           FORCED BY THE FIRST. The fee was 9.28 BEM pulled to `ladder`;
+    ///           it is now 0.005 BNB sent to `platformTreasury`.
+    ///
+    ///         The reservoir could not keep it. `ToshLadderTreasury` settles
+    ///         `quoteAsset`, sizes every cycle from `quoteAsset.balanceOf`, and
+    ///         has had no `receive()` since native settlement was dropped — so
+    ///         a BNB send there reverts, and a `receive()` added to accept it
+    ///         would only let the coin arrive where nothing can spend it.
+    ///
+    ///         The cost is that launch fees stop being buy-and-burn ammunition,
+    ///         and the arithmetic is why that was affordable: against a
+    ///         `TRIGGER_STEP` of 92.8 BEM (~3.5 BNB), 0.005 BNB is 1/700th of a
+    ///         cycle where 9.28 BEM was a tenth of one. The price cut had
+    ///         already ended the fee's career as fuel before the denomination
+    ///         moved.
+    ///
+    ///         All four balances are asserted, not just the one that grew. A
+    ///         fee pipe that changed BOTH asset and destination can regress in
+    ///         two independent directions, and either alone would leave one of
+    ///         these four still correct.
+    function test_createLaunch_chargesNativeFeeAndFundsPlatformTreasury() public {
         uint256 fee = factory.launchFee();
-        assertEq(fee, 9.28e8, "default launch fee should be 9.28 BEM");
+        assertEq(fee, 0.005 ether, "default launch fee should be 0.005 BNB");
 
-        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = platformTreasury.balance;
+        uint256 ladderQuoteBefore = quote.balanceOf(address(ladder));
         (, ToshLaunchpadHook hook) = _createProject("Matrix", "MTRX");
 
         assertTrue(factory.registeredHooks(address(hook)));
-        assertEq(quote.balanceOf(address(ladder)) - ladderBefore, fee, "launch fee must land in the buyback reservoir");
-        assertEq(quote.balanceOf(platformTreasury), 0, "platform treasury must not receive launch fees in v5.0");
-        // The reservoir's native balance is asserted alongside its quote balance
-        // because the fee pipe changed asset, not destination: a regression that
-        // reverted to `msg.value` would still credit the right address.
-        assertEq(address(ladder).balance, 0, "no native value may reach the reservoir");
+        assertEq(platformTreasury.balance - platformBefore, fee, "the fee must land in the platform treasury");
+        assertEq(quote.balanceOf(address(ladder)), ladderQuoteBefore, "the reservoir must not be credited in BEM");
+        assertEq(address(ladder).balance, 0, "and no native value may reach the reservoir either");
+        assertEq(address(factory).balance, 0, "the factory must custody nothing");
     }
 
-    /// @notice A creator is debited the fee and not a wei more, however much they
-    ///         approved.
+    /// @notice A creator who overpays gets the change back in the same
+    ///         transaction, and the treasury still receives exactly the fee.
     ///
-    /// @dev    ⚠ REPLACES `test_createLaunch_refundsOverpayment`, which sent
-    ///         `fee + 3 ether` and asserted the excess came back.
+    /// @dev    ⚠ THIS TEST HAS BEEN DELETED AND RESTORED, WHICH IS WORTH A LINE
+    ///           BECAUSE THE DELETION WAS CORRECT AT THE TIME. Under the BEM
+    ///           pull there was genuinely no such thing as overpaying: the
+    ///           factory moved the computed amount and an allowance above the
+    ///           fee was headroom, not money sent. Native value arrives before
+    ///           the callee runs, so the excess is real again and has to go
+    ///           somewhere.
     ///
-    ///         THERE IS NO LONGER SUCH A THING AS OVERPAYMENT. Native value
-    ///         arrives before the callee runs, so the factory received whatever
-    ///         was sent and had to hand the remainder back; a pull moves the
-    ///         computed amount and nothing else, so the refund path it needed is
-    ///         gone rather than merely untested.
+    ///         Keeping it would have been the alternative, and it is the worse
+    ///         one. `expectedFee` is a CEILING, not an equality, so a fee the
+    ///         owner LOWERS between the caller reading it and the transaction
+    ///         landing is explicitly allowed — and that caller, having funded
+    ///         the old figure, would silently forfeit the difference to the
+    ///         platform. The refund exists for the honest case, not the
+    ///         careless one.
     ///
-    ///         What replaces it is the property that made the refund matter: the
-    ///         creator's balance falls by exactly `fee`. `_endow` approves
-    ///         `type(uint256).max`, which is the modern shape of "sent too much"
-    ///         — the factory is authorised to take everything the creator holds
-    ///         and must take 9.28 BEM of it.
-    function test_createLaunch_takesExactlyTheFeeFromAnUnlimitedAllowance() public {
+    ///         3 ether of excess rather than a few wei: a rounding-shaped
+    ///         overpayment could be absorbed by a mistake in either direction
+    ///         and still look plausible.
+    function test_createLaunch_refundsOverpayment() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
-        uint256 before = quote.balanceOf(creator);
+        uint256 excess = 3 ether;
 
-        assertEq(
-            quote.allowance(creator, address(factory)),
-            type(uint256).max,
-            "precondition: the factory may take everything"
-        );
+        vm.deal(creator, fee + excess);
+        uint256 platformBefore = platformTreasury.balance;
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        factory.createLaunch(
+        factory.createLaunch{value: fee + excess}(
             "Over", "OVR", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
-        assertEq(before - quote.balanceOf(creator), fee, "exactly the fee, despite an unlimited allowance");
+        assertEq(creator.balance, excess, "the excess must come back");
+        assertEq(platformTreasury.balance - platformBefore, fee, "and the treasury takes the fee, not the send");
+        assertEq(address(factory).balance, 0, "with nothing left custodied in the factory");
     }
 
-    /// @notice A creator who has not approved the fee cannot launch.
+    /// @notice A creator who sends less than the fee is told which fee, by the
+    ///         protocol rather than by a token.
     ///
-    /// @dev    ⚠ REPLACES `test_createLaunch_revertsOnUnderpayment`, which sent
-    ///         `fee - 1` and expected `InsufficientLaunchFee`.
+    /// @dev    ⚠ DELETED AND RESTORED ALONGSIDE `InsufficientLaunchFee` ITSELF,
+    ///           for the same reason as the refund above.
     ///
-    ///         THAT ERROR NO LONGER EXISTS, and its removal is deliberate rather
-    ///         than an oversight: the factory has nothing in hand to compare
-    ///         against a shortfall, so the only check it could make is a
-    ///         `balanceOf`/`allowance` read whose sole outcome is the revert the
-    ///         transfer already produces — from the token, with both figures in
-    ///         it. A local pre-check would have restated the failure less well.
-    ///
-    ///         So the revert asserted here comes from the ERC20, which is the
-    ///         point. `expectRevert()` is bare because the message belongs to the
-    ///         token: OpenZeppelin raises `ERC20InsufficientAllowance`, and
-    ///         pinning that selector would make this suite fail on a quote asset
-    ///         with a different (equally valid) revert shape.
-    function test_createLaunch_revertsWithoutSufficientAllowance() public {
+    ///         Under the pull this was
+    ///         `test_createLaunch_revertsWithoutSufficientAllowance`, and its
+    ///         bare `expectRevert()` was right: the failure belonged to the
+    ///         ERC20, and pinning `ERC20InsufficientAllowance` would have tied
+    ///         this suite to OpenZeppelin's error set. With the fee native the
+    ///         shortfall is the factory's own fact again, so the selector is
+    ///         pinned — and the creator reads a message about a launch fee
+    ///         rather than one about an allowance they never knowingly set.
+    function test_createLaunch_revertsWhenValueIsBelowTheFee() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
         uint256 fee = factory.launchFee();
 
-        // One base unit short. Not zero: an allowance of zero would also fail the
-        // first `transferFrom` a launch makes for any reason, whereas `fee - 1`
-        // can only fail on the fee itself.
-        vm.prank(creator);
-        quote.approve(address(factory), fee - 1);
-
+        // One wei short. Not zero: sending nothing would fail a payable path
+        // for any number of reasons, whereas `fee - 1` can only fail on the fee.
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        vm.expectRevert();
-        factory.createLaunch(
+        vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
+        factory.createLaunch{value: fee - 1}(
             "Under", "UND", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -654,13 +674,18 @@ contract ToshV5Test is Test {
         uint256 quotedFee = factory.launchFee();
 
         vm.prank(admin);
-        factory.setLaunchFee(quotedFee + 1e8);
+        factory.setLaunchFee(quotedFee + 0.001 ether);
+        uint256 raisedFee = factory.launchFee();
 
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch(
+        // Sends the RAISED fee, not the quoted one, so `msg.value` is ample and
+        // `FeeChanged` is the only thing left that can revert. Paying the old
+        // figure would also be short, and `FeeChanged` is checked first, so the
+        // test would pass while proving the weaker claim.
+        factory.createLaunch{value: raisedFee}(
             "Front", "FRT", projTreasury, projTreasury, salt, quotedFee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -2195,10 +2220,18 @@ contract ToshV5Test is Test {
     ///         a pool key perfectly happily, and report "next call did not revert"
     ///         — a failure that looks exactly like the protocol being fine. The
     ///         key is read up front so the next call really is the swap.
+    ///         ⚠ THE ETCH MOVED BELOW THE LAUNCH WHEN THE FEE WENT BACK TO BNB,
+    ///           and the reason is the subject of
+    ///           `test_createLaunch_bricksOnAPlatformTreasuryThatRefusesNative`.
+    ///           `createLaunch` sends its fee natively to this same address, so
+    ///           etching first killed the launch in the fixture and never
+    ///           reached the swap this test is about. Launching first keeps the
+    ///           claim intact and scoped to where it is true: the 0.3% cut on a
+    ///           BUY cannot be griefed. The toll on a LAUNCH can.
     function test_buyTax_revertingPlatformTreasuryNoLongerBricksBuys() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
         vm.etch(platformTreasury, address(new RevertingReceiver()).code);
 
-        (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
         PoolKey memory key = hook.getPoolKey();
 
         uint256 quoteIn = 100e8;
@@ -2236,6 +2269,46 @@ contract ToshV5Test is Test {
             }),
             _swapSettings(),
             ""
+        );
+    }
+
+    /// @notice ⚑ A `platformTreasury` that refuses native value bricks EVERY
+    ///         LAUNCH, and this records that rather than leaving it implied by
+    ///         the test above going quiet about it.
+    ///
+    /// @dev    The griefing vector the test above celebrates closing is closed
+    ///         only for buys. Moving the launch fee from a BEM pull back to a
+    ///         native send reopened it for `createLaunch`, because a native
+    ///         send runs the recipient's code and an ERC-20 transfer does not.
+    ///         `platformTreasury` is `immutable`, so there is no recovery: a
+    ///         factory deployed against an address that reverts on receive can
+    ///         never take a launch, and the only fix is another factory.
+    ///
+    ///         Accepted rather than mitigated, and it is worth being explicit
+    ///         about why, because "we checked" is a weaker argument than "it
+    ///         cannot happen". The destination is a Gnosis Safe whose fallback
+    ///         accepts plain BNB; `verifyOwnerSafe.mjs` measures that before a
+    ///         deployment may name the address, and `preflightMainnet.mjs`
+    ///         re-runs it against the value actually written in
+    ///         `.env.production`. So the hazard is real, unrecoverable, and
+    ///         gated by a pre-broadcast check rather than by the contract.
+    ///
+    ///         The alternative was to swallow the failure — send and ignore the
+    ///         return — which would silently burn the fee into a contract that
+    ///         refused it. A launch that reverts tells the creator something
+    ///         true; a launch that succeeds having lost the fee does not.
+    function test_createLaunch_bricksOnAPlatformTreasuryThatRefusesNative() public {
+        vm.etch(platformTreasury, address(new RevertingReceiver()).code);
+
+        bytes32 salt = _pickSalt(projTreasury, creator);
+        uint256 fee = factory.launchFee();
+        uint256 agreedSoftCap = factory.defaultSoftCap();
+        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+
+        vm.prank(creator);
+        vm.expectRevert(ToshFactory.NativeTransferFailed.selector);
+        factory.createLaunch{value: fee}(
+            "Refuse", "RFS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
 
@@ -3197,7 +3270,9 @@ contract ToshV5Test is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch("GasCreate", "GCR", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "GasCreate", "GCR", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours
+        );
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch", used);
@@ -3261,6 +3336,36 @@ contract ToshV5Test is Test {
     ///           `currency1` was always the project token and always settled this
     ///           way, which is the useful cross-check on the figure: the quote
     ///           side simply became as expensive as the token side already was.
+    ///
+    ///         ⚠ THE LAST +17,100, 699,427 → 716,527, IS NOT IN `launch()` AT ALL.
+    ///           It appeared when the launch fee moved from BEM to native BNB,
+    ///           and `launch()` was not touched by that change. What moved is the
+    ///           state this test starts from.
+    ///
+    ///           `_createProject` used to pay the fee in BEM to the ladder
+    ///           treasury, which left `quote.balanceOf(ladder)` NON-ZERO before
+    ///           `launch()` ran. The fee now goes to `platformTreasury` in BNB,
+    ///           so that slot is still zero when `launch()` sweeps the orphaned
+    ///           commission into the treasury — and an ERC-20 transfer into a
+    ///           zero balance is a 20,000-gas SSTORE where a transfer into a
+    ///           non-zero one is 5,000. Measured, not inferred: `deal`-ing 1 BEM
+    ///           to the treasury before the warp puts this test back to 699,427
+    ///           exactly, on the same commit.
+    ///
+    ///           So the figure to hold in mind is that a launch costs ~699k
+    ///           whenever the treasury already holds BEM, and ~717k on the one
+    ///           that finds it empty — the first launch of a fresh deployment,
+    ///           and any launch that follows a buyback which happened to spend
+    ///           the balance to zero. The budget covers the expensive case
+    ///           because that is the case this test constructs.
+    ///
+    ///           ⚠ AND `test_gas_launch_warmTreasury` BELOW COVERS THE OTHER
+    ///             ONE, because a single budget cannot. Raising this assertion
+    ///             to 725,000 to admit the cold case left 26k of slack over
+    ///             the warm path, which is the path almost every launch takes
+    ///             — a 20k regression in it would have been invisible here.
+    ///             The pair is the point: two budgets, each tight against the
+    ///             case it names.
     function test_gas_launch() public {
         (, ToshLaunchpadHook hook) = _createProject("GasLaunch", "GLN");
         _deposit(alice, hook, SOFT_CAP, address(0));
@@ -3271,10 +3376,49 @@ contract ToshV5Test is Test {
         hook.launch();
         uint256 used = before - gasleft();
 
-        emit log_named_uint("launch", used);
+        emit log_named_uint("launch, treasury empty", used);
         emit log_named_uint("was, on Uniswap V4 before the Infinity port", 577_000);
         emit log_named_uint("was, on Infinity with a native quote asset", 655_948);
-        assertLt(used, 705_000, "launch path regressed");
+        emit log_named_uint("was, on BEM with a launch fee that pre-warmed the treasury", 699_427);
+        assertLt(used, 725_000, "launch path regressed");
+    }
+
+    /// @notice The same launch, against a treasury that already holds BEM.
+    ///
+    /// @dev    This is the common case and the tighter budget, and it exists
+    ///         because the one above had to be loosened to 725,000 to admit
+    ///         a cold treasury — which left the ordinary path 26k of room to
+    ///         regress in silence.
+    ///
+    ///         The only difference from `test_gas_launch` is the `deal`. One
+    ///         base unit of BEM is enough: what is being bought is a non-zero
+    ///         `_balances[ladder]` slot, so that the orphaned-commission
+    ///         sweep at the end of `launch()` pays 5,000 gas to update a slot
+    ///         rather than 20,000 to initialise one. The amount is irrelevant
+    ///         beyond being non-zero, and 1 is used to make that obvious.
+    ///
+    ///         The gap between the two tests is therefore a direct reading of
+    ///         the cold-SSTORE premium on this path, and it is also the whole
+    ///         of why `test_gas_launch` moved when the launch fee went from
+    ///         BEM to native BNB — the fee used to leave this slot warm, and
+    ///         `launch()` itself did not change. That derivation is written
+    ///         out above; this test is what keeps it honest, because if the
+    ///         two budgets ever stop being ~17k apart the explanation has
+    ///         stopped being true.
+    function test_gas_launch_warmTreasury() public {
+        (, ToshLaunchpadHook hook) = _createProject("GasLaunchWarm", "GLW");
+        _deposit(alice, hook, SOFT_CAP, address(0));
+        vm.warp(hook.genesisDeadline() + 1);
+
+        deal(address(quote), address(ladder), 1);
+
+        vm.prank(creator);
+        uint256 before = gasleft();
+        hook.launch();
+        uint256 used = before - gasleft();
+
+        emit log_named_uint("launch, treasury already holds BEM", used);
+        assertLt(used, 705_000, "warm-treasury launch path regressed");
     }
 
     /// @notice A buy through the pool: the full router-to-hook path a trader

@@ -189,7 +189,7 @@ abstract contract ArbSysHarness is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch(
+        (, address h) = factory.createLaunch{value: fee}(
             "ArbSys", "ARB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         hook = ToshLaunchpadHook(payable(h));

@@ -35,7 +35,17 @@ const MAX_POG_LIMIT_TYPED = '20000'
  */
 const ONE_UNIT_ABOVE_SOFT_CAP = '20000.00000001'
 const ONE_UNIT_ABOVE_POG_LIMIT = '20000.00000001'
-const ONE_UNIT_ABOVE_LAUNCH_FEE = '928.00000001'
+
+/**
+ * ⚠ THE LAUNCH FEE STEPS BY 1e-18, NOT 1e-8, AND IT IS THE ONLY ONE THAT DOES.
+ *   It is the single factory dial charged in native BNB; the two above are
+ *   8-decimal BEM. Stepping this one by the quote asset's unit would hand
+ *   `parseUnits(x, 18)` a value 1e10 above the ceiling — still a refusal, so
+ *   the test would stay green while testing a figure nowhere near the boundary
+ *   it names. That is the same failure the comment above records for the old
+ *   1e-18 steps on the BEM dials, arriving from the opposite direction.
+ */
+const ONE_UNIT_ABOVE_LAUNCH_FEE = '0.500000000000000001'
 
 /**
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
@@ -128,11 +138,32 @@ describe('LAUNCH FEE dial', () => {
   })
 
   it('refuses the wei/ether slip this ceiling exists for', () => {
-    // 0.1 ETH entered as its wei value into a field denominated in ETH — the
+    // 0.005 BNB entered as its wei value into a field denominated in BNB — the
     // realistic accident, at its real magnitude.
-    const v = verdictFor(<LaunchFeePanel />, '100000000000000000')
+    const v = verdictFor(<LaunchFeePanel />, '5000000000000000')
     expect(v.label).toBe('[max_launch_fee_violation]')
     expect(v.disabled).toBe(true)
+  })
+
+  /**
+   * The slip the ceiling CANNOT catch, pinned so that nobody reads the test
+   * above as covering both directions.
+   *
+   * A fee typed with the quote asset's scale in mind — `0.005` meant as base
+   * units — is not a large number, it is a tiny one: 0.005 BNB parses to 5e15
+   * wei and arms, which is correct, but the same field would accept a figure
+   * a thousand times too small just as happily. `MAX_LAUNCH_FEE` is a ceiling
+   * and has nothing to say about a fee that is too cheap.
+   *
+   * That asymmetry is why `parseNativeInput` exists as its own function rather
+   * than as a decimals argument on `parseEthInput`: routing this dial through
+   * the 8-decimal parser produces 500000 wei, sets successfully, reverts
+   * nothing, and is discovered when the anti-spam toll stops deterring spam.
+   */
+  it('arms on a plausible fee, since no bound protects against one too small', () => {
+    const v = verdictFor(<LaunchFeePanel />, '0.005')
+    expect(v.label).toBe(READY)
+    expect(v.disabled).toBe(false)
   })
 
   it('still arms at zero, which is a policy choice and not a mistake', () => {

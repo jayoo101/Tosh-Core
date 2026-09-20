@@ -4,7 +4,10 @@
 # Pre-commit / pre-push sanity gate for Tosh-Core (Windows / PowerShell).
 #
 # Runs the cheap-but-effective subset of checks that catch >90% of regressions:
-#   1. node scripts/checkEncoding.mjs   (source files are valid UTF-8)
+#   1. node scripts/checkEncoding.mjs   (every TRACKED source file is valid
+#      UTF-8, NUL-free, LF-only and free of GBK round-trip damage — note that
+#      the three most common causes are PowerShell, which is what you are
+#      running this in; the guard's header names them)
 #   2. forge fmt --check    (style drift)
 #   3. forge build          (compile-clean)
 #   4. cross-language tuple guards (PoG digest, pool geometry, salt miner,

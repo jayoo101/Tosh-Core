@@ -20,7 +20,6 @@ export interface DirectoryProject {
   launched:        boolean
   genesisDeadline: bigint
   totalNative:        bigint
-  softCap:         bigint
   symbol:          string
   name:            string
   logoUrl:         string | null
@@ -28,7 +27,6 @@ export interface DirectoryProject {
   twitter:         string | null
   description:     string | null
   tab:             DirectoryTab
-  progress:        number
 }
 
 const SCAN_DEPTH = 48
@@ -47,17 +45,24 @@ interface RegistryRow {
 
 /// Order matters.
 ///
-///   • `launching` fired as soon as the soft cap was touched, while the window
-///     was still open.  Nothing is launching then: deposits are still accepted
-///     and the creator cannot call `launch()` until the deadline passes.
+/// Order matters, and neither boundary is a funding level.
+///
+///   • `launching` once fired as soon as the soft cap was touched, while the
+///     window was still open. Nothing is launching then: deposits are still
+///     accepted and the creator cannot call `launch()` until the deadline
+///     passes.
 ///   • After the deadline, every unlaunched raise is `launching` until the
-///     7-day launch window lapses — the soft cap is a progress target, not a
-///     fail condition. Filing an under-target raise as `archived` advertised
-///     a refund the hook would reject.
+///     7-day launch window lapses. Filing an under-target raise as `archived`
+///     advertised a refund the hook would reject.
+///
+/// ⚠ THE SOFT CAP PARAMETER IS GONE, and its absence is the point rather than
+///   a tidy-up. It was `_softCap`, underscored because this function never
+///   read it — two revisions of a tab rule that both concluded the raise's
+///   size decides nothing about its phase. Only `launched` and the clock do.
+///   Keeping the argument invited the next reader to wire it back in.
 function bucket(
   launched: boolean,
   _totalEth: bigint,
-  _softCap: bigint,
   genesisDeadline: bigint,
   nowSec: number,
 ): DirectoryTab {
@@ -191,7 +196,9 @@ export function useDirectoryProjects() {
       { address: l.hook, abi: HOOK_ABI, functionName: 'launched'          as const },
       { address: l.hook, abi: HOOK_ABI, functionName: 'genesisDeadline'   as const },
       { address: l.hook, abi: HOOK_ABI, functionName: 'totalNativeDeposited' as const },
-      { address: l.hook, abi: HOOK_ABI, functionName: 'softCap'           as const },
+      // No `softCap` read. Dropping it took a chain call per project off the
+      // grid — 48 of them at `SCAN_DEPTH` — for a figure nothing displayed or
+      // bucketed on any more.
     ]),
     query: {
       enabled: launches.length > 0,
@@ -208,29 +215,26 @@ export function useDirectoryProjects() {
     const ident = identityQuery.data
     const out: Omit<DirectoryProject, 'tab'>[] = []
     for (let i = 0; i < launches.length; i++) {
-      const off = i * 4
+      // Three reads per hook, not four. This stride moves with the contract
+      // list above and silently mis-reads every field if the two disagree.
+      const off = i * 3
       const ioff = i * 2
       const l = launches[i]
       const launched        = d[off]?.status === 'success' ? (d[off].result as boolean) : false
       const genesisDeadline = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
       const totalNative        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
-      const softCap         = d[off + 3]?.status === 'success' ? (d[off + 3].result as bigint) : 0n
       const symbol          = ident?.[ioff]?.status === 'success' ? (ident[ioff].result as string) : '???'
       const name            = ident?.[ioff + 1]?.status === 'success' ? (ident[ioff + 1].result as string) : 'Unknown'
       const reg             = registry.get(l.token.toLowerCase())
-      const progress        = softCap > 0n
-        ? Math.min(100, Number((totalNative * 10000n) / softCap) / 100)
-        : 0
       out.push({
         ...l,
-        launched, genesisDeadline, totalNative, softCap,
+        launched, genesisDeadline, totalNative,
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
         website: reg?.website ?? null,
         twitter: reg?.twitter ?? null,
         description: reg?.description ?? null,
-        progress,
       })
     }
     out.sort((a, b) => Number(b.createdAt - a.createdAt))
@@ -244,7 +248,7 @@ export function useDirectoryProjects() {
   // below pure and lets it hold its result until a tab genuinely flips.
   const tabKey = useMemo(
     () => rows
-      .map(r => bucket(r.launched, r.totalNative, r.softCap, r.genesisDeadline, nowSec))
+      .map(r => bucket(r.launched, r.totalNative, r.genesisDeadline, nowSec))
       .join(','),
     [rows, nowSec],
   )

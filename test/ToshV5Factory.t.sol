@@ -135,8 +135,9 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (token, hook) =
-            factory.createLaunch(n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, duration);
+        (token, hook) = factory.createLaunch{value: fee}(
+            n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, duration
+        );
     }
 
     function _h(address hook) internal pure returns (ToshLaunchpadHook) {
@@ -175,7 +176,9 @@ contract ToshV5FactoryTest is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch("Budget", "BGT", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Budget", "BGT", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours
+        );
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch gas", used);
@@ -681,7 +684,9 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch("P", "P", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "P", "P", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @notice A pause stops the platform taking on new projects; it must not
@@ -719,7 +724,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        factory.createLaunch(
+        factory.createLaunch{value: fee}(
             "New", "NEW", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
 
@@ -803,37 +808,42 @@ contract ToshV5FactoryTest is Test {
         assertEq(_h(hook).perWalletCap(), factory.maxPogAllocationLimit());
     }
 
-    /// @notice A creator who has not approved the fee cannot launch.
+    /// @notice A creator who sends less than the fee cannot launch, and hears
+    ///         about the fee rather than about a token.
     ///
-    /// @dev    ⚠ REPLACES `test_createLaunch_revertsOnUnderpayment`, which sent
-    ///         no value and expected `InsufficientLaunchFee`.
+    /// @dev    ⚠ THIS TEST HAS NOW BEEN WRITTEN THREE TIMES, ONCE PER
+    ///           DENOMINATION, AND THE MIDDLE VERSION IS THE CAUTIONARY ONE.
     ///
-    ///         THAT ERROR IS GONE, deliberately. Native value arrived before the
-    ///         factory ran, so a shortfall was a local fact worth naming; a pull
-    ///         has nothing in hand, and the only check available is a read whose
-    ///         sole outcome is the revert the transfer already raises — from the
-    ///         token, carrying both the allowance and the amount. Restating that
-    ///         locally would have said less.
+    ///         It began as `test_createLaunch_revertsOnUnderpayment`: send no
+    ///         value, expect `InsufficientLaunchFee`. The BEM migration made
+    ///         the fee a pull, so it became
+    ///         `test_createLaunch_revertsWithoutSufficientAllowance`: approve
+    ///         `fee - 1` and expect a bare revert from the token.
     ///
-    ///         `expectRevert()` is bare on purpose: the revert belongs to the
-    ///         quote asset, and pinning `ERC20InsufficientAllowance` would tie
-    ///         this suite to OpenZeppelin's error set rather than to the
-    ///         protocol's behaviour.
-    function test_createLaunch_revertsWithoutSufficientAllowance() public {
+    ///         When the fee went back to native BNB that version did not fail
+    ///         — it went GREEN FOR NOTHING. `createLaunch` consults no
+    ///         allowance any more, so approving one short of the fee constrains
+    ///         nothing, and with `msg.value` supplied the launch simply
+    ///         succeeded. Only the `vm.expectRevert()` still standing turned
+    ///         that into a visible failure. A test whose setup has quietly
+    ///         stopped being a constraint is worth more attention than one that
+    ///         breaks, and this is the shape of it: the assertion survived a
+    ///         change that dissolved the thing being asserted.
+    ///
+    ///         So it is the first version again, and the error is back with it.
+    ///         One wei short rather than zero: sending nothing would fail any
+    ///         payable path for any reason, while `fee - 1` can only fail on
+    ///         the fee. The selector is pinned because the revert is the
+    ///         protocol's own again, not OpenZeppelin's.
+    function test_createLaunch_revertsWhenValueIsBelowTheFee() public {
         bytes32 salt = _pickSalt();
         uint256 fee = factory.launchFee();
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
 
-        // One base unit short, rather than zero: an allowance of zero would fail
-        // the first pull a launch makes whatever the reason, while `fee - 1` can
-        // only fail on the fee.
         vm.prank(creator);
-        quote.approve(address(factory), fee - 1);
-
-        vm.prank(creator);
-        vm.expectRevert();
-        factory.createLaunch(
+        vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
+        factory.createLaunch{value: fee - 1}(
             "Short", "SHT", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -859,7 +869,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch(
+        (, address hook) = factory.createLaunch{value: fee}(
             "Any", "ANY", projTreasury, projTreasury, bytes32(0), fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertTrue(hook != address(0), "a launch on a salt V4 would have refused");
@@ -874,7 +884,10 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.FeeChanged.selector);
-        factory.createLaunch(
+        // Funded to the RAISED fee so the slippage cap is the only reachable
+        // revert; paying `stale` would be short as well, and `FeeChanged` is
+        // checked first, so the test would pass on the weaker claim.
+        factory.createLaunch{value: stale + 1}(
             "Tok", "TOK", projTreasury, projTreasury, salt, stale, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -886,7 +899,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.InvalidAdmin.selector);
-        factory.createLaunch(
+        factory.createLaunch{value: fee}(
             "Tok", "TOK", projTreasury, address(0), salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -898,7 +911,9 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch("", "TOK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "", "TOK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_rejectsEmptySymbol() public {
@@ -908,7 +923,9 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.EmptyName.selector);
-        factory.createLaunch("Tok", "", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Tok", "", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        );
     }
 
     function test_createLaunch_rejectsDuplicateNamePair() public {
@@ -919,7 +936,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.NameTaken.selector);
-        factory.createLaunch(
+        factory.createLaunch{value: fee}(
             "Same", "SAM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -983,7 +1000,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(bytes("zero treasury"));
-        factory.createLaunch(
+        factory.createLaunch{value: fee}(
             "Tok", "TOK", address(0), projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
     }
@@ -1031,7 +1048,9 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch("Rot", "ROT", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Rot", "ROT", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @dev The wallet cap is the other half of the same guard, and it gets its
@@ -1048,7 +1067,9 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch("Rot2", "RT2", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Rot2", "RT2", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @dev Exact, not a bound, and this is what separates the caps from
@@ -1069,7 +1090,9 @@ contract ToshV5FactoryTest is Test {
         uint256 fee = factory.launchFee();
         vm.prank(creator);
         vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch("Fav", "FAV", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours);
+        factory.createLaunch{value: fee}(
+            "Fav", "FAV", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
+        );
     }
 
     /// @dev And the address the guard protects really is the one the caller
@@ -1086,7 +1109,7 @@ contract ToshV5FactoryTest is Test {
 
         uint256 fee = factory.launchFee();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch(
+        (, address hook) = factory.createLaunch{value: fee}(
             "Pred", "PRD", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, 24 hours
         );
 
@@ -1094,11 +1117,17 @@ contract ToshV5FactoryTest is Test {
         assertEq(_h(hook).softCap(), agreedCap, "and froze the cap that was agreed to");
     }
 
-    function test_createLaunch_fundsLadderTreasury() public {
+    /// @dev Was `test_createLaunch_fundsLadderTreasury`. The fee is native BNB
+    ///      now and the reservoir cannot hold it — no `receive()`, and
+    ///      `reservoir()` counts only `quoteAsset` — so it goes to the platform
+    ///      treasury instead. `ToshV5.t.sol` carries the full account of why.
+    function test_createLaunch_fundsPlatformTreasury() public {
         uint256 fee = factory.launchFee();
-        uint256 before = quote.balanceOf(ladder);
+        uint256 platformBefore = treasury.balance;
+        uint256 ladderBefore = quote.balanceOf(ladder);
         _createLaunch("Fee", "FEE");
-        assertEq(quote.balanceOf(ladder) - before, fee);
+        assertEq(treasury.balance - platformBefore, fee, "the fee lands natively in the platform treasury");
+        assertEq(quote.balanceOf(ladder), ladderBefore, "and the reservoir is not credited");
     }
 
     // ── Deposits ──────────────────────────────────────────────────────────────
@@ -1313,7 +1342,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch(
+        (, address hook) = factory.createLaunch{value: fee}(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertEq(predicted, hook);
@@ -1325,7 +1354,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch(
+        (, address hook) = factory.createLaunch{value: fee}(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertTrue(
@@ -1355,7 +1384,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address hook) = factory.createLaunch(
+        (, address hook) = factory.createLaunch{value: fee}(
             "A", "A", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
         );
         assertFalse(
@@ -1501,7 +1530,7 @@ contract ToshV5FactoryTest is Test {
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
-        factory.createLaunch(
+        factory.createLaunch{value: fee}(
             "Odd", "ODD", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 12 hours
         );
     }
