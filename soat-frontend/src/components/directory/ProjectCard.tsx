@@ -163,7 +163,7 @@ function Remaining({
 }
 
 /**
- * The genesis countdown as a draining track — the bar these cards lost when the
+ * The genesis countdown as a filling track — the bar these cards lost when the
  * soft cap came out, rather than a new meter.
  *
  * ⚠ ITS OWN COMPONENT FOR THE REASON `Remaining` IS, which is the only subtle
@@ -174,7 +174,8 @@ function Remaining({
  *
  * Shares `genesisWindow` with the project page's `HeroStats` instead of
  * recomputing the fraction, so the card and the page it links to cannot disagree
- * about how much of the window is left. That function returns `undefined` — draw
+ * about how much of the window is gone — including its direction, which is why
+ * neither draws the complement by hand. That function returns `undefined` — draw
  * nothing — outside genesis, before the deadline resolves, once the clock runs
  * out, and (via a `0n` duration) whenever the duration could not be trusted.
  *
@@ -196,7 +197,7 @@ function GenesisTrack({
   })
   if (!win) return null
 
-  return <Progress pct={win.pct} variant={variant} tone="ok" />
+  return <Progress pct={win.elapsedPct} variant={variant} tone="ok" />
 }
 
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {

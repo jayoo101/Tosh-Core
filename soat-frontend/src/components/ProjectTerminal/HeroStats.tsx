@@ -54,10 +54,10 @@ export function HeroStats({
   /** One-word status under the phase badge, when there is no live clock. */
   windowLabel?: string
   /**
-   * The genesis countdown, pre-derived. `pct` is how much of the chosen
-   * window REMAINS, so the track drains toward the deadline.
+   * The genesis countdown, pre-derived. `elapsedPct` is how much of the chosen
+   * window is GONE, so the track fills toward the deadline.
    */
-  genesisWindow?: { pct: number; label: string; hours: number }
+  genesisWindow?: { elapsedPct: number; label: string; hours: number }
 }) {
   const meta = PHASE_BADGE[phase]
   const price =
@@ -157,7 +157,7 @@ export function HeroStats({
                 otherwise stack two sub-labels under one figure. */}
             {genesisWindow && (
               <Progress
-                pct={genesisWindow.pct}
+                pct={genesisWindow.elapsedPct}
                 variant="bar"
                 tone="ok"
                 label={`${QUOTE_SYMBOL} · ${genesisWindow.hours}h window`}

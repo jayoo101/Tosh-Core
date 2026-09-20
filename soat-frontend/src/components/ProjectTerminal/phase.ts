@@ -77,8 +77,8 @@ export function resolvePhase({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface GenesisWindow {
-  /** 0–100, how much of the window REMAINS. The track drains. */
-  pct: number
+  /** 0–100, how much of the window has ELAPSED. The track fills. */
+  elapsedPct: number
   /** `HH:MM:SS left`. */
   label: string
   /** The chosen window in whole hours — 3, 24 or 72. */
@@ -88,11 +88,21 @@ export interface GenesisWindow {
 /**
  * The genesis countdown, as a fraction of the window the creator chose.
  *
- * ⚠ `pct` IS WHAT REMAINS, NOT WHAT HAS ELAPSED, and that is the one thing
- *   here worth a test. Both directions render, both animate, and the wrong one
- *   is wrong in a way nobody notices from a screenshot: a countdown that FILLS
- *   as the deadline approaches reads as progress toward something, which is
- *   the exact misreading the soft-cap bar used to produce. This drains.
+ * ⚠ `elapsedPct` IS WHAT HAS ELAPSED, NOT WHAT REMAINS, and that is the one
+ *   thing here worth a test. Both directions render and both animate, so an
+ *   inversion is invisible in review and obvious on screen.
+ *
+ *   It was the other way for exactly one reason: a bar that fills as a
+ *   deadline nears could be read as progress toward a goal, the way the old
+ *   soft-cap bar was. That argument did not survive contact with the screen —
+ *   a track whose fill retreats leftward while a clock counts down reads as
+ *   running backwards, because every other elapsed-time bar people use fills
+ *   left to right. Direction now matches the convention, and the caption
+ *   (`HH:MM:SS left`) carries the "toward what" the fill cannot.
+ *
+ *   The field is named for what it holds rather than called `pct`, so the
+ *   inversion could not be applied by editing one expression and leaving four
+ *   call sites drawing the complement of what they think they are drawing.
  *
  * Lives beside `resolvePhase` rather than in the component because it is the
  * half that can be wrong about the world. The component only has to draw the
@@ -101,7 +111,7 @@ export interface GenesisWindow {
  * Returns `undefined` — draw nothing — rather than a zeroed window whenever
  * the inputs cannot support a fraction: outside genesis, before the first poll
  * resolves `genesisDeadline`, or once the clock has run out. A bar pinned at 0
- * says "this window is over" in a phase where that is not yet true.
+ * says "this window has not started" in a phase where that is not yet true.
  */
 export function genesisWindow({
   phase, genesisDeadline, genesisDuration, nowSec,
@@ -124,7 +134,7 @@ export function genesisWindow({
   const pad = (n: number) => String(n).padStart(2, '0')
 
   return {
-    pct: Math.max(0, Math.min(100, (remaining / total) * 100)),
+    elapsedPct: Math.max(0, Math.min(100, ((total - remaining) / total) * 100)),
     label: `${pad(h)}:${pad(m)}:${pad(s)} left`,
     hours: Math.round(total / 3600),
   }

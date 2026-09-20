@@ -1,4 +1,4 @@
-﻿// @vitest-environment happy-dom
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 
 import { mount } from '@/testing/renderClient'

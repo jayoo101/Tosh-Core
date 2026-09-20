@@ -15,15 +15,20 @@ vi.hoisted(() => {
 
 /**
  * The genesis cell held a bar filling toward the soft cap, and the soft cap
- * gates nothing — deposits run past it and `launch()` never reads it. It now
+ * gates nothing 鈥?deposits run past it and `launch()` never reads it. It now
  * holds a clock instead, which is a fraction of something real: one of three
  * fixed windows chosen at `createLaunch`.
  *
  * SCOPE. This file covers the drawing only: which phases get a meter, that the
  * raise keeps its figure beside the clock, and that the two meters never stack.
- * Whether `pct` counts down or up is decided in `genesisWindow` and pinned in
- * genesisWindow.test.ts — the component is handed a number and has no opinion
- * about which direction it came from.
+ * Whether the fraction counts down or up is decided in `genesisWindow` and
+ * pinned in genesisWindow.test.ts 鈥?the component is handed a number and has no
+ * opinion about which direction it came from.
+ *
+ * The fixtures below are still kept CONSISTENT with that direction (an
+ * `elapsedPct` of 25 pairs with three quarters of the window still on the
+ * clock), because a fixture that contradicts it is the first thing a reader
+ * will copy when they go looking for what the number means.
  */
 
 const BASE = {
@@ -41,34 +46,34 @@ function bar(container: HTMLElement): HTMLElement | null {
   return container.querySelector('[role="progressbar"]')
 }
 
-function render(phase: Phase, genesisWindow?: { pct: number; label: string; hours: number }) {
+function render(phase: Phase, genesisWindow?: { elapsedPct: number; label: string; hours: number }) {
   return mount(<HeroStats {...BASE} phase={phase} genesisWindow={genesisWindow} />)
 }
 
 describe('HeroStats genesis countdown', () => {
   it('draws the track at the fraction it is given, and the countdown beside it', () => {
-    const { container } = render('genesis', { pct: 25, label: '06:00:00 left', hours: 24 })
+    const { container } = render('genesis', { elapsedPct: 25, label: '18:00:00 left', hours: 24 })
     const track = bar(container)
     expect(track).not.toBeNull()
     expect(track!.getAttribute('aria-valuenow')).toBe('25')
-    expect(container.textContent).toContain('06:00:00 left')
+    expect(container.textContent).toContain('18:00:00 left')
   })
 
   it('exposes the fraction to assistive tech, not just to the eye', () => {
-    const { container } = render('genesis', { pct: 100, label: '72:00:00 left', hours: 72 })
+    const { container } = render('genesis', { elapsedPct: 99, label: '00:43:12 left', hours: 72 })
     const track = bar(container)!
-    expect(track.getAttribute('aria-valuenow')).toBe('100')
+    expect(track.getAttribute('aria-valuenow')).toBe('99')
     expect(track.getAttribute('aria-valuemin')).toBe('0')
     expect(track.getAttribute('aria-valuemax')).toBe('100')
   })
 
   it('names the window length, so the fraction has a stated denominator', () => {
-    const { container } = render('genesis', { pct: 50, label: '01:30:00 left', hours: 3 })
+    const { container } = render('genesis', { elapsedPct: 50, label: '01:30:00 left', hours: 3 })
     expect(container.textContent).toContain('3h window')
   })
 
   it('still shows the raised figure beside the clock', () => {
-    const { container } = render('genesis', { pct: 50, label: '12:00:00 left', hours: 24 })
+    const { container } = render('genesis', { elapsedPct: 50, label: '12:00:00 left', hours: 24 })
     expect(container.textContent).toContain('Raised')
   })
 

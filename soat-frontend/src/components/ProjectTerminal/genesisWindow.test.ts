@@ -14,11 +14,17 @@ import { genesisWindow } from './phase'
  * soft cap gates nothing — deposits run past it and `launch()` never reads it.
  * A clock took the slot because a clock has a denominator the cap never had.
  *
- * ⚠ THE DIRECTION IS THE POINT OF THIS FILE. `pct` is what REMAINS. Elapsed
- *   also renders, also animates, and is also wrong: a countdown that fills as
- *   the deadline approaches reads as progress toward something, which is the
- *   precise misreading the soft-cap bar produced. Nothing about a screenshot
- *   catches an inversion here, so it is pinned at both ends and in the middle.
+ * ⚠ THE DIRECTION IS THE POINT OF THIS FILE. `elapsedPct` is what has GONE, so
+ *   the track fills left to right as the window burns down. Remaining also
+ *   renders and also animates, and nothing about reading the diff catches an
+ *   inversion, so it is pinned at both ends and in the middle.
+ *
+ *   It was pinned the other way first, on the theory that a filling bar reads
+ *   as progress toward a goal — the soft-cap bar's misreading. On screen the
+ *   opposite dominated: a fill that retreats leftward beside a counting-down
+ *   clock reads as running backwards, since every elapsed-time bar people
+ *   already use fills left to right. The caption says what it is counting
+ *   toward; the fill only has to agree with the direction of time.
  */
 
 const HOUR = 3600
@@ -36,18 +42,28 @@ function at(elapsed: number, duration = DAY) {
 }
 
 describe('genesisWindow', () => {
-  it('drains rather than fills', () => {
-    expect(at(0)!.pct).toBe(100)
-    expect(at(DAY / 4)!.pct).toBe(75)
-    expect(at(DAY / 2)!.pct).toBe(50)
-    expect(at(DAY - HOUR)!.pct).toBeCloseTo(100 / 24, 6)
+  it('fills rather than drains', () => {
+    expect(at(0)!.elapsedPct).toBe(0)
+    expect(at(DAY / 4)!.elapsedPct).toBe(25)
+    expect(at(DAY / 2)!.elapsedPct).toBe(50)
+    expect(at(DAY - HOUR)!.elapsedPct).toBeCloseTo(100 - 100 / 24, 6)
   })
 
-  it('is monotonically non-increasing as the window runs down', () => {
-    let previous = 101
+  it('starts empty, which is the assertion an inversion breaks first', () => {
+    // A window that has just opened must draw NO fill. Under the old direction
+    // this same instant drew a full bar, so it is the cheapest single check
+    // that the complement has not crept back in.
+    for (const duration of [3 * HOUR, DAY, 3 * DAY]) {
+      expect(at(0, duration)!.elapsedPct).toBe(0)
+      expect(at(duration - 1, duration)!.elapsedPct).toBeGreaterThan(99)
+    }
+  })
+
+  it('is monotonically increasing as the window runs down', () => {
+    let previous = -1
     for (let t = 0; t < DAY; t += HOUR) {
-      const pct = at(t)!.pct
-      expect(pct).toBeLessThan(previous)
+      const pct = at(t)!.elapsedPct
+      expect(pct).toBeGreaterThan(previous)
       previous = pct
     }
   })
@@ -65,8 +81,9 @@ describe('genesisWindow', () => {
   })
 
   it('draws nothing rather than a zeroed bar when there is no window to show', () => {
-    // A bar pinned at 0 asserts "this window is over" in phases where that is
-    // either untrue or already said better by another panel.
+    // Zero now means "just opened" rather than "over", which makes returning
+    // `undefined` load-bearing in a second way: a 0 for an expired or
+    // not-yet-polled window would draw a bar claiming the raise has not started.
     expect(at(DAY)).toBeUndefined()
     expect(at(DAY + 1)).toBeUndefined()
 
@@ -85,8 +102,8 @@ describe('genesisWindow', () => {
 
   it('draws nothing before the first poll resolves the deadline', () => {
     // `genesisDeadline` is 0n until the read lands, and `resolvePhase` calls
-    // that 'genesis'. Deriving a fraction from it would put the bar at 0 on
-    // every first paint — a window that looks expired the instant it opens.
+    // that 'genesis'. A deadline in the past makes `remaining` negative, so the
+    // guard that catches an expired window catches an unresolved one too.
     expect(
       genesisWindow({ phase: 'genesis', genesisDeadline: 0n, genesisDuration: BigInt(DAY), nowSec: 1000 }),
     ).toBeUndefined()
