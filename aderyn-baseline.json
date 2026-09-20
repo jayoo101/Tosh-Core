@@ -4,12 +4,12 @@
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-09-20",
   "sourceUnits": 7,
-  "sloc": 1694,
+  "sloc": 1691,
   "detectorsRun": 88,
-  "total": 100,
+  "total": 97,
   "byImpact": {
     "High": 16,
-    "Low": 84
+    "Low": 81
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 2,
@@ -28,7 +28,6 @@
     "unsafe-casting": 1,
     "unspecific-solidity-pragma": 4,
     "unused-error": 1,
-    "unused-import": 3,
     "unused-public-function": 9,
     "unused-state-variable": 1
   },
@@ -571,13 +570,6 @@
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook",
       "count": 1
-    },
-    {
-      "check": "unused-import",
-      "impact": "Low",
-      "file": "src/ToshLadderTreasury.sol",
-      "scope": "<file>",
-      "count": 3
     },
     {
       "check": "unused-public-function",

@@ -599,14 +599,14 @@ WATCHER-03 检查——状态文件记录的 chainId 与端点实际返回的 ch
 读者可用任意 chain 97 的 RPC 端点自行复核以下每一项。
 
 ```
-工厂            0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE
-金库            0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA
+工厂            0x38067B1B38a09F3D472258caE80dE3f0B157C9B1
+金库            0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9
 计价资产 mBEM    0x76bD1ceC663AE3242e5267e232B821C51a4882EB（8 位小数的 mock）
 Infinity Vault  0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD
 Infinity CLPM   0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4
 
-端到端 hook      0xa38bF39a74E271089FBCce071e0AFB726CbD910e（121 字节克隆）
-端到端代币       0xC7816728ae7de3A1F5947B39789DFBCE147565A1
+端到端 hook      0x56cfa921cF6FF62a4B6B2FA5fb05169254f8a2e3（121 字节克隆）
+端到端代币       0x7B361dfD7cb4aFE90B604c76e5fc47E779e1Ba8C
 
 cast call <工厂> "quoteAsset()"             → 计价资产（旧工厂没有这个函数）
 cast call <工厂> "launchFee()"              → 5000000000000000 = 0.005 BNB（18 位）

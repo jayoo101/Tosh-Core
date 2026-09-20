@@ -115,8 +115,8 @@ deployed anywhere, and with `56` undeployed that is the only kind available.
 
 | Contract | Address |
 |---|---|
-| `ToshFactory` | `0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE` |
-| `ToshLadderTreasury` | `0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA` |
+| `ToshFactory` | `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` |
+| `ToshLadderTreasury` | `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9` |
 | Quote asset (`MockQuoteAsset`, 8 decimals, `mBEM`) | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 
 Deployed 2026-09-19 from `script/Deploy.s.sol`, and owned by the deployer EOA

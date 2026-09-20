@@ -918,9 +918,9 @@ build should see the gap rather than an unqualified list.
   without somebody deciding about it. The two analysers are kept because they
   disagree usefully — Slither reasons over a control-flow graph, Aderyn over the
   AST — and on their current runs they overlap on almost nothing. Every finding
-  from both has a written disposition in [`docs/AUDIT.md`](docs/AUDIT.md),
-  including the one that is genuine and deliberately deferred. There has been no
-  third-party audit; see below.
+  from both has a written disposition in [`docs/AUDIT.md`](docs/AUDIT.md). One
+  was genuine and has been fixed; the rest are dispositioned rather than
+  suppressed. There has been no third-party audit; see below.
 
 ### 10.2 Limits and disclosures
 
@@ -1000,8 +1000,8 @@ testnet result.
 
 | Component | Address |
 |---|---|
-| `ToshFactory` | `0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE` |
-| `ToshLadderTreasury` | `0xB07Fb4f504e13A77422f8E82986C37B61F11c4aA` |
+| `ToshFactory` | `0x38067B1B38a09F3D472258caE80dE3f0B157C9B1` |
+| `ToshLadderTreasury` | `0x4e37752ecf007c8Bc6a1F56Ad0A2E4437D62F9b9` |
 | Quote asset — `MockQuoteAsset`, 8 decimals, `mBEM` | `0x76bD1ceC663AE3242e5267e232B821C51a4882EB` |
 | Infinity `CLPoolManager` | `0x36A12c70c9Cf64f24E89ee132BF93Df2DCD199d4` |
 | Infinity `Vault` | `0x2CdB3EC82EE13d341Dc6E73637BE0Eab79cb79dD` |
@@ -1036,7 +1036,7 @@ The token address is the assertion worth making yourself: `0xF94c…` is numeric
 above the quote asset's `0x76bD…`, which is not luck. `createLaunch` grinds the
 clone's CREATE2 salt until it lands there, because a token sorting *below* the
 quote asset would silently invert every pool's sides. Reproduce it with
-`node scripts/e2eLaunchFlow.mjs --factory 0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE`.
+`node scripts/e2eLaunchFlow.mjs --factory 0x38067B1B38a09F3D472258caE80dE3f0B157C9B1`.
 
 #### A.2.1 The previous `97` pair — retired, and unadministrable
 

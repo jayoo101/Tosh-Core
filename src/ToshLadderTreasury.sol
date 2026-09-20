@@ -5,10 +5,20 @@ pragma solidity ^0.8.26;
 // equivalents because they no longer have a job: `TransientStateLibrary` read
 // the in-flight delta out of V4's transient storage by `extsload`, and the Vault
 // exposes the same number as a plain `currencyDelta(settler, currency)` getter.
-import {IHooks} from "infinity-core/src/interfaces/IHooks.sol";
-import {IPoolManager} from "infinity-core/src/interfaces/IPoolManager.sol";
+//
+// Three more survived the port unreferenced and were removed on 2026-09-20 when
+// Aderyn named them: `IHooks`, `IPoolManager` and `ILockCallback`. The last is
+// the one that looks like a mistake and is not — this contract really does
+// implement `lockAcquired`, but the Vault dispatches to it by selector, so
+// declaring the interface buys nothing and importing it bought less.
+//
+// Removing them is not free here and the cost was measured rather than assumed,
+// because metadata feeds CREATE2: it moves this contract's creation code in its
+// last 43 bytes (the CBOR metadata blob) with the executable code byte-identical,
+// and leaves `ToshLaunchpadHook` and `ToshFactory` untouched. So no hook address
+// moves and no initcode hash needed republishing; what it did cost was a chain 97
+// redeploy, to keep the deployed treasury byte-matching a fresh build.
 import {IVault} from "infinity-core/src/interfaces/IVault.sol";
-import {ILockCallback} from "infinity-core/src/interfaces/ILockCallback.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 import {Currency, CurrencyLibrary} from "infinity-core/src/types/Currency.sol";
 import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";

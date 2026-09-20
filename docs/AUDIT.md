@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 74 findings, 1H/27M/27L/19I | 100 findings, 16H/84L |
+| Current | 74 findings, 1H/27M/27L/19I | 97 findings, 16H/81L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 ## Why both
@@ -19,8 +19,8 @@ They disagree usefully. Slither reasons over a control-flow graph and is
 stronger on dataflow; Aderyn walks the AST and is stronger at "this is
 declared and nothing references it". On the first Aderyn run against this tree
 its 19 detectors overlapped Slither's on almost nothing, and the one finding
-worth acting on — three unreferenced imports — is in a category Slither does
-not report at all.
+worth acting on — three unreferenced imports, since removed — was in a
+category Slither does not report at all.
 
 Neither tool has found a real vulnerability here. That is the expected outcome
 and is not the reason to run them: the value is that a *new* finding fails the
@@ -79,8 +79,7 @@ It prints one of three things, and they mean different things:
 
 ## Aderyn disposition record
 
-19 detectors, 100 instances, all triaged. Nothing here is unresolved except
-where marked.
+18 detectors, 97 instances, all triaged, nothing unresolved.
 
 ### High
 
@@ -120,24 +119,27 @@ is strictly smaller than a value that already fits.
 
 ### Low
 
-**`unused-import`** — 3, in `ToshLadderTreasury`: `IHooks`, `IPoolManager`,
-`ILockCallback`. **Genuine, deferred — the one open item.** All three are
-imported and referenced nowhere; the comment above the import block explains
-which V4 imports were *removed* in the Infinity port but says nothing about
-why these stayed.
+**`unused-import`** — was 3, in `ToshLadderTreasury`: `IHooks`,
+`IPoolManager`, `ILockCallback`. **Genuine, and the only Aderyn finding that
+resulted in a code change.** All three were imported and referenced nowhere.
+`ILockCallback` is the one that looks like a mistake and is not: the contract
+does implement `lockAcquired`, but the Vault dispatches to it by selector, so
+declaring the interface bought nothing.
 
 Removing them was measured rather than estimated, because this repository's
 CREATE2 addresses are sensitive to anything that moves a metadata hash. The
-result: `ToshLadderTreasury`'s creation code changes in its **last 43 bytes
+result: `ToshLadderTreasury`'s creation code changed in its **last 43 bytes
 only** — the CBOR metadata blob — with the executable code byte-identical, and
 `ToshLaunchpadHook` and `ToshFactory` unchanged entirely. So no hook address
-moves and no initcode hash needs republishing (PM-C6 does not apply). The only
-cost is that the treasury deployed on chain 97 would stop byte-matching a
-fresh build, which is a redeploy of that chain's pair.
+moved and no initcode hash needed republishing; PM-C6 did not apply.
 
-Deferred rather than done because the benefit is cosmetic and 97 was
-redeployed on 2026-09-20 for an unrelated reason. Fold it into the next change
-that redeploys 97 anyway.
+The cost was one chain 97 redeploy, so the deployed treasury keeps
+byte-matching a fresh build. Verified after deployment by comparing runtime
+code with the 384 bytes of immutables masked out.
+
+The gate behaved as intended across this: it failed with "finding GONE" rather
+than silently accepting a smaller finding set, which is the half of the
+baseline contract that only matters when something is fixed.
 
 **`unused-error`** — 1, `ToshLaunchpadHook.NativeTransferFailed`. Intentional
 and already documented at the declaration: unreachable since `_payQuote` moved
