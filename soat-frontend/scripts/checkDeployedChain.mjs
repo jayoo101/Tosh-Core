@@ -92,9 +92,25 @@ const note = (msg) => console.log(`      ${msg}`)
 // deeper. Dry-run addresses are included: they were never mined, but they are
 // still an honest statement that THIS address belongs to THAT chain, which is
 // the only claim this index makes.
+//
+// A SECOND pass reads the timestamped `run-<epoch>.json` siblings, purely to
+// recognise our own SUPERSEDED deployments. They stay out of `byAddress` and
+// `byChain`, which must keep meaning "the current pair", and go into their own
+// map instead.
+//
+// That pass exists because of a real misdiagnosis. Indexing only run-latest
+// meant the guard could not tell "an address we have never seen" from "the
+// address we deployed last week", and toshx.xyz was serving a build two
+// redeploys behind. It failed — correctly — but said the build "carries
+// contracts nobody recorded, or the scan is broken", which sends you to audit
+// the parser. The true cause was that NEXT_PUBLIC_* is inlined at build time,
+// so changing it in the host's dashboard does nothing until a rebuild. That is
+// the single most likely reason this guard ever fires in live mode, and it was
+// the one reading the message ruled out.
 function buildIndex() {
   const byAddress = new Map()
   const byChain = new Map()
+  const superseded = new Map()
 
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -130,19 +146,50 @@ function buildIndex() {
     }
   }
 
+  // Second pass: the archive. Anything here that `walk` did not already claim
+  // is a deployment we replaced.
+  const walkHistory = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) { walkHistory(p); continue }
+      if (!/^run-\d+\.json$/.test(name)) continue
+
+      const parts = p.split(/[\\/]/)
+      const dry = parts.includes('dry-run')
+      const chainId = Number(basename(dry ? dirname(dirname(p)) : dirname(p)))
+      if (!Number.isFinite(chainId)) continue
+
+      const when = Number(name.slice(4, -5))
+
+      let log
+      try { log = JSON.parse(readFileSync(p, 'utf8')) } catch { continue }
+
+      for (const tx of log.transactions ?? []) {
+        if (!tx.contractName || !TRACKED.has(tx.contractName) || !tx.contractAddress) continue
+        const addr = tx.contractAddress.toLowerCase()
+        if (byAddress.has(addr)) continue
+        const held = superseded.get(addr)
+        if (!held || when > held.when) {
+          superseded.set(addr, { chainId, name: tx.contractName, dry, when })
+        }
+      }
+    }
+  }
+
   if (!existsSync(BROADCAST)) {
     fail(`${BROADCAST} does not exist — this guard cannot attribute any address to any chain`)
-    return { byAddress, byChain }
+    return { byAddress, byChain, superseded }
   }
   walk(BROADCAST)
+  walkHistory(BROADCAST)
 
   if (byAddress.size === 0) {
     fail(`no ToshFactory / ToshLadderTreasury address found under ${BROADCAST} — the parser or the logs are wrong`)
   }
-  return { byAddress, byChain }
+  return { byAddress, byChain, superseded }
 }
 
-const { byAddress, byChain } = buildIndex()
+const { byAddress, byChain, superseded } = buildIndex()
 
 console.log(`Address index: ${byAddress.size} deployment(s) across chain(s) ${[...byChain.keys()].sort((a, b) => a - b).join(', ')}\n`)
 
@@ -382,6 +429,28 @@ async function checkLive(base) {
   }
 
   if (Object.keys(addresses).length === 0) {
+    // Before blaming the scan, check whether this is one of OUR deployments
+    // that we replaced. That is the overwhelmingly likely case and it has a
+    // different fix, so it gets a different message.
+    const stale = []
+    for (const [addr, meta] of superseded) {
+      if (js.toLowerCase().includes(addr)) stale.push({ addr, ...meta })
+    }
+
+    if (stale.length > 0) {
+      fail(
+        `${origin}: this build is STALE. It carries a deployment we superseded —\n` +
+        stale
+          .map((s) => `          ${s.name} ${s.addr} (chain ${s.chainId}, deployed ${new Date(s.when).toISOString().slice(0, 10)})`)
+          .join('\n') + '\n' +
+        `        NEXT_PUBLIC_* is inlined at BUILD time, so setting it on the host\n` +
+        `        changes nothing until the site is rebuilt. Trigger a redeploy.\n` +
+        `        Current on chain ${chainId}: ` +
+        [...(byChain.get(chainId) ?? new Map())].map(([n, v]) => `${n} ${v.addr}`).join(', '),
+      )
+      return
+    }
+
     fail(`${origin}: not one known factory or treasury address appears in the bundle — this build carries contracts nobody recorded, or the scan is broken`)
     return
   }
