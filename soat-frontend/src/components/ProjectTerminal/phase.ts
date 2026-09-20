@@ -46,3 +46,61 @@ export function resolvePhase({
   const zombie = BigInt(nowSec) >= genesisDeadline + LAUNCH_WINDOW_SECONDS
   return zombie ? 'refund' : 'awaiting_launch'
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GENESIS CLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GenesisWindow {
+  /** 0–100, how much of the window REMAINS. The track drains. */
+  pct: number
+  /** `HH:MM:SS left`. */
+  label: string
+  /** The chosen window in whole hours — 3, 24 or 72. */
+  hours: number
+}
+
+/**
+ * The genesis countdown, as a fraction of the window the creator chose.
+ *
+ * ⚠ `pct` IS WHAT REMAINS, NOT WHAT HAS ELAPSED, and that is the one thing
+ *   here worth a test. Both directions render, both animate, and the wrong one
+ *   is wrong in a way nobody notices from a screenshot: a countdown that FILLS
+ *   as the deadline approaches reads as progress toward something, which is
+ *   the exact misreading the soft-cap bar used to produce. This drains.
+ *
+ * Lives beside `resolvePhase` rather than in the component because it is the
+ * half that can be wrong about the world. The component only has to draw the
+ * number it is handed.
+ *
+ * Returns `undefined` — draw nothing — rather than a zeroed window whenever
+ * the inputs cannot support a fraction: outside genesis, before the first poll
+ * resolves `genesisDeadline`, or once the clock has run out. A bar pinned at 0
+ * says "this window is over" in a phase where that is not yet true.
+ */
+export function genesisWindow({
+  phase, genesisDeadline, genesisDuration, nowSec,
+}: {
+  phase:           Phase
+  genesisDeadline: bigint
+  genesisDuration: bigint
+  nowSec:          number
+}): GenesisWindow | undefined {
+  if (phase !== 'genesis') return undefined
+  if (genesisDeadline === 0n || genesisDuration === 0n) return undefined
+
+  const remaining = Number(genesisDeadline) - nowSec
+  const total = Number(genesisDuration)
+  if (remaining <= 0 || total <= 0) return undefined
+
+  const h = Math.floor(remaining / 3600)
+  const m = Math.floor((remaining % 3600) / 60)
+  const s = remaining % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  return {
+    pct: Math.max(0, Math.min(100, (remaining / total) * 100)),
+    label: `${pad(h)}:${pad(m)}:${pad(s)} left`,
+    hours: Math.round(total / 3600),
+  }
+}

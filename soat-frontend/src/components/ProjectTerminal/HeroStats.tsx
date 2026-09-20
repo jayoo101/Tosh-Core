@@ -6,9 +6,9 @@
  *
  *   1. Price     — P₀ during genesis; the live shelf once the ladder is open
  *   2. Phase     — the state machine, as a badge, not a sentence
- *   3. Progress  — the amount raised during genesis, or ladder minted vs
- *                  BONDING_MAX once the ladder is open. Only the second is a
- *                  bar, because only it has a ceiling to be a fraction of.
+ *   3. Progress  — the amount raised plus the genesis countdown, or ladder
+ *                  minted vs BONDING_MAX once the ladder is open. Both bars
+ *                  measure against something real; see the note on the cell.
  *   4. Your stake — the settlement coin this wallet has in, or is owed back
  */
 
@@ -40,6 +40,7 @@ export function HeroStats({
   phase2Minted, bondingMax,
   userEthDeposited,
   windowLabel,
+  genesisWindow,
 }: {
   phase: Phase
   symbol: string
@@ -50,8 +51,13 @@ export function HeroStats({
   phase2Minted: bigint
   bondingMax: bigint
   userEthDeposited: bigint
-  /** Genesis / launch-window countdown, already formatted. */
+  /** One-word status under the phase badge, when there is no live clock. */
   windowLabel?: string
+  /**
+   * The genesis countdown, pre-derived. `pct` is how much of the chosen
+   * window REMAINS, so the track drains toward the deadline.
+   */
+  genesisWindow?: { pct: number; label: string; hours: number }
 }) {
   const meta = PHASE_BADGE[phase]
   const price =
@@ -64,8 +70,8 @@ export function HeroStats({
     : 'opens at launch'
 
   /*
-   * ⚠ ONLY THE LADDER GETS A BAR NOW, AND IT IS THE ONLY ONE THAT EVER HAD A
-   *   DENOMINATOR.
+   * ⚠ A BAR NEEDS A DENOMINATOR THAT MEANS SOMETHING. That is the whole rule
+   *   this cell follows, and the soft cap is what taught it.
    *
    * This cell used to switch between `minted / BONDING_MAX` and
    * `raised / softCap`. Those look alike and are not: `BONDING_MAX` is a hard
@@ -75,8 +81,13 @@ export function HeroStats({
    * exactly the same way. A bar filling toward it told the reader the project
    * was on its way to something, and there was nothing there.
    *
-   * Genesis therefore shows what is true of it: an amount, and a clock. No
-   * percentage, because there is no whole for it to be a percentage of.
+   * So the raise lost its bar and kept its figure. What took the empty slot is
+   * the genesis clock, which passes the test the cap failed: the window is one
+   * of three fixed durations chosen at `createLaunch`, it cannot be extended,
+   * and reaching the end of it actually closes deposits. It drains rather than
+   * fills — see where `pct` is derived in `index.tsx`.
+   *
+   * The raise itself still has no percentage, because it still has no whole.
    */
   const progressIsLadder = phase === 'bonding'
   const ladderPct = bondingMax > 0n
@@ -126,14 +137,34 @@ export function HeroStats({
             caption={`${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`}
           />
         ) : (
-          <Readout
-            layout="stack"
-            size="figure"
-            label="Raised"
-            value={fmtQuote(totalNativeDeposited)}
-            hint={QUOTE_SYMBOL}
-            tone={phase === 'refund' ? 'mute' : 'ok'}
-          />
+          <>
+            <Readout
+              layout="stack"
+              size="figure"
+              label="Raised"
+              value={fmtQuote(totalNativeDeposited)}
+              hint={genesisWindow ? undefined : QUOTE_SYMBOL}
+              tone={phase === 'refund' ? 'mute' : 'ok'}
+            />
+            {/* The clock takes the slot the soft-cap bar used to hold, and it
+                is the one meter on this card during genesis — so it gets
+                `bar` rather than the hairline, per the note in Progress.tsx.
+                The ladder's bar never coexists with it: that one only renders
+                once `phase === 'bonding'`, in the branch above.
+
+                `hint` on the readout collapses when this is showing, because
+                the unit is already on the caption line and the cell would
+                otherwise stack two sub-labels under one figure. */}
+            {genesisWindow && (
+              <Progress
+                pct={genesisWindow.pct}
+                variant="bar"
+                tone="ok"
+                label={`${QUOTE_SYMBOL} · ${genesisWindow.hours}h window`}
+                caption={genesisWindow.label}
+              />
+            )}
+          </>
         )}
       </div>
       <Readout

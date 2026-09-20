@@ -40,7 +40,7 @@ import { useBoundReferrer } from '@/lib/useReferral'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
 } from '@/components/ui'
-import { resolvePhase, type Phase } from './phase'
+import { genesisWindow, resolvePhase, type Phase } from './phase'
 import { HeroStats } from './HeroStats'
 import { GenesisPanel } from './GenesisPanel'
 import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
@@ -283,6 +283,17 @@ export default function ProjectTerminal({ project, about, header }: {
   })
   const perWalletCap = (perWalletCapRaw as bigint | undefined) ?? 0n
 
+  // The denominator for the genesis countdown, and the reason that countdown
+  // can be a bar at all. It is one of the three fixed windows the creator
+  // picked at `createLaunch` (3h / 24h / 72h), baked into the clone's initcode
+  // and therefore immutable — `staleTime: Infinity` for the same reason
+  // `perWalletCap` above uses it.
+  const { data: genesisDurationRaw } = useReadContract({
+    address: hookAddress, abi: HOOK_ABI, functionName: 'genesisDuration',
+    query: { enabled: !!hookAddress, staleTime: Infinity },
+  })
+  const genesisDuration = (genesisDurationRaw as bigint | undefined) ?? 0n
+
   // Passing the hook address is what claims this project's referral slot from
   // `?ref=` on landing — the root layout's `<ReferralCapture/>` only parks the
   // lifetime one, because it does not know which project the path names.
@@ -292,16 +303,28 @@ export default function ProjectTerminal({ project, about, header }: {
     totalNativeDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
   })
 
-  const windowLabel = (() => {
-    if (phase === 'bonding' || phase === 'refund') return undefined
-    if (genesisDeadline === 0n) return undefined
-    const rem = Number(genesisDeadline) - nowSec
-    if (rem <= 0) return 'window closed'
-    const h = Math.floor(rem / 3600)
-    const m = Math.floor((rem % 3600) / 60)
-    const s = rem % 60
-    return `closes ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  })()
+  /*
+   * ⚠ THE GENESIS CLOCK IS A FRACTION AND THE LAUNCH CLOCK IS NOT, which is
+   *   why only the first becomes a bar.
+   *
+   *   `genesisDuration` is a fixed window chosen up front, so "how much of it
+   *   is left" is a real percentage of a real whole. That is exactly what the
+   *   soft-cap bar never had — deposits ran past the cap, `launch()` ignored
+   *   it, and the bar filled toward a number that gated nothing. A clock is
+   *   the honest thing to put in that slot: it has a denominator, and running
+   *   out actually ends something.
+   *
+   *   The launch window that follows (`genesisDeadline + LAUNCH_WINDOW`) is
+   *   deliberately NOT drawn here. `AwaitingLaunchPanel` already counts it
+   *   down beside the explanation of what happens when it lapses, and a second
+   *   copy in the header would be the same number in two places with no way to
+   *   keep them honest. The badge keeps a one-word status instead.
+   */
+  // Not named `window`: that shadows the global one, and this file is a client
+  // component where something later will reach for it.
+  const genesisClock = genesisWindow({ phase, genesisDeadline, genesisDuration, nowSec })
+
+  const windowLabel = phase === 'awaiting_launch' ? 'window closed' : undefined
 
 
   if (!hookAddress) {
@@ -384,6 +407,7 @@ export default function ProjectTerminal({ project, about, header }: {
             bondingMax={bondingMax}
             userEthDeposited={userEthDeposited}
             windowLabel={windowLabel}
+            genesisWindow={genesisClock}
           />
         </div>
 
