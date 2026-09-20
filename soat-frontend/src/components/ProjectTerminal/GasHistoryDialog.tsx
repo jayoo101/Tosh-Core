@@ -86,11 +86,30 @@ export function GasHistoryDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  /*
+   * ⚠ `requiresWallet` AND `requiresNetwork` WERE BOTH OFF, AND THIS IS A
+   *   WRITE. `onActivate` runs `registerQuota`, which ends in
+   *   `send({ functionName: 'registerPoG' })`. `requiresNetwork` is documented
+   *   as being "off for off-chain actions (a signed API call)"; this action
+   *   makes such a call and then signs a transaction with the result.
+   *
+   *   Turning the gate off did not remove the check, only moved it past the
+   *   click: `registerQuota` opens with `isSupportedPogChain(chainId)` and
+   *   toasts `Unsupported chain (got 4663)` — a dead end naming a number, where
+   *   the gate would have offered `Switch to …` and fixed it in one press. That
+   *   is the same shape as the `useChainId` bug, one layer up: the thing built
+   *   to catch a wrong chain before the click was disabled rather than wrong.
+   *
+   *   It also mattered on a chain the check ACCEPTS. In `next dev` against the
+   *   testnet, `isSupportedPogChain(31337)` is true, so a wallet on Foundry got
+   *   an attestation bound to 31337 while `send` pins the target — a signature
+   *   the factory cannot accept, discovered at execution. With the gate on, a
+   *   wallet that is not on the settlement chain is asked to switch and never
+   *   reaches the signing path at all.
+   */
   const activateGate = useActionGate({
     action: activating ? 'Activating quota…' : 'Activate deposit quota',
     onAct: () => { onActivate?.() },
-    requiresWallet: false,
-    requiresNetwork: false,
     bypassAmbientGate: true,
     tx: { isBusy: Boolean(activating), isPending: Boolean(activating), isConfirming: false },
   })
