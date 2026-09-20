@@ -38,7 +38,16 @@ export interface DirectoryProject {
   tab:             DirectoryTab
 }
 
-const SCAN_DEPTH = 48
+/**
+ * How many launches back the enumeration reaches, newest first.
+ *
+ * Exported because a caller that presents itself as complete has to know it is
+ * not. The directory can be bounded without lying — it sorts and filters a
+ * recent window and says so — but `/referrals` claims to collect every project
+ * that owes a wallet, and a referrer whose commission sits on launch #3 of 400
+ * would be told they have none. That page reads this to bound its own claim.
+ */
+export const SCAN_DEPTH = 48
 
 /**
  * The per-hook reads, in the order `rows` unpacks them.

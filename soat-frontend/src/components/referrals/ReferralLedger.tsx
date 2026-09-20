@@ -11,7 +11,7 @@ import {
   CHAIN_BYLINE,
 } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { useDirectoryProjects, type DirectoryProject } from '@/components/directory/useDirectoryProjects'
+import { useDirectoryProjects, SCAN_DEPTH, type DirectoryProject } from '@/components/directory/useDirectoryProjects'
 import {
   Badge, Card, PageHeader, Readout, ReadoutGrid, Skeleton,
   ActionButton, useActionGate, revertOrder, useTxAction,
@@ -48,6 +48,12 @@ import { fmtQuote, fmtFull } from '@/components/ProjectTerminal/format'
 // Only those that have accrued something or bound at least one wallet. Listing
 // every project on the platform with a zero against it would bury the two
 // lines that matter under a directory the user already has.
+//
+// Bounded by `SCAN_DEPTH`, which matters more here than on the directory: a
+// grid that shows recent projects is doing its job, whereas a ledger that
+// misses one is telling a referrer they are owed nothing. The bound is stated
+// on screen once it starts cutting, and the project's own desk remains the
+// route to anything past it.
 
 /** Whole percents at these rates — see the note in `ReferralPanel`. */
 const REFERRAL_PCT = REFERRAL_BPS / 100
@@ -150,7 +156,15 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
 
 export function ReferralLedger() {
   const { address: userAddress } = useAccount()
-  const { projects, loading: projectsLoading } = useDirectoryProjects()
+  const { projects, loading: projectsLoading, launchCount } = useDirectoryProjects()
+
+  // The enumeration is the whole product here, and it is bounded. Past
+  // `SCAN_DEPTH` launches an older project's commission stops appearing, which
+  // on a page that says "every project" reads as "you are owed nothing". The
+  // money is never stranded — a launched project keeps its own claim while it
+  // owes anything, so the project page still pays it — but the reader has to be
+  // told where to go rather than left to conclude the balance is gone.
+  const scanTruncated = launchCount > SCAN_DEPTH
 
   // Lifetime recruits are a factory-level counter, so it is one read rather
   // than a sum over the rows below — and it deliberately counts wallets this
@@ -297,15 +311,20 @@ export function ReferralLedger() {
                   to the buyback reservoir instead of to you. The {LIFETIME_PCT}% lifetime
                   leg has no such condition.
                 </p>
-                {/* Names genesis specifically because that is where the desk now
-                    is. It used to render on every phase, which made this line
-                    true of any project page and also sent people to get a link
-                    for a raise that had already closed. */}
+                {/* Said "It is not on launched projects", which the desk itself
+                    contradicts: it hides on a launched project only when there
+                    is nothing to collect, precisely so the claim does not
+                    vanish at the moment launch() makes the money withdrawable.
+                    And "the claim is here, on this page" sent readers of THIS
+                    card hunting for a button that only exists on a row, which
+                    an empty ledger has none of. Both now say what happens. */}
                 <p className="text-text-tertiary">
                   Any project still in genesis carries its own referral desk, with the link
-                  and a live read on whether it will pay there. It is not on launched
-                  projects, because a link cannot earn on a raise that has closed — the
-                  claim for one that already earned is here, on this page.{' '}
+                  and a live read on whether it will pay there. Once a raise closes the desk
+                  goes too, since a link cannot earn on one that has — except on a project
+                  that still owes this wallet, which keeps its claim. This page is the same
+                  claim for all of them at once: one row per project that owes you, each with
+                  its own button. There is none to press yet because nothing owes you.{' '}
                   <Link href="/projects" className="text-brand hover:underline">
                     Browse projects
                   </Link>
@@ -326,6 +345,15 @@ export function ReferralLedger() {
             reserve. There is no single button that drains them all, and there deliberately
             is not: a platform-wide pot would have to stay solvent across every raise at once.
           </p>
+
+          {scanTruncated && (
+            <p className="text-label text-warning tracking-wider leading-relaxed">
+              {'// '}This ledger covers the most recent {SCAN_DEPTH} launches, and there are
+              now {launchCount}. Commission on an older project is still yours and still
+              claimable — open that project and use the referral desk on its own page, which
+              stays for as long as it owes you anything.
+            </p>
+          )}
         </>
       )}
     </main>
