@@ -7,7 +7,8 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CHAIN_ID = '97'
 })
 
-import { bucket } from './useDirectoryProjects'
+import { bucket, deriveGenesisDuration } from './useDirectoryProjects'
+import { GENESIS_DURATIONS } from '@/lib/contracts'
 
 /**
  * The tab rule, pinned because it has now been wrong twice in the same place.
@@ -61,5 +62,52 @@ describe('bucket', () => {
     // `launching`, not `archived`: a card advertising a refund the hook would
     // reject sends the depositor to a button that reverts.
     expect(bucket(false, false, DEADLINE, AFTER)).not.toBe('archived')
+  })
+})
+
+/**
+ * The countdown bar's denominator, which is DERIVED rather than read.
+ *
+ * `genesisDuration()` is the authority; this reconstructs it from two values the
+ * directory already holds, to avoid re-fetching a deployment-frozen constant 48
+ * times every 20 s. The identity holds because `initializeToken` sets
+ * `genesisDeadline = block.timestamp + duration` and the factory pushes
+ * `LaunchInfo(..., block.timestamp)` later in the same `createLaunch` call.
+ *
+ * That is an invariant across two contracts, so what is pinned here is the
+ * SAFETY VALVE rather than the happy path: the hook accepts only three
+ * durations, so a span that is not one of them cannot be a real duration, and
+ * the answer has to be `0n` — which `genesisWindow` draws as nothing. A silently
+ * skewed denominator would render a bar measuring the window against a number no
+ * contract agrees with, and a wrong bar is worse than no bar.
+ */
+describe('deriveGenesisDuration', () => {
+  const created = 1_700_000_000n
+
+  it('recovers each of the three legal windows exactly', () => {
+    for (const rung of Object.values(GENESIS_DURATIONS)) {
+      expect(deriveGenesisDuration(created + rung, created)).toBe(rung)
+    }
+  })
+
+  it('refuses a span that is not one of the three rungs', () => {
+    // What a broken same-transaction assumption would look like: plausible
+    // magnitude, not a duration the hook would have accepted.
+    expect(deriveGenesisDuration(created + 3n * 60n * 60n + 12n, created)).toBe(0n)
+    expect(deriveGenesisDuration(created + 48n * 60n * 60n, created)).toBe(0n)
+  })
+
+  it('refuses a deadline that is not after creation', () => {
+    // Both reads default to 0n on failure, and 0n - 0n is a legal subtraction
+    // that would otherwise hand the bar a zero window.
+    expect(deriveGenesisDuration(0n, 0n)).toBe(0n)
+    expect(deriveGenesisDuration(created, created)).toBe(0n)
+    expect(deriveGenesisDuration(created - 1n, created)).toBe(0n)
+  })
+
+  it('refuses a zero deadline against a real creation time', () => {
+    // The shape a failed `genesisDeadline` read actually takes: the row still
+    // carries a true `createdAt` from the factory.
+    expect(deriveGenesisDuration(0n, created)).toBe(0n)
   })
 })

@@ -33,7 +33,8 @@ import { fmtQuote } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import type { ProjectRow } from '@/app/lib/supabase'
-import { CLOCK_UNSYNCED, formatCountdown, useNowSec } from '@/components/ui'
+import { CLOCK_UNSYNCED, formatCountdown, Progress, useNowSec } from '@/components/ui'
+import { genesisWindow } from '@/components/ProjectTerminal/phase'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
 
@@ -161,6 +162,43 @@ function Remaining({
   return <span>ends in {coarse(left)}</span>
 }
 
+/**
+ * The genesis countdown as a draining track — the bar these cards lost when the
+ * soft cap came out, rather than a new meter.
+ *
+ * ⚠ ITS OWN COMPONENT FOR THE REASON `Remaining` IS, which is the only subtle
+ *   thing here. `useNowSec()` re-renders its subscriber every second, and
+ *   `ProjectCard` is memoised on `project` precisely so a clock tick does not
+ *   repaint the grid. Calling the hook in the card body would have made that
+ *   memo a no-op and re-rendered up to 48 cards a second to move one bar.
+ *
+ * Shares `genesisWindow` with the project page's `HeroStats` instead of
+ * recomputing the fraction, so the card and the page it links to cannot disagree
+ * about how much of the window is left. That function returns `undefined` — draw
+ * nothing — outside genesis, before the deadline resolves, once the clock runs
+ * out, and (via a `0n` duration) whenever the duration could not be trusted.
+ *
+ * Bare: no `label`, no `caption`. The row above already carries "Raised" and the
+ * countdown, and `Progress` renders that header only when asked.
+ */
+function GenesisTrack({
+  deadline, duration, variant,
+}: {
+  deadline: bigint
+  duration: bigint
+  variant: 'line' | 'bar'
+}) {
+  const nowSec = useNowSec()
+  if (nowSec === CLOCK_UNSYNCED) return null
+
+  const win = genesisWindow({
+    phase: 'genesis', genesisDeadline: deadline, genesisDuration: duration, nowSec,
+  })
+  if (!win) return null
+
+  return <Progress pct={win.pct} variant={variant} tone="ok" />
+}
+
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
   const phase = PHASE[p.tab]
@@ -218,7 +256,17 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
           the way to something. There is no something.
 
           What is left is the pair that decides whether to deposit: how much
-          is in, and how long is left. */}
+          is in, and how long is left.
+
+          THE TRACK IS BACK, MEASURING THE CLOCK RATHER THAN THE RAISE. The
+          paragraph above is still the whole argument against the old bar, and
+          none of it applies to this one: the window is one of three fixed
+          durations chosen at `createLaunch`, it cannot be extended, and reaching
+          the end of it actually closes deposits — so there IS a whole, and the
+          fraction means something. It drains rather than fills, which is what
+          keeps it from reading as progress toward a target. `SkeletonCard` never
+          stopped reserving this row's height; it was standing in for a bar that
+          had not existed since the cap came out. */}
       {p.tab === 'live' && (
         <div className="mt-card">
           <div className="flex items-center justify-between font-mono text-micro uppercase text-text-tertiary">
@@ -227,6 +275,16 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
             {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
+          </div>
+          {/* `line`, not `bar`: Progress reserves the 8px glowing track for one
+              headline meter per page, and a grid of these is the opposite of
+              that. The feature card takes `bar` because it IS its page's one. */}
+          <div className="mt-2">
+            <GenesisTrack
+              deadline={p.genesisDeadline}
+              duration={p.genesisDuration}
+              variant="line"
+            />
           </div>
         </div>
       )}
@@ -368,6 +426,15 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
                 {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
+            </div>
+            {/* This card is the landing page's one headline meter, so it gets the
+                8px glowing track that the grid cards below it do not. */}
+            <div className="mt-3">
+              <GenesisTrack
+                deadline={p.genesisDeadline}
+                duration={p.genesisDuration}
+                variant="bar"
+              />
             </div>
           </div>
         ) : p.tab === 'launching' ? (

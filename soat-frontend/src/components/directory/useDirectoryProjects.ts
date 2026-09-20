@@ -6,7 +6,7 @@ import { formatUnits, type Address } from 'viem'
 
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI,
-  QUOTE_DECIMALS,
+  QUOTE_DECIMALS, GENESIS_DURATIONS,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
 
@@ -19,6 +19,13 @@ export interface DirectoryProject {
   createdAt:       bigint
   launched:        boolean
   genesisDeadline: bigint
+  /**
+   * The window the creator chose, in seconds — the countdown bar's denominator.
+   *
+   * DERIVED, NOT READ, and `0n` when the derivation cannot be trusted. See
+   * `deriveGenesisDuration`.
+   */
+  genesisDuration: bigint
   totalNative:        bigint
   /** The hook's `canRefund()`. The `archived` tab is this and nothing else. */
   canRefund:       boolean
@@ -56,6 +63,35 @@ const HOOK_READS = [
 ] as const
 
 const READS_PER_HOOK = HOOK_READS.length
+
+/**
+ * The genesis window's length, without spending a read on it.
+ *
+ * `genesisDuration()` is the authority and this is not it, so the reason for
+ * deriving has to be better than "one fewer call". It is: the value is frozen
+ * at deployment, so polling it every 20 s re-fetches a constant — 48 of them to
+ * paint one grid, on a list whose read budget is why `SCAN_DEPTH` exists at all.
+ *
+ * The identity is exact rather than approximate. `initializeToken` sets
+ * `genesisDeadline = block.timestamp + duration`, and the factory pushes
+ * `LaunchInfo(..., block.timestamp)` later in the SAME `createLaunch` call, so
+ * both timestamps are one block's and the difference is the duration to the
+ * second.
+ *
+ * ⚠ THAT IS AN INVARIANT ACROSS TWO CONTRACTS, which is exactly the kind of
+ *   thing a later refactor breaks without meaning to. So this does not trust
+ *   it: the hook rejects any duration that is not one of three rungs
+ *   (`InvalidDuration`), so a difference that is not a rung cannot be a real
+ *   duration, and the only honest answer is `0n`. `genesisWindow` draws nothing
+ *   on `0n`, so the failure mode is a missing bar rather than a bar measuring
+ *   the raise against a number no contract agrees with.
+ */
+export function deriveGenesisDuration(genesisDeadline: bigint, createdAt: bigint): bigint {
+  if (genesisDeadline <= createdAt) return 0n
+  const span = genesisDeadline - createdAt
+  const rungs: readonly bigint[] = Object.values(GENESIS_DURATIONS)
+  return rungs.includes(span) ? span : 0n
+}
 
 interface RegistryRow {
   name:          string
@@ -267,6 +303,7 @@ export function useDirectoryProjects() {
       out.push({
         ...l,
         launched, genesisDeadline, totalNative, canRefund,
+        genesisDuration: deriveGenesisDuration(genesisDeadline, l.createdAt),
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
