@@ -48,8 +48,10 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      later is silently ignored rather than reverting, so a stale referral
 ///      link in a shared URL can never brick a deposit.
 ///
-///   3. Launch fees are forwarded to `ladderTreasury`, becoming buyback fuel
-///      instead of platform profit.
+///   3. Launch fees are charged in native BNB and forwarded to
+///      `platformTreasury`.  They were buyback fuel until the quote asset moved
+///      to BEM: `ladderTreasury` settles in `quoteAsset` and has no `receive()`,
+///      so BNB cannot be sent there at all.  Collected inline in `createLaunch`.
 contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
@@ -221,11 +223,15 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         hook implementation this factory deploys.
     address public immutable vault;
 
-    /// @notice Platform buyback reservoir; receives every launch fee.
+    /// @notice Platform buyback reservoir.  Receives the shelf cut and orphaned
+    ///         referral commission from here, and the 70 bps buy-side tax share
+    ///         from the hooks.  NOT launch fees — those are BNB and go to
+    ///         `platformTreasury`; see the note there.
     address payable public immutable ladderTreasury;
 
-    /// @notice The ERC20 launch fees and genesis deposits are paid in, and
-    ///         `currency0` of every project pool.
+    /// @notice The ERC20 genesis deposits are paid in, and `currency0` of every
+    ///         project pool.  Launch fees are NOT paid in it — they are native
+    ///         BNB.
     ///
     /// @dev    Same value the hook implementation holds, from the same
     ///         constructor argument — see the note in the constructor for why
@@ -298,9 +304,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         this one, read it back changed, and still be paying the old
     ///         address on every swap.  One address, set once, in both places.
     ///
-    ///         Everything else still routes to `ladderTreasury`: launch fees,
-    ///         the Phase-2 shelf cut, orphaned referral commission, and the
-    ///         70 bps reservoir share of the same buy-side tax.
+    ///         Launch fees arrive here too, and that is the newer half of this
+    ///         address's job: they are native BNB, which `ladderTreasury` can
+    ///         neither spend nor even receive.
+    ///
+    ///         What still routes to `ladderTreasury` is the Phase-2 shelf cut,
+    ///         orphaned referral commission, and the 70 bps reservoir share of
+    ///         the same buy-side tax — three pipes, not four.
     address public immutable platformTreasury;
 
     /// @notice Per-(wallet, hook) re-deposit throttle.  Orthogonal to the

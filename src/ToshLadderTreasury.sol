@@ -38,22 +38,37 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///   v5.0 replaces the v4.x per-pool `harvestAndBurn` + off-chain harvest bot
 ///   with a fully on-chain, self-driving deflation engine:
 ///
-///     1. ETH flows in through four pipes (all native ETH):
+///     1. The quote asset (BEM, an ERC20 with 8 decimals) flows in through
+///        THREE pipes:
 ///          • the 0.7 % BUY-side in-flight tax from every Tosh pool,
-///          • project launch fees from ToshFactory,
 ///          • orphaned referral commission (deposits with no referrer),
 ///          • the 1 % platform cut of every Phase-2 shelf mint.
 ///        The SELL-side tax never arrives here by design — those tokens are
 ///        burned in place by the hook, needing no reservoir at all.
+///
+///        LAUNCH FEES USED TO BE A FOURTH PIPE AND ARE NOT ONE ANY MORE. They
+///        are charged in native BNB now and forwarded to `platformTreasury`
+///        (`ToshFactory._sendNative`), because this reservoir cannot spend BNB:
+///        it settles in `quoteAsset`, and it has neither `receive()` nor
+///        `fallback()`, so a native transfer here does not merely sit idle —
+///        it reverts. Anyone modelling the deflation rate should drop launch
+///        fees from the inflow; the claim that they are buyback fuel survived
+///        in three docstrings after it stopped being true.
 ///     2. Every swap's `afterSwap` pokes `autoPiggybackBuyback()`.
-///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (1 ETH), the
-///        poking swap "gives a ride" (顺风车) to a buyback: `max(TRIGGER_STEP,
-///        balance × SPEND_BPS / 10_000)` is split evenly across the next
-///        `BATCH_SIZE` ladder tokens in round-robin order, market-bought
-///        through Uniswap V4, and the proceeds are sent straight to
+///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (92.8 BEM),
+///        the poking swap "gives a ride" (顺风车) to a buyback:
+///        `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000)` is sized per pool
+///        as `spend / BATCH_SIZE` and market-bought through PancakeSwap
+///        Infinity in round-robin order, with the proceeds sent straight to
 ///        `DEAD_ADDRESS`.  The 10 % proportional spend means a full reservoir
-///        does not sit idle waiting for dozens of 1-ETH drips; the 1 ETH
-///        floor keeps a near-empty pot from wasting gas on dust legs.
+///        does not sit idle waiting for dozens of 92.8-BEM drips; the floor
+///        keeps a near-empty pot from wasting gas on dust legs.
+///
+///        ONE LEG RUNS PER POKE, not `BATCH_SIZE` of them. The divisor and the
+///        leg count were the same number until the peak-cost work split them;
+///        each pool still receives `spend / BATCH_SIZE`, but the three legs of
+///        a cycle are spread across three trades instead of billed to one.
+///        See `BATCH_SIZE` and `LEGS_PER_POKE`.
 ///
 /// ── Iron rule: one-way valve ────────────────────────────────────────────────
 ///
@@ -100,6 +115,20 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///   `AlreadyUnlocked`); we call `swap` / `settle` / `take` directly and the
 ///   resulting deltas are attributed to `address(this)` and zeroed out before
 ///   we return.
+///
+///   WHO PAYS THE GAS, since this contract holds none and could not hold any:
+///   it never originates a transaction. There is no keeper, no schedule and no
+///   EOA behind it, and its balance is `quoteAsset`, which cannot pay for
+///   execution. Every line it runs is billed to whoever's transaction it is
+///   running inside — the trader whose swap happens to tip the reservoir over
+///   the trigger (measured ~125k for the leg, which is why `LEGS_PER_POKE` is
+///   1 and why the hook gates on `PIGGYBACK_MIN_GAS` before poking), or the
+///   caller of `pokeBuyback()`. The ride in "顺风车" is the gas.
+///
+///   That makes `pokeBuyback()` unpaid work: it moves nothing to its caller,
+///   so the backstop against a market of tight gas limits relies on somebody
+///   choosing to run it. A known gap in the incentives, not a defect in the
+///   mechanism — noted here because the alternative is rediscovering it.
 ///
 contract ToshLadderTreasury is Ownable2Step {
     using CurrencyLibrary for Currency;
@@ -215,7 +244,7 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         the owner point that exit at a token nobody deposited. Changing
     ///         it means a new treasury.
     ///
-    ///         This is what the four revenue pipes now arrive as. Under native
+    ///         This is what the three revenue pipes now arrive as. Under native
     ///         settlement they arrived as `msg.value` and `receive()` was the
     ///         entry point; an ERC20 has no such hook, so a transfer in is
     ///         invisible to this contract and `TaxReceived` can no longer be
@@ -304,13 +333,16 @@ contract ToshLadderTreasury is Ownable2Step {
 
     /// @notice What this reservoir holds and can spend.
     ///
-    /// @dev    THE FOUR REVENUE PIPES NO LONGER ANNOUNCE THEMSELVES, and that is
-    ///         the one behavioural loss in moving off native settlement. The 1%
-    ///         dark tax, launch fees, orphaned commission and donations used to
-    ///         arrive as `msg.value` through `receive()`, which emitted
-    ///         `TaxReceived` on every one. An ERC20 `transfer` runs no code here,
-    ///         so arrivals are now silent and `TaxReceived` only fires where a
-    ///         caller routes through `notifyTax`.
+    /// @dev    THE REVENUE PIPES NO LONGER ANNOUNCE THEMSELVES, and that is the
+    ///         one behavioural loss in moving off native settlement. The 1%
+    ///         dark tax, orphaned commission and donations used to arrive as
+    ///         `msg.value` through `receive()`, which emitted `TaxReceived` on
+    ///         every one. An ERC20 `transfer` runs no code here, so arrivals are
+    ///         now silent and `TaxReceived` only fires where a caller routes
+    ///         through `notifyTax`.
+    ///
+    ///         There were four such pipes then and there are three now; launch
+    ///         fees left with the move to BNB rather than falling silent.
     ///
     ///         Consequence for anything watching: do not reconstruct the
     ///         reservoir by summing `TaxReceived`. It will undercount. Read this

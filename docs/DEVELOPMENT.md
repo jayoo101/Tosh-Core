@@ -18,14 +18,17 @@ How to build, test, deploy and operate this repository. For what the protocol
 | Supply per project | 21,000,000 hard cap, enforced on every mint |
 | Trader friction | 1.30% total — 0.30% to LPs, 0.70% buy-and-burn, 0.30% platform |
 | Verification | Etherscan v2 via `.github/workflows/verify.yml`. `ToshLadderTreasury` is verified on `97`; `ToshFactory` is deliberately not — see `SECURITY.md`. Nothing on `56` is verified because nothing on `56` is deployed |
-| Quote asset | **BEM**, an 8-decimal ERC-20 (`0x5ce0…695a` on `56`). BNB pays gas only |
+| Quote asset | **BEM**, an 8-decimal ERC-20 (`0x5ce0…695a` on `56`). BNB pays gas and the launch fee, nothing else |
 | Tests | 392 passing of 396 across 16 suites, including stateful invariants and adversarial probes |
 | Toolchain | Foundry · Next.js + wagmi + viem · Node |
 
 > There is no platform token, and the quote asset is not the chain's coin either.
-> Launch fees, genesis deposits, shelf purchases, refunds and buyback ammunition
-> are all **BEM**, pulled with `transferFrom` — nothing on a money path is
-> `payable`. Notes mentioning native-coin deposits, `msg.value`, `MockSATO`,
+> Genesis deposits, shelf purchases, refunds and buyback ammunition are all
+> **BEM**, pulled with `transferFrom`. The one exception is the launch fee:
+> it is native **BNB**, so `createLaunch` is `payable` and takes it as
+> `msg.value`, refunding any overpayment — and it settles at `platformTreasury`,
+> not the buyback reservoir, which can neither spend nor receive BNB.
+> Notes mentioning native-coin deposits, `msg.value` on `deposit`, `MockSATO`,
 > `harvestAndBurn`, graduation or the `0x2200` / `0x20CC` hook address mask
 > describe earlier denominations or Uniswap V4 and no longer apply. Infinity
 > registers permissions via `getHooksRegistrationBitmap()`.
@@ -192,7 +195,7 @@ ToshFactory  ──creates──▶  ToshToken + ToshLaunchpadHook   (one pair p
 | Contract | Instances | Responsibility |
 |---|---|---|
 | `ToshFactory` | one per chain | `createLaunch` (CREATE2), `registerPoG`, genesis deposit gateway, referral graph, blacklist / cooldown / pause |
-| `ToshLadderTreasury` | one per chain | receives four revenue pipes, curates the buyback roster, `autoPiggybackBuyback` / `pokeBuyback`, `_buyAndBurn` → `0xdead` |
+| `ToshLadderTreasury` | one per chain | receives three revenue pipes (launch fees left when they became BNB), curates the buyback roster, `autoPiggybackBuyback` / `pokeBuyback`, `_buyAndBurn` → `0xdead` |
 | `ToshLaunchpadHook` | one per project | Phase 1 deposit / refund / launch; Phase 2 shelf mint / claims; Infinity `ICLHooks` callbacks; hook-local TWAP oracle |
 | `ToshToken` | one per project | ERC-20, hard cap checked on every mint, minted only by its own hook |
 

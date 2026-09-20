@@ -457,11 +457,12 @@ abstract boxes is harder to check than one you can paste into an explorer, not
 because they are production.
 
 ```
-ToshFactory (0xB224f26a…) ──────────► ToshLadderTreasury (0x79de2226…)
-   ├─ createLaunch / PoG verification      ├─ revenue in: launch fee, shelf cut,
-   ├─ genesis deposit gateway              │  buy-side tax, orphaned commission
+ToshFactory (0x38067B1B…) ──────────► ToshLadderTreasury (0x4e37752e…)
+   ├─ createLaunch / PoG verification      ├─ revenue in: shelf cut, buy-side
+   ├─ genesis deposit gateway              │  tax, orphaned commission
    │  and two-tier referral ledger         └─ only way out ──► 0xdead (buy & burn)
-   └─ cooldown / blacklist / pause
+   ├─ cooldown / blacklist / pause
+   └─ launch fee (BNB) ──► platformTreasury, never the reservoir
           │
           │ CREATE2 (EIP-1167 minimal clone, 131 bytes)
           ▼
@@ -481,7 +482,7 @@ ToshToken (one per project)
 | Contract | Instances | Responsibility |
 |---|---|---|
 | `ToshFactory` | one per chain | `createLaunch`, `registerPoG`, deposit routing, the project and lifetime referral graph, and the global safety controls |
-| `ToshLadderTreasury` | one per chain | One-way valve. Collects four revenue streams, buys on the project's own pool, and burns to `0xdead` |
+| `ToshLadderTreasury` | one per chain | One-way valve. Collects three revenue streams, buys on the project's own pool, and burns to `0xdead` |
 | `ToshLaunchpadHook` | one per project | The whole per-project lifecycle state machine, and the Infinity `ICLHooks` callbacks |
 | `ToshToken` | one per project | Standard ERC-20, hard cap 21,000,000, mint authority exclusive to its hook, no admin backdoor |
 

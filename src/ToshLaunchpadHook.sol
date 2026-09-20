@@ -421,12 +421,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         keeps the sell leg deflationary and keeps the platform holding
     ///         nothing but ETH.
     ///
-    /// @dev    This is the one place platform revenue does NOT end at
-    ///         `ladderTreasury`, and it is a deliberate break with the v5.0
-    ///         claim that all of it is committed to buyback-and-burn.  Three
-    ///         other pipes (launch fees, the shelf cut, orphaned referral
-    ///         commission) still route there in full.  The break is documented
-    ///         as such in `PRD-v5.0.md` §2 rather than being quietly true.
+    /// @dev    This was the one place platform revenue did NOT end at
+    ///         `ladderTreasury`, a deliberate break with the v5.0 claim that
+    ///         all of it is committed to buyback-and-burn, documented as such
+    ///         in `PRD-v5.0.md` §2 rather than being quietly true.
+    ///
+    ///         It is now one of TWO such places. Launch fees went the same way
+    ///         when they became native BNB — the reservoir settles in
+    ///         `quoteAsset` and cannot receive BNB — so they are collected at
+    ///         `platformTreasury` alongside this cut. Two pipes still route to
+    ///         the reservoir in full: the shelf cut and orphaned referral
+    ///         commission.
     uint256 public constant PLATFORM_SWAP_FEE_BPS = 30;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
