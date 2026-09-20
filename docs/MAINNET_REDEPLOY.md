@@ -199,9 +199,16 @@ ETHERSCAN_API_KEY=<an Etherscan v2 key — one key covers 56 and 97>
 
 `.env.production` in this tree is filled in and passes preflight with one
 exception: `ETHERSCAN_API_KEY` is still `REPLACE_ME_ETHERSCAN_V2_KEY`. Preflight
-does not check it, because nothing before the broadcast needs it — it is
-`--verify` that needs it, at the end of the broadcast, which is the worst place
-to discover a missing key.
+does not check it, and **that is now correct rather than a gap**: nothing in §4
+needs it. Verification moved off the broadcast and off this machine entirely —
+the key lives in Actions secrets and `.github/workflows/verify.yml` spends it.
+The placeholder can stay. Leave the line in the file only as a reminder of which
+key the workflow is holding; filling it in here puts a secret on the deploy
+machine to no purpose.
+
+`TARGET_RPC` **is** defined in `.env.production` even though it does not appear
+in the block above — that block is the set of values needing a decision, not the
+file's contents. §4 passes `$env:TARGET_RPC` and the loader supplies it.
 
 The Safe address is recorded here because it was recorded nowhere: it existed in
 a chat log and on chain, and was recovered by scanning `56` for a contract among
@@ -315,22 +322,37 @@ a wrong value there is another redeploy, not a config change.
 ```powershell
 forge script script/DeployMainnet.s.sol:DeployMainnetScript `
   --rpc-url $env:TARGET_RPC `
-  --broadcast --verify `
+  --broadcast `
   -vvvv
 ```
 
-> **Plain `--verify`, and the pair that used to stand here was worse than
-> wrong.** This block read `--verifier blockscout --verifier-url
-> https://robinhoodchain.blockscout.com/api`, which is the retired chain's
-> explorer. Blockscout does not serve chain 56 at any tier, so an operator
-> following this file would have passed a verifier that **verifies nothing and
-> reports success for having done so** — the deploy would look fully verified
-> and BscScan would show unverified bytecode for the factory that holds every
-> kill switch. `DeployMainnet.s.sol`'s own header was corrected when the chain
-> changed; this file was not, which is the same instructions-outlive-the-code
-> failure as the stale dials in the banner above. Verification goes through
-> Etherscan v2 under one `ETHERSCAN_API_KEY`; `foundry.toml` already wires `bsc`
-> and `bsc_testnet` to it.
+> **No `--verify`, and this line has now been wrong in both directions.** It
+> first read `--verifier blockscout --verifier-url
+> https://robinhoodchain.blockscout.com/api`, the retired chain's explorer.
+> Blockscout does not serve chain 56 at any tier, so an operator following this
+> file would have passed a verifier that **verifies nothing and reports success
+> for having done so** — the deploy would look fully verified while BscScan
+> showed unverified bytecode for the factory that holds every kill switch.
+>
+> The correction to that made it plain `--verify`, which contradicted the
+> standing policy in `docs/DEVELOPMENT.md`: *"Verification is not part of the
+> broadcast any more … Rather than put that key on a laptop, run
+> `.github/workflows/verify.yml` by hand."* Two current documents gave opposite
+> instructions for one deploy-day action, and the disagreement was about where a
+> secret lives. This file is the one that was out of step.
+>
+> `--verify` also could not have worked as written. `ETHERSCAN_API_KEY` in
+> `.env.production` is `REPLACE_ME_ETHERSCAN_V2_KEY` and preflight does not check
+> it, so the flag would have failed at the end of an otherwise successful
+> broadcast. That is recoverable — the transactions are on chain and recorded
+> under `broadcast/`, so verification can be retried at leisure — but it is a
+> failure arriving at the one moment nobody wants to be reading an error.
+>
+> **So: broadcast without verifying, then run `.github/workflows/verify.yml`.**
+> It holds the key in Actions secrets, skips contracts already published and
+> retries the rate limit. Nothing about verification needs to happen while the
+> deploy machine still has a mainnet key in its environment, which also means
+> §7's cleanup no longer has to wait on it.
 
 Record `FACTORY_ADDRESS` and `TREASURY_ADDRESS` from the manifest.
 
@@ -371,6 +393,15 @@ POG_SIGNER_PRIVATE_KEY=<the rotated signer's key>                    # currently
 
 Set Preview to the same values or leave it on 97 deliberately; what must not
 happen is Preview silently becoming a mainnet build nobody reviewed.
+
+**Six edits are not six changes, and the Vercel UI will happily treat them as
+six.** Saving a variable can trigger a rebuild on its own, so editing them one at
+a time can ship a build carrying three new values and three old ones — a chain id
+of 97 against a mainnet factory, or a BEM symbol over the 8-decimal mock. Both
+are states no row of this table describes and no check catches, because each
+variable is individually correct. Turn off any automatic redeploy while editing,
+save all six, and only then trigger one Redeploy from the Deployments tab. The
+rollback note at the end of §6 makes the same argument from the other direction.
 
 **Step 9's trap is `MONITOR_EXPECTED_OWNER`.** These are GitHub Actions *repo
 variables*, not files, so they do not move with a commit and nothing in CI
