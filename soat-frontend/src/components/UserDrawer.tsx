@@ -40,8 +40,8 @@
  *     A. factory.launchCount                          (1 call)
  *     B. factory.launches(i)                          (N calls)
  *     C. hook.nativeDeposited(user)                      (N calls, filter > 0)
- *     D. (cooldown + phase + total + softCap + hasClaimed + claimSupply +
- *         erc20.symbol)                              (7 calls × M participated)
+ *     D. (cooldown + phase + total + hasClaimed + claimSupply +
+ *         erc20.symbol)                              (6 calls × M participated)
  */
 
 import { useCallback, useEffect, useMemo } from 'react'
@@ -168,7 +168,6 @@ interface HookSnapshot {
   cooldownEnd:     bigint
   launched:        boolean
   totalNative:        bigint
-  softCap:         bigint
   hasClaimed:      boolean
   genesisClaimSup: bigint
   symbol:          string
@@ -296,7 +295,11 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd' as const, args: [address, p.hook] as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'launched'              as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'totalNativeDeposited'     as const },
-      { address: p.hook,          abi: HOOK_ABI,    functionName: 'softCap'               as const },
+      // No `softCap` leg. It was fetched into the row, carried through the
+      // snapshot type and rendered nowhere — the percentage it fed was removed
+      // when the cap stopped gating anything (see the note further down), and
+      // the call outlived its only reader. One chain call per participated
+      // project, every time this drawer opened, for a number nobody displayed.
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'hasClaimed'            as const, args: [address] as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'GENESIS_CLAIM_SUPPLY'  as const },
       { address: p.token,         abi: ERC20_ABI,   functionName: 'symbol'                as const },
@@ -308,10 +311,14 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     if (!fullDataQuery.data) return []
     const out: HookSnapshot[] = []
     for (let i = 0; i < participated.length; i++) {
-      const off = i * 7
+      // Six legs per project, and the stride MUST match the `flatMap` above —
+      // it was seven until the unread `softCap` leg came out. Every index
+      // below is relative to it, so the two move together or the drawer reads
+      // one project's cooldown as the next project's symbol.
+      const off = i * 6
       const d   = fullDataQuery.data
       const row = participated[i]
-      // `useReadContracts` degrades PER CALL, so these seven legs can land in
+      // `useReadContracts` degrades PER CALL, so these six legs can land in
       // any mix of success and failure. Coalescing a failure to `false`/`0n`
       // turned an RPC hiccup into a confident statement: a failed `launched`
       // leg hid the claim CTA on a launched project, and a failed
@@ -319,23 +326,22 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       // "you have nothing to claim", which is the worst thing this drawer can
       // say incorrectly.
       //
-      // So: all seven or none. A row that could not be read fully is marked
+      // So: all six or none. A row that could not be read fully is marked
       // degraded and renders as unread rather than as empty.
-      const legs = [d[off], d[off + 1], d[off + 2], d[off + 3], d[off + 4], d[off + 5], d[off + 6]]
+      const legs = [d[off], d[off + 1], d[off + 2], d[off + 3], d[off + 4], d[off + 5]]
       const degraded = legs.some(l => l?.status !== 'success')
 
       const cooldownEnd     = degraded ? 0n    : d[off    ].result as bigint
       const launched        = degraded ? false : d[off + 1].result as boolean
       const totalNative        = degraded ? 0n    : d[off + 2].result as bigint
-      const softCap         = degraded ? 0n    : d[off + 3].result as bigint
-      const hasClaimed      = degraded ? false : d[off + 4].result as boolean
-      const genesisClaimSup = degraded ? 0n    : d[off + 5].result as bigint
-      const symbol          = degraded ? '???' : d[off + 6].result as string
+      const hasClaimed      = degraded ? false : d[off + 3].result as boolean
+      const genesisClaimSup = degraded ? 0n    : d[off + 4].result as bigint
+      const symbol          = degraded ? '???' : d[off + 5].result as string
       const claimable       =
         !degraded && launched && !hasClaimed && totalNative > 0n
           ? (genesisClaimSup * row.nativeDeposited) / totalNative
           : 0n
-      out.push({ row, degraded, cooldownEnd, launched, totalNative, softCap, hasClaimed, genesisClaimSup, symbol, claimable })
+      out.push({ row, degraded, cooldownEnd, launched, totalNative, hasClaimed, genesisClaimSup, symbol, claimable })
     }
     return out
   }, [fullDataQuery.data, participated])

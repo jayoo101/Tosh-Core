@@ -215,7 +215,12 @@ export default function ProjectTerminal({ project, about, header }: {
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'phase2Minted'       },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'canRefund'          },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'genesisDeadline'    },
-      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'softCap'            },
+      // Slot 6 carried `softCap` until the cap stopped meaning anything. It is
+      // `ladderViable` now — the question this page actually has to ask, since
+      // the answer decides whether a closed genesis owes refunds today or in a
+      // week. Replaced in place rather than appended so the index run below
+      // does not shift.
+      { address: hookAddress,    abi: HOOK_ABI,    functionName: 'ladderViable'       },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'BONDING_MAX'        },
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'currentBondingPrice'},
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'nativeDeposited',
@@ -242,7 +247,9 @@ export default function ProjectTerminal({ project, about, header }: {
   const phase2Minted       = (data?.[3]?.result  as bigint  | undefined) ?? 0n
   const canRefund          = (data?.[4]?.result  as boolean | undefined) ?? false
   const genesisDeadline    = (data?.[5]?.result  as bigint  | undefined) ?? 0n
-  const softCap            = (data?.[6]?.result  as bigint  | undefined) ?? 0n
+  // No `?? false`. A pending read must stay `undefined` all the way into
+  // `resolvePhase`, which reads a false here as "this round can never launch".
+  const ladderViable       = data?.[6]?.result  as boolean | undefined
   const bondingMax         = (data?.[7]?.result  as bigint  | undefined) ?? BONDING_MAX
   const currentPrice       = (data?.[8]?.result  as bigint  | undefined) ?? 0n
   const userEthDeposited   = (data?.[9]?.result  as bigint  | undefined) ?? 0n
@@ -300,7 +307,7 @@ export default function ProjectTerminal({ project, about, header }: {
   const referrer = useBoundReferrer(userAddress, hookAddress)
 
   const phase: Phase = resolvePhase({
-    totalNativeDeposited, softCap, canRefund, launched, genesisDeadline, nowSec,
+    canRefund, launched, genesisDeadline, nowSec, ladderViable,
   })
 
   /*
@@ -565,6 +572,7 @@ export default function ProjectTerminal({ project, about, header }: {
             hookAddress={hookAddress}
             nativeDeposited={userEthDeposited}
             refetch={() => { void refetch() }}
+            ladderViable={ladderViable}
           />
         )}
       </div>

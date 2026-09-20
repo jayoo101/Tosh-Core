@@ -3565,6 +3565,19 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "ladderViable",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lastObservationTs",
     "inputs": [],
     "outputs": [
@@ -3874,6 +3887,19 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "refundAnnounced",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "satoDeposited",
     "inputs": [
       {
@@ -4105,19 +4131,6 @@ export const HOOK_ABI = [
         "name": "",
         "type": "address",
         "internalType": "contract IVault"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "zombieRefundEnabled",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
       }
     ],
     "stateMutability": "view"

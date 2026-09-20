@@ -84,7 +84,7 @@ const HOOK_ABI = [
   'function currentTierSold() view returns (uint256)',
   'function phase2Minted() view returns (uint256)',
   'function canRefund() view returns (bool)',
-  'function zombieRefundEnabled() view returns (bool)',
+  'function refundAnnounced() view returns (bool)',
   'function nativeDeposited(address) view returns (uint256)',
   'function genesisShareClaimed(address) view returns (bool)',
   'function referralAccrued(address) view returns (uint256)',
@@ -136,7 +136,7 @@ const [
   hook.genesisDeadline(), hook.genesisDuration(), hook.totalNativeDeposited(),
   hook.totalReferralReserved(), hook.totalReferralClaimed(), hook.orphanReferral(),
   hook.p0(), hook.shelfP0(), hook.currentTierIndex(), hook.currentTierSold(),
-  hook.phase2Minted(), hook.canRefund(), hook.zombieRefundEnabled(),
+  hook.phase2Minted(), hook.canRefund(), hook.refundAnnounced(),
 ])
 
 console.log(`\nHook   ${HOOK}`)
@@ -392,10 +392,10 @@ if (phase2 !== tierIndex * TIER_SIZE + tierSold) {
 // ── Refunds must be dead ─────────────────────────────────────────────────────
 console.log('\nRefunds')
 console.log(`        canRefund()       ${canRefund}`)
-// `canRefund()` is the authority; `zombieRefundEnabled` is only an event-dedup
+// `canRefund()` is the authority; `refundAnnounced` is only an event-dedup
 // flag and stays false until the first claimant. A `refundEnabled` getter used
 // to print beside these and always read false, because nothing ever set it.
-console.log(`        zombieRefund      ${zombie}  (event dedup, not a gate)`)
+console.log(`        refundAnnounced   ${zombie}  (event dedup, not a gate)`)
 if (canRefund) fail('canRefund() is true on a launched hook — depositors could withdraw a live pool')
 
 // ── The creator's own position ───────────────────────────────────────────────

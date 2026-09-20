@@ -40,11 +40,15 @@ How to build, test, deploy and operate this repository. For what the protocol
 These are structural properties, not policies — each one is a consequence of
 code that exists or code that is absent, and each is checkable from chain.
 
-**Depositors always have a way out.** If the creator never calls `launch()`
-within the 7-day `LAUNCH_WINDOW` after genesis closes, every depositor reclaims
-100% of their BEM with no penalty. Missing the raise target does not fail the
-round — time-up is what opens `launch()`, with whatever was raised. "Raised the
-money and vanished" is not a state that can trap funds.
+**Depositors always have a way out.** Every depositor reclaims 100% of their BEM
+with no penalty, on one of two clocks: immediately at genesis close if the raise
+was too small to carry a ladder (`launch()` could never have succeeded, so there
+is nothing to wait for), or after the 7-day `LAUNCH_WINDOW` if the creator
+simply never called a `launch()` that would have worked. Both read the same
+`ladderViable()` predicate the launch door reads, so a round is never both open
+to launch and open to refund, and never neither. Missing a raise target does not
+fail the round — time-up is what opens `launch()`, with whatever was raised.
+"Raised the money and vanished" is not a state that can trap funds.
 
 **The pool opens above what depositors paid.** The 55/45 split of genesis supply
 makes the opening price exactly 1.10× the depositors' average cost, and shelf 0
@@ -235,9 +239,11 @@ unused salt will do. See "Salts: there is nothing left to mine" below.
 **Phase 1 — genesis.** Depositors approve the **factory** for BEM, then call
 `factory.deposit(hook, referrer, amount)` — two transactions, and the allowance
 goes to the factory rather than to the project's own hook, which is the one a
-depositor would guess. The window is a hard deadline chosen at creation; the soft cap is a
-floor, not a ceiling, so a round keeps accepting deposits for its whole window
-after the cap is met.
+depositor would guess. The window is a hard deadline chosen at creation, and it
+is the only thing that ends the round — there is no raise target to hit, so a
+round accepts deposits for its whole window no matter how much has come in.
+`defaultSoftCap` is still snapshotted into the clone (it feeds the CREATE2
+address) but no code reads it.
 
 | Option | Value |
 |---|---|
@@ -251,9 +257,14 @@ liquidity, seeds the oracle and shuts Phase 2 for the launch block. Nothing is
 automatic — if the creator never calls it, `refund()` opens once `LAUNCH_WINDOW`
 (7 days) lapses.
 
-**Failure paths.** `refund()` opens only when the 7-day launch window expires
-without a launch. Missing the raise target does not fail the round. Use the
-`canRefund()` view rather than re-deriving the condition.
+**Failure paths.** Two of them, on two clocks. A raise too small to carry a
+monotone ladder refunds the moment genesis closes: `launch()` would revert with
+`RaiseTooSmallForLadder` no matter who called it, so there is nothing to wait
+out, and `refund()` announces `GenesisFailed`. A raise that *could* have
+launched but never did refunds after the 7-day window, announcing
+`ZombieRefund`. `refundAnnounced` dedupes both to one event per hook. Missing a
+raise target does not fail the round. Use the `canRefund()` view rather than
+re-deriving either condition from the clock.
 
 **Phase 2 — shelf ladder.** `mintBondingCurve(tokenAmount)` buys from the active
 shelf at its fixed price, sweeping up to `MAX_TIERS_PER_TX` (32) shelves in one

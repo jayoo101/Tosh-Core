@@ -1550,17 +1550,24 @@ contract ToshV5FactoryTest is Test {
         assertEq(factory.getLiveHookInitcodeHash(), expected, "live hash must use DURATION_STANDARD");
     }
 
+    /// @dev The raise is deliberately well over the ladder floor. This test is
+    ///      about the 3-hour genesis shifting the whole schedule, and a raise
+    ///      too small to launch now opens refunds at genesis close — which
+    ///      would short-circuit the very window under test here. The small-raise
+    ///      path has its own tests in ToshV5Guards.
     function test_fastWindow_refundOpensAfterThreeHours() public {
         (, address hook) = _createLaunch("Quick", "QCK", 3 hours);
-        _register(user1, 5e8);
+        _register(user1, 100e8);
         vm.prank(user1);
-        factory.deposit(hook, address(0), 5e8);
+        factory.deposit(hook, address(0), 100e8);
+        assertTrue(_h(hook).ladderViable(), "the window, not the floor, is what this test exercises");
 
         // Still inside the window: the genesis is live, so no refund yet.
         vm.warp(block.timestamp + 3 hours - 1);
         assertFalse(_h(hook).canRefund(), "no refund while the window is open");
 
-        // Past genesis, still inside the 7-day launch window: no refund yet.
+        // Past genesis, still inside the 7-day launch window: no refund yet,
+        // because this raise COULD open a pool and the creator still may.
         vm.warp(block.timestamp + 2);
         assertFalse(_h(hook).canRefund(), "refund stays closed until the launch window lapses");
 

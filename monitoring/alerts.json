@@ -384,7 +384,7 @@
       "page": false,
       "scope": "any-address",
       "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
-      "why": "UNUSED after time-up launch: GenesisFailed is no longer emitted. A raise under the progress target is still launchable until the 7-day window lapses. STATE-01 (canRefund poll) is the refund announcement."
+      "why": "LIVE AGAIN, and it no longer means what the name suggests. Dormant while a missed soft cap stopped being a refund trigger; re-wired when a raise too small to carry a shelf ladder became one. Fires on the first refund() of a round whose raise could never have opened a pool, so refunds opened at genesis close rather than after the 7-day window. Not a creator failure: launch() was arithmetically impossible on this raise. LIFE-02 is the other refund reason and does accuse the creator; the two are deliberately separate events so an indexer need not guess."
     },
     {
       "id": "LIFE-02",
@@ -395,7 +395,7 @@
       "page": false,
       "scope": "any-address",
       "playbook": "tosh-status/MANUAL_INTERACTION.md §4",
-      "why": "Same lazy-emit caveat as LIFE-01 used to have. Means the creator never launched inside the 7-day window, regardless of how much was raised."
+      "why": "Lazy-emit: fires on the first refund() of a round, not when refunds open. Means the creator never launched inside the 7-day window on a raise that COULD have opened a pool — abandonment, unlike LIFE-01, which is a round that was never launchable. Narrower than it used to be: small raises now announce as LIFE-01 and never reach this event."
     },
     {
       "id": "LIFE-03",
@@ -426,7 +426,7 @@
       "severity": "P1",
       "cadence": "hourly",
       "check": "For every hook from LaunchCreated: canRefund() == true AND totalNativeDeposited > 0 AND no Refunded event yet",
-      "why": "Nothing is emitted when the 7-day launch window lapses unused — refund() flips zombieRefundEnabled lazily and launch() starts reverting with LaunchWindowExpired. A round can sit refundable and unannounced. Depositors with a non-zero stake are owed a notification; a zero raise is a gap line, not a finding, because nobody is owed an exit.",
+      "why": "Nothing is emitted when refunds OPEN — refund() flips refundAnnounced lazily, on the first claimant, so a round can sit refundable and unannounced indefinitely. This is the poll that closes that gap, and it now covers both doors: the 7-day window lapsing unused, and a raise too small to carry a ladder, which opens refunds the moment genesis closes and can therefore need announcing up to a week earlier than this check used to expect. Depositors with a non-zero stake are owed a notification; a zero raise is a gap line, not a finding, because nobody is owed an exit.",
       "action": "Announce refund availability; tosh-status/MANUAL_INTERACTION.md §4 has the cast invocation for users who need it, and the status page already links it."
     },
     {

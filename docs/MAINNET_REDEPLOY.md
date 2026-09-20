@@ -30,7 +30,11 @@ launch** (the soft cap becomes a progress target) and **the PoG band moves to
 0.5 ether on-chain).
 
 The first change is now simply how the protocol works, and it survived the move
-to BSC unaltered — it is the model `MANUAL_INTERACTION.md` documents. The second
+to BSC unaltered. It has since gone one step further: the soft cap is not even a
+progress target — nothing reads it, and the UI shows a countdown to the deadline
+where the progress bar used to be. The only floor left is `ladderViable()`, the
+raise below which `launch()` cannot build a monotone ladder, and falling under
+it opens refunds the moment genesis closes rather than seven days later. The second
 is the historical band: the on-chain ceiling it names has since moved to **46.4
 BEM**, and the band is now split across two units on purpose — the floor stays in
 **ETH** because it measures gas burned on ETH-settled chains, while the rate and

@@ -491,12 +491,23 @@ contract ToshV5GuardsTest is Test {
         assertFalse(hook.canRefund());
     }
 
-    function test_canRefund_falseInsideLaunchWindow_underCap() public {
+    /// Inverted when a too-small raise became its own refund trigger. 1 BEM
+    /// cannot carry a ladder, so the launch window has nothing to offer it and
+    /// `canRefund()` no longer makes depositors sit through one.
+    function test_canRefund_trueAtGenesisClose_whenRaiseCannotCarryALadder() public {
         _register(user1, 100e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1e8);
         vm.warp(hook.genesisDeadline() + 1);
-        assertFalse(hook.canRefund());
+        assertTrue(hook.canRefund());
+    }
+
+    /// The gate is the ladder, not the clock: still shut while genesis is live.
+    function test_canRefund_falseWhileGenesisIsStillOpen() public {
+        _register(user1, 100e8);
+        vm.prank(user1);
+        factory.deposit(address(hook), address(0), 1e8);
+        assertFalse(hook.canRefund(), "deposits are still being taken");
     }
 
     function test_canRefund_trueAfterZombieWindow_overCap() public {
@@ -536,17 +547,107 @@ contract ToshV5GuardsTest is Test {
         vm.prank(user1);
         hook.refund();
         assertEq(quote.balanceOf(user1) - before, 1000e8, "a refund pays back in the quote asset");
-        assertTrue(hook.zombieRefundEnabled());
+        assertTrue(hook.refundAnnounced());
     }
 
-    function test_refund_revertsUnderCapUntilLaunchWindowLapses() public {
+    /// A raise that CAN carry a ladder waits out the window, because the
+    /// creator can still open the pool with it. This is the abandonment case.
+    function test_refund_viableRaiseWaitsForTheLaunchWindow() public {
+        _register(user1, 1000e8);
+        vm.prank(user1);
+        factory.deposit(address(hook), address(0), 1000e8);
+        vm.warp(hook.genesisDeadline() + 1);
+
+        assertTrue(hook.ladderViable(), "1000 BEM is far above the ladder floor");
+        assertFalse(hook.canRefund(), "the creator still has the window");
+
+        vm.prank(user1);
+        vm.expectRevert(bytes("Refund not available"));
+        hook.refund();
+    }
+
+    /// ⚠ THE INVERSION. This asserted the opposite until a too-small raise
+    ///   became its own refund trigger: 1 BEM cannot produce a rising ladder,
+    ///   so `launch()` can never succeed on it and the seven days were a wait
+    ///   for a verdict that was already final when deposits closed.
+    function test_refund_raiseTooSmallForLadderOpensAtGenesisClose() public {
         _register(user1, 100e8);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1e8);
         vm.warp(hook.genesisDeadline() + 1);
+
+        assertFalse(hook.ladderViable(), "1 BEM is below the ladder floor");
+        assertTrue(hook.canRefund(), "so refunds open the moment genesis closes");
+
+        // The other half of the claim: the door it skips is genuinely shut.
+        vm.prank(creator);
+        vm.expectRevert(ToshLaunchpadHook.RaiseTooSmallForLadder.selector);
+        hook.launch();
+
+        uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
-        vm.expectRevert(bytes("Refund not available"));
         hook.refund();
+        assertEq(quote.balanceOf(user1) - before, 1e8, "refunded in full, six days early");
+    }
+
+    /// The two failures are told apart in the log, not merged into one alarm.
+    function test_refund_announcesGenesisFailedNotZombie_whenRaiseTooSmall() public {
+        _register(user1, 100e8);
+        vm.prank(user1);
+        factory.deposit(address(hook), address(0), 1e8);
+        vm.warp(hook.genesisDeadline() + 1);
+
+        vm.expectEmit(false, false, false, true, address(hook));
+        emit ToshLaunchpadHook.GenesisFailed(1e8);
+        vm.prank(user1);
+        hook.refund();
+    }
+
+    function test_refund_announcesZombie_whenTheCreatorSimplyNeverLaunched() public {
+        _register(user1, 1000e8);
+        vm.prank(user1);
+        factory.deposit(address(hook), address(0), 1000e8);
+        vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
+
+        vm.expectEmit(false, false, false, true, address(hook));
+        emit ToshLaunchpadHook.ZombieRefund(1000e8);
+        vm.prank(user1);
+        hook.refund();
+    }
+
+    /// ⚠ THE DOORS MUST AGREE. `launch()` and `canRefund()` read one predicate
+    ///   precisely so a raise can never be both launchable and refundable, nor
+    ///   neither. A second copy of the arithmetic is what this pins against.
+    ///
+    /// Swept across the floor rather than probed at it, because the interesting
+    /// region is a boundary nobody can point at by hand: the threshold is a
+    /// truncation in geometric shelf pricing, and it moves with the commission
+    /// carve. A fixed pair of "just under / just over" deposits would pin two
+    /// points and miss the seam. This run is what found the dust raise that
+    /// reported "p0=0" instead of `RaiseTooSmallForLadder`.
+    ///
+    /// SCOPE. The refusal is exercised, the success is not: this fixture has no
+    /// Infinity vault wired, so a viable raise cannot complete `launch()` here
+    /// and no test in this file calls it expecting to. The launching half lives
+    /// where the DEX does.
+    function testFuzz_launchAndRefundDoorsNeverDisagree(uint96 raw) public {
+        uint256 amount = uint256(raw) % 200e8;
+        vm.assume(amount > 0);
+
+        _register(user1, 1000e8);
+        vm.prank(user1);
+        factory.deposit(address(hook), address(0), amount);
+        vm.warp(hook.genesisDeadline() + 1);
+
+        bool viable = hook.ladderViable();
+        assertEq(hook.canRefund(), !viable, "refund opens exactly when launch cannot");
+
+        if (!viable) {
+            // One error for every raise below the floor, dust included.
+            vm.prank(creator);
+            vm.expectRevert(ToshLaunchpadHook.RaiseTooSmallForLadder.selector);
+            hook.launch();
+        }
     }
 
     function test_refund_revertsWithNoDeposit() public {

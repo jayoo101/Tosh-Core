@@ -158,7 +158,10 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///           paid, so genesis opens at a 10 % premium by construction.
 ///         – Shelf 0 then sits a further 5 % above P0, i.e. 1.155 × the
 ///           depositors' cost, so Phase 2 never undercuts them.
-///     • Failure path `refund()` — soft-cap miss OR 7-day zombie timeout.
+///     • Failure path `refund()` — raise too small for the ladder (opens the
+///       moment genesis closes) OR 7-day zombie timeout (the creator could
+///       have launched and did not). Never a soft-cap miss; the cap is a
+///       progress target and gates nothing.
 ///
 ///   Phase 2 — Tier shelves (open to all, mint-only)
 ///     • `claimGenesis()`         : pro-rata 4.62 M claim side.
@@ -854,13 +857,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     bool public launched;
     /// @notice Event-dedup flag, NOT the refund gate.
     ///
-    /// @dev    Set lazily the first time `refund()` actually runs, so the
-    ///         `ZombieRefund` event fires once. Nothing reads it as a
-    ///         condition — `refund()` and `canRefund()` recompute
-    ///         `zombieExpired` on every call. Indexers and the UI must treat
-    ///         `canRefund()` as the authority; this flag stays `false` until
-    ///         the first claimant shows up, even when refunds are already
-    ///         available.
+    /// @dev    Set lazily the first time `refund()` actually runs, so that the
+    ///         announcement — `GenesisFailed` or `ZombieRefund`, whichever the
+    ///         failure was — fires once. Nothing reads it as a condition:
+    ///         `refund()` and `canRefund()` recompute the outcome on every
+    ///         call. Indexers and the UI must treat `canRefund()` as the
+    ///         authority; this flag stays `false` until the first claimant
+    ///         shows up, even when refunds are already available.
+    ///
+    ///         Named `zombieRefundEnabled` until a too-small raise became its
+    ///         own refund trigger. It dedups both announcements now, and only
+    ///         one of them is a zombie.
     ///
     ///         A `refundEnabled` twin stood here until Slither noticed it could
     ///         be `constant`. It could, in the worst sense: nothing in the
@@ -871,7 +878,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         raised. Removed rather than documented, because a permanently
     ///         false `refundEnabled()` sitting beside `canRefund()` reads as an
     ///         answer to the question `canRefund()` actually answers.
-    bool public zombieRefundEnabled;
+    bool public refundAnnounced;
 
     // ─── Genesis accounting (all ETH-wei) ─────────────────────────────────────
 
@@ -1154,15 +1161,19 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `block.timestamp >= genesisDeadline` and `launch` refuses below
     ///         it — so the first moment this error can be reached is already
     ///         past the last moment a deposit could have arrived. There is no
-    ///         top-up, and no abort, cancel or early-refund path either.
+    ///         top-up and no way back.
     ///
-    ///         So the launch window lapses unused, and seven days after
-    ///         `genesisDeadline` every depositor may `refund()` their stake in
-    ///         full. Referrers are owed nothing: the 10 % carve is realised at
-    ///         `launch()` and nowhere else, so on a failed genesis
-    ///         `referralAccrued` is simply never claimable. The wait is
-    ///         unavoidable even though the outcome is settled the moment
-    ///         deposits close.
+    ///         DEPOSITORS DO NOT WAIT FOR IT. `canRefund()` reads the same
+    ///         `ladderViable()` this does, so refunds open the moment genesis
+    ///         closes rather than seven days later: the raise is final once
+    ///         deposits shut, which makes the verdict final too, and the window
+    ///         existed to give a creator time to do something that in this case
+    ///         cannot be done. The 7-day path is still there for the other
+    ///         failure — a round that COULD have launched and was abandoned.
+    ///
+    ///         Refunds are 100 %. Referrers are owed nothing: the 10 % carve is
+    ///         realised at `launch()` and nowhere else, so on a failed genesis
+    ///         `referralAccrued` is simply never claimable.
     ///
     ///         Failing here is deliberate rather than a missing feature. A flat
     ///         ladder is worse for the depositors than no pool, because it lets
@@ -1545,12 +1556,80 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         emit Deposited(user, amount, projectReferrer, lifetimeReferrer);
     }
 
-    /// @notice True when depositors may reclaim their ETH.
-    /// @dev    Only after the 7-day launch window lapses unused. A raise that
-    ///         is under its soft cap is still launchable until then — the
-    ///         clock, not the floor, decides whether the pool opens.
+    /// @notice The quote that would back the LP if `launch()` ran on the raise
+    ///         standing right now.
+    ///
+    /// @dev    Zero when the commission carve has eaten the whole raise, which
+    ///         `launch()` reaches as a revert rather than a subtraction: this
+    ///         returns 0 instead of underflowing, because it is a view two
+    ///         callers ask speculatively.
+    function _projectedLpQuote() internal view returns (uint256) {
+        uint256 commissionPool = totalReferralReserved + orphanReferral;
+        if (totalNativeDeposited <= commissionPool) return 0;
+        return totalNativeDeposited - commissionPool;
+    }
+
+    /// @notice True when the raise standing now is large enough for the shelf
+    ///         ladder to actually rise.
+    ///
+    /// @dev    ⚠ THIS IS THE ONE COPY OF THE CONDITION. `launch()` refuses on
+    ///         it and `canRefund()` opens on it, and those two MUST agree: if
+    ///         `canRefund()` were the looser of the pair a launchable round
+    ///         would drain through the refund door, and if it were the tighter
+    ///         one a round that can never launch would sit locked for seven
+    ///         days waiting for a window that cannot help it. Two copies of
+    ///         this arithmetic in two functions is exactly the shape that lets
+    ///         them drift, so there is one and both call it.
+    ///
+    ///         The PROPERTY, never a `MIN_RAISE` constant — same reasoning as
+    ///         the note in `launch()`. Shelves are geometric at +0.19025 %, so
+    ///         below `shelfP0 == 526` the first step truncates to zero and a
+    ///         run of shelves carries one price. Asking the ladder is
+    ///         self-maintaining; a hand-derived minimum goes stale silently the
+    ///         next time `GENESIS_LP_SUPPLY`, `SHELF_PREMIUM_BPS` or
+    ///         `TIER_STEP_E18` moves.
+    ///
+    ///         Not a soft-cap check. The cap is a progress target and gates
+    ///         nothing; this is about the amount actually raised, net of the
+    ///         commission carve — so the deposit total that clears it sits a
+    ///         little above the bare 21.042 whenever referrers are involved.
+    function ladderViable() public view returns (bool) {
+        uint256 lpQuote = _projectedLpQuote();
+        if (lpQuote == 0) return false;
+
+        uint256 projectedP0 = (lpQuote * ONE_E18) / GENESIS_LP_SUPPLY;
+        if (projectedP0 == 0) return false;
+
+        uint256 projectedShelfP0 = (projectedP0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
+
+        // `tierPriceAt(1) > tierPriceAt(0)` for this shelf base. Written out
+        // rather than called, because `tierPriceAt` reads the STORED `shelfP0`
+        // and before `launch()` that is still zero.
+        return FullMath.mulDiv(projectedShelfP0, TIER_STEP_E18, ONE_E18) > projectedShelfP0;
+    }
+
+    /// @notice True when depositors may reclaim their quote asset.
+    ///
+    /// @dev    Two independent failures open this door, and they are not the
+    ///         same event wearing different clocks:
+    ///
+    ///           • THE RAISE CANNOT CARRY A LADDER — opens the moment genesis
+    ///             closes. `launch()` is arithmetically impossible on this
+    ///             raise and no amount of waiting changes that: deposits are
+    ///             shut, so `totalNativeDeposited` is final, and the predicate
+    ///             reads only frozen state. Making depositors sit out the
+    ///             seven days was a wait for an outcome already settled.
+    ///
+    ///           • THE CREATOR NEVER LAUNCHED — opens after the 7-day window
+    ///             lapses. Here the round COULD have opened a pool, so the
+    ///             window is the creator's to use and the wait is the point.
+    ///
+    ///         The soft cap is neither of them. It is a progress target and has
+    ///         gated nothing since it became one.
     function canRefund() public view returns (bool) {
         if (launched) return false;
+        if (block.timestamp <= genesisDeadline) return false;
+        if (!ladderViable()) return true;
         return block.timestamp > genesisDeadline + LAUNCH_WINDOW;
     }
 
@@ -1562,7 +1641,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         require(!launched, "Already launched");
         require(block.timestamp > genesisDeadline, "Genesis not ended yet");
 
-        require(block.timestamp > genesisDeadline + LAUNCH_WINDOW, "Refund not available");
+        // `canRefund()` is the authority, not a second copy of its clauses.
+        // This used to inline the 7-day comparison, which was the whole gate
+        // when the window was the only way in; there are two ways in now.
+        require(canRefund(), "Refund not available");
 
         uint256 dep = nativeDeposited[msg.sender];
         if (dep == 0) revert NoDeposit();
@@ -1570,9 +1652,24 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // EFFECTS before INTERACTIONS.
         nativeDeposited[msg.sender] = 0;
 
-        if (!zombieRefundEnabled) {
-            zombieRefundEnabled = true;
-            emit ZombieRefund(totalNativeDeposited);
+        if (!refundAnnounced) {
+            refundAnnounced = true;
+            // WHICH failure this was, not merely that refunds started. The two
+            // read identically on-chain — a stuck round paying people back —
+            // and mean opposite things about the creator: `GenesisFailed` is a
+            // round that could not open, `ZombieRefund` is one that could and
+            // was left. An indexer that cannot tell them apart has to accuse
+            // both or neither.
+            //
+            // `ladderViable()` is stable here. Deposits are closed and
+            // `refund()` never touches `totalNativeDeposited` — it zeroes the
+            // caller's row only, because `claimTokens` divides by the total —
+            // so the first claimant and the last read the same answer.
+            if (ladderViable()) {
+                emit ZombieRefund(totalNativeDeposited);
+            } else {
+                emit GenesisFailed(totalNativeDeposited);
+            }
         }
 
         _payQuote(msg.sender, dep);
@@ -1608,11 +1705,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint256 commissionPool = totalReferralReserved + orphanReferral;
         uint256 lpNative = totalNativeDeposited - commissionPool;
         require(lpNative > 0, "no LP eth");
-
-        // ── 2. Derive the pool anchor and the ladder base ─────────────────────
-        p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY;
-        require(p0 > 0, "p0=0");
-        shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
 
         // THE RAISE MUST BE LARGE ENOUGH FOR THE LADDER TO RISE, and until now
         // nothing in the protocol checked that.
@@ -1650,7 +1742,29 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // that survives truncation means every later one does.
         // `testFuzz_tierPriceAt_strictlyMonotone` remains the general guard,
         // since `_powE18` accumulates its own truncation across 4000 rungs.
-        if (tierPriceAt(1) <= tierPriceAt(0)) revert RaiseTooSmallForLadder();
+        //
+        // Asked of `ladderViable()` rather than of `tierPriceAt` directly, even
+        // though `shelfP0` is in storage by this line and the two are
+        // equivalent here. `canRefund()` has to answer the same question BEFORE
+        // `shelfP0` exists, and one predicate that both call is the only way
+        // the launch door and the refund door cannot disagree about which
+        // raises are viable. See the note on `ladderViable()`.
+        //
+        // Checked BEFORE `p0` is derived, which is a change of order and not
+        // only of expression. A dust raise used to trip `require(p0 > 0)` first
+        // and report "p0=0" — an internal assertion string, to a creator whose
+        // actual problem is the documented, translated `RaiseTooSmallForLadder`
+        // that every larger-but-still-too-small raise gets. A fuzz run over the
+        // whole range found the seam. One refusal, one error, one sentence in
+        // the UI.
+        if (!ladderViable()) revert RaiseTooSmallForLadder();
+
+        // ── 2. Derive the pool anchor and the ladder base ─────────────────────
+        p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY;
+        // Unreachable behind `ladderViable()`, which derives this same quotient
+        // and rejects a zero. Kept as a backstop, not as the guard it was.
+        require(p0 > 0, "p0=0");
+        shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
 
         // ── 3. Mint the genesis allocation to this hook ───────────────────────
         projectToken.mint(address(this), GENESIS_SUPPLY);

@@ -15,8 +15,8 @@ export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
 ///   • Deposits stay open for the whole genesis window. The soft cap is a
 ///     progress target, not a floor: time-up is what opens `launch()`, and a
 ///     raise of any non-zero size may seed the pool.
-///   • Refunds open only after the 7-day launch window lapses unused. Missing
-///     the target does not fail the round.
+///   • Refunds open on either of two failures, and they run on different
+///     clocks — see `ladderViable` below.
 ///
 /// PRECONDITION: `nowSec` must be a synced wall clock, never the shared clock
 /// store's `CLOCK_UNSYNCED` (0).  At 0 every comparison below reads as "the
@@ -24,14 +24,21 @@ export type Phase = 'genesis' | 'awaiting_launch' | 'bonding' | 'refund'
 /// and the caller mounts a deposit panel over a raise that has already closed.
 /// ProjectTerminal holds its whole body behind a clock gate for this reason.
 export function resolvePhase({
-  canRefund, launched, genesisDeadline, nowSec,
+  canRefund, launched, genesisDeadline, nowSec, ladderViable,
 }: {
-  totalNativeDeposited: bigint
-  softCap:            bigint
   canRefund:          boolean
   launched:           boolean
   genesisDeadline:    bigint
   nowSec:             number
+  /**
+   * The hook's `ladderViable()`. `undefined` until the read lands.
+   *
+   * ⚠ `undefined` IS NOT `false` HERE, and the distinction decides what a
+   *   healthy round looks like on first paint. Treating a pending read as
+   *   "cannot launch" would mount the refund terminal over every project for
+   *   the length of one RPC round-trip.
+   */
+  ladderViable?: boolean
 }): Phase {
   if (launched) return 'bonding'
   if (canRefund) return 'refund'
@@ -43,6 +50,16 @@ export function resolvePhase({
   // Deadline passed and not yet launched. Re-derive the outcome from the same
   // inputs the contract uses instead of trusting `canRefund`, which is polled
   // and can lag the clock by up to a refetch interval.
+  //
+  // A raise too small to carry a ladder refunds NOW, not in seven days: the
+  // contract's `canRefund()` returns true the moment genesis closes, because
+  // `launch()` is arithmetically impossible on it and the window it would
+  // otherwise wait out cannot change that. Deriving this from the clock alone
+  // would put the page a week behind the chain — `awaiting_launch`, with a
+  // countdown to a deadline that means nothing, over a refund the depositor
+  // could already take.
+  if (ladderViable === false) return 'refund'
+
   const zombie = BigInt(nowSec) >= genesisDeadline + LAUNCH_WINDOW_SECONDS
   return zombie ? 'refund' : 'awaiting_launch'
 }

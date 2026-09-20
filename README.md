@@ -553,9 +553,25 @@ produce a monotone ladder reverts with `RaiseTooSmallForLadder` — around 21 BE
 in practice. Those two are the only sizes `launch()` rejects, and neither is
 the soft cap.
 
-Refunds open when nobody called `launch()` within the `LAUNCH_WINDOW` of 7 days
-that follows the deadline. Use the `canRefund()` view rather than re-deriving
-the condition.
+The two refund doors open on different clocks, because they are different
+failures:
+
+| Failure | Refunds open | What it says about the creator |
+| --- | --- | --- |
+| The raise cannot carry a ladder | the moment genesis closes | Nothing. `launch()` was arithmetically impossible on this raise, so there was never anything for them to do. Announced as `GenesisFailed`. |
+| Nobody called `launch()` | after the 7-day `LAUNCH_WINDOW` | The round could have opened a pool and was left. Announced as `ZombieRefund`. |
+
+The first case does not wait. Deposits are shut at the deadline, so the raise is
+final and the verdict is final with it; the launch window exists to give a
+creator time to act, and there is no action available here. Making depositors
+sit out a week for an outcome already settled was the old behaviour, not a
+safety property.
+
+Both doors are the same predicate the launch door reads — `ladderViable()` — so
+a raise can never be both launchable and refundable, nor neither. Use the
+`canRefund()` view rather than re-deriving the condition from the clock; a
+client that derives it from `genesisDeadline + LAUNCH_WINDOW` alone will sit a
+week behind the chain on every undersized round.
 
 ### 4.2 Phase 2 · The pool and the shelves
 
@@ -1156,7 +1172,7 @@ precondition for mainnet, and it is a hard one.
 | `SHELF_PREMIUM_BPS` | 10500 | `ToshLaunchpadHook` | shelf base premium — 105% |
 | `PRICE_CEILING_BPS` | 10500 | `ToshLaunchpadHook` | shelf unlock ceiling — 105% |
 | `TWAP_WINDOW` | 1800 s | `ToshLaunchpadHook` | oracle window, and its manipulation depth |
-| `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open |
+| `LAUNCH_WINDOW` | 7 days | `ToshLaunchpadHook` | window to call `launch()` before refunds open — only for a raise that *can* launch; one that cannot refunds at genesis close |
 | `MAX_TIERS_PER_TX` | 32 | `ToshLaunchpadHook` | shelves one call may sweep |
 | `PIGGYBACK_MIN_GAS` | 270,000 | `ToshLaunchpadHook` | gas floor below which a buyback is skipped |
 | `MIN_SOFT_CAP_PROD` | 100 BEM | `ToshFactory` | production floor for the default soft cap — retuned, not rescaled; §4.1 |
