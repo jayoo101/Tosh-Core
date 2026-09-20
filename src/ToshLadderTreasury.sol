@@ -18,6 +18,10 @@ pragma solidity ^0.8.26;
 // and leaves `ToshLaunchpadHook` and `ToshFactory` untouched. So no hook address
 // moves and no initcode hash needed republishing; what it did cost was a chain 97
 // redeploy, to keep the deployed treasury byte-matching a fresh build.
+//
+// Read that as what was done once, not as a standing policy. Chasing every
+// metadata move with a redeploy was weighed on 2026-09-20 and declined; see the
+// note under the standing deployment in SECURITY.md for where the line is.
 import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 import {Currency, CurrencyLibrary} from "infinity-core/src/types/Currency.sol";

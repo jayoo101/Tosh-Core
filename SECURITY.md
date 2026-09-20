@@ -121,6 +121,18 @@ deployed anywhere, and with `56` undeployed that is the only kind available.
 
 Deployed 2026-09-19 from `script/Deploy.s.sol`, and owned by the deployer EOA
 `0x35b232E2…874a` with the PoG signer held separately at `0x7138DEb9…e03A`.
+
+**This deployment is not kept byte-identical to `HEAD`, deliberately.** Comment
+edits move the solc metadata hash — 32 bytes per contract, executable code
+untouched — and chasing each one with a redeploy would churn the addresses in
+this file, `monitoring/alerts.json`, both dotenvs, the GitHub Actions variables
+and the frontend's build-time env, to prove nothing that a fresh build does not
+already prove. So a mismatch in the trailing metadata of `97`'s contracts is
+expected and is not a finding; a mismatch in the executable bytes is. The two
+are told apart by comparing runtime code with the immutable references masked
+out, which is what `docs/AUDIT.md` describes. Redeploys here are reserved for
+changes that alter behaviour. Mainnet `56` is undeployed, so it will be built
+from whatever the tree says at the time and the question does not arise there.
 `ToshLaunchpadHook` and `ToshToken` are deployed as clones by the factory on every
 launch; the end-to-end run that validated this deployment produced
 `0xa878792e7F361555EeD774D4c10Cedfd2703dB4a` and
