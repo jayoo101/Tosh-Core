@@ -702,8 +702,12 @@ export default function GenesisConsole() {
         if (liveFee !== launchFeeWei) {
           setAckedTerms(null)
           setSaltError(
-            `Launch fee is now ${trimEth(formatUnits(liveFee, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}, not `
-            + `${trimEth(formatUnits(launchFeeWei, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}. Review the terms and tick the pact again.`,
+            // The fee is native BNB at 18 decimals, not the quote asset at 8.
+            // Read in BEM this sentence was out by ten orders of magnitude and
+            // named the wrong coin, so a creator comparing it against the cost
+            // card beside it saw two different fees for the same launch.
+            `Launch fee is now ${nativeDisplay(liveFee)}, not `
+            + `${nativeDisplay(launchFeeWei)}. Review the terms and tick the pact again.`,
           )
           void refetchDials()
           return
@@ -727,10 +731,23 @@ export default function GenesisConsole() {
             saltToUse as `0x${string}`, feeToSend,
               capsToSend.soft, capsToSend.wallet, genesisDuration,
             ],
-            // No `value` — see `useTosh.createLaunch`. This simulation now also
-            // exercises the fee PULL, so it fails on a missing allowance as well as
-            // on a protocol refusal, which is why the approve gate below has to run
-            // before the button is enabled rather than after.
+            // ⚠ THE `value` IS NOT OPTIONAL HERE, and leaving it off does not
+            //   make this a read-only check — it makes it a check of a
+            //   DIFFERENT transaction than the one the wallet will send.
+            //
+            //   `createLaunch` is payable and funds itself from `msg.value`.
+            //   This simulation ran without one for as long as the fee was a
+            //   BEM `transferFrom`, where there was genuinely nothing to send;
+            //   when the fee became native BNB the write in
+            //   `useTosh.createLaunch` grew a `value` and this call did not.
+            //   The factory then saw `msg.value == 0`, reverted with
+            //   `InsufficientLaunchFee`, and `launchRevertMessage` turned that
+            //   into "The value sent does not cover the launch fee." — shown to
+            //   a creator whose wallet had never been asked for anything. No
+            //   launch could be deployed through this page at all.
+            //
+            //   It must stay the same figure `createLaunch` is handed below.
+            value: feeToSend,
             account: address,
         })
       } catch (e: unknown) {
@@ -921,7 +938,10 @@ export default function GenesisConsole() {
   }
 
   const gate = useActionGate({
-    action: `Deploy — ${feeDisplay} ${QUOTE_SYMBOL}`,
+    // `NATIVE_SYMBOL`, because this figure is the launch fee and the launch fee
+    // is BNB. The pact checkbox and the cost card two cells away already say so;
+    // this button was the one place still labelling the same number in BEM.
+    action: `Deploy — ${feeDisplay} ${NATIVE_SYMBOL}`,
     onAct: () => { void handleLaunch() },
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
