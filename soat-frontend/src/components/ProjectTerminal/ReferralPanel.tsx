@@ -80,6 +80,20 @@ export function ReferralPanel({
   })
   const claimable = (claimableRaw as bigint | undefined) ?? 0n
 
+  // What the link has EARNED, which is not what it can withdraw: commission
+  // accrues on deposit and unlocks at `launch()`. Read so the claim readout can
+  // be withheld entirely while both are zero — during genesis that block was a
+  // guaranteed "0 · Nothing to claim", and it was the tallest thing on a card
+  // whose actual job at that point is handing over a link.
+  const { data: accruedRaw } = useReadContract({
+    address:      hookAddress,
+    abi:          HOOK_ABI,
+    functionName: 'referralAccrued',
+    args:         userAddress ? [userAddress] : undefined,
+    query:        { enabled: !!userAddress, refetchInterval: 15_000 },
+  })
+  const accrued = (accruedRaw as bigint | undefined) ?? 0n
+
   // A referrer must hold their own PoG attestation for EITHER slot to bind —
   // the guard that stops the programme being a self-rebate for anyone with a
   // second wallet.  Rejection is silent on-chain (the depositor's transaction
@@ -93,7 +107,13 @@ export function ReferralPanel({
     args:         userAddress ? [userAddress] : undefined,
     query:        { enabled: !!userAddress },
   })
-  const hasAttestation = ((ownQuotaRaw as bigint | undefined) ?? 0n) > 0n
+  // `quotaKnown` separates "the read has not landed" from "the quota is zero",
+  // the way `PogLookupProvider` already does. Collapsing `undefined` into `0n`
+  // made the panel assert "this link will not pay at all" on first paint for
+  // every attested wallet — a definite accusation derived from missing data,
+  // shown in the loudest style on the card and then silently withdrawn.
+  const quotaKnown = typeof ownQuotaRaw === 'bigint'
+  const hasAttestation = quotaKnown && (ownQuotaRaw as bigint) > 0n
 
   // The project leg's own gate, asked of the factory rather than rebuilt here.
   // It folds in the attestation check as well, so it is the stricter of the
@@ -155,22 +175,106 @@ export function ReferralPanel({
   // and returning before them would change the hook order between phases.
   if (phase !== 'genesis' && claimable === 0n) return null
 
+  // ── What this link is worth right now, as one line ─────────────────────────
+  //
+  // This was two paragraphs of small print at the bottom of the card, which is
+  // the wrong end: whether the link pays 10%, 2% or nothing at all is the first
+  // thing a sharer needs and the last thing they were told. Worse, the copy
+  // button sat fully enabled above it, so the default path was to copy a dead
+  // link and read why afterwards.
+  //
+  // `null` while the quota read is in flight — see `quotaKnown`. An unknown
+  // state draws no strip rather than guessing at the pessimistic one.
+  const pays = !quotaKnown ? null
+    : !hasAttestation ? {
+      tone: 'text-danger' as const,
+      headline: 'This link pays nothing yet',
+      detail: `Both legs need your own PoG attestation. Register it, and the same link starts paying ${REFERRAL_PCT}%.`,
+      fix: 'Register PoG',
+    }
+    : !projectLegIsLive ? {
+      tone: 'text-warning' as const,
+      headline: `This link pays ${LIFETIME_PCT}%, not ${REFERRAL_PCT}%`,
+      detail: `The ${PROJECT_PCT}% leg binds only to a referrer already holding a deposit here. It starts paying on the next deposit after you stake.`,
+      fix: 'Deposit first',
+    }
+    : {
+      tone: 'text-success' as const,
+      headline: `This link pays the full ${REFERRAL_PCT}%`,
+      detail: `${PROJECT_PCT}% on deposits here, ${LIFETIME_PCT}% for life on wallets new to Tosh.`,
+      fix: null,
+    }
+
+  // Withheld entirely during genesis with nothing earned, when it could only
+  // ever read "0 · Nothing to claim" — and, because the gate ranks the network
+  // blocker first, put a full-width "switch network" button on a card offering
+  // no action worth switching for.
+  const showClaim = claimable > 0n || accrued > 0n
+
   return (
     <Card
       id="REF"
       title="REFERRAL DESK"
-      subtitle={`${PROJECT_PCT}% of every genesis deposit made through your link on this project, plus ${LIFETIME_PCT}% for life on wallets you brought to Tosh · payable once the project launches`}
+      subtitle={`${PROJECT_PCT}% on deposits made through your link here, plus ${LIFETIME_PCT}% for life on wallets you bring to Tosh · paid out when the project launches`}
     >
-      <Readout
-        label="CLAIMABLE COMMISSION"
-        value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
-        hint={claimable === 0n
-          ? 'accrues on deposit · unlocks at launch()'
-          : fmtFull(claimable, 18)}
-        tone={claimable > 0n ? 'ok' : 'mute'}
-      />
+      {pays && (
+        <div className="flex flex-col gap-1">
+          <p className={`font-mono text-label tracking-[0.32em] uppercase ${pays.tone}`}>
+            {'→ '}{pays.headline}
+          </p>
+          <p className="font-mono text-note text-text-tertiary leading-relaxed">
+            {pays.detail}
+            {pays.fix && (
+              <>
+                {' '}
+                <Link href="#DEPOSIT" className="text-brand underline decoration-dotted underline-offset-2">
+                  {pays.fix}
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
-      <ActionButton gate={gate} />
+      <ReferralLinkBox link={link} copyLabel={pays && pays.fix ? 'copy anyway' : 'copy'}>
+        {/* Collapsed, because the binding rules are reference material: correct,
+            worth having, and read once. Left expanded they tripled the height of
+            the card and buried the link they were describing. */}
+        <details className="group">
+          <summary className="cursor-pointer list-none font-mono text-label tracking-wider
+                              text-text-quiet transition-colors hover:text-brand">
+            {'// '}How the two legs bind
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <p className="text-label text-text-quiet tracking-wider leading-relaxed">
+              The first link a wallet arrives on through this project binds it to you
+              here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
+              used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
+              Both bindings are permanent, and self-referral is ignored by the factory.
+            </p>
+            <p className="text-label text-text-quiet tracking-wider leading-relaxed">
+              A leg that does not bind is not an error anyone sees: the deposit still
+              succeeds and that share of the carve goes to the buyback reservoir instead
+              of to you. The factory retries the binding on every deposit, so a link
+              already in circulation starts paying as soon as its condition is met.
+            </p>
+          </div>
+        </details>
+      </ReferralLinkBox>
+
+      {showClaim && (
+        <Readout
+          label="CLAIMABLE COMMISSION"
+          value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
+          hint={claimable === 0n
+            ? `${fmtQuote(accrued)} ${QUOTE_SYMBOL} earned · unlocks at launch()`
+            : fmtFull(claimable, 18)}
+          tone={claimable > 0n ? 'ok' : 'mute'}
+        />
+      )}
+
+      {showClaim && <ActionButton gate={gate} />}
 
       {/* The claim above is this project's only. `/referrals` is the same call
           against every project at once, which is what a sharer with more than
@@ -184,34 +288,6 @@ export function ReferralPanel({
       >
         {'→ '}Commission across every project
       </Link>
-
-      <ReferralLinkBox link={link}>
-        <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-          {'// '}The first link a wallet arrives on through this project binds it to you
-          here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
-          used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
-          Both bindings are permanent, and self-referral is ignored by the factory.
-        </p>
-        {!hasAttestation && (
-          <p className="text-label text-danger tracking-wider leading-relaxed">
-            {'// '}This link will not pay at all yet. A referrer needs their own PoG
-            attestation, so register PoG before sharing — until then a deposit
-            made through it still goes through, but the whole {REFERRAL_PCT}% falls
-            through to the buyback reservoir instead of accruing to you, and
-            neither binding is made.
-          </p>
-        )}
-        {hasAttestation && !projectLegIsLive && (
-          <p className="text-label text-warning tracking-wider leading-relaxed">
-            {'// '}This link pays you {LIFETIME_PCT}% but not the {PROJECT_PCT}%. The
-            project leg only binds to a referrer who already holds a deposit in this
-            project, and you do not — so deposit here before sharing, or that
-            {' '}{PROJECT_PCT}% goes to the buyback reservoir instead of to you. Deposits
-            made through your link in the meantime still succeed, and the binding is
-            retried on each one, so it starts paying as soon as you have staked.
-          </p>
-        )}
-      </ReferralLinkBox>
     </Card>
   )
 }

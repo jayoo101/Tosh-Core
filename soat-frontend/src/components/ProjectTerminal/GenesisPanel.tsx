@@ -365,7 +365,12 @@ export function GenesisPanel(p: GenesisProps) {
 
   return (
     <div className="flex flex-col">
+      {/* Anchored so the referral desk can point at it. Both of that panel's
+          "your link pays nothing yet" fixes — register PoG, hold a deposit here
+          — are actions on this card, and naming them without a way to reach
+          them left the reader to scroll and guess. */}
       <Card
+        id="DEPOSIT"
         title={`Deposit ${QUOTE_SYMBOL}`}
         subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
         interactive={false}

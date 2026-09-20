@@ -32,10 +32,17 @@ export function useReferralLink(userAddress: Address | undefined, symbol: string
  * in its own words without this component holding a copy of either.
  */
 export function ReferralLinkBox({
-  link, label = 'YOUR REFERRAL LINK', children,
+  link, label = 'YOUR REFERRAL LINK', copyLabel = 'copy', children,
 }: {
   link:   string
   label?: string
+  /**
+   * The button's resting word. The desk passes "copy anyway" for a link whose
+   * commission cannot bind yet — the link is still valid and still worth
+   * holding, so disabling it would be a lie, but the default verb shouldn't
+   * make handing out a link that pays nothing look like the intended next step.
+   */
+  copyLabel?: string
   children?: React.ReactNode
 }) {
   const [copied, setCopied] = useState(false)
@@ -67,7 +74,7 @@ export function ReferralLinkBox({
                    uppercase tracking-[0.32em] text-text-tertiary
                    transition-colors duration-150 hover:border-brand hover:text-brand"
       >
-        {copied ? 'copied' : 'copy'}
+        {copied ? 'copied' : copyLabel}
       </button>
       {children}
     </div>
