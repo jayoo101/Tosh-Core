@@ -35,10 +35,23 @@
  * `TARGET_CHAIN_ID` and be obvious about it. Banning the import is therefore
  * exact rather than over-broad, and it cannot be defeated by aliasing.
  *
- * Test files are scanned too, and deliberately. `actionGate.test.tsx` mocks
- * `useChainId` — a mock names the export in a string, which this does not
- * match — but a test that *imported* the real hook would be re-introducing the
- * bug in the place meant to catch it.
+ * Test files are scanned too, and deliberately: a test that reaches for the
+ * config's chain where it means the wallet's is re-introducing the bug in the
+ * place meant to catch it.
+ *
+ * ⚠ ONE TEST IS EXEMPT, AND THE EXEMPTION IS THE POINT OF THE TEST. This guard
+ *   used to say that `actionGate.test.tsx` was fine because it MOCKED
+ *   `useChainId` rather than importing it. That was the wrong thing to be
+ *   reassured by. The mock supplied both hooks' answers, so the test asserted
+ *   that the gate preferred the reading the test itself had invented — it would
+ *   have passed just as well had wagmi behaved the opposite way, which is the
+ *   entire failure it existed to prevent.
+ *
+ *   It now mounts real wagmi against a fake wallet on 4663 and asserts that the
+ *   two hooks DISAGREE: `useAccount().chainId` is 4663 and `useChainId()` is
+ *   the configured 97. Pinning that claim requires importing the banned hook,
+ *   because the claim is about the banned hook. Calling it in order to prove it
+ *   wrong is the opposite of trusting it.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -49,6 +62,19 @@ const REPLACEMENT = "useWalletChainId from '@/lib/useWalletChainId'"
 
 /** The file allowed to reach for the wallet's chain directly. */
 const OWNER = join('src', 'lib', 'useWalletChainId.ts')
+
+/**
+ * Files that may import the banned hook, each for a stated reason. Keyed by
+ * path so a rename cannot carry an exemption somewhere it was never argued for.
+ */
+const EXEMPT = new Map([
+  [
+    join('src', 'components', 'ui', 'actionGate.test.tsx'),
+    'asserts that `useChainId()` reports the CONFIG chain while '
+    + '`useAccount().chainId` reports the wallet\'s — the disagreement the fix '
+    + 'rests on cannot be pinned without calling both',
+  ],
+])
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -69,6 +95,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const WAGMI_IMPORT = /import\s+(?:type\s+)?(\{[^}]*\}|\*\s+as\s+\w+)\s+from\s+['"]wagmi['"]/g
 
 const failures: string[] = []
+const exemptionsUsed = new Set<string>()
 let scanned = 0
 let wagmiImports = 0
 
@@ -82,9 +109,21 @@ for (const file of sourceFiles('src')) {
   while ((m = WAGMI_IMPORT.exec(raw))) {
     wagmiImports++
     if (!new RegExp(`\\b${BANNED}\\b`).test(m[1])) continue
+    if (EXEMPT.has(rel)) { exemptionsUsed.add(rel); continue }
     const line = raw.slice(0, m.index).split('\n').length
     failures.push(`${rel}:${line}  imports \`${BANNED}\` from wagmi.`)
   }
+}
+
+// An exemption that no longer applies is a hole standing open for the next file
+// that lands on that path. Each one has to still be doing the job it was argued
+// for, or it goes.
+for (const [path, why] of EXEMPT) {
+  if (exemptionsUsed.has(path)) continue
+  console.error(`checkWalletChain: ${path} no longer imports \`${BANNED}\`.`)
+  console.error(`  Its exemption was granted because it ${why}.`)
+  console.error('  Drop the entry from EXEMPT rather than leaving the hole open.')
+  process.exit(1)
 }
 
 // The scan walks `src` looking for a specific import shape. If it ever stops
@@ -118,3 +157,6 @@ console.log(
   + `(${wagmiImports} wagmi import(s) inspected); `
   + `${OWNER} is the one route to the wallet's chain.`,
 )
+for (const path of exemptionsUsed) {
+  console.log(`  exempt, still earning it: ${path}`)
+}
