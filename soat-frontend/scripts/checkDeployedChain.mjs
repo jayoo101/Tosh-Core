@@ -129,7 +129,19 @@ function buildIndex() {
       for (const tx of log.transactions ?? []) {
         if (!tx.contractName || !TRACKED.has(tx.contractName) || !tx.contractAddress) continue
         const addr = tx.contractAddress.toLowerCase()
-        if (!byAddress.has(addr)) {
+        // Mined outranks simulated here too, and for a sharper reason than in
+        // `byChain`: a dry run and the broadcast that follows it start from the
+        // SAME nonce, so a dry run that deploys one fewer contract shifts every
+        // address by one slot. The two logs then claim the same address for
+        // DIFFERENT contracts. That is not hypothetical — on 97 the 2026-09-20
+        // dry run put ToshFactory at 0x5BBcA0…, the broadcast put
+        // ToshLadderTreasury there, directory order gave the dry run first-wins,
+        // and this guard failed a correct `.env.local` with "is the ToshFactory,
+        // not the ToshLadderTreasury". A guard that reports a good config as a
+        // finding is worse than no guard: the next operator's cheapest reading
+        // is that the guard is broken, and here that reading would be right.
+        const claim = byAddress.get(addr)
+        if (!claim || (claim.dry && !dry)) {
           byAddress.set(addr, { chainId, name: tx.contractName, dry })
         }
         // First-wins would be wrong here. `byChain` is what the failure
