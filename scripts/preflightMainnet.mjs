@@ -577,39 +577,64 @@ if (quoteCode === '0x') {
 console.log('\n6. recoverable — can the deployer actually pay for C1')
 const balance = await provider.getBalance(deployer)
 
-// Sum of broadcast/Deploy.s.sol/97/run-latest.json, which deployed the same three
-// contracts against the Infinity manager and Vault. A fallback only: the live sum
-// below is preferred, and this exists so the check still has a basis if the
-// broadcast directory is absent or pruned.
+// ⚠ THIS CHECK MUST MEASURE THE SCRIPT THAT IS ABOUT TO RUN, and until 2026-09-21
+//   it measured a different one. Both the fallback constant and the "live sum" that
+//   overrides it read broadcast/Deploy.s.sol/97/run-latest.json — Deploy.s.sol, on
+//   chain 97. The mainnet broadcast is DeployMainnet.s.sol on chain 56, and the two
+//   are not the same work: 56 deploys HookDeployLib through Create2Deployer first,
+//   a transaction chain 97's receipts do not contain at all.
 //
-// ⚠ THE FALLBACK MUST NEVER UNDERSTATE, because understating is the direction that
-//   greenlights an underfunded deployer, and this constant has been wrong in that
-//   direction twice.
+//   Measured, from the chain-56 dry run: 20_908_865 against the 15_236_814 this
+//   check was reporting. It understated the real requirement by 37 % — the same
+//   error, in the same direction, and by the same margin as the two before it,
+//   because each fix re-summed a receipt file without asking whether it was the
+//   right receipt file.
 //
-//   First it was 14_580_627, transcribed from the 46630 rehearsal and already
-//   stale against its own source (that file sums to 15_143_081). The BSC port then
-//   replaced it with 9_550_629, described as "about a third lower" because Infinity
-//   reads hook permissions from a bitmap instead of mining an address. That
-//   reasoning was sound and the number was not: no broadcast in this tree sums to
-//   9_550_629, and the actual 97 deploy — same script, same three contracts, same
-//   Infinity manager — sums to 15_236_814. The saving from not mining an address
-//   did not materialise. 9_550_629 understated the real cost by 37 %.
+//   So the source is now the chain-56 DeployMainnet run, preferred in this order:
+//   a real broadcast's receipts if one exists, else the dry run's transactions,
+//   else the literal. Note the dry run carries no receipts — it has never spent
+//   anything — so what is summed there is each transaction's GAS LIMIT. That is the
+//   correct quantity for an affordability check regardless: a node rejects a
+//   transaction whose `gasLimit * gasPrice` exceeds the sender's balance, whatever
+//   it later turns out to use.
 //
-//   So this is now a re-summed measurement rather than an adjusted estimate. When
-//   the contracts change, the live sum below picks it up; if you ever have to
-//   update this literal by hand, re-sum a receipt file rather than reasoning about
-//   a delta.
-const C1_REHEARSED_GAS = 15_236_814n
+//   THE FALLBACK MUST NEVER UNDERSTATE. It has been wrong in that direction three
+//   times: 14_580_627 transcribed from the 46630 rehearsal and already stale
+//   against its own source (which sums to 15_143_081); then 9_550_629, reasoned
+//   down by a third on the grounds that Infinity reads hook permissions from a
+//   bitmap instead of mining an address — sound reasoning, wrong number, and no
+//   broadcast in this tree sums to it; then 15_236_814, correctly re-summed from
+//   the wrong chain. If you ever update this literal by hand, re-sum a chain-56
+//   DeployMainnet run rather than reasoning about a delta.
+const C1_REHEARSED_GAS = 20_908_865n
 let requiredGas = C1_REHEARSED_GAS
-const REHEARSAL = path.join(REPO, 'broadcast', 'Deploy.s.sol', '97', 'run-latest.json')
-try {
-  const receipts = JSON.parse(fs.readFileSync(REHEARSAL, 'utf8')).receipts ?? []
-  const summed = receipts.reduce((a, r) => a + BigInt(r.gasUsed), 0n)
-  if (summed > 0n) requiredGas = summed
-} catch {
+const C1_RUNS = [
+  path.join(REPO, 'broadcast', 'DeployMainnet.s.sol', '56', 'run-latest.json'),
+  path.join(REPO, 'broadcast', 'DeployMainnet.s.sol', '56', 'dry-run', 'run-latest.json'),
+]
+let c1Source = null
+for (const run of C1_RUNS) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(run, 'utf8'))
+    const receipts = parsed.receipts ?? []
+    let summed = receipts.reduce((a, r) => a + BigInt(r.gasUsed), 0n)
+    if (summed === 0n) {
+      summed = (parsed.transactions ?? []).reduce(
+        (a, t) => a + BigInt(t.transaction?.gas ?? 0), 0n,
+      )
+    }
+    if (summed > 0n) {
+      requiredGas = summed
+      c1Source = path.relative(REPO, run)
+      break
+    }
+  } catch { /* try the next one */ }
+}
+if (!c1Source) {
   notes.push(
-    `could not read ${path.relative(REPO, REHEARSAL)}; priced C1 from the recorded `
-    + `${C1_REHEARSED_GAS} gas instead of re-summing the rehearsal receipts.`,
+    `no chain-56 DeployMainnet run on disk (looked in ${C1_RUNS.map((r) => path.relative(REPO, r)).join(' and ')}); `
+    + `priced C1 from the recorded ${C1_REHEARSED_GAS} gas. Run the dry run in §4 and `
+    + `re-run this check, so the figure comes from the script you are about to broadcast.`,
   )
 }
 
@@ -619,14 +644,16 @@ if (!gasPrice) {
   notes.push('the RPC returned no gas price, so affordability was not checked.')
 } else {
   const need = requiredGas * gasPrice
-  console.log(`        C1 measured at ${requiredGas} gas (rehearsal), priced at `
+  console.log(`        C1 measured at ${requiredGas} gas `
+    + `(${c1Source ?? 'recorded literal — no chain-56 run on disk'}), priced at `
     + `${ethers.formatUnits(gasPrice, 'gwei')} gwei`)
   console.log(`        needs ~${ethers.formatEther(need)} BNB, deployer holds `
     + `${ethers.formatEther(balance)} BNB`)
 
-  // DeployMainnet does slightly more than the rehearsal it is priced from — it
-  // also stages two ownership transfers — and the gas price read here is a
-  // single sample. Hence a margin rather than a bare comparison.
+  // The figure above is now the same script on the same chain, so it no longer
+  // has to absorb a difference in WORK — only a difference in PRICE, since the
+  // gas price read here is a single sample. Hence a margin rather than a bare
+  // comparison.
   //
   // ⚠ THE MARGIN USED TO BE `need * 2`, AND A RELATIVE MARGIN COLLAPSES EXACTLY
   //   WHEN SPOT IS AT THE FLOOR. BSC validators moved to 0.05 gwei, so 2x of
@@ -652,7 +679,7 @@ if (!gasPrice) {
       `That is ${(balance * 100n) / need} % of the requirement, short by `
       + `${ethers.formatEther(need - balance)} BNB. C1 is a single broadcast that deploys `
       + 'HookDeployLib, the treasury and the factory and then wires them together; the '
-      + 'factory alone was 7.95 M gas in rehearsal. A broadcast that runs out of gas '
+      + 'factory alone is 10.87 M gas and HookDeployLib another 7.68 M. A broadcast that runs out of gas '
       + 'part-way leaves exactly the half-deployed platform this script exists to prevent, '
       + 'with some contracts live and unowned.',
       `Fund ${deployer} with at least ${ethers.formatEther(wantMargin - balance)} BNB more `

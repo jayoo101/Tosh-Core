@@ -142,7 +142,7 @@ immutable and the money is back with the depositors.
 
 | Check | Value on 2026-09-19, chain `56` | Verdict |
 |---|---|---|
-| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | enough — the deploy costs ~0.00076 BNB (15,236,814 gas at 0.05 gwei), roughly 17x covered. That gas figure is the re-summed `broadcast/Deploy.s.sol/97/run-latest.json`; it read 15,143,081 until 2026-09-21, which was the **4663** rehearsal — different chain and a deploy that mined a hook address. `preflightMainnet.mjs` re-sums the receipts live, so it tracks contract changes; this row does not |
+| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | **covers the deploy at spot and not under load — top up before broadcasting.** ~0.00105 BNB at 0.05 gwei (12x covered), 0.0209 BNB at 1 gwei, i.e. **short by 0.0079 BNB** there. The gas figure is **20,908,865**, summed from the chain-56 `DeployMainnet` dry run. It read 15,236,814 until 2026-09-21 and 15,143,081 before that; both were the wrong measurement rather than a stale one — `broadcast/Deploy.s.sol/97/…`, a **different script on a different chain**, which does not contain the `Create2Deployer` → `HookDeployLib` transaction that 56 needs (7.68 M gas on its own). Understated by 37 %, the third time in that direction. `preflightMainnet.mjs` now sums a chain-56 `DeployMainnet` run, so **run the §4 dry run before trusting its funding check** |
 | Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
 | Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
 | PoG signer | `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` | **rotated 2026-09-19, and this row is the one that changed.** It used to name `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, and blocked the deploy. Generated into an encrypted keystore; the key was never written to a log or a tracked file. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
@@ -395,6 +395,50 @@ forge script script/DeployMainnet.s.sol:DeployMainnetScript `
 > §7's cleanup no longer has to wait on it.
 
 Record `FACTORY_ADDRESS` and `TREASURY_ADDRESS` from the manifest.
+
+### If the broadcast stops part-way
+
+**This file warned about the half-deployed state for four revisions and never
+said what to do about it**, which is the worst combination: an operator who has
+just hit it is reading the one document that should know, at the one moment they
+cannot afford to improvise. `preflightMainnet.mjs` names the state too ("leaves
+exactly the half-deployed platform this script exists to prevent") and also stops
+there.
+
+**The answer is `--resume`, not a re-run.** Same command with `--resume` in place
+of nothing; forge reads `broadcast/DeployMainnet.s.sol/56/run-latest.json` and
+sends only what has no receipt.
+
+```powershell
+forge script script/DeployMainnet.s.sol:DeployMainnetScript `
+  --rpc-url $env:TARGET_RPC --broadcast --resume -vvvv
+```
+
+Why a plain re-run is the wrong reflex here: the script is two dependent `CREATE`s
+in one `startBroadcast` — `new ToshLadderTreasury(...)`, then
+`new ToshFactory(..., address(treasury), ...)` — with no CREATE2 and no mined salt.
+Re-running deploys a **second** treasury and wires the factory to that one, leaving
+the first live, deployer-owned and referenced by nothing. Not dangerous, but it
+burns the gas again and leaves an orphan on chain 56 forever that looks exactly
+like a Tosh treasury to anyone reading the explorer.
+
+**And expect to need this, because the RPC is the weak link rather than the gas.**
+Measured from this machine on 2026-09-21, six `eth_chainId` calls per endpoint:
+
+| endpoint | succeeded |
+|---|---|
+| `bsc-dataseed2.bnbchain.org` | 5 / 6 |
+| `bsc-dataseed1.bnbchain.org`, `bsc-dataseed3`, `bsc-rpc.publicnode.com` | 4 / 6 |
+| `bsc-dataseed4.bnbchain.org` | 2 / 6 |
+| `bsc.drpc.org` | 1 / 6 |
+| `binance.llamarpc.com`, `rpc.ankr.com/bsc` | 0 / 6 |
+
+Every public endpoint is lossy from here — `tls handshake eof`, not a rate limit —
+so this is the network path and not one bad host. The §4 dry run itself failed on
+its first attempt and succeeded on its second. At a 67–83 % per-call success rate
+a six-transaction broadcast is unlikely to complete in one pass, which makes
+`--resume` the expected path rather than the exception. If you can broadcast from a
+network that reaches an authenticated endpoint instead, prefer it.
 
 ---
 
