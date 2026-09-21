@@ -16,6 +16,7 @@ import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolMana
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
 import {Currency} from "infinity-core/src/types/Currency.sol";
+import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";
 import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 import {CLPoolParametersHelper} from "infinity-core/src/pool-cl/libraries/CLPoolParametersHelper.sol";
 
@@ -658,6 +659,432 @@ contract ToshV5AttackTest is Test {
         // `MAX_LEG_DEPTH_BPS = 50` puts it ~2.6x below break-even; the leg here
         // drops from 333 BEM to 45, gross edge from 43.49 to 6.28, and since
         // friction on the same pump is ~8.7 BEM the net turns negative.
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE O — does JIT liquidity turn the new depth cap into a lever?
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // This probe exists because of `MAX_LEG_DEPTH_BPS`, not despite it. The cap
+    // reads `getLiquidity()` at poke time, and `beforeAddLiquidity` is a `pure`
+    // no-op, so anyone may add in-range liquidity in the same block. Which means
+    // the quantity the cap is derived from is ATTACKER-SUPPLIED:
+    //
+    //   1. add in-range JIT liquidity  → `getLiquidity()` rises
+    //   2. `legCeiling()` rises with it → the leg the treasury will spend rises
+    //   3. `pokeBuyback()` — the leg now swaps mostly against THEIR liquidity
+    //   4. remove the position, collecting the 0.3 % LP fee on the whole leg
+    //
+    // Every step is atomic in one bundle, so they carry no inventory risk and no
+    // price risk. Fixing the sandwich by sizing the leg to depth therefore has an
+    // obvious way to be self-defeating, and "the ratio is capped so the sandwich
+    // cannot pay" says nothing about this route: the JIT LP is not trying to move
+    // the price at all, they are trying to be the counterparty.
+    //
+    // So the question is not whether they can do it — they can, and the cap makes
+    // the prize scale with what they contribute. It is whether it EXTRACTS
+    // anything, and from whom.
+    function test_probeO_jitLiquidityAroundTheBuybackLeg() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
+        PoolKey memory key = hook.getPoolKey();
+
+        // ⚠ THE BASELINE IS TAKEN BEFORE THE INVENTORY IS BOUGHT. Acquiring token
+        //   to be an LP with is part of the cost of this strategy, not a setup step
+        //   the probe should hand over for free — measuring from after the purchase
+        //   reports the recovery of that spend as profit, which is how this test
+        //   first claimed a ~497 BEM edge that did not exist.
+        uint256 quoteBefore = quote.balanceOf(attacker);
+
+        // ⚠ THE INVENTORY IS BOUGHT BEFORE THE TWAP MATURES, AND THE ORDER IS THE
+        //   WHOLE SETUP. A buy is `zeroForOne`, which drives sqrt price DOWN, and
+        //   `_buybackSqrtFloor` is a LOWER bound anchored to the TWAP. Buy after the
+        //   TWAP has settled and spot lands below the floor, the swap's price limit
+        //   is then invalid on its own side, and every leg reverts into
+        //   `BuybackSkipped` — the first version of this probe did exactly that,
+        //   measured a zero burn, and would have reported the route as closed when
+        //   what it had actually done was disarm the buyback it meant to attack.
+        //
+        //   A searcher does not make that mistake: they accumulate first and let the
+        //   oracle settle on the price they moved it to, so that at poke time the
+        //   buyback is armed and their JIT position never has to touch spot.
+        //
+        //   Generous on purpose, too. They need enough token to build a position that
+        //   DOMINATES the book, because a JIT position the size of a rounding error
+        //   raises the ceiling by nothing and makes the assertions below vacuous.
+        //   They pay the 1 % tax on the way in like anyone else.
+        _buy(hook, attacker, 5_000e8);
+        uint256 tokenHeld = token.balanceOf(attacker);
+        assertGt(tokenHeld, 0, "attacker needs inventory to be an LP");
+
+        _nextBlock();
+        _buy(hook, alice, 100e8);
+        vm.warp(block.timestamp + 3601);
+        _nextBlock();
+        _buy(hook, alice, 1 wei);
+        _nextBlock();
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        _setQuote(address(ladder), 10_000e8);
+
+        uint256 offer = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
+        console2.log("offer per pool        ", offer);
+        console2.log("ceiling, no JIT       ", ladder.legCeiling(address(token)));
+        console2.log("attacker token held   ", tokenHeld);
+
+        // ⚠ THE CONTROL ARM MUST DIFFER ONLY IN THE JIT POSITION, and getting this
+        //   wrong is the easiest way to mis-read this probe. The first version
+        //   controlled on the RESERVOIR — armed versus emptied — and reported the
+        //   buyback contributing +193.91 BEM. True, and not an answer to anything:
+        //   the buyback is a bid, so ANYONE holding inventory gains when it fires,
+        //   and that comparison cannot separate "JIT defeated the depth cap" from
+        //   "the treasury bought and somebody sold".
+        //
+        //   The question this probe exists for is narrower. The cap reads
+        //   attacker-supplied liquidity, so: does adding it, and only adding it, pay?
+        //   Both arms below are armed, hold the same inventory and eat the same
+        //   exogenous price moves. One adds the JIT position.
+        uint256 snap = vm.snapshotState();
+        (int256 withJit, uint256 burnedWithJit, uint256 ceilingWithJit, uint256 spentWithJit) =
+            _jitRoundTrip(hook, token, key, quoteBefore, true);
+        vm.revertToState(snap);
+
+        snap = vm.snapshotState();
+        (int256 withoutJit, uint256 burnedPlain, uint256 ceilingPlain, uint256 spentPlain) =
+            _jitRoundTrip(hook, token, key, quoteBefore, false);
+        vm.revertToState(snap);
+
+        // ⚠ THE ATTACKER'S GAIN IS NOT THE PROTOCOL'S LOSS, and only one of the two
+        //   decides whether this is worth another contract change. What the treasury
+        //   cares about is tokens burned per BEM spent: it is buying deflation, and a
+        //   larger leg that burns proportionally as much is not a loss at all.
+        uint256 rateWithJit = spentWithJit == 0 ? 0 : burnedWithJit / spentWithJit;
+        uint256 ratePlain = spentPlain == 0 ? 0 : burnedPlain / spentPlain;
+        console2.log("spent, with JIT       ", spentWithJit);
+        console2.log("spent, no JIT         ", spentPlain);
+        console2.log("burn rate, with JIT   ", rateWithJit);
+        console2.log("burn rate, no JIT     ", ratePlain);
+
+        int256 jitAdvantage = withJit - withoutJit;
+
+        console2.log("ceiling, with JIT     ", ceilingWithJit);
+        console2.log("ceiling, no JIT       ", ceilingPlain);
+        console2.log("burned, with JIT      ", burnedWithJit);
+        console2.log("burned, no JIT        ", burnedPlain);
+        console2.log("=== same bundle, JIT or not ===");
+        console2.log("  P&L with JIT      ");
+        console2.logInt(withJit);
+        console2.log("  P&L without JIT   ");
+        console2.logInt(withoutJit);
+        console2.log("  what JIT bought   ");
+        console2.logInt(jitAdvantage);
+
+        // The lever on the CEILING is real — a dominant JIT position restores the leg
+        // from 0.5 % of depth back to nearly the full uncapped offer, 5x here.
+        // Asserted so that if it ever stops holding, this probe fails loudly instead
+        // of quietly passing while measuring a position that changed nothing.
+        assertGt(ceilingWithJit, ceilingPlain, "JIT must raise the ceiling, or this probe is vacuous");
+        assertGt(burnedWithJit, burnedPlain, "a raised ceiling must mean a larger leg");
+
+        // ⚠ THE INVARIANT IS THE BURN RATE, NOT THE ATTACKER'S P&L, and arriving at
+        //   that took three wrong control arms, so the reasoning is worth keeping.
+        //
+        //   The ceiling lever works and the treasury is unharmed by it, because the
+        //   two things it moves cancel exactly. Raising `getLiquidity()` raises the
+        //   leg, and raises the DEPTH that leg swaps through by the same factor,
+        //   because it is the same liquidity. Price impact is `leg / depth`, which
+        //   `MAX_LEG_DEPTH_BPS` pins at 0.5 % regardless of who supplied the depth or
+        //   when. Measured: 1_714_050_693_515 tokens per BEM with the JIT position
+        //   against 1_713_626_299_190 without — 0.025 % apart, on a leg 5x larger.
+        //   The treasury buys deflation, and it bought it at the same price.
+        //
+        //   That the cap is a RATIO is what makes this hold, and it is not an
+        //   accident of this configuration. A cap written as an absolute figure, or
+        //   one reading a stored depth rather than live liquidity, would both be
+        //   levers here — the second is the tempting "fix" for JIT and would be
+        //   strictly worse, because a stale depth against a live leg breaks the
+        //   cancellation that is doing the work.
+        //
+        //   The attacker's own P&L is logged and deliberately NOT asserted. Measured
+        //   +144.79 BEM with the position against −8.42 BEM without, and that gap is
+        //   not extraction from the buyback: `modifyLiquidity` is not a swap, so it
+        //   pays neither the 1 % hook tax nor slippage, which makes a position a
+        //   cheaper way to liquidate the large inventory this probe hands them than
+        //   dumping it through the book. That routing edge exists for any holder at
+        //   any time, with or without a treasury, and asserting on it would pin this
+        //   probe to the size of the inventory the setup happens to grant.
+        assertApproxEqRel(rateWithJit, ratePlain, 0.01e18, "JIT-supplied depth must not change what a BEM buys");
+
+        // Logged for the record, and the sign is the interesting part rather than the
+        // magnitude — see above for why it is not a finding.
+        assertTrue(jitAdvantage != 0, "arms must differ, or the useJit flag is not wired through");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE N — what happens when the price is driven onto the rim?
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // The genesis position spans TICK_LOWER..TICK_UPPER (-887200..887200) and
+    // `TickMath` tops out 72 ticks further at ±887272. Push spot to the edge of
+    // the position and the pool's ACTIVE liquidity becomes zero: there is nothing
+    // left to trade against on that side. Several things then read a pool that is
+    // in a state none of them were written against:
+    //
+    //   • `_legDepthCeiling` divides by `sqrtPriceX96` and reads `getLiquidity()`
+    //   • `_buybackSqrtFloor` derives a floor that may sit the wrong side of spot
+    //   • `_twapSqrtPriceX96` clamps `avgTick` to MIN_TICK/MAX_TICK
+    //   • `_getSpotPrice` converts a Q64.96 at the extreme of its range
+    //
+    // The thing that must not happen is a stuck or drained reservoir. `pokeBuyback`
+    // walks every ladder token, so a pool parked on the rim by anyone — and parking
+    // it is permissionless — must not brick the poke for the innocent pools behind
+    // it, and must not let the leg's BEM leave without tokens coming back.
+    function test_probeN_priceDrivenOntoTheRim() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
+        PoolKey memory key = hook.getPoolKey();
+
+        _nextBlock();
+        _buy(hook, alice, 100e8);
+        vm.warp(block.timestamp + 3601);
+        _nextBlock();
+        _buy(hook, alice, 1 wei);
+        _nextBlock();
+
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        _setQuote(address(ladder), 10_000e8);
+
+        uint256 ceilingBefore = ladder.legCeiling(address(token));
+
+        // Dealt rather than bought, deliberately. How someone comes to hold enough
+        // supply to drain the quote side is a separate question — a whale, a
+        // multi-block accumulation, a creator allocation — and making the probe buy
+        // it would cap the size at what the reservoir can fund and never reach the
+        // rim at all. What is under test is the pool's behaviour AT the edge.
+        deal(address(token), attacker, 1e30);
+
+        // ⚠ EXACT OUTPUT, NOT EXACT INPUT, and the reason is a finding worth
+        //   recording on its own. An exact-INPUT sell of 1e30 cannot fully fill: the
+        //   pool runs out of quote and stops at the price limit with most of the
+        //   input unconsumed. The hook's skim is sized off the SPECIFIED amount
+        //   rather than the filled one, so it then tries to take 1 % of 1e30 = 1e28
+        //   from a vault holding 3.738e24 and the whole swap reverts with
+        //   `ERC20InsufficientBalance` wrapped in `HookCallFailed`.
+        //
+        //   That revert is safe — nothing moves, no funds are lost, and a router
+        //   quoting against real reserves would never send it — so it is not a
+        //   vulnerability. But it does mean an oversized exact-input sell is
+        //   unfillable rather than partially filled, which is worth knowing and is
+        //   why this probe asks for a bounded output instead.
+        // Walked up in halving bites rather than taken in one, because the quote side
+        // is finite and the last bite that fits is not known in advance: ask for more
+        // than remains and the swap is unfillable for the reason above. Each
+        // successful bite extracts what is left of the quote reserve and drives spot
+        // further toward the rim; the loop stops when no bite fits.
+        uint256 bite = 8_500e8;
+        vm.startPrank(attacker);
+        token.approve(address(router), type(uint256).max);
+        for (uint256 i; i < 64 && bite > 1e6; ++i) {
+            try router.swap(
+                key,
+                ICLPoolManager.SwapParams({
+                    zeroForOne: false, amountSpecified: int256(bite), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
+                }),
+                _swapSettings(),
+                ""
+            ) {}
+            catch {
+                bite /= 2;
+            }
+        }
+        vm.stopPrank();
+
+        (uint160 rimSqrt, int24 rimTick,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
+        console2.log("rim sqrtPriceX96      ", rimSqrt);
+        console2.log("rim tick              ");
+        console2.logInt(rimTick);
+        console2.log("liquidity at the rim  ", poolManager.getLiquidity(PoolIdLibrary.toId(key)));
+        // ⚠ `getLiquidity()` DOES NOT FALL TO ZERO ON THE WAY OUT, which was the
+        //   assumption this probe started from and it was wrong. The genesis position
+        //   is FULL RANGE, and a single full-range position has the same liquidity at
+        //   every tick inside it — measured identical before and after the walk. So
+        //   there is no tick short of TICK_UPPER itself where the pool runs out of
+        //   depth, and reaching TICK_UPPER means extracting the entire quote reserve,
+        //   which the finite reserve makes unreachable in practice.
+        //
+        //   What actually degrades is the RATIO. `_legDepthCeiling` is
+        //   `L << 96 / sqrtP`, and sqrtP grows without bound toward the rim, so the
+        //   ceiling collapses smoothly toward zero and floors to exactly zero well
+        //   before the boundary. That is the behaviour the treasury meets in practice
+        //   and it is what this probe pins, rather than a tick literal that cannot be
+        //   hit.
+        uint256 ceilingAtRim = ladder.legCeiling(address(token));
+        uint256 offerAtRim = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
+        console2.log("legCeiling, mid-range ", ceilingBefore);
+        console2.log("legCeiling at the rim ", ceilingAtRim);
+        console2.log("offer per pool        ", offerAtRim);
+
+        // Vacuity guard: the walk has to have moved the price far enough that the
+        // ceiling genuinely collapsed, or none of the assertions below are about a
+        // boundary at all.
+        assertGt(rimTick, 340_000, "the walk must drive spot far out of range");
+        assertLt(ceilingAtRim, ceilingBefore / 10, "the ceiling must collapse, or this probe is vacuous");
+
+        // Every view the treasury and the front end depend on must still answer at
+        // the edge rather than revert, because a reverting view is indistinguishable
+        // from a bricked pool to everything reading it.
+        hook.twapSqrtPriceX96();
+        hook.getPoolKey();
+
+        // THE ASSERTION THAT MATTERS, and it is not the one this probe was written to
+        // make. The leg does not decline at the boundary — it FILLS, at the collapsed
+        // ceiling. Measured: 19,837 base units, which is 0.0002 BEM against an offer
+        // of 333, and exactly `legCeiling` to the unit.
+        //
+        // Which is the correct behaviour and worth stating plainly, because "refuses
+        // to trade" would have been worse. A pool this far out of range is selling
+        // its token for almost nothing; the treasury is a buyer of deflation, so it
+        // should take that trade. What it must not do is take it at SIZE, because
+        // then anyone able to shove a pool toward the rim could aim the whole
+        // reservoir at a pool of their choosing at a price they set. The depth ratio
+        // is what prevents that, and it is still holding out here where the inputs
+        // are extreme enough to overflow a less careful expression.
+        uint256 reservoirBefore = quote.balanceOf(address(ladder));
+        uint256 burnedBefore = token.balanceOf(DEAD);
+
+        vm.prank(alice);
+        ladder.pokeBuyback();
+
+        uint256 spentAtRim = reservoirBefore - quote.balanceOf(address(ladder));
+        console2.log("reservoir before poke ", reservoirBefore);
+        console2.log("spent at the rim      ", spentAtRim);
+        console2.log("burned by the poke    ", token.balanceOf(DEAD) - burnedBefore);
+
+        assertLe(spentAtRim, ceilingAtRim, "the leg spent more than the depth ceiling allows");
+        assertLt(spentAtRim, offerAtRim / 1000, "a rim pool drew real size out of the reservoir");
+        assertGt(token.balanceOf(DEAD), burnedBefore, "the leg should still buy cheap supply, not decline");
+
+        // And the pool must come back. The rim is not an absorbing state: liquidity
+        // is still there, just all on one side, so a trade in the other direction
+        // walks the price back into the position and re-arms the buyback.
+        //
+        // ⚠ 10 BEM AND NOT 500, FOR A REASON THAT IS ITS OWN SMALL FINDING. With the
+        //   quote side drained the vault holds 0.348 BEM of it, and the hook's 70 bps
+        //   reservoir share is `take`n during the swap — before the router settles the
+        //   buyer's input. A 500 BEM buy therefore asks the vault to hand over 3.5 BEM
+        //   it does not have and reverts `ERC20InsufficientBalance` inside
+        //   `HookCallFailed`, so the first recovery buy has to be small enough that
+        //   its own skim fits in the residue.
+        //
+        //   This is mostly an artefact of a single-pool fixture: in production the
+        //   Infinity vault is shared across every pool using this quote asset, so its
+        //   aggregate balance is nowhere near one drained pool's. The coupling is real
+        //   even so — the skim draws on the vault's balance at swap time, not on the
+        //   buyer's settled input — and the size that unsticks a fully drained pool
+        //   scales with what the vault happens to be holding, not with the trade.
+        _nextBlock();
+        _buy(hook, alice, 10e8);
+        (, int24 backTick,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
+        console2.log("tick after recovery   ");
+        console2.logInt(backTick);
+        assertLt(backTick, rimTick, "a buy at the rim must walk the price back inside the position");
+        assertGt(poolManager.getLiquidity(PoolIdLibrary.toId(key)), 0, "liquidity must be active again");
+    }
+
+    /// @dev One arm of probe O: JIT in, poke, JIT out, flatten. Returns the
+    ///      attacker's P&L against `quoteBefore`, what the leg burned, and the
+    ///      ceiling the position bought — so the caller can difference two arms
+    ///      without either of them leaking state into the other.
+    function _jitRoundTrip(
+        ToshLaunchpadHook hook,
+        ToshToken token,
+        PoolKey memory key,
+        uint256 quoteBefore,
+        bool useJit
+    ) internal returns (int256 pnl, uint256 burned, uint256 ceilingAtPoke, uint256 spent) {
+        uint256 burnedBefore = token.balanceOf(DEAD);
+        uint256 reservoirBefore = quote.balanceOf(address(ladder));
+        uint128 liqBefore = poolManager.getLiquidity(PoolIdLibrary.toId(key));
+
+        // In range and centred on spot, because out-of-range liquidity is not
+        // counted by `getLiquidity()` and would raise no ceiling at all.
+        (, int24 tickNow,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
+        int24 lower = ((tickNow - 2000) / hook.TICK_SPACING()) * hook.TICK_SPACING();
+        int24 upper = ((tickNow + 2000) / hook.TICK_SPACING()) * hook.TICK_SPACING();
+
+        // Sized as a multiple of the book rather than as a literal, so the position
+        // stays dominant if the raise in this probe ever changes.
+        //
+        // Four, not more, and the reason is a finding in itself: the multiple is
+        // bounded by the inventory they can fund. 20x wants 5.03e24 token against
+        // the 1.31e24 that 5,000 BEM bought, and buying the rest means moving the
+        // price against themselves and paying 1 % on every unit. The lever is
+        // self-limiting before any protocol guard is involved.
+        int256 jitLiquidity = useJit ? int256(uint256(liqBefore)) * 4 : int256(0);
+
+        vm.startPrank(attacker);
+        token.approve(address(router), type(uint256).max);
+        if (useJit) {
+            router.modifyPosition(
+                key,
+                ICLPoolManager.ModifyLiquidityParams({
+                    tickLower: lower, tickUpper: upper, liquidityDelta: jitLiquidity, salt: bytes32(0)
+                }),
+                ""
+            );
+        }
+        vm.stopPrank();
+
+        ceilingAtPoke = ladder.legCeiling(address(token));
+
+        // Poked by a third party, not by the attacker: `pokeBuyback` is
+        // permissionless, so whether they trigger it themselves or wait for the
+        // block's first Tosh swap to trigger it is a detail of their bundle, not a
+        // constraint on the strategy.
+        //
+        // Skipped when unarmed, because that is the control arm and `pokeBuyback`
+        // reverts `NotArmed()` on an empty reservoir. Skipping is the faithful
+        // control: same bundle, same JIT position, same exogenous price moves, no
+        // buyback to be the counterparty to.
+        if (ladder.nextSpendAmount() > 0) {
+            vm.prank(alice);
+            ladder.pokeBuyback();
+        }
+
+        burned = token.balanceOf(DEAD) - burnedBefore;
+
+        // Read immediately after the poke, before the attacker's exit swap pays tax
+        // back into this same balance and muddles the figure.
+        uint256 reservoirNow = quote.balanceOf(address(ladder));
+        spent = reservoirBefore > reservoirNow ? reservoirBefore - reservoirNow : 0;
+
+        // Pull the position and the fees with it, then sell the token side back so
+        // the P&L is denominated in one asset. Selling is what a real bundle does
+        // — inventory left over is not profit — and it pays the tax again.
+        vm.startPrank(attacker);
+        if (useJit) {
+            router.modifyPosition(
+                key,
+                ICLPoolManager.ModifyLiquidityParams({
+                    tickLower: lower, tickUpper: upper, liquidityDelta: -jitLiquidity, salt: bytes32(0)
+                }),
+                ""
+            );
+        }
+        uint256 held = token.balanceOf(attacker);
+        if (held > 0) {
+            router.swap(
+                key,
+                ICLPoolManager.SwapParams({
+                    zeroForOne: false, amountSpecified: -int256(held), sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
+                }),
+                _swapSettings(),
+                ""
+            );
+        }
+        vm.stopPrank();
+
+        pnl = int256(quote.balanceOf(attacker)) - int256(quoteBefore);
     }
 
     /// @dev One control/attack pair at a single pump size, each arm run from a

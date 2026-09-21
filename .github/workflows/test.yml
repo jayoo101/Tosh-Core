@@ -227,10 +227,30 @@ jobs:
       # starts shrinking and the minimal sequence has no coverage either. Coverage
       # therefore lives in a plain test, which is the division this file's own
       # `test_handlerPlumbingIsLive` note already argued for.
+      #
+      # 415 -> 417: probes O and N, the two coverage gaps a 2026-09 sweep had
+      # recorded against itself — JIT liquidity and the price boundary. Lettered O
+      # rather than M because `test_probeM_launchBlockLockIsRaiseDependent` already
+      # holds M; `test_probeD_` is genuinely used twice and is left alone.
+      #
+      # O asks whether `MAX_LEG_DEPTH_BPS` is self-defeating, since it sizes the
+      # leg off `getLiquidity()` and `beforeAddLiquidity` is a `pure` no-op, so the
+      # quantity it reads is attacker-supplied. It is not, and the measurement is
+      # the point: a dominant JIT position raises the ceiling 5x (70.17 -> 350.85
+      # BEM) and moves what a BEM buys by 0.025 %, because raising the liquidity
+      # raises the leg and the depth that leg swaps through by the same factor. The
+      # probe asserts the BURN RATE, not the attacker's P&L, which is positive for
+      # a reason unrelated to the treasury — see the probe.
+      #
+      # N walks spot out to tick 537_327 and pins what the treasury does there.
+      # `getLiquidity()` never reaches zero on the way out (one full-range position
+      # has the same liquidity at every tick inside it), so the boundary shows up
+      # as the RATIO collapsing: `legCeiling` falls to 19_837 base units and the
+      # leg spends exactly that, 0.0002 BEM against an offer of 333.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=415
+          floor=417
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

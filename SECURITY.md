@@ -376,6 +376,61 @@ the buyback pays for it. Second, break-even was bisected rather than derived: at
 curvature, the leg's own tax exemption, and a builder paying no priority fee. **If
 you can find a configuration where 50 bps is not enough, that is a finding.**
 
+**The obvious way to defeat a depth cap is to supply the depth, and it does not
+work — check this.** `MAX_LEG_DEPTH_BPS` reads `getLiquidity()` at poke time and
+`beforeAddLiquidity` is a `pure` no-op, so the quantity the cap is derived from is
+attacker-supplied: add in-range liquidity, watch the ceiling rise with it, poke,
+remove, all atomically and at no inventory risk. The lever is real and large.
+Measured (`test_probeO_jitLiquidityAroundTheBuybackLeg`), a position at 4× the
+book: ceiling **70.17 → 350.85 BEM**, i.e. the leg restored from the cap almost
+back to the full uncapped offer, and the leg burns 4.75× more supply.
+
+It extracts nothing because the two effects cancel exactly. Raising the liquidity
+raises the leg *and* raises the depth that leg swaps through, by the same factor,
+because it is the same liquidity — and price impact is `leg / depth`, which the cap
+pins at 0.50 % regardless of who supplied the depth or when. What the treasury buys
+is deflation per BEM, and that is unmoved: **1,714,050,693,515 tokens/BEM with the
+JIT position against 1,713,626,299,190 without**, 0.025 % apart on a leg 5× larger.
+
+**That the cap is a *ratio* against *live* liquidity is what makes this hold, and
+it is the part to attack.** A cap written as an absolute figure would be a lever
+here. So would the tempting "fix" for JIT — reading a lagged or stored depth — and
+it would be strictly worse, because a stale depth against a live leg breaks the
+cancellation that is doing the work. The probe asserts the burn rate rather than
+the attacker's P&L, which is **+144.79 BEM** with the position against −8.42
+without; that gap is not extraction from the buyback but from `modifyLiquidity`
+not being a swap, so it pays neither the 1 % hook tax nor slippage, which makes an
+LP position a cheaper way to liquidate size than selling through the book. That
+routing edge is available to any holder at any time, treasury or no treasury.
+
+**At the price boundary the leg fills for dust rather than declining.** One
+full-range genesis position has the same liquidity at every tick inside it, so
+`getLiquidity()` never falls to zero on the way out and the boundary is not a
+cliff — the *ratio* degrades instead. `(L << 96) / sqrtPriceX96` collapses as sqrt
+price grows, so the ceiling shrinks smoothly to nothing. Measured
+(`test_probeN_priceDrivenOntoTheRim`) with spot walked to tick **537,327**:
+`legCeiling` **4,549,348,672 → 19,837 base units**, and the leg spends exactly
+that — 0.0002 BEM against an offer of 333 — while still buying a large quantity of
+near-free supply. Filling is correct here; what must not happen is filling at
+*size*, because then anyone able to shove a pool toward the rim could aim the whole
+reservoir at a pool of their choosing at a price they set. The ratio is what
+prevents it, and it holds at inputs extreme enough to overflow a less careful
+expression.
+
+Two adjacent behaviours that probe recorded, neither a vulnerability, both worth
+knowing. An oversized **exact-input** sell is unfillable rather than partially
+filled: the pool stops at the price limit with most of the input unconsumed, while
+the hook's skim is sized off the *specified* amount, so it tries to take 1 % of the
+full figure from a vault that never received it and the swap reverts
+`ERC20InsufficientBalance` inside `HookCallFailed`. Nothing moves and no funds are
+lost. Separately, with a pool's quote side drained, the hook's 70 bps reservoir
+share is `take`n from the vault *during* the swap, before the router settles the
+buyer's input — so the first buy that unsticks such a pool must be small enough
+that its own skim fits in the vault's residue. In production the Infinity vault is
+shared across every pool on this quote asset, so its aggregate balance is nowhere
+near one drained pool's; the coupling is nonetheless to the vault's balance at swap
+time rather than to the trade.
+
 **First-block pool flow is open, deliberately.** `launch()` is creator-only, so
 the creator picks the block, and `nonReentrant` does not serialise a swap later
 in the same transaction — they may bundle `launch()` with a buy, and a searcher
