@@ -33,8 +33,17 @@ flow — for Standard-Json-Input the explorer takes libraries only from
 `settings.libraries` inside the file, which is why `ToshFactory.json` has it
 patched in.
 
-Status as of 2026-09-21: `ToshToken` published. `HookDeployLib` cannot be —
-see its entry below.
+Status as of 2026-09-21, read back off the address pages: `ToshFactory`,
+`ToshLadderTreasury`, `ToshLaunchpadHook` and `ToshToken` are all published
+and all four carry BscScan's **Exact Match** badge. `HookDeployLib` is not
+and structurally cannot be — see its entry below.
+
+Two things worth knowing if you are looking at the factory's page and think
+something is wrong. It shows a yellow banner reading *"This contract contains
+unverified libraries: HookDeployLib"*, which is that entry, not a defect in
+the factory's own verification. It also shows *"Heuristics suggest this may be
+a proxy contract"* — that is BscScan guessing from the clone-deploying code
+and is a false positive; there is no proxy in front of the factory.
 
 ## Per contract
 
@@ -90,6 +99,11 @@ It was deployed by the deterministic CREATE2 deployer
 `0x4e59b448…4956c`, so there is no standalone creation transaction for the
 explorer to compare against and it falls back to the runtime code, where that
 immutable defeats the match. Re-submitting cannot change any of this.
+
+BscScan says the same thing about the deployment in its own words: the
+address page carries the line *"This contract was created by the contract code
+at 0x4e59b44847b379578588920ca78fbf26c0b4956c"* rather than naming a creating
+transaction.
 
 Leaving it unverified costs little: `HookDeployLib.sol` is one of the 71
 sources inside `ToshFactory.json`, so once the factory is published the
