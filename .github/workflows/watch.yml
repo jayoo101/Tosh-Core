@@ -181,6 +181,27 @@ jobs:
           MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
           MONITOR_EXPECTED_POG_SIGNER: ${{ vars.MONITOR_EXPECTED_POG_SIGNER }}
           MONITOR_KEEPER_ADDRESS: ${{ vars.MONITOR_KEEPER_ADDRESS }}
+          # The block the watched pair was deployed in, and the earliest block a
+          # pass with no checkpoint will scan from. A variable, not a secret: it
+          # is on every block explorer.
+          #
+          # Without it the fallback is `head - MONITOR_MAX_SPAN`, i.e. 900,000
+          # blocks, which on 56 is thirteen days of BSC asking about contracts
+          # that existed for one of them. The first pass after the chain-56
+          # cutover did exactly that and every query in it failed: public BSC
+          # endpoints refuse a window that wide, so the pass recorded
+          # WATCHER-02 and WATCHER-04 — a blind monitor, on pass one, on the
+          # deployment holding every kill switch.
+          #
+          # Only the FIRST pass is affected, and only while `lastBlock` is null:
+          # after a redeploy, after WATCHER-06 discards a checkpoint, or on a
+          # fresh state branch. Ordinary passes scan ~1,200 blocks. But those
+          # are precisely the passes that follow a change worth watching.
+          #
+          # 123171447 is the chain-56 broadcast — CREATE2 of HookDeployLib, five
+          # blocks before the factory itself. Update it with the addresses above
+          # or it silently floors a NEW pair at an OLD deployment's block.
+          MONITOR_DEPLOY_BLOCK: ${{ vars.MONITOR_DEPLOY_BLOCK }}
           # WATCHER-05's threshold, in minutes. A variable rather than a
           # constant because the right value depends on which host is actually
           # delivering passes, and that is an operational measurement rather

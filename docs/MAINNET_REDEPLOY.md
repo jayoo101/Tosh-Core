@@ -587,11 +587,28 @@ variables*, not files, so they do not move with a commit and nothing in CI
 notices they are stale.
 
 ```
-MONITOR_FACTORY=<new>                    # currently 0x51Bb18FE739e21A07d5F092b37504988Ae81C546 (97)
-MONITOR_TREASURY=<new>                   # currently 0x5BBcA0BEC63EF0B9B3eAa96499fBDdefE9CC9FCC (97)
+MONITOR_FACTORY=0x20dE906A96FfB89BE6fd6267A0876A68017792F7      # was 0x51Bb18FE…C546 (97)
+MONITOR_TREASURY=0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B     # was 0x5BBcA0BE…9FCC (97)
 MONITOR_EXPECTED_OWNER=0x02DE4629129D104C63329D13A6Ca67E43db7B310    # the SAFE, not the deployer
 MONITOR_EXPECTED_POG_SIGNER=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D
+MONITOR_DEPLOY_BLOCK=123171447
 ```
+
+`MONITOR_RPC` is the fifth and is a **secret**, not a variable, because a keyed
+URL is the only kind that works here — see below. The four above and
+`MONITOR_DEPLOY_BLOCK` are variables; all five are visible to anyone who can
+read the repo's settings, and all five are on a block explorer anyway.
+
+**`MONITOR_DEPLOY_BLOCK` is new, and without it the first pass on 56 is blind.**
+With no checkpoint the watcher falls back to `head - 900,000`, which on BSC is
+thirteen days asking about contracts that existed for one of them. That is not
+just wasteful: no public BSC endpoint will answer a window that wide, so the
+first pass after the cutover failed *every* query and recorded `WATCHER-02` and
+`WATCHER-04`. Only passes with a null checkpoint are affected — the first one,
+and the one after `WATCHER-06` discards state following a redeploy — but those
+are exactly the passes that follow something worth watching. Ordinary passes
+scan ~1,200 blocks and never reach the floor. **Update it whenever you update
+the two addresses above**, or it floors a new pair at an old deployment's block.
 
 On 97 `MONITOR_EXPECTED_OWNER` is the deployer EOA, because nothing ever handed
 that factory to a Safe. Copying that shape to 56 inverts the check: it would
@@ -602,6 +619,29 @@ actually dangerous. Set it to the Safe, matching the end state of steps 1 and 2.
 Leaving all four stale is the quieter failure: the watcher keeps polling a
 healthy chain-97 factory every 15 minutes and reports 0 findings, while the
 mainnet deployment nobody is watching holds every kill switch.
+
+**`MONITOR_RPC` must be a keyed endpoint on 56. This is not a preference.**
+Measured 2026-09-21 against eight public BSC endpoints: every `bsc-dataseed*`
+host refuses `eth_getLogs` at any width, including a single block —
+`limit exceeded`, which reads like a range cap and is not one, they simply do
+not serve logs. `bsc.drpc.org` caps the free tier at 10,000 blocks,
+`bsc-rpc.publicnode.com` calls anything past ~5,000 an archive request, and
+`bsc.blockrazor.xyz` allows 25.
+
+The width cap is survivable — a 15-minute pass is ~1,200 blocks on BSC — but
+one thing is not. `SILENT-01`, `LIFE-01`, `LIFE-02` and `LIFE-04` watch every
+hook the factory has ever cloned, so they query by topic with **no address
+filter**, and publicnode refuses those outright with an advert for a dedicated
+node. Those four are the lifecycle half of the monitor: launches, genesis
+outcomes, the absence of activity. A public endpoint buys you the governance
+alerts and silently drops the rest.
+
+Verified end to end on a keyed dRPC endpoint the same day: `3/3 getLogs`,
+address-less included, archive deep enough to read `eth_getCode` at the deploy
+block, and a first pass that replayed deploy day correctly — both ownership
+handoffs, `FactorySet`, the pause and `setLaunchFee`, each naming its block and
+transaction. On a public endpoint the same pass managed `2/3` and recorded
+`WATCHER-02`.
 
 **So flip `STANDING_CHAIN_ID` first, and let the pager drive the rest.** Step 9
 is four repo variables *and* two fields in `monitoring/alerts.json` — `chainId`
