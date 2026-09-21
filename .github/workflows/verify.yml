@@ -43,7 +43,32 @@ run-name: Verify ${{ inputs.script }} on chain ${{ inputs.chain }}
 # message does not mean what it says — it is not a statement about the plan,
 # because the plan verified a contract one run earlier.
 #
-# What it behaves like is a SUBMISSION ALLOWANCE. The shape of the evidence,
+# ── 2026-09-21: THE ABOVE IS ABOUT CHAIN 97, AND 56 BEHAVES DIFFERENTLY ─────
+#
+# Every run this file drew its theory from — 3, 6, 7, 8 — dispatched chain 97.
+# The one success was `0x79de…7674` on testnet.bscscan.com, so "this key has
+# published with this configuration" was never a statement about 56.
+#
+# Chain 56 has now been attempted: three runs on 2026-09-21, five contracts
+# each, fifteen submissions, every one refused with the message above, and no
+# success on that chain ever. Reads were unaffected throughout, exactly as on
+# 97. An allowance that had been spent would have had to be spent before the
+# first 56 submission ever landed.
+#
+# Etherscan's own documentation says "source code and ABI endpoints are
+# available on all chains for every API plan, including the Free Tier", which
+# reads like `verifysourcecode` should work. Third-party coverage tables list
+# both 56 and 97 as Etherscan-paid-only. The two cannot both be right, and 97
+# having published once says the tables are not right either. Nobody has
+# settled it and this file should stop pretending it has.
+#
+# What is actionable does not depend on settling it. On 56, re-running is not
+# the remedy the allowance theory implied it was: buy a plan, or use BscScan's
+# web form, which takes no key and no plan and is what `verify-manual/` in the
+# repo root was generated for.
+#
+# The original reading, kept because it is the correct reading FOR 97:
+# a SUBMISSION ALLOWANCE. The shape of the evidence,
 # across eight runs: the first submission that reached the endpoint succeeded,
 # every submission after it was refused, four attempts 45 seconds apart on run
 # 8 were refused identically, and `getsourcecode` reads never faltered once
@@ -339,7 +364,7 @@ jobs:
             if [ "$ok" = 1 ]; then
               echo "verified: ${name}"
             elif [ "$budget" = 1 ]; then
-              echo "::error::${name} at ${addr} was refused with \"Free API access is not supported for this chain\". Do not read that as a capability limit: this same key published ToshLadderTreasury on this same chain. It behaves like a submission allowance rather than a plan boundary -- one went through, everything after it was refused, and reads were never affected. Options, in order of cost: wait and re-run (the skip logic makes that safe and it will only attempt what is missing), or buy an Etherscan plan, which is the same purchase PoG gas scanning on 56 needs."
+              echo "::error::${name} at ${addr} was refused with \"Free API access is not supported for this chain\" on chain ${CHAIN}. On 97 this key has published (run 6), so there the message is not a plan boundary and re-running later is worth a try. On 56 it has never published: 15 submissions across three runs on 2026-09-21, all refused, while reads were unaffected throughout -- which is what a plan boundary looks like and not what an allowance looks like. So on 56 do not just re-run. Either buy an Etherscan plan, which is the same purchase PoG gas scanning on 56 needs, or publish through BscScan's web form, which has no key and no plan; verify-manual/ in the repo root carries the Standard JSON Input for each contract."
               failed=1
             else
               echo "::error::verification failed for ${name} at ${addr} after 3 attempts -- see the output above; this is not the tier refusal."
