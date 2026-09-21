@@ -196,10 +196,15 @@ jobs:
       # `vm.setEnv`, which writes the process environment, which is outside the
       # state Forge snapshots. Measured — one env-based test leaked 97 into four
       # others, and restoring the value on the next line still left two red.
+      #
+      # 407 -> 408: `test_probeA2_launchBlockPoolFlowIsOpenByDesign`. The launch
+      # block shuts the shelf and not the pool, which is deliberate, and probe A
+      # pinning `SameBlockMintForbidden` reads as though it covered both. A2 pins
+      # the pool side explicitly: the buy succeeds, and it does not undercut `p0`.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=407
+          floor=408
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

@@ -309,12 +309,39 @@ Re-check that if the file grows.
 
 ---
 
-## 4. Dry run, then broadcast
+## 4. Preflight, dry run, then broadcast
+
+**Run the preflight first, and note that §3 already assumes you did.** The banner
+at the top of this file justifies `.env.production` by saying it "passes
+`scripts/preflightMainnet.mjs`" — but no step anywhere told you to run it, so
+that claim rested on someone having done it once, off the record, against a file
+that has been rebuilt since. It is the only check that reads the environment as a
+whole rather than one variable at a time, and it is the only one that runs before
+anything is irreversible.
+
+```powershell
+# Reads .env.production. No arguments, no flags.
+node scripts/preflightMainnet.mjs
+```
+
+It prints every role with the file it came from, then reaches the chain. Exit 0
+is the only pass; it says so itself, because an exit 2 still prints a full and
+reassuring-looking manifest above the failure. If it cannot reach the RPC it
+stops there and reports `CANNOT RUN` — that is a blocked check, not a passed one,
+and going on to the dry run at that point means broadcasting against
+preconditions nothing has verified.
 
 ```powershell
 # Dry run. No --broadcast: nothing is sent, and the chain-id guard still fires.
 forge script script/DeployMainnet.s.sol:DeployMainnetScript --rpc-url $env:TARGET_RPC -vvvv
 ```
+
+The chain-id guard now refuses two distinct mistakes, not one. It still rejects
+an RPC that disagrees with `TARGET_CHAIN_ID`, and it additionally rejects a
+`TARGET_CHAIN_ID` that is not 56 — so a shell still carrying the testnet export,
+or a `.env` restored by habit, can no longer drive the *mainnet* script onto
+testnet with every check green. Testnet deploys go through
+`script/Deploy.s.sol`, which pins 97 from the other side.
 
 Read the manifest it prints and confirm all four roles before going further —
 `PROD owner`, `PoG Signer`, `Platform fee recipient` and `Deployer`.
@@ -373,9 +400,9 @@ the factory must not be announced in that state.
 | 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals — and `cooldownDuration()` = `259200` (72 h) |
 | 4a | Read the cooldown as policy, not as a throttle | At 72 h it is at least `DURATION_SLOW`, so it is the **one-deposit-per-wallet-per-project** rule. Lowering it restores instalment deposits, silently: nothing reverts, the UI stops saying "one deposit per wallet", and a wallet can accumulate to `perWalletCap` across refilled quota windows. Treat it as a market parameter, not a spam knob |
 | 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
-| 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
+| 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(address)" $env:NEXT_PUBLIC_FACTORY_ADDRESS --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |
-| 7 | Vercel Production: the **six** variables below, not two | `npm run check:quote` agrees with the chain — see below |
+| 7 | Vercel Production: the **six** variables below, not two | `cd soat-frontend; npm run check:quote` agrees with the chain — see below |
 | 8 | Push the five commits to `main` | CI green |
 | 9 | Repoint `monitoring/` — the **four** repo variables below | a watch run reports the new addresses with 0 findings |
 
@@ -426,6 +453,29 @@ Leaving all four stale is the quieter failure: the watcher keeps polling a
 healthy chain-97 factory every 15 minutes and reports 0 findings, while the
 mainnet deployment nobody is watching holds every kill switch.
 
+**So flip `STANDING_CHAIN_ID` first, and let the pager drive the rest.** Step 9
+is four repo variables *and* two fields in `monitoring/alerts.json` — `chainId`
+and the whole `addresses` block — and the order matters because only one of those
+edits makes the others self-enforcing:
+
+```
+scripts/lib/retiredChains.mjs   STANDING_CHAIN_ID = 97  ->  56
+```
+
+That single number is what `WATCHER-09` compares the catalogue against, and it
+was added for exactly this step. Move it first and every pass pages P1 until
+`alerts.json` and the `MONITOR_*` variables follow, so a cutover interrupted
+halfway is loud. Move it last and the window in between is silent — which is the
+state described in the paragraph above, and the same shape as the ~1,000 green
+passes about chain 4663.
+
+`WATCHER-08` will not cover this one. It needs the stale target to be a *retired*
+chain, and 97 is not retired: it stays the rehearsal chain, `Deploy.s.sol` pins
+it, and the drill harnesses are supposed to run there. Do not add 97 to
+`RETIRED_CHAINS` to get a pager out of it — that would refuse every legitimate
+testnet drill. "Retired" and "not what the pager is for" are different
+properties; `STANDING_CHAIN_ID` is the second one.
+
 **Step 3 is not optional, and it no longer has an answer written down.** It
 used to read `setLaunchFee(0.01 ether)`, then `setLaunchFee(9.28e8)` after
 the BEM move. Both halves are obsolete: the fee is **native BNB again**
@@ -449,6 +499,23 @@ and reverts against `MAX_LAUNCH_FEE`. The near miss that does land is an
 order-of-magnitude slip inside the 0.5 BNB ceiling;
 `test_setLaunchFee_rejectsOrderOfMagnitudeSlip` is the guard, and it only
 covers the extreme.
+
+**Two of the commands above will not run as written if you drop a flag or a
+directory, and both failures look like something else.**
+
+`VerifyDeployment.s.sol` declares both `run()` and `run(address)`, so forge
+cannot pick an entry point from the ABI and step 5 needs `--sig`. Without it the
+command dies on `Multiple functions with the same name 'run' found in the ABI`,
+which reads like a broken script rather than a missing flag — the same trap
+`script/RecomputeInitcodeHash.s.sol` documents in its own header. Passing the
+factory explicitly is also what you want here: the no-argument overload reads
+the address from the environment, and on deploy day the environment is the thing
+under test.
+
+`check:quote` is a script in `soat-frontend/package.json`. There is no
+`package.json` at the repo root, so `npm run check:quote` from the tree root
+fails with `ENOENT` / "Could not read package.json" — not with a verdict about
+the quote asset. Step 7 therefore begins with the `cd`.
 
 **Step 7 has a check, and it is not in CI on purpose.** `npm run check:quote`
 asks the factory what it is denominated in and compares that against

@@ -307,8 +307,66 @@ reporter should assume.
 
 ## Known and accepted — please challenge this one
 
-We would rather you spend your time on something new, so here is the issue we
-already know about, stated as the audit states it.
+We would rather you spend your time on something new, so here are the issues we
+already know about, stated as the audit states them.
+
+**Sandwiching the treasury buyback pays, and we have the number.** The buyback is
+a public, sized, tax-exempt market buy: `pokeBuyback()` is permissionless,
+`nextSpendAmount()` and `currentCursor` are readable, and the leg itself is
+exempt from the 1 % hook tax. Its only protection is `_buybackSqrtFloor`, a
+TWAP-anchored **price** bound of 1000 bps in sqrt — about 23 % in price — which
+stops an out-of-band shove and does nothing to a same-size sandwich sitting well
+inside it.
+
+Measured on this tree (`test_probeG_sandwichThePiggyback`), 10,000 BEM raised,
+9,000 BEM pooled, a 333.33 BEM leg, each figure net of the identical round trip
+with the reservoir emptied so the attacker's own friction cancels:
+
+| pump | × leg | edge | return on pumped capital |
+|---:|---:|---:|---:|
+| 166.67 BEM | 0.5 | **+11.75 BEM** | 7.1 % |
+| 333.33 BEM | 1.0 | **+22.89 BEM** | 6.9 % |
+| 666.67 BEM | 2.0 | **+43.49 BEM** | 6.5 % |
+| 1,333.33 BEM | 4.0 | 0 | 0 % |
+| 4,000 BEM | 12.0 | 0 | 0 % |
+
+The peak is ~13 % of the leg. Note the shape: the edge is roughly linear in the
+pump up to 2× the leg and then falls off a cliff, because past that the band
+binds and the leg stops filling. That cliff is why this went unreported for so
+long — the probe pumped a flat 4,000 BEM against a 333 BEM prize and measured the
+dead zone, so a live and repeatable sandwich showed up as a clean zero.
+
+Nothing is stolen from a user. What leaks is deflation: the reservoir's BEM buys
+fewer tokens to burn and the difference is the attacker's. **Why it is still
+open:** the band bounds the price at the *end* of the leg, so it has to stay wide
+enough for the leg's own impact on the thinnest listed book, and it therefore
+cannot tell a sandwich from a legitimate fill. A `minOut` bounds the *average*
+price paid, which does distinguish them — but not as one constant. At the raise
+above the leg is 3.7 % of the book and the honest shortfall is ~1.8 %, so a 3 %
+tolerance separates them cleanly; at the `MIN_SOFT_CAP_PROD` floor (100 BEM
+raised, 90 BEM pooled, a 30.93 BEM leg) the leg is 34 % of the book and the
+honest shortfall is ~25 %, which no single tolerance admits while still refusing a
+7 % skim. Bounding the leg as a fraction of pool depth is what makes one
+tolerance work everywhere, and that is a sizing change rather than a guard. The
+probe asserts a ceiling at the disclosed figure so any worsening is caught.
+
+**First-block pool flow is open, deliberately.** `launch()` is creator-only, so
+the creator picks the block, and `nonReentrant` does not serialise a swap later
+in the same transaction — they may bundle `launch()` with a buy, and a searcher
+may backrun instead. `beforeSwap` has no allowlist, no cooldown and no
+per-transaction cap, and `beforeAddLiquidity` is a no-op, so JIT LP is available
+from the first tick. Genesis LP is 3,780,000 tokens (18 % of supply) against
+`0.9 × R` of quote.
+
+Do not read the shelf's defences as covering this. The launch block shuts the
+**ladder** — `SameBlockMintForbidden` plus a pre-maturity reference price of
+`min(spot, p0)`, so a two-block pump cannot lift the ceiling — and the first
+shelf is 3,150 tokens, roughly 1,200× smaller than the float in the book beside
+it. What bounds the pool is price rather than permission: a sniper pays at least
+`p0`, the genesis price, plus 1 % hook tax and 0.3 % pool fee. It is a privileged
+first look at the float, not a discount against the depositors who funded it.
+`test_probeA2_launchBlockPoolFlowIsOpenByDesign` pins both halves — that the buy
+succeeds, and that it does not undercut `p0`.
 
 **Buyback was unbounded in a pool's first 1800 s.** `_buybackSqrtFloor` returns
 `MIN_SQRT_PRICE + 1` — no bound at all — for exactly the window between a pool's

@@ -45,7 +45,7 @@ import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRpc } from './rpc.mjs'
 import { buildLogQueries, matchLog } from './logQueries.mjs'
-import { retiredChain } from '../scripts/lib/retiredChains.mjs'
+import { retiredChain, STANDING_CHAIN_ID } from '../scripts/lib/retiredChains.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
@@ -296,6 +296,38 @@ if (retiredTarget) {
     `first (chainId plus the addresses block), then MONITOR_RPC and the MONITOR_* repository ` +
     `variables to match.`,
     { catalogueChainId: CONFIG.chainId ?? chainId, retired: retiredTarget.name })
+}
+
+/* WATCHER-09 — the catalogue is about a live chain, but not the one that matters.
+ *
+ * WATCHER-08 above needs the target to be RETIRED. The next version of the same
+ * failure will not be: after the mainnet deploy, a monitor left on testnet 97 is
+ * in precisely the 4663 state — endpoint, checkpoint and addresses all agreeing,
+ * every pass green, and none of it evidence about the deployment holding real
+ * money. 97 is not retired and must not be listed as retired; it stays the
+ * rehearsal chain. So WATCHER-08 would not fire, and nothing else would either.
+ *
+ * `STANDING_CHAIN_ID` is the missing half. It lives outside this catalogue on
+ * purpose: a file that declares which chain it ought to be about can only agree
+ * with itself, which is the whole lesson of WATCHER-08. Flipping it to 56 is the
+ * FIRST step of the cutover, which makes an interrupted cutover page instead of
+ * going quiet.
+ *
+ * Skipped when WATCHER-08 already fired, so a retired target pages once with the
+ * more specific reason rather than twice.
+ */
+const catalogueTarget = CONFIG.chainId ?? chainId
+if (!retiredTarget && BigInt(catalogueTarget) !== BigInt(STANDING_CHAIN_ID)) {
+  record('WATCHER-09', 'P1', true,
+    `alerts.json targets chain ${catalogueTarget}, but the protocol's standing deployment is ` +
+    `chain ${STANDING_CHAIN_ID}. Chain ${catalogueTarget} is live, so every consistency check in ` +
+    `here is satisfied and every pass looks quiet — the same shape as the 4663 episode WATCHER-08 ` +
+    `was added for, minus the retired chain that made it detectable. A green pass about a chain ` +
+    `the protocol does not settle on is not evidence about the one it does. Move the catalogue ` +
+    `(chainId plus the addresses block), then MONITOR_RPC and the MONITOR_* repository variables. ` +
+    `If the standing chain itself has changed, STANDING_CHAIN_ID in ` +
+    `scripts/lib/retiredChains.mjs is what says so.`,
+    { catalogueChainId: catalogueTarget, standingChainId: STANDING_CHAIN_ID })
 }
 
 const staleChain = state.chainId != null && state.chainId !== chainId

@@ -65,6 +65,38 @@ export function retiredChain(chainId) {
 }
 
 /**
+ * The chain the protocol currently settles on, and the chain a SCHEDULED monitor
+ * is therefore supposed to be watching.
+ *
+ * ── Why the retired list is not enough ──────────────────────────────────────
+ *
+ * `WATCHER-08` catches a catalogue pointed at a chain we have LEFT, which is the
+ * 4663 failure: endpoint, checkpoint and addresses all agreeing with each other
+ * and all describing a dead deployment. It cannot catch the next version of that
+ * failure, because the next version does not involve a dead chain.
+ *
+ * After mainnet, a monitor still pointed at testnet 97 is in exactly the 4663
+ * state — internally consistent, green every pass, and not evidence about the
+ * deployment that holds real money. But 97 is not retired and must not be listed
+ * as such: it stays the rehearsal chain, `Deploy.s.sol` pins it, and the drill
+ * harnesses are supposed to run there. "Retired" and "not what the pager is for"
+ * are different properties, and only the first one had a home.
+ *
+ * ── Why this makes the cutover self-enforcing ───────────────────────────────
+ *
+ * Flipping this to 56 is the FIRST step of the monitoring cutover, not the last.
+ * The moment it moves, `WATCHER-09` pages on every pass until `alerts.json` and
+ * the `MONITOR_*` variables follow — so an interrupted cutover is loud instead of
+ * quiet, which is the one property the 4663 episode did not have. Left at 97
+ * before the mainnet deploy, every pass is green and correct.
+ *
+ * One number in one file, imported by the monitor. Do not copy it into
+ * `alerts.json`: a catalogue that declares which chain it ought to be about can
+ * only ever agree with itself.
+ */
+export const STANDING_CHAIN_ID = 97
+
+/**
  * Stop, with the reason, when `chainId` is one this protocol has left.
  *
  * `reArm` is the part that cannot be generic: each caller needs something

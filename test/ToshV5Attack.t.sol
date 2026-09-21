@@ -260,6 +260,63 @@ contract ToshV5AttackTest is Test {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    //  PROBE A2 — the launch block shuts the SHELF, not the POOL
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // PROBE A pins `SameBlockMintForbidden` and is easy to over-read as "nothing
+    // can be bought in the launch block". It says nothing about the pool, and the
+    // pool is where the inventory is: genesis LP is 3,780,000 tokens — 18 % of
+    // supply — seeded at `p0`, against a first shelf of 3,150. The shelf is ~1,200x
+    // smaller than the float sitting in the book beside it.
+    //
+    // `beforeSwap` has no allowlist, no cooldown and no per-transaction cap, and
+    // `nonReentrant` on `launch()` does not serialise a later swap in the same
+    // TRANSACTION: `launch()` returns, the guard unlocks, and the creator — who
+    // is the only address that can call `launch()`, and who therefore chooses the
+    // block — can swap immediately after it. A searcher can backrun instead; BSC
+    // blocks are ~0.75s.
+    //
+    // ⚠ THIS IS DELIBERATE AND THE TEST EXISTS TO SAY SO. Confirmed as intended
+    //   on 2026-09-21: first-block pool flow is open, the creator may bundle, and
+    //   searchers will backrun. It is written down here rather than left as an
+    //   absence, because an absence reads as an oversight to the next person and
+    //   because the shelf's defences make it easy to assume the pool shares them.
+    //
+    //   What bounds it is price, not permission. The sniper pays at least `p0`
+    //   plus the 1 % hook tax plus the 0.3 % pool fee, and `p0` is the genesis
+    //   price — so this is a privileged first look at the float, NOT a discount
+    //   against the depositors who funded it. That is the property worth pinning,
+    //   and it is what would break if the pool were ever seeded below `p0`.
+    function test_probeA2_launchBlockPoolFlowIsOpenByDesign() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
+
+        // Same block as `launch()`, established the way PROBE A establishes it.
+        assertEq(hook.lastSwapBlock(), block.number, "still in the launch block");
+
+        // The shelf is shut — the contrast this probe exists to draw.
+        uint256 quoted = hook.quoteMint(1e18);
+        vm.prank(attacker);
+        vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
+        hook.mintBondingCurve(1e18, quoted);
+
+        // The pool is not. 900 BEM is ~10 % of the genesis book at this raise,
+        // which is ~285x the entire first shelf, and it needs no waiting and no
+        // qualification.
+        uint256 spend = 900e8;
+        assertEq(token.balanceOf(attacker), 0, "attacker starts with nothing");
+        _buy(hook, attacker, spend);
+
+        uint256 bought = token.balanceOf(attacker);
+        assertGt(bought, 0, "the launch-block pool buy is permitted");
+        assertGt(bought, hook.TIER_SIZE() * 100, "and is not capped anywhere near a shelf");
+
+        // Price is the bound, so assert on price. Average paid, in the same 1e18
+        // quote-per-token scale as `p0`, must not undercut the genesis price.
+        uint256 avgPaid = (spend * 1e18) / bought;
+        assertGe(avgPaid, hook.p0(), "a launch-block sniper does not beat the genesis price");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  PROBE B — how fast can the TWAP be re-anchored to a pumped price?
     // ══════════════════════════════════════════════════════════════════════════
     //
@@ -458,6 +515,26 @@ contract ToshV5AttackTest is Test {
     // are trying to skim" is therefore the bottom of the range, not a bound on
     // it, and it understates a full treasury by whatever multiple that
     // treasury has grown by: 10x at the 100 ETH modelled here.
+    //
+    // ⚠ THIS PROBE USED TO MEASURE THE WRONG SIZE AND ASSERT NOTHING, which is
+    //   two separate faults and the first one is the reason the second was never
+    //   noticed. It pumped a flat 4,000 BEM at a leg of ~333 — TWELVE TIMES the
+    //   prize — which is far enough past the floor that the band binds, the leg
+    //   barely fills, and the round trip's own 1.3% friction on an oversized
+    //   position swamps whatever was skimmed. A sandwich is sized to its
+    //   victim; measuring one that is not tells you about the band, not about
+    //   the attack. `test_buyback_refusesToFillIntoAManipulatedPrice` already
+    //   covers the out-of-band shove, so the oversized case was the only one
+    //   with two tests and the in-band case the only one with none.
+    //
+    //   So the pump is now DERIVED from `nextSpendAmount() / BATCH_SIZE` and
+    //   swept around it. Deriving it is the point: a probe that hard-codes the
+    //   prize stops tracking it the moment `SPEND_BPS`, `BATCH_SIZE` or
+    //   `TRIGGER_STEP` moves, which is exactly how this one drifted.
+    //
+    //   And it asserts. The assertion is on the WORST size found, not on a
+    //   chosen one, because an attacker sweeps too and the safe claim is about
+    //   the maximum rather than about a sample.
     function test_probeG_sandwichThePiggyback() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject(10_000e8);
 
@@ -476,36 +553,113 @@ contract ToshV5AttackTest is Test {
         // routes every launch fee, every 1 % shelf cut and the 70 bps reservoir
         // share of every buy tax into a contract with no withdraw path.
         _setQuote(address(ladder), 10_000e8);
+
+        // The prize, read off the contract rather than assumed. `LEGS_PER_POKE`
+        // is 1, so one poke spends exactly this much on exactly this pool.
+        uint256 leg = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
+
         console2.log("reservoir           ", quote.balanceOf(address(ladder)));
         console2.log("spend this cycle    ", ladder.nextSpendAmount());
+        console2.log("one leg (the prize) ", leg);
         console2.log("listed tokens       ", ladder.ladderTokenCount());
 
-        uint256 pumpSize = 4000e8;
+        // Around the prize, not past it. The last entry keeps the old 4,000 BEM
+        // reading so the two are visible side by side and the regression this
+        // probe used to have stays legible.
+        uint256[5] memory pumps = [leg / 2, leg, leg * 2, leg * 4, 4000e8];
 
-        // ── Control: identical round trip with the reservoir disarmed ────────
+        int256 worstEdge = type(int256).min;
+        uint256 worstAt;
+
+        for (uint256 i; i < pumps.length; ++i) {
+            int256 edge = _measureSandwichEdge(hook, token, pumps[i]);
+            console2.log("--- pump / edge ---");
+            console2.log("  pump            ", pumps[i]);
+            console2.log("  edge            ");
+            console2.logInt(edge);
+            if (edge > worstEdge) {
+                worstEdge = edge;
+                worstAt = pumps[i];
+            }
+        }
+
+        console2.log("=== worst edge across the sweep ===");
+        console2.log("  at pump         ", worstAt);
+        console2.log("  edge            ");
+        console2.logInt(worstEdge);
+
+        // ⚠ THE HONEST NUMBER IS NOT ZERO, so this pins the exposure instead of
+        //   claiming there is none. Measured on this tree, 10,000 BEM raise,
+        //   9,000 BEM in the pool, 333.33 BEM leg:
+        //
+        //       pump      x leg   edge        return on the pumped capital
+        //       166.67     0.5     +11.75     7.1 %
+        //       333.33     1.0     +22.89     6.9 %
+        //       666.67     2.0     +43.49     6.5 %
+        //     1,333.33     4.0       0        0   %
+        //     4,000       12.0       0        0   %
+        //
+        //   Read the shape, not just the peak. The edge is roughly linear in the
+        //   pump up to 2x the leg and then falls off a cliff, because past that
+        //   the TWAP band binds and the leg stops filling. The old flat 4,000
+        //   BEM pump sat in that dead zone — which is why a probe that measured
+        //   a live, repeatable, ~7 % sandwich reported nothing at all.
+        //
+        //   `edge` is net of the identical round trip with the reservoir emptied,
+        //   so the attacker's own 1.3 % friction cancels between the arms and
+        //   what remains is the buyback's contribution: 43.49 BEM taken out of a
+        //   322 BEM fill, about 13 % of the leg.
+        //
+        //   WHY THE BAND IS NOT THE DIAL THAT FIXES THIS, which was the first
+        //   thing tried: `sqrtPriceLimitX96` bounds the price at the END of the
+        //   leg, measured from TWAP, so it has to stay wide enough for the leg's
+        //   OWN impact on the thinnest listed book. A `minOut` bounds the
+        //   AVERAGE price the leg paid, and the honest average is roughly half
+        //   the leg's impact while a sandwiched average carries the attacker's
+        //   whole pump. That is the gap the band cannot see and a minOut can.
+        //
+        //   What blocks landing it as one constant is pool depth. Here the leg is
+        //   3.7 % of the book, so the honest shortfall is ~1.8 % and a 3 %
+        //   tolerance separates the two cleanly. At the `MIN_SOFT_CAP_PROD` floor
+        //   — 100 BEM raised, 90 BEM pooled, a 30.93 BEM leg — the leg is 34 % of
+        //   the book and the honest shortfall is ~25 %, which no single tolerance
+        //   admits while still refusing a 7 % skim. Bounding the leg as a
+        //   fraction of pool depth is what makes one tolerance work everywhere,
+        //   and that is a sizing change rather than a guard.
+        //
+        //   So: ceiling, not zero, and the ceiling is the disclosed figure. It
+        //   catches any worsening and does not forbid the fix — whoever lands the
+        //   sizing change drops this to 0 in the same commit.
+        assertLe(worstEdge, 4.4e9, "the buyback sandwich got WORSE than the disclosed 43.49 BEM");
+    }
+
+    /// @dev One control/attack pair at a single pump size, each arm run from a
+    ///      clean snapshot so the sizes in a sweep cannot contaminate each other
+    ///      through the pool price, the reservoir or the burn total.
+    ///
+    ///      Returns the attacker's P&L WITH the reservoir armed minus the same
+    ///      round trip with it emptied. Differencing is what makes the number
+    ///      mean "what the buyback was worth to the attacker": both arms pay the
+    ///      same pool fee and the same 1% hook tax twice, so all of that cancels
+    ///      and what is left is the buyback's contribution.
+    ///
+    ///      Emptying the reservoir is a sound control here because the tax the
+    ///      pump itself pays cannot re-arm it — 70 bps of even the largest pump
+    ///      in the sweep is well under `TRIGGER_STEP`.
+    function _measureSandwichEdge(ToshLaunchpadHook hook, ToshToken token, uint256 pumpSize) internal returns (int256) {
+        uint256 armedReservoir = quote.balanceOf(address(ladder));
+
         uint256 snap = vm.snapshotState();
         _setQuote(address(ladder), 0);
-        console2.log("=== CONTROL (reservoir emptied) ===");
         int256 controlPnl = _roundTrip(hook, token, pumpSize);
         vm.revertToState(snap);
 
-        // ── Attack: same round trip, reservoir armed ─────────────────────────
-        console2.log("=== ATTACK (reservoir armed) ===");
-        uint256 burnedBefore = token.balanceOf(DEAD);
+        snap = vm.snapshotState();
+        _setQuote(address(ladder), armedReservoir);
         int256 attackPnl = _roundTrip(hook, token, pumpSize);
-        uint256 burnedByTreasury = token.balanceOf(DEAD) - burnedBefore;
+        vm.revertToState(snap);
 
-        console2.log("--- round trip of 40 ETH through the pool ---");
-        console2.log("control pnl:");
-        console2.logInt(controlPnl);
-        console2.log("attack pnl:");
-        console2.logInt(attackPnl);
-        console2.log("reservoir left      ", quote.balanceOf(address(ladder)));
-        console2.log("tokens sent to 0xdead", burnedByTreasury);
-
-        int256 edge = attackPnl - controlPnl;
-        console2.log("edge from sandwiching the buyback:");
-        console2.logInt(edge);
+        return attackPnl - controlPnl;
     }
 
     /// @dev Buy `nativeIn` of the token then immediately sell the entire position
