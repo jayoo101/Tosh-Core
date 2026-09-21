@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test, Vm, console2} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -80,6 +80,11 @@ contract ToshInvariantHandler is Test {
     ///      rather than a tolerance: everything above it is still a hard failure.
     uint256 public constant NIL_FILL_DUST_WEI = 16;
 
+    /// @dev `keccak256("SellTaxBurned(uint256)")` — the hook's own report of
+    ///      what a sell burned, which `_buybackBurn` nets out of the burn it
+    ///      credits to the reservoir.
+    bytes32 internal constant SELL_TAX_BURNED = keccak256("SellTaxBurned(uint256)");
+
     ToshLaunchpadHook[] public hooks;
     address[] public actors;
 
@@ -109,6 +114,17 @@ contract ToshInvariantHandler is Test {
     ///      Informational: `afterInvariant` prints it so a run that never armed
     ///      a buyback is distinguishable from one that did.
     uint256 public ghostBuybackOutflow;
+
+    /// @dev Burn actually credited to the reservoir, net of sell tax, and how
+    ///      many outflows were settled that way. Counters rather than a bare
+    ///      flag because the attribution audit is only as good as the number of
+    ///      times it ran: an outflow that never happens proves nothing, which is
+    ///      what `test_sellBorneBuybackIsAttributedNetOfSellTax` guards.
+    uint256 public ghostBuybackBurnAttributed;
+    uint256 public ghostAttributedOutflows;
+
+    /// @dev Sell tax observed and removed from the figure above.
+    uint256 public ghostSellTaxNetted;
 
     /// @dev Treasury ETH that left without the burn pile growing in the same
     ///      call, in an amount too large to be a nil fill rounded up. MUST stay
@@ -483,12 +499,86 @@ contract ToshInvariantHandler is Test {
     ///      lumping that in with a leak made this both randomly red and unable
     ///      to tell the two apart — the fuzzer would report two wei in the same
     ///      breath it would report a drained reservoir.
-    function _syncAfterSwap(uint256 ladderBefore, uint256 burnedBefore) internal {
+    /// @dev `0xdead`'s holding of every project token, indexed by `hooks`.
+    ///
+    ///      A single total across all tokens is not good enough for the audit
+    ///      below — see `_buybackBurn`.
+    function _snapshotBurns() internal view returns (uint256[] memory snap) {
+        uint256 n = hooks.length;
+        snap = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
+            address tok = address(hooks[i].projectToken());
+            snap[i] = tok == address(0) ? 0 : IERC20(tok).balanceOf(DEAD);
+        }
+    }
+
+    /// @dev How much of this call's burning the BUYBACK may take credit for.
+    ///
+    ///      ⚠ THE AUDIT USED TO BE MASKED BY THE SELL TAX, on the one action
+    ///        where both happen at once. This compared `_totalBurned()`, a sum
+    ///        across every project token, against its value before the call.
+    ///        But a sell burns 1% of the INPUT token on its way through
+    ///        `_skimInputTax`, entirely independently of the reservoir. So in a
+    ///        `swapSell` that also piggybacks a buyback, the total rose because
+    ///        of the seller's own tax — and a piggyback that spent treasury
+    ///        quote and received NOTHING back still read as explained.
+    ///        `ghostUnexplainedTreasuryDrop` was unreachable down that path.
+    ///
+    ///      The fix is to net out the sell tax per token and require what
+    ///      remains to be positive. The amount netted is read from the hook's
+    ///      own `SellTaxBurned` event rather than recomputed from
+    ///      `PLATFORM_SWAP_FEE_BPS` here, because a local copy of the rate is
+    ///      exactly the thing that drifts away from the contract it is meant to
+    ///      be checking — and it would drift SILENTLY, netting the wrong amount
+    ///      and quietly restoring the blind spot.
+    ///
+    ///      Per token rather than in aggregate, because the cursor may well
+    ///      select the same token being sold. Discarding that token's whole
+    ///      delta would throw away the buyback's own burn along with the tax and
+    ///      report a false unexplained drop.
+    ///
+    ///      Consumes the recorded logs, so call it exactly once per action and
+    ///      only after `vm.recordLogs()`. With no recorder armed it degrades to
+    ///      the old behaviour: lenient, never falsely red.
+    function _buybackBurn(uint256[] memory burnBefore) internal returns (uint256 attributable) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        uint256 n = hooks.length;
+        for (uint256 i; i < n; ++i) {
+            address tok = address(hooks[i].projectToken());
+            if (tok == address(0)) continue;
+
+            uint256 held = IERC20(tok).balanceOf(DEAD);
+            if (held <= burnBefore[i]) continue;
+            uint256 delta = held - burnBefore[i];
+
+            uint256 sellTax;
+            for (uint256 j; j < logs.length; ++j) {
+                if (
+                    logs[j].emitter == address(hooks[i]) && logs[j].topics.length == 1
+                        && logs[j].topics[0] == SELL_TAX_BURNED
+                ) {
+                    uint256 burned = abi.decode(logs[j].data, (uint256));
+                    sellTax += burned;
+                    ghostSellTaxNetted += burned;
+                }
+            }
+
+            if (delta > sellTax) attributable += delta - sellTax;
+        }
+    }
+
+    function _syncAfterSwap(uint256 ladderBefore, uint256[] memory burnBefore) internal {
+        // Evaluated before the branch below, because it drains the log recorder
+        // and a call that left the treasury untouched must not carry its events
+        // into the next action's audit.
+        uint256 attributable = _buybackBurn(burnBefore);
+
         uint256 bal = quote.balanceOf(address(ladder));
         if (bal < ladderBefore) {
             uint256 drop = ladderBefore - bal;
             ghostBuybackOutflow += drop;
-            if (_totalBurned() <= burnedBefore) {
+            if (attributable == 0) {
                 if (drop <= NIL_FILL_DUST_WEI) {
                     ghostNilFillDust += drop;
                     ++ghostNilFillCount;
@@ -496,6 +586,9 @@ contract ToshInvariantHandler is Test {
                 } else {
                     ghostUnexplainedTreasuryDrop += drop;
                 }
+            } else {
+                ghostBuybackBurnAttributed += attributable;
+                ++ghostAttributedOutflows;
             }
         }
         ghostTreasuryFloor = bal;
@@ -729,7 +822,8 @@ contract ToshInvariantHandler is Test {
         PoolKey memory key = hook.getPoolKey();
 
         uint256 ladderBefore = quote.balanceOf(address(ladder));
-        uint256 burnedBefore = _totalBurned();
+        uint256[] memory burnBefore = _snapshotBurns();
+        vm.recordLogs();
 
         vm.prank(who);
         try router.swap(
@@ -746,7 +840,7 @@ contract ToshInvariantHandler is Test {
             lastSwapRevert = reason;
         }
 
-        _syncAfterSwap(ladderBefore, burnedBefore);
+        _syncAfterSwap(ladderBefore, burnBefore);
     }
 
     /// @notice The retail buy. The UI never talks to the V4 router; it calls
@@ -825,18 +919,15 @@ contract ToshInvariantHandler is Test {
         address who = _actor(actorSeed);
 
         uint256 ladderBefore = quote.balanceOf(address(ladder));
-        uint256 burnedBefore = _totalBurned();
 
         // Per-hook burn snapshot: the round-robin cursor decides which pool a
         // leg lands on, so a rising burn is the only signal available here for
         // WHICH pool was swapped — and the stamp audit below is only meaningful
-        // against a pool that was actually swapped.
+        // against a pool that was actually swapped. `_syncAfterSwap` now reads
+        // the same snapshot for its attribution audit.
         uint256 n = hooks.length;
-        uint256[] memory burnBefore = new uint256[](n);
-        for (uint256 i; i < n; ++i) {
-            address tok = address(hooks[i].projectToken());
-            burnBefore[i] = tok == address(0) ? 0 : IERC20(tok).balanceOf(DEAD);
-        }
+        uint256[] memory burnBefore = _snapshotBurns();
+        vm.recordLogs();
 
         vm.prank(who);
         try ladder.pokeBuyback() {
@@ -852,7 +943,7 @@ contract ToshInvariantHandler is Test {
         // Audited on the same terms as a swap-borne buyback: this is a
         // legitimate outflow, so the floor rebases, but an outflow with nothing
         // burned for it is still recorded as unexplained.
-        _syncAfterSwap(ladderBefore, burnedBefore);
+        _syncAfterSwap(ladderBefore, burnBefore);
     }
 
     /// @notice token -> ETH, which is the direction that burns the input tax.
@@ -874,7 +965,8 @@ contract ToshInvariantHandler is Test {
         tokensIn = bound(tokensIn, 1, held);
 
         uint256 ladderBefore = quote.balanceOf(address(ladder));
-        uint256 burnedBefore = _totalBurned();
+        uint256[] memory burnBefore = _snapshotBurns();
+        vm.recordLogs();
 
         vm.startPrank(who);
         token.approve(address(router), type(uint256).max);
@@ -893,7 +985,7 @@ contract ToshInvariantHandler is Test {
         }
         vm.stopPrank();
 
-        _syncAfterSwap(ladderBefore, burnedBefore);
+        _syncAfterSwap(ladderBefore, burnBefore);
     }
 
     // ─── Time ─────────────────────────────────────────────────────────────────
@@ -2120,6 +2212,67 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         handler.swapSell(0, 2, token.balanceOf(alice) / 2);
         assertEq(handler.okSwapSell(), 1, "handler could not land a sell");
         assertGt(token.balanceOf(DEAD), burnedBefore, "the sell-side tax was not burned");
+    }
+
+    /// @notice A sell that also carries a buyback is attributed NET of the sell
+    ///         tax — the composition the outflow audit used to be blind to.
+    ///
+    /// @dev    This is the test that gives `invariant_treasuryOutflowAlwaysBurns`
+    ///         its teeth on the sell path, and the assertion that matters is the
+    ///         last one. A sell burns its own input tax, so ANY sell makes the
+    ///         all-token burn total rise; the old audit compared exactly that
+    ///         total and so could be satisfied by the seller's tax while the
+    ///         piggyback spent treasury quote and brought back nothing.
+    ///
+    ///         Asserting the credited burn is strictly less than the raw rise at
+    ///         `0xdead` is what proves the tax was actually removed rather than
+    ///         counted. Without the netting the two are equal and this goes red,
+    ///         which is the regression worth pinning: an audit that silently
+    ///         stops subtracting looks identical to one that never had to.
+    function test_sellBorneBuybackIsAttributedNetOfSellTax() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 500e8, 0);
+        }
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+
+        handler.claimGenesis(0, 2);
+        assertEq(handler.okClaimGenesis(), 1, "precondition: a genesis claim must land");
+
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        IERC20 token = IERC20(address(h2.projectToken()));
+        address alice = handler.actors(0);
+        assertGt(token.balanceOf(alice), 0, "precondition: the claim must pay tokens");
+
+        // Past `TWAP_WINDOW`, so the listing is accepted — see the note in
+        // `test_handlerCanReachBuybackAndBurn`.
+        handler.warpShort(1801);
+        handler.ownerAddLadderToken(2);
+        assertEq(ladder.ladderTokenCount(), 1, "precondition: the token must be listed");
+
+        // Armed by an ordinary transfer of BEM an actor already holds, not
+        // `vm.deal` — same reasoning as the buyback reachability test.
+        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        vm.prank(handler.actors(1));
+        quote.transfer(address(ladder), shortfall);
+        assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "precondition: the buyback must be armed");
+
+        uint256 burnedBefore = token.balanceOf(DEAD);
+        uint256 attributedBefore = handler.ghostBuybackBurnAttributed();
+
+        handler.swapSell(0, 2, token.balanceOf(alice) / 2);
+        assertEq(handler.okSwapSell(), 1, "precondition: the sell must land");
+
+        uint256 rawBurn = token.balanceOf(DEAD) - burnedBefore;
+        uint256 credited = handler.ghostBuybackBurnAttributed() - attributedBefore;
+
+        assertGt(handler.ghostSellTaxNetted(), 0, "no sell tax was observed, so nothing was netted out");
+        assertGt(handler.ghostBuybackOutflow(), 0, "the buyback never spent anything");
+        assertGt(handler.ghostAttributedOutflows(), 0, "the outflow was never attributed");
+        assertEq(handler.ghostUnexplainedTreasuryDrop(), 0, "outflow was not accounted for by a burn");
+
+        assertGt(rawBurn, 0, "nothing reached the burn address");
+        assertLt(credited, rawBurn, "the sell tax was credited to the buyback instead of netted out");
     }
 
     /// @notice The permissionless egress is reachable, so the outflow invariant
