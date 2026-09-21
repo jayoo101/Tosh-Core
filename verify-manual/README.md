@@ -23,7 +23,18 @@ Pick **Standard-Json-Input**, not "Single file". The settings that matter —
 the JSON. The single-file flow asks for them as form fields instead, `viaIR`
 is not among those fields, and without it the bytecode cannot match.
 
-Start at `https://bscscan.com/verifyContract?a=<address>`.
+This link lands straight on step 2 with all four step-1 fields preset:
+
+    https://bscscan.com/verifyContract-solc-json?a=<ADDRESS>&c=v0.8.26%2bcommit.8a97fa7a&lictype=3
+
+Then: upload the JSON, paste the arguments, wait for the Cloudflare widget to
+say Success, and submit. There is no library-address field anywhere in this
+flow — for Standard-Json-Input the explorer takes libraries only from
+`settings.libraries` inside the file, which is why `ToshFactory.json` has it
+patched in.
+
+Status as of 2026-09-21: `ToshToken` published. `HookDeployLib` cannot be —
+see its entry below.
 
 ## Per contract
 
@@ -60,8 +71,30 @@ field, **without** a leading `0x`. Full values are in
 
 ### HookDeployLib — `0x96076c1cdb92bd85d6af4e4bb948f92bf9009dfe`
 
-- Upload `HookDeployLib.json`
-- Args: **none** — leave the field empty
+**This one does not verify, and the materials are not why.** Submitting it
+returns *"Unable to find matching Contract Bytecode and ABI"*. Measured
+2026-09-21, before concluding anything:
+
+- The **creation** code matches byte for byte. The CREATE2 payload is a
+  32-byte zero salt followed by exactly the artifact's init code.
+- The **runtime** code differs in 20 bytes and nothing else — not even the
+  trailing CBOR metadata hash, which means the source set and every compiler
+  setting are right.
+- Those 20 bytes are at offsets 166–185, inside
+  `immutableReferences: {"library_deploy_address": [{"start":154,"length":32}]}`.
+  Under `viaIR`, solc gives a library its own address as an immutable written
+  at construction by `ADDRESS`, so a recompilation can only ever produce
+  zeros there.
+
+It was deployed by the deterministic CREATE2 deployer
+`0x4e59b448…4956c`, so there is no standalone creation transaction for the
+explorer to compare against and it falls back to the runtime code, where that
+immutable defeats the match. Re-submitting cannot change any of this.
+
+Leaving it unverified costs little: `HookDeployLib.sol` is one of the 71
+sources inside `ToshFactory.json`, so once the factory is published the
+library's source is readable there. `ToshFactory` needs the library's
+*address*, not its verified status, and that is already in the JSON.
 
 ## Where the arguments came from
 
