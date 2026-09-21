@@ -269,10 +269,34 @@ export fail instead of shipping.
 > **Worth deciding separately, before deploy day:** that one key is now both the
 > testnet deployer and the mainnet deployer, and it sits in plaintext in `.env`.
 > The exposure is bounded — the deployer surrenders ownership to the Safe in §5
-> steps 1 and 2, and holds ~0.013 BNB — but between broadcast and acceptance it
+> steps 1 and 2, and holds **0.012985 BNB, measured on chain 56 on 2026-09-21**
+> — but between broadcast and acceptance it
 > **is** the owner of the factory and the treasury. Using a separate key for 56,
 > or moving this one into an encrypted keystore the way the PoG signer was, closes
 > that window. Neither is done.
+>
+> This line read "~0.043 BNB as of the 2026-09-21 top-up" until the balance was
+> read back off the chain. **There was no top-up**; 0.043 is roughly twice the
+> 1-gwei cost of C1, which is what §3 asks you to fund *to*, written down as
+> though it had already been funded. The figure now here is the measured one and
+> it is the same one §3 carries — so the two rows agree, and neither of them says
+> the deployer is ready. §3 is the instruction: still short by 0.0079 BNB against
+> a 1-gwei broadcast.
+
+⚠ **RUN §4'S PREFLIGHT BEFORE THE BLOCK BELOW, NOT AFTER IT, AND THE ORDER THIS
+FILE PUTS THEM IN IS THE WRONG WAY ROUND.** Exporting first makes the preflight
+refuse to run. Its check 0b requires every role to have resolved from
+`.env.production`, and `loadRoleEnv` labels anything already in the shell as
+`environment` — a different source, so the check reports "role var(s) did not
+come from .env.production" and exits 2. That exit is a *blocked* check, and §4
+says so, but an operator who has just followed §3 to the letter sees it as a
+failure of the file they just filled in. The way out is to clear the exports
+from the session and re-run, which is a strange instruction to arrive at with a
+funded key in the shell.
+
+So: **preflight (clean shell) → export → dry run → broadcast.** The export exists
+to feed `forge`, which needs the values in its environment; the preflight exists
+to read the *file*, and giving it the environment instead defeats it.
 
 The documented invocation, `set -a && source .env.production && set +a`, is
 bash. In PowerShell:
@@ -301,7 +325,24 @@ $env:PRIVATE_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
 # Expect the deployer from §3, not the address that used to be written here --
 # `0x4E41CEa9…E690` was a 4663 wallet and no longer exists in any role.
 cast wallet address --private-key $env:PRIVATE_KEY   # expect 0x35b232E2...874a
+
+# Prove the loop actually populated the session, and do it before the dry run
+# rather than reading it out of the manifest afterwards. A silently empty export
+# is not hypothetical — `Get-Content` returning nothing on an encoding hiccup is
+# enough — and every name below then falls through to `.env`'s chain-97 twin.
+# `PLATFORM_TREASURY` is the one that does not fail: it becomes the immutable
+# recipient of 0.30 % of the BEM input of every buy on every pool, baked into the
+# hook implementation, remediable only by redeploying everything.
+$must = 'TARGET_CHAIN_ID','TARGET_RPC','PLATFORM_TREASURY','PROD_OWNER_SAFE',
+        'POG_SIGNER_ADDRESS','QUOTE_ASSET','INFINITY_CL_POOL_MANAGER','INFINITY_VAULT'
+$bad = $must | Where-Object { -not $(Get-Item "Env:\$_" -ErrorAction SilentlyContinue).Value }
+if ($bad) { throw "NOT EXPORTED: $($bad -join ', ') -- do not broadcast" }
+$must | ForEach-Object { '{0,-26} {1}' -f $_, (Get-Item "Env:\$_").Value }
 ```
+
+Read that list against §3's table before going on. `TARGET_CHAIN_ID` must be
+`56` and `PLATFORM_TREASURY` must be the Safe — those two are the pair that
+`.env` would answer for in silence.
 
 The loader loop above is safe against this tree's `.env.production`: every
 entry is a bare `KEY=value` with no inline comment, quoting or whitespace.
