@@ -188,6 +188,29 @@ contract ToshInvariantHandler is Test {
     ///      commission, so it can easily never fire.
     uint256 public ghostReferralPromises;
 
+    /// @dev The commission note above applies verbatim to the other two paths
+    ///      that hand out money, and both were left as bare `catch {}` when it
+    ///      was fixed for commission. Neither is hypothetical in the same way:
+    ///
+    ///      `claimGenesis` is owed to every depositor of a launched hook, and
+    ///      `launch()` mints `GENESIS_SUPPLY` to the hook before settling the LP
+    ///      leg at whatever the pool rounds it to. Should that leg ever round
+    ///      ABOVE `GENESIS_LP_SUPPLY`, the shortfall is invisible until a late
+    ///      claimant's `safeTransfer` reverts — and a swallowed revert renders
+    ///      that as a quieter run, not a failure.
+    ///
+    ///      `refund` is a solvency invariant already (`unlaunchedHookCanPayEveryRefund`)
+    ///      but solvency is not the promise: the promise is that the door opens.
+    ///      The factory's own docs say pause, halt and blacklist must not block
+    ///      refunds or claims, and the fuzzer already composes those states — so
+    ///      a future `whenNotPaused` on `refund()` would trap deposits while
+    ///      every existing money invariant stayed green, because a blocked
+    ///      refund moves neither the ledger nor the balance.
+    uint256 public ghostBrokenGenesisPromise;
+    uint256 public ghostGenesisPromises;
+    uint256 public ghostBrokenRefundPromise;
+    uint256 public ghostRefundPromises;
+
     /// @dev token => the highest balance `0xdead` has ever held of it. Burns are
     ///      supposed to be irreversible; a token that could be recovered from
     ///      the burn address would make every "burned" figure a loan.
@@ -206,6 +229,14 @@ contract ToshInvariantHandler is Test {
     ///      round that is already open.
     mapping(address => uint256) public ghostSoftCap;
     mapping(address => uint256) public ghostPerWalletCap;
+
+    /// @dev The genesis duration was not frozen anywhere, though it is agreed at
+    ///      `createLaunch` exactly as the two caps are and decides the deadline
+    ///      every refund and launch gate reads. Only written for hooks the
+    ///      fuzzer creates, because those are the ones whose submitted value is
+    ///      in hand; left zero for the `setUp` hooks, and the invariant skips
+    ///      zero rather than inventing a figure to compare against.
+    mapping(address => uint256) public ghostGenesisDuration;
 
     // ─── Call counters ────────────────────────────────────────────────────────
     //
@@ -256,8 +287,15 @@ contract ToshInvariantHandler is Test {
         pogSignerPk = _pogSignerPk;
         for (uint256 i; i < _hooks.length; ++i) {
             hooks.push(_hooks[i]);
-            ghostSoftCap[address(_hooks[i])] = _hooks[i].softCap();
-            ghostPerWalletCap[address(_hooks[i])] = _hooks[i].perWalletCap();
+            // Sourced from the factory, not from the clone. Reading the clone's
+            // own getter and later comparing against that same getter proves
+            // only that the getter is STABLE — a packing or offset bug that
+            // mis-seeds the immutable would corrupt both sides identically and
+            // the invariant would still pass. `setUp` creates these hooks with
+            // exactly these two factory values and no retune can have happened
+            // yet, so at construction time this is the submitted figure.
+            ghostSoftCap[address(_hooks[i])] = _factory.defaultSoftCap();
+            ghostPerWalletCap[address(_hooks[i])] = _factory.maxPogAllocationLimit();
         }
         for (uint256 i; i < _actors.length; ++i) {
             actors.push(_actors[i]);
@@ -528,10 +566,14 @@ contract ToshInvariantHandler is Test {
         ) {
             ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
             hooks.push(hook);
-            // Snapshot the caps this round was opened under, so the freeze
-            // invariant can hold the platform to them even after a retune.
-            ghostSoftCap[h] = hook.softCap();
-            ghostPerWalletCap[h] = hook.perWalletCap();
+            // Snapshot what was SUBMITTED, not what the clone reports back. The
+            // two differ precisely in the case worth catching: a clone seeded
+            // with something other than the caps its creator agreed to. Reading
+            // `hook.softCap()` here made the freeze invariant a tautology about
+            // its own getter.
+            ghostSoftCap[h] = agreedSoftCap;
+            ghostPerWalletCap[h] = agreedWalletCap;
+            ghostGenesisDuration[h] = dur;
             ++okCreate;
         } catch {}
 
@@ -576,12 +618,20 @@ contract ToshInvariantHandler is Test {
         ToshLaunchpadHook hook = _hookInPhase(hookSeed, 1);
         address user = _actorWithDeposit(hook, actorSeed);
 
+        // `canRefund()` is the hook's published verdict on whether the door is
+        // open; a deposit is the only other thing `refund()` needs. With both
+        // true the call must go through, whatever the platform switches say.
+        bool promised = hook.canRefund() && hook.nativeDeposited(user) > 0;
+        if (promised) ++ghostRefundPromises;
+
         vm.prank(user);
         try hook.refund() {
             // A refund returns 100% of the deposit and zeroes the ledger slot.
             ghostDeposited[address(hook)][user] = 0;
             ++okRefund;
-        } catch {}
+        } catch {
+            if (promised) ++ghostBrokenRefundPromise;
+        }
 
         _sync();
     }
@@ -601,10 +651,19 @@ contract ToshInvariantHandler is Test {
         ToshLaunchpadHook hook = _hookInPhase(hookSeed, 3);
         address user = _actorWithDeposit(hook, actorSeed);
 
+        // Asked before the call for the same reason as the commission promise:
+        // a successful claim flips the bit, so afterwards there is nothing left
+        // to have been owed. All three conditions are the hook's own, not this
+        // suite's reading of them.
+        bool promised = hook.launched() && !hook.genesisShareClaimed(user) && hook.nativeDeposited(user) > 0;
+        if (promised) ++ghostGenesisPromises;
+
         vm.prank(user);
         try hook.claimGenesis() {
             ++okClaimGenesis;
-        } catch {}
+        } catch {
+            if (promised) ++ghostBrokenGenesisPromise;
+        }
 
         _sync();
     }
@@ -736,6 +795,15 @@ contract ToshInvariantHandler is Test {
         } catch (bytes memory reason) {
             lastMintRevert = reason;
         }
+
+        // A shelf mint sends `cost * PLATFORM_TAX_BPS / 10000` straight to the
+        // ladder treasury, and this was the one funding entry that never raised
+        // the floor — every other action syncs, swaps rebase. The omission was
+        // not harmless: `invariant_treasuryOnlyLosesEthToBuybacks` has teeth
+        // only where the floor has been raised to cover the money, so a shelf
+        // cut that arrived and then left again between two syncs stayed under
+        // the old high-water mark and the invariant passed over it.
+        _sync();
     }
 
     /// @notice Deploy the reservoir with no swap to ride — the treasury's second
@@ -1431,6 +1499,11 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
                 handler.ghostPerWalletCap(address(hook)),
                 "perWalletCap moved after the round opened"
             );
+
+            uint256 agreedDuration = handler.ghostGenesisDuration(address(hook));
+            if (agreedDuration != 0) {
+                assertEq(hook.genesisDuration(), agreedDuration, "genesisDuration moved after the round opened");
+            }
         }
     }
 
@@ -1547,6 +1620,132 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         );
     }
 
+    /// @notice Every referrer must be able to claim, not merely the next one.
+    ///
+    /// @dev    `invariant_promisedCommissionIsPayable` above is a LIVENESS check
+    ///         on whichever claim the fuzzer happened to attempt. It passes on a
+    ///         hook holding enough quote for the first claimant and not for the
+    ///         second, because the second claim is never tried. That is the
+    ///         shape of the failure worth catching: commission is owed to many
+    ///         addresses out of one balance, so the shortfall shows up at the
+    ///         END of the queue and the early claims look perfectly healthy.
+    ///
+    ///         The mechanism is `launch()`. It sizes the LP leg as
+    ///         `totalNativeDeposited - (totalReferralReserved + orphanReferral)`
+    ///         and leaves the commission sitting in the same contract, then
+    ///         transfers the orphan share out. Infinity settles `modifyLiquidity`
+    ///         by rounding in the pool's favour, so the quote actually consumed
+    ///         can EXCEED `lpNative` — and the excess is paid out of the only
+    ///         other quote in the contract, which is the commission reserve.
+    ///         Nothing reverts when that happens; the balance is simply short
+    ///         by the rounding, and the last referrer to claim eats it.
+    function invariant_launchedHookCanPayEveryCommission() public view {
+        uint256 n = handler.hookCount();
+        for (uint256 i; i < n; ++i) {
+            ToshLaunchpadHook hook = handler.hooks(i);
+            if (!hook.launched()) continue;
+
+            uint256 owed;
+            uint256 a = handler.actorCount();
+            for (uint256 j; j < a; ++j) {
+                owed += hook.referralAccrued(handler.actors(j));
+            }
+
+            assertGe(
+                quote.balanceOf(address(hook)), owed, "launched hook cannot cover its outstanding commission at once"
+            );
+        }
+    }
+
+    /// @notice The commission reserve, the amount paid out and the amount still
+    ///         owed are three views of one number and must agree.
+    ///
+    /// @dev    Solvency above says the money is there; this says the books are
+    ///         right. They fail independently: a hook can hold ample quote while
+    ///         having double-counted an accrual, and the discrepancy only
+    ///         becomes a shortfall once enough of it is claimed. Worth pinning
+    ///         because the carve is written at deposit time into one of two
+    ///         destinations — `reserved` or `orphan` — and an address can hold
+    ///         the project and lifetime referrer slots simultaneously, which is
+    ///         two writes to one accrual for a single deposit.
+    ///
+    ///         Only the handler's own actors are summed, which is sound here
+    ///         because they are the only addresses the fuzzer ever names as a
+    ///         referrer. A referrer outside that set would make this read low
+    ///         and the assertion would be wrong rather than merely weak, so it
+    ///         must be revisited if referrers are ever drawn from elsewhere.
+    function invariant_referralLedgersAgree() public view {
+        uint256 n = handler.hookCount();
+        for (uint256 i; i < n; ++i) {
+            ToshLaunchpadHook hook = handler.hooks(i);
+
+            uint256 outstanding;
+            uint256 a = handler.actorCount();
+            for (uint256 j; j < a; ++j) {
+                outstanding += hook.referralAccrued(handler.actors(j));
+            }
+
+            assertEq(
+                hook.totalReferralReserved(),
+                hook.totalReferralClaimed() + outstanding,
+                "commission reserved does not equal paid plus outstanding"
+            );
+        }
+    }
+
+    /// @notice A depositor of a launched hook can always take their genesis
+    ///         share, and a refundable round always actually refunds.
+    ///
+    /// @dev    Both are liveness, and both were unobservable until the handler
+    ///         stopped swallowing the reverts — see the note on
+    ///         `ghostBrokenGenesisPromise`. The existing money invariants cannot
+    ///         see either failure: a blocked claim moves no balance and no
+    ///         ledger, so it reads as a quieter run rather than a broken one.
+    function invariant_promisedGenesisShareIsPayable() public view {
+        assertEq(
+            handler.ghostBrokenGenesisPromise(), 0, "a launched hook owed a genesis share and then refused to pay it"
+        );
+    }
+
+    function invariant_promisedRefundAlwaysGoesThrough() public view {
+        assertEq(handler.ghostBrokenRefundPromise(), 0, "a hook said it was refundable and then refused to refund");
+    }
+
+    /// @notice Per-depositor slots must sum to the round total, exactly, once
+    ///         launched.
+    ///
+    /// @dev    `invariant_ownerCannotMoveTheDepositLedger` compares each
+    ///         `nativeDeposited[u]` against this suite's ghost and never reads
+    ///         `totalNativeDeposited` at all — so a deposit crediting the total
+    ///         differently from the slot keeps every existing assertion green
+    ///         while silently repricing the genesis claim, which divides by that
+    ///         total. Too high dilutes every depositor; too low lets the sum of
+    ///         `floor(CLAIM_SUPPLY * dep / total)` exceed `GENESIS_CLAIM_SUPPLY`
+    ///         and the last claimant reverts.
+    ///
+    ///         Inequality rather than equality before launch, because `refund()`
+    ///         zeroes the caller's slot and deliberately does NOT decrement the
+    ///         total — the zombie term the refund latch depends on. After launch
+    ///         the two must be equal: `canRefund()` and `launch()` are mutually
+    ///         exclusive, so no refund can have happened in a round that shipped.
+    function invariant_depositLedgerTotalsAgree() public view {
+        uint256 n = handler.hookCount();
+        for (uint256 i; i < n; ++i) {
+            ToshLaunchpadHook hook = handler.hooks(i);
+
+            uint256 slots;
+            uint256 a = handler.actorCount();
+            for (uint256 j; j < a; ++j) {
+                slots += hook.nativeDeposited(handler.actors(j));
+            }
+
+            assertLe(slots, hook.totalNativeDeposited(), "deposit slots exceed the round total");
+            if (hook.launched()) {
+                assertEq(slots, hook.totalNativeDeposited(), "launched round total disagrees with its deposit slots");
+            }
+        }
+    }
+
     /// @notice Burns are irreversible: no token ever leaves `0xdead`.
     ///
     /// @dev    Cheap, and it pins the claim the buyback accounting rests on. If
@@ -1579,6 +1778,16 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         ghosts could.
     function invariant_ownerNeverHoldsValue() public view {
         assertEq(admin.balance, 0, "the owner received ETH");
+
+        // The quote asset was missing here, and after the move to BEM pricing it
+        // is the one that matters: deposits, refunds, commission and the ladder
+        // treasury are all denominated in it, while native ETH now appears only
+        // as the launch fee. This invariant calls itself the crudest custody
+        // statement in the suite, and until this line it was making that
+        // statement about the wrong asset. `platformTreasury` is deliberately
+        // not asserted on — the 30 bps buy-tax share and maintenance both land
+        // there by design. `admin` has no such income.
+        assertEq(quote.balanceOf(admin), 0, "the owner received quote");
 
         uint256 n = handler.hookCount();
         for (uint256 i; i < n; ++i) {
@@ -1728,6 +1937,100 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         assertGt(handler.ghostReferralPromises(), 0, "the promised-claim path was never exercised");
         assertEq(handler.ghostBrokenReferralPromise(), 0, "a promised commission claim reverted");
         assertEq(quote.balanceOf(referrer) - before, promised, "commission paid did not match the promise");
+    }
+
+    /// @notice The genesis-claim promise counter really fires, and the share
+    ///         paid is the exact pro-rata.
+    ///
+    /// @dev    Without this, `invariant_promisedGenesisShareIsPayable` is
+    ///         satisfied by a run in which no claim was ever owed — the vacuity
+    ///         this suite's notes warn about, and the reason every other ghost
+    ///         here has a companion reachability test.
+    function test_genesisPromiseCoverageIsLive() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 500e8, 0);
+        }
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        assertTrue(h2.launched(), "project did not launch");
+
+        address alice = handler.actors(0);
+        assertFalse(h2.genesisShareClaimed(alice), "precondition: the share must still be unclaimed");
+
+        uint256 expected = (h2.GENESIS_CLAIM_SUPPLY() * h2.nativeDeposited(alice)) / h2.totalNativeDeposited();
+        assertGt(expected, 0, "no share owed, so this test proves nothing");
+
+        IERC20 token = IERC20(address(h2.projectToken()));
+        uint256 before = token.balanceOf(alice);
+
+        handler.claimGenesis(0, 2);
+
+        assertGt(handler.ghostGenesisPromises(), 0, "the promised-claim path was never exercised");
+        assertEq(handler.ghostBrokenGenesisPromise(), 0, "a promised genesis share reverted");
+        assertEq(token.balanceOf(alice) - before, expected, "genesis share paid did not match the pro-rata");
+    }
+
+    /// @notice A refundable round refunds with every platform switch thrown on
+    ///         at once.
+    ///
+    /// @dev    This is the composition the factory's docs promise and the one
+    ///         the fuzzer can reach but could not previously observe: pause,
+    ///         blacklist and halt are all in the selector list, and a refund
+    ///         blocked by any of them moves neither balance nor ledger, so it
+    ///         reads as a quieter run rather than trapped deposits.
+    ///
+    ///         Warped past the deadline AND the launch window, so the refund
+    ///         gate is open by the second clause of `canRefund()` and the test
+    ///         does not depend on whether the ladder was viable.
+    function test_refundPromiseSurvivesEveryPlatformSwitch() public {
+        handler.deposit(0, 2, 500e8, 0);
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        address alice = handler.actors(0);
+        uint256 dep = h2.nativeDeposited(alice);
+        assertGt(dep, 0, "precondition: a deposit must land");
+
+        handler.warpLong(14 days);
+        handler.warpLong(14 days);
+        assertTrue(h2.canRefund(), "precondition: the round must be refundable");
+
+        handler.ownerPause(true);
+        handler.ownerBlacklist(0, 2 days);
+        handler.ownerHaltLadder(2, 7 days, true);
+
+        uint256 before = quote.balanceOf(alice);
+        handler.refund(0, 2);
+
+        assertGt(handler.ghostRefundPromises(), 0, "the promised-refund path was never exercised");
+        assertEq(handler.ghostBrokenRefundPromise(), 0, "a refundable round refused to refund");
+        assertEq(quote.balanceOf(alice) - before, dep, "refund did not return the full deposit");
+    }
+
+    /// @notice A shelf mint's platform cut raises the treasury floor.
+    ///
+    /// @dev    `mintShelf` was the one funding entry that never called `_sync()`,
+    ///         so the 1% cut it sends to the ladder arrived below the floor and
+    ///         `invariant_treasuryOnlyLosesEthToBuybacks` had nothing to hold it
+    ///         against. This test is what keeps that fix from silently rotting:
+    ///         delete the `_sync()` and this goes red, while the invariant it
+    ///         arms stays green.
+    function test_mintShelfRaisesTheTreasuryFloor() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 500e8, 0);
+        }
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+        assertTrue(handler.hooks(2).launched(), "precondition: the round must launch");
+
+        handler.swapBuy(0, 2, 50e8);
+        assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
+        handler.warpShort(1 minutes);
+
+        uint256 floorBefore = handler.ghostTreasuryFloor();
+        handler.mintShelf(0, 2, 1e18);
+        assertEq(handler.okMintShelf(), 1, "precondition: the shelf mint must land");
+
+        assertGt(handler.ghostTreasuryFloor(), floorBefore, "the shelf mint's platform cut never raised the floor");
     }
 
     /// @notice The buyback really does fire, spend treasury ETH, and burn — so
