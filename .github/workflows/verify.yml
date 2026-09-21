@@ -190,6 +190,56 @@ jobs:
             rpc="${BSC_TESTNET_RPC:-https://data-seed-prebsc-1-s1.bnbchain.org:8545}"
           fi
 
+          # ── What counts as "every contract the deploy created" ──────────────
+          #
+          # The list used to be `transactionType=="CREATE"`, which on the
+          # chain-56 deploy is two of the five contracts that exist afterwards,
+          # and the job went green having published two. The three it missed are
+          # not incidental:
+          #
+          #   · HookDeployLib is CREATE2, so the filter dropped it by type.
+          #   · ToshLaunchpadHook and ToshToken are built inside ToshFactory's
+          #     constructor. They are `additionalContracts` entries with an
+          #     address and no contractName, so no name-based filter can reach
+          #     them.
+          #
+          # The hook implementation is the one that matters most. It holds the
+          # swap, fee, genesis and refund logic, `platformFeeRecipient` is baked
+          # into it, and every project's hook is an EIP-1167 clone pointing at
+          # it — so it is the contract a user auditing a launch actually reads,
+          # and it was the one contract guaranteed not to be published.
+          #
+          # Their addresses come from the factory's own immutables rather than
+          # from a list kept here, so this cannot name a hook the deployed
+          # factory does not use.
+          targets="${RUNNER_TEMP:-/tmp}/verify-targets.tsv"
+          jq -r '.transactions[]
+            | select(.transactionType=="CREATE" or .transactionType=="CREATE2")
+            | select(.contractName != null)
+            | [.contractName, .contractAddress] | @tsv' "$log" > "$targets"
+
+          factory=$(jq -r '.transactions[]
+            | select(.contractName=="ToshFactory")
+            | .contractAddress' "$log" | head -n 1)
+
+          if [ -n "$factory" ]; then
+            for pair in "ToshLaunchpadHook:hookImplementation" "ToshToken:tokenImplementation"; do
+              nm="${pair%%:*}"; getter="${pair##*:}"
+              addr=$(cast call "$factory" "${getter}()(address)" --rpc-url "$rpc" | tr -d '[:space:]')
+              case "$addr" in
+                0x0000000000000000000000000000000000000000|"")
+                  echo "::warning::factory ${factory} answered ${getter}() with '${addr:-<nothing>}'; ${nm} will not be published"
+                  ;;
+                *) printf '%s\t%s\n' "$nm" "$addr" >> "$targets" ;;
+              esac
+            done
+          else
+            echo "::warning::no ToshFactory in ${log}, so the two contracts it builds in its constructor cannot be resolved"
+          fi
+
+          echo "contracts to publish:"
+          sed 's/^/  /' "$targets"
+
           # Already-published addresses are skipped rather than resubmitted.
           # That is what makes re-running this safe after a partial failure,
           # which is the normal case given the intermittent refusal described
@@ -231,9 +281,15 @@ jobs:
               continue
             fi
 
-            src=$(grep -rl --include='*.sol' -E "^\s*(abstract\s+)?contract\s+${name}\b" src/ | head -n 1)
+            # `library` as well as `contract`, because HookDeployLib is one and
+            # a `contract`-only pattern made it unfindable. That did not show up
+            # while the target list was CREATE-only: the filter dropped the
+            # library before the search could fail to find it, so widening the
+            # filter without widening this would have turned a silent omission
+            # into a red step. Deployed libraries verify like any other address.
+            src=$(grep -rl --include='*.sol' -E "^\s*(abstract\s+)?(contract|library)\s+${name}\b" src/ | head -n 1)
             if [ -z "$src" ]; then
-              echo "::error::no source file under src/ declares contract ${name}"
+              echo "::error::no source file under src/ declares contract or library ${name}"
               failed=1
               echo "::endgroup::"
               continue
@@ -291,7 +347,7 @@ jobs:
             fi
             rm -f "$out"
             echo "::endgroup::"
-          done < <(jq -r '.transactions[] | select(.transactionType=="CREATE") | select(.contractName != null) | [.contractName, .contractAddress] | @tsv' "$log")
+          done < "$targets"
 
           exit "$failed"
 
@@ -316,6 +372,20 @@ jobs:
           [ -f "$log" ] || exit 0
           if [ "$CHAIN" = "56" ]; then host=bscscan.com; else host=testnet.bscscan.com; fi
 
+          # The same list the publishing step worked from, so this reports on
+          # what was actually attempted. It is written there; regenerate it
+          # here only if that step died before getting that far, in which case
+          # the broadcast log is all there is and the two constructor-built
+          # contracts cannot be named.
+          targets="${RUNNER_TEMP:-/tmp}/verify-targets.tsv"
+          if [ ! -s "$targets" ]; then
+            echo "(the publishing step did not get as far as resolving its targets)"
+            jq -r '.transactions[]
+              | select(.transactionType=="CREATE" or .transactionType=="CREATE2")
+              | select(.contractName != null)
+              | [.contractName, .contractAddress] | @tsv' "$log" > "$targets"
+          fi
+
           while IFS=$'\t' read -r name addr; do
             [ -n "$name" ] || continue
             sleep 1
@@ -336,4 +406,4 @@ jobs:
               echo "  ${name}: not published"
             fi
             echo "    https://${host}/address/${addr}#code"
-          done < <(jq -r '.transactions[] | select(.transactionType=="CREATE") | select(.contractName != null) | [.contractName, .contractAddress] | @tsv' "$log")
+          done < "$targets"
