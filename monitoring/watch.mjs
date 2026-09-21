@@ -472,8 +472,9 @@ if (watchedPairChanged) {
     `those two configurations reported on the old pair, so its greenness said nothing about ` +
     `the new one. The checkpoint, the harvested hooks and the treasury-balance baseline have ` +
     `been discarded; this pass rescans the most recent ${MAX_SPAN.toLocaleString()} blocks, ` +
-    `so expect duplicates. If the redeploy is older than that window, run the workflow ` +
-    `manually with a larger 'since' — no later pass will reach back on its own.`,
+    `or back to MONITOR_DEPLOY_BLOCK if that is nearer, so expect duplicates. If the ` +
+    `redeploy is older than that window, run the workflow manually with a larger 'since' ` +
+    `— no later pass will reach back on its own.`,
     { previousFactory: prevFactory, previousTreasury: prevTreasury })
   state.lastBlock = null
   state.hooks = []
@@ -482,10 +483,41 @@ if (watchedPairChanged) {
   delete state.treasuryBalance
 }
 
+/* A fresh checkpoint starts where the contracts start, not a fixed distance
+ * back from the head.
+ *
+ * `MAX_SPAN` answers "how far back will the node reach", and the fallback below
+ * treats that as the answer to "how far back is there anything to see" as well.
+ * On a chain the protocol has been on for months those coincide. On the day of
+ * a deploy they do not, and the difference is the whole first pass: chain 56's
+ * factory was created at 123,171,447, so `head - 900_000` asks thirteen days of
+ * BSC for events from a contract that did not exist for twelve of them.
+ *
+ * That is not merely wasteful. Public BSC endpoints do not serve a window that
+ * wide — `bsc-dataseed*` refuse `eth_getLogs` outright, drpc caps the free tier
+ * at 10,000 blocks and publicnode calls anything past ~5,000 an archive request
+ * — so the first pass after the cutover failed every query it made and recorded
+ * WATCHER-02 and WATCHER-04, i.e. "the monitor was blind". Blind on pass one, on
+ * the deployment holding every kill switch, is the failure this file exists to
+ * prevent, and it arrived from the one direction nothing was watching.
+ *
+ * Steady state was never the problem: the schedule is every 15 minutes and BSC
+ * blocks are ~0.75 s, so an ordinary pass scans ~1,200 blocks and fits inside
+ * even the meanest of those caps. Set `MONITOR_DEPLOY_BLOCK` and the expensive
+ * pass is the cheap one too.
+ *
+ * Left unset, behaviour is exactly what it was. It is a floor, never a ceiling:
+ * it cannot make a pass skip a block that a checkpoint or `--since` asked for.
+ */
+const DEPLOY_BLOCK = process.env.MONITOR_DEPLOY_BLOCK
+  ? Number(process.env.MONITOR_DEPLOY_BLOCK)
+  : null
+
 let from
 if (SINCE) from = Math.max(0, head - Number(SINCE))
 else if (state.lastBlock != null) from = state.lastBlock + 1
 else from = Math.max(0, head - MAX_SPAN)
+if (DEPLOY_BLOCK != null && from < DEPLOY_BLOCK) from = DEPLOY_BLOCK
 
 if (from > head) {
   console.error(JSON.stringify({ level: 'info', message: 'no new blocks', head, from }))

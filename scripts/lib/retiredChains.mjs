@@ -90,11 +90,21 @@ export function retiredChain(chainId) {
  * quiet, which is the one property the 4663 episode did not have. Left at 97
  * before the mainnet deploy, every pass is green and correct.
  *
+ * Moved to 56 on 2026-09-21, the day `DeployMainnet.s.sol` broadcast. `alerts.json`
+ * moved in the same commit, so the WATCHER-09 window described above lasted no
+ * passes at all; the `MONITOR_*` repository variables are the half that lives
+ * outside this tree, and until they are set the monitor refuses to start rather
+ * than watching the wrong pair — `MONITOR_FACTORY` still naming the 97 factory
+ * would now disagree with this file and page WATCHER-09 anyway.
+ *
+ * 97 did NOT join the retired list in that commit and should not. It stays the
+ * rehearsal chain; it is simply no longer what the pager is for.
+ *
  * One number in one file, imported by the monitor. Do not copy it into
  * `alerts.json`: a catalogue that declares which chain it ought to be about can
  * only ever agree with itself.
  */
-export const STANDING_CHAIN_ID = 97
+export const STANDING_CHAIN_ID = 56
 
 /**
  * Stop, with the reason, when `chainId` is one this protocol has left.
