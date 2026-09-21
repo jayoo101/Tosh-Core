@@ -231,7 +231,15 @@ function loadOracleAccount() {
       + 'set with DIFFERENT values — using SIGNER.  Pick one and unset the other.'
     )
   }
-  const pk = raw.startsWith('0x') ? raw : `0x${raw}`
+  // Trimmed because viem rejects the key outright on any surrounding
+  // whitespace — measured: a trailing "\n", "\r\n" or a single space each fail
+  // with `invalid private key, expected hex or 32 bytes, got string`, which
+  // names neither whitespace nor the variable. A secret that arrives with a
+  // stray newline is an ordinary way to configure this (a paste into a
+  // dashboard field, a value piped from a file), and it is not worth spending
+  // an outage decoding that message.
+  const trimmed = raw.trim()
+  const pk = trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`
   try {
     const account = privateKeyToAccount(pk as `0x${string}`)
     return { account, err: null } as const

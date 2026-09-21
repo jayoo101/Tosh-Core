@@ -145,7 +145,7 @@ immutable and the money is back with the depositors.
 | Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.042985 BNB | **funded, including for a gas spike — topped up 2026-09-21 and re-measured after.** ~0.00105 BNB at 0.05 gwei (41x covered) and 0.0209 BNB at 1 gwei, which this now covers outright; `preflightMainnet.mjs` check 7 reports it as a plain pass rather than "at spot, not under load". It held 0.012985 BNB before the top-up, i.e. short by 0.0079 BNB against a 1-gwei broadcast. The gas figure is **20,908,865**, summed from the chain-56 `DeployMainnet` dry run. It read 15,236,814 until 2026-09-21 and 15,143,081 before that; both were the wrong measurement rather than a stale one — `broadcast/Deploy.s.sol/97/…`, a **different script on a different chain**, which does not contain the `Create2Deployer` → `HookDeployLib` transaction that 56 needs (7.68 M gas on its own). Understated by 37 %, the third time in that direction. `preflightMainnet.mjs` now sums a chain-56 `DeployMainnet` run, so **run the §4 dry run before trusting its funding check** |
 | Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
 | Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
-| PoG signer | `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` | **rotated 2026-09-19, and this row is the one that changed.** It used to name `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, and blocked the deploy. Generated into an encrypted keystore; the key was never written to a log or a tracked file. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
+| PoG signer | `0x57565feBbD355F825f895059c78551D333bdF877` | **rotated twice, and this row has been wrong once already.** It first named `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, which blocked the deploy. It then named `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` from 2026-09-19 until 2026-09-22, when that key's private half could not be produced: the factory was pointing at an address nobody could sign for, Vercel was carrying a key that derived a different address, and **every genesis deposit was failing closed** behind "Signing oracle is misconfigured". Replaced via the Safe calling `setPogSigner`. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
 | Deployer BEM balance | 0 | correct — the launch fee is paid by whoever calls `createLaunch`, not by the deployer. Nothing in the deploy moves BEM |
 | Old factory `paused()` | n/a | there is no old factory on `56`; this is a first deployment, not a redeploy. See step 6 for what that changes |
 
@@ -171,6 +171,24 @@ immutable and the money is back with the depositors.
 >
 > The new signer needs **no BNB at all** — see the note below, which is about the
 > deploy script and applies with equal force to a freshly generated key.
+>
+> **`PM-C7` above came true on 2026-09-22, and the paragraph describing it was
+> already correct.** Production was carrying a key deriving an address the
+> factory did not expect, nothing failed loudly, and the first symptom was a
+> creator seeing "Signing oracle is misconfigured" days after launch. Writing
+> the warning down did not prevent it; what was missing was a check that runs.
+> `scripts/checkPogKey.mjs` is that check — it derives the address from a
+> candidate key and compares it to `factory.pogSigner()` without echoing the
+> key — and it is worth running whenever the Vercel value is touched.
+>
+> The second failure was custody, and it is not covered anywhere above. The
+> 2026-09-19 key went into an encrypted keystore and nowhere else, which reads
+> like good hygiene and is also a single copy: when it was needed it could not
+> be produced, and the only way out was a Safe transaction repointing the
+> factory. **Keep the private half in at least two places the team controls**,
+> the keystore and a password manager, and keep the keystore password with them
+> — a key you cannot decrypt is lost in exactly the same way as one you never
+> had. The loss is silent until somebody tries to deposit.
 
 > **Do not fund the PoG signer.** `registerPoG` binds its digest to `msg.sender`
 > and recovers the signer only to compare addresses, so the signer never sends a
@@ -201,7 +219,7 @@ QUOTE_ASSET=0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a                # in the t
 DEPLOYER_ADDRESS=0x35b232E26a275f62E594e010624aEA0c46b7874a
 PROD_OWNER_SAFE=0x02DE4629129D104C63329D13A6Ca67E43db7B310
 PLATFORM_TREASURY=0x02DE4629129D104C63329D13A6Ca67E43db7B310
-POG_SIGNER_ADDRESS=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D   # rotated 2026-09-19
+POG_SIGNER_ADDRESS=0x57565feBbD355F825f895059c78551D333bdF877   # rotated again 2026-09-22, see the PoG signer row above
 ETHERSCAN_API_KEY=<an Etherscan v2 key — one key covers 56 and 97>
 ```
 
@@ -590,7 +608,7 @@ notices they are stale.
 MONITOR_FACTORY=0x20dE906A96FfB89BE6fd6267A0876A68017792F7      # was 0x51Bb18FE…C546 (97)
 MONITOR_TREASURY=0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B     # was 0x5BBcA0BE…9FCC (97)
 MONITOR_EXPECTED_OWNER=0x02DE4629129D104C63329D13A6Ca67E43db7B310    # the SAFE, not the deployer
-MONITOR_EXPECTED_POG_SIGNER=0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D
+MONITOR_EXPECTED_POG_SIGNER=0x57565feBbD355F825f895059c78551D333bdF877
 MONITOR_DEPLOY_BLOCK=123171447
 ```
 
