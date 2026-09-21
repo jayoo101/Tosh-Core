@@ -310,19 +310,19 @@ reporter should assume.
 We would rather you spend your time on something new, so here are the issues we
 already know about, stated as the audit states them.
 
-**Sandwiching the treasury buyback pays, and we have the number.** The buyback is
-a public, sized, tax-exempt market buy: `pokeBuyback()` is permissionless,
-`nextSpendAmount()` and `currentCursor` are readable, and the leg itself is
-exempt from the 1 % hook tax. Its only protection is `_buybackSqrtFloor`, a
-TWAP-anchored **price** bound of 1000 bps in sqrt — about 23 % in price — which
-stops an out-of-band shove and does nothing to a same-size sandwich sitting well
-inside it.
+**Sandwiching the treasury buyback used to pay ~7 %. It is closed, and the dial
+that closed it is the one to challenge.** The buyback is a public, sized,
+tax-exempt market buy: `pokeBuyback()` is permissionless, `nextSpendAmount()` and
+`currentCursor` are readable, and the leg itself is exempt from the 1 % hook tax.
+Until 2026-09-21 its only protection was `_buybackSqrtFloor`, a TWAP-anchored
+**price** bound of 1000 bps in sqrt — about 23 % in price — which stops an
+out-of-band shove and does nothing to a same-size sandwich well inside it.
 
-Measured on this tree (`test_probeG_sandwichThePiggyback`), 10,000 BEM raised,
-9,000 BEM pooled, a 333.33 BEM leg, each figure net of the identical round trip
-with the reservoir emptied so the attacker's own friction cancels:
+Measured then (`test_probeG_sandwichThePiggyback`), 10,000 BEM raised, 9,000 BEM
+pooled, a 333.33 BEM leg, each figure net of the identical round trip with the
+reservoir emptied so the attacker's own friction cancels:
 
-| pump | × leg | edge | return on pumped capital |
+| pump | × leg | gross edge | return on pumped capital |
 |---:|---:|---:|---:|
 | 166.67 BEM | 0.5 | **+11.75 BEM** | 7.1 % |
 | 333.33 BEM | 1.0 | **+22.89 BEM** | 6.9 % |
@@ -330,25 +330,51 @@ with the reservoir emptied so the attacker's own friction cancels:
 | 1,333.33 BEM | 4.0 | 0 | 0 % |
 | 4,000 BEM | 12.0 | 0 | 0 % |
 
-The peak is ~13 % of the leg. Note the shape: the edge is roughly linear in the
-pump up to 2× the leg and then falls off a cliff, because past that the band
-binds and the leg stops filling. That cliff is why this went unreported for so
-long — the probe pumped a flat 4,000 BEM against a 333 BEM prize and measured the
-dead zone, so a live and repeatable sandwich showed up as a clean zero.
+Two things in that table did the diagnostic work. The cliff past 4× the leg is
+the band binding, and the old probe's flat 4,000 BEM pump sat in it — which is how
+a live, repeatable sandwich was reported as a clean zero for months. And the
+**return** is flat at ~7 % while only the absolute figure moves, which says the
+governing quantity is a ratio, not a size: gross gain is `(leg / depth) × pump`
+and friction is `1.3 % × pump`, so `pump` cancels and the trade pays if and only
+if `leg / depth` exceeds friction. At 3.7 % it did, by roughly 3×, at every size.
 
-Nothing is stolen from a user. What leaks is deflation: the reservoir's BEM buys
-fewer tokens to burn and the difference is the attacker's. **Why it is still
-open:** the band bounds the price at the *end* of the leg, so it has to stay wide
-enough for the leg's own impact on the thinnest listed book, and it therefore
-cannot tell a sandwich from a legitimate fill. A `minOut` bounds the *average*
-price paid, which does distinguish them — but not as one constant. At the raise
-above the leg is 3.7 % of the book and the honest shortfall is ~1.8 %, so a 3 %
-tolerance separates them cleanly; at the `MIN_SOFT_CAP_PROD` floor (100 BEM
-raised, 90 BEM pooled, a 30.93 BEM leg) the leg is 34 % of the book and the
-honest shortfall is ~25 %, which no single tolerance admits while still refusing a
-7 % skim. Bounding the leg as a fraction of pool depth is what makes one
-tolerance work everywhere, and that is a sizing change rather than a guard. The
-probe asserts a ceiling at the disclosed figure so any worsening is caught.
+That is also why the two obvious dials cannot fix it. The band bounds the price at
+the *end* of the leg, so it must stay wide enough for the leg's own impact on the
+thinnest listed book and cannot tell a sandwich from an honest fill. A `minOut`
+bounds the *average* paid, which does distinguish them, but not as one constant:
+here the honest shortfall is ~1.8 %, and at the `MIN_SOFT_CAP_PROD` floor (90 BEM
+pooled, a 30.93 BEM leg, 34 % of the book) it is ~25 %.
+
+**The fix is sizing, not guarding.** `ToshLadderTreasury.MAX_LEG_DEPTH_BPS` caps
+each leg at 0.50 % of its own pool's quote-side depth, applied per pool in
+`_buyAndBurn` rather than per cycle in `_runPiggyback`, because depth is a property
+of the book and `nextSpendAmount()` is a property of the reservoir. Depth comes
+from `getLiquidity` and `getSlot0` as `(L << 96) / sqrtPriceX96`, the virtual
+quote reserve of the active range. Unspent offer stays in the reservoir for the
+next cycle, so a thin pool is bought back in more, smaller bites.
+
+Re-measured after the cap, same raise, leg now 45.49 BEM:
+
+| pump | × leg | gross edge | net P&L to the attacker |
+|---:|---:|---:|---:|
+| 45.49 BEM | 1.0 | +0.44 BEM | **−0.73 BEM** |
+| 90.99 BEM | 2.0 | +0.88 BEM | **−1.45 BEM** |
+| 181.97 BEM | 4.0 | +1.76 BEM | **−2.89 BEM** |
+| 682.40 BEM | 15.0 | +6.42 BEM | **−10.57 BEM** |
+| 4,000 BEM | 88.0 | 0 | **−87.73 BEM** |
+
+**Two things worth challenging.** First, the probe now asserts on **net** P&L, not
+on the gross edge, and that correction matters: `edge` is the armed arm minus the
+emptied arm, so the attacker's friction cancels out of it, which makes it the
+buyback's gross contribution to a position someone already holds — positive for
+any non-zero leg. `edge == 0` is not a property this design can have, and an
+earlier revision of this file disclosed a *ceiling* on `edge` for exactly that
+reason. What the protocol needs is that manufacturing the position costs more than
+the buyback pays for it. Second, break-even was bisected rather than derived: at
+130 bps the sandwich still loses, at 150 bps it profits, so the real threshold is
+~140 bps and 50 bps sits ~2.8× under it. That margin is carrying constant-product
+curvature, the leg's own tax exemption, and a builder paying no priority fee. **If
+you can find a configuration where 50 bps is not enough, that is a finding.**
 
 **First-block pool flow is open, deliberately.** `launch()` is creator-only, so
 the creator picks the block, and `nonReentrant` does not serialise a swap later

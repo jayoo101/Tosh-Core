@@ -2831,15 +2831,126 @@ contract ToshV5Test is Test {
         // rate now rather than the tax rate.
         uint256 reservoirIn = (50e8 * _reservoirBps(trigger)) / 10_000;
         uint256 spent = before + reservoirIn - quote.balanceOf(address(ladder));
-        // Three bounded legs, measured at 0.3009 ETH.  Tight on both sides on
-        // purpose: losing the price bound again would push this far above the
-        // upper limit, and legs quietly ceasing to fill would drop it below the
-        // lower one.
-        assertGt(spent, 29e8, "three bounded legs must fill");
-        assertLt(spent, 35e8, "the band, not the offer, is what caps the spend");
+
+        // ⚠ THE BINDING CONSTRAINT MOVED AGAIN, and this assertion is now written
+        //   against the contract rather than against a measurement — which is what
+        //   the two previous corrections to this line should have been.
+        //
+        //   History, because the pattern matters more than the numbers. First the
+        //   claim was `spent > 1 ether` and held only because these pools were
+        //   listed before their TWAP matured, so the band fell back to unbounded
+        //   and each leg ran down the curve. Then `_matureTwap()` made the band
+        //   live and the figure became 30.09, pinned as a literal. Now
+        //   `MAX_LEG_DEPTH_BPS` binds BEFORE the band, and the literal is wrong for
+        //   the third time: these are ~90 BEM genesis pools, so 0.5 % of depth is
+        //   ~0.45 BEM per leg against the ~10 BEM the band used to allow.
+        //
+        //   Each of those three states was a real property of the design, and each
+        //   literal silently became a statement about the wrong mechanism. So the
+        //   bound is now derived from `legCeiling` — read per pool, before the
+        //   cycle, because depth differs between them and the cap is per pool.
+        //   A future change to the cap moves this assertion with it; a change that
+        //   accidentally removes the cap makes `spent` overshoot and fails.
+        uint256 ceilings = ladder.legCeiling(address(tokenB)) + ladder.legCeiling(address(tokenC))
+            + ladder.legCeiling(address(tokenD));
+        assertGt(ceilings, 0, "the depth cap must be computable, or the bounds below mean nothing");
+
+        // Legs fill nearly to the cap, because the cap now sits well inside the
+        // band and the band is what used to truncate them. Not exactly: each leg
+        // moves its own pool's price, so the ceiling the third leg meets is not
+        // the one read here.
+        assertGt(spent, (ceilings * 90) / 100, "three depth-capped legs must still fill");
+        assertLe(spent, ceilings, "no leg may exceed its pool's depth ceiling");
+
+        // And the offer is still far above what was spent, which is the point of
+        // the cap: `nextSpendAmount()` asserted 500 BEM at the top, three legs
+        // spent under 2. Losing the cap would close that gap and is what this
+        // catches that the ceiling bound alone would not.
+        assertLt(spent, ladder.nextSpendAmount() / 10, "the depth cap, not the offer, is what bounds the spend");
         assertGt(tokenB.balanceOf(DEAD), 0);
         assertGt(tokenC.balanceOf(DEAD), 0);
         assertGt(tokenD.balanceOf(DEAD), 0);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  Ownership can be handed over, never dropped
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // `Ownable2Step` builds `transferOwnership` as propose-then-accept precisely
+    // so that ownership cannot land on an address nobody controls — and then
+    // inherits a one-call, unconfirmed `renounceOwnership` that puts it on the
+    // zero address deliberately. Both contracts override it to revert.
+    //
+    // These tests assert the pair together on purpose. A revert on its own is
+    // also what you would see if the whole ownership mechanism were broken, so
+    // each one checks that the transfer path still works right after.
+
+    function test_factory_ownershipCannotBeRenounced() public {
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.OwnershipCannotBeRenounced.selector);
+        factory.renounceOwnership();
+
+        assertEq(factory.owner(), admin, "owner must survive the attempt");
+
+        // The brakes are the thing being protected, so name one.
+        vm.prank(admin);
+        factory.pause();
+        assertTrue(factory.paused(), "pause must still reach the contract");
+        vm.prank(admin);
+        factory.unpause();
+
+        // And handing it to a Safe still works, which is what renouncing was
+        // never needed for.
+        address safe = makeAddr("safe");
+        vm.prank(admin);
+        factory.transferOwnership(safe);
+        vm.prank(safe);
+        factory.acceptOwnership();
+        assertEq(factory.owner(), safe, "the two-step handoff must be unaffected");
+    }
+
+    function test_ladderTreasury_ownershipCannotBeRenounced() public {
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.OwnershipCannotBeRenounced.selector);
+        ladder.renounceOwnership();
+
+        assertEq(ladder.owner(), admin, "owner must survive the attempt");
+
+        // Delisting is what an abandoned treasury would lose: the reservoir would
+        // keep buying a rugged token out of every future launch's fees, with
+        // nothing reverting to say so.
+        (ToshToken stuck,) = _launchProject("Stuck", "STK", alice, address(0));
+        _matureTwap();
+        vm.prank(admin);
+        ladder.addLadderToken(address(stuck));
+        vm.prank(admin);
+        ladder.removeLadderToken(address(stuck));
+        assertEq(ladder.ladderTokenCount(), 0, "delisting must still reach the contract");
+
+        address safe = makeAddr("ladderSafe");
+        vm.prank(admin);
+        ladder.transferOwnership(safe);
+        vm.prank(safe);
+        ladder.acceptOwnership();
+        assertEq(ladder.owner(), safe, "the two-step handoff must be unaffected");
+    }
+
+    /// @dev Non-owners must be refused by the ownership check, NOT by the
+    ///      renounce revert.
+    ///
+    ///      Worth its own test because both paths revert and it is easy to write
+    ///      an override that reverts for everyone: that version passes the two
+    ///      tests above while telling a stranger "cannot be renounced" instead of
+    ///      "you are not the owner". The distinction is what proves `onlyOwner` is
+    ///      still in front of the override, which is where the audit trail lives.
+    function test_renounceOwnership_refusesStrangersAsStrangers() public {
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", bob));
+        factory.renounceOwnership();
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", bob));
+        ladder.renounceOwnership();
     }
 
     function test_piggyback_staysIdleBelowTriggerStep() public {

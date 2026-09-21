@@ -577,17 +577,29 @@ if (quoteCode === '0x') {
 console.log('\n6. recoverable — can the deployer actually pay for C1')
 const balance = await provider.getBalance(deployer)
 
-// Recorded from broadcast/Deploy.s.sol/97/run-latest.json, which deployed the
-// same three contracts against the Infinity manager and Vault. Kept as a
-// fallback so this check still has a basis if the broadcast directory is absent
-// or gets pruned.
+// Sum of broadcast/Deploy.s.sol/97/run-latest.json, which deployed the same three
+// contracts against the Infinity manager and Vault. A fallback only: the live sum
+// below is preferred, and this exists so the check still has a basis if the
+// broadcast directory is absent or pruned.
 //
-// It read the 46630 rehearsal until the BSC port, and that number was wrong in
-// two directions at once. It was stale against its own source — the file sums to
-// 15_143_081, not the 14_580_627 written here — and it priced a deploy that
-// mined a hook address, which this one does not, since Infinity reads
-// permissions from a bitmap. The measured BSC figure is about a third lower.
-const C1_REHEARSED_GAS = 9_550_629n
+// ⚠ THE FALLBACK MUST NEVER UNDERSTATE, because understating is the direction that
+//   greenlights an underfunded deployer, and this constant has been wrong in that
+//   direction twice.
+//
+//   First it was 14_580_627, transcribed from the 46630 rehearsal and already
+//   stale against its own source (that file sums to 15_143_081). The BSC port then
+//   replaced it with 9_550_629, described as "about a third lower" because Infinity
+//   reads hook permissions from a bitmap instead of mining an address. That
+//   reasoning was sound and the number was not: no broadcast in this tree sums to
+//   9_550_629, and the actual 97 deploy — same script, same three contracts, same
+//   Infinity manager — sums to 15_236_814. The saving from not mining an address
+//   did not materialise. 9_550_629 understated the real cost by 37 %.
+//
+//   So this is now a re-summed measurement rather than an adjusted estimate. When
+//   the contracts change, the live sum below picks it up; if you ever have to
+//   update this literal by hand, re-sum a receipt file rather than reasoning about
+//   a delta.
+const C1_REHEARSED_GAS = 15_236_814n
 let requiredGas = C1_REHEARSED_GAS
 const REHEARSAL = path.join(REPO, 'broadcast', 'Deploy.s.sol', '97', 'run-latest.json')
 try {

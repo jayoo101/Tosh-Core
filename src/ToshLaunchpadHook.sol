@@ -1628,6 +1628,14 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint256 projectedP0 = (lpQuote * ONE_E18) / GENESIS_LP_SUPPLY;
         if (projectedP0 == 0) return false;
 
+        // ⚠ THE DIVISION ABOVE MUST STAY SEPARATE FROM THE MULTIPLICATION BELOW.
+        //   Slither flags this as `divide-before-multiply` and it is baselined,
+        //   not overlooked: `launch()` stores the FLOORED `p0`, so the shelf base
+        //   this predicate tests has to be derived from the floored value too.
+        //   Folding the two into one expression is more precise and therefore
+        //   WRONG — it would compute a shelf price a launch never sets, and
+        //   `ladderViable()` would start disagreeing with `launch()` on exactly
+        //   the small raises where the disagreement reverts a deposit.
         uint256 projectedShelfP0 = (projectedP0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
 
         // `tierPriceAt(1) > tierPriceAt(0)` for this shelf base. Written out

@@ -558,95 +558,133 @@ contract ToshV5AttackTest is Test {
         // is 1, so one poke spends exactly this much on exactly this pool.
         uint256 leg = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
 
+        // ⚠ THE OFFER IS NOT THE LEG ANY MORE. `nextSpendAmount() / BATCH_SIZE`
+        //   is sized off the RESERVOIR; `legCeiling` is `MAX_LEG_DEPTH_BPS` of
+        //   this pool's depth, and `_buyAndBurn` takes whichever is smaller. Read
+        //   off the contract rather than recomputed here, because a probe that
+        //   models the prize instead of asking for it is how this one came to
+        //   sweep a 4,000 BEM pump at a 333 BEM prize.
+        uint256 ceiling = ladder.legCeiling(address(token));
+        uint256 prize = leg < ceiling ? leg : ceiling;
+
         console2.log("reservoir           ", quote.balanceOf(address(ladder)));
         console2.log("spend this cycle    ", ladder.nextSpendAmount());
-        console2.log("one leg (the prize) ", leg);
+        console2.log("offer per pool      ", leg);
+        console2.log("depth ceiling       ", ceiling);
+        console2.log("one leg (the prize) ", prize);
         console2.log("listed tokens       ", ladder.ladderTokenCount());
+        assertLt(prize, leg, "the depth cap is not binding at this raise, so this probe tests nothing new");
 
-        // Around the prize, not past it. The last entry keeps the old 4,000 BEM
-        // reading so the two are visible side by side and the regression this
-        // probe used to have stays legible.
-        uint256[5] memory pumps = [leg / 2, leg, leg * 2, leg * 4, 4000e8];
+        // Around the real prize. The last entry keeps the old 4,000 BEM reading so
+        // the dead zone stays visible and the regression this probe used to have
+        // stays legible.
+        uint256[5] memory pumps = [prize, prize * 2, prize * 4, prize * 15, 4000e8];
 
         int256 worstEdge = type(int256).min;
+        int256 worstNet = type(int256).min;
         uint256 worstAt;
 
         for (uint256 i; i < pumps.length; ++i) {
-            int256 edge = _measureSandwichEdge(hook, token, pumps[i]);
-            console2.log("--- pump / edge ---");
+            (int256 edge, int256 net) = _measureSandwichEdge(hook, token, pumps[i]);
+            console2.log("--- pump / edge / net ---");
             console2.log("  pump            ", pumps[i]);
-            console2.log("  edge            ");
+            console2.log("  edge (gross)    ");
             console2.logInt(edge);
-            if (edge > worstEdge) {
-                worstEdge = edge;
+            console2.log("  net P&L         ");
+            console2.logInt(net);
+            if (edge > worstEdge) worstEdge = edge;
+            if (net > worstNet) {
+                worstNet = net;
                 worstAt = pumps[i];
             }
         }
 
-        console2.log("=== worst edge across the sweep ===");
+        console2.log("=== worst across the sweep ===");
         console2.log("  at pump         ", worstAt);
-        console2.log("  edge            ");
+        console2.log("  gross edge      ");
         console2.logInt(worstEdge);
+        console2.log("  net P&L         ");
+        console2.logInt(worstNet);
 
-        // ⚠ THE HONEST NUMBER IS NOT ZERO, so this pins the exposure instead of
-        //   claiming there is none. Measured on this tree, 10,000 BEM raise,
-        //   9,000 BEM in the pool, 333.33 BEM leg:
+        // ⚠ ASSERT ON THE NET, NOT ON THE EDGE, and the distinction is the whole
+        //   correctness of this probe. `edge` is the ARMED arm minus the EMPTIED
+        //   arm, so the attacker's own friction — 0.3 % pool fee and 1 % hook tax,
+        //   twice — cancels between them. That makes `edge` the buyback's gross
+        //   contribution to someone already holding the position, and it is
+        //   positive for any non-zero leg: a market buy landing between somebody's
+        //   entry and exit always helps them. `edge == 0` is therefore not a
+        //   property this design can have, and an earlier version of this file
+        //   asserted a ceiling on it precisely because zero looked unreachable.
         //
-        //       pump      x leg   edge        return on the pumped capital
-        //       166.67     0.5     +11.75     7.1 %
-        //       333.33     1.0     +22.89     6.9 %
-        //       666.67     2.0     +43.49     6.5 %
-        //     1,333.33     4.0       0        0   %
-        //     4,000       12.0       0        0   %
+        //   What the protocol actually needs is that MANUFACTURING the position
+        //   costs more than the buyback pays for it, and that is `net` — the
+        //   attacker's realised P&L with the reservoir armed, friction included.
+        //   Negative means the sandwich loses money, which is the claim.
+        assertLt(worstNet, 0, "sandwiching the buyback is profitable at some pump size");
+
+        // ── How this looked before `MAX_LEG_DEPTH_BPS`, and why ─────────────
         //
-        //   Read the shape, not just the peak. The edge is roughly linear in the
-        //   pump up to 2x the leg and then falls off a cliff, because past that
-        //   the TWAP band binds and the leg stops filling. The old flat 4,000
-        //   BEM pump sat in that dead zone — which is why a probe that measured
-        //   a live, repeatable, ~7 % sandwich reported nothing at all.
+        // Same raise, 9,000 BEM pooled, but the leg was the full 333.33 BEM —
+        // 3.7 % of the book:
         //
-        //   `edge` is net of the identical round trip with the reservoir emptied,
-        //   so the attacker's own 1.3 % friction cancels between the arms and
-        //   what remains is the buyback's contribution: 43.49 BEM taken out of a
-        //   322 BEM fill, about 13 % of the leg.
+        //     pump      x leg   gross edge   return on pumped capital
+        //     166.67     0.5     +11.75      7.1 %
+        //     333.33     1.0     +22.89      6.9 %
+        //     666.67     2.0     +43.49      6.5 %
+        //   1,333.33     4.0       0         0   %
+        //   4,000       12.0       0         0   %
         //
-        //   WHY THE BAND IS NOT THE DIAL THAT FIXES THIS, which was the first
-        //   thing tried: `sqrtPriceLimitX96` bounds the price at the END of the
-        //   leg, measured from TWAP, so it has to stay wide enough for the leg's
-        //   OWN impact on the thinnest listed book. A `minOut` bounds the
-        //   AVERAGE price the leg paid, and the honest average is roughly half
-        //   the leg's impact while a sandwiched average carries the attacker's
-        //   whole pump. That is the gap the band cannot see and a minOut can.
+        // Note that the RETURN is flat at ~7 % across a 4x sweep and only the
+        // absolute figure moves. That is the tell: gross gain is
+        // `(leg / depth) × pump` and friction is `1.3 % × pump`, so `pump`
+        // cancels and the trade pays if and only if `leg / depth` exceeds
+        // friction. At 3.7 % it did, by 3x, at every size. The cliff past 4x the
+        // leg is the TWAP band binding — and the old probe's flat 4,000 BEM pump
+        // sat in exactly that dead zone, which is how a live, repeatable ~7 %
+        // sandwich was reported as a clean zero.
         //
-        //   What blocks landing it as one constant is pool depth. Here the leg is
-        //   3.7 % of the book, so the honest shortfall is ~1.8 % and a 3 %
-        //   tolerance separates the two cleanly. At the `MIN_SOFT_CAP_PROD` floor
-        //   — 100 BEM raised, 90 BEM pooled, a 30.93 BEM leg — the leg is 34 % of
-        //   the book and the honest shortfall is ~25 %, which no single tolerance
-        //   admits while still refusing a 7 % skim. Bounding the leg as a
-        //   fraction of pool depth is what makes one tolerance work everywhere,
-        //   and that is a sizing change rather than a guard.
+        // That ratio is why neither dial that was tried first could work. The
+        // band bounds the price at the END of the leg, measured from TWAP, so it
+        // has to stay wide enough for the leg's own impact on the thinnest listed
+        // book and cannot distinguish a sandwich from an honest fill. A `minOut`
+        // bounds the AVERAGE paid, which does distinguish them, but not as one
+        // constant: here the honest shortfall is ~1.8 %, and at the
+        // `MIN_SOFT_CAP_PROD` floor — 90 BEM pooled, a 30.93 BEM leg, 34 % of the
+        // book — it is ~25 %. No single tolerance admits the second while
+        // refusing a 7 % skim.
         //
-        //   So: ceiling, not zero, and the ceiling is the disclosed figure. It
-        //   catches any worsening and does not forbid the fix — whoever lands the
-        //   sizing change drops this to 0 in the same commit.
-        assertLe(worstEdge, 4.4e9, "the buyback sandwich got WORSE than the disclosed 43.49 BEM");
+        // Capping `leg / depth` is what makes the ratio a constant instead of a
+        // function of the raise, and then nothing else has to be tuned per pool.
+        // `MAX_LEG_DEPTH_BPS = 50` puts it ~2.6x below break-even; the leg here
+        // drops from 333 BEM to 45, gross edge from 43.49 to 6.28, and since
+        // friction on the same pump is ~8.7 BEM the net turns negative.
     }
 
     /// @dev One control/attack pair at a single pump size, each arm run from a
     ///      clean snapshot so the sizes in a sweep cannot contaminate each other
     ///      through the pool price, the reservoir or the burn total.
     ///
-    ///      Returns the attacker's P&L WITH the reservoir armed minus the same
-    ///      round trip with it emptied. Differencing is what makes the number
-    ///      mean "what the buyback was worth to the attacker": both arms pay the
-    ///      same pool fee and the same 1% hook tax twice, so all of that cancels
-    ///      and what is left is the buyback's contribution.
+    ///      Returns BOTH figures, because they answer different questions and
+    ///      conflating them is the mistake this helper used to invite:
+    ///
+    ///        · `edge` — armed arm minus emptied arm. The attacker's own friction
+    ///          is identical in both and cancels, so this is the buyback's GROSS
+    ///          contribution to a position someone already holds. Useful for
+    ///          seeing how much the leg moved the price, and always positive for
+    ///          any non-zero leg, so useless as a safety property.
+    ///
+    ///        · `net` — the armed arm on its own, friction included. This is what
+    ///          the attacker actually walks away with, and the only one of the two
+    ///          that can distinguish "the buyback helped them" from "the trade was
+    ///          worth doing".
     ///
     ///      Emptying the reservoir is a sound control here because the tax the
     ///      pump itself pays cannot re-arm it — 70 bps of even the largest pump
     ///      in the sweep is well under `TRIGGER_STEP`.
-    function _measureSandwichEdge(ToshLaunchpadHook hook, ToshToken token, uint256 pumpSize) internal returns (int256) {
+    function _measureSandwichEdge(ToshLaunchpadHook hook, ToshToken token, uint256 pumpSize)
+        internal
+        returns (int256 edge, int256 net)
+    {
         uint256 armedReservoir = quote.balanceOf(address(ladder));
 
         uint256 snap = vm.snapshotState();
@@ -656,10 +694,10 @@ contract ToshV5AttackTest is Test {
 
         snap = vm.snapshotState();
         _setQuote(address(ladder), armedReservoir);
-        int256 attackPnl = _roundTrip(hook, token, pumpSize);
+        net = _roundTrip(hook, token, pumpSize);
         vm.revertToState(snap);
 
-        return attackPnl - controlPnl;
+        edge = net - controlPnl;
     }
 
     /// @dev Buy `nativeIn` of the token then immediately sell the entire position

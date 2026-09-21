@@ -24,6 +24,7 @@ pragma solidity ^0.8.26;
 // note under the standing deployment in SECURITY.md for where the line is.
 import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "infinity-core/src/types/Currency.sol";
 import {BalanceDelta} from "infinity-core/src/types/BalanceDelta.sol";
 import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
@@ -135,6 +136,8 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///   mechanism — noted here because the alternative is rediscovering it.
 ///
 contract ToshLadderTreasury is Ownable2Step {
+    using PoolIdLibrary for PoolKey;
+
     using CurrencyLibrary for Currency;
 
     // ─── Constants ────────────────────────────────────────────────────────────
@@ -194,6 +197,58 @@ contract ToshLadderTreasury is Ownable2Step {
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
+
+    /// @notice Largest share of a pool's quote-side depth a single buyback leg
+    ///         may take, in basis points. 50 = 0.50 %.
+    ///
+    /// @dev    ⚠ THIS, NOT THE TWAP BAND, IS WHAT MAKES THE BUYBACK
+    ///           UNSANDWICHABLE. The band bounds the price at the END of the leg,
+    ///           so it has to stay wide enough for the leg's own impact on the
+    ///           thinnest book we list, and it therefore cannot tell a sandwich
+    ///           from a legitimate fill. Everything inside it was free.
+    ///
+    ///         The arithmetic that says why a DEPTH cap closes it, which is worth
+    ///         following because it is also what sets the number:
+    ///
+    ///           · The attacker pumps `p`, the leg fills into the pumped price,
+    ///             they sell back. Their gross gain is the leg's price impact
+    ///             applied to their own position — about `(leg / depth) × p`.
+    ///           · Their cost is friction on a round trip: the 0.3 % pool fee
+    ///             and the 1 % hook tax, twice, so about `1.3 % × p`.
+    ///
+    ///         Both sides are LINEAR IN `p`, so `p` cancels and the trade pays
+    ///         if and only if `leg / depth > ~1.3 %`. That is why shrinking the
+    ///         leg in absolute terms never helped — the measured edge held at
+    ///         ~7 % of pumped capital across a 4x sweep of pump sizes, because
+    ///         the ratio was unchanged. `leg / depth` is the whole condition.
+    ///
+    ///         Measured before this cap: a 10,000 BEM raise pools 9,000 BEM and
+    ///         sized a 333.33 BEM leg, so `leg / depth` was 3.7 % — comfortably
+    ///         above friction, and the sandwich returned ~7 % on pumped capital
+    ///         at every size tried. At the `MIN_SOFT_CAP_PROD` floor it was far
+    ///         worse: 90 BEM pooled against a 30.93 BEM leg is 34 %.
+    ///
+    ///         ⚠ BREAK-EVEN IS MEASURED, NOT DERIVED, and it is closer than the
+    ///           model suggests. Bisected with `test_probeG_sandwichThePiggyback`
+    ///           on this tree: at 130 bps the sandwich still loses money, at 150
+    ///           it turns a profit. So the real threshold is ~140 bps, which
+    ///           confirms the `1.3 %` friction figure the model predicts.
+    ///
+    ///         50 bps therefore sits ~2.8x below break-even. That margin is the
+    ///         point of the number rather than caution for its own sake: it has to
+    ///         absorb what the model leaves out — constant-product curvature, the
+    ///         leg's own tax exemption, and a searcher who pays no priority fee
+    ///         because they are the block builder.
+    ///
+    ///         DO NOT RAISE THIS TO MAKE BUYBACKS FASTER. Past ~140 bps the
+    ///         sandwich pays again, nothing reverts, and the only symptom is that
+    ///         the reservoir burns fewer tokens per BEM than it should.
+    ///
+    ///         The cost is that a thin pool is bought back in smaller bites. That
+    ///         is the correct behaviour rather than a regression: a leg that is a
+    ///         third of the book was buying its own slippage, so the reservoir got
+    ///         fewer tokens burned per BEM spent even with nobody attacking.
+    uint256 public constant MAX_LEG_DEPTH_BPS = 50;
 
     /// @notice How far below the pool's TWAP a buyback leg may drive the sqrt
     ///         price before it stops filling.
@@ -291,6 +346,9 @@ contract ToshLadderTreasury is Ownable2Step {
     event BuybackSkipped(address indexed token, uint256 nativeIn);
 
     // ─── Errors ───────────────────────────────────────────────────────────────
+
+    /// @notice `renounceOwnership` is disabled — see the override for why.
+    error OwnershipCannotBeRenounced();
 
     error OnlyHook();
     error OnlySelf();
@@ -395,6 +453,20 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         piggyback callers.  One-shot: the treasury is deployed before
     ///         the factory (the factory needs this address in its
     ///         constructor), so the link is completed post-deploy.
+    /// @notice Permanently disabled. Ownership can be TRANSFERRED but never
+    ///         abandoned.
+    ///
+    /// @dev    Same reasoning as the factory's override, and the consequence here
+    ///         is arguably worse because it is quieter. Losing the owner freezes
+    ///         `addLadderToken` and `removeLadderToken`, which means the ladder is
+    ///         stuck on whatever list it held: a rugged or broken token can never
+    ///         be delisted, and the reservoir keeps market-buying it forever out
+    ///         of every future launch's fees. Nothing reverts and nothing stops —
+    ///         the buy-and-burn just permanently points at the wrong markets.
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipCannotBeRenounced();
+    }
+
     function setFactory(address _factory) external onlyOwner {
         if (_factory == address(0)) revert ZeroAddress();
         if (factory != address(0)) revert FactoryAlreadySet();
@@ -737,6 +809,25 @@ contract ToshLadderTreasury is Ownable2Step {
     function _buyAndBurn(address token, uint256 nativeIn) internal {
         PoolKey memory key = _poolKeyOf[token];
 
+        // ⚠ CAPPED TO A FRACTION OF THIS POOL'S DEPTH BEFORE ANYTHING ELSE, and
+        //   the position in the call graph is the point: `perToken` in
+        //   `_runPiggyback` is one figure for the whole cycle, derived from the
+        //   RESERVOIR, while depth is a property of each pool. Sizing the offer
+        //   against the pot and never against the book is what let a 333 BEM leg
+        //   land on a 9,000 BEM pool as 3.7 % of it — above the ~1.3 % round-trip
+        //   friction that decides whether sandwiching the leg pays. So the cap
+        //   has to be applied here, per pool, not there.
+        //
+        //   The remainder is not lost. Under-spending leaves it in the reservoir
+        //   for the next cycle, which is the same behaviour a partially-filled leg
+        //   already has and which the settle comment below relies on. The cost is
+        //   that a thin pool is bought back over more pokes; pokes are
+        //   permissionless and ride on user swaps, so that costs nobody a
+        //   transaction.
+        uint256 ceiling = _legDepthCeiling(key);
+        if (ceiling == 0) return;
+        if (nativeIn > ceiling) nativeIn = ceiling;
+
         BalanceDelta delta = poolManager.swap(
             key,
             ICLPoolManager.SwapParams({
@@ -787,6 +878,54 @@ contract ToshLadderTreasury is Ownable2Step {
             vault.take(key.currency1, DEAD_ADDRESS, bought);
             emit BuybackBurned(token, spent, bought);
         }
+    }
+
+    /// @dev Largest leg this pool may absorb: `MAX_LEG_DEPTH_BPS` of its
+    ///      quote-side depth. See that constant for why the depth ratio is the
+    ///      condition that decides whether sandwiching the leg pays.
+    ///
+    ///      ── Where the depth figure comes from ───────────────────────────────
+    ///
+    ///      The pool is concentrated liquidity, so there are no reserves to read.
+    ///      What `getLiquidity` and `getSlot0` give is `L` and `sqrtP`, and for
+    ///      constant product `x·y = k` with `L = sqrt(x·y)` and `sqrtP =
+    ///      sqrt(y/x)`, the quote side is `x = L / sqrtP`. In Q96 that is
+    ///      `(L << 96) / sqrtPriceX96`.
+    ///
+    ///      This is the VIRTUAL reserve of the active range, not a token balance,
+    ///      and that is the right quantity: it is what the swap curve actually
+    ///      prices against, so it is what the leg's impact is a fraction of. A
+    ///      balance read off the Vault would be every pool's quote at once.
+    ///
+    ///      ── Returning zero ─────────────────────────────────────────────────
+    ///
+    ///      Zero liquidity or an uninitialised price both yield zero, which makes
+    ///      the leg skip through the existing `BuybackSkipped` path rather than
+    ///      swap into an empty book. Genesis LP is locked and full-range, so a
+    ///      listed pool reaching zero liquidity is not an expected state; it is
+    ///      handled because "no depth" and "unlimited leg" must not be the same
+    ///      answer, which is the shape of the bug this whole cap exists to fix.
+    function _legDepthCeiling(PoolKey memory key) internal view returns (uint256) {
+        PoolId id = key.toId();
+        uint128 liquidity = poolManager.getLiquidity(id);
+        if (liquidity == 0) return 0;
+        // Slither reports `unused-return` here and it is baselined: `getSlot0`
+        // returns tick, protocolFee and lpFee alongside the price, and the depth
+        // calculation wants none of them. The hook destructures the same getter
+        // the same way.
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(id);
+        if (sqrtPriceX96 == 0) return 0;
+
+        // One expression, multiplying before dividing, so the bps scaling does not
+        // compound the truncation of `L / sqrtP`. The precision at stake is
+        // sub-unit — a unit is 1e-8 BEM — but there is no reason to spend it, and
+        // unlike `ToshLaunchpadHook.ladderViable` nothing downstream depends on the
+        // intermediate being floored.
+        //
+        // No overflow and no need for FullMath: `liquidity` is 128-bit, the shift
+        // is 96 and the bps factor is 50, so the numerator is at most ~231 bits;
+        // the denominator is a 160-bit price times 10_000, about 174 bits.
+        return (uint256(liquidity) << 96) * MAX_LEG_DEPTH_BPS / (uint256(sqrtPriceX96) * BPS_DENOMINATOR);
     }
 
     /// @dev Lower bound on the sqrt price this buyback may push the pool to.
@@ -895,6 +1034,30 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @notice Quote asset the next piggyback cycle will spend, or 0 if unarmed.
     function nextSpendAmount() external view returns (uint256) {
         return _nextSpendAmount();
+    }
+
+    /// @notice Largest leg `token`'s pool will absorb right now — `MAX_LEG_DEPTH_BPS`
+    ///         of its quote-side depth. Zero for a token that is not listed, or
+    ///         whose pool has no liquidity or no price.
+    ///
+    /// @dev    Public because the answer is not derivable off chain from the
+    ///         reservoir alone, and two readers need it.
+    ///
+    ///         An operator asking why the reservoir is draining slowly needs to
+    ///         see the binding constraint: `nextSpendAmount() / BATCH_SIZE` is the
+    ///         OFFER, and this is what the pool will actually take. When the second
+    ///         is the smaller the difference is not a fault, and without a getter
+    ///         the only way to tell that from a broken buyback is to read the
+    ///         source.
+    ///
+    ///         And the sandwich probe needs to size its pump against the real leg.
+    ///         Recomputing the cap inside the test would let the two drift, which
+    ///         is precisely how that probe came to measure a 4,000 BEM pump
+    ///         against a 333 BEM prize and report a live 7 % attack as a clean zero.
+    function legCeiling(address token) external view returns (uint256) {
+        PoolKey memory key = _poolKeyOf[token];
+        if (address(key.hooks) == address(0)) return 0;
+        return _legDepthCeiling(key);
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────

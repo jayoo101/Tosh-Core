@@ -142,7 +142,7 @@ immutable and the money is back with the depositors.
 
 | Check | Value on 2026-09-19, chain `56` | Verdict |
 |---|---|---|
-| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | enough — the deploy costs ~0.00076 BNB (15,143,081 gas at 0.05 gwei), roughly 17x covered |
+| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | enough — the deploy costs ~0.00076 BNB (15,236,814 gas at 0.05 gwei), roughly 17x covered. That gas figure is the re-summed `broadcast/Deploy.s.sol/97/run-latest.json`; it read 15,143,081 until 2026-09-21, which was the **4663** rehearsal — different chain and a deploy that mined a hook address. `preflightMainnet.mjs` re-sums the receipts live, so it tracks contract changes; this row does not |
 | Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
 | Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
 | PoG signer | `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` | **rotated 2026-09-19, and this row is the one that changed.** It used to name `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, and blocked the deploy. Generated into an encrypted keystore; the key was never written to a log or a tracked file. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
@@ -403,8 +403,29 @@ Record `FACTORY_ADDRESS` and `TREASURY_ADDRESS` from the manifest.
 Ownership first. Until the Safe accepts, the deployer EOA owns the factory, and
 the factory must not be announced in that state.
 
+> **Close the door before anything else — step 0 below.** `DeployMainnet.s.sol`
+> broadcasts the factory **unpaused**, and the steps in this table are what make
+> it fit to use: the launch fee is still the 9.28 BEM default until step 3, the
+> dials are unconfirmed until step 4, and `VerifyDeployment` has not run until
+> step 5. So between broadcast and step 5 the factory is open for business in a
+> state nobody has checked yet.
+>
+> Note what this is and is not about. It is **not** a mitigation for a compromised
+> deployer key — an attacker holding that key can simply unpause. What it stops is
+> a **third party** launching a project against default dials and unverified
+> invariants, which is not far-fetched: new contracts on `56` are indexed within
+> blocks, and `createLaunch` needs no announcement, no allowlist and no referral
+> to find. A launch created in that window cannot be undone; the token, the pool
+> and the genesis clock are all real.
+>
+> `pause()` is the right brake here because of what it deliberately spares. It
+> stops `createLaunch` and `registerPoG` — new entrants — while leaving `deposit`,
+> `refund` and `claim` reachable, so if something does land in the window it is
+> not trapped by the fix.
+
 | # | Step | Done when |
 |---|---|---|
+| 0 | **Deployer EOA** calls `pause()` on the factory, in the same session as the broadcast and before anything else | `factory.paused()` is `true`. Do this even though the factory is unannounced — see the note above for what it is actually protecting against |
 | 1 | Safe calls `acceptOwnership()` on the **factory** | `owner()` is the Safe and `pendingOwner()` is `address(0)` |
 | 2 | Safe calls `acceptOwnership()` on the **treasury** | same two reads on the treasury |
 | 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the base units you decided on, not the 9.28 BEM default |
@@ -416,6 +437,7 @@ the factory must not be announced in that state.
 | 7 | Vercel Production: the **six** variables below, not two | `cd soat-frontend; npm run check:quote` agrees with the chain — see below |
 | 8 | Push the five commits to `main` | CI green |
 | 9 | Repoint `monitoring/` — the **four** repo variables below | a watch run reports the new addresses with 0 findings |
+| 10 | **Safe** calls `unpause()` — last, after step 5 passed and step 9 is watching | `factory.paused()` is `false`. This is the moment the launchpad goes live, so it belongs after verification and after monitoring, not before |
 
 **Step 7 is six variables, and Production currently holds the chain-97 set.**
 Naming only the factory and the quote asset is how a half-switched frontend
@@ -590,6 +612,11 @@ variable is one setting and takes effect on redeploy; the commits are a build.
 There is no `pause()`-based rollback worth planning around: pausing the new
 factory stops `createLaunch` and `registerPoG` but does nothing for a genesis
 round already open on it.
+
+That is not in tension with §5 step 0, and the difference between them is exactly
+why step 0 is worth doing. `pause()` is useless as a *rollback* because by then the
+launches it cannot reach already exist; it is useful as a *gate* because before
+step 10 there are none, and keeping it that way is the whole point.
 
 ---
 

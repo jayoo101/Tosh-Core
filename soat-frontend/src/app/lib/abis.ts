@@ -1083,7 +1083,7 @@ export const FACTORY_ABI = [
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1916,6 +1916,11 @@ export const FACTORY_ABI = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "OwnershipCannotBeRenounced",
+    "inputs": []
   },
   {
     "type": "error",
@@ -4782,6 +4787,19 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_LEG_DEPTH_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "SPEND_BPS",
     "inputs": [],
     "outputs": [
@@ -4981,6 +4999,25 @@ export const TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "legCeiling",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lockAcquired",
     "inputs": [
       {
@@ -5114,7 +5151,7 @@ export const TREASURY_ABI = [
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -5414,6 +5451,11 @@ export const TREASURY_ABI = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "OwnershipCannotBeRenounced",
+    "inputs": []
   },
   {
     "type": "error",

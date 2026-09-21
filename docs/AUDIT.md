@@ -171,9 +171,32 @@ and emits an event. `README.md` §"What the owner can do" is the real answer to
 this detector and is deliberately not summarised here, because a summary would
 be the thing that goes stale.
 
-**`unused-public-function`** — 9, all in `ToshLaunchpadHook`. Read by the
+Two of those 19 arrived on 2026-09-21 and are worth naming, because the detector
+reads them exactly backwards: `ToshFactory.renounceOwnership` and
+`ToshLadderTreasury.renounceOwnership` are `onlyOwner` functions that
+unconditionally **revert**. They exist to *remove* a power, not to hold one.
+
+`Ownable2Step` makes `transferOwnership` propose-then-accept so ownership cannot
+land on an address nobody holds, and then inherits from `Ownable` a one-call,
+unconfirmed `renounceOwnership` that sets the owner to zero — permanently
+disabling `pause`, `setBlacklist`, `haltLadder` and every other brake on a live
+launchpad holding user quote. On the treasury the failure is quieter and no
+better: `addLadderToken` and `removeLadderToken` freeze, so a rugged token can
+never be delisted and the reservoir keeps market-buying it out of every future
+launch's fees. Both overrides revert; `onlyOwner` stays in front so a stranger
+is still refused as a stranger. Pinned by `test_factory_ownershipCannotBeRenounced`,
+`test_ladderTreasury_ownershipCannotBeRenounced` and
+`test_renounceOwnership_refusesStrangersAsStrangers`.
+
+**`unused-public-function`** — 8, all in `ToshLaunchpadHook`. Read by the
 frontend and by monitoring rather than by other contracts, which is not
 visible to a tool that only sees `src/`.
+
+It was 9 until 2026-09-21. `canRefund()` left the list because `refund()` now
+calls it instead of inlining its own copy of the seven-day comparison — the
+change that opened refunds immediately for a raise too small to carry a ladder,
+which gave the predicate two clauses and made a second copy of them a liability.
+The detector is right that it is now reachable internally; nothing was removed.
 
 **`push-zero-opcode`** (7) and **`unspecific-solidity-pragma`** (4) — both
 follow from `pragma solidity ^0.8.26` plus `evm_version = "cancun"`. PUSH0 is

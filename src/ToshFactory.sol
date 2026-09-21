@@ -617,6 +617,9 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     // ─── Errors ───────────────────────────────────────────────────────────────
 
+    /// @notice `renounceOwnership` is disabled — see the override for why.
+    error OwnershipCannotBeRenounced();
+
     error IsBlacklisted();
     error NoPogQuota();
     error QuotaExceeded();
@@ -780,6 +783,30 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /// @notice Permanently disabled. Ownership can be TRANSFERRED but never
+    ///         abandoned.
+    ///
+    /// @dev    ⚠ THE INHERITED VERSION WAS A ONE-CALL, UNCONFIRMED, IRREVERSIBLE
+    ///           LOSS OF EVERY BRAKE ON THIS CONTRACT, sitting next to a transfer
+    ///           path deliberately built as two steps. `Ownable2Step` makes
+    ///           `transferOwnership` propose-then-accept so a typo cannot strand
+    ///           the factory on an address nobody holds — and then inherits
+    ///           `renounceOwnership` from `Ownable`, where a single transaction
+    ///           sets the owner to zero with no confirmation and no way back.
+    ///
+    ///         What that would cost here is not abstract. It is `pause`,
+    ///         `setBlacklist`, `haltLadder`, `setLaunchFee`, `setPogSigner` and
+    ///         the rest of the owner-gated surface — the emergency stops, gone,
+    ///         on a live launchpad holding user quote.
+    ///
+    ///         Reverting costs nothing real, because renouncing was never a thing
+    ///         this protocol wants to do. The endpoint of the handoff is a Safe,
+    ///         not the zero address; "no admin" is a strictly worse state than
+    ///         "admin is a multisig that chooses not to act".
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipCannotBeRenounced();
     }
 
     // ─── Ladder halt: the one brake that reaches a launched project ───────────

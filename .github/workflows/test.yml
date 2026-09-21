@@ -230,7 +230,7 @@ jobs:
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=412
+          floor=415
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
