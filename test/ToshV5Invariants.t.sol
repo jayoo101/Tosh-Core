@@ -273,6 +273,13 @@ contract ToshInvariantHandler is Test {
     uint256 public okPokeBuyback;
     uint256 public okMintShelf;
 
+    /// @dev Mints that were aimed at a shelf boundary rather than drawn at
+    ///      random. Counted separately from `okMintShelf` because the supply
+    ///      identity it exists to stress is only interesting where the carry
+    ///      between shelves happens, and a run of ordinary mints that never
+    ///      crossed one would leave that assertion true but untested.
+    uint256 public okMintBoundary;
+
     /// @dev Kept because a swallowed revert in a `fail_on_revert = false` suite
     ///      is otherwise unrecoverable: the run reports a pass and there is no
     ///      trace of why nothing happened. `afterInvariant` prints these.
@@ -900,6 +907,62 @@ contract ToshInvariantHandler is Test {
         _sync();
     }
 
+    /// @notice Buy exactly what is left on the active shelf, or that plus whole
+    ///         shelves beyond it.
+    ///
+    /// @dev    `mintShelf` bounds its request to 1_000e18 against a `TIER_SIZE`
+    ///         of 3_150e18, so it can only land on a boundary by accident —
+    ///         three of its largest draws in a row on one hook, uninterrupted by
+    ///         the price ceiling or a same-block lockout. That makes
+    ///         `invariant_phase2SupplyIsExact` mostly an assertion about mints
+    ///         that stayed inside a single shelf.
+    ///
+    ///         The carry is where a narrowing bug would live.
+    ///         `mintBondingCurve` walks up to `MAX_TIERS_PER_TX` shelves in a
+    ///         loop and then writes `tierIndex`, `tierSold` and `minted` back as
+    ///         one packed word with three explicit downcasts — a `uint16`, a
+    ///         `uint88` and a `uint96` — so crossing a boundary is exactly the
+    ///         moment the three can disagree with each other and with the
+    ///         token's own `totalSupply`.
+    ///
+    ///         The request is frequently refused, because a multi-shelf order
+    ///         climbs through prices and the ceiling stops it. That is fine and
+    ///         is why the revert is captured rather than asserted on: what this
+    ///         action has to do is make the boundary REACHABLE, not guarantee
+    ///         every draw lands on it.
+    function mintShelfBoundary(uint256 actorSeed, uint256 hookSeed, uint256 extraShelves) external {
+        ToshLaunchpadHook hook = _hookInPhase(hookSeed, 3);
+        if (!hook.launched()) return;
+
+        if (hook.currentTierIndex() >= hook.TIER_COUNT()) return;
+
+        uint256 want = hook.TIER_SIZE() - hook.currentTierSold();
+        want += bound(extraShelves, 0, 3) * hook.TIER_SIZE();
+
+        address who = _actor(actorSeed);
+
+        uint256 cost;
+        try hook.quoteMint(want) returns (uint256 quoted) {
+            cost = quoted;
+        } catch (bytes memory reason) {
+            lastMintRevert = reason;
+            return;
+        }
+        if (cost == 0 || quote.balanceOf(who) < cost) return;
+
+        vm.prank(who);
+        quote.approve(address(hook), cost);
+
+        vm.prank(who);
+        try hook.mintBondingCurve(want, cost) {
+            ++okMintBoundary;
+        } catch (bytes memory reason) {
+            lastMintRevert = reason;
+        }
+
+        _sync();
+    }
+
     /// @notice Deploy the reservoir with no swap to ride — the treasury's second
     ///         egress, and the reason this action exists.
     ///
@@ -1124,6 +1187,27 @@ contract ToshInvariantHandler is Test {
         cap = bound(cap, 1e8, 600e8);
         vm.prank(admin);
         try factory.setDefaultSoftCap(cap) {
+            ++okOwnerAction;
+        } catch {}
+        _sync();
+    }
+
+    /// @notice Retune the quota window, including switching it off entirely.
+    ///
+    /// @dev    Zero is deliberately in range, and is the reason this action
+    ///         exists rather than being folded into the other owner dials.
+    ///         `_rollQuotaWindow` returns early on a zero duration and never
+    ///         resets `quotaSpent`, while `eligibility` mirrors that decision in
+    ///         a separate expression — `quotaWindowDuration > 0 && ...` — and
+    ///         the two are only equivalent as long as somebody keeps them in
+    ///         step. A dial the fuzzer can turn mid-window is what makes
+    ///         `invariant_quotaViewAgreesWithStorage` say anything: with the
+    ///         duration fixed at its 24 h default, the lapsed-window branch and
+    ///         the disabled-window branch are barely visited.
+    function ownerSetQuotaWindowDuration(uint256 duration) external {
+        duration = bound(duration, 0, 2 days);
+        vm.prank(admin);
+        try factory.setQuotaWindowDuration(duration) {
             ++okOwnerAction;
         } catch {}
         _sync();
@@ -1366,7 +1450,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // numbered version invited exactly one mistake — reusing an index and
         // silently deleting whatever action was there — and made every weight
         // change a renumbering exercise.
-        bytes4[] memory selectors = new bytes4[](37);
+        bytes4[] memory selectors = new bytes4[](40);
         uint256 n;
 
         // Genesis phase. Everything else in the state machine is downstream of
@@ -1402,6 +1486,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         selectors[n++] = ToshInvariantHandler.ownerSetPogSigner.selector;
         selectors[n++] = ToshInvariantHandler.ownerSetLaunchFee.selector;
         selectors[n++] = ToshInvariantHandler.ownerSetMaxPogAllocationLimit.selector;
+        selectors[n++] = ToshInvariantHandler.ownerSetQuotaWindowDuration.selector;
 
         // Buys weighted like deposits: a buyback needs the reservoir over
         // 1 ETH, and the 70 bps reservoir share of the buy-side tax is the only
@@ -1418,6 +1503,13 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // the composition unit tests cannot make.
         selectors[n++] = ToshInvariantHandler.mintShelf.selector;
         selectors[n++] = ToshInvariantHandler.mintShelf.selector;
+
+        // Aimed at the shelf carry rather than drawn at random — see the note on
+        // the action. Weighted at two, the same as the untargeted mint, because
+        // a boundary the fuzzer reaches once in a run is a boundary the supply
+        // identity is barely tested against.
+        selectors[n++] = ToshInvariantHandler.mintShelfBoundary.selector;
+        selectors[n++] = ToshInvariantHandler.mintShelfBoundary.selector;
 
         // The treasury's other egress. Weighted at two because it is the only
         // action that can drain the reservoir with no swap in the call, so it is
@@ -1801,6 +1893,90 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
     function invariant_promisedRefundAlwaysGoesThrough() public view {
         assertEq(handler.ghostBrokenRefundPromise(), 0, "a hook said it was refundable and then refused to refund");
+    }
+
+    /// @notice Phase-2 issuance, the shelf cursor and the token's own supply are
+    ///         three views of one number.
+    ///
+    /// @dev    `mintBondingCurve` walks up to `MAX_TIERS_PER_TX` shelves in a
+    ///         loop and then writes `tierIndex`, `tierSold` and `minted` back as
+    ///         a single packed word through three explicit downcasts. Nothing
+    ///         re-reads them against the token afterwards, so a narrowing or a
+    ///         mis-stepped carry would leave the cursor pointing at one shelf
+    ///         while the supply says another — and the ladder would keep selling
+    ///         from the wrong price.
+    ///
+    ///         The second equality is the one that reaches outside the hook's
+    ///         own bookkeeping, and it holds exactly rather than loosely because
+    ///         `GENESIS_SUPPLY` is minted once at `launch()` and the only other
+    ///         mint in the contract is the shelf path. Burning does not enter
+    ///         into it: tokens go to `0xdead` by transfer, which leaves
+    ///         `totalSupply` alone — the same fact
+    ///         `invariant_burnedSupplyNeverReturns` depends on.
+    function invariant_phase2SupplyIsExact() public view {
+        uint256 n = handler.hookCount();
+        for (uint256 i; i < n; ++i) {
+            ToshLaunchpadHook hook = handler.hooks(i);
+            if (!hook.launched()) continue;
+
+            uint256 minted = hook.phase2Minted();
+
+            assertEq(
+                minted,
+                hook.currentTierIndex() * hook.TIER_SIZE() + hook.currentTierSold(),
+                "phase-2 issuance disagrees with the shelf cursor"
+            );
+
+            assertEq(
+                IERC20(address(hook.projectToken())).totalSupply(),
+                hook.GENESIS_SUPPLY() + minted,
+                "token supply disagrees with genesis plus phase-2 issuance"
+            );
+        }
+    }
+
+    /// @notice The quota a user is shown and the quota the factory will enforce
+    ///         must be the same number.
+    ///
+    /// @dev    `_rollQuotaWindow` resets the budget lazily, on the next deposit,
+    ///         while `eligibility` has to answer the same question without
+    ///         writing and so re-derives the reset in a separate expression.
+    ///         Two copies of one rule, and the failure mode if they drift is
+    ///         quiet in the worst way: the UI offers an allowance the deposit
+    ///         then refuses, or — the direction that actually costs something —
+    ///         shows a budget already spent and turns a solvent user away.
+    ///
+    ///         The comparison is only made where the factory reports the user
+    ///         eligible, because the early exits for blacklist, missing
+    ///         registration and cooldown all return a zero allowance that says
+    ///         nothing about the window arithmetic.
+    ///
+    ///         `quotaSpent <= pogQuota` sits alongside it as the cruder claim.
+    ///         It cannot currently break — `registerPoG` only ratchets the quota
+    ///         upward and the spend is gated by `QuotaExceeded` — which is
+    ///         precisely why it is worth one line: both halves of that argument
+    ///         are somebody else's code to change.
+    function invariant_quotaViewAgreesWithStorage() public view {
+        uint256 n = handler.hookCount();
+        if (n == 0) return;
+        address hook = address(handler.hooks(0));
+
+        uint256 duration = factory.quotaWindowDuration();
+        uint256 a = handler.actorCount();
+
+        for (uint256 j; j < a; ++j) {
+            address user = handler.actors(j);
+
+            assertLe(factory.quotaSpent(user), factory.pogQuota(user), "quota spent exceeds the registered quota");
+
+            (bool eligible, uint256 remaining,) = factory.eligibility(user, hook);
+            if (!eligible) continue;
+
+            uint256 spent =
+                (duration > 0 && block.timestamp >= factory.quotaWindowEnd(user)) ? 0 : factory.quotaSpent(user);
+
+            assertEq(remaining, factory.pogQuota(user) - spent, "the quota shown does not match the quota enforced");
+        }
     }
 
     /// @notice Per-depositor slots must sum to the round total, exactly, once
@@ -2212,6 +2388,51 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         handler.swapSell(0, 2, token.balanceOf(alice) / 2);
         assertEq(handler.okSwapSell(), 1, "handler could not land a sell");
         assertGt(token.balanceOf(DEAD), burnedBefore, "the sell-side tax was not burned");
+    }
+
+    /// @notice The boundary mint really crosses a shelf, and the supply identity
+    ///         survives the carry.
+    ///
+    /// @dev    Without this, `invariant_phase2SupplyIsExact` is an assertion
+    ///         about mints that stayed inside one shelf — which is the case it
+    ///         is least likely to catch anything in. The cursor has to actually
+    ///         step for the packed write to be exercised.
+    function test_boundaryMintCrossesAShelf() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 500e8, 0);
+        }
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        assertTrue(h2.launched(), "precondition: the round must launch");
+
+        // A buy lifts the reference over shelf 0's price and stamps the
+        // same-block lockout; the mint is legal in the next block. Same pairing
+        // as `test_handlerCanReachMintShelf`.
+        handler.swapBuy(0, 2, 50e8);
+        assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
+        handler.warpShort(1 minutes);
+
+        uint256 tierBefore = h2.currentTierIndex();
+        assertEq(h2.currentTierSold(), 0, "precondition: the shelf should be untouched");
+
+        handler.mintShelfBoundary(0, 2, 0);
+        assertEq(handler.okMintBoundary(), 1, "the boundary mint never landed");
+
+        // The whole shelf went, so the cursor stepped and the new shelf is clean.
+        assertGt(h2.currentTierIndex(), tierBefore, "the cursor did not cross a shelf");
+        assertEq(h2.currentTierSold(), 0, "a whole-shelf buy should leave the next shelf unsold");
+
+        assertEq(
+            h2.phase2Minted(),
+            h2.currentTierIndex() * h2.TIER_SIZE() + h2.currentTierSold(),
+            "issuance disagrees with the cursor across the carry"
+        );
+        assertEq(
+            IERC20(address(h2.projectToken())).totalSupply(),
+            h2.GENESIS_SUPPLY() + h2.phase2Minted(),
+            "token supply disagrees across the carry"
+        );
     }
 
     /// @notice A sell that also carries a buyback is attributed NET of the sell
