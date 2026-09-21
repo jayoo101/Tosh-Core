@@ -172,12 +172,18 @@ immutable and the money is back with the depositors.
 > The new signer needs **no BNB at all** — see the note below, which is about the
 > deploy script and applies with equal force to a freshly generated key.
 
-> **The deploy script's checklist item 5 is stale.** It says to pre-fund the PoG
-> signer with ~0.05 ETH. `registerPoG` binds its digest to `msg.sender` and
-> recovers the signer only to compare addresses, so the signer never sends a
-> transaction. The Robinhood mainnet signer
-> `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736` held 0 ETH throughout and PoG
-> worked the whole time. Funding it would be harmless and pointless.
+> **Do not fund the PoG signer.** `registerPoG` binds its digest to `msg.sender`
+> and recovers the signer only to compare addresses, so the signer never sends a
+> transaction — every use of the key in this repo is a `signMessage` call. The
+> Robinhood mainnet signer `0x9A1a8C7b7D68d391909F02e8bD5B148b4B95b736` held
+> 0 ETH throughout and PoG worked the whole time.
+>
+> The deploy script's checklist item 5 used to ask for ~0.05 of it, and this
+> note used to exist only to contradict that line; the script now says not to,
+> so the two agree. Correcting it was worth more than "harmless and pointless",
+> which is how this note used to describe funding it: the key lives in Vercel
+> Production, which makes it the most exposed key in the deployment, and a
+> balance on it is the one thing a leak of it could take.
 
 ### The values to write into `.env.production`
 

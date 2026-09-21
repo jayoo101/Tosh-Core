@@ -385,8 +385,12 @@ contract DeployMainnetScript is Script {
         console2.log("       --etherscan-api-key $ETHERSCAN_API_KEY --chain 56");
         console2.log("     Do NOT pass --verifier blockscout, which this line used to");
         console2.log("     say: it does not serve chain 56 and verifies nothing.");
-        console2.log("  5. Pre-fund the PoG signer (a new EOA, not this deployer)");
-        console2.log("     with ~0.05 BNB. Its key is in Vercel Production only.");
+        console2.log("  5. Do NOT fund the PoG signer. It is a signing key, not a");
+        console2.log("     sender: it produces EIP-191 attestations off chain and the");
+        console2.log("     user submits registerPoG and pays the gas. This line used");
+        console2.log("     to ask for ~0.05 BNB, which buys nothing and puts a balance");
+        console2.log("     on a hot key that lives in Vercel Production -- something");
+        console2.log("     for a leak to take. Fund it only if it ever starts sending.");
         console2.log("  6. Wire monitoring:  Defender / Tenderly alerts on FACTORY_ADDRESS");
         console2.log("     for events Paused / Unpaused / OwnershipTransferred /");
         console2.log("     PogSignerUpdated / LaunchCreated.");
