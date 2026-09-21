@@ -42,6 +42,25 @@ function parse(file) {
 }
 
 /**
+ * An unfilled template value, in either of the two shapes the templates use.
+ *
+ * The `0x` is optional, and it did not used to be: this read
+ * `/^0x?REPLACE_ME/i`, which requires a literal leading `0` and therefore only
+ * recognised a placeholder that looked like an address. Every role var happens
+ * to be an address or a chain id and every one of their placeholders is written
+ * `0xREPLACE_ME…`, so nothing slipped through in practice — the only var in any
+ * template that this missed is `ETHERSCAN_API_KEY=REPLACE_ME_ETHERSCAN_V2_KEY`,
+ * and no caller passes that key.
+ *
+ * Fixed anyway, because the hole is exactly the shape of this function's one
+ * job and the failure is silent: a placeholder that reads as a real value is
+ * set into `process.env`, so the caller's "is it missing" gate passes and the
+ * value goes on to be used. The next non-address role — an API key, an RPC URL,
+ * a bare chain id — would have been the first to pay for it.
+ */
+const PLACEHOLDER = /^(0x)?(REPLACE_ME|YOUR)/i
+
+/**
  * Fill in role vars from .env.production, then .env, without overwriting
  * anything already in the real environment.
  *
@@ -63,7 +82,7 @@ export function loadRoleEnv(keys) {
     const parsed = parse(file)
     for (const key of keys) {
       if (process.env[key] || source[key]) continue
-      if (parsed[key] && !/^0x?REPLACE_ME/i.test(parsed[key]) && !/^0xYOUR/i.test(parsed[key])) {
+      if (parsed[key] && !PLACEHOLDER.test(parsed[key])) {
         process.env[key] = parsed[key]
         source[key] = path.basename(file)
       }
