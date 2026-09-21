@@ -142,7 +142,7 @@ immutable and the money is back with the depositors.
 
 | Check | Value on 2026-09-19, chain `56` | Verdict |
 |---|---|---|
-| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.012985 BNB | **covers the deploy at spot and not under load — top up before broadcasting.** ~0.00105 BNB at 0.05 gwei (12x covered), 0.0209 BNB at 1 gwei, i.e. **short by 0.0079 BNB** there. The gas figure is **20,908,865**, summed from the chain-56 `DeployMainnet` dry run. It read 15,236,814 until 2026-09-21 and 15,143,081 before that; both were the wrong measurement rather than a stale one — `broadcast/Deploy.s.sol/97/…`, a **different script on a different chain**, which does not contain the `Create2Deployer` → `HookDeployLib` transaction that 56 needs (7.68 M gas on its own). Understated by 37 %, the third time in that direction. `preflightMainnet.mjs` now sums a chain-56 `DeployMainnet` run, so **run the §4 dry run before trusting its funding check** |
+| Deployer `0x35b232E26a275f62E594e010624aEA0c46b7874a` balance | 0.042985 BNB | **funded, including for a gas spike — topped up 2026-09-21 and re-measured after.** ~0.00105 BNB at 0.05 gwei (41x covered) and 0.0209 BNB at 1 gwei, which this now covers outright; `preflightMainnet.mjs` check 7 reports it as a plain pass rather than "at spot, not under load". It held 0.012985 BNB before the top-up, i.e. short by 0.0079 BNB against a 1-gwei broadcast. The gas figure is **20,908,865**, summed from the chain-56 `DeployMainnet` dry run. It read 15,236,814 until 2026-09-21 and 15,143,081 before that; both were the wrong measurement rather than a stale one — `broadcast/Deploy.s.sol/97/…`, a **different script on a different chain**, which does not contain the `Create2Deployer` → `HookDeployLib` transaction that 56 needs (7.68 M gas on its own). Understated by 37 %, the third time in that direction. `preflightMainnet.mjs` now sums a chain-56 `DeployMainnet` run, so **run the §4 dry run before trusting its funding check** |
 | Owner Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310` | 0 BNB | irrelevant — `execTransaction` gas is paid by the owner EOA that submits it, not by the Safe. 2-of-3, v1.4.1, indexed, `nonce 0`; passes `scripts/verifyOwnerSafe.mjs` |
 | Executing Safe owner's EOA balance | 0.020 / 0.010 / 0.122 BNB across the three owners | enough — at 0.05 gwei the three Safe transactions cost roughly 0.0001 BNB each |
 | PoG signer | `0xc7B7CB00A4B5CBe832Caa7369FbcBbd6385E581D` | **rotated 2026-09-19, and this row is the one that changed.** It used to name `0x73db078fa94607893270079AC8F5c7492aB480cd`, the leaked testnet deployer, and blocked the deploy. Generated into an encrypted keystore; the key was never written to a log or a tracked file. Preflight checks 3 and 4 confirm it is an EOA and distinct from all three other roles |
@@ -269,19 +269,19 @@ export fail instead of shipping.
 > **Worth deciding separately, before deploy day:** that one key is now both the
 > testnet deployer and the mainnet deployer, and it sits in plaintext in `.env`.
 > The exposure is bounded — the deployer surrenders ownership to the Safe in §5
-> steps 1 and 2, and holds **0.012985 BNB, measured on chain 56 on 2026-09-21**
+> steps 1 and 2, and holds **0.042985 BNB, measured on chain 56 on 2026-09-21**
 > — but between broadcast and acceptance it
 > **is** the owner of the factory and the treasury. Using a separate key for 56,
 > or moving this one into an encrypted keystore the way the PoG signer was, closes
 > that window. Neither is done.
 >
-> This line read "~0.043 BNB as of the 2026-09-21 top-up" until the balance was
-> read back off the chain. **There was no top-up**; 0.043 is roughly twice the
-> 1-gwei cost of C1, which is what §3 asks you to fund *to*, written down as
-> though it had already been funded. The figure now here is the measured one and
-> it is the same one §3 carries — so the two rows agree, and neither of them says
-> the deployer is ready. §3 is the instruction: still short by 0.0079 BNB against
-> a 1-gwei broadcast.
+> This line read "~0.043 BNB as of the 2026-09-21 top-up" while the chain still
+> said 0.012985, and was corrected to the measured figure. The top-up has since
+> happened and the number is now 0.042985 — so the original line was right about
+> the destination and wrong only about the tense, which is the failure mode to
+> watch for here: a balance written down as settled before the transaction that
+> settles it. Both places in this file now carry a figure that was read back off
+> chain 56 afterwards, and `preflightMainnet.mjs` check 7 agrees.
 
 ⚠ **RUN §4'S PREFLIGHT BEFORE THE BLOCK BELOW, NOT AFTER IT, AND THE ORDER THIS
 FILE PUTS THEM IN IS THE WRONG WAY ROUND.** Exporting first makes the preflight
