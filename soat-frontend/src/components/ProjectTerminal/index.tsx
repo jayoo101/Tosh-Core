@@ -252,7 +252,13 @@ export default function ProjectTerminal({ project, about, header }: {
   const ladderViable       = data?.[6]?.result  as boolean | undefined
   const bondingMax         = (data?.[7]?.result  as bigint  | undefined) ?? BONDING_MAX
   const currentPrice       = (data?.[8]?.result  as bigint  | undefined) ?? 0n
-  const userEthDeposited   = (data?.[9]?.result  as bigint  | undefined) ?? 0n
+  // Left `undefined` while pending, and this is the one with money behind it.
+  // `RefundPanel` blocks its button on `nativeDeposited === 0n` and
+  // `GenesisClaimPanel` unmounts on it, so a `?? 0n` here told a depositor
+  // "nothing to refund" / showed no claim card at all while their own balance
+  // was still in flight. The panels that spend it now take `undefined`; the two
+  // that only display it get the zero, below.
+  const userEthDeposited   = data?.[9]?.result  as bigint  | undefined
   // No `?? 0n`, for the same reason as `ladderViable` above: zero is a real
   // answer here — "this wallet has no attestation" — and a pending read is not
   // it. Coalescing them made `GenesisPanel` print NO ATTESTATION and lock the
@@ -421,7 +427,9 @@ export default function ProjectTerminal({ project, about, header }: {
             totalNativeDeposited={totalNativeDeposited}
             phase2Minted={phase2Minted}
             bondingMax={bondingMax}
-            userEthDeposited={userEthDeposited}
+            // Display only: a zero reads as "you have not deposited", which is
+            // the right thing to show while the figure is still loading.
+            userEthDeposited={userEthDeposited ?? 0n}
             windowLabel={windowLabel}
             genesisWindow={genesisClock}
           />
@@ -555,7 +563,9 @@ export default function ProjectTerminal({ project, about, header }: {
             cooldownEnd={cooldownEnd}
             nowSec={nowSec}
             perWalletCap={perWalletCap}
-            userDeposited={userEthDeposited}
+            // Feeds the post-deposit dialog and the "cap spent this round" copy,
+            // both of which read a zero as "has not deposited yet".
+            userDeposited={userEthDeposited ?? 0n}
             genesisDeadline={genesisDeadline}
             referrer={referrer}
             refetch={() => { void refetch() }}

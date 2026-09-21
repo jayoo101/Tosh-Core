@@ -67,10 +67,20 @@ interface LedgerRow {
   claimable: bigint
   /** Wallets this referrer bound to this project. */
   recruits: bigint
+  /**
+   * At least one of this project's three legs did not come back.
+   *
+   * ⚠ WITHOUT THIS, A FAILED LEG WAS INDISTINGUISHABLE FROM A ZERO, and this
+   *   page is the fallback route for commission the project page does not show.
+   *   A project whose legs all failed was `continue`d out of the list entirely,
+   *   and a project whose `claimableReferral` alone failed rendered a row with
+   *   no claim action. Both looked like "you are owed nothing here."
+   */
+  degraded: boolean
 }
 
 function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void }) {
-  const { project, accrued, claimable, recruits } = row
+  const { project, accrued, claimable, recruits, degraded } = row
 
   const { send, isPending, isConfirming } = useTxAction({
     action: 'claim commission',
@@ -100,8 +110,14 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
         tone: 'neutral',
       },
       {
+        // ⚠ `degraded` DELIBERATELY DOES NOT APPEAR IN THIS LIST. Every blocker
+        //   here disables the button — there is no advisory kind — and disabling
+        //   is the opposite of what a failed read calls for. `claimReferralReward`
+        //   takes no amount and pays whatever the hook actually owes, so pressing
+        //   it on an unread figure is safe and is exactly the right move when the
+        //   cause is a flaky RPC. The warning is rendered in the card instead.
         id: 'nothing-to-claim',
-        active: claimable === 0n,
+        active: !degraded && claimable === 0n,
         label: 'Nothing to claim',
         reason: 'This project has launched and everything it owed this wallet is already withdrawn.',
         tone: 'neutral',
@@ -148,6 +164,17 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
           tone={recruits > 0n ? 'ink' : 'mute'}
         />
       </ReadoutGrid>
+
+      {/* Same shape as the `scanTruncated` notice at the foot of this page, and
+          for the same reason: a figure this page could not read must not be
+          published as a figure it read as zero. The claim button stays armed. */}
+      {degraded && (
+        <p className="text-label text-warning tracking-wider leading-relaxed">
+          {'// '}At least one read for this project failed, so the figures above may be low.
+          Claiming is still safe — the contract pays what it owes regardless of what this page
+          managed to read. Refresh to get the real numbers.
+        </p>
+      )}
 
       <ActionButton gate={gate} />
     </Card>
@@ -208,12 +235,19 @@ export function ReferralLedger() {
     const out: LedgerRow[] = []
     for (let i = 0; i < projects.length; i++) {
       const off = i * 3
-      const accrued = data[off]?.status === 'success' ? (data[off].result as bigint) : 0n
-      const claimable = data[off + 1]?.status === 'success' ? (data[off + 1].result as bigint) : 0n
-      const recruits = data[off + 2]?.status === 'success' ? (data[off + 2].result as bigint) : 0n
+      const accruedOk = data[off]?.status === 'success'
+      const claimableOk = data[off + 1]?.status === 'success'
+      const recruitsOk = data[off + 2]?.status === 'success'
+      const accrued = accruedOk ? (data[off].result as bigint) : 0n
+      const claimable = claimableOk ? (data[off + 1].result as bigint) : 0n
+      const recruits = recruitsOk ? (data[off + 2].result as bigint) : 0n
+      const degraded = !accruedOk || !claimableOk || !recruitsOk
 
-      if (accrued === 0n && recruits === 0n) continue
-      out.push({ project: projects[i], accrued, claimable, recruits })
+      // The skip now needs the zeros to be REAL zeros. It is the cheaper of the
+      // two failures to miss — a dropped row cannot be argued with, whereas a
+      // row that admits it is incomplete at least sends the reader to refresh.
+      if (!degraded && accrued === 0n && recruits === 0n) continue
+      out.push({ project: projects[i], accrued, claimable, recruits, degraded })
     }
 
     // Claimable first, because that is the only row with an action on it.

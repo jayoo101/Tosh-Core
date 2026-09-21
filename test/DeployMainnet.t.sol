@@ -114,6 +114,47 @@ contract DeployMainnetTest is Test {
         script.requireMainnetTarget(TARGET_CHAIN);
     }
 
+    /// @notice `INFINITY_CL_POOL_MANAGER` and `INFINITY_VAULT` are two separate
+    ///         environment variables naming one pair, and both are immutable on
+    ///         the factory and on every hook it clones. A mismatched pair does
+    ///         not degrade — `CLPoolManager` and `Vault` each reject the other's
+    ///         counterparty, so the factory deploys clean and every
+    ///         `createLaunch` reverts, discovered by the first creator rather
+    ///         than by the deploy. There is no setter; it is a full redeploy.
+    ///
+    /// @dev    The script used to say a human had to check this because "the
+    ///         script cannot". It can: it runs against `--rpc-url`, the manager
+    ///         publishes `vault()`, and one eth_call settles it.
+    ///
+    ///         `vm.mockCall` rather than `vm.setEnv` — the reason the rest of
+    ///         this file avoids `setEnv` applies here too, and mocks ARE cleared
+    ///         between tests, so this cannot leak into its neighbours the way a
+    ///         rewritten environment variable did.
+    function test_run_refusesAVaultThatTheManagerDoesNotClaim() public {
+        vm.chainId(TARGET_CHAIN);
+
+        // The manager reports a vault that is not the one the environment names.
+        // Any address other than `vault` will do; a plausible-looking one is used
+        // so the failure is about the mismatch and not about `address(0)`.
+        vm.mockCall(address(poolManager), abi.encodeWithSignature("vault()"), abi.encode(address(uint160(0xBEEF))));
+
+        vm.expectRevert(bytes("INFINITY_VAULT is not the vault this INFINITY_CL_POOL_MANAGER reports"));
+        script.run();
+    }
+
+    /// @notice An address with code that is not a CLPoolManager has no `vault()`
+    ///         to answer, and the catch exists so that reads as a wrong address
+    ///         rather than as a flaky RPC. `QUOTE_ASSET` is a real contract here
+    ///         and a perfectly plausible thing to paste into the wrong variable.
+    function test_run_refusesAManagerThatIsNotAManager() public {
+        vm.chainId(TARGET_CHAIN);
+
+        vm.mockCallRevert(address(poolManager), abi.encodeWithSignature("vault()"), "");
+
+        vm.expectRevert(bytes("INFINITY_CL_POOL_MANAGER does not answer vault(): not a CLPoolManager on this chain"));
+        script.run();
+    }
+
     function test_run_deploysFactoryAndQueuesOwnershipHandoff() public {
         vm.chainId(TARGET_CHAIN);
 

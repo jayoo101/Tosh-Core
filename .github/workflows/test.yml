@@ -201,10 +201,36 @@ jobs:
       # block shuts the shelf and not the pool, which is deliberate, and probe A
       # pinning `SameBlockMintForbidden` reads as though it covered both. A2 pins
       # the pool side explicitly: the buy succeeds, and it does not undercut `p0`.
+      #
+      # 408 -> 410: `test_run_refusesAVaultThatTheManagerDoesNotClaim` and
+      # `_refusesAManagerThatIsNotAManager`. `INFINITY_CL_POOL_MANAGER` and
+      # `INFINITY_VAULT` are two variables naming one pair, both immutable on the
+      # factory and on every hook it clones, and the script asked a HUMAN to check
+      # the pairing — on the grounds that "the script cannot", which was untrue:
+      # it runs against `--rpc-url` and the manager publishes `vault()`. A
+      # mismatch deploys a clean factory whose every `createLaunch` reverts, with
+      # no setter to fix it.
+      #
+      # These use `vm.mockCall`, not `vm.setEnv`, for the reason the note above
+      # gives: mocks are cleared between tests, environment writes are not.
+      #
+      # 410 -> 412: `invariant_promisedCommissionIsPayable` and its deterministic
+      # companion `test_referralPromiseCoverageIsLive`. The `claimReferral` action
+      # has always been in the invariant handler and has always picked an actor
+      # that HOLDS commission, then wrapped the call in `catch {}` — so a hook
+      # whose `referralAccrued` had outrun the quote it holds was indistinguishable
+      # from a run where the fuzzer drew unlucky actors. No assertion, no red.
+      #
+      # The pair is not stylistic. Forge evaluates invariants once after `setUp`,
+      # so a coverage assertion inside the invariant fails at `runs: 0` and reads
+      # as broken plumbing; and `afterInvariant` is worse, because a failure there
+      # starts shrinking and the minimal sequence has no coverage either. Coverage
+      # therefore lives in a plain test, which is the division this file's own
+      # `test_handlerPlumbingIsLive` note already argued for.
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=408
+          floor=412
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
@@ -227,6 +253,21 @@ jobs:
 
           if [ "$plain" -lt "$floor" ]; then
             echo "::error::$plain tests ran, below the floor of $floor. A suite is missing rather than failing. If tests were deliberately removed, lower the floor in this workflow in the same commit and say why."
+            exit 1
+          fi
+
+          # ── And the direction that let this floor rot 32 tests adrift ────────
+          #
+          # A floor catches a shrinking suite and says nothing about a growing
+          # one, so every addition widened the gap in silence until the number
+          # guarded nothing. Same check, same reasoning and the same `slack` as
+          # `frontend.yml`; the two floors decayed together and are repaired
+          # together, because a lesson applied to one of a matched pair is how
+          # this drifted the second time.
+          slack=8
+          ceiling=$(( floor + slack ))
+          if [ "$plain" -gt "$ceiling" ]; then
+            echo "::error::$plain tests ran against a floor of $floor (slack $slack). The suite has grown and the floor has not, which is how it previously drifted 32 tests adrift and stopped guarding anything. Raise floor to $plain in this workflow, in this commit, with a line saying what was added."
             exit 1
           fi
 

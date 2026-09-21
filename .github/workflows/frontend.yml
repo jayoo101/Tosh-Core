@@ -218,6 +218,25 @@ jobs:
       - name: Quote amounts use the quote scale
         run: npm run guard:quoteformat
 
+      # Last of the guards, and the one that is about the list above rather than
+      # about the source. `npm run guards` and the steps in this file are two
+      # hand-maintained copies of the same list, and until now nothing compared
+      # them — so a guard added to the aggregate and forgotten here would run on
+      # its author's machine, pass, and never block a merge again. The aggregate
+      # made it look covered, which is why an absent guard is worse than a broken
+      # one.
+      #
+      # Same failure as the two test floors further down, which sat 58 and 32
+      # tests adrift for the same reason: a hand-maintained number nobody checked.
+      # Both were found by reading, not by CI. This is the check that would have
+      # found them.
+      #
+      # It resolves each entry through package.json to the script it really runs,
+      # because this file invokes some by npm alias and others by path — a plain
+      # string diff calls `guard:env` missing when its script runs on every push.
+      - name: Every guard in the aggregate is wired into this workflow
+        run: npm run guard:guardcoverage
+
       # The guards above are static checks on source text; these exercise the
       # code. Both are needed: a guard cannot tell whether a rate-limit bucket
       # is actually keyed on the entry it reads, and a test cannot see a
@@ -305,7 +324,15 @@ jobs:
       # is a sign the instruction in prose is not enough; the durable repair is
       # a step that reads the floor off the run and fails when it is more than a
       # few below, so that growing the suite without raising the floor is itself
-      # the red check. Worth doing next time this file is opened.
+      # the red check.
+      #
+      # ✓ THAT REPAIR IS NOW IMPLEMENTED — see the `slack`/`ceiling` check in the
+      #   step below. The paragraph above ended "worth doing next time this file
+      #   is opened", which is the same kind of instruction-in-prose that had just
+      #   failed twice, and it survived several more openings. A floor only ever
+      #   caught the suite SHRINKING; nothing caught it growing, so every addition
+      #   widened the gap in silence. Both directions are checked now, and the
+      #   numbers below are maintained because CI makes them be.
       #
       # 355 -> 357 the same day: two cases in `ReferralPanel.test.tsx` covering
       # the other two reads that collapsed a pending result into a pessimistic
@@ -313,10 +340,23 @@ jobs:
       # `claimableReferral`, where a `?? 0n` unmounted the entire card on a
       # launched project that owed the wallet commission — verified by inverting
       # both guards, which turns exactly these two red and nothing else.
+      #
+      # 357 -> 361: `refundReads.test.tsx`, four cases on the last two panels that
+      # received `nativeDeposited` through a `?? 0n`. `RefundPanel` gates its
+      # button on `=== 0n`, so a depositor arriving to collect a FAILED round was
+      # told the wallet had nothing deposited while the figure was still in
+      # flight; `GenesisClaimPanel` returns `null` on the same comparison, so the
+      # card for a real allocation was absent rather than blank.
+      #
+      # Two of the four are controls on a confirmed zero, and they earn their
+      # place: the first draft asserted on the blocker text, which is not rendered
+      # while the connect gate outranks it, so the test passed no matter what the
+      # panel did. They assert on the readout instead — `…` against a stated `0` —
+      # and inverting both fixes turns exactly the two pending cases red.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=357
+          floor=361
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
@@ -340,6 +380,26 @@ jobs:
 
           if [ "$total" -lt "$floor" ]; then
             echo "::error::$total tests were collected, below the floor of $floor. A suite is missing rather than failing. If tests were deliberately removed, lower the floor in this workflow in the same commit and say why."
+            exit 1
+          fi
+
+          # ── The other direction, which is what kept letting this floor rot ──
+          #
+          # A floor only catches a SHRINKING suite. Nothing caught a GROWING one,
+          # so every addition widened the gap silently and the floor decayed into
+          # decoration — twice at 58 adrift and once at 100, each found by reading
+          # rather than by CI. The note above called for exactly this step and then
+          # asked the next reader to remember; five hand-bumps later, it is here.
+          #
+          # `slack` is the number of tests that may be added before the floor must
+          # move. Not zero: a PR that adds a test should not fail on a number in a
+          # different file, and a small band keeps the reminder attached to the
+          # work rather than to every commit. Not large either, or it is the old
+          # problem with extra steps.
+          slack=8
+          ceiling=$(( floor + slack ))
+          if [ "$total" -gt "$ceiling" ]; then
+            echo "::error::$total tests collected against a floor of $floor (slack $slack). The suite has grown and the floor has not, which is how it previously drifted 58 and 100 tests adrift and stopped guarding anything. Raise floor to $total in this workflow, in this commit, with a line saying what was added."
             exit 1
           fi
 

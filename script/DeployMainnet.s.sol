@@ -8,6 +8,15 @@ import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
 
+/// @notice Just enough of `CLPoolManager` to ask which Vault it belongs to.
+/// @dev    Declared locally, returning `address` rather than `IVault`, so this
+///         script does not drag an Infinity interface tree in for one eth_call —
+///         and so the call cannot start type-checking against a periphery
+///         version that has nothing to do with the chain being deployed to.
+interface IInfinityVaultGetter {
+    function vault() external view returns (address);
+}
+
 /*//////////////////////////////////////////////////////////////////////////
 //  DeployMainnet.s.sol  —  Production-grade deployer
 //
@@ -205,16 +214,43 @@ contract DeployMainnetScript is Script {
 
         address poolManager = vm.envAddress("INFINITY_CL_POOL_MANAGER");
         require(poolManager != address(0), "INFINITY_CL_POOL_MANAGER unset");
+        // ⚠ CODE CHECK, for the same reason `QUOTE_ASSET` has one thirty lines
+        //   below, and this is the address where its absence costs most. Both
+        //   Infinity addresses are chain-specific and both are IMMUTABLE on the
+        //   factory and on every hook it clones, so a value carried over from
+        //   another chain deploys a perfectly healthy-looking factory whose
+        //   every `createLaunch` reverts — discovered by the first creator, not
+        //   by the deploy. `QUOTE_ASSET` was guarded and these two were not,
+        //   which was an inconsistency rather than a decision.
+        require(poolManager.code.length > 0, "INFINITY_CL_POOL_MANAGER holds no code on this chain");
 
         // Infinity's Vault. Immutable on the factory and on every hook it
         // deploys, exactly like the manager, and it must be the Vault that
         // OWNS this manager — `CLPoolManager` and `Vault` each reject the
         // other's counterparty, so a mismatched pair does not misbehave
-        // quietly, it bricks every launch. Verify the pairing on the target
-        // chain before broadcasting; the fork suite asserts it for the live
-        // pair, but this script cannot.
+        // quietly, it bricks every launch.
         address vault = vm.envAddress("INFINITY_VAULT");
         require(vault != address(0), "INFINITY_VAULT unset");
+        require(vault.code.length > 0, "INFINITY_VAULT holds no code on this chain");
+
+        // ⚠ AND THE PAIRING IS CHECKED HERE RATHER THAN BY A HUMAN. This block
+        //   used to end "verify the pairing on the target chain before
+        //   broadcasting; the fork suite asserts it for the live pair, but this
+        //   script cannot" — and the last clause was simply untrue. The script
+        //   runs against `--rpc-url`, so `manager.vault()` is one eth_call, and
+        //   the manager publishes exactly the value being verified. What the
+        //   comment did was convert a mechanical check into a manual step in a
+        //   procedure with twenty other manual steps, on the one pair of
+        //   addresses that cannot be corrected afterwards.
+        //
+        //   Wrapped in a try/catch so the failure names the real problem: an
+        //   address with code that is NOT a CLPoolManager has no `vault()` to
+        //   call, and a bare revert here would read as an RPC fault.
+        try IInfinityVaultGetter(poolManager).vault() returns (address declared) {
+            require(declared == vault, "INFINITY_VAULT is not the vault this INFINITY_CL_POOL_MANAGER reports");
+        } catch {
+            revert("INFINITY_CL_POOL_MANAGER does not answer vault(): not a CLPoolManager on this chain");
+        }
 
         // The quote asset: what every raise is denominated in, and `currency0` of
         // every pool this factory will ever create. BEM,

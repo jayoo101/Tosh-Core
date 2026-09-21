@@ -162,6 +162,32 @@ contract ToshInvariantHandler is Test {
     ///      invariant could hold by never looking.
     uint256 public ghostLockoutAudits;
 
+    /// @dev A referral claim that the hook itself said was payable, and which
+    ///      reverted anyway.
+    ///
+    ///      ⚠ THE HANDLER'S `catch {}` MADE THIS UNOBSERVABLE, which is the same
+    ///        hazard the note on `quote` and the one on `ghostSwapWithoutStamp`
+    ///        both describe, arriving on the one path that hands out money. The
+    ///        `claimReferral` action selects an actor that HAS commission and then
+    ///        swallows every revert, so an insolvent hook — commission accrued
+    ///        against quote the contract no longer holds — produced a clean run
+    ///        with a silently lower `okClaimReferral`, and nothing reads that
+    ///        counter as a floor.
+    ///
+    ///        `claimableReferral(user)` is the hook's own verdict: it returns
+    ///        `launched ? referralAccrued[user] : 0`, so a non-zero answer is a
+    ///        promise, and `claimReferralReward()` reverts only on
+    ///        `NoReferralReward` (amount == 0) or on a failing transfer. Asking
+    ///        first turns "the claim did not go through" into "the claim the
+    ///        contract promised did not go through", which is a bug either way.
+    uint256 public ghostBrokenReferralPromise;
+
+    /// @dev How many promised claims were attempted. As with `ghostLockoutAudits`,
+    ///      a zero failure count means nothing if nothing was ever tried — and
+    ///      this action needs both a launched hook and an actor holding
+    ///      commission, so it can easily never fire.
+    uint256 public ghostReferralPromises;
+
     /// @dev token => the highest balance `0xdead` has ever held of it. Burns are
     ///      supposed to be irreversible; a token that could be recovered from
     ///      the burn address would make every "burned" figure a loan.
@@ -587,10 +613,21 @@ contract ToshInvariantHandler is Test {
         ToshLaunchpadHook hook = _hookInPhase(hookSeed, 3);
         address user = _actorWithReferral(hook, actorSeed);
 
+        // Asked BEFORE the call, because the claim zeroes `referralAccrued` on
+        // its way out — afterwards there is nothing left to have promised.
+        uint256 promised = hook.claimableReferral(user);
+        if (promised > 0) ++ghostReferralPromises;
+
         vm.prank(user);
         try hook.claimReferralReward() {
             ++okClaimReferral;
-        } catch {}
+        } catch {
+            // Still swallowed, because most sequences reach here legitimately:
+            // an actor with no commission, or a hook that has not launched. What
+            // is no longer swallowed is a revert on a claim the hook had just
+            // said was payable — see `ghostBrokenReferralPromise`.
+            if (promised > 0) ++ghostBrokenReferralPromise;
+        }
 
         _sync();
     }
@@ -1468,6 +1505,48 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         assertEq(handler.ghostSwapWithoutStamp(), 0, "a swap left the same-block mint lockout open");
     }
 
+    /// @notice A hook that says it owes commission can pay it.
+    ///
+    /// @dev    Same shape as the invariant above — the action was always in the
+    ///         handler and nothing asserted on its outcome. `claimReferral`
+    ///         deliberately picks an actor that HOLDS commission and then wrapped
+    ///         the call in `catch {}`, so a hook whose `referralAccrued` had
+    ///         outrun the quote it actually holds looked exactly like a run where
+    ///         the fuzzer happened to pick unlucky actors: `okClaimReferral` a
+    ///         little lower, nothing red.
+    ///
+    ///         That is the gap worth closing rather than a known bug. Commission
+    ///         is reserved out of deposits at `deposit` time and paid out of the
+    ///         hook's own balance after `launch()`, and the amount the pool keeps
+    ///         is computed from `totalReferralReserved + orphanReferral` in two
+    ///         places. Those are the arithmetic this invariant is downstream of,
+    ///         and an off-by-anything in either strands a referrer's money with
+    ///         no revert anywhere for the suite to notice.
+    ///
+    ///         ⚠ THE LIVENESS HALF IS DELIBERATELY NOT HERE, and getting that
+    ///           wrong is instructive. "No broken promises" is satisfiable by
+    ///           never having made one, so it wants a companion
+    ///           `assertGt(ghostReferralPromises(), 0)` — but Forge evaluates
+    ///           every invariant once after `setUp`, before any handler call,
+    ///           where that counter is necessarily 0. Measured: the suite failed
+    ///           with `failed to set up invariant testing environment` and
+    ///           `runs: 0`, which reads as broken plumbing rather than as a
+    ///           misplaced assertion.
+    ///
+    ///           `afterInvariant` is not the home either, for the reason its own
+    ///           note already gives: a failure there sends Foundry into shrinking,
+    ///           and the minimal sequence it converges on has no coverage either,
+    ///           so the report names the coverage gap instead of the real break.
+    ///           Coverage is asserted deterministically in
+    ///           `test_referralPromiseCoverageIsLive`, where it cannot flake on
+    ///           fuzzer luck — the same division of labour as
+    ///           `test_handlerPlumbingIsLive`.
+    function invariant_promisedCommissionIsPayable() public view {
+        assertEq(
+            handler.ghostBrokenReferralPromise(), 0, "a hook reported claimable commission and then refused to pay it"
+        );
+    }
+
     /// @notice Burns are irreversible: no token ever leaves `0xdead`.
     ///
     /// @dev    Cheap, and it pins the claim the buyback accounting rests on. If
@@ -1609,6 +1688,46 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         handler.launchProject(2);
         assertEq(handler.okLaunch(), 1, "handler could not launch a funded project");
         assertTrue(h2.launched(), "project did not launch");
+    }
+
+    /// @notice `invariant_promisedCommissionIsPayable` is about a counter that
+    ///         only moves when the fuzzer reaches a launched hook holding
+    ///         commission. This test proves that state is reachable and that the
+    ///         claim goes through, so the invariant cannot pass by never looking.
+    ///
+    /// @dev    Deterministic rather than asserted inside the invariant run, for
+    ///         the reason set out on the invariant itself: Forge checks invariants
+    ///         once before any handler call, and a coverage assertion there fails
+    ///         at `runs: 0`.
+    ///
+    ///         The referral leg comes free from the deposit pattern above.
+    ///         `deposit`'s fourth argument is a referrer seed, and an even value
+    ///         binds `_actor(seed >> 8)` — so `0` names `actors[0]`, nulled only
+    ///         for the depositor who IS `actors[0]`. Three of the four deposits
+    ///         below therefore accrue commission to that actor, which is what
+    ///         `_actorWithReferral` then finds.
+    function test_referralPromiseCoverageIsLive() public {
+        for (uint256 i; i < 4; ++i) {
+            handler.deposit(i, 2, 500e8, 0);
+        }
+        ToshLaunchpadHook h2 = handler.hooks(2);
+        address referrer = handler.actors(0);
+        assertGt(h2.referralAccrued(referrer), 0, "no commission accrued, so this test proves nothing");
+
+        handler.warpLong(4 days);
+        handler.launchProject(2);
+        assertTrue(h2.launched(), "project did not launch");
+
+        // The hook's own verdict, which is what the handler compares against.
+        uint256 promised = h2.claimableReferral(referrer);
+        assertGt(promised, 0, "launched hook reports no claimable commission");
+
+        uint256 before = quote.balanceOf(referrer);
+        handler.claimReferral(0, 2);
+
+        assertGt(handler.ghostReferralPromises(), 0, "the promised-claim path was never exercised");
+        assertEq(handler.ghostBrokenReferralPromise(), 0, "a promised commission claim reverted");
+        assertEq(quote.balanceOf(referrer) - before, promised, "commission paid did not match the promise");
     }
 
     /// @notice The buyback really does fire, spend treasury ETH, and burn — so

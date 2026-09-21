@@ -34,7 +34,9 @@ export function RefundPanel({
   hookAddress, nativeDeposited, refetch, ladderViable,
 }: {
   hookAddress:   Address
-  nativeDeposited:  bigint
+  /// `undefined` while the read is in flight. NOT the same as `0n`, which is a
+  /// definite "this wallet has nothing here" and is what gates the button below.
+  nativeDeposited:  bigint | undefined
   refetch:       () => void
   /** The hook's `ladderViable()`; `undefined` while the read is in flight. */
   ladderViable?: boolean
@@ -56,13 +58,28 @@ export function RefundPanel({
     action: 'Claim 100% Refund',
     onAct: handleRefund,
     tx: { isPending, isConfirming },
-    blockersInRevertOrder: revertOrder({
-      id: 'no-deposit',
-      active: nativeDeposited === 0n,
-      label: 'Nothing to refund',
-      reason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
-      tone: 'neutral',
-    }),
+    blockersInRevertOrder: revertOrder(
+      {
+        // ⚠ SEPARATE FROM "nothing to refund", because the two used to share a
+        //   `?? 0n` and this is the screen where a depositor comes to get their
+        //   money back. Told "this wallet has nothing deposited in this project"
+        //   while their own balance was still loading, the reasonable reaction is
+        //   to leave — and the phase is already `refund`, so the round has failed
+        //   and the window to act is finite.
+        id: 'deposit-pending',
+        active: nativeDeposited === undefined,
+        label: 'Reading your deposit…',
+        reason: 'Fetching this wallet’s balance in the project. The button arms as soon as it lands.',
+        tone: 'neutral',
+      },
+      {
+        id: 'no-deposit',
+        active: nativeDeposited === 0n,
+        label: 'Nothing to refund',
+        reason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
+        tone: 'neutral',
+      },
+    ),
   })
 
   return (
@@ -72,7 +89,11 @@ export function RefundPanel({
       subtitle={refundReason(ladderViable)}
       tone="warn"
     >
-      <Readout label="Your deposit" value={`${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`} tone="warn" />
+      <Readout
+        label="Your deposit"
+        value={nativeDeposited === undefined ? '…' : `${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`}
+        tone="warn"
+      />
       <ActionButton gate={gate} size="lg" intent="danger" />
     </Card>
   )

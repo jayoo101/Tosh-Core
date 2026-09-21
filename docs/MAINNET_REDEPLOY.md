@@ -343,6 +343,17 @@ or a `.env` restored by habit, can no longer drive the *mainnet* script onto
 testnet with every check green. Testnet deploys go through
 `script/Deploy.s.sol`, which pins 97 from the other side.
 
+The dry run also settles the **Infinity pairing**, which used to be a manual step
+and is now not one. `INFINITY_CL_POOL_MANAGER` and `INFINITY_VAULT` are two
+variables naming one pair; the script asks the manager for its own `vault()` and
+refuses a value that disagrees, plus refuses either address if it holds no code
+on this chain. That matters because a mismatched pair does not degrade — the
+manager and the Vault each reject the other's counterparty, so the factory
+deploys clean, the manifest reads correctly, and every `createLaunch` reverts.
+Both addresses are immutable on the factory *and* on every hook it clones, so the
+remedy is a full redeploy. You no longer have to check this by hand; if the dry
+run is silent about it, it agreed.
+
 Read the manifest it prints and confirm all four roles before going further —
 `PROD owner`, `PoG Signer`, `Platform fee recipient` and `Deployer`.
 `platformTreasury` is immutable **and** baked into the hook implementation, so

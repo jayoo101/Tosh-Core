@@ -17,7 +17,12 @@ export function GenesisClaimPanel({
   hookAddress:  Address
   symbol:       string
   userAddress:  Address | undefined
-  nativeDeposited: bigint
+  /// `undefined` while in flight, for the reason the `claimedUnknown` comment
+  /// below already gives about `hasClaimed`: an unread value must not make the
+  /// allocation disappear. This one was the exception — it gated the `return
+  /// null`, so a pending read removed the whole card from a wallet with a real
+  /// genesis share.
+  nativeDeposited: bigint | undefined
   refetch:      () => void
 }) {
   const { data: hasClaimedRaw, refetch: refetchClaimed } = useReadContract({
@@ -50,15 +55,29 @@ export function GenesisClaimPanel({
     action: `Claim ${symbol}`,
     onAct: handleClaim,
     tx: { isPending, isConfirming },
-    blockersInRevertOrder: revertOrder({
-      id: 'claimed-unknown',
-      active: claimedUnknown,
-      label: 'Checking your claim…',
-      reason: 'Reading whether this wallet has already claimed. There is one claim per wallet, so the button waits for the answer rather than offering a transaction that would fail.',
-      tone: 'neutral',
-    }),
+    blockersInRevertOrder: revertOrder(
+      {
+        // Same argument as `claimed-unknown`, on the other input. The card now
+        // stays for an unread deposit instead of vanishing, so the button has to
+        // be the thing that waits.
+        id: 'deposit-pending',
+        active: nativeDeposited === undefined,
+        label: 'Reading your deposit…',
+        reason: 'Fetching this wallet’s genesis deposit, which is what the allocation is proportional to.',
+        tone: 'neutral',
+      },
+      {
+        id: 'claimed-unknown',
+        active: claimedUnknown,
+        label: 'Checking your claim…',
+        reason: 'Reading whether this wallet has already claimed. There is one claim per wallet, so the button waits for the answer rather than offering a transaction that would fail.',
+        tone: 'neutral',
+      },
+    ),
   })
 
+  // `undefined` deliberately falls through to the render: only a CONFIRMED zero
+  // means this wallet has no allocation to show.
   if (nativeDeposited === 0n || hasClaimed) return null
 
   return (
@@ -67,7 +86,10 @@ export function GenesisClaimPanel({
       title={`Genesis allocation · ${symbol}`}
       subtitle="Your share of the genesis supply, in proportion to what you deposited. One claim per wallet."
     >
-      <Readout label="Your genesis deposit" value={`${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`} />
+      <Readout
+        label="Your genesis deposit"
+        value={nativeDeposited === undefined ? '…' : `${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`}
+      />
       <ActionButton gate={gate} />
     </Card>
   )
