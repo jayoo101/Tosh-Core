@@ -472,7 +472,7 @@ the factory must not be announced in that state.
 | 0 | **Deployer EOA** calls `pause()` on the factory, in the same session as the broadcast and before anything else | `factory.paused()` is `true`. Do this even though the factory is unannounced — see the note above for what it is actually protecting against |
 | 1 | Safe calls `acceptOwnership()` on the **factory** | `owner()` is the Safe and `pendingOwner()` is `address(0)` |
 | 2 | Safe calls `acceptOwnership()` on the **treasury** | same two reads on the treasury |
-| 3 | Safe calls `setLaunchFee(<decide this first — see below>)` | `launchFee()` returns the base units you decided on, not the 9.28 BEM default |
+| 3 | Safe calls `setLaunchFee(1000000000000000)` — **0.001 BNB**, decided 2026-09-21, see below | `launchFee()` returns `1000000000000000`, not the `5000000000000000` default. Check the units: this is native wei, and the figure is 1e15 |
 | 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals — and `cooldownDuration()` = `259200` (72 h) |
 | 4a | Read the cooldown as policy, not as a throttle | At 72 h it is at least `DURATION_SLOW`, so it is the **one-deposit-per-wallet-per-project** rule. Lowering it restores instalment deposits, silently: nothing reverts, the UI stops saying "one deposit per wallet", and a wallet can accumulate to `perWalletCap` across refilled quota windows. Treat it as a market parameter, not a spam knob |
 | 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
@@ -570,12 +570,48 @@ is reversible in a way the immutable dials are not. Left at the default, the
 first creator pays 0.005 BNB to open a round — whether that is right is the
 question, and it is the kind of question a runbook must not answer by inertia.
 
+**Decided 2026-09-21: `0.001 BNB` (`1000000000000000` wei).** A promotional
+figure, deliberately low, and the reasoning is what makes it not zero.
+
+Zero was asked for first and is legal — `setLaunchFee` has only a ceiling, no
+floor. What ruled it out is `SCAN_DEPTH = 48` in
+`soat-frontend/src/components/directory/useDirectoryProjects.ts`: the directory
+shows the newest 48 launches, and `createLaunch` is a **measured 558,509 gas**
+(`test_createLaunch_gasStaysUnderBudget`). At 0.05 gwei that is about **$0.018**
+a launch, so **48 of them — enough to push every real project off the
+directory — costs about $0.87**, repeatably. `/referrals` is bounded by the same
+constant and says so in its own comment, so a referrer whose commission sits on
+a buried launch is told they have none. **The fee is the only economic gate on
+creation**: `createLaunch` has no per-creator cooldown, no allowlist and no PoG
+requirement, and `nameTaken` only forces a fresh name+symbol per attempt.
+
+0.001 BNB does not deter a real creator — it is 1/5 of the default and
+1/500 of the ceiling — while taking the price of burying the directory from
+$0.87 to about **$31**. That is not a wall, and it is not meant to be one; it is
+enough to make the griefing cost visible, and the Safe can raise it in one
+transaction if it stops being.
+
+**No frontend change is needed for this, and that was checked rather than
+assumed.** `launch/page.tsx` reads `launchFee()` live through
+`useReadContracts`, **re-reads it immediately before submitting** (the one dial
+in that batch that used to go stale), and passes the same figure as both
+`expectedFee` and `value`, simulating with it too. Only `MAX_LAUNCH_FEE` is
+mirrored into TypeScript, and `checkContractConstants.ts` guards that. The
+`FeeChanged` check is also one-sided — `if (fee > expectedFee)` — so a session
+still holding the 0.005 default is not broken by the reduction: the factory takes
+0.001 and refunds the rest as change. `formatEstimateEth` renders 1e15 as
+`0.001`, verified, so the panel does not show a fee of `0`.
+
 **Write the figure in native wei when you send it.** `setLaunchFee(0.005
 ether)` is the factory default. `setLaunchFee(9.28e8)` is 928 million BNB
 and reverts against `MAX_LAUNCH_FEE`. The near miss that does land is an
 order-of-magnitude slip inside the 0.5 BNB ceiling;
 `test_setLaunchFee_rejectsOrderOfMagnitudeSlip` is the guard, and it only
-covers the extreme.
+covers the extreme. **Count the zeros on the decided figure before you sign it**:
+`1000000000000000` is a one followed by **fifteen** zeros. Fourteen gives
+0.0001 BNB, which is cheaper than the zero fee this decision rejected;
+sixteen gives 0.01 BNB, twice the default it undercuts. Both are legal, both
+pass every guard, and neither is what was decided.
 
 **Two of the commands above will not run as written if you drop a flag or a
 directory, and both failures look like something else.**
