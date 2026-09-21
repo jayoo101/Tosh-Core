@@ -17,7 +17,8 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //
 //    1. Constructor wires every immutable to a non-zero address.
 //    2. `defaultSoftCap`, `maxPogAllocationLimit`, `launchFee` are non-zero.
-//    3. Pause is OFF and the contract is in the "open for business" state.
+//    3. Pause is in the state EXPECTED_PAUSED declares (default: off). During
+//       the post-broadcast pause window, that means EXPECTED_PAUSED=true.
 //    4. The owner is the EOA deployer  OR  the Safe (post-acceptOwnership).
 //    5. The factory's PoG signer is the address you passed in env.
 //    6. `getLiveHookInitcodeHash()` is deterministic and stable
@@ -103,8 +104,29 @@ contract VerifyDeploymentScript is Script {
         if (factory.maxPogAllocationLimit() == 0) revert MissingField("maxPogAllocationLimit");
 
         // launchFee CAN be zero (free launches) — but we still log it.
-        // ── 3. Pause must be OFF ────────────────────────────────────────────
-        if (factory.paused()) revert UnexpectedValue("paused", 0, 1);
+        // ── 3. Pause must be the state the operator is expecting ────────────
+        // A deployment that is open for business is unpaused, so that stays the
+        // default. But this script is meant to run BEFORE the deployment opens,
+        // and the runbook now pauses in the same breath as the broadcast: step 0
+        // pauses, step 10 unpauses, and everything in between — including this
+        // check — happens with the brake on. Verifying an already-live factory
+        // is the wrong order; the point is to find a wrong immutable while
+        // redeploying is still an option.
+        //
+        // So the expectation is declared rather than assumed, the same way
+        // EXPECTED_OWNER below is. Set EXPECTED_PAUSED=true inside the window.
+        bool pausedNow = factory.paused();
+        bool pausedWanted = vm.envOr("EXPECTED_PAUSED", false);
+        if (pausedNow != pausedWanted) {
+            if (pausedNow) {
+                console2.log("paused() is true but EXPECTED_PAUSED is false (or unset).");
+                console2.log("  Inside the post-broadcast pause window, re-run with EXPECTED_PAUSED=true.");
+            } else {
+                console2.log("paused() is false but EXPECTED_PAUSED is true.");
+                console2.log("  Someone unpaused early, or the window already closed.");
+            }
+            revert UnexpectedValue("paused", pausedWanted ? 1 : 0, pausedNow ? 1 : 0);
+        }
 
         // ── 4. Owner sanity — must be SOME EOA / Safe ──────────────────────
         address owner = factory.owner();
@@ -149,7 +171,12 @@ contract VerifyDeploymentScript is Script {
         console2.log("Default soft cap (wei)  :", factory.defaultSoftCap());
         console2.log("Max PoG alloc (wei)     :", factory.maxPogAllocationLimit());
         console2.log("Cooldown duration (sec) :", factory.cooldownDuration());
-        console2.log("Paused?                 : false");
+        // Read, not asserted. This line used to be the literal "false", which
+        // was true by construction back when the check above could only pass
+        // on an unpaused factory. It now reports a state that really varies,
+        // and a summary claiming the brake is off while it is on is the exact
+        // misreading that gets step 10 skipped.
+        console2.log("Paused?                 :", factory.paused());
         // Adjacent on purpose, and they are not supposed to match.
         // `getLiveHookInitcodeHash()` is the clone initcode hash built from
         // sentinel values; `HOOK_CREATION_CODEHASH` is the implementation's

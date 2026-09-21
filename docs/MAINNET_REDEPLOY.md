@@ -517,7 +517,7 @@ the factory must not be announced in that state.
 | 4 | Confirm the dials nobody has to touch | `defaultSoftCap()` = `928.4e8`, `maxPogAllocationLimit()` = `46.4e8` — i.e. 928.4 and 46.4 **BEM**, at 8 decimals — and `cooldownDuration()` = `259200` (72 h) |
 | 4a | Read the cooldown as policy, not as a throttle | At 72 h it is at least `DURATION_SLOW`, so it is the **one-deposit-per-wallet-per-project** rule. Lowering it restores instalment deposits, silently: nothing reverts, the UI stops saying "one deposit per wallet", and a wallet can accumulate to `perWalletCap` across refilled quota windows. Treat it as a market parameter, not a spam knob |
 | 4b | Confirm the asset all three contracts are denominated in | `factory.quoteAsset()`, `hookImplementation().quoteAsset()` and `treasury.quoteAsset()` all return BEM. There is no setter; a disagreement here is a redeploy |
-| 5 | `forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(address)" $env:NEXT_PUBLIC_FACTORY_ADDRESS --rpc-url $env:TARGET_RPC` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()` |
+| 5 | `$env:EXPECTED_PAUSED='true'; forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(address)" $factory --rpc-url $env:TARGET_RPC` — see below for both the variable and the `$factory` | all invariants pass, including `factory.platformTreasury() == hookImplementation().platformFeeRecipient()`. The summary's `Paused?` line must read `true` here |
 | 6 | `forge build; node scripts/extractAbis.js` | `git diff` on `soat-frontend/src/app/lib/abis.ts` is empty (it was regenerated before the branch was committed) |
 | 7 | Vercel Production: the **six** variables below, not two | `cd soat-frontend; npm run check:quote` agrees with the chain — see below |
 | 8 | Push the five commits to `main` | CI green |
@@ -691,6 +691,30 @@ which reads like a broken script rather than a missing flag — the same trap
 factory explicitly is also what you want here: the no-argument overload reads
 the address from the environment, and on deploy day the environment is the thing
 under test.
+
+**Which address, and why not the one this table used to name.** Step 5 reuses
+the `$factory` that step 0 set, because that is the only spelling of the address
+that exists in the broadcast session. This line previously said
+`$env:NEXT_PUBLIC_FACTORY_ADDRESS`, which is a **frontend** variable set at step
+7, two steps later — and in §3 you exported the repo-root `.env.production`,
+which spells it `FACTORY_ADDRESS` and still held the `0x` placeholder at export
+time. So the old command passed an empty string to `--sig "run(address)"` and
+died on a parse error about the argument, never reaching a single invariant.
+
+**`EXPECTED_PAUSED=true` is not optional here, and omitting it looks like a
+failed deployment.** The script asserts the pause state matches what you declare
+and defaults to expecting an unpaused factory, which is right for a live
+deployment and wrong for every run inside this window. Step 0 pauses and step 10
+unpauses, so step 5 runs with the brake on; without the variable the script
+reverts `UnexpectedValue("paused", 0, 1)` — which reads like a broken factory
+rather than a stale expectation. After step 10, drop the variable and re-run: the
+default is then the correct assertion, and it is the run that proves the
+launchpad is actually open.
+
+While you are re-running it after step 10, add `EXPECTED_OWNER=<safe>` too. The
+script only checks the owner against that variable when it is set, and the run
+that matters is the one after the Safe has accepted — before that, the strict
+check would only confirm the deployer still owns what it just deployed.
 
 `check:quote` is a script in `soat-frontend/package.json`. There is no
 `package.json` at the repo root, so `npm run check:quote` from the tree root
