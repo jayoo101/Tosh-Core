@@ -524,6 +524,32 @@ the factory must not be announced in that state.
 | 9 | Repoint `monitoring/` — the **four** repo variables below | a watch run reports the new addresses with 0 findings |
 | 10 | **Safe** calls `unpause()` — last, after step 5 passed and step 9 is watching | `factory.paused()` is `false`. This is the moment the launchpad goes live, so it belongs after verification and after monitoring, not before |
 
+**Step 0, as a command, because it is the one step with a clock on it.** It has
+to run in the broadcast's own session — the shell that still has `PRIVATE_KEY` in
+it — and before anything else, which is the worst moment to be composing a
+`cast send` from scratch. `FACTORY_ADDRESS` is the one the broadcast manifest
+just printed.
+
+```powershell
+$factory = '<FACTORY_ADDRESS from the manifest>'
+
+cast send $factory "pause()" --rpc-url $env:TARGET_RPC --private-key $env:PRIVATE_KEY
+
+# Do not take the send's success as the answer; read the state back.
+cast call $factory "paused()(bool)" --rpc-url $env:TARGET_RPC   # expect true
+```
+
+Then, and only then, hand the factory to the Safe (steps 1 and 2).
+
+**The contract does not enforce the split this table implies, so the discipline
+has to.** `pause()` and `unpause()` are both plain `onlyOwner`, and until the Safe
+completes step 1 the deployer EOA *is* the owner — it can unpause as easily as it
+just paused. Nothing reverts if it does. The reason step 10 is the Safe's and not
+the EOA's is that an EOA-driven unpause is the exact state step 0 exists to avoid:
+a live, open factory owned by a key that was on a laptop minutes ago, with
+verification and monitoring not yet standing. Once step 1 lands the question
+closes itself, because the EOA can then do neither.
+
 **Step 7 is six variables, and Production currently holds the chain-97 set.**
 Naming only the factory and the quote asset is how a half-switched frontend
 happens: the chain id would still say 97, so wallets would prompt for the wrong
