@@ -31,14 +31,29 @@ export function SiteFooter() {
           {/* Written in x.com's own canonical casing, which is what its oEmbed
               endpoint returns for this handle, so a reader who copies the link
               gets the same URL X would have given them. */}
-          <a
-            href="https://x.com/ToshProtocol"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
-          >
-            X
-          </a>
+        <a
+          href="https://x.com/ToshProtocol"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+        >
+          X
+        </a>
+        {/* "Security", not "Audit", and the distinction is the point rather
+            than modesty. A reader who sees "Audit" in a footer takes it to mean
+            a firm reviewed this and put its name behind the result. What this
+            links to is two static analysers with pinned baselines and a triage
+            record — real work, and not that. Naming it the stronger thing on a
+            site holding user quote would be claiming an assurance nobody has
+            given. Rename it only alongside an actual audit to point it at. */}
+        <a
+          href="https://github.com/jayoo101/Tosh-Core/blob/main/docs/AUDIT.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+        >
+          Security
+        </a>
         </div>
         <span className="font-mono text-label text-text-quiet">
           © {new Date().getFullYear()} Tosh Protocol — {CHAIN_BYLINE}
