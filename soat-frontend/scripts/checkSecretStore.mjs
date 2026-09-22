@@ -213,6 +213,24 @@ const INVENTORY = {
   NEXT_PUBLIC_FACTORY_ADDRESS:       { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
+  NEXT_PUBLIC_QUOTE_ASSET: {
+    tier: 'config',
+    why: 'The token `factory.quoteAsset()` returns — a public contract address, shipped in the '
+       + 'client bundle. Config rather than a credential, but the one config row where being '
+       + 'WRONG is worse than being absent: absent throws at module load and the build fails, '
+       + 'which is why contracts.ts gives it no default, while a wrong address is a live site '
+       + 'asking depositors to approve the wrong token. `check:quote` is what closes that gap — it '
+       + 'reads the factory and compares — and this row only establishes that the name is '
+       + 'classified and present.',
+  },
+  NEXT_PUBLIC_QUOTE_SYMBOL: {
+    tier: 'config',
+    why: 'Display ticker for the quote asset. Cosmetic, and defaulted to BEM in source, so unlike '
+       + 'the address above its absence is invisible. It is set in production anyway because the '
+       + 'default is only right while the quote asset IS BEM: on a testnet holding the mock it '
+       + 'read mBEM, and a ticker that outlives the token it names is a label claiming a deposit '
+       + 'is in something it is not.',
+  },
   NEXT_PUBLIC_RPC_URL: {
     tier: 'absent',
     carriesCredential: false,
@@ -289,14 +307,19 @@ const INVENTORY = {
   },
   BSC_TESTNET_RPC: {
     tier: 'ci',
-    alsoVercel: 'sensitive',
     why: 'Chain 97. Read by the rehearsal scripts and by anything driving the deployed testnet '
-       + 'factory.',
-    alsoVercelWhy:
-      'serverRpc.ts resolves this name for chain 97, and 97 is what NEXT_PUBLIC_CHAIN_ID points '
-      + 'at until 56 is deployed — so today this is the endpoint production actually reads, and '
-      + 'BSC_RPC is the one that matters later. Same silent-failure shape as BSC_RPC: the public '
-      + 'dataseed answers and nothing reports the downgrade.',
+       + 'factory.\n\n'
+       + 'It carried `alsoVercel: sensitive` until 56 went live, on the reasoning that serverRpc.ts '
+       + 'resolves this name for 97 and 97 was what NEXT_PUBLIC_CHAIN_ID pointed at — so it WAS '
+       + 'the endpoint production read. That is no longer true and the row had become the thing '
+       + 'this file is most at risk of producing: a hard failure naming no problem. Production is '
+       + 'pinned to 56, verified by asking it — /api/pog-scan answers chainId 97 with "Unsupported '
+       + 'chainId 97", because isSupportedPogChain derives from NEXT_PUBLIC_CHAIN_ID — so nothing '
+       + 'server-side can reach the 97 branch, and a Vercel row for it would be an unused '
+       + 'credential kept alive by a checker. The CI half stays: the testnet factory is still '
+       + 'there and the scripts still drive it.\n\n'
+       + 'If a build is ever pointed back at 97, this needs `alsoVercel` again — which is the '
+       + 'procedural rule in the docblock above, stated for the row that just exercised it.',
   },
     ETHERSCAN_API_KEY: {
       tier: 'ci',
@@ -399,6 +422,16 @@ const INVENTORY = {
   MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
   MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },
   MONITOR_EXPECTED_POG_SIGNER: { tier: 'ci-config', why: 'Public address of the PoG signer; the private half is POG_SIGNER_PRIVATE_KEY.' },
+  MONITOR_DEPLOY_BLOCK: {
+    tier: 'ci-config',
+    why: 'The block the mainnet factory was deployed in, which is where the watcher starts its '
+       + 'log scan. A block height carries no credential. It is load-bearing rather than a tuning '
+       + 'knob: without it the first pass on 56 has no lower bound and every provider caps '
+       + 'eth_getLogs, so the scan either returns nothing or is refused — which reads as a quiet '
+       + 'watcher rather than as a missing variable. Set with the deployment on 2026-09-21, and it '
+       + 'must move with any redeploy, because a stale height is a scan that starts before the '
+       + 'contracts it is watching exist.',
+  },
   MONITOR_MAX_RUN_GAP_MIN: {
     tier: 'ci-config',
     why: 'Minutes the watcher tolerates between passes before WATCHER-05 pages. Carries no '
