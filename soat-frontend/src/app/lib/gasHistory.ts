@@ -360,6 +360,21 @@ function toEthWei(nativeWei: bigint, chain: GasScanChain): bigint {
   return (nativeWei * chain.nativeToEthX18) / NATIVE_IS_ETH
 }
 
+/**
+ * `toEthWei` for a caller that has a chain id and a native figure but not the
+ * table row — i.e. a cached scan result written before `ethEquivalentWei` was
+ * persisted alongside `weiSpent`.
+ *
+ * An unknown id returns the figure untouched. That is the honest answer for the
+ * only way it can happen, a chain dropped from the table while a result naming
+ * it is still inside its hour of TTL: the rate it was read at is gone, and
+ * inventing one would be worse than showing what was paid.
+ */
+export function ethEquivalentWeiFor(chainId: number, nativeWei: bigint): bigint {
+  const chain = GAS_SCAN_CHAINS.find(c => c.chainId === chainId)
+  return chain ? toEthWei(nativeWei, chain) : nativeWei
+}
+
 /** ETH -> this chain's coin, for carrying an ETH-denominated budget into a
  *  scanner that counts in the chain's own units. Rounds UP so converting a
  *  budget can never shrink it below what the ETH figure allowed. */

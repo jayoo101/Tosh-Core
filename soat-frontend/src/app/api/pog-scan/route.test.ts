@@ -174,6 +174,60 @@ function doneJob(): Job {
 }
 
 /**
+ * A finished job whose breakdown the test can shape. `totalWei` is what the scan
+ * recorded as the ETH total, which is the figure the rows are printed beside and
+ * judged against, so the tests below set it deliberately rather than derive it.
+ *
+ * The chain defaults are a one-transaction Ethereum row, so each case states only
+ * the fields it is about.
+ */
+function doneWithChains(
+  chains: Array<Partial<{
+    chain: string
+    chainId: number
+    weiSpent: string
+    ethEquivalentWei: string
+  }>>,
+  totalWei: string,
+): Job {
+  return {
+    status: 'done',
+    address: USER.toLowerCase(),
+    startedAt: Date.now(),
+    finishedAt: Date.now(),
+    result: {
+      totalWei,
+      truncated: false,
+      scannedAt: Date.now(),
+      chains: chains.map(c => ({
+        chain: 'Ethereum',
+        chainId: 1,
+        weiSpent: '0',
+        sentTxs: 1,
+        truncated: false,
+        stoppedAtCap: false,
+        skipped: false,
+        execFeeOnly: false,
+        ...c,
+      })),
+    },
+  }
+}
+
+type Presented = {
+  totalGasWei: string
+  chains: { chain: string, chainId: number, gasWei: string }[]
+}
+
+/** The cache-hit path, which is the only one that presents a stored breakdown
+ *  without running a scan. */
+async function presented(): Promise<Presented> {
+  const res = await post()
+  expect(res.status).toBe(200)
+  return await res.json() as Presented
+}
+
+/**
  * `origin` defaults to the un-allowlisted host the POST helper uses, matching the
  * rest of this file. The one test that asserts a CORS header passes an allowed
  * one instead: with `ALLOWED_ORIGINS` unset and `NODE_ENV` not production,
@@ -492,5 +546,94 @@ describe('GET /api/pog-scan — the bucket it used to be missing', () => {
     const res = await get(USER, 'http://localhost:3000')
     expect(res.status).toBe(429)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:3000')
+  })
+})
+
+/**
+ * The per-chain breakdown, which is one unit or it is nothing.
+ *
+ * Eligibility never read these rows — it reads `totalWei`, which has accumulated
+ * the converted figure since a non-ETH chain first joined the table — so what
+ * follows is about what a claimant is shown rather than what they are granted.
+ * That is not a lesser thing here: the dialog prints each row one column from an
+ * ETH total and an ETH floor, and a row in the chain's own coin makes the page
+ * contradict itself about a number the user is about to act on.
+ *
+ * `BNB_WEI`/`AS_ETH` are 4:1 because the rate is pinned at 0.25 in `gasHistory`.
+ * Written as the ratio rather than the rate so that moving the rate fails the one
+ * test that is about conversion and leaves the rest alone.
+ */
+describe('POST /api/pog-scan — the breakdown is denominated in the total\'s unit', () => {
+  const BNB_WEI = '4000'
+  const AS_ETH = '1000'
+
+  it('sums to the total it is printed beside', async () => {
+    // The regression, stated as the arithmetic a reader can do on screen: while
+    // `gasWei` sent `weiSpent`, a BSC-only wallet showed four times the total
+    // directly beneath it, and the breakdown of a number did not add up to the
+    // number. Summing here rather than asserting one row is deliberate — it is
+    // the property the display has to have, and it fails for either mistake,
+    // sending native or converting twice.
+    store.set(USER.toLowerCase(), doneWithChains([
+      { chain: 'Ethereum', chainId: 1, weiSpent: AS_ETH, ethEquivalentWei: AS_ETH },
+      { chain: 'BSC', chainId: 56, weiSpent: BNB_WEI, ethEquivalentWei: AS_ETH },
+    ], '2000'))
+
+    const body = await presented()
+    const rows = body.chains.reduce((n, c) => n + BigInt(c.gasWei), 0n)
+    expect(rows).toBe(BigInt(body.totalGasWei))
+  })
+
+  it('converts a result cached before the ETH figure was stored beside it', async () => {
+    // `ethEquivalentWei` is optional for one reason: results written before it
+    // existed are still inside their hour of TTL. Serving those untouched would
+    // reproduce the wrong figure for an hour after the deploy that fixed it, for
+    // exactly the users who had scanned most recently.
+    store.set(USER.toLowerCase(), doneWithChains([
+      { chain: 'BSC', chainId: 56, weiSpent: BNB_WEI },
+    ], AS_ETH))
+
+    const body = await presented()
+    expect(body.chains[0].gasWei).toBe(AS_ETH)
+  })
+
+  it('leaves a chain that settles in ETH untouched on that path', async () => {
+    // The mirror of the test above, and the reason the fallback converts through
+    // the table instead of dividing by four: four of the six chains are already
+    // ETH, and a blanket conversion would quarter the figures that were right.
+    store.set(USER.toLowerCase(), doneWithChains([
+      { chain: 'Ethereum', chainId: 1, weiSpent: '1234' },
+    ], '1234'))
+
+    const body = await presented()
+    expect(body.chains[0].gasWei).toBe('1234')
+  })
+
+  it('prefers the stored figure over re-deriving one', async () => {
+    // A row and the total it belongs to have to be one scan's arithmetic. If the
+    // pinned rate moved while a result sat in its TTL, re-deriving on read would
+    // print rows that no longer sum to the total stored with them — so the stored
+    // figure wins even where it disagrees with today's table. The 7 is nothing
+    // the rate can produce, which is what makes the precedence visible.
+    store.set(USER.toLowerCase(), doneWithChains([
+      { chain: 'BSC', chainId: 56, weiSpent: BNB_WEI, ethEquivalentWei: '7' },
+    ], '7'))
+
+    const body = await presented()
+    expect(body.chains[0].gasWei).toBe('7')
+  })
+
+  it('shows what was paid for a chain no longer in the table', async () => {
+    // A chain dropped from the table while a result naming it is still cached:
+    // the rate it was read at is gone, and there is no honest conversion left.
+    // Showing the native figure loses the ability to add that row up; inventing a
+    // rate would put a made-up number next to a real one, so this one is
+    // deliberately the lesser wrong rather than an accident.
+    store.set(USER.toLowerCase(), doneWithChains([
+      { chain: 'Retired', chainId: 1_234_567, weiSpent: '999' },
+    ], '0'))
+
+    const body = await presented()
+    expect(body.chains[0].gasWei).toBe('999')
   })
 })

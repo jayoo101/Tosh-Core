@@ -353,10 +353,27 @@ jobs:
       # while the connect gate outranks it, so the test passed no matter what the
       # panel did. They assert on the readout instead — `…` against a stated `0` —
       # and inverting both fixes turns exactly the two pending cases red.
+      #
+      # 361 -> 372, two pieces of work, and the slack band is what held the
+      # reminder until one of them tipped it over:
+      #
+      #   • +6 in `gasHistory.test.ts` for scanning chain 56 through Etherscan v2
+      #     — a second vendor means the URL shape, the key and the error semantics
+      #     all fork, and the sharpest of the six covers the fork that has no
+      #     analogue at Blockscout: Etherscan answers an invalid key with HTTP 200
+      #     and `status: "0"`, which the empty-history reader had every reason to
+      #     read as "this wallet has never transacted".
+      #
+      #   • +5 in `api/pog-scan/route.test.ts` for the per-chain breakdown, which
+      #     had no coverage at all — that file was entirely about rate limits, so
+      #     `present()` could denominate a row in anything. The headline case sums
+      #     the rows and asserts the total, because that is the property the
+      #     display has to have and it fails for either mistake, sending the
+      #     chain's own coin or converting twice.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=361
+          floor=372
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

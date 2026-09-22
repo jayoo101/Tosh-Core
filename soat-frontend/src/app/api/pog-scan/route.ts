@@ -63,6 +63,7 @@ import {
 } from '@/lib/contracts'
 import {
   scanGasHistory, GasScanUnavailable, scanKeyPresent, lastObservedCredits,
+  ethEquivalentWeiFor,
 } from '@/app/lib/gasHistory'
 import {
   readScanJob, startScanJob, finishScanJob, failScanJob,
@@ -296,7 +297,17 @@ async function present(job: ScanJob) {
     chains: result.chains.map(c => ({
       chain: c.chain,
       chainId: c.chainId,
-      gasWei: c.weiSpent,
+      /**
+       * ETH, not the chain's own coin, because this row is printed one column
+       * away from the ETH total and the floor it is judged against.
+       *
+       * It used to send `weiSpent`, which is native by design — so a wallet with
+       * BSC-only history showed a BNB figure labelled ETH, four times the total
+       * directly beneath it. Nothing was mis-measured (eligibility has always
+       * read `totalWei`, which accumulates the converted figure), but the
+       * breakdown could not be added up, and the ticker beside it was wrong.
+       */
+      gasWei: c.ethEquivalentWei ?? ethEquivalentWeiFor(c.chainId, BigInt(c.weiSpent)).toString(),
       sentTxs: c.sentTxs,
       truncated: c.truncated,
       skipped: c.skipped,
@@ -353,6 +364,7 @@ async function runScan(address: Address): Promise<void> {
         chain: c.chain,
         chainId: c.chainId,
         weiSpent: c.weiSpent.toString(),
+        ethEquivalentWei: c.ethEquivalentWei.toString(),
         sentTxs: c.sentTxs,
         truncated: c.truncated,
         stoppedAtCap: c.stoppedAtCap,

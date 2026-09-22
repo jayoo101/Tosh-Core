@@ -11,6 +11,9 @@ import type { Address } from 'viem'
 export interface PogChainSpend {
   chain: string
   chainId: number
+  /** ETH wei, already converted from the chain's own coin, so rows may be shown
+   *  beside the ETH total and add up to it. Not what was paid on a non-ETH
+   *  chain — see the field's note in the route. */
   gasWei: string
   sentTxs: number
   truncated: boolean

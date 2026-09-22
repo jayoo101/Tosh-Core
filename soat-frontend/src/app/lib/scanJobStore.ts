@@ -38,6 +38,15 @@ export interface StoredChainSpend {
   chain: string
   chainId: number
   weiSpent: string
+  /** `weiSpent` in ETH, which is the only figure that may be summed or shown
+   *  beside the total. Stored rather than converted on read so a row and the
+   *  total it belongs to are always the same scan's arithmetic, even if the
+   *  pinned rate moves while this result is still inside its TTL.
+   *
+   *  Optional for the reason `unavailable` is: results written before chain 56
+   *  joined carry only `weiSpent`, and a cached job must stay readable. The
+   *  route converts those on read. */
+  ethEquivalentWei?: string
   sentTxs: number
   truncated: boolean
   stoppedAtCap: boolean
