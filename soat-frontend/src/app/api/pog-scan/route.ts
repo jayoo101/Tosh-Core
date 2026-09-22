@@ -606,7 +606,7 @@ export async function POST(req: Request) {
     )
     if (!addressBudget.ok) {
       return corsify(req, budgetError(
-        'Too many scans for this address. Results are cached for an hour — '
+        'Too many scans for this address. Results are cached for a day — '
         + 'the existing one is still valid.',
         429, addressBudget.resetMs,
       ))

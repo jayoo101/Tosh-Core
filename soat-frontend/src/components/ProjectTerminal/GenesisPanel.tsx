@@ -284,9 +284,9 @@ export function GenesisPanel(p: GenesisProps) {
                 ? 'Retry gas check'
                 : pog.phase === 'ready'
                   ? 'Below gas floor'
-                  : 'Checking gas history…',
+                  : 'Check gas history',
         reason: scanning
-          ? 'Your wallet just connected — reading lifetime gas across five chains. No signature required for this step.'
+          ? 'Reading lifetime gas across every supported chain. No signature required for this step.'
           : pog.registering
             ? 'Writing the deposit quota on-chain.'
             : scanEligible
@@ -295,7 +295,7 @@ export function GenesisPanel(p: GenesisProps) {
                 ? (pog.error ?? 'The gas lookup failed. Click to try again.')
                 : pog.phase === 'ready'
                   ? `This wallet’s historical gas is below the floor of ${fmt(BigInt(pog.scan!.floorWei))} ETH, so no deposit quota can be sized.`
-                  : 'Waiting for the automatic gas lookup to start.',
+                  : 'Proof-of-Gas sizes your deposit quota from lifetime gas spend. Click to read it — one request, no signature and no gas.',
         tone: 'warn',
         resolve: scanning || pog.registering
           ? undefined
@@ -305,7 +305,11 @@ export function GenesisPanel(p: GenesisProps) {
               ? () => { void pog.startLookup(true) }
               : pog.phase === 'ready' && pog.scan
                 ? () => { pog.setDialogOpen(true) }
-                : undefined,
+                // Idle, i.e. nothing has been read for this wallet yet. This
+                // used to be unreachable because connecting started the scan;
+                // now it is the entry point, so it must offer the action rather
+                // than describe a wait that will never end on its own.
+                : () => { void pog.startLookup(false) },
       },
       {
         id: 'cooldown',

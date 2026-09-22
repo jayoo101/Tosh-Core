@@ -91,13 +91,23 @@ export interface ScanJob {
 export const JOB_LEASE_MS = 120_000
 
 /**
- * How long a finished scan is served without re-reading five chains.
+ * How long a finished scan is served without re-reading every chain.
  *
  * Gas history only grows, and the figure feeds a floor-and-cap decision rather
- * than a price, so a stale-by-an-hour answer is not a wrong one. The refresh
- * button exists precisely so nobody has to wait this out.
+ * than a price, so a stale answer is not a wrong one. The refresh button exists
+ * precisely so nobody has to wait this out.
+ *
+ * A day, not the hour this was, and the hour was not a judgement about staleness
+ * — the docblock above argued freshness barely matters and then picked the short
+ * window anyway. What forced the correction is cost. A scan is 5-25 upstream
+ * calls at ~20 credits against 100,000 a day, so the ceiling is a few hundred
+ * scans a day for the whole product; at a one-hour TTL a wallet that visits
+ * across a session paid for itself repeatedly, and production ran the budget
+ * dry, answering `503 at capacity` to everyone and taking the raise funnel with
+ * it. Twenty-four hours is the longest window that still lets a claimant who
+ * tops up gas qualify the same day, which is the only case the short TTL served.
  */
-export const RESULT_TTL_MS = 60 * 60 * 1000
+export const RESULT_TTL_MS = 24 * 60 * 60 * 1000
 
 /** Redis TTL. Comfortably past `RESULT_TTL_MS` so expiry is this module's
  *  decision rather than Redis's, which keeps the two from disagreeing about

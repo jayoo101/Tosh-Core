@@ -1,11 +1,23 @@
 'use client'
 
 /**
- * Auto gas lookup + optional on-chain quota registration.
+ * On-demand gas lookup + optional on-chain quota registration.
  *
- * A connected wallet starts an unsigned `/api/pog-scan` from the app shell, on
- * any page — not only the genesis deposit card — and the per-chain dialog opens
- * as soon as the read begins. Registering quota still needs one EIP-191 message
+ * A scan starts only when the reader asks for one. The single entry point is the
+ * `unattested` gate in `GenesisPanel`, which is to say: on a project page, when
+ * the reader is about to deposit and quota is the thing in the way. (There is
+ * also `PogScanButton`, which nothing imports outside its own test — do not
+ * count it as a route in until something mounts it.)
+ *
+ * It used to start itself the moment a wallet connected, from the app shell, on
+ * every page — so anyone who connected a wallet merely to read the homepage
+ * spent a scan. A scan is 5-25 upstream calls against a credit budget that
+ * affords a few hundred a day, and production exhausted it: every caller got
+ * `503 at capacity`, and the raise funnel went down with it because quota
+ * cannot be sized without a scan. Intent is therefore required now, and
+ * `startLookup` is the only way in — nothing calls it on mount.
+ *
+ * Registering quota still needs one EIP-191 message
  * (for `sign-allocation`) and one `registerPoG` transaction; that is custody of
  * the allocation, not of the public fee totals.
  *
@@ -72,7 +84,6 @@ export function usePogFlow() {
 
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [dialogOpen, setDialogOpenRaw] = useState(false)
-  const startedFor = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const refetchListeners = useRef(new Set<() => void>())
 
@@ -104,7 +115,6 @@ export function usePogFlow() {
   const startLookup = useCallback(async (force = false) => {
     if (!userAddress) return
     const key = userAddress.toLowerCase()
-    const runKey = `${key}:${chainId}`
     if (!isSupportedPogChain(chainId)) {
       setAnswer({
         address: key,
@@ -115,10 +125,13 @@ export function usePogFlow() {
       return
     }
 
+    // Aborting the previous controller drops OUR listener, not the server's
+    // scan. That is fine and is not a leak of budget: `/api/pog-scan` joins an
+    // in-flight scan rather than starting a second one, and charges nothing for
+    // the join, so a double click costs one scan.
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
-    startedFor.current = runKey
 
     setAnswer({ address: key, phase: 'scanning', scan: null, error: null })
     if (!dialogDismissed(key)) setDialogOpenRaw(true)
@@ -127,10 +140,7 @@ export function usePogFlow() {
         force,
         signal: ac.signal,
       })
-      if (ac.signal.aborted) {
-        if (startedFor.current === runKey) startedFor.current = null
-        return
-      }
+      if (ac.signal.aborted) return
       setAnswer({ address: key, phase: 'ready', scan: result, error: null })
       if (!dialogDismissed(key)) setDialogOpenRaw(true)
 
@@ -144,10 +154,8 @@ export function usePogFlow() {
       }
     } catch (err) {
       if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
-        if (startedFor.current === runKey) startedFor.current = null
         return
       }
-      startedFor.current = null
       const msg = err instanceof Error ? err.message : String(err)
       setAnswer({ address: key, phase: 'failed', scan: null, error: msg })
       if (!dialogDismissed(key)) setDialogOpenRaw(true)
@@ -155,16 +163,12 @@ export function usePogFlow() {
     }
   }, [userAddress, chainId])
 
+  // Disconnect only. Connecting a wallet deliberately does nothing here — see
+  // the header for what starting a scan costs and what that cost took down.
   useEffect(() => {
-    if (!userAddress) {
-      abortRef.current?.abort()
-      startedFor.current = null
-      return
-    }
-    const runKey = `${userAddress.toLowerCase()}:${chainId}`
-    if (startedFor.current === runKey) return
-    void startLookup(false)
-  }, [userAddress, chainId, startLookup])
+    if (userAddress) return
+    abortRef.current?.abort()
+  }, [userAddress])
 
   useEffect(() => () => { abortRef.current?.abort() }, [])
 
