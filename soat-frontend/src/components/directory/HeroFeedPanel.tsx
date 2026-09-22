@@ -43,10 +43,18 @@ const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
  *   denominator, which gates nothing.
  *
  *   Both now say what the tab actually means, which is a fact about the clock.
+ *
+ * `live` is the one row that names its phase rather than its figure, and it is
+ * the one row where the figure needs no naming: a funding project's number can
+ * only be what is in so far, and the badge beside it already says FUNDING. What
+ * it was missing is the thing the other three rows have — a colour that says at
+ * a glance which way this row is going. Green against `completed`'s green is
+ * deliberate: both are states nothing has gone wrong in, and the two are never
+ * adjacent in a single tab's list.
  */
 function subFigure(p: DirectoryProject): { text: string; cls: string } {
   switch (p.tab) {
-    case 'live':      return { text: 'raised so far', cls: 'text-brand' }
+    case 'live':      return { text: 'in progress',   cls: 'text-success' }
     case 'launching': return { text: 'window closed', cls: 'text-text-tertiary' }
     case 'completed': return { text: 'at genesis',    cls: 'text-success' }
     case 'archived':  return { text: 'refundable',    cls: 'text-danger' }

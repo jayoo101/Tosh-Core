@@ -159,7 +159,7 @@ export function HeroStats({
               <Progress
                 pct={genesisWindow.elapsedPct}
                 variant="bar"
-                tone="ok"
+                burn
                 label={`${QUOTE_SYMBOL} · ${genesisWindow.hours}h window`}
                 caption={genesisWindow.label}
               />

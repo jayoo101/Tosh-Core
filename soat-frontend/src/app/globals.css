@@ -786,3 +786,56 @@ select:focus {
   animation: bar-glow-slide 3s linear infinite;
   box-shadow: 0 0 12px -2px rgb(249 70 167 / 0.4);
 }
+
+/** The genesis clock: a fuse burning left to right, not a tank filling up.
+ *
+ *  Two parts, because the burn is what distinguishes it from `bar-glow` above.
+ *  `fuse-trail` is the run the flame has already passed: it cools toward the
+ *  empty track's colour at its left end, so the ramp itself points the way the
+ *  flame is travelling and the direction survives a still screenshot. Its
+ *  right end is the hot one, tucked under the head.
+ *
+ *  `fuse-head` is the flame, and it carries all of the motion. `bar-glow`
+ *  slides its gradient forever, which reads as "loading, indeterminate"; a
+ *  countdown is the opposite of indeterminate, so the trail is static and only
+ *  the flame flickers. Amber over the accent because fire is the one place a hot
+ *  hue is the meaning rather than decoration.
+ *
+ *  Both drop out under `prefers-reduced-motion` via the global rule near the
+ *  top of this file, which lands the flicker on its 100 % stop — the resting
+ *  flame, not a blank. */
+@keyframes fuse-flicker {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 9px 1px rgb(235 170 45 / 0.55), 0 0 20px 4px rgb(249 70 167 / 0.3);
+  }
+  40% {
+    transform: translate(-50%, -50%) scale(1.22);
+    box-shadow: 0 0 13px 2px rgb(235 170 45 / 0.75), 0 0 28px 6px rgb(249 70 167 / 0.42);
+  }
+  68% {
+    transform: translate(-50%, -50%) scale(0.9);
+    box-shadow: 0 0 7px 1px rgb(235 170 45 / 0.45), 0 0 16px 3px rgb(249 70 167 / 0.26);
+  }
+}
+
+.fuse-trail {
+  background: linear-gradient(
+    90deg,
+    rgb(198 47 130 / 0.12) 0%,
+    var(--tosh-brand-muted) 58%,
+    var(--tosh-brand) 100%
+  );
+}
+
+.fuse-head {
+  border-radius: var(--radius-pill);
+  background: radial-gradient(
+    circle,
+    var(--tosh-text-primary) 0%,
+    var(--tosh-warning) 42%,
+    var(--tosh-brand) 100%
+  );
+  transform: translate(-50%, -50%);
+  animation: fuse-flicker 1.1s ease-in-out infinite;
+}

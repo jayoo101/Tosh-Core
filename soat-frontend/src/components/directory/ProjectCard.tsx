@@ -197,7 +197,7 @@ function GenesisTrack({
   })
   if (!win) return null
 
-  return <Progress pct={win.elapsedPct} variant={variant} tone="ok" />
+  return <Progress pct={win.elapsedPct} variant={variant} burn />
 }
 
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
@@ -264,8 +264,10 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
           none of it applies to this one: the window is one of three fixed
           durations chosen at `createLaunch`, it cannot be extended, and reaching
           the end of it actually closes deposits — so there IS a whole, and the
-          fraction means something. It drains rather than fills, which is what
-          keeps it from reading as progress toward a target. `SkeletonCard` never
+          fraction means something. It is drawn as a fuse rather than a fill,
+          which is what keeps it from reading as progress toward a target: the
+          run behind the flame is time spent, and the flame is travelling toward
+          the end of the window instead of toward a number. `SkeletonCard` never
           stopped reserving this row's height; it was standing in for a bar that
           had not existed since the cap came out. */}
       {p.tab === 'live' && (
