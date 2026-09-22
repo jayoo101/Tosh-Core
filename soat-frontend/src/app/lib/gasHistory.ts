@@ -244,7 +244,12 @@
  * no version of this that awards more.
  */
 
-import { MAINNET_CHAIN_LABEL } from '@/lib/chain'
+// Relative, not `@/lib/chain`, and that is a constraint rather than a style
+// choice: `scripts/tsconfig.json` includes this file so `scripts/pogSigner.ts`
+// can call `scanGasHistory`, and that project defines no `paths`, so a Next
+// alias here fails the Foundry-side typecheck. Same reason `./pogQuota` below
+// is relative. `chain.ts` itself imports only viem, so it travels fine.
+import { MAINNET_CHAIN_LABEL } from '../../lib/chain'
 import { DEFAULT_POG_BAND, pogCapWei } from './pogQuota'
 
 /**
