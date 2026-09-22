@@ -322,23 +322,30 @@ export async function clearScanJob(address: string): Promise<void> {
 /**
  * How many PRO API credits the key had left, as last seen by a scan.
  *
- * The tier this deployment is on is bounded by credits per day, not requests per
- * second: 100,000/day at roughly 20 credits a call, measured. A request-count
- * ceiling cannot bound that on its own, because a scan costs between five calls
- * (a one-page wallet) and twenty-five (a heavy sender on every chain) — a factor
- * of five, decided by whoever happens to show up. So the actual balance is read
- * off `x-credits-remaining` during a scan and left here for the next request to
- * admit or refuse against.
+ * The tier this deployment is on is bounded by credits, not by requests per
+ * second: 100,000,000 a MONTH on Builder, at roughly 20 credits a call. A
+ * request-count ceiling cannot bound that on its own, because a scan costs
+ * between five calls (a one-page wallet) and twenty-five (a heavy sender on every
+ * chain) — a factor of five, decided by whoever happens to show up. So the actual
+ * balance is read off `x-credits-remaining` during a scan and left here for the
+ * next request to admit or refuse against.
  *
  * WHY THIS EXPIRES, WHICH IS THE WHOLE DESIGN
  *
- * The reading is only ever a floor: within a day the balance falls, so an old
+ * The reading is only ever a floor: between resets the balance falls, so an old
  * value is pessimistic. That is safe during traffic — every scan refreshes it —
- * and unsafe across the daily reset, where yesterday's exhausted reading would
+ * and unsafe across a reset, where an exhausted reading from before it would
  * refuse every claimant on a budget that had just been refilled. A short TTL
  * makes silence expire into "unknown", and unknown admits. Under real traffic
  * the value is never more than a scan old; after an hour of quiet, nothing has
  * been draining the budget anyway.
+ *
+ * The reset used to be nightly and is now monthly, which does not change this
+ * design but does change what it is worth. A stale-exhausted reading used to
+ * cost at most the hours until midnight; now it could cost the rest of a month,
+ * so expiring into "unknown" is load-bearing rather than tidy. What moved in the
+ * other direction is `CREDIT_RESERVE`, which had to stop being a last-gasp floor
+ * for the same reason — see its own note.
  */
 const CREDIT_GAUGE_TTL_SEC = 60 * 60
 

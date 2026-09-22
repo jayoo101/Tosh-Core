@@ -98,13 +98,23 @@ const CORS_OPTS = { methods: ['POST', 'GET', 'OPTIONS'] as const } as const
 /**
  * Deliberately tighter than `sign-allocation`'s bucket. That endpoint does
  * arithmetic and one `eth_call`; this one can issue twenty upstream requests
- * across five hosts. Three in a burst then one per minute is far more than a
- * human clicking refresh needs, and far less than a script would want.
+ * across several hosts.
+ *
+ * Six in a burst then two a minute, up from three and one. Two things moved
+ * under this bucket and both of them made the old figures punish the wrong
+ * requests. A scan is no longer started by connecting a wallet, so a request
+ * here is now a deliberate click rather than something the page did on its own.
+ * And this bucket is consumed BEFORE the cache is consulted, so a repeat within
+ * `RESULT_TTL_MS` — which costs nothing upstream, and after that TTL went to a
+ * day is most repeats — was being refused by a limiter that exists to bound
+ * upstream cost. Meanwhile the defences that bound real abuse are elsewhere and
+ * unchanged in kind: `ADDRESS_SCAN_LIMIT` caps one wallet at six an hour, and
+ * `GLOBAL_SCAN_LIMIT` caps everyone.
  */
 const RATE_LIMIT_OPTS = {
   name: 'pog-scan',
-  capacity: 3,
-  refillPerSec: 1 / 60,
+  capacity: 6,
+  refillPerSec: 1 / 30,
 } as const
 
 /**
@@ -122,8 +132,9 @@ const RATE_LIMIT_OPTS = {
  * What makes it worth more than a bill is which store it is. Upstash backs the
  * rate limiter itself, and `consumeRateLimit` answers a store failure by falling
  * back to per-instance counting for 30 s. `pog-scan:global` is a per-instance
- * ceiling at that point, so the 120/hour sized to protect the Blockscout credit
- * budget stops being global exactly when something is straining the store. The
+ * ceiling at that point, so the hourly ceiling sized to protect the Blockscout
+ * credit budget stops being global exactly when something is straining the store.
+ * The
  * end of that chain is the failure this file already names: credits exhausted,
  * `CREDIT_RESERVE` refusing, and genesis allocation closed for everybody.
  *
@@ -161,39 +172,68 @@ const GET_RATE_LIMIT = {
  * wallets an hour. The fix was not a different constant, it was the migration to
  * the keyed PRO API, where the rate limit is 5 req/s and a 429 resets in 306 ms.
  *
- * So requests per second are no longer the scarce thing; **credits per day are**.
- * The measured tier gives 100,000/day at roughly 20 credits a call, and a scan
+ * So requests per second are no longer the scarce thing; **credits are**. A scan
  * costs between 5 calls (a one-page wallet) and 25 (a heavy sender that falls
- * through to v1 on all five chains). A request-count ceiling cannot bound a cost
- * that varies five-fold, so it is not asked to: `CREDIT_RESERVE` below does that,
- * against the balance the host itself reports.
+ * through to v1 on every chain) at roughly 20 credits a call, so 100 to 500
+ * credits. A request-count ceiling cannot bound a cost that varies five-fold, so
+ * it is not asked to: `CREDIT_RESERVE` below does that, against the balance the
+ * host itself reports.
  *
- * This ceiling is left to do the one job it is good at — flattening a burst, so
- * that a script cannot drain a day's credits in a minute before the gauge has
- * been refreshed even once. 120/hour is far more than organic demand and spends
- * at most ~17k credits an hour at the average cost, which the gauge then catches.
+ * 500/hour, up from 120, and the 120 was not merely conservative — it claimed to
+ * be "far more than organic demand" and production disproved that. The hourly
+ * budget was exhausted by ordinary traffic, every caller got `503 at capacity`
+ * for the rest of the window, and since quota cannot be sized without a scan the
+ * raise funnel went down with it. The other half of that fix was making a scan
+ * need a click; see `usePogFlow`.
+ *
+ * WHAT PACES THE MONTH, WHICH IS A DIFFERENT JOB FROM WHAT THIS USED TO DO
+ *
+ * On the free tier the allowance was 100,000 credits A DAY, so this ceiling was
+ * only ever a burst flattener: overspend corrected itself at midnight. The
+ * Builder tier is 100,000,000 a MONTH, which is 33x the headroom and removes the
+ * nightly forgiveness — spend it early and the outage lasts until the month
+ * rolls, not until tomorrow. So this ceiling is now also the pacing tool, and
+ * 500 is chosen against the month rather than against a burst: at a mixed
+ * ~240 credits a scan it is ~120k credits an hour, ~86M over thirty days,
+ * inside the allowance. A month of nothing but heavy wallets would still
+ * overrun it, which is deliberate — `CREDIT_RESERVE` and its alert are what
+ * catch the tail, and sizing this for the worst case would refuse honest
+ * traffic every day to insure against a distribution that has never shown up.
  */
-const GLOBAL_SCAN_LIMIT = { capacity: 120, windowMs: 60 * 60 * 1000 } as const
+const GLOBAL_SCAN_LIMIT = { capacity: 500, windowMs: 60 * 60 * 1000 } as const
 
 /**
  * Credits below which no new scan is started.
  *
- * Sized to the worst case rather than the average: one scan can cost 25 calls at
- * ~20 credits, so 500. This leaves room for several of those to be in flight and
- * still finish, because a scan killed halfway spends the credits and produces
- * nothing — the one outcome worse than refusing it up front.
- *
  * Refusing here is strictly better than letting the scan start and fail: a 503
- * from us can say "come back later", whereas the alternative is five 402s and a
- * claimant told their gas history could not be read.
+ * from us can say "come back later", whereas the alternative is several 402s and
+ * a claimant told their gas history could not be read. A scan killed halfway
+ * spends the credits and produces nothing, which is the one outcome worse than
+ * refusing it up front.
+ *
+ * 50,000, up from 2,000, because the tier change turned this from a floor into a
+ * warning. 2,000 was sized as four worst-case scans — the least that could still
+ * finish what was in flight — and that was the right size for a DAILY allowance,
+ * where tripping it cost hours and midnight fixed it. The Builder tier is
+ * MONTHLY, so tripping it costs days, and stopping at 0.002% remaining is a
+ * warning that arrives after the thing it warns about. 50,000 is 0.05% of the
+ * month and buys 100 worst-case scans of runway: enough that the alert below
+ * lands while there is still something to decide, which is the only reason to
+ * refuse early rather than late.
  */
-const CREDIT_RESERVE = 2_000
+const CREDIT_RESERVE = 50_000
 
-/** How long a caller is told to wait when the daily credit budget is what ran
- *  out. The host does not publish when it resets, so this is a plain hour rather
- *  than a computed instant — and the gauge's own TTL means a genuine reset is
- *  noticed within the hour regardless. */
-const CREDIT_EXHAUSTED_RETRY_MS = 60 * 60 * 1000
+/** How long a caller is told to wait when the credit budget is what ran out.
+ *
+ *  Six hours, not the hour this was. The hour was reasoned from a daily
+ *  allowance — the reset was never more than a day out, and the gauge's own TTL
+ *  noticed a genuine one within the hour. On a monthly allowance the reset can
+ *  be weeks away, so an hour is not a conservative estimate, it is a promise
+ *  that will be broken five more times. This is still far shorter than the true
+ *  wait, deliberately: the value's job is to make clients back off and let the
+ *  gauge re-read after a top-up or an upgrade, not to predict the reset. The
+ *  copy below carries the honest part. */
+const CREDIT_EXHAUSTED_RETRY_MS = 6 * 60 * 60 * 1000
 
 /** Ceiling on scans for one address, per hour.
  *
@@ -530,10 +570,11 @@ export async function POST(req: Request) {
       ))
     }
 
-    // The daily credit budget, which is what this tier actually runs out of.
-    // Checked before the request-count budgets because it is the constraint that
-    // cannot be waited out inside the hour, and because a caller refused for it
-    // should not also lose one of their six per-address attempts.
+    // The credit budget, which is what this tier actually runs out of, and on
+    // Builder it is a MONTHLY one. Checked before the request-count budgets
+    // because it is the constraint that cannot be waited out at all — the others
+    // refill on their own — and because a caller refused for it should not also
+    // lose one of their six per-address attempts.
     //
     // A null reading means nothing recent is known, and that admits — see the
     // gauge's TTL note. An unknown budget must not read as an exhausted one, or
@@ -560,7 +601,8 @@ export async function POST(req: Request) {
         },
       })
       return corsify(req, budgetError(
-        'Gas scanning has reached its daily limit. Try again later.',
+        'Gas scanning has run out of its budget. This is not a short wait — '
+        + 'the operator has been alerted.',
         503, CREDIT_EXHAUSTED_RETRY_MS,
       ))
     }
@@ -580,9 +622,10 @@ export async function POST(req: Request) {
       GLOBAL_SCAN_LIMIT.windowMs,
     )
     if (!globalBudget.ok) {
-      // Worth knowing about: at 120/hour this fires under abuse or under a load
+      // Worth knowing about: at this ceiling it fires under abuse or under a load
       // we mis-sized for, and both are things to find out from an alert rather
-      // than from users reporting they cannot claim.
+      // than from users reporting they cannot claim. That is not hypothetical —
+      // the previous ceiling was mis-sized, and it was users who reported it.
       reportError(new Error('PoG scan global hourly budget exhausted'), {
         surface: 'api-route',
         extra: {

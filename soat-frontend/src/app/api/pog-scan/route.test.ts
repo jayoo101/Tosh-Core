@@ -408,7 +408,11 @@ describe('POST /api/pog-scan — the two limits that are not request counts', ()
     keyPresent = false
     const res = await post()
     expect(res.status).toBe(503)
-    await expect(res.json()).resolves.toMatchObject({ error: /not configured/ })
+    // Read the body and assert on it, rather than
+    // `resolves.toMatchObject({ error: /.../ })`. That form asserted nothing
+    // here: an impossible pattern passed it just as happily, verified by
+    // mutation, so both copy assertions in this file were decorative.
+    expect(((await res.json()) as { error?: string }).error).toMatch(/not configured/)
     expect(charged).toEqual([])
     expect(scheduled).toBe(0)
   })
@@ -425,20 +429,24 @@ describe('POST /api/pog-scan — the two limits that are not request counts', ()
   })
 
   it('refuses when the credit gauge is below the reserve', async () => {
-    // This tier is bounded by credits per day, not requests per second, and one
-    // scan can cost 25 calls. Refusing at the reserve leaves room for scans
-    // already in flight to finish, because a scan killed halfway spends the
-    // credits and produces nothing.
-    creditBalance = 1_999
+    // This tier is bounded by credits, not by requests per second, and one scan
+    // can cost 25 calls. The reserve stopped being the least that could finish
+    // what was in flight when the allowance went monthly: it is now a warning
+    // threshold with enough runway left to act on the alert, because a monthly
+    // budget spent early cannot be waited out the way a daily one could.
+    creditBalance = 49_999
     const res = await post()
     expect(res.status).toBe(503)
-    await expect(res.json()).resolves.toMatchObject({ error: /daily limit/ })
+    // Deliberately not "daily limit", which is what this used to look for. The
+    // copy said daily because the allowance was; on a monthly one that phrasing
+    // promised a reset that is not coming.
+    expect(((await res.json()) as { error?: string }).error).toMatch(/run out of its budget/)
     expect(charged).toEqual([])
     expect(scheduled).toBe(0)
   })
 
   it('admits at exactly the reserve, so the boundary is not off by one', async () => {
-    creditBalance = 2_000
+    creditBalance = 50_000
     const res = await post()
     expect(res.status).toBe(202)
     expect(scheduled).toBe(1)

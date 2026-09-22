@@ -538,20 +538,28 @@ const REQUEST_HEADERS: Record<string, string> = { Accept: 'application/json' }
  *
  * | | Value |
  * |---|---|
- * | `x-ratelimit-limit` | 5 req/s |
- * | Credit budget | 100,000/day (`x-credits-remaining` counts down) |
+ * | `x-ratelimit-limit` | 15 req/s |
+ * | Credit budget | 100,000,000/month (`x-credits-remaining` counts down) |
  * | Cost, v2 page | ~16.7 credits |
  * | Cost, v1 page | ~15 credits, and **the same 20 at `offset=10000` as at
  *   `offset=10`** — page size is free, which is why `V1_PAGE_SIZE` is maxed |
  * | 429 reset | 306 ms (a burst of 12 concurrent got 10×200, 2×429) |
  *
- * That is the FREE tier, not the $49 Builder tier: Builder is 15 req/s and 100M
- * credits/month. At 20 credits a call the daily budget is about 5,000 calls, and
- * since a light wallet is five (one v2 probe per chain) and a heavy one up to
- * twenty-five, capacity is roughly **1,000 light or 200 heavy wallets a day**.
- * The rate limit is not the binding constraint; the daily credit budget is,
- * which is why `/api/pog-scan` gates on observed credits and not just on a
- * request count.
+ * That is the $49 Builder tier. It replaced the free one (5 req/s, 100,000
+ * credits A DAY) after the free allowance was exhausted by ordinary traffic and
+ * every claimant got `503 at capacity` — with quota unsizeable without a scan,
+ * that closed genesis allocation for everybody. At 20 credits a call Builder is
+ * about 166,000 calls a day rather than 5,000, and since a light wallet is five
+ * (one v2 probe per chain) and a heavy one up to twenty-five, capacity is roughly
+ * **27,000 light or 6,600 heavy wallets a day** against the free tier's 1,000 and
+ * 200. The rate limit is still not the binding constraint; credits are, which is
+ * why `/api/pog-scan` gates on observed credits and not just on a request count.
+ *
+ * MIND THE PERIOD. Free was per day, Builder is per month, so overspend no longer
+ * forgives itself overnight — `GLOBAL_SCAN_LIMIT` is now sized to pace the month
+ * and not merely to flatten a burst, and `CREDIT_RESERVE` is sized to warn while
+ * something can still be done rather than to catch the last few scans. Both say
+ * so at their own definitions.
  */
 const API_KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
 
@@ -565,11 +573,19 @@ const API_KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
  *
  * Its allowance is a plain daily call count — 100,000/day on Lite — and is NOT
  * reported in response headers, so `lastCredits` below never latches from an
- * Etherscan response and the credit gauge stays a Blockscout gauge. That is
- * adequate rather than a gap: chain 56 adds at most `MAX_V1_WINDOWS` calls to a
- * scan, and `/api/pog-scan`'s 120-scans-an-hour ceiling caps that near 11,500
- * calls a day against an allowance of 100,000. Blockscout's credits remain the
- * binding constraint, which is why they remain the gauged one.
+ * Etherscan response and the credit gauge stays a Blockscout gauge. Blockscout's
+ * credits remain the binding constraint, which is why they remain the gauged one.
+ *
+ * THE MARGIN HERE SHRANK AND IS WORTH RE-CHECKING BEFORE THE NEXT RAISE. Chain 56
+ * adds at most `MAX_V1_WINDOWS` calls to a scan. Against `/api/pog-scan`'s hourly
+ * ceiling that used to be 120 x 4 x 24 ≈ 11,500 calls a day, a ninefold margin
+ * under 100,000, which is why leaving this ungauged cost nothing. The ceiling is
+ * now 500, so it is ≈ 48,000 a day and the margin is about twofold. Still safe,
+ * and still not worth a second gauge — but it is no longer the kind of headroom
+ * that can be raised again without doing this arithmetic, and the failure mode if
+ * it is exceeded is worse than Blockscout's: no header to read, so no
+ * `CREDIT_RESERVE` equivalent would see it coming. It would arrive as chain 56
+ * failing, and a failed required chain fails the whole scan.
  */
 const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY ?? ''
 
@@ -751,8 +767,8 @@ function resetMsOf(res: Response): number | null {
 }
 
 /** Latch `x-credits-remaining` off any response that carries it. Monotonic
- *  decrease is not assumed — the budget resets daily, and a reading that went up
- *  is the reset, not a bug. */
+ *  decrease is not assumed — the budget resets (monthly, on Builder), and a
+ *  reading that went up is the reset, not a bug. */
 function noteCredits(res: Response): void {
   const raw = res.headers.get('x-credits-remaining')
   if (!raw) return
