@@ -244,12 +244,14 @@
  * no version of this that awards more.
  */
 
-// Relative, not `@/lib/chain`, and that is a constraint rather than a style
-// choice: `scripts/tsconfig.json` includes this file so `scripts/pogSigner.ts`
-// can call `scanGasHistory`, and that project defines no `paths`, so a Next
-// alias here fails the Foundry-side typecheck. Same reason `./pogQuota` below
-// is relative. `chain.ts` itself imports only viem, so it travels fine.
-import { MAINNET_CHAIN_LABEL } from '../../lib/chain'
+// ⚠ THIS MODULE IMPORTS NOTHING FROM node_modules, AND THAT IS LOAD-BEARING.
+//   `scripts/tsconfig.json` compiles it so `scripts/pogSigner.ts` can call
+//   `scanGasHistory`, and that project resolves from `scripts/node_modules` with
+//   no `paths` — so neither a Next `@/` alias nor a reach into `src/lib/chain.ts`
+//   survives there. Importing `chain.ts` for the settlement chain's name failed
+//   the Foundry-side typecheck twice: first on the alias, then on viem, which
+//   `chain.ts` needs and this side cannot see. Display names therefore live in
+//   `gasScanCopy.ts`, which is frontend-only and free to be chain-aware.
 import { DEFAULT_POG_BAND, pogCapWei } from './pogQuota'
 
 /**
@@ -421,10 +423,13 @@ export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   // through the txlist dialect lossless on FEES, and it is the only thing lost
   // to the missing v2 probe that would otherwise have mattered; what IS lost is
   // the server-side direction filter, which costs budget rather than accuracy.
-  // Named through the constant, not spelled out: 56 is the settlement chain as
-  // well as a scanned one, and `checkChainCopy.mjs` rule 3 fails the build on a
-  // /\bBNB\b/ literal outside `chain.ts`.
-  { chain: MAINNET_CHAIN_LABEL, chainId: 56, vendor: 'etherscan', api: 'v1', required: true, execFeeIsWholeFee: true, nativeToEthX18: BNB_TO_ETH_X18 },
+  // `chain` is an internal id here, not copy. This row is the one place the two
+  // diverge: 56 is also the settlement chain, so what users read has to be the
+  // one label the rest of the site uses, and `checkChainCopy.mjs` allows that
+  // string only in `chain.ts` — unreachable from this file, see the header. So
+  // the screen name comes from `gasScanChainLabel` in `gasScanCopy.ts`, and
+  // `BSC` stays behind for diagnostics like `GasScanUnavailable.chain`.
+  { chain: 'BSC', chainId: 56, vendor: 'etherscan', api: 'v1', required: true, execFeeIsWholeFee: true, nativeToEthX18: BNB_TO_ETH_X18 },
   // Reads like the other four now. On its own instance v1 timed out, which is
   // why this was pinned to `v2` and a 20-page budget; on the PRO API it answers
   // a production-shaped `txlist` (offset 10,000, startblock 0) in 2.5 s, and

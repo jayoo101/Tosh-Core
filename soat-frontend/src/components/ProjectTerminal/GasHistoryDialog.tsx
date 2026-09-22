@@ -16,7 +16,7 @@ import { fmt, fmtQuote } from './format'
 import type { PogChainSpend, PogScanResult } from './pogScanClient'
 import type { PogLookupPhase } from './usePogFlow'
 import { ActionButton, useActionGate } from '@/components/ui'
-import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
+import { formatGasScanChainList, gasScanChainLabel } from '@/app/lib/gasScanCopy'
 
 function shortAddr(a: Address): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
@@ -34,7 +34,7 @@ function ChainRow({ c }: { c: PogChainSpend }) {
     <div className="flex items-baseline justify-between gap-3 border-b border-border-subtle py-2 last:border-0">
       <div className="min-w-0">
         <p className="font-mono text-label tracking-[0.2em] uppercase text-text-primary">
-          {c.chain}
+          {gasScanChainLabel(c.chainId, c.chain)}
         </p>
         {note && (
           <p className="font-mono text-note text-text-tertiary">{note}</p>

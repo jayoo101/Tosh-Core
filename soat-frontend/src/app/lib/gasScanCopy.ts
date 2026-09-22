@@ -24,8 +24,14 @@
  *   Chain 56 is named through `MAINNET_CHAIN_LABEL` rather than spelled out, and
  *   that is not style. It is the one scanned chain that is also the settlement
  *   chain, so a literal here could drift from what every other screen calls it;
- *   and `checkChainCopy.mjs` rule 3 rejects any literal matching /\bBNB\b/
- *   outside `chain.ts`, so inlining the string fails the build.
+ *   and `checkChainCopy.mjs` rejects that label outside `chain.ts` with no
+ *   exemption, not even for tests.
+ *
+ *   Which is why this module, and not `gasHistory.ts`, decides what users read.
+ *   That table has to stay free of node_modules so `scripts/pogSigner.ts` can
+ *   compile it, and `chain.ts` needs viem — so the scan table carries `BSC` as an
+ *   internal id and `gasScanChainLabel` below translates it on the way to a
+ *   screen. Nothing else in the table needs translating; see the map.
  */
 import { MAINNET_CHAIN_LABEL } from '@/lib/chain'
 
@@ -37,6 +43,24 @@ export const GAS_SCAN_CHAIN_NAMES = [
   MAINNET_CHAIN_LABEL,
   'Robinhood',
 ] as const
+
+/**
+ * Internal scan-table id → what a screen may show. Only 56 differs, for the
+ * reason in the header; every other row is already its own display name, so the
+ * id is returned untouched rather than requiring an entry here that could rot.
+ *
+ * Keyed on `chainId` and not on the id string, because the string is the thing
+ * allowed to change: renaming `BSC` in the table must not silently strand the
+ * translation and put a bare id on screen.
+ */
+const DISPLAY_NAME_BY_CHAIN_ID: Readonly<Record<number, string>> = {
+  56: MAINNET_CHAIN_LABEL,
+}
+
+/** What to print for a scanned chain, given the row the scanner returned. */
+export function gasScanChainLabel(chainId: number, scanTableId: string): string {
+  return DISPLAY_NAME_BY_CHAIN_ID[chainId] ?? scanTableId
+}
 
 /** "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood" */
 export function formatGasScanChainList(
