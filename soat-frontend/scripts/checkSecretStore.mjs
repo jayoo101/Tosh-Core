@@ -457,6 +457,18 @@ const INVENTORY = {
        + 'leaves the owner-signature check as the only way in, which is the posture we want. '
        + 'Setting it re-opens a shared-secret route to a privileged endpoint.',
   },
+  CONTENT_ADMIN_SECRET: {
+    tier: 'secret',
+    why: 'Bearer credential on POST /api/admin/featured, the homepage feature pin. Deliberately '
+       + 'NOT the same posture as ADMIN_SECRET above, and the difference is what it can reach: '
+       + 'that name guards protocol dials and is pinned absent so the owner signature stays the '
+       + 'only way in, while this one can do exactly one thing — reorder three cards the homepage '
+       + 'was already showing, for at most 14 days, with no contract call anywhere behind it. '
+       + 'Holding it buys placement, not authority. It is a real secret because placement has '
+       + 'value: without it the widest card goes to whoever deposits the most, which early in a '
+       + 'deployment is one unit of quote above the leader and refundable afterwards. Unset is '
+       + 'safe and closed — the route 503s and the homepage keeps its computed order.',
+  },
   POG_PRIVATE_KEY: {
     tier: 'absent',
     why: 'The spec-compliant alias for POG_SIGNER_PRIVATE_KEY, and a second place the signing '

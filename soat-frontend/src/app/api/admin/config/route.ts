@@ -87,7 +87,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { bearerMatches } from '@/app/lib/adminBearer'
 import {
   isAddress,
   recoverMessageAddress,
@@ -162,51 +162,14 @@ const FACTORY_ADDRESS  = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Reject values that are not secrets.
- *
- * This guard exists because the deployed `.env.local` had `ADMIN_SECRET` set to
- * the owner's own EVM address.  An address is not a secret — it is the first
- * thing an explorer shows for this factory, and `factory.owner()` is a public
- * read — so the bearer fallback was accepting a credential that anybody could
- * derive in one RPC call, silently bypassing the signature path that the rest
- * of this file exists to enforce.
- *
- * A misconfiguration that turns authentication off must fail loudly rather than
- * degrade quietly, so this refuses the token AND logs, instead of shrugging.
+ * `looksLikeARealSecret` and `bearerMatches` used to be defined here, and both
+ * now live in `app/lib/adminBearer.ts` with the reasoning that produced them.
+ * They moved when `api/admin/featured` needed the same check: the weak-secret
+ * refusal is the half of this that is easy to mistake for defensive polish and
+ * drop, and one copy is what keeps that from happening in the second route
+ * rather than in this one.
  */
-function looksLikeARealSecret(value: string): boolean {
-  if (value.length < 32) return false
-  if (/^0x[0-9a-fA-F]{40}$/.test(value)) return false      // an EVM address
-  if (/^0x[0-9a-fA-F]{64}$/.test(value)) return false      // a private key / hash
-  return true
-}
-
-/** Timing-safe bearer-token comparison. */
-function bearerMatches(headerValue: string | null, expected: string): boolean {
-  if (!expected) return false
-  if (!headerValue) return false
-
-  if (!looksLikeARealSecret(expected)) {
-    console.error(
-      '[admin/config] ADMIN_SECRET is set to a value that is not a secret ' +
-      '(an address, a key-shaped hex string, or under 32 chars). The bearer ' +
-      'fallback is DISABLED. Use a random 32+ char token or unset the variable.'
-    )
-    return false
-  }
-
-  const m = headerValue.match(/^Bearer\s+(.+)$/i)
-  if (!m) return false
-
-  const got = Buffer.from(m[1].trim(), 'utf8')
-  const want = Buffer.from(expected, 'utf8')
-  // `timingSafeEqual` throws on a length mismatch, which would itself leak the
-  // expected length, so compare a fixed-width digest of each side instead.
-  return timingSafeEqual(
-    createHash('sha256').update(got).digest(),
-    createHash('sha256').update(want).digest(),
-  )
-}
+const BEARER_LABEL = { route: 'admin/config', varName: 'ADMIN_SECRET' } as const
 
 async function readChainOwner(): Promise<Address | null> {
   if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) return null
@@ -489,7 +452,7 @@ export async function POST(req: NextRequest) {
   // Allowed only when explicitly enabled; preferred path is the on-chain
   // signature below.
   const authHeader = req.headers.get('authorization')
-  if (ADMIN_SECRET.length > 0 && bearerMatches(authHeader, ADMIN_SECRET)) {
+  if (ADMIN_SECRET.length > 0 && bearerMatches(authHeader, ADMIN_SECRET, BEARER_LABEL)) {
     return corsify(req, await applyUpdate({ next, authMethod: 'admin-secret' }))
   }
 

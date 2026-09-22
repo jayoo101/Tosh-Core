@@ -70,6 +70,7 @@ import { LadderHaltPanel } from './LadderHalt'
 import { BlacklistConsole } from './Blacklist'
 import { LadderTreasuryPanel } from './LadderTreasury'
 import { OwnershipPanel } from './Ownership'
+import { FeaturedProjectPanel } from './FeaturedProject'
 import { InitcodeHashMonitor, ExchangeRatePanel } from './Monitors'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,17 +208,25 @@ const GROUPS = {
       blurb: 'Ownable2Step on both contracts. Initiating a transfer changes nothing until the recipient accepts, which is what makes a mistyped address recoverable.',
     },
   },
+  g6: {
+    chip: 'Front page',
+    header: {
+      index: 'G6 · PRESENTATION',
+      title: 'Homepage feature pin',
+      blurb: "The only group here that is not a protocol power. It decides which of the launches the homepage already shows gets the double-width card, and it is the one control on this page a browser wallet is irrelevant to — the authorisation is a content credential, not the owner Safe, because nothing in it can reach a contract.",
+    },
+  },
   diag: {
     chip: 'Diag',
     header: {
       index: 'DIAG · DIAGNOSTICS',
       title: 'Build fingerprint and off-chain config',
-      blurb: 'Read-only telemetry plus the one control on this page that is a signed API call rather than a transaction.',
+      blurb: 'Read-only telemetry plus the one control on this page that is an owner-signed API call rather than a transaction. G6 is off-chain too, and differs in what authorises it.',
     },
   },
 } as const
 
-const GROUP_ORDER = ['g1', 'g2', 'g3', 'g4', 'g5', 'diag'] as const
+const GROUP_ORDER = ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'diag'] as const
 
 /**
  * Jump bar for a console that is fourteen phone screens tall.
@@ -336,6 +345,9 @@ export default function AdminPage() {
 
         <GroupHeader anchor="g5" {...GROUPS.g5.header} />
         <OwnershipPanel connected={address} />
+
+        <GroupHeader anchor="g6" {...GROUPS.g6.header} />
+        <FeaturedProjectPanel />
 
         <GroupHeader anchor="diag" {...GROUPS.diag.header} />
         <InitcodeHashMonitor />

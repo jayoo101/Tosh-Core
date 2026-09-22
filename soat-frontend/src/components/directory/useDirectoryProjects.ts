@@ -35,6 +35,22 @@ export interface DirectoryProject {
   website:         string | null
   twitter:         string | null
   description:     string | null
+  /**
+   * When an operator's pin on this launch runs out, in unix milliseconds, or
+   * `null` if it is not pinned.
+   *
+   * The only field here that is neither chain state nor presentation: it is an
+   * editorial decision, and the one thing in the registry that changes what
+   * order launches are shown in rather than what a card says. `null` is the
+   * normal case — see `AgentDirectoryHome` for what a live pin overrides, and
+   * `supabase/migrations/0005_projects_featured.sql` for why it expires.
+   *
+   * A PAST TIMESTAMP IS NOT NORMALISED TO `null` HERE. The comparison belongs
+   * where the clock is: this hook re-derives rows only when a tab flips, so an
+   * expiry folded in at this level would sit unevaluated until something else
+   * moved the list.
+   */
+  featuredUntilMs: number | null
   tab:             DirectoryTab
 }
 
@@ -112,6 +128,23 @@ interface RegistryRow {
   twitter:       string | null
   description:   string | null
   telegram:      string | null
+  /** ISO-8601 from Postgres `timestamptz`, or absent on a row written before 0005. */
+  featured_until: string | null
+}
+
+/**
+ * `featured_until` as a number the sort can compare, or `null`.
+ *
+ * Tolerant in both of the ways this value can arrive wrong, because neither is
+ * worth degrading the whole directory over: the column is missing on a
+ * deployment that has not run migration 0005, and `Date.parse` returns `NaN`
+ * rather than throwing on anything it cannot read. Both land on `null`, which
+ * is "not pinned" — the state the page was in before this existed.
+ */
+function parseFeaturedUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? null : ms
 }
 
 /// Order matters, and neither boundary is a funding level.
@@ -319,6 +352,7 @@ export function useDirectoryProjects() {
         website: reg?.website ?? null,
         twitter: reg?.twitter ?? null,
         description: reg?.description ?? null,
+        featuredUntilMs: parseFeaturedUntil(reg?.featured_until),
       })
     }
     out.sort((a, b) => Number(b.createdAt - a.createdAt))

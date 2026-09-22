@@ -12,7 +12,9 @@ import {
   CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { useNowMs } from '@/components/ui'
 import { HeroFeedPanel } from './HeroFeedPanel'
+import { orderTeaser } from './teaserOrder'
 import {
   FeatureCard,
   ProjectCard,
@@ -29,6 +31,16 @@ import { useDirectoryProjects } from './useDirectoryProjects'
  * search term, which this version could not see. Nothing imported them from
  * outside this file. */
 
+/**
+ * How often the teaser re-checks whether a pin has run out.
+ *
+ * Ten seconds, matching the directory's re-bucketing cadence, and for the same
+ * reason: nothing here is a countdown a reader watches, so a per-second clock
+ * would re-sort the list 600 times to catch one boundary. The cards keep their
+ * own one-second subscriptions for the text inside them.
+ */
+const PIN_EXPIRY_CADENCE_MS = 10_000
+
 export default function AgentDirectoryHome() {
   const { projects, loading } = useDirectoryProjects()
 
@@ -40,23 +52,18 @@ export default function AgentDirectoryHome() {
    * of this component — and all of it moved to `/projects`, where it belongs
    * alongside the search and sort controls it was always missing.
    *
-   * `archived` and `launching` are excluded. The reference project filters to
-   * trading and funding for the same reason: this block is an invitation, and
-   * a refundable raise or one waiting on its creator is not something a
-   * visitor can act on. They are one click away under the phase sidebar.
+   * WHICH THREE, AND WHICH IS WIDEST, is `orderTeaser` in `teaserOrder.ts` —
+   * eligibility, the raise-size ranking and an operator's pin over the top of
+   * it, with the reasoning for each. It lives there rather than here so it can
+   * be tested without mounting a component that reads 48 launches off a
+   * factory, which is also why `bucket()` is its own module.
    *
    * ORDERED BY AMOUNT RAISED, where the mock orders by 24h volume. There is no
    * volume index behind this app, and of the numbers there are, the size of
    * the raise is the closest thing to "this one has the most behind it".
    */
-  const { feature, rest } = useMemo(() => {
-    const trending = projects
-      .filter(p => p.tab === 'completed' || p.tab === 'live')
-      .sort((a, b) => (a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1))
-      .slice(0, 3)
-    const [first, ...others] = trending
-    return { feature: first, rest: others }
-  }, [projects])
+  const nowMs = useNowMs(PIN_EXPIRY_CADENCE_MS)
+  const { feature, rest } = useMemo(() => orderTeaser(projects, nowMs), [projects, nowMs])
 
   const isFirstLoad = loading && projects.length === 0
 

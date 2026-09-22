@@ -370,10 +370,37 @@ jobs:
       #     the rows and asserts the total, because that is the property the
       #     display has to have and it fails for either mistake, sending the
       #     chain's own coin or converting twice.
+      #
+      # 372 -> 398, all of it the homepage feature pin, and the two halves cover
+      # the two things that were unguarded rather than the code that was added:
+      #
+      #   • +11 in `teaserOrder.test.ts`. The homepage ordering had no test at
+      #     all while it was one `.sort()` inside a component that cannot be
+      #     mounted without a factory to read from. It now has a precedence
+      #     order in it, so the cases are the boundaries of that: a pin beats a
+      #     larger raise, an expired pin does not, a pin cannot drag an
+      #     ineligible launch into the block, and an unsynced clock honours the
+      #     pin rather than calling every pin expired. The one that would
+      #     otherwise rot silently is the tie: early on every raise is 0, so
+      #     EVERY comparison takes the tie branch, and returning 0 there is what
+      #     preserves newest-first — a tie-break invented later would replace
+      #     that ordering with nothing saying so.
+      #
+      #   • +15 in `api/admin/featured/route.test.ts`, on a route that can
+      #     rearrange the front page. Four properties, and the sharpest is the
+      #     ORDER of the two writes: the clear has to precede the set, because
+      #     failing the other way round leaves two pins and an operator whose
+      #     pin did not take cannot see why from the page. Also that the route is
+      #     closed with no credential configured, that it refuses a credential
+      #     that is not a secret — the guard written after an admin variable was
+      #     found set to the owner's public address — and that it will not pin a
+      #     launch with no registry row, which would answer 200 and change
+      #     nothing. Verified by mutation: dropping the `not(... is null)` filter
+      #     and raising the 14-day ceiling turn exactly two of these red.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=372
+          floor=398
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
