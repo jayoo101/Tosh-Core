@@ -244,6 +244,7 @@
  * no version of this that awards more.
  */
 
+import { MAINNET_CHAIN_LABEL } from '@/lib/chain'
 import { DEFAULT_POG_BAND, pogCapWei } from './pogQuota'
 
 /**
@@ -415,7 +416,10 @@ export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   // through the txlist dialect lossless on FEES, and it is the only thing lost
   // to the missing v2 probe that would otherwise have mattered; what IS lost is
   // the server-side direction filter, which costs budget rather than accuracy.
-  { chain: 'BNB Chain', chainId: 56,    vendor: 'etherscan',  api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: BNB_TO_ETH_X18 },
+  // Named through the constant, not spelled out: 56 is the settlement chain as
+  // well as a scanned one, and `checkChainCopy.mjs` rule 3 fails the build on a
+  // /\bBNB\b/ literal outside `chain.ts`.
+  { chain: MAINNET_CHAIN_LABEL, chainId: 56, vendor: 'etherscan', api: 'v1', required: true, execFeeIsWholeFee: true, nativeToEthX18: BNB_TO_ETH_X18 },
   // Reads like the other four now. On its own instance v1 timed out, which is
   // why this was pinned to `v2` and a 20-page budget; on the PRO API it answers
   // a production-shaped `txlist` (offset 10,000, startblock 0) in 2.5 s, and

@@ -20,17 +20,25 @@
  *   scanner did not, would be the lying copy this module exists to stop — and
  *   for three weeks it was the second of those two, which is why the pin is a
  *   test and not a comment.
+ *
+ *   Chain 56 is named through `MAINNET_CHAIN_LABEL` rather than spelled out, and
+ *   that is not style. It is the one scanned chain that is also the settlement
+ *   chain, so a literal here could drift from what every other screen calls it;
+ *   and `checkChainCopy.mjs` rule 3 rejects any literal matching /\bBNB\b/
+ *   outside `chain.ts`, so inlining the string fails the build.
  */
+import { MAINNET_CHAIN_LABEL } from '@/lib/chain'
+
 export const GAS_SCAN_CHAIN_NAMES = [
   'Ethereum',
   'Arbitrum',
   'Optimism',
   'Base',
-  'BNB Chain',
+  MAINNET_CHAIN_LABEL,
   'Robinhood',
 ] as const
 
-/** "Ethereum, Arbitrum, Optimism, Base, BNB Chain and Robinhood" */
+/** "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood" */
 export function formatGasScanChainList(
   names: readonly string[] = GAS_SCAN_CHAIN_NAMES,
 ): string {

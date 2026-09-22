@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+import { MAINNET_CHAIN_LABEL } from '@/lib/chain'
 import { scanGasHistory, GasScanUnavailable, GAS_SCAN_CHAINS } from './gasHistory'
 import { GAS_SCAN_CHAIN_NAMES, formatGasScanChainList } from './gasScanCopy'
 import {
@@ -939,12 +940,21 @@ describe('assumptions about the upstream API', () => {
   })
 
   it('covers exactly the six chains that were agreed, and no others', async () => {
-    // BNB Chain joined on 2026-09-22, when the Etherscan plan this leg needs was
+    // Chain 56 joined on 2026-09-22, when the Etherscan plan this leg needs was
     // bought. It is listed before Robinhood because it is the settlement chain and
     // the order here is the scan order; Robinhood stays last because it is the only
     // `required: false` row and so the only one whose absence is survivable.
+    //
+    // Named through `MAINNET_CHAIN_LABEL` rather than spelled out, which weakens
+    // this line and is still the right call: `checkChainCopy.mjs` forbids the
+    // mainnet label as a literal everywhere except `chain.ts`, and that rule
+    // deliberately carries no test exemption (unlike the ticker rule beside it).
+    // So what stays pinned here is the position and the other five names — a row
+    // pointed at some other chain fails, a rename of the settlement chain does
+    // not. The rename is caught instead by `checkChainCopy.mjs` itself, which
+    // reads the label from `chain.ts` and re-scans every string against it.
     expect(GAS_SCAN_CHAINS.map(c => c.chain))
-      .toEqual(['Ethereum', 'Arbitrum', 'Optimism', 'Base', 'BNB Chain', 'Robinhood'])
+      .toEqual(['Ethereum', 'Arbitrum', 'Optimism', 'Base', MAINNET_CHAIN_LABEL, 'Robinhood'])
     expect(GAS_SCAN_CHAINS.map(c => c.chainId)).toEqual([1, 42161, 10, 8453, 56, 4663])
     // 56 is the only row not served by Blockscout, which has no chain-56 instance
     // at any tier. Pinned because a well-meaning consolidation onto one vendor
@@ -955,6 +965,6 @@ describe('assumptions about the upstream API', () => {
     // that forgets the UI, or the other way around, cannot ship.
     expect([...GAS_SCAN_CHAIN_NAMES]).toEqual(GAS_SCAN_CHAINS.map(c => c.chain))
     expect(formatGasScanChainList())
-      .toBe('Ethereum, Arbitrum, Optimism, Base, BNB Chain and Robinhood')
+      .toBe(`Ethereum, Arbitrum, Optimism, Base, ${MAINNET_CHAIN_LABEL} and Robinhood`)
   })
 })
