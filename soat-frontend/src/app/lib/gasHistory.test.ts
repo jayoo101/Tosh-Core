@@ -702,14 +702,31 @@ describe('the API key, which is what makes the scan deployable at all', () => {
     // The header used to promise this function existed while it did not, so an
     // unkeyed deployment's first symptom was every claimant getting a chain-level
     // failure. A caller that wants to fail at boot now can.
+    //
+    // ⚠ EVERY LEG STUBS BOTH KEYS, including the one it is not testing. Any
+    //   machine that verifies contracts has `ETHERSCAN_API_KEY` exported for
+    //   `forge`, and leaving it unstubbed let the ambient value satisfy the keyed
+    //   leg — so this test passed locally and failed in CI, which is the one
+    //   direction of that mistake nobody notices before pushing.
     vi.resetModules()
     vi.stubEnv('BLOCKSCOUT_API_KEY', undefined as unknown as string)
+    vi.stubEnv('ETHERSCAN_API_KEY', 'e')
     const mod = await import('./gasHistory')
     expect(() => mod.assertScanKeyPresent()).toThrow(/BLOCKSCOUT_API_KEY/)
     expect(() => mod.assertScanKeyPresent()).toThrow(/check:blockscout/)
 
+    // The settlement chain's key is `required`, so its absence has to be just as
+    // loud, and the message has to name itself rather than the other vendor.
     vi.resetModules()
     vi.stubEnv('BLOCKSCOUT_API_KEY', 'k')
+    vi.stubEnv('ETHERSCAN_API_KEY', undefined as unknown as string)
+    const halfKeyed = await import('./gasHistory')
+    expect(() => halfKeyed.assertScanKeyPresent()).toThrow(/ETHERSCAN_API_KEY/)
+    expect(() => halfKeyed.assertScanKeyPresent()).toThrow(/paid plan/)
+
+    vi.resetModules()
+    vi.stubEnv('BLOCKSCOUT_API_KEY', 'k')
+    vi.stubEnv('ETHERSCAN_API_KEY', 'e')
     const keyed = await import('./gasHistory')
     expect(() => keyed.assertScanKeyPresent()).not.toThrow()
   })
