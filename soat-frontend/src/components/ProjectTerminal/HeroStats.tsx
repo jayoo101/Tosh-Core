@@ -84,8 +84,11 @@ export function HeroStats({
    * So the raise lost its bar and kept its figure. What took the empty slot is
    * the genesis clock, which passes the test the cap failed: the window is one
    * of three fixed durations chosen at `createLaunch`, it cannot be extended,
-   * and reaching the end of it actually closes deposits. It fills left to
-   * right as time elapses — see `elapsedPct` in `genesisWindow`.
+   * and reaching the end of it actually closes deposits. It is drawn as a fuse
+   * burning left to right rather than as a fill — the lit stretch is the time
+   * still to come and shrinks toward the right edge, the flame marks now, and
+   * the spent side is left dark. See `elapsedPct` in `genesisWindow` for the
+   * number, and `burn` in `Progress` for why the light is on that side.
    *
    * The raise itself still has no percentage, because it still has no whole.
    */

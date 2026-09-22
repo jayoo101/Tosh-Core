@@ -266,8 +266,10 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
           the end of it actually closes deposits — so there IS a whole, and the
           fraction means something. It is drawn as a fuse rather than a fill,
           which is what keeps it from reading as progress toward a target: the
-          run behind the flame is time spent, and the flame is travelling toward
-          the end of the window instead of toward a number. `SkeletonCard` never
+          lit stretch is the window still to come and shrinks as the flame eats
+          into it, the flame marks now, and what it has already passed is left
+          dark. So the bright part gets smaller over time, which is the one
+          shape a meter filling toward a number cannot have. `SkeletonCard` never
           stopped reserving this row's height; it was standing in for a bar that
           had not existed since the cap came out. */}
       {p.tab === 'live' && (

@@ -35,8 +35,25 @@ export interface ProgressProps {
    */
   variant?: 'line' | 'bar'
   /**
-   * Draw the track as a burning fuse: a cooling trail behind a flickering
-   * flame at the leading edge.
+   * Draw the track as a burning fuse: ash behind a flickering flame, and the
+   * unburnt cord still lit ahead of it.
+   *
+   * ⚠ THE LIT PART IS WHAT REMAINS, NOT WHAT HAS GONE, and it is the one thing
+   *   here that is easy to get backwards — both directions render, both
+   *   animate, and the difference is invisible in a diff.
+   *
+   *   `pct` is still what has ELAPSED, unchanged, because that is what the
+   *   caller can state without ambiguity. What moved is which side of it gets
+   *   the light: the flame sits at `pct`, everything left of it is spent and
+   *   falls back to the bare track, and everything right of it is the cord not
+   *   yet reached. So the bright band is anchored to the right edge and
+   *   SHRINKS as the window runs out, ending as a sliver under the flame.
+   *
+   *   The first version lit the other side — a bright trail growing out of the
+   *   left edge, ash nowhere. It read as a meter filling toward something,
+   *   which is the exact misreading the genesis clock has to avoid now that
+   *   there is no cap to fill toward, and it had the physics backwards besides:
+   *   what a fire leaves behind is dark.
    *
    * ORTHOGONAL TO `variant` ON PURPOSE. `variant` picks the height, and the
    * genesis clock is drawn at both — the hairline in the directory grid, the
@@ -102,27 +119,44 @@ export function Progress({
         aria-valuemin={0}
         aria-valuemax={100}
         className={cn(
+          // The bare track doubles as the ash. Nothing paints the spent side,
+          // because a fuse that has burnt leaves the cord's own shadow and the
+          // empty-meter colour already reads as "nothing here" — a second,
+          // darker ash tone would only be distinguishable from this one on a
+          // calibrated screen, and the flame is what marks the boundary anyway.
           'relative w-full bg-border-subtle',
           // The flame is the one thing here that is allowed outside the track:
           // its glow is half the effect and a 2px box would clip all of it. The
-          // trail is rounded on its own, so nothing else needed the clip.
+          // cord is rounded on its own, so nothing else needed the clip.
           burn ? '' : 'overflow-hidden',
           variant === 'bar' ? 'h-2 rounded-pill' : 'h-0.5',
         )}
       >
-        <div
-          className={cn(
-            'absolute inset-y-0 left-0 transition-[width] duration-300',
-            burn
-              ? 'fuse-trail rounded-pill'
-              : variant === 'bar' ? 'bar-glow rounded-pill' : FILL[tone],
-          )}
-          style={{ width: `${clamped}%` }}
-        />
+        {burn ? (
+          /* Pinned to the right edge and opened leftward to the flame, rather
+             than given a width: the cord's far end is a fixed point and the
+             flame is what moves, so `left` is the one value that changes and
+             the transition has something single to follow. Driving this by
+             width would need `100 - clamped` in two places and get the
+             direction wrong in one of them. */
+          <div
+            className="fuse-cord absolute inset-y-0 right-0 rounded-pill transition-[left] duration-300"
+            style={{ left: `${clamped}%` }}
+          />
+        ) : (
+          <div
+            className={cn(
+              'absolute inset-y-0 left-0 transition-[width] duration-300',
+              variant === 'bar' ? 'bar-glow rounded-pill' : FILL[tone],
+            )}
+            style={{ width: `${clamped}%` }}
+          />
+        )}
         {/* Gone at 100 %, because a flame sitting on a spent fuse is the one
-            state the metaphor cannot describe. Callers drawing a clock stop
-            rendering the track at all by then; this is here so the component
-            does not depend on that. */}
+            state the metaphor cannot describe — and by then there is no cord
+            left under it either. Callers drawing a clock stop rendering the
+            track at all by then; this is here so the component does not depend
+            on that. */}
         {burn && clamped > 0 && clamped < 100 && (
           <span
             aria-hidden

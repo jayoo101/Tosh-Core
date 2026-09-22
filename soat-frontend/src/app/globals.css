@@ -790,14 +790,25 @@ select:focus {
 /** The genesis clock: a fuse burning left to right, not a tank filling up.
  *
  *  Two parts, because the burn is what distinguishes it from `bar-glow` above.
- *  `fuse-trail` is the run the flame has already passed: it cools toward the
- *  empty track's colour at its left end, so the ramp itself points the way the
- *  flame is travelling and the direction survives a still screenshot. Its
- *  right end is the hot one, tucked under the head.
+ *  `fuse-cord` is the length the flame has NOT reached — what is left of the
+ *  window. It is hottest at its left end, which is where the flame is sitting,
+ *  and fades toward the far end, so the ramp points back at the fire and the
+ *  direction of travel survives a still screenshot. The spent side is painted
+ *  by nothing at all: ash is the bare track.
+ *
+ *  THE FADE IS LOAD-BEARING, not decoration, and it is also deliberately GENTLE.
+ *  A solid bright band running to the right edge is what a meter filling toward
+ *  a target looks like, and this one fills toward nothing — there is no cap left
+ *  to raise against, so the shape has to say "being consumed" on its own, which
+ *  a dim far end does. But fading hard makes the cord disappear a third of the
+ *  way along, and then the only lit thing left is a patch beside the flame,
+ *  which is indistinguishable from the version where the light was on the spent
+ *  side. It has to stay legible as a LENGTH, because that length is the time
+ *  still to come.
  *
  *  `fuse-head` is the flame, and it carries all of the motion. `bar-glow`
  *  slides its gradient forever, which reads as "loading, indeterminate"; a
- *  countdown is the opposite of indeterminate, so the trail is static and only
+ *  countdown is the opposite of indeterminate, so the cord is static and only
  *  the flame flickers. Amber over the accent because fire is the one place a hot
  *  hue is the meaning rather than decoration.
  *
@@ -819,12 +830,13 @@ select:focus {
   }
 }
 
-.fuse-trail {
+.fuse-cord {
   background: linear-gradient(
     90deg,
-    rgb(198 47 130 / 0.12) 0%,
-    var(--tosh-brand-muted) 58%,
-    var(--tosh-brand) 100%
+    var(--tosh-brand) 0%,
+    var(--tosh-brand) 30%,
+    var(--tosh-brand-muted) 72%,
+    rgb(198 47 130 / 0.5) 100%
   );
 }
 

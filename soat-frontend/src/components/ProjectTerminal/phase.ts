@@ -77,7 +77,8 @@ export function resolvePhase({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface GenesisWindow {
-  /** 0–100, how much of the window has ELAPSED. The track fills. */
+  /** 0–100, how much of the window has ELAPSED. It positions the flame on the
+   *  fuse; the lit stretch is what lies AHEAD of it. See `burn` in `Progress`. */
   elapsedPct: number
   /** `HH:MM:SS left`. */
   label: string

@@ -15,16 +15,23 @@ import { genesisWindow } from './phase'
  * A clock took the slot because a clock has a denominator the cap never had.
  *
  * ⚠ THE DIRECTION IS THE POINT OF THIS FILE. `elapsedPct` is what has GONE, so
- *   the track fills left to right as the window burns down. Remaining also
- *   renders and also animates, and nothing about reading the diff catches an
- *   inversion, so it is pinned at both ends and in the middle.
+ *   it advances left to right as the window burns down. Remaining also renders
+ *   and also animates, and nothing about reading the diff catches an inversion,
+ *   so it is pinned at both ends and in the middle.
  *
  *   It was pinned the other way first, on the theory that a filling bar reads
  *   as progress toward a goal — the soft-cap bar's misreading. On screen the
- *   opposite dominated: a fill that retreats leftward beside a counting-down
+ *   opposite dominated: a value that retreats leftward beside a counting-down
  *   clock reads as running backwards, since every elapsed-time bar people
- *   already use fills left to right. The caption says what it is counting
- *   toward; the fill only has to agree with the direction of time.
+ *   already use advances left to right.
+ *
+ *   What this number MEANS on screen is settled in `Progress` and not here: it
+ *   places the flame on a fuse, and the lit stretch is the part ahead of it, so
+ *   the bright band shrinks rightward as this number grows. That is what
+ *   finally answered the filling-bar objection — the shape stopped being a fill
+ *   at all — and it is also why this file only pins the number. A test that
+ *   asserted "the track fills" would have gone stale on a change that did not
+ *   touch the arithmetic.
  */
 
 const HOUR = 3600
