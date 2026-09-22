@@ -298,15 +298,27 @@ const INVENTORY = {
       + 'BSC_RPC is the one that matters later. Same silent-failure shape as BSC_RPC: the public '
       + 'dataseed answers and nothing reports the downgrade.',
   },
-  ETHERSCAN_API_KEY: {
-    tier: 'ci',
-    why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
-       + 'at Etherscan v2\'s multichain host on this one key, so a single value covers 56 and 97 '
-       + '— which is also why losing it blocks verification on both at once. Blockscout does not '
-       + 'cover chain 56 at any tier, so there is no second door: unverified is the state a '
-       + 'missing key leaves the mainnet factory in, and an unverified launchpad is one nobody '
-       + 'can read the terms of before depositing.',
-  },
+    ETHERSCAN_API_KEY: {
+      tier: 'ci',
+      alsoVercel: 'sensitive',
+      why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
+         + 'at Etherscan v2\'s multichain host on this one key, so a single value covers 56 and 97 '
+         + '— which is also why losing it blocks verification on both at once. Blockscout does not '
+         + 'cover chain 56 at any tier, so there is no second door: unverified is the state a '
+         + 'missing key leaves the mainnet factory in, and an unverified launchpad is one nobody '
+         + 'can read the terms of before depositing.',
+      alsoVercelWhy:
+        'Two consumers since 2026-09-22, and the second one is louder than the first. '
+        + 'gasHistory.ts reads chain 56 through this same key, because Blockscout has no chain-56 '
+        + 'instance at any tier and 56 is the chain the protocol settles on. That row is '
+        + '`required`, so `scanKeyPresent()` demands BOTH keys and a Vercel copy that is missing '
+        + 'takes PoG scanning offline entirely rather than costing only the 56 leg — which is the '
+        + 'deliberate choice, a 503 naming the variable being better than five refused chains. '
+        + 'ORDER MATTERS ON DEPLOY: add this to Vercel BEFORE shipping a build that reads it. '
+        + 'One paid plan covers both consumers, so this is one purchase in two stores, never two '
+        + 'keys — and cross-wiring it with BLOCKSCOUT_API_KEY is invisible, both vendors spelling '
+        + 'the parameter `apikey`.',
+    },
   ROBINHOOD_RPC: {
     tier: 'absent',
     why: 'The chain-4663 endpoint, and a keyed one. The Infinity port removed BOTH of its '

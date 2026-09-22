@@ -184,7 +184,7 @@ bulk.
                                   ▼
 ┌───────────────────────────────────────────────────────────────────┐
 │                  historical gas-spend indexer                     │
-│      (Ethereum · Arbitrum · Optimism · Base · Robinhood)          │
+│  (Ethereum · Arbitrum · Optimism · Base · BNB Chain · Robinhood)  │
 └─────────────────────────────────┬─────────────────────────────────┘
                                   │
                                   ▼
@@ -206,12 +206,32 @@ bulk.
                                         [ EIP-191 verification, then deposit ]
 ```
 
-⚠ **That chain list is current code, and it is one migration behind.** It still
-scans Robinhood `4663` and does not scan BSC `56`, so a wallet's BSC gas history
-earns it nothing today. The cause is transport, not policy: the scanner reads
-Blockscout, and Blockscout does not cover chain 56 at any tier, so BSC needs an
-Etherscan v2 key the project does not yet hold. Listed here rather than quietly
-corrected because the scan set is a live decision, not a typo.
+That chain list is current code. It scans BSC `56` as of 2026-09-22, and it still
+scans Robinhood `4663` — the latter because 4663 gas is ETH-denominated and counts
+toward the floor, not because anything forgot to remove it.
+
+⚠ **This paragraph used to disclose the opposite, and the gap it described was
+real for about three weeks.** It read: "does not scan BSC `56`, so a wallet's BSC
+gas history earns it nothing today", the cause being transport rather than policy
+— Blockscout covers no chain 56 at any tier, and the Etherscan v2 key that half
+needs had not been bought. It has been: `56` is read through Etherscan v2 on the
+same key that verifies the contracts, which is one purchase serving both.
+
+Two consequences worth stating rather than leaving to be inferred:
+
+- **BSC spend is converted, not summed.** The floor and the rate are denominated
+  in ETH because every other scanned chain settles in ETH, so BNB gas is
+  multiplied by a FIXED 0.25 ETH/BNB before it joins the total. Fixed, because a
+  live rate would put a price oracle in the admission path and let two signers
+  disagree; 0.25 rather than spot (~0.2974 on the day the rate dial was set)
+  because a pin below spot can only ever under-award. Clearing the 0.025 ETH
+  floor on BSC history alone therefore takes 0.1 BNB of lifetime gas.
+- **The 56 leg costs more to read than the others.** Etherscan has no equivalent
+  of the `filter=from` probe the Blockscout legs use, so a BSC address with heavy
+  INBOUND volume — airdrop spam, which BSC has more of than most — can spend the
+  window budget on transactions it never sent and come back flagged as a lower
+  bound. That fails downward and says so, which is the rule every bound in the
+  scanner follows.
 
 **1 · The floor (`band.floorWei`, seeded at 0.025 ETH).** The oracle sums the
 requesting wallet's real gas spend across major chains. Fresh wallets and

@@ -79,11 +79,37 @@ interface Route {
 let routes: Route[] = []
 let requestLog: string[] = []
 
+/**
+ * Answer of last resort: "this address sent nothing", on whichever dialect asked.
+ *
+ * Consulted only after `routes`, so an explicit fixture always wins and the
+ * `no fixture for` guard still fires on a URL nothing anticipated.
+ *
+ * It exists because chain 56 joined the table on a DIFFERENT VENDOR. Every test
+ * below that replaces `routes` wholesale was written when a single `isV2` route
+ * covered all five chains; 56 is read through Etherscan, which has no v2 dialect
+ * to probe, so its leg arrives as a `txlist` and each of those tests would
+ * otherwise have to spell out a fixture for a chain it is not about.
+ *
+ * The empty answer is spelled the way ETHERSCAN spells it — `status: "0"` with
+ * "No transactions found" — rather than the way Blockscout does, because that
+ * exact shape is what `etherscanError` has to distinguish from a refusal. A
+ * baseline that spelled it differently would leave that discrimination untested
+ * by every test that leans on it.
+ */
+const BASELINE: Route[] = [
+  { match: u => u.includes('/api/v2/'), body: () => v2Page([]) },
+  {
+    match: u => u.includes('action=txlist'),
+    body: () => ({ status: '0', message: 'No transactions found', result: [] }),
+  },
+]
+
 function installFetch() {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
     const url = String(input)
     requestLog.push(url)
-    const route = routes.find(r => r.match(url))
+    const route = routes.find(r => r.match(url)) ?? BASELINE.find(r => r.match(url))
     if (!route) throw new Error(`no fixture for ${url}`)
     const status = route.status ?? 200
     const headers = new Headers(route.headers ?? {})
@@ -104,10 +130,15 @@ function silentEverywhere() {
 
 function isV2(url: string) { return url.includes('/api/v2/addresses/') }
 function isV1(url: string) { return url.includes('action=txlist') }
-/** Since the migration to the PRO API all five chains share one host and differ
- *  only in the first path segment (`api.blockscout.com/{chainId}/...`), so "which
- *  chain is this request for" is read from the path rather than the hostname. */
-function chainIdOf(url: string) { return Number(new URL(url).pathname.split('/')[1]) }
+/** "Which chain is this request for", across two vendors that answer it
+ *  differently: Blockscout's PRO API puts the id in the first path segment
+ *  (`api.blockscout.com/{chainId}/...`), Etherscan v2 in a `chainid` query
+ *  parameter. Reading only the path returned NaN for 56 and matched no chain. */
+function chainIdOf(url: string) {
+  const u = new URL(url)
+  const q = u.searchParams.get('chainid')
+  return q !== null ? Number(q) : Number(u.pathname.split('/')[1])
+}
 function isChain(url: string, name: string) {
   return chainIdOf(url) === GAS_SCAN_CHAINS.find(c => c.chain === name)!.chainId
 }
@@ -286,7 +317,15 @@ describe('cost and early exit', () => {
     expect(h.totalWei).toBe(0n)
     expect(h.truncated).toBe(false)
     expect(requestLog).toHaveLength(GAS_SCAN_CHAINS.length)
-    expect(requestLog.every(isV2)).toBe(true)
+    // Still one request per chain, but no longer one DIALECT per chain: 56 is read
+    // through Etherscan, which has no `filter=from` to probe with, so its leg is a
+    // txlist. It stays at one request here only because the address has no sends to
+    // page through — this is the one chain where a spam-heavy address would cost
+    // the full window budget, and `truncated` is how that would surface.
+    const probed = GAS_SCAN_CHAINS.filter(c => c.vendor === 'blockscout').length
+    const walked = GAS_SCAN_CHAINS.filter(c => c.vendor === 'etherscan').length
+    expect(requestLog.filter(isV2)).toHaveLength(probed)
+    expect(requestLog.filter(isV1)).toHaveLength(walked)
   })
 
   it('stops touching later chains once the cap is reached', async () => {
@@ -306,9 +345,10 @@ describe('cost and early exit', () => {
     expect(requestLog).toHaveLength(1)
 
     // Skipped chains are still reported, so the breakdown never implies an
-    // absence it did not actually check.
-    expect(h.chains).toHaveLength(5)
-    expect(h.chains.filter(c => c.skipped)).toHaveLength(4)
+    // absence it did not actually check. Counted off the table rather than
+    // written out, so adding a chain cannot quietly make this assert less.
+    expect(h.chains).toHaveLength(GAS_SCAN_CHAINS.length)
+    expect(h.chains.filter(c => c.skipped)).toHaveLength(GAS_SCAN_CHAINS.length - 1)
     expect(h.chains.filter(c => c.skipped).every(c => c.weiSpent === 0n)).toBe(true)
   })
 
@@ -328,10 +368,13 @@ describe('cost and early exit', () => {
     ]
 
     await scanGasHistory(USER)
-    // Exactly one chain fell through to v1.
-    expect(v1Calls).toBe(1)
-    expect(requestLog.filter(isV1)).toHaveLength(1)
-    expect(requestLog.filter(u => isV1(u) && isChain(u, 'Ethereum'))).toHaveLength(1)
+    // Exactly one chain FELL THROUGH to v1, and it is Ethereum — the only one the
+    // fixture gave a second page. Asserted as the set of chains rather than as a
+    // call count, because a raw count no longer isolates the fallthrough: chain 56
+    // is always read through v1, having no probe to fall through from, so it
+    // appears here without having proved anything about its send history.
+    expect(requestLog.filter(isV1).map(chainIdOf).sort((a, b) => a - b)).toEqual([1, 56])
+    expect(v1Calls).toBe(2)
   })
 })
 
@@ -600,10 +643,15 @@ describe('the API key, which is what makes the scan deployable at all', () => {
    *
    * Read at module load, so these re-import rather than restub.
    */
+  /** Both vendors' variables, set to the same value, so the assertions below stay
+   *  about "is a key on the request" rather than about which vendor supplied it.
+   *  The next test is the one that pins them apart. */
   async function scanWithKey(key: string | undefined) {
     vi.resetModules()
-    if (key === undefined) vi.stubEnv('BLOCKSCOUT_API_KEY', undefined as unknown as string)
-    else vi.stubEnv('BLOCKSCOUT_API_KEY', key)
+    for (const name of ['BLOCKSCOUT_API_KEY', 'ETHERSCAN_API_KEY']) {
+      if (key === undefined) vi.stubEnv(name, undefined as unknown as string)
+      else vi.stubEnv(name, key)
+    }
     const mod = await import('./gasHistory')
     await mod.scanGasHistory(USER)
     return mod
@@ -626,6 +674,27 @@ describe('the API key, which is what makes the scan deployable at all', () => {
   it('escapes a key rather than splicing it into the query raw', async () => {
     await scanWithKey('a&b=c')
     expect(requestLog.every(u => u.includes('apikey=a%26b%3Dc'))).toBe(true)
+  })
+
+  it('sends each vendor its own key, never the other one', async () => {
+    // The failure this catches is silent in the worst way. Both vendors spell the
+    // parameter `apikey`, so a cross-wired key produces a perfectly well-formed
+    // request that is simply rejected — and on 56 a rejection arrives as HTTP 200
+    // with `status: "0"`, which without `etherscanError` would read as "this
+    // wallet has no BSC history" rather than as a misconfiguration.
+    vi.resetModules()
+    vi.stubEnv('BLOCKSCOUT_API_KEY', 'blockscout-key')
+    vi.stubEnv('ETHERSCAN_API_KEY', 'etherscan-key')
+    const mod = await import('./gasHistory')
+    await mod.scanGasHistory(USER)
+
+    const etherscan = requestLog.filter(u => u.includes('api.etherscan.io'))
+    const blockscout = requestLog.filter(u => u.includes('api.blockscout.com'))
+    // Neither list may be empty, or this passes by testing nothing.
+    expect(etherscan.length).toBeGreaterThan(0)
+    expect(blockscout.length).toBeGreaterThan(0)
+    expect(etherscan.every(u => u.includes('apikey=etherscan-key'))).toBe(true)
+    expect(blockscout.every(u => u.includes('apikey=blockscout-key'))).toBe(true)
   })
 
   it('refuses to start unkeyed when asked to assert, naming the variable', async () => {
@@ -697,18 +766,31 @@ describe('the API key, which is what makes the scan deployable at all', () => {
 describe('assumptions about the upstream API', () => {
   it('asks v2 for the from-side only', async () => {
     await scanGasHistory(USER)
-    expect(requestLog.every(u => u.includes('filter=from'))).toBe(true)
+    // Scoped to the v2 requests, which is every request EXCEPT chain 56's. It used
+    // to be every request full stop; asserting that again would now be asserting
+    // that 56 is absent from the table.
+    expect(requestLog.filter(isV2).length).toBeGreaterThan(0)
+    expect(requestLog.filter(isV2).every(u => u.includes('filter=from'))).toBe(true)
   })
 
-  it('reads every chain from the one keyed host, addressed by chain id in the path', async () => {
-    // The shape this migration settled on. Asserted because it was established
-    // by probing a live key, not taken from the docs -- which describe a
-    // `chain_id` query parameter that this deployment does not accept -- so a
-    // tidy-up back to the documented form would 404 all five chains at once.
+  it('addresses each chain the way its own vendor expects, path or query', async () => {
+    // Both halves were established by probing a live key rather than taken from
+    // the docs, and each has a documented way of failing quietly:
+    //
+    //   Blockscout  the chain is the first PATH segment. Its docs describe a
+    //               `chain_id` query parameter this deployment does not accept, so
+    //               a tidy-up to the documented form would 404 every chain at once.
+    //   Etherscan   the chain is a `chainid` QUERY parameter, and Foundry hit the
+    //               other direction of the same mistake — omitting it answers
+    //               "Missing chainid parameter (required for v2 api)" even when the
+    //               chain is named elsewhere. See foundry.toml's [etherscan] table.
     await scanGasHistory(USER)
     expect(requestLog).toHaveLength(GAS_SCAN_CHAINS.length)
     for (const chain of GAS_SCAN_CHAINS) {
-      expect(requestLog.some(u => u.startsWith(`https://api.blockscout.com/${chain.chainId}/api/`)))
+      const expected = chain.vendor === 'etherscan'
+        ? `https://api.etherscan.io/v2/api?chainid=${chain.chainId}&`
+        : `https://api.blockscout.com/${chain.chainId}/api/`
+      expect(requestLog.some(u => u.startsWith(expected)))
         .toBe(true)
     }
   })
@@ -774,6 +856,75 @@ describe('assumptions about the upstream API', () => {
     expect(h.chains[0].sentTxs).toBe(2)
   })
 
+  /**
+   * Etherscan's refusals arrive as HTTP 200, and this is the group that proves
+   * they are not counted as zero.
+   *
+   * Worth stating why it is the most load-bearing group in this file. On chain 56
+   * a refusal and an empty wallet are the same response shape — `status: "0"` with
+   * a string `result` — and 56 is `required`, so getting this wrong does not break
+   * one scan loudly. It under-awards every BSC-native claimant, silently, on the
+   * chain the protocol settles on, while the job stays green. Deleting
+   * `etherscanError` makes all three of these pass except the first.
+   */
+  describe('an Etherscan refusal is not an empty wallet', () => {
+    const REFUSALS = [
+      // What the free tier answers on 56, and the reason the plan was bought.
+      'Free API access is not supported for this chain. Please upgrade your api plan',
+      'Invalid API Key',
+      'Max rate limit reached',
+    ]
+
+    for (const detail of REFUSALS) {
+      it(`fails the scan on "${detail.slice(0, 28)}…" rather than scoring zero`, async () => {
+        routes = [
+          { match: isV2, body: () => v2Page([]) },
+          { match: isV1, body: () => ({ status: '0', message: 'NOTOK', result: detail }) },
+        ]
+        // The reason reaches the caller, so an operator is sent to the plan or the
+        // variable rather than to a chain that is working fine.
+        await expect(scanGasHistory(USER)).rejects.toThrow(GasScanUnavailable)
+        await expect(scanGasHistory(USER)).rejects.toThrow(detail.slice(0, 20))
+      })
+    }
+
+    it('still scores a genuinely empty BSC history as zero', async () => {
+      // The other side of the discriminator. If this broke, every wallet with no
+      // BSC history would fail the scan outright — the loud failure, but for the
+      // most common case there is.
+      routes = [
+        { match: isV2, body: () => v2Page([]) },
+        { match: isV1, body: () => ({ status: '0', message: 'No transactions found', result: [] }) },
+      ]
+      const h = await scanGasHistory(USER)
+      const bsc = h.chains.find(c => c.chainId === 56)!
+      expect(bsc.weiSpent).toBe(0n)
+      expect(bsc.unavailable).toBe(false)
+      expect(h.truncated).toBe(false)
+    })
+
+    it('converts BSC spend into ETH at the pinned rate, rounding against the claimant', async () => {
+      // 0.25 ETH per BNB, pinned below spot so drift can only under-award. The
+      // breakdown keeps BNB — that is what the user paid — and only the ETH
+      // equivalent is summed, so this is the one row where those two differ.
+      routes = [
+        { match: isV2, body: () => v2Page([]) },
+        {
+          match: isV1,
+          body: () => v1Response([v1Row(USER, 1_000_000n, 1n * GWEI, 1, '0xb')]),
+        },
+      ]
+      const h = await scanGasHistory(USER)
+      const bsc = h.chains.find(c => c.chainId === 56)!
+      expect(bsc.weiSpent).toBe(1_000_000n * GWEI)
+      expect(bsc.ethEquivalentWei).toBe(1_000_000n * GWEI / 4n)
+      // Exact on every ETH chain, so the two fields agree everywhere else.
+      for (const c of h.chains.filter(c => c.chainId !== 56)) {
+        expect(c.ethEquivalentWei).toBe(c.weiSpent)
+      }
+    })
+  })
+
   it('treats v1\'s "no transactions found" as zero, not as an error', async () => {
     // v1 signals an empty result as status "0" with a STRING result. Treating
     // that as a failure would fail the scan for every fresh wallet.
@@ -787,13 +938,23 @@ describe('assumptions about the upstream API', () => {
     expect(h.chains[0].truncated).toBe(false)
   })
 
-  it('covers exactly the five chains that were agreed, and no others', async () => {
+  it('covers exactly the six chains that were agreed, and no others', async () => {
+    // BNB Chain joined on 2026-09-22, when the Etherscan plan this leg needs was
+    // bought. It is listed before Robinhood because it is the settlement chain and
+    // the order here is the scan order; Robinhood stays last because it is the only
+    // `required: false` row and so the only one whose absence is survivable.
     expect(GAS_SCAN_CHAINS.map(c => c.chain))
-      .toEqual(['Ethereum', 'Arbitrum', 'Optimism', 'Base', 'Robinhood'])
-    expect(GAS_SCAN_CHAINS.map(c => c.chainId)).toEqual([1, 42161, 10, 8453, 4663])
+      .toEqual(['Ethereum', 'Arbitrum', 'Optimism', 'Base', 'BNB Chain', 'Robinhood'])
+    expect(GAS_SCAN_CHAINS.map(c => c.chainId)).toEqual([1, 42161, 10, 8453, 56, 4663])
+    // 56 is the only row not served by Blockscout, which has no chain-56 instance
+    // at any tier. Pinned because a well-meaning consolidation onto one vendor
+    // would silently stop scanning the chain the protocol settles on.
+    expect(GAS_SCAN_CHAINS.filter(c => c.vendor === 'etherscan').map(c => c.chainId))
+      .toEqual([56])
     // The dialog copy is a second list. Pin it here so a rename in the table
     // that forgets the UI, or the other way around, cannot ship.
     expect([...GAS_SCAN_CHAIN_NAMES]).toEqual(GAS_SCAN_CHAINS.map(c => c.chain))
-    expect(formatGasScanChainList()).toBe('Ethereum, Arbitrum, Optimism, Base and Robinhood')
+    expect(formatGasScanChainList())
+      .toBe('Ethereum, Arbitrum, Optimism, Base, BNB Chain and Robinhood')
   })
 })

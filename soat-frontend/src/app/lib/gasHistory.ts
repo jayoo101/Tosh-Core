@@ -58,11 +58,28 @@
  *   recorded in the workflow's header so that the next person to "simplify"
  *   those flags back in knows what it costs.
  *
- * So moving this file to Etherscan v2 is no longer blocked on coverage. It is
- * blocked on a bill, for three of the six chains, and that is somebody's
- * spending decision rather than an engineering one. The decision is also
- * narrower than it looked at one point: it buys PoG gas scanning on 56, 10
- * and 8453, and nothing else. Verification is already free.
+ * ── 2026-09-22: THE BILL WAS PAID, AND 56 IS NOW READ HERE ──────────────────
+ *
+ * This section used to end "moving this file to Etherscan v2 is no longer blocked
+ * on coverage; it is blocked on a bill, for three of the six chains, and that is
+ * somebody's spending decision rather than an engineering one." The Lite plan was
+ * bought, so that sentence has been spent.
+ *
+ * What it did NOT buy is the migration it was describing. Only chain 56 moved,
+ * and the scope shrank for a reason that had nothing to do with money: the plan
+ * was argued for as "56, 10 and 8453, since all three are gated identically", and
+ * once paying is no longer the question, the v2 PROBE is. Blockscout prices a
+ * light wallet exactly on 10 and 8453 through `fee.value`, L1 data fee included,
+ * and Etherscan publishes no endpoint that does. Moving those two would trade
+ * exact fees for one fewer vendor and lose. 56 moved because Blockscout cannot
+ * serve it at all.
+ *
+ * So this file now reads TWO vendors, which the paragraph above called the worse
+ * trade, and that judgement is worth correcting rather than deleting: it was made
+ * when the comparison was "two vendors" against "one subscription", and the
+ * subscription turned out to be shared with contract verification. One purchase,
+ * two consumers, and the second vendor covers exactly the one chain the first
+ * cannot. See `ScanVendor`.
  *
  * The fallbacks were checked too, and both are closed. BscScan V1
  * (`api.bscscan.com`) now answers every request with "You are using a
@@ -244,9 +261,26 @@ const SEEDED_CAP_WEI = pogCapWei(DEFAULT_POG_BAND)
 /** Which Blockscout API a chain is read through. See the header. */
 export type ScanApi = 'v1' | 'v2'
 
+/**
+ * Which vendor answers for a chain — a separate axis from `ScanApi`, not a
+ * rename of it.
+ *
+ * Blockscout speaks both dialects. Etherscan speaks only the `txlist` one, and
+ * that asymmetry is load-bearing rather than cosmetic: `scanChain`'s v2 probe is
+ * SKIPPED for an Etherscan chain, so such a chain pays v1's blindness to
+ * direction in full. The probe is not a convenience — it is the only thing
+ * keeping an address's INBOUND volume from setting the cost of scanning it, and
+ * chain 56 is the worst place to lose it, BSC being where airdrop spam lands.
+ * The consequence is bounded and in the safe direction (`MAX_V1_WINDOWS`, then
+ * `truncated`), which is why it is acceptable rather than fine. See `scanChain`.
+ */
+export type ScanVendor = 'blockscout' | 'etherscan'
+
 export interface GasScanChain {
   chain: string
   chainId: number
+  /** Who to ask. Decides the host, the key and the error vocabulary. */
+  vendor: ScanVendor
   api: ScanApi
   /**
    * Whether being unable to read this chain fails the whole scan.
@@ -287,6 +321,30 @@ export interface GasScanChain {
 /** `nativeToEthX18` for a chain that settles in ETH. */
 const NATIVE_IS_ETH = 10n ** 18n
 
+/**
+ * BNB -> ETH, pinned at 0.25, and the pin is the decision rather than the price.
+ *
+ * `docs/WHITEPAPER_zh.md` recorded this as an open design decision: a fixed basis
+ * drifts with the market, a dynamic one puts a price oracle in the admission
+ * path, and neither is free. It is settled here as FIXED, for the reason the
+ * field's own doc comment gives — a scan that re-prices itself between two
+ * signers is a divergence hazard, and a gas history that changes because a market
+ * moved is not a history.
+ *
+ * The number: `README.md` records 3.3624 BNB to the ETH as spot on the day the
+ * quota rate dial was chosen, i.e. ~0.2974 ETH per BNB. 0.25 sits 16 % under
+ * that, which is what the failure-direction rule demands — a pin below spot can
+ * only under-award, and BNB gaining on ETH widens the margin rather than
+ * inverting it. If BNB ever falls far enough that 0.25 is ABOVE spot, this
+ * over-awards and must be cut; that is the one direction worth watching, and it
+ * is the opposite of the direction people expect to have to watch.
+ *
+ * What it costs a claimant, stated concretely because the floor makes it legible:
+ * eligibility starts at 0.025 ETH of lifetime gas, so clearing the floor on BSC
+ * spend alone takes 0.1 BNB at this pin, against 0.084 BNB at spot.
+ */
+const BNB_TO_ETH_X18 = 25n * 10n ** 16n
+
 /** This chain's coin -> ETH. Exact for ETH chains, floor-rounded otherwise,
  *  which rounds against the claimant and so fails in the allowed direction. */
 function toEthWei(nativeWei: bigint, chain: GasScanChain): bigint {
@@ -310,26 +368,54 @@ function toNativeWei(ethWei: bigint, chain: GasScanChain): bigint {
  *
  * Robinhood Chain is still in this table, and that is a live decision rather
  * than a missed rename. Its gas is ETH-denominated and counts toward the floor.
- * It is NOT the settlement chain any more — that is BNB Smart Chain, which is
- * absent because no transport this project pays for can reach it: Blockscout
- * has no chain-56 instance at any tier, and Etherscan v2 has one but puts
- * `account` behind a paid plan (measured 2026-09-18; see the header).
+ * It is NOT the settlement chain any more — that is BNB Smart Chain, and 56 is
+ * now here.
  *
- * Stated plainly, because the shape of it is easy to miss: **a wallet's BSC gas
- * history earns it nothing, on the chain the protocol now settles on.** That is
- * a policy consequence of a billing fact, and it should be decided rather than
- * inherited. Adding 56 means buying an Etherscan plan and moving at least
- * Optimism and Base across with it, since those two are gated identically and
- * running two vendors to save one subscription is the worse trade.
+ * ⚠ THIS SECTION SAID 56 WAS UNREACHABLE AT ANY PRICE, AND THAT IS NO LONGER
+ *   TRUE. It read: "no transport this project pays for can reach it", then
+ *   "a wallet's BSC gas history earns it nothing, on the chain the protocol now
+ *   settles on", and it called that a policy consequence of a billing fact that
+ *   should be decided rather than inherited. It has now been decided — the
+ *   Etherscan v2 Lite plan was bought (2026-09-22) — so the paragraph is
+ *   replaced rather than amended, because every clause in it was a statement
+ *   about a bill that has since been paid.
+ *
+ *   What that paragraph got right is worth keeping: the gate was never
+ *   engineering. Blockscout has no chain-56 instance at any tier — its own
+ *   directory of 708 hosted instances contains none — so this could not be
+ *   fixed by reading harder.
+ *
+ *   What it got wrong is the scope it inferred. It argued that adding 56 meant
+ *   moving Optimism and Base across too, since Etherscan's free tier gates all
+ *   three identically and "running two vendors to save one subscription is the
+ *   worse trade". That reasoning was about the SUBSCRIPTION, and the
+ *   subscription is no longer the variable. What decides it now is the v2 probe:
+ *   Blockscout prices a light wallet EXACTLY on 10 and 8453 through `fee.value`,
+ *   L1 data fee included, and Etherscan has no endpoint that does. Moving those
+ *   two would therefore trade exact fees for one fewer vendor, and lose. They
+ *   stay on Blockscout; 56 joins as the one chain Blockscout cannot serve.
+ *
+ * 56 is `required: true`, with the rest. It settles the protocol, so it can hide
+ * as much real money as Ethereum can, and the Robinhood exemption below does not
+ * generalise to it — that exemption is argued from a measured 0.4 % of a capped
+ * total, which is the opposite of what a settlement chain contributes.
  *
  * A dialog that dropped 4663 while this table still queried it, or that named
  * 56 while this table does not, would be lying.
  */
 export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
-  { chain: 'Ethereum',  chainId: 1,     api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
-  { chain: 'Arbitrum',  chainId: 42161, api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
-  { chain: 'Optimism',  chainId: 10,    api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
-  { chain: 'Base',      chainId: 8453,  api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Ethereum',  chainId: 1,     vendor: 'blockscout', api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Arbitrum',  chainId: 42161, vendor: 'blockscout', api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Optimism',  chainId: 10,    vendor: 'blockscout', api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Base',      chainId: 8453,  vendor: 'blockscout', api: 'v1', required: true,  execFeeIsWholeFee: false, nativeToEthX18: NATIVE_IS_ETH },
+  // The settlement chain, and the only row served by Etherscan — see the header.
+  //
+  // `execFeeIsWholeFee: true` because BSC has no separate L1 data fee, so
+  // `gasUsed * gasPrice` is the entire cost. That is what makes reading it
+  // through the txlist dialect lossless on FEES, and it is the only thing lost
+  // to the missing v2 probe that would otherwise have mattered; what IS lost is
+  // the server-side direction filter, which costs budget rather than accuracy.
+  { chain: 'BNB Chain', chainId: 56,    vendor: 'etherscan',  api: 'v1', required: true,  execFeeIsWholeFee: true,  nativeToEthX18: BNB_TO_ETH_X18 },
   // Reads like the other four now. On its own instance v1 timed out, which is
   // why this was pinned to `v2` and a 20-page budget; on the PRO API it answers
   // a production-shaped `txlist` (offset 10,000, startblock 0) in 2.5 s, and
@@ -341,7 +427,7 @@ export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
   // `required: false` is the one exception in this table, argued at length in the
   // header. Short version: it can hide 0.4 % of a capped total, and while it was
   // fatal its indexer's uptime was the uptime of genesis allocation.
-  { chain: 'Robinhood', chainId: 4663,  api: 'v1', required: false, execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
+  { chain: 'Robinhood', chainId: 4663,  vendor: 'blockscout', api: 'v1', required: false, execFeeIsWholeFee: true,  nativeToEthX18: NATIVE_IS_ETH },
 ]
 
 /**
@@ -350,6 +436,20 @@ export const GAS_SCAN_CHAINS: readonly GasScanChain[] = [
  * describe a `chain_id` query parameter this deployment does not use.
  */
 const PRO_API_ROOT = 'https://api.blockscout.com'
+
+/**
+ * Etherscan v2's multichain host, for chain 56 only.
+ *
+ * The chain is a QUERY parameter here rather than a path segment, and that is the
+ * single structural difference between the two vendors' URLs — enough that they
+ * cannot share a builder, not enough to need a second response parser, because
+ * Blockscout's v1 dialect IS the Etherscan-compatible one. See `txlistUrl`.
+ *
+ * Same host and same key that `foundry.toml` verifies contracts through, so one
+ * purchase answers both needs. `.github/workflows/verify.yml` documents the other
+ * half at length, including that the free tier refuses submissions on 56.
+ */
+const ETHERSCAN_API_ROOT = 'https://api.etherscan.io/v2/api'
 
 function hostFor(chain: GasScanChain): string {
   return `${PRO_API_ROOT}/${chain.chainId}`
@@ -426,8 +526,44 @@ const REQUEST_HEADERS: Record<string, string> = { Accept: 'application/json' }
  */
 const API_KEY = process.env.BLOCKSCOUT_API_KEY ?? ''
 
+/**
+ * The Etherscan v2 key, which reads chain 56 and nothing else here.
+ *
+ * Deliberately the SAME variable `foundry.toml` and `verify.yml` already use, not
+ * a second name for the same secret: one Etherscan plan covers both the `contract`
+ * module those two submit through and the `account` module this file reads, so two
+ * names could only ever drift apart while describing one purchase.
+ *
+ * Its allowance is a plain daily call count — 100,000/day on Lite — and is NOT
+ * reported in response headers, so `lastCredits` below never latches from an
+ * Etherscan response and the credit gauge stays a Blockscout gauge. That is
+ * adequate rather than a gap: chain 56 adds at most `MAX_V1_WINDOWS` calls to a
+ * scan, and `/api/pog-scan`'s 120-scans-an-hour ceiling caps that near 11,500
+ * calls a day against an allowance of 100,000. Blockscout's credits remain the
+ * binding constraint, which is why they remain the gauged one.
+ */
+const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY ?? ''
+
+function keyFor(chain: GasScanChain): string {
+  return chain.vendor === 'etherscan' ? ETHERSCAN_KEY : API_KEY
+}
+
+/** The variable to go and set, so a failure names the fix rather than a chain. */
+function keyNameFor(chain: GasScanChain): string {
+  return chain.vendor === 'etherscan' ? 'ETHERSCAN_API_KEY' : 'BLOCKSCOUT_API_KEY'
+}
+
+/**
+ * BOTH keys, and the conjunction is the point.
+ *
+ * Chain 56 is `required`, so a deployment holding only the Blockscout key fails
+ * every scan on 56 — which by the failure rule fails the whole scan, for every
+ * claimant. Reporting that as "not configured" up front is the same trade the
+ * single-key version made: a configuration mistake must not be able to look like
+ * an outage. `/api/pog-scan` turns this into a 503 that says so.
+ */
 export function scanKeyPresent(): boolean {
-  return API_KEY.length > 0
+  return API_KEY.length > 0 && ETHERSCAN_KEY.length > 0
 }
 
 /**
@@ -446,12 +582,23 @@ export function assertScanKeyPresent(): void {
       + 'and verify it with `npm run check:blockscout`.',
     )
   }
+  if (!ETHERSCAN_KEY) {
+    throw new Error(
+      'ETHERSCAN_API_KEY is not set. Chain 56 is read through Etherscan v2 and is '
+      + '`required`, so without it every scan fails on the settlement chain — not '
+      + 'just the 56 leg. It is the same key `foundry.toml` verifies contracts '
+      + 'with, and it needs a paid plan: the free tier answers `account` on 56 '
+      + 'with "Free API access is not supported for this chain".',
+    )
+  }
 }
 
-/** Append the key to a Blockscout URL, if we have one. */
-function withKey(url: string): string {
-  if (!API_KEY) return url
-  return `${url}${url.includes('?') ? '&' : '?'}apikey=${encodeURIComponent(API_KEY)}`
+/** Append the vendor's key to a URL, if we have one for that vendor. Both spell
+ *  the parameter `apikey`, which is the one thing about them that agrees. */
+function withKey(url: string, chain: GasScanChain): string {
+  const key = keyFor(chain)
+  if (!key) return url
+  return `${url}${url.includes('?') ? '&' : '?'}apikey=${encodeURIComponent(key)}`
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────
@@ -589,7 +736,7 @@ async function getJson<T>(url: string, chain: GasScanChain): Promise<T> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) await sleep(400 * attempt)
     try {
-      const res = await fetch(withKey(url), {
+      const res = await fetch(withKey(url, chain), {
         headers: REQUEST_HEADERS,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         cache: 'no-store',
@@ -602,11 +749,13 @@ async function getJson<T>(url: string, chain: GasScanChain): Promise<T> {
       // otherwise surface as "could not read Ethereum" — which sends whoever is
       // on call to look at a chain instead of at an environment variable.
       if (res.status === 401 || res.status === 402) {
+        const name = keyNameFor(chain)
+        const host = chain.vendor === 'etherscan' ? 'api.etherscan.io' : 'api.blockscout.com'
         throw new GasScanUnavailable(
           chain.chain,
           res.status === 402
-            ? 'BLOCKSCOUT_API_KEY is missing (api.blockscout.com answered 402)'
-            : 'BLOCKSCOUT_API_KEY was rejected (api.blockscout.com answered 401)',
+            ? `${name} is missing (${host} answered 402)`
+            : `${name} was rejected (${host} answered 401)`,
         )
       }
       if (res.status === 429) {
@@ -621,7 +770,9 @@ async function getJson<T>(url: string, chain: GasScanChain): Promise<T> {
           throw new GasScanUnavailable(
             chain.chain,
             `rate limited (${limit}/window, resets in ${Math.ceil(resetMs / 1000)}s)`
-            + '; raise the tier at dev.blockscout.com',
+            + (chain.vendor === 'etherscan'
+              ? '; raise the plan at etherscan.io/apis'
+              : '; raise the tier at dev.blockscout.com'),
           )
         }
         lastReason = 'HTTP 429'
@@ -659,6 +810,47 @@ interface V1Response {
 }
 
 /**
+ * The `txlist` request, in whichever vendor's spelling.
+ *
+ * Both serve the same Etherscan-compatible `module=account&action=txlist`, with the
+ * same row field names, which is why `V1Row` parses both and why adding a second
+ * vendor was a URL change rather than a second parser. Blockscout's "v1" dialect
+ * simply IS this API. They disagree only on where the chain is named.
+ */
+function txlistUrl(chain: GasScanChain, address: string, startBlock: number): string {
+  const q = `module=account&action=txlist&address=${address}`
+    + `&page=1&offset=${V1_PAGE_SIZE}&sort=asc&startblock=${startBlock}`
+  return chain.vendor === 'etherscan'
+    ? `${ETHERSCAN_API_ROOT}?chainid=${chain.chainId}&${q}`
+    : `${hostFor(chain)}/api?${q}`
+}
+
+/**
+ * Etherscan's errors, which arrive as successes.
+ *
+ * EVERY Etherscan failure is HTTP 200 with `status: "0"` and a STRING `result` —
+ * a rejected key, a spent allowance, a plan boundary. That is the same shape it
+ * uses for a wallet with no history, and the caller below treats a non-array
+ * `result` as "no transactions found". So without this discriminator a refused
+ * request scores ZERO rather than failing, silently, on a `required` chain: not
+ * one claimant's scan broken loudly, but every BSC-native claimant under-awarded
+ * at once, with nothing in the response to say so. `getJson`'s status branches
+ * cannot catch it because the status is 200.
+ *
+ * `message` is the discriminator. "No transactions found" is the empty case and
+ * the only one; anything else with a string result is returned as its own text, so
+ * the reason reaches the operator instead of being flattened to a chain name.
+ */
+function etherscanError(body: V1Response): string | null {
+  if (Array.isArray(body.result)) return null
+  if (body.status === '1') return null
+  const message = (body.message ?? '').trim()
+  if (/no transactions found/i.test(message)) return null
+  const detail = typeof body.result === 'string' ? body.result.trim() : ''
+  return detail || message || 'Etherscan answered with neither rows nor a reason'
+}
+
+/**
  * Walk one chain with v1 `txlist`, windowing on `startblock` to get past the
  * 10,000-row wall.
  *
@@ -684,9 +876,14 @@ async function scanChainV1(
   let boundaryHashes = new Set<string>()
 
   for (let window = 0; window < MAX_V1_WINDOWS; window++) {
-    const url = `${hostFor(chain)}/api?module=account&action=txlist&address=${address}`
-      + `&page=1&offset=${V1_PAGE_SIZE}&sort=asc&startblock=${startBlock}`
-    const body = await getJson<V1Response>(url, chain)
+    const body = await getJson<V1Response>(txlistUrl(chain, address, startBlock), chain)
+
+    // Checked before the row extraction below, which cannot tell a refusal from an
+    // empty wallet. See `etherscanError`.
+    if (chain.vendor === 'etherscan') {
+      const failure = etherscanError(body)
+      if (failure) throw new GasScanUnavailable(chain.chain, failure)
+    }
 
     // v1 signals "nothing found" as status "0" with a string result. That is not
     // an error, and must not be treated as one, or every fresh wallet would
@@ -830,6 +1027,15 @@ async function scanChain(
   alreadyWei: bigint,
   capWei: bigint,
 ): Promise<ChainSpend> {
+  // Etherscan has nothing to probe WITH. The probe's two products are a cheap
+  // exact answer for light senders and an L1-inclusive fee on OP-stack, and both
+  // come from Blockscout's `filter=from` + `fee.value`, which Etherscan does not
+  // offer at any plan. So 56 goes straight to the windowed walk. Neither product
+  // is missed as much as it would be elsewhere: BSC has no L1 data fee, so the
+  // fee is exact either way, and what is actually lost is the cheap answer —
+  // every 56 leg now costs at least one full-width window.
+  if (chain.vendor === 'etherscan') return scanChainV1(address, chain, alreadyWei, capWei)
+
   // Chains configured v2-only have no v1 to fall through to.
   if (chain.api === 'v2') return scanChainV2(address, chain, alreadyWei, capWei)
 
