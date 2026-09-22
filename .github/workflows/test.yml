@@ -673,6 +673,17 @@ jobs:
       - name: Check the Aderyn triage matches a real run
         run: node scripts/checkAderynFindings.mjs
 
+      # The two gates above compare a baseline against a fresh run. Neither of
+      # them reads `docs/AUDIT.md`, and until this step nothing did — so the
+      # document that summarises them could drift from both indefinitely with
+      # CI staying green, which is exactly what happened: it described 74 and
+      # 97 findings against baselines holding 76 and 98. Cheap to run and needs
+      # neither analyser installed, since it only compares the prose to the
+      # baseline files. Placed after them so a genuine re-triage fails on the
+      # finding rather than on the paragraph that has not caught up yet.
+      - name: Check the audit document matches the baselines
+        run: node scripts/checkAuditDoc.mjs
+
       # `scripts/` carries its own package.json. Two steps below need what it
       # installs — the typecheck, and the drill-page guard, which talks to
       # 46630 through ethers. Hoisted into its own step so that dependency is

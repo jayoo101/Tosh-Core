@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 74 findings, 1H/27M/27L/19I | 97 findings, 16H/81L |
+| Current | 76 findings, 1H/29M/27L/19I | 98 findings, 16H/82L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 ## Why both
@@ -79,7 +79,15 @@ It prints one of three things, and they mean different things:
 
 ## Aderyn disposition record
 
-18 detectors, 97 instances, all triaged, nothing unresolved.
+18 detectors, 98 instances, all triaged, nothing unresolved.
+
+These counts are the baseline's, and they are worth re-reading against it when
+this file is touched. The prose below drifted from `aderyn-baseline.json` once
+already — it described 19 `centralization-risk` instances against a baseline
+holding 21, and its own per-detector figures summed to 96 while the header
+claimed 97. Nothing was wrong with the gate, which compares against the
+baseline and never reads this file; what was wrong was the document a reader
+is pointed at, which is the only part of this that is published.
 
 ### High
 
@@ -165,13 +173,13 @@ caller, `poolManager.initialize()` returns the resulting tick, and
 `_grantRole()` returns whether the role was newly granted inside a
 run-once `initialize`.
 
-**`centralization-risk`** — 19. Accurate and by design. Mainnet ownership is a
+**`centralization-risk`** — 21. Accurate and by design. Mainnet ownership is a
 3-of-5 Gnosis Safe; every powerful setter is bounded by a hard-coded ceiling
 and emits an event. `README.md` §"What the owner can do" is the real answer to
 this detector and is deliberately not summarised here, because a summary would
 be the thing that goes stale.
 
-Two of those 19 arrived on 2026-09-21 and are worth naming, because the detector
+Two of those 21 arrived on 2026-09-21 and are worth naming, because the detector
 reads them exactly backwards: `ToshFactory.renounceOwnership` and
 `ToshLadderTreasury.renounceOwnership` are `onlyOwner` functions that
 unconditionally **revert**. They exist to *remove* a power, not to hold one.
@@ -187,6 +195,18 @@ launch's fees. Both overrides revert; `onlyOwner` stays in front so a stranger
 is still refused as a stranger. Pinned by `test_factory_ownershipCannotBeRenounced`,
 `test_ladderTreasury_ownershipCannotBeRenounced` and
 `test_renounceOwnership_refusesStrangersAsStrangers`.
+
+Two more sit on `ToshToken` — the contract itself and `ToshToken.mint` — and the
+detector reads these backwards too, harder than it does the two above. The token
+has no owner at all. `MINTER_ROLE` is granted once, to the hook, inside an
+`initialize` the factory calls exactly once, and **`DEFAULT_ADMIN_ROLE` is left
+deliberately vacant**, so `grantRole` and `revokeRole` have no eligible caller
+for the rest of the token's life: the minter cannot be changed, added to, or
+taken away by anyone, including the platform. What the detector sees as a
+privileged role is the mechanism that makes the hook's exclusivity permanent —
+the Immutable Pact described at the top of `ToshToken.sol`. Supply is bounded
+independently by the `MAX_SUPPLY` check inside `mint`, which needs nobody to
+intervene, and there is deliberately no kill-switch to intervene with.
 
 **`unused-public-function`** — 8, all in `ToshLaunchpadHook`. Read by the
 frontend and by monitoring rather than by other contracts, which is not
