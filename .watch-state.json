@@ -1,13 +1,14 @@
 {
-  "lastBlock": 123289446,
+  "lastBlock": 123291419,
   "hooks": [
     "0x079c9a95c431671b4f6b7d5d8d94a5c58c88119a",
     "0xff2519ebb5b553bf3a7a0c00799a0e1840c27724",
-    "0xdd4b5c433c6aba2b6d62958b069c7401e04a4ede"
+    "0xdd4b5c433c6aba2b6d62958b069c7401e04a4ede",
+    "0x3a26055c9ba49d80f5649e34a35626016ba38271"
   ],
   "armedSince": null,
   "lastPiggybackBlock": null,
-  "lastRun": "2026-09-22T02:00:40.263Z",
+  "lastRun": "2026-09-22T02:15:29.613Z",
   "chainId": 56,
   "factory": "0x20de906a96ffb89be6fd6267a0876a68017792f7",
   "treasury": "0x7105d36715e4d2bfbbead2b7c085e6cde6f85a4b",
