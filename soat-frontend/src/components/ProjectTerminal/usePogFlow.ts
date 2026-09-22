@@ -1,21 +1,24 @@
 'use client'
 
 /**
- * On-demand gas lookup + optional on-chain quota registration.
+ * Gas lookup + optional on-chain quota registration.
  *
- * A scan starts only when the reader asks for one. The single entry point is the
- * `unattested` gate in `GenesisPanel`, which is to say: on a project page, when
- * the reader is about to deposit and quota is the thing in the way. (There is
- * also `PogScanButton`, which nothing imports outside its own test — do not
- * count it as a route in until something mounts it.)
+ * A scan is started from exactly one place: the `unattested` gate in
+ * `GenesisPanel`, which is to say on a project page, once quota has been read as
+ * zero and is the thing standing between the reader and a deposit. That gate
+ * starts it on mount and offers the button only as a retry. (There is also
+ * `PogScanButton`, which nothing imports outside its own test — do not count it
+ * as a route in until something mounts it.)
  *
- * It used to start itself the moment a wallet connected, from the app shell, on
- * every page — so anyone who connected a wallet merely to read the homepage
- * spent a scan. A scan is 5-25 upstream calls against a credit budget that
- * affords a few hundred a day, and production exhausted it: every caller got
- * `503 at capacity`, and the raise funnel went down with it because quota
- * cannot be sized without a scan. Intent is therefore required now, and
- * `startLookup` is the only way in — nothing calls it on mount.
+ * What matters is that this hook does not start one itself. It used to, the
+ * moment a wallet connected, and since `PogLookupProvider` is mounted in
+ * `app/providers.tsx` that meant every page: anyone who connected a wallet to
+ * read the homepage spent a scan. A scan is 5-25 upstream calls against a credit
+ * budget, production exhausted it, every caller got `503 at capacity`, and the
+ * raise funnel went down with it because quota cannot be sized without a scan.
+ * The fix is that the caller is now the component that needs the answer, not the
+ * shell that happens to hold the state — so keep `startLookup` out of any effect
+ * in here.
  *
  * Registering quota still needs one EIP-191 message
  * (for `sign-allocation`) and one `registerPoG` transaction; that is custody of

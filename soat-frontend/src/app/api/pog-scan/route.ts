@@ -100,21 +100,26 @@ const CORS_OPTS = { methods: ['POST', 'GET', 'OPTIONS'] as const } as const
  * arithmetic and one `eth_call`; this one can issue twenty upstream requests
  * across several hosts.
  *
- * Six in a burst then two a minute, up from three and one. Two things moved
- * under this bucket and both of them made the old figures punish the wrong
- * requests. A scan is no longer started by connecting a wallet, so a request
- * here is now a deliberate click rather than something the page did on its own.
- * And this bucket is consumed BEFORE the cache is consulted, so a repeat within
- * `RESULT_TTL_MS` — which costs nothing upstream, and after that TTL went to a
- * day is most repeats — was being refused by a limiter that exists to bound
- * upstream cost. Meanwhile the defences that bound real abuse are elsewhere and
- * unchanged in kind: `ADDRESS_SCAN_LIMIT` caps one wallet at six an hour, and
- * `GLOBAL_SCAN_LIMIT` caps everyone.
+ * Sixty in a burst then twenty a minute, up from six and two.
+ *
+ * The figure this replaces assumed one IP is roughly one person. On mobile
+ * carriers it is not: carrier NAT puts a very large number of subscribers behind
+ * one address, so a per-IP ceiling sized for a person is a per-carrier ceiling in
+ * practice, and the claimants it turns away are indistinguishable from the flood
+ * it exists to stop. Sixty is chosen to be well clear of any plausible number of
+ * simultaneous genuine claimants behind one NAT, while still being a ceiling.
+ *
+ * Losing most of this bucket's precision is affordable because it was never the
+ * thing bounding cost. This bucket is consumed BEFORE the cache is consulted, so
+ * much of what it counts is free to serve; what actually bounds upstream spend is
+ * `ADDRESS_SCAN_LIMIT` per wallet, `GLOBAL_SCAN_LIMIT` across everyone, and
+ * `CREDIT_RESERVE` against the real gauge. A flood from one IP still has to get
+ * past all three.
  */
 const RATE_LIMIT_OPTS = {
   name: 'pog-scan',
-  capacity: 6,
-  refillPerSec: 1 / 30,
+  capacity: 60,
+  refillPerSec: 1 / 3,
 } as const
 
 /**
@@ -186,21 +191,34 @@ const GET_RATE_LIMIT = {
  * raise funnel went down with it. The other half of that fix was making a scan
  * need a click; see `usePogFlow`.
  *
- * WHAT PACES THE MONTH, WHICH IS A DIFFERENT JOB FROM WHAT THIS USED TO DO
+ * WHAT PACES THE MONTH — AND WHY THIS IS NO LONGER IT
  *
  * On the free tier the allowance was 100,000 credits A DAY, so this ceiling was
  * only ever a burst flattener: overspend corrected itself at midnight. The
  * Builder tier is 100,000,000 a MONTH, which is 33x the headroom and removes the
  * nightly forgiveness — spend it early and the outage lasts until the month
- * rolls, not until tomorrow. So this ceiling is now also the pacing tool, and
- * 500 is chosen against the month rather than against a burst: at a mixed
- * ~240 credits a scan it is ~120k credits an hour, ~86M over thirty days,
- * inside the allowance. A month of nothing but heavy wallets would still
- * overrun it, which is deliberate — `CREDIT_RESERVE` and its alert are what
- * catch the tail, and sizing this for the worst case would refuse honest
- * traffic every day to insure against a distribution that has never shown up.
+ * rolls, not until tomorrow.
+ *
+ * 500 was then chosen to pace that month: ~240 credits a scan is ~120k an hour,
+ * ~86M over thirty days, inside the allowance. 2000 abandons that property and
+ * the arithmetic should be stated rather than buried — sustained at this ceiling
+ * it is ~480k credits an hour, which spends the whole month in about nine days.
+ *
+ * That is accepted on purpose, because pacing the month here paid for itself
+ * with a worse failure. A ceiling sized for the 30-day average is, by
+ * construction, below any real peak: a raise is an event, demand arrives in
+ * hours rather than spread evenly, and a claimant refused at the peak does not
+ * come back at 3am when there is headroom — they are simply gone, and the raise
+ * is short their deposit. Meanwhile the average case does not need pacing at all;
+ * observed traffic sits near zero against this ceiling.
+ *
+ * So this is a burst flattener again, and `CREDIT_RESERVE` is what has to notice
+ * a sustained overrun before it becomes a month-long outage. Nine days is ample
+ * warning for a gauge that is read on every scan and alerts on the way past the
+ * reserve — but only if the reserve is thick enough to be seen coming, which is
+ * why it moved with this.
  */
-const GLOBAL_SCAN_LIMIT = { capacity: 500, windowMs: 60 * 60 * 1000 } as const
+const GLOBAL_SCAN_LIMIT = { capacity: 2_000, windowMs: 60 * 60 * 1000 } as const
 
 /**
  * Credits below which no new scan is started.
@@ -211,17 +229,24 @@ const GLOBAL_SCAN_LIMIT = { capacity: 500, windowMs: 60 * 60 * 1000 } as const
  * spends the credits and produces nothing, which is the one outcome worse than
  * refusing it up front.
  *
- * 50,000, up from 2,000, because the tier change turned this from a floor into a
- * warning. 2,000 was sized as four worst-case scans — the least that could still
- * finish what was in flight — and that was the right size for a DAILY allowance,
+ * 1,000,000 — 1% of the month — after two moves in the same direction. It was
+ * 2,000, sized as four worst-case scans, which was right for a DAILY allowance
  * where tripping it cost hours and midnight fixed it. The Builder tier is
- * MONTHLY, so tripping it costs days, and stopping at 0.002% remaining is a
- * warning that arrives after the thing it warns about. 50,000 is 0.05% of the
- * month and buys 100 worst-case scans of runway: enough that the alert below
- * lands while there is still something to decide, which is the only reason to
- * refuse early rather than late.
+ * MONTHLY, so tripping it costs days; 50,000 (0.05%, ~100 worst-case scans) was
+ * the first correction for that.
+ *
+ * What makes 50,000 too thin is `GLOBAL_SCAN_LIMIT` moving to 2,000/hour. This
+ * reserve is now the only thing standing between a sustained burst and a
+ * month-long outage, and at 480k credits an hour a 50,000 reserve is six minutes
+ * of warning — an alert nobody can act on. 1,000,000 is about two hours at that
+ * rate and ~4,000 worst-case scans, which is long enough to notice, look, and
+ * either top up or put the ceiling back.
+ *
+ * The 1% it costs is the cheap half of the trade: it is spent only in the world
+ * where the month was going to be exhausted anyway, and it buys the chance to
+ * stop that world from lasting three more weeks.
  */
-const CREDIT_RESERVE = 50_000
+const CREDIT_RESERVE = 1_000_000
 
 /** How long a caller is told to wait when the credit budget is what ran out.
  *
@@ -237,12 +262,20 @@ const CREDIT_EXHAUSTED_RETRY_MS = 6 * 60 * 60 * 1000
 
 /** Ceiling on scans for one address, per hour.
  *
- *  `force` deletes the cached result, so without this one wallet can pay the
- *  full five-chain cost as fast as the per-IP bucket refills — sixty times an
- *  hour, indefinitely. Six is more refreshes than an answer that grows this
- *  slowly can justify, and it stops a single wallet from taking a meaningful
- *  bite out of the global ceiling. */
-const ADDRESS_SCAN_LIMIT = { capacity: 6, windowMs: 60 * 60 * 1000 } as const
+ *  `force` skips the cached result, so without this one wallet can pay the
+ *  full six-chain cost as fast as the per-IP bucket refills, indefinitely.
+ *
+ *  Twenty, up from six. Six was defensible as "more refreshes than an answer
+ *  that grows this slowly can justify", and it is still true that nobody needs
+ *  twenty. What changed is the cost of being wrong in each direction: on the
+ *  Builder budget twenty refreshes is noise, while a claimant who burns six on a
+ *  bad afternoon is locked out of the raise for the rest of the hour with their
+ *  own money on the table. This is now the ceiling that says "stop", not the one
+ *  that protects the budget — `GLOBAL_SCAN_LIMIT` and `CREDIT_RESERVE` do that.
+ *
+ *  Note this bites only on `force`: a cached read never reaches here, so a
+ *  claimant who is simply reloading the page cannot spend it. */
+const ADDRESS_SCAN_LIMIT = { capacity: 20, windowMs: 60 * 60 * 1000 } as const
 
 interface ScanRequestBody {
   userAddress: string

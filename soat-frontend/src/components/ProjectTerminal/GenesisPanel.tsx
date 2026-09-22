@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { parseUnits, formatUnits, type Address } from 'viem'
 
 import {
@@ -17,6 +17,7 @@ import { fmt, fmtQuote, fmtQuoteFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
 import { usePogLookup } from './PogLookupProvider'
+import { shouldAutoScan } from './pogAutoScan'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENESIS PANEL  ·  Phase 1
@@ -112,6 +113,40 @@ export function GenesisPanel(p: GenesisProps) {
 
   const scanEligible = Boolean(pog.scan?.eligible)
   const scanning = pog.phase === 'scanning'
+
+  /**
+   * Read the gas history as soon as quota is the thing standing between this
+   * wallet and a deposit.
+   *
+   * Requiring a click for this was a reaction to the right problem in the wrong
+   * place. The cost came from `PogLookupProvider` being mounted in
+   * `app/providers.tsx`: connecting a wallet anywhere — to read the homepage, to
+   * check a referral — started a scan nobody had asked for, and that is what
+   * exhausted the budget. Starting it here instead fixes that at the source,
+   * because this gate renders only on a project page and only once `pogQuota`
+   * has been read as zero. Making the reader click was the wrong half of the fix:
+   * it charged them for our accounting mistake, and it asked them to know they
+   * needed a thing the page had not yet told them about.
+   *
+   * Keyed on the wallet so switching accounts reads the new one, and guarded by
+   * it so a re-render cannot start a second scan for the same wallet. `phase` is
+   * read but deliberately not the trigger: it leaves `idle` the moment a scan
+   * starts, and re-firing when it returns there after a failure would turn one
+   * dead upstream host into an unbounded retry loop. Retrying is the button's
+   * job, and the button is the reader's.
+   */
+  const autoScanFor = useRef<string | null>(null)
+  const startLookup = pog.startLookup
+  useEffect(() => {
+    if (!shouldAutoScan({
+      unattested,
+      wallet: pog.userAddress,
+      phase: pog.phase,
+      startedFor: autoScanFor.current,
+    })) return
+    autoScanFor.current = pog.userAddress!.toLowerCase()
+    void startLookup(false)
+  }, [unattested, pog.userAddress, pog.phase, startLookup])
 
   // One gateway from the raw stamp to anything that formats it, so a permanent
   // ban cannot reach `Date` and throw.  The horizon decides; the formatters
@@ -305,10 +340,11 @@ export function GenesisPanel(p: GenesisProps) {
               ? () => { void pog.startLookup(true) }
               : pog.phase === 'ready' && pog.scan
                 ? () => { pog.setDialogOpen(true) }
-                // Idle, i.e. nothing has been read for this wallet yet. This
-                // used to be unreachable because connecting started the scan;
-                // now it is the entry point, so it must offer the action rather
-                // than describe a wait that will never end on its own.
+                // Idle, i.e. nothing has been read for this wallet yet. The
+                // effect above normally starts that read on mount, so this is
+                // the narrow fallback for when it cannot — no wallet yet, or a
+                // scan already started once for this one — and it stays an
+                // action rather than describing a wait that may never end.
                 : () => { void pog.startLookup(false) },
       },
       {

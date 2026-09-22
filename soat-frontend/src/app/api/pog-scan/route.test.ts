@@ -434,7 +434,7 @@ describe('POST /api/pog-scan — the two limits that are not request counts', ()
     // what was in flight when the allowance went monthly: it is now a warning
     // threshold with enough runway left to act on the alert, because a monthly
     // budget spent early cannot be waited out the way a daily one could.
-    creditBalance = 49_999
+    creditBalance = 999_999
     const res = await post()
     expect(res.status).toBe(503)
     // Deliberately not "daily limit", which is what this used to look for. The
@@ -446,7 +446,7 @@ describe('POST /api/pog-scan — the two limits that are not request counts', ()
   })
 
   it('admits at exactly the reserve, so the boundary is not off by one', async () => {
-    creditBalance = 50_000
+    creditBalance = 1_000_000
     const res = await post()
     expect(res.status).toBe(202)
     expect(scheduled).toBe(1)
