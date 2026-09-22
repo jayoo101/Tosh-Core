@@ -18,6 +18,14 @@
 // nothing else, so a count that disagrees with the artefact it summarises is
 // not an internal tidiness problem.
 //
+// Counts were the whole job until 2026-09-22, when a fresh run of both analysers
+// came back identical to the baselines and the drift turned out to be somewhere
+// no baseline reaches: the document called the owner a 3-of-5 Safe, and the Safe
+// is 2-of-3. So the custody claim is checked too, at the bottom of this file.
+// Both halves are the same rule — a published sentence has to agree with the
+// artefact that enforces it — applied to the part of the file that has an
+// analyser behind it and the part that does not.
+//
 //   node scripts/checkAuditDoc.mjs
 //
 // Exits non-zero on any disagreement. There is no `--update`: the fix is to
@@ -122,11 +130,55 @@ if (!body) {
   }
 }
 
+// ── The custody claim ─────────────────────────────────────────────────────
+//
+// Everything above compares the document against an analyser baseline, which is
+// why none of it caught the worst line in the file: the `centralization-risk`
+// paragraph called the owner a 3-of-5 Safe for as long as it existed, against a
+// Safe that is 2-of-3. No baseline has anything to say about who owns the
+// contracts, so no gate was looking.
+//
+// This is the one figure here a reader might act on — it says how many keys
+// stand between them and every owner-only dial — and it was wrong in the
+// direction that flatters us. So it is checked, and checked against
+// `verifyOwnerSafe.mjs`, which is the thing that actually refuses a Safe of the
+// wrong shape against the live chain. Not against a constant repeated here: a
+// second hardcoded pair would be a second place to forget, which is the failure
+// this whole file exists to catch.
+//
+// `safe-owners.json` would be the other candidate and cannot be used — it names
+// the signers, so it is gitignored and absent in CI.
+const safeGate = read('scripts/verifyOwnerSafe.mjs')
+const pinned = /owners\.length !== (\d+) \|\| threshold !== (\d+)n/.exec(safeGate)
+if (!pinned) {
+  problems.push(
+    'cannot find the owners/threshold pair in scripts/verifyOwnerSafe.mjs, so the ' +
+      'published custody claim cannot be checked against what is enforced on chain'
+  )
+} else {
+  const [, owners, threshold] = pinned
+  // Anchored on "Gnosis Safe" so the sentence recording the old wrong figure
+  // does not match, and read out of `body` so it is the disposition record's
+  // claim being checked rather than any passing mention elsewhere.
+  const claim = /(\d+)-of-(\d+) Gnosis Safe/.exec(body)
+  if (!claim) {
+    problems.push(
+      'the disposition record no longer states the owner as an "M-of-N Gnosis Safe"'
+    )
+  } else if (claim[1] !== threshold || claim[2] !== owners) {
+    problems.push(
+      `the record calls the owner a ${claim[1]}-of-${claim[2]} Gnosis Safe; ` +
+        `verifyOwnerSafe.mjs enforces ${threshold}-of-${owners} against the live Safe`
+    )
+  }
+}
+
 if (problems.length === 0) {
   console.log(
     `OK    docs/AUDIT.md matches both baselines: ` +
       `Slither ${slither.total}, Aderyn ${aderyn.total} across ` +
-      `${Object.keys(aderyn.byCheck).length} detectors.`
+      `${Object.keys(aderyn.byCheck).length} detectors; ` +
+      `custody claim agrees with the Safe shape verifyOwnerSafe.mjs enforces.`
   )
   process.exitCode = 0
 } else {

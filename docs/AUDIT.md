@@ -174,10 +174,29 @@ caller, `poolManager.initialize()` returns the resulting tick, and
 run-once `initialize`.
 
 **`centralization-risk`** — 21. Accurate and by design. Mainnet ownership is a
-3-of-5 Gnosis Safe; every powerful setter is bounded by a hard-coded ceiling
-and emits an event. `README.md` §"What the owner can do" is the real answer to
-this detector and is deliberately not summarised here, because a summary would
-be the thing that goes stale.
+2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`);
+every powerful setter is bounded by a hard-coded ceiling and emits an event.
+`README.md` §"What the owner can do" is the real answer to this detector and is
+deliberately not summarised here, because a summary would be the thing that goes
+stale.
+
+That last sentence is in this file because this paragraph had already broken it.
+It read **3-of-5** until 2026-09-22, and it was the only place in the repository
+that did: `scripts/verifyOwnerSafe.mjs` refuses to pass any Safe that is not
+2-of-3, `README.md`, `monitoring/alerts.json`, the mainnet runbook and four
+frontend modules all say 2-of-3, and the three signers each signed a message
+naming the role as "(2-of-3, BNB Smart Chain 56)" — so the consent on record is
+to 2-of-3 as well.
+
+Nothing was mis-built; one published sentence was wrong about what was built.
+The direction is what makes it worth writing down rather than quietly fixing: it
+**overstated** the protection. A reader weighing custody risk was told three
+signatures stand between them and every owner-only dial, when two move them. The
+counts at the top of this file were gated against their baselines in the same
+week, and this number — the only one here a reader might actually act on — had
+nothing looking at it, because neither analyser baseline has anything to say
+about who owns the contracts. `checkAuditDoc.mjs` now compares this claim with
+the constants `verifyOwnerSafe.mjs` enforces against the live Safe.
 
 Two of those 21 arrived on 2026-09-21 and are worth naming, because the detector
 reads them exactly backwards: `ToshFactory.renounceOwnership` and
