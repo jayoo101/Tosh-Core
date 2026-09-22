@@ -28,8 +28,9 @@ import {HookAddress} from "../src/libraries/HookAddress.sol";
 ///         `SOFT_CAP = 1 ether`; `ToshV5Invariants` uses 2 and `ToshHookClone`
 ///         uses 5. At the `MIN_SOFT_CAP_PROD` floor only the *arithmetic* is
 ///         covered — `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`
-///         derives `shelfP0 = 8_749_999_999` and a 16,646,947-wei step, but it
-///         does so on a hook it `new`s directly, never through a real genesis.
+///         derives `shelfP0 = 2499`, about 4.75x the 526 base at which the ladder
+///         stops stepping at all, but it does so on a hook it `new`s directly,
+///         never through a real genesis.
 ///         The planned mainnet run puts the protocol's permanent launchId 0
 ///         through that path for the first time, with real money. This runs it
 ///         first, for free.
@@ -292,6 +293,24 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         vm.startPrank(ownerSafe);
         factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP);
         factory.setPogSigner(rehearsalSigner);
+
+        // ⚠ THE PER-WALLET DIAL HAS TO MOVE TOO, and this line is missing from no
+        //   plan — it was missing from this rehearsal, which failed both lifecycle
+        //   tests with `ExceedsGlobalPogLimit` the first time they were pointed at
+        //   the live chain-56 factory.
+        //
+        //   `maxPogAllocationLimit` ships at 46.4 BEM and mainnet is running that
+        //   default, while `MIN_SOFT_CAP_PROD` is 100 BEM. So the floor of the soft
+        //   cap sits ABOVE what any single wallet may ever be allocated, and the
+        //   two tests below — one of which is *about* a lone depositor taking the
+        //   whole tranche — cannot reach the cap without this.
+        //
+        //   Not a protocol defect: the cap gates nothing (see `softCap()`), and a
+        //   real round is expected to fill from several wallets. It is a defect in
+        //   a rehearsal that claims to model the operator's Safe step, because an
+        //   operator who wants one wallet to fund the cap has to turn this dial as
+        //   well, and would have discovered that from a revert on mainnet.
+        factory.setMaxPogAllocationLimit(REHEARSAL_SOFT_CAP);
         vm.stopPrank();
     }
 
@@ -437,7 +456,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///               so this run clears it comfortably and does not exercise it;
     ///               `ToshV5Fuzz` is where that edge lives.
     ///
-    ///           - `shelfP0 == 8_749_999_999`, the figure
+    ///           - `shelfP0 == 2499`, the figure
     ///             `ToshV5Fuzz.test_smallestReachableShelfP0_stillStepsTheLadder`
     ///             derives arithmetically from `MIN_SOFT_CAP_PROD`. Asserting it
     ///             here joins that derivation to the deployed bytecode: the unit
@@ -460,7 +479,6 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
             "Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
         );
-        ToshToken token = ToshToken(tokenAddr);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(hookAddr));
 
         // ── Step 4: read the frozen dials back, first thing ──────────────────
@@ -508,11 +526,37 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         uint128 liquidity = ICLPoolManager(POOL_MANAGER).getLiquidity(id, hookAddr, TICK_LOWER, TICK_UPPER, bytes32(0));
         assertGt(liquidity, 0, "genesis LP is not in the live singleton");
 
-        assertEq(Currency.unwrap(key.currency0), address(0), "currency0 is not native ETH");
-        assertEq(Currency.unwrap(key.currency1), address(token), "currency1 is not the project token");
+        // ⚠ THIS PAIR IS BEM AND THE TOKEN, NOT NATIVE ANYTHING. These two lines
+        //   asserted `currency0 == address(0)` until the live fork reached them,
+        //   which is the native-coin era surviving one layer below the raise: the
+        //   deposit, the launch fee and the LP have all been BEM-denominated since
+        //   the quote-asset move, so there is no native leg left to be `currency0`.
+        //   Everything above this point had already passed against the real
+        //   singleton, so what was stale was the description of the pool and not
+        //   the pool.
+        //
+        //   Sorted rather than pinned, because `currency0 < currency1` is the
+        //   singleton's invariant and the token's address is CREATE2-derived — so
+        //   which side BEM lands on is a property of the salt, not of the protocol,
+        //   and pinning either order would fail on the next launch that mines a
+        //   lower address than BEM's.
+        (address lower, address higher) = BEM < tokenAddr ? (BEM, tokenAddr) : (tokenAddr, BEM);
+        assertEq(Currency.unwrap(key.currency0), lower, "currency0 is not the lower of BEM/token");
+        assertEq(Currency.unwrap(key.currency1), higher, "currency1 is not the higher of BEM/token");
 
         // The ladder base the fuzz suite predicted for this exact raise.
-        assertEq(hook.shelfP0(), 8_749_999_999, "shelfP0 at the floor is not the derived figure");
+        // ⚠ 2499, NOT `8_749_999_999`. The old literal was the 18-decimal figure,
+        //   and it outlived the quote-asset move in this file while the unit test
+        //   it credits had already been rewritten: `ToshV5Fuzz` now derives 2499
+        //   from the same three constants and says so in a comment that spells the
+        //   arithmetic out — 100 BEM raised, 90 BEM to the LP after the referral
+        //   carve, `p0 = 9e9 · 1e18 / 3.78e24 = 2380`, `shelfP0 = 2380 · 1.05`.
+        //
+        //   Kept as a literal rather than recomputed here on purpose: the unit test
+        //   says what the number should be, and this line says the real factory,
+        //   the real clone and the real singleton produce it. Deriving it again
+        //   would only restate the derivation against itself.
+        assertEq(hook.shelfP0(), 2499, "shelfP0 at the floor is not the derived figure");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -338,11 +338,13 @@ jobs:
       # itself, so a correct-looking endpoint for the wrong chain fails loudly
       # rather than passing against some other chain's AMM.
       #
-      # Both fork contracts run here. `ToshV5ForkInfinityTest` was not in CI at
-      # all before — it is the spike that proves the hook MECHANISM against the
+      # All three fork contracts run here. `ToshV5ForkInfinityTest` was not in CI
+      # at all before — it is the spike that proves the hook MECHANISM against the
       # deployed Vault, and it reads the same secret, so leaving it out meant a
       # suite that could only ever run on someone's laptop.
-      - name: Run fork tests against live PancakeSwap Infinity
+      # `ToshV5FirstLaunchRehearsalTest` was in the same position for the same
+      # reason plus one more, an address nothing supplied; see the note below it.
+      - name: Run fork tests against the live singleton and the live factory
         env:
           BSC_RPC: ${{ secrets.BSC_RPC }}
           REPO_IS_FORK: ${{ github.event.repository.fork }}
@@ -361,14 +363,49 @@ jobs:
             exit 1
           fi
 
+          # `ToshV5FirstLaunchRehearsal` needs the live FACTORY as well as an
+          # endpoint, and it reads the address from the file monitoring already
+          # treats as the record of what is deployed — not from a second secret
+          # that can go unset, and not from a literal pinned here that a redeploy
+          # would leave pointing at a retired factory.
+          #
+          # ⚠ THOSE FIVE TESTS HAD NEVER RUN ANYWHERE BUT A LAPTOP. `_requireFork`
+          #   skips on an unset `BSC_FACTORY_ADDRESS`, nothing in CI set it, and the
+          #   suite was not in `--match-contract` either — so the one suite that
+          #   takes the whole lifecycle through the DEPLOYED factory was uncovered
+          #   twice over. Pointed at chain 56 for the first time it failed three
+          #   ways, and every one of them was a fact about the live chain that no
+          #   locally-deployed factory could have shown:
+          #
+          #     • the modelled Safe step never raised `maxPogAllocationLimit`, which
+          #       ships at 46.4 BEM — BELOW the 100 BEM `MIN_SOFT_CAP_PROD` — so a
+          #       lone depositor could not fund the cap and `registerPoG` reverted
+          #       `ExceedsGlobalPogLimit`. An operator would have met that revert on
+          #       mainnet instead.
+          #     • the pool's `currency0` was still expected to be native, three
+          #       migrations after the quote asset became BEM.
+          #     • `shelfP0` was pinned to the 18-decimal figure, which BEM's eight
+          #       decimals had already moved by six orders of magnitude.
+          if [ "$(jq -r '.chainId' monitoring/alerts.json)" != "56" ]; then
+            echo "::error::monitoring/alerts.json no longer names chain 56, so the factory address in it must not be handed to a suite whose every other pinned address is a 56 literal. Point the rehearsal at the right file or stop deriving the address from this one."
+            exit 1
+          fi
+          BSC_FACTORY_ADDRESS="$(jq -r '.addresses.factory' monitoring/alerts.json)"
+          if [ -z "$BSC_FACTORY_ADDRESS" ] || [ "$BSC_FACTORY_ADDRESS" = "null" ]; then
+            echo "::error::monitoring/alerts.json has no .addresses.factory, so ToshV5FirstLaunchRehearsalTest would skip and take the whole live-lifecycle coverage with it silently."
+            exit 1
+          fi
+          export BSC_FACTORY_ADDRESS
+          echo "Rehearsing the lifecycle against factory $BSC_FACTORY_ADDRESS"
+
           # Deliberately outside the working tree: the artifact-sync step below
           # fails on any unexpected file, and a log dropped in the repo root
           # would trip it.
           log="$RUNNER_TEMP/fork-test.log"
-          forge test --match-contract 'ToshV5ForkTest|ToshV5ForkInfinityTest' -vvv | tee "$log"
+          forge test --match-contract 'ToshV5ForkTest|ToshV5ForkInfinityTest|ToshV5FirstLaunchRehearsalTest' -vvv | tee "$log"
 
           if grep -q 'No tests found' "$log"; then
-            echo "::error::--match-contract matched no fork contract. ToshV5ForkTest or ToshV5ForkInfinityTest was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
+            echo "::error::--match-contract matched no fork contract. ToshV5ForkTest, ToshV5ForkInfinityTest or ToshV5FirstLaunchRehearsalTest was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
             exit 1
           fi
           if ! grep -qE '[1-9][0-9]* (tests? )?passed' "$log"; then
@@ -376,7 +413,7 @@ jobs:
             exit 1
           fi
           if grep -qE '[1-9][0-9]* skipped' "$log"; then
-            echo "::error::Some fork tests reported SKIPPED with BSC_RPC set. A partial skip is not a pass — see _requireFork in test/ToshV5Fork.t.sol and the onFork modifier in test/ToshV5ForkInfinity.t.sol."
+            echo "::error::Some fork tests reported SKIPPED with BSC_RPC set. A partial skip is not a pass — see _requireFork in test/ToshV5Fork.t.sol, the onFork modifier in test/ToshV5ForkInfinity.t.sol, and _requireFork/_requireRpc in test/ToshV5FirstLaunchRehearsal.t.sol, which also needs the factory address derived above."
             exit 1
           fi
 
