@@ -250,7 +250,13 @@ jobs:
       - name: Assert the suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=417
+          # 429 as of the invariant gap-review work: three new invariants
+          # (launched-hook commission solvency, referral ledger agreement,
+          # deposit-slot totals), two more from the second pass (phase-2 supply
+          # identity, quota view vs storage), two promise invariants for genesis
+          # and refund liveness, and five reachability tests that keep the new
+          # ghosts from being vacuously clean.
+          floor=429
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
