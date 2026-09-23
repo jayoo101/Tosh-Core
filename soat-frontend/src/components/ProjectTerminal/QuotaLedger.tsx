@@ -22,6 +22,18 @@ import { QUOTE_SYMBOL } from '@/lib/contracts'
 //
 // and the DEPOSIT button locks (handled in the GenesisPanel).
 //
+// ⚠ AND THERE IS A THIRD STATE, which this ledger used to render as the first
+//   one. When `blocked` is set, every figure here is an em-dash — quota, spent,
+//   remaining, all unreadable — and the footer still printed
+//   `→ WITHIN YOUR LIMIT` underneath them, because it was the `else` of a
+//   two-way branch on `breached` and `breached` is forced false while stale.
+//
+//   So the panel's most reassuring sentence was reserved for precisely the case
+//   where it knew nothing: a wallet with no attestation got four dashes and a
+//   clean bill of health. "I cannot read this" and "you are fine" are not the
+//   same answer, and collapsing them is what let a permanently ineligible
+//   wallet believe it was one keystroke from depositing.
+//
 
 /// Why `eligibility` reports no headroom, when the reason is not that the
 /// window is spent.  A live cooldown, a ban and a never-registered attestation
@@ -50,6 +62,17 @@ export function QuotaLedger({
                   : blocked === 'banned'     ? 'BLACKLISTED'
                   : blocked === 'unattested' ? 'NO ATTESTATION'
                   : `${consumed.toFixed(1)}% CONSUMED`
+
+  // Why there is no limit to be within, said once per reason. Each names the
+  // fact that is standing in for the figures, so the dashes above have an
+  // explanation sitting under them instead of a reassurance.
+  const staleTxt = blocked === 'cooldown'
+      ? '→ NOT READABLE UNTIL THE COOLDOWN CLEARS'
+    : blocked === 'banned'
+      ? '→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU'
+    : blocked === 'unattested'
+      ? '→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET'
+    : null
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between border-b border-border-subtle/60 py-1.5">
@@ -96,11 +119,19 @@ export function QuotaLedger({
               → OVER YOUR LIMIT FOR THIS WINDOW
             </p>
           )
-          : (
-            <p className="font-mono text-label tracking-[0.4em] uppercase text-text-tertiary">
-              → WITHIN YOUR LIMIT
-            </p>
-          )}
+          : stale
+            ? (
+              // `text-quiet`, not `tertiary`: this is the absence of a verdict,
+              // and it must not carry the same weight as the two that are.
+              <p className="font-mono text-label tracking-[0.4em] uppercase text-text-quiet">
+                {staleTxt}
+              </p>
+            )
+            : (
+              <p className="font-mono text-label tracking-[0.4em] uppercase text-text-tertiary">
+                → WITHIN YOUR LIMIT
+              </p>
+            )}
       </div>
     </div>
   )

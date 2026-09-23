@@ -15,6 +15,7 @@ import {
 } from '@/components/ui'
 import { fmt, fmtQuote, fmtQuoteFull } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
+import { GenesisIneligible } from './GenesisIneligible'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
 import { usePogLookup } from './PogLookupProvider'
 import { shouldAutoScan } from './pogAutoScan'
@@ -207,6 +208,50 @@ export function GenesisPanel(p: GenesisProps) {
                             && p.genesisDeadline > 0n
   const walletCapBreached = p.perWalletCap > 0n && amountWei > 0n && amountWei > walletHeadroom
 
+  /**
+   * The floor has answered, and the answer is no.
+   *
+   * Kept as one named boolean because it is the only state on this panel that is
+   * a REFUSAL rather than a step — every other blocker here is something the
+   * reader can clear by typing less, waiting, approving or signing. This one
+   * cannot be cleared from this page at all, and that difference is what the
+   * panel got wrong: it rendered a refusal as a form with a missing field.
+   *
+   * `pog.scan` is required, not just the phase. `ready` without a payload would
+   * make `scanEligible` false by coalescing, and refusing a wallet on a result
+   * that never arrived is the same class of bug as the one this replaces.
+   *
+   * ⚠ YIELDS TO A CLOSED WINDOW, which is why this cannot be derived up beside
+   *   `unattested` where it reads more naturally. A raise that has ended refuses
+   *   every wallet, so it is both the more immediate fact and the one the reader
+   *   needs first; taking over the whole panel to discuss a gas floor would
+   *   answer a question about this project by talking only about the wallet, and
+   *   leave the reader to work out from a missing button that the raise is over.
+   *   Below the floor AND past the deadline therefore keeps the ordinary panel,
+   *   where the closed-window banner and the gas callout can both be seen.
+   */
+  const belowFloor = unattested
+                  && !windowClosed
+                  && pog.phase === 'ready'
+                  && pog.scan !== undefined
+                  && !scanEligible
+
+  /**
+   * Whether `walletHeadroom` may be described as an OFFER, or is only arithmetic.
+   *
+   * The two are not the same sentence. `perWalletCap - userDeposited` is always
+   * computable, and the field hint was always spending it: a wallet with no
+   * attestation, a ban, or a closed window still read
+   * `46.4 BEM LEFT FOR YOU` — a promise about a deposit that could not be made,
+   * printed directly under an input that had been disabled for the same reason.
+   *
+   * ⚠ THE SUBJECT IS THE DIFFERENCE. "This project allows 46.4 per wallet" is a
+   *   fact about the project and stays true for everyone, including visitors who
+   *   have not connected. "46.4 left FOR YOU" is a claim about the reader, and
+   *   it must not be made on a wallet the panel is simultaneously refusing.
+   */
+  const headroomIsOffered = p.isConnected && !banned && !unattested && !windowClosed
+
   // The binding ceiling is whichever of the two runs out first.
   const spendable = (() => {
     let cap = quotaRemaining
@@ -277,6 +322,25 @@ export function GenesisPanel(p: GenesisProps) {
   // `quotaBreached`, so a wallet that was both cooling down and over budget was
   // told its window was spent when the transaction would actually have reverted
   // `CooldownActive`: "you have none left" instead of "wait out the cooldown".
+  //
+  // ⚠ THE FIRST ACTIVE BLOCKER WINS — `useActionGate` does `.find(b => b.active)`.
+  //   A comment here used to claim `revertOrder` surfaced the LAST one, which is
+  //   false, and believing it is how the ordering below went wrong: `approve`
+  //   sits at the bottom and works only because its own `active` excludes every
+  //   case that should outrank it, not because of where it sits.
+  //
+  // ⚠ WITHIN the revert order, STATES THE READER CANNOT CLEAR BY TYPING COME
+  //   FIRST. This is the fix for a contradiction that reached production: the
+  //   amount nags used to head the list, so a wallet with a closed window, a
+  //   ban, no attestation or a live cooldown — every one of which disables the
+  //   field — was told to "Enter an amount" into the input it had just been
+  //   locked out of. The button was asking for something the page had made
+  //   impossible, and a reader resolves that by retrying, which is how repeated
+  //   gas scans exhausted the shared PoG budget and took the funnel down.
+  //
+  //   So: window, ban, attestation and cooldown, THEN the amount, then the
+  //   limits the amount is measured against. Any blocker that appears in the
+  //   field's `disabled` expression belongs above `amount-zero`.
   const gate = useActionGate({
     action: `Deposit ${QUOTE_SYMBOL}`,
     onAct: submitDeposit,
@@ -287,18 +351,13 @@ export function GenesisPanel(p: GenesisProps) {
     },
     blockersInRevertOrder: revertOrder(
       {
-        id: 'amount-invalid',
-        active: amountInvalid,
-        label: 'Check the amount',
-        reason: `That is not a number this field can send as ${QUOTE_SYMBOL}.`,
+        // First, because it outranks everything including the ban: once the
+        // window shuts nothing else about this wallet can change the outcome.
+        id: 'window-closed',
+        active: windowClosed,
+        label: 'Funding closed',
+        reason: 'The genesis window has closed, and no further deposits are accepted.',
         tone: 'warn',
-      },
-      {
-        id: 'amount-zero',
-        active: !amountInvalid && amountWei === 0n,
-        label: 'Enter an amount',
-        reason: `Enter the amount of ${QUOTE_SYMBOL} to deposit.`,
-        tone: 'neutral',
       },
       {
         id: 'blacklisted',
@@ -362,6 +421,23 @@ export function GenesisPanel(p: GenesisProps) {
           : `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
         tone: 'warn',
       },
+      // ── Everything above is a state of the WALLET or the RAISE, and none of it
+      //    is affected by what is in the field. Everything below is about the
+      //    number, so it only makes sense once the wallet could deposit at all.
+      {
+        id: 'amount-invalid',
+        active: amountInvalid,
+        label: 'Check the amount',
+        reason: `That is not a number this field can send as ${QUOTE_SYMBOL}.`,
+        tone: 'warn',
+      },
+      {
+        id: 'amount-zero',
+        active: !amountInvalid && amountWei === 0n,
+        label: 'Enter an amount',
+        reason: `Enter the amount of ${QUOTE_SYMBOL} to deposit.`,
+        tone: 'neutral',
+      },
       {
         // Sits where the quota check sits in the factory's own order, because
         // that is the check it stands in for. Not arming is the point: with the
@@ -384,13 +460,6 @@ export function GenesisPanel(p: GenesisProps) {
         reason: `That is more than this wallet may deposit in the current window · ${fmtQuote(quotaRemaining)} ${QUOTE_SYMBOL} left.`,
       },
       {
-        id: 'window-closed',
-        active: windowClosed,
-        label: 'Funding closed',
-        reason: 'The genesis window has closed, and no further deposits are accepted.',
-        tone: 'warn',
-      },
-      {
         id: 'wallet-cap',
         active: walletCapBreached,
         label: `Over the wallet cap · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} left`,
@@ -404,12 +473,13 @@ export function GenesisPanel(p: GenesisProps) {
         tone: 'warn',
       },
       {
-        // LAST, so it wins over everything above — and that ordering is the whole
-        // point of putting it here rather than higher up. `revertOrder` surfaces
-        // the last active blocker, and a depositor who is over their quota AND
-        // unapproved should be told about the quota, because approving would not
-        // help. Once the amount is actually depositable, this is the only thing
-        // left in the way, and it is a click.
+        // LAST, and it is the `active` expression below — NOT this position —
+        // that makes it yield to the limits above it. The first active blocker
+        // wins, so sitting at the bottom would otherwise mean losing every
+        // contest; the exclusions are there because a depositor who is over
+        // their quota AND unapproved must be told about the quota, since
+        // approving would not help. Once the amount is actually depositable
+        // nothing above is active, this is the only thing left, and it is a click.
         id: 'approve',
         active:
           !amountInvalid && amountWei > 0n && !insufficientBal
@@ -437,6 +507,28 @@ export function GenesisPanel(p: GenesisProps) {
     : walletCapBreached ? 'ABOVE THIS PROJECT’S WALLET CAP'
     : insufficientBal   ? 'ABOVE YOUR BALANCE'
     : null
+
+  /**
+   * A refusal REPLACES the form rather than greying it out. See
+   * `GenesisIneligible` for why that distinction cost us an outage.
+   *
+   * Deliberately below every hook above, so both branches run the identical
+   * hook sequence — this is a render switch, not an early exit from the
+   * component's state. Moving it up would break the rules of hooks the moment
+   * a scan lands and flips the branch mid-session, which is the normal case.
+   *
+   * `pog.scan` is re-tested only to narrow the type; `belowFloor` already
+   * requires it.
+   */
+  if (belowFloor && pog.scan) {
+    return (
+      <GenesisIneligible
+        totalGasWei={BigInt(pog.scan.totalGasWei)}
+        floorWei={BigInt(pog.scan.floorWei)}
+        onOpenBreakdown={() => pog.setDialogOpen(true)}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col">
@@ -557,7 +649,11 @@ export function GenesisPanel(p: GenesisProps) {
           hint={p.perWalletCap > 0n
             ? capSpentForThisRound
               ? `ONE DEPOSIT PER WALLET · YOU COMMITTED ${fmtQuote(p.userDeposited)} ${QUOTE_SYMBOL} AND THIS ROUND TAKES NO MORE FROM YOU`
-              : `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
+              : headroomIsOffered
+                ? `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
+                // The project's ceiling without the personal claim. Same figure,
+                // and it is the only half of it this wallet has earned.
+                : `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET`
             : undefined}
           affix={
             <FieldAffix
