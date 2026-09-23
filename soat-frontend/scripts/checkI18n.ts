@@ -20,6 +20,11 @@
  *     — and also makes a genuinely blank string invisible forever. The fallback
  *     is a safety net, not a place to leave things.
  *
+ *   · HALF-WIDTH PUNCTUATION IN CJK TEXT. `太小,无法` instead of `太小，无法`
+ *     is not a wrong word, so it survives every review a non-reader can give and
+ *     every snapshot test. It is also the clearest signal a reader gets that
+ *     nobody who speaks their language looked at the page.
+ *
  *   · A TIER-0 SURFACE ONLY PART DONE in a locale that has been promised. The
  *     types deliberately allow an incomplete locale, because six languages of
  *     money copy cannot land in one commit. Which locales have finished is a
@@ -58,6 +63,44 @@ const notes: string[] = []
 
 const fail = (msg: string) => problems.push(msg)
 const note = (msg: string) => notes.push(msg)
+
+/*
+ * ── Half-width punctuation in CJK text ──────────────────────────────────────
+ *
+ * Chinese and Japanese punctuation marks occupy a full character cell; the ASCII
+ * ones occupy about a third of one and carry no trailing space. Typing `,` where
+ * `，` belongs is the single most common tell of untouched machine translation,
+ * and it is invisible to a reviewer who does not read the language — it is not a
+ * wrong word, so nothing in a diff or a snapshot looks off. It showed up in the
+ * first hand-written dictionary in this repo, which is why it is checked.
+ *
+ * NOT Korean. Korean sets ASCII commas and periods normally, so the same rule
+ * there would be wrong. And the check only fires when the character immediately
+ * before the mark is CJK, which leaves the protocol terms alone: `GENESIS, PoG`
+ * has an ASCII `S` in front of the comma and is correct as written.
+ */
+const CJK_PUNCTUATION_LOCALES = new Set<Locale>(['zh-CN', 'zh-TW', 'ja'])
+
+/** Ideographs, kana, CJK punctuation, and the full-width forms block. */
+const CJK_RANGES = '\u3400-\u9FFF\u3040-\u30FF\u3000-\u303F\uFF00-\uFFEF'
+
+const FULL_WIDTH: Readonly<Record<string, string>> = {
+  ',': '\uFF0C', '.': '\u3002', ';': '\uFF1B',
+  ':': '\uFF1A', '!': '\uFF01', '?': '\uFF1F',
+}
+
+function asciiPunctuationAfterCjk(locale: Locale, value: string): [string, string][] {
+  const hits: [string, string][] = []
+  const re = new RegExp(`[${CJK_RANGES}]([,.;:!?])`, 'g')
+  for (const m of value.matchAll(re)) {
+    const ascii = m[1]
+    // Japanese separates clauses with 、 where Chinese uses ，. Everything else
+    // is shared, so only the comma needs to know which language it is in.
+    const wanted = ascii === ',' && locale === 'ja' ? '\u3001' : FULL_WIDTH[ascii]
+    hits.push([ascii, wanted])
+  }
+  return hits
+}
 
 // ─── 1 · the guard's table covers exactly what the app serves ────────────────
 
@@ -133,6 +176,16 @@ for (const [locale, overlay] of Object.entries(OVERLAYS) as [Locale, PartialDict
       }
       for (const p of got) {
         if (!want.has(p)) fail(`${path} invents {${p}}, which nothing fills — it would render literally`)
+      }
+
+      if (CJK_PUNCTUATION_LOCALES.has(locale)) {
+        for (const [ascii, wanted] of asciiPunctuationAfterCjk(locale, value)) {
+          fail(
+            `${path} uses the half-width "${ascii}" against CJK text — use "${wanted}". `
+            + `A half-width mark carries no width of its own, so the sentence closes up around it `
+            + `and reads as machine output next to the full-width marks beside it.`,
+          )
+        }
       }
     }
   }
