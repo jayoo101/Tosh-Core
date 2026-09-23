@@ -1,0 +1,83 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`HeroStats genesis countdown > english copy · golden master > awaiting launch 1`] = `
+[
+  "Price",
+  "1.00e-5",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Awaiting launch",
+  "Raised",
+  "5.00e-6",
+  "TQUOTE",
+  "Your stake",
+  "0 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats genesis countdown > english copy · golden master > genesis · clock running 1`] = `
+[
+  "Price",
+  "1.00e-5",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Genesis",
+  "Raised",
+  "5.00e-6",
+  "TQUOTE · 24h window",
+  "18:00:00 left",
+  "Your stake",
+  "0 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats genesis countdown > english copy · golden master > ladder open 1`] = `
+[
+  "Price",
+  "1.00e-5",
+  "TQUOTE · active shelf",
+  "Phase",
+  "Ladder",
+  "Ladder",
+  "6.30e-12 / 1.26e-11 RHRSL",
+  "Your stake",
+  "0 TQUOTE",
+  "genesis allocation unlocked at launch",
+]
+`;
+
+exports[`HeroStats genesis countdown > english copy · golden master > refund · all paid out 1`] = `
+[
+  "Price",
+  "1.00e-5",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "5.00e-6",
+  "TQUOTE",
+  "→ every refund paid out · nothing left here",
+  "Your stake",
+  "0 TQUOTE",
+  "nothing to claim here",
+]
+`;
+
+exports[`HeroStats genesis countdown > english copy · golden master > refund · still owed 1`] = `
+[
+  "Price",
+  "1.00e-5",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "5.00e-6",
+  "TQUOTE",
+  "→ 1.20e-6 TQUOTE still waiting to be claimed",
+  "Your stake",
+  "1.20e-6 TQUOTE",
+  "claimable in full",
+]
+`;

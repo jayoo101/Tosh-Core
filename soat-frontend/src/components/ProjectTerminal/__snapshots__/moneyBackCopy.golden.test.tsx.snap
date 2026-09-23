@@ -1,0 +1,173 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`AwaitingLaunchPanel · english copy golden master > as a depositor 1`] = `
+[
+  "/// P-1.5",
+  "Launch the pool",
+  "Opening seeds the Infinity pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone.",
+  "Raised",
+  "40.9597 TQUOTE",
+  "Status",
+  "Time up · launchable",
+  "Window remaining",
+  "167:00:00",
+  "Waiting on the creator",
+  "The genesis window has closed. If the pool is not opened within",
+  "167:00:00",
+  ", the refund terminal unlocks automatically and returns 100% of your deposit. Your",
+  "TQUOTE",
+  "is not at risk.",
+]
+`;
+
+exports[`AwaitingLaunchPanel · english copy golden master > as the creator 1`] = `
+[
+  "/// P-1.5",
+  "Launch the pool",
+  "Opening seeds the Infinity pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone.",
+  "Raised",
+  "40.9597 TQUOTE",
+  "Status",
+  "Time up · launchable",
+  "Window remaining",
+  "167:00:00",
+  "You created",
+  "QMT",
+  ". Triggering launch pairs the raised",
+  "TQUOTE",
+  "with the genesis LP allocation and starts the ladder. Depositors can claim their pro-rata share the moment it confirms.",
+  "167:00:00",
+  "left. After that, launch() dies permanently and every depositor reclaims 100% of their",
+  "TQUOTE",
+  ".",
+  "Trigger Launch",
+]
+`;
+
+exports[`GenesisClaimPanel · english copy golden master > allocation to claim 1`] = `
+[
+  "/// P-1.9",
+  "Genesis allocation · QMT",
+  "Your share of the genesis supply, in proportion to what you deposited. One claim per wallet.",
+  "Your genesis deposit",
+  "250 TQUOTE",
+  "Claim QMT",
+]
+`;
+
+exports[`GenesisClaimPanel · english copy golden master > deposit in flight 1`] = `
+[
+  "/// P-1.9",
+  "Genesis allocation · QMT",
+  "Your share of the genesis supply, in proportion to what you deposited. One claim per wallet.",
+  "Your genesis deposit",
+  "…",
+  "[title] Fetching this wallet’s genesis deposit, which is what the allocation is proportional to.",
+  "Reading your deposit…",
+  "→ Fetching this wallet’s genesis deposit, which is what the allocation is proportional to.",
+]
+`;
+
+exports[`GenesisIneligible · english copy golden master > just under · one decimal survives 1`] = `
+[
+  "/// DEPOSIT",
+  "This wallet cannot deposit",
+  "Proof-of-Gas sizes every deposit quota from gas already spent on-chain. This address has not spent enough for a quota to exist.",
+  "→ BELOW THE GAS FLOOR",
+  "THIS WALLET",
+  "0.0005",
+  "ETH",
+  "FLOOR",
+  "0.025",
+  "ETH",
+  "SHORT BY",
+  "50.0×",
+  "This is not a queue and not a cooldown — there is nothing here to wait for. The floor is measured against gas this address has",
+  "already spent",
+  ", across",
+  "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood",
+  ", so it only moves as that history grows.",
+  "// WHAT WOULD WORK",
+  "Connect an address you have actually used — a main wallet with a real transaction history will usually clear the floor on its own. Switching wallets re-reads the history automatically; there is nothing to press here.",
+  "A fresh address cannot be made eligible by funding it with",
+  "TQUOTE",
+  ". The quota comes from gas spent, which is the whole point of the mechanism.",
+  "View per-chain breakdown",
+]
+`;
+
+exports[`GenesisIneligible · english copy golden master > three thousand times under · the figure from the outage 1`] = `
+[
+  "/// DEPOSIT",
+  "This wallet cannot deposit",
+  "Proof-of-Gas sizes every deposit quota from gas already spent on-chain. This address has not spent enough for a quota to exist.",
+  "→ BELOW THE GAS FLOOR",
+  "THIS WALLET",
+  "7.62e-6",
+  "ETH",
+  "FLOOR",
+  "0.025",
+  "ETH",
+  "SHORT BY",
+  "3,281×",
+  "This is not a queue and not a cooldown — there is nothing here to wait for. The floor is measured against gas this address has",
+  "already spent",
+  ", across",
+  "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood",
+  ", so it only moves as that history grows.",
+  "// WHAT WOULD WORK",
+  "Connect an address you have actually used — a main wallet with a real transaction history will usually clear the floor on its own. Switching wallets re-reads the history automatically; there is nothing to press here.",
+  "A fresh address cannot be made eligible by funding it with",
+  "TQUOTE",
+  ". The quota comes from gas spent, which is the whole point of the mechanism.",
+  "View per-chain breakdown",
+]
+`;
+
+exports[`RefundPanel · english copy golden master > launch window lapsed · refund armed 1`] = `
+[
+  "/// P-3",
+  "Claim refund",
+  "The 7-day window to open trading lapsed without a launch. Take back the full amount, no penalty.",
+  "Your deposit",
+  "250 TQUOTE",
+  "Claim 100% Refund",
+]
+`;
+
+exports[`RefundPanel · english copy golden master > too small to open a pool · deposit in flight 1`] = `
+[
+  "/// P-3",
+  "Claim refund",
+  "This raise finished too small to open a pool, so it closed instead of launching. Take back the full amount, no penalty.",
+  "Your deposit",
+  "…",
+  "[title] Fetching this wallet’s balance in the project. The button arms as soon as it lands.",
+  "Reading your deposit…",
+  "→ Fetching this wallet’s balance in the project. The button arms as soon as it lands.",
+]
+`;
+
+exports[`RefundPanel · english copy golden master > too small to open a pool · nothing deposited 1`] = `
+[
+  "/// P-3",
+  "Claim refund",
+  "This raise finished too small to open a pool, so it closed instead of launching. Take back the full amount, no penalty.",
+  "Your deposit",
+  "0 TQUOTE",
+  "[title] This wallet has nothing deposited in this project, so there is nothing to refund.",
+  "Nothing to refund",
+  "→ This wallet has nothing deposited in this project, so there is nothing to refund.",
+]
+`;
+
+exports[`RefundPanel · english copy golden master > too small to open a pool · refund armed 1`] = `
+[
+  "/// P-3",
+  "Claim refund",
+  "This raise finished too small to open a pool, so it closed instead of launching. Take back the full amount, no penalty.",
+  "Your deposit",
+  "250 TQUOTE",
+  "Claim 100% Refund",
+]
+`;

@@ -307,3 +307,86 @@ describe('QuotaLedger · an unreadable ledger is not a clean one', () => {
     } finally { ui.unmount() }
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENGLISH GOLDEN MASTER
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Taken BEFORE any string on this surface moves into a translation dictionary,
+// and its only job is to stay unchanged while they do.
+//
+// ⚠ WHAT THIS PROTECTS AGAINST. The extraction is a mechanical edit over ~190
+//   `label` / `reason` pairs, and its worst failure is silent: give two blockers
+//   each other's `reason` and the panel states the wrong cause for refusing a
+//   deposit. Nothing above catches that. The assertions in this file are
+//   `toContain` on ONE string at a time, so a swap that leaves both strings on
+//   the page still passes all of them — and `tsc`, eslint and a screenshot all
+//   agree the result is fine.
+//
+//   `strings()` is ordered, so a swap moves two entries and the snapshot goes
+//   red. That is the whole point: it turns a refactor nobody can fully review
+//   into one a machine either accepts or rejects.
+//
+// ⚠ HOW TO TREAT A FAILURE HERE. During the i18n work, red means STOP — the
+//   extraction changed what a user reads, which it is never allowed to do. Do
+//   not run `-u` to make it pass. Outside that work, a deliberate copy change
+//   updates this snapshot in the same commit that argues for the new wording.
+//
+// The states below are the full set the deposit path can rest in: every branch
+// asserted above, plus the resting case, because a golden master that skips the
+// healthy state would not notice the extraction breaking it.
+describe('english copy · golden master', () => {
+  const STATES: ReadonlyArray<readonly [string, Partial<GenesisProps>, typeof pog | null]> = [
+    ['unattested · no gas history yet',   {},                                          null],
+    ['attested · resting, nothing typed', ATTESTED,                                    null],
+    ['banned',                            { ...ATTESTED, blacklistedUntil: BigInt(NOW + 3600) }, null],
+    ['cooldown',                          { ...ATTESTED, cooldownEnd: BigInt(NOW + 3600) },      null],
+    ['window closed',                     { ...ATTESTED, genesisDeadline: BigInt(NOW - 10) },    null],
+  ]
+
+  for (const [name, over] of STATES) {
+    it(name, () => {
+      const ui = render(over)
+      try {
+        expect(ui.strings()).toMatchSnapshot()
+      } finally { ui.unmount() }
+    })
+  }
+
+  // Separate because these two need the scan result on the provider rather than
+  // a prop, and the refused scan replaces the panel wholesale — the strings are
+  // `GenesisIneligible`'s, not this panel's.
+  it('below the gas floor · the panel is replaced', () => {
+    pog = pogFlow({ phase: 'ready', scan: REFUSED })
+    const ui = render()
+    try {
+      expect(ui.strings()).toMatchSnapshot()
+    } finally { ui.unmount() }
+  })
+
+  it('below the gas floor AND the window is closed', () => {
+    pog = pogFlow({ phase: 'ready', scan: REFUSED })
+    const ui = render({ genesisDeadline: BigInt(NOW - 10) })
+    try {
+      expect(ui.strings()).toMatchSnapshot()
+    } finally { ui.unmount() }
+  })
+
+  // The ledger's copy is decided by `blocked`, so every arm of it gets an entry.
+  // `null` twice, because "within your limit" and "over your limit" are
+  // different sentences reached through the same arm.
+  for (const [name, props] of [
+    ['unattested',        { quota: 0n,   remaining: 0n,  projected: 0n,  blocked: 'unattested' as const }],
+    ['banned',            { quota: 0n,   remaining: 0n,  projected: 0n,  blocked: 'banned'     as const }],
+    ['cooldown',          { quota: 0n,   remaining: 0n,  projected: 0n,  blocked: 'cooldown'   as const }],
+    ['readable · fits',   { quota: 100n, remaining: 60n, projected: 10n, blocked: null }],
+    ['readable · over',   { quota: 100n, remaining: 60n, projected: 90n, blocked: null }],
+  ] as const) {
+    it(`QuotaLedger · ${name}`, () => {
+      const ui = mount(<QuotaLedger {...props} />)
+      try {
+        expect(ui.strings()).toMatchSnapshot()
+      } finally { ui.unmount() }
+    })
+  }
+})

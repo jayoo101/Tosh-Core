@@ -178,6 +178,34 @@ describe('HeroStats genesis countdown', () => {
     }
   })
 
+  /*
+   * ENGLISH GOLDEN MASTER · taken before this card's copy moves into a
+   * translation dictionary, and its only job is to stay unchanged while it does.
+   *
+   * ⚠ RED DURING THE i18n WORK MEANS STOP, not `-u`. The extraction is not
+   *   allowed to change a word a user reads — that premise is the whole reason
+   *   it is safe to do mechanically across sixty files.
+   *
+   * Every phase gets an entry because this card says something different in each
+   * one, and two of those somethings were wrong until recently: the peak
+   * captioned as a live balance, and an empty stake captioned "claimable in
+   * full". Copy that has already been wrong twice is copy worth pinning.
+   */
+  describe('english copy · golden master', () => {
+    for (const [name, props] of [
+      ['genesis · clock running', { phase: 'genesis' as const, genesisWindow: { elapsedPct: 25, label: '18:00:00 left', hours: 24 } }],
+      ['awaiting launch',         { phase: 'awaiting_launch' as const }],
+      ['ladder open',             { phase: 'bonding' as const, phase2Minted: 6_300_000n }],
+      ['refund · all paid out',   { phase: 'refund' as const, hookQuoteBalance: 0n }],
+      ['refund · still owed',     { phase: 'refund' as const, hookQuoteBalance: 120n, userEthDeposited: 120n }],
+    ] as const) {
+      it(name, () => {
+        const ui = mount(<HeroStats {...BASE} {...props} />)
+        expect(ui.strings()).toMatchSnapshot()
+      })
+    }
+  })
+
   it('draws p0 on the quote scale, not the 18-decimal default', () => {
     // p0 is quote-wei per whole token. 1000n is 0.00001 quote. Drawn at 18
     // decimals it is 1.00e-15 — ten orders small, and still a plausible

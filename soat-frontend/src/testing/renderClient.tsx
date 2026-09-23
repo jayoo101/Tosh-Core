@@ -32,7 +32,64 @@ export interface Mounted {
   /** Type into an input the way React's onChange expects. */
   type(value: string): void
   text(): string
+  /**
+   * Every string this render puts in front of a user, one per entry, in
+   * document order.
+   *
+   * ⚠ THIS EXISTS TO MAKE THE i18n EXTRACTION PROVABLE RATHER THAN REVIEWED.
+   *
+   *   Moving ~930 hardcoded English strings into a dictionary is a mechanical
+   *   edit across ~60 files whose worst failure mode is silent: two blockers
+   *   swapping `reason` strings renders a page that states the wrong cause for
+   *   why a deposit is refused. That passes `tsc`, passes eslint, passes every
+   *   existing test, and looks correct in a screenshot. The same class of
+   *   invisible money bug is written up in `scripts/checkQuoteFormat.ts`, where
+   *   four surfaces rendered 8-decimal amounts on the 18-decimal scale and the
+   *   result was still a plausible-looking price.
+   *
+   *   Snapshotting this array before the extraction and requiring it to be
+   *   unchanged afterwards converts "60 files of edits nobody can fully review"
+   *   into "the English output is byte-identical or the build is red".
+   *
+   * `text()` cannot serve that purpose: it concatenates the whole subtree into
+   * one unbroken run (`Price1.00e-5TQUOTE · genesis P₀Phase…`), so a diff on it
+   * points at a character offset rather than at a string. One entry per string
+   * also makes the snapshot double as the extraction worklist.
+   *
+   * Includes the three attributes `textContent` cannot see. A `placeholder` is
+   * read aloud, shown in an empty field and needs translating like any other
+   * copy — and being invisible to `textContent` is precisely what makes it the
+   * string an extraction walks past.
+   */
+  strings(): string[]
   unmount(): void
+}
+
+/**
+ * User-facing copy that lives in an attribute rather than in a text node.
+ *
+ * `alt` is deliberately absent: this app renders no content images, and the
+ * decorative ones carry `aria-hidden` instead.
+ */
+const COPY_ATTRS = ['placeholder', 'aria-label', 'title'] as const
+
+function collectStrings(node: Node, out: string[]): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const t = (node.textContent ?? '').trim()
+    if (t) out.push(t)
+    return
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return
+
+  const el = node as Element
+  // Tagged rather than bare, so a snapshot line says WHERE the string has to
+  // come from. An extraction that moves a `placeholder` into a text node is a
+  // real change even when the words survive.
+  for (const attr of COPY_ATTRS) {
+    const v = el.getAttribute(attr)?.trim()
+    if (v) out.push(`[${attr}] ${v}`)
+  }
+  for (const child of Array.from(el.childNodes)) collectStrings(child, out)
 }
 
 /**
@@ -90,6 +147,11 @@ export function mount(node: ReactNode): Mounted {
       })
     },
     text: () => container.textContent ?? '',
+    strings() {
+      const out: string[] = []
+      collectStrings(container, out)
+      return out
+    },
     unmount() {
       act(() => { root.unmount() })
       container.remove()

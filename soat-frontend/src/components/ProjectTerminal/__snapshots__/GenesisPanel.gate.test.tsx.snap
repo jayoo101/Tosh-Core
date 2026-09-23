@@ -1,0 +1,305 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`english copy · golden master > QuotaLedger · banned 1`] = `
+[
+  "// [H-01] QUOTA LEDGER",
+  "BLACKLISTED",
+  "POG QUOTA · PER WINDOW",
+  "0 TQUOTE",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU",
+]
+`;
+
+exports[`english copy · golden master > QuotaLedger · cooldown 1`] = `
+[
+  "// [H-01] QUOTA LEDGER",
+  "WINDOW UNREADABLE",
+  "POG QUOTA · PER WINDOW",
+  "0 TQUOTE",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ NOT READABLE UNTIL THE COOLDOWN CLEARS",
+]
+`;
+
+exports[`english copy · golden master > QuotaLedger · readable · fits 1`] = `
+[
+  "// [H-01] QUOTA LEDGER",
+  "40.0% CONSUMED",
+  "POG QUOTA · PER WINDOW",
+  "1.00e-6 TQUOTE",
+  "SPENT THIS WINDOW",
+  "4.00e-7 TQUOTE",
+  "REMAINING",
+  "6.00e-7 TQUOTE",
+  "PROJECTED (THIS TX)",
+  "+",
+  "1.00e-7",
+  "TQUOTE",
+  "→",
+  "50.0",
+  "%",
+  "→ WITHIN YOUR LIMIT",
+]
+`;
+
+exports[`english copy · golden master > QuotaLedger · readable · over 1`] = `
+[
+  "// [H-01] QUOTA LEDGER",
+  "40.0% CONSUMED",
+  "POG QUOTA · PER WINDOW",
+  "1.00e-6 TQUOTE",
+  "SPENT THIS WINDOW",
+  "4.00e-7 TQUOTE",
+  "REMAINING",
+  "6.00e-7 TQUOTE",
+  "PROJECTED (THIS TX)",
+  "+",
+  "9.00e-7",
+  "TQUOTE",
+  "→",
+  "130.0",
+  "%",
+  "→ OVER YOUR LIMIT FOR THIS WINDOW",
+]
+`;
+
+exports[`english copy · golden master > QuotaLedger · unattested 1`] = `
+[
+  "// [H-01] QUOTA LEDGER",
+  "NO ATTESTATION",
+  "POG QUOTA · PER WINDOW",
+  "—",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET",
+]
+`;
+
+exports[`english copy · golden master > attested · resting, nothing typed 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "// [H-01] QUOTA LEDGER",
+  "0.0% CONSUMED",
+  "POG QUOTA · PER WINDOW",
+  "46.4 TQUOTE",
+  "SPENT THIS WINDOW",
+  "0 TQUOTE",
+  "REMAINING",
+  "46.4 TQUOTE",
+  "→ WITHIN YOUR LIMIT",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "—",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET · 46.4 TQUOTE LEFT FOR YOU",
+  "[title] Enter the amount of TQUOTE to deposit.",
+  "Enter an amount",
+  "→ Enter the amount of TQUOTE to deposit.",
+]
+`;
+
+exports[`english copy · golden master > banned 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "→ WALLET BLACKLISTED ·",
+  "LIFTS IN 1H 00M",
+  "The factory rejects every",
+  "deposit",
+  "from this address while the ban stands, whatever quota it holds — so the zero here is a ban, not a spent allowance.",
+  "The ban expires on its own at",
+  "2023-11-14 23:13 UTC",
+  ", after which the quota is spendable again with nothing to reset.",
+  "// [H-01] QUOTA LEDGER",
+  "BLACKLISTED",
+  "POG QUOTA · PER WINDOW",
+  "46.4 TQUOTE",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "—",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET",
+  "[title] Deposits from this address are rejected while the ban stands · LIFTS IN 1H 00M.",
+  "Wallet blocked",
+  "→ Deposits from this address are rejected while the ban stands · LIFTS IN 1H 00M.",
+]
+`;
+
+exports[`english copy · golden master > below the gas floor AND the window is closed 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "→ WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED",
+  "→ BELOW GAS FLOOR",
+  "Historical gas is",
+  "7.62e-6",
+  "ETH against a floor of",
+  "0.025",
+  "ETH. Open the breakdown for per-chain figures.",
+  "View per-chain breakdown",
+  "// [H-01] QUOTA LEDGER",
+  "NO ATTESTATION",
+  "POG QUOTA · PER WINDOW",
+  "—",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "—",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET",
+  "[title] The genesis window has closed, and no further deposits are accepted.",
+  "Funding closed",
+  "→ The genesis window has closed, and no further deposits are accepted.",
+]
+`;
+
+exports[`english copy · golden master > below the gas floor · the panel is replaced 1`] = `
+[
+  "/// DEPOSIT",
+  "This wallet cannot deposit",
+  "Proof-of-Gas sizes every deposit quota from gas already spent on-chain. This address has not spent enough for a quota to exist.",
+  "→ BELOW THE GAS FLOOR",
+  "THIS WALLET",
+  "7.62e-6",
+  "ETH",
+  "FLOOR",
+  "0.025",
+  "ETH",
+  "SHORT BY",
+  "3,281×",
+  "This is not a queue and not a cooldown — there is nothing here to wait for. The floor is measured against gas this address has",
+  "already spent",
+  ", across",
+  "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood",
+  ", so it only moves as that history grows.",
+  "// WHAT WOULD WORK",
+  "Connect an address you have actually used — a main wallet with a real transaction history will usually clear the floor on its own. Switching wallets re-reads the history automatically; there is nothing to press here.",
+  "A fresh address cannot be made eligible by funding it with",
+  "TQUOTE",
+  ". The quota comes from gas spent, which is the whole point of the mechanism.",
+  "View per-chain breakdown",
+]
+`;
+
+exports[`english copy · golden master > cooldown 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "// [H-01] QUOTA LEDGER",
+  "WINDOW UNREADABLE",
+  "POG QUOTA · PER WINDOW",
+  "46.4 TQUOTE",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ NOT READABLE UNTIL THE COOLDOWN CLEARS",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "01:00:00",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET · 46.4 TQUOTE LEFT FOR YOU",
+  "[title] Deposits from this wallet to this project are on cooldown for another 01:00:00.",
+  "Cooldown · 01:00:00",
+  "→ Deposits from this wallet to this project are on cooldown for another 01:00:00.",
+]
+`;
+
+exports[`english copy · golden master > unattested · no gas history yet 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "→ NO POG ATTESTATION ON FILE",
+  "This wallet has never registered Proof-of-Gas, so it holds no quota to spend. The gas lookup starts automatically when you connect.",
+  "// [H-01] QUOTA LEDGER",
+  "NO ATTESTATION",
+  "POG QUOTA · PER WINDOW",
+  "—",
+  "SPENT THIS WINDOW",
+  "—",
+  "REMAINING",
+  "—",
+  "→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "—",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET",
+  "Check gas history",
+  "→ Proof-of-Gas sizes your deposit quota from lifetime gas spend. Click to read it — one request, no signature and no gas.",
+]
+`;
+
+exports[`english copy · golden master > window closed 1`] = `
+[
+  "/// DEPOSIT",
+  "Deposit TQUOTE",
+  "Into this project's genesis window. The raise stays open until the clock runs out.",
+  "→ WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED",
+  "// [H-01] QUOTA LEDGER",
+  "0.0% CONSUMED",
+  "POG QUOTA · PER WINDOW",
+  "46.4 TQUOTE",
+  "SPENT THIS WINDOW",
+  "0 TQUOTE",
+  "REMAINING",
+  "46.4 TQUOTE",
+  "→ WITHIN YOUR LIMIT",
+  "TQUOTE BALANCE",
+  "298.6928 TQUOTE",
+  "298.6928",
+  "COOLDOWN",
+  "—",
+  "DEPOSIT AMOUNT · TQUOTE",
+  "[placeholder] e.g. 0.05",
+  "max",
+  "THIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET",
+  "[title] The genesis window has closed, and no further deposits are accepted.",
+  "Funding closed",
+  "→ The genesis window has closed, and no further deposits are accepted.",
+]
+`;
