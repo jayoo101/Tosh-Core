@@ -225,8 +225,32 @@
   --color-foreground: var(--foreground);
 
   /* -- Font families ---------------------------------------------------- */
-  --font-sans: var(--font-geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
-  --font-mono: var(--font-jbm, ui-monospace, "SFMono-Regular", "Menlo", monospace);
+
+  /* Layered behind BOTH stacks below, for the glyphs neither Latin face has.
+   *
+   * `layout.tsx` overrides this inline with a webfont on a locale that has one;
+   * this value is the floor, and it is not only for translated pages. Project
+   * names and descriptions are user-supplied, so a Chinese ticker can land on an
+   * English build — which used to render in whatever the OS picked. A named list
+   * makes that case deliberate instead.
+   *
+   * Order is platform-first: Apple, then Windows, then the Noto a Linux or
+   * Android device is likely to have installed. */
+  --font-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC";
+
+  /* ⚠ `--font-cjk` SITS BEFORE THE GENERIC FAMILIES, and that ordering is the
+   *   whole fix rather than a tidiness preference. CSS font fallback is
+   *   per-glyph and walks the list in order, and `sans-serif` / `monospace` /
+   *   `ui-sans-serif` all resolve to something WITH CJK coverage on every
+   *   desktop OS. Appended after them, the CJK face would never be reached:
+   *   the generic keyword would answer first and the webfont would download,
+   *   sit in cache and render nothing. */
+  /* The inner fallbacks are not redundant with the tail of the list. A `var()`
+   * naming an undefined property invalidates the WHOLE declaration rather than
+   * dropping one entry, so `var(--font-geist)` bare would leave `font-family`
+   * unset on any build where `next/font` did not emit its variable. */
+  --font-sans: var(--font-geist, ui-sans-serif), var(--font-cjk), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jbm, ui-monospace), var(--font-cjk), ui-monospace, "SFMono-Regular", "Menlo", monospace;
 
   /* -- Colours: CANONICAL SEMANTIC LAYER -------------------------------- */
   --color-bg-base:          var(--tosh-bg-base);

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { cookies } from 'next/headers'
-import { JetBrains_Mono, Geist } from 'next/font/google'
+import { JetBrains_Mono, Geist, Noto_Sans_SC } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { ToshNavbar } from '@/components/ToshNavbar'
@@ -36,6 +36,54 @@ const geist = Geist({
   weight:   ['300', '400', '500', '700', '900'],
   display:  'swap',
 })
+
+/*
+ * ⚠ NEITHER FONT ABOVE HAS A SINGLE CJK GLYPH, and until this existed that was
+ *   a silent hole rather than a visible one. Measured on the Chinese refund
+ *   panel: `申领退款` computed to `Geist, "Geist Fallback"` and `你存入的金额`
+ *   to `"JetBrains Mono", "JetBrains Mono Fallback"` — all four of those are
+ *   Latin-only, so the browser fell through every declared family and let the
+ *   OS pick. Nothing was broken and nothing was clipped; the page simply
+ *   rendered in a different typeface on every platform, and the mono labels —
+ *   which are the design's whole identity — rendered in whatever the system
+ *   considered a UI sans.
+ *
+ * `preload: false` is not a tuning choice. Google serves CJK families as a
+ * hundred-odd unicode-range subsets, and preloading them would fetch megabytes
+ * on a page that may contain no CJK at all. Without the preload hint the
+ * `@font-face` rules still ship, and the browser fetches only the subsets a
+ * glyph on screen actually needs — which is the mechanism that makes a CJK
+ * webfont affordable here.
+ *
+ * ⚠ ONLY SIMPLIFIED CHINESE IS DECLARED, because it is the only CJK locale with
+ *   a dictionary. `next/font/google` downloads the files at BUILD time, so a
+ *   family declared for an unenabled language is build output nobody can read —
+ *   and four CJK families at three weights is a large amount of it. When
+ *   `zh-TW`, `ja` or `ko` gets a translation, add `Noto_Sans_TC` / `_JP` / `_KR`
+ *   here and an entry in `CJK_FONT` below. They are not interchangeable: Japanese
+ *   and Chinese draw several common characters differently (今, 直, 令), so
+ *   serving SC to a Japanese reader is the same class of error as serving them
+ *   Chinese words.
+ */
+const notoSC = Noto_Sans_SC({
+  variable: '--font-noto-sc',
+  weight:   ['400', '500', '700'],
+  display:  'swap',
+  preload:  false,
+})
+
+/**
+ * The CJK face to layer behind the Latin ones, per locale.
+ *
+ * Absent means "this locale needs no CJK coverage" — every Latin and Cyrillic
+ * locale, since JetBrains Mono and Geist both cover those themselves. A locale
+ * that needs a face and has not got one here falls back to the system CJK list
+ * in `globals.css`, which is the behaviour this whole block replaces and is
+ * still the right floor.
+ */
+const CJK_FONT: Partial<Record<Locale, { style: { fontFamily: string } }>> = {
+  'zh-CN': notoSC,
+}
 
 // The last clause is derived, not written. It used to read "Currently staging on
 // Base Sepolia testnet." and stayed that way through the whole Robinhood Chain
@@ -152,8 +200,30 @@ export default async function RootLayout({
     </Providers>
   )
 
+  /*
+   * `--font-cjk` is consumed inside both font stacks in `globals.css`, ahead of
+   * the generic families. Set here rather than in a stylesheet because the value
+   * depends on the request's locale, and left UNSET for locales with no CJK face
+   * so the system list declared in `:root` stays in force.
+   *
+   * ⚠ THE FAMILY NAME, NOT THE `--font-noto-sc` VARIABLE. `next/font` scopes its
+   *   variable to elements carrying the generated class, and the class would have
+   *   to go on `<html>` for `body` to inherit it — at which point two mechanisms
+   *   say the same thing. `style.fontFamily` is the resolved family list and
+   *   needs neither.
+   */
+  const cjk = CJK_FONT[locale]
+  const fontVars = cjk
+    ? ({ '--font-cjk': cjk.style.fontFamily } as React.CSSProperties)
+    : undefined
+
   return (
-    <html lang={locale} className={`${jbm.variable} ${geist.variable}`} suppressHydrationWarning>
+    <html
+      lang={locale}
+      className={`${jbm.variable} ${geist.variable}`}
+      style={fontVars}
+      suppressHydrationWarning
+    >
       {/* Colour, selection and numeral defaults all come from globals.css, so
           the body carries layout only. `bg-bg-base` used to sit here and
           quietly overrode the canvas token on every page. */}
