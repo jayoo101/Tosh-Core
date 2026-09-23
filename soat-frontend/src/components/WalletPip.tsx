@@ -6,6 +6,7 @@ import { useAccount, useConnect } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
+import { useT } from '@/i18n'
 import { UserDrawer } from './UserDrawer'
 
 /**
@@ -18,6 +19,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
   const { address, isConnected } = useAccount()
   const { connect, isPending }   = useConnect()
   const { isOwner }              = useProtocolOwner()
+  const t                        = useT()
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
@@ -67,10 +69,10 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
               wallet" on a phone would otherwise be naming something invisible.
               `whitespace-nowrap` above is what stopped this wrapping to two
               lines; it could not stop it colliding with the nav links. */}
-          {isPending ? 'CONNECTING…' : (
+          {isPending ? t.nav.connecting : (
             <>
-              <span className="sm:hidden">CONNECT</span>
-              <span className="hidden sm:inline">CONNECT WALLET</span>
+              <span className="sm:hidden">{t.nav.connectShort}</span>
+              <span className="hidden sm:inline">{t.nav.connect}</span>
             </>
           )}
         </button>

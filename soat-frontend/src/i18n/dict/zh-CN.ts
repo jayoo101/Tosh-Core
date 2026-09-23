@@ -50,6 +50,169 @@ export const ZH_CN: PartialDictionary = {
     confirming: '正在确认…',
   },
 
+  nav: {
+    // 和 `gate.connect` 是两条不同的字符串，理由见英文注释:顶栏在 390px 手机上要
+    // 掉一个词。中文四个字两种情况都放得下，但这一对保留，让两种语言走同一条代码路径。
+    connect:      '连接钱包',
+    connectShort: '连接',
+    connecting:   '连接中…',
+  },
+
+  deposit: {
+    title:    '存入 {quote}',
+    subtitle: '存进这个项目的创世窗口。募资在倒计时结束前一直开放。',
+    cta:      '存入 {quote}',
+    txAction: '存款',
+
+    amountLabel:       '存入金额 · {quote}',
+    amountPlaceholder: '例如 0.05',
+
+    errNotANumber:  '不是数字',
+    errOverWindow:  '超过你本窗口的剩余额度',
+    errOverCap:     '超过本项目的单钱包上限',
+    errOverBalance: '超过你的余额',
+
+    // ⚠ 这三句的主语不同，不能混用。「本项目每个钱包允许 X」说的是项目，对任何人都成立；
+    //   「你还剩 X」说的是读者本人，绝不能对一个正在被面板拒绝的钱包说 —— 它曾经就印在
+    //   一个因为同样原因而被禁用的输入框底下。
+    hintCapOnly:     '本项目每个钱包允许 {cap} {quote}',
+    hintCapAndYours: '本项目每个钱包允许 {cap} {quote} · 你还剩 {left} {quote}',
+    hintOneAndDone:  '每个钱包只能存一次 · 你已投入 {committed} {quote}，本轮不会再向你收取',
+
+    balanceReadout: '{quote} 余额',
+    cooldownLabel: '冷却',
+    cooldownClear: '已清零',
+    referredBy:    '推荐人',
+    referredHint:  '首次存款时全站绑定 · 其中 10% 记给对方',
+
+    banPermanentStamp: '永久 · 无到期',
+    banLapsedStamp:    '已失效',
+    banLiftsInStamp:   '{d} 后解除',
+
+    bannerWindowClosed: '→ 窗口已关闭 · 不再接受存款',
+
+    bannerBanned: '→ 钱包已被拉黑 · {stamp}',
+    // 强调落在「存款」，和英文的 *deposit* 对应。
+    banBody: '封禁期间，工厂会拒绝这个地址的每一笔 *存款*，不论它持有多少额度 —— '
+           + '所以这里的 0 是封禁，不是额度用光了。',
+    banExpires: '封禁会在 *{when}* 自动到期，之后额度可以照常使用，不需要重置任何东西。',
+    banPermanent: '只有协议管理员能解除永久封禁。',
+
+    bannerScanning:   '→ 正在读取 GAS 历史',
+    bannerQualifies:  '→ GAS 历史已达标',
+    bannerBelowFloor: '→ 低于 GAS 门槛',
+    bannerNoPog:      '→ 没有 POG 认证记录',
+
+    bodyScanning:  '已连接 —— 正在查询这个地址在 {chains} 上的累计 gas。这一步不需要钱包签名。',
+    bodyQualifies: '符合存款额度条件。激活一次（签名 + 链上登记）之后，存款就能正常使用，'
+                 + '不用再单独点一次 gas 扫描。',
+    bodyBelowFloor: '历史 gas 为 {gas} ETH，门槛是 {floor} ETH。打开明细可以看各链的数字。',
+    bodyNoPog: '此钱包从未登记 Proof-of-Gas，因此没有可用额度。连接钱包后会自动开始 gas 查询。',
+
+    windowClosedLabel:  '募资已关闭',
+    windowClosedReason: '创世窗口已经关闭，不再接受任何存款。',
+
+    bannedLabel:  '钱包已被封禁',
+    bannedReason: '封禁期间，来自这个地址的存款会被拒绝 · {stamp}。',
+
+    // 同一个事实的六张面孔。⚠ 查询失败值得再点一次，gas 低于门槛不值得 —— 对后者说
+    //    「再试一次」，正是当初把共享扫描额度耗光的那个重试循环。
+    pogScanningLabel:    '正在读取 gas 历史…',
+    pogRegisteringLabel: '正在激活额度…',
+    pogActivateLabel:    '激活存款额度',
+    pogRetryLabel:       '重试 gas 检查',
+    pogBelowFloorLabel:  '低于 gas 门槛',
+    pogCheckLabel:       '检查 gas 历史',
+
+    pogScanningReason:    '正在读取你在所有支持链上的累计 gas。这一步不需要签名。',
+    pogRegisteringReason: '正在把存款额度写到链上。',
+    pogActivateReason:    'gas 历史符合条件。点一下签名一次把额度登记上链，登记确认后存款即解锁。',
+    pogRetryReason:       'gas 查询失败了。点一下可以重试。',
+    pogBelowFloorReason:  '此钱包的历史 gas 低于 {floor} ETH 的门槛，因此无法为它核定存款额度。',
+    pogCheckReason:       'Proof-of-Gas 按你的累计 gas 支出来核定存款额度。点一下读取即可 —— '
+                        + '只发一个请求，不签名也不花 gas。',
+
+    // ⚠ 同一个倒计时承载着两个不同的事实。冷却在创世窗口之前结束时，它是一段等待，
+    //   把剩余时间说出来能告诉读者该怎么做。一旦它在截止之后才结束，读者做什么都来不及了，
+    //   此时再放一个倒计时等于邀请对方回来 —— 而这恰恰是唯一行不通的事。
+    cooldownLabelWaiting: '冷却中 · {left}',
+    cooldownReasonWaiting: '此钱包对这个项目的存款还要冷却 {left}。',
+    alreadyDepositedLabel:  '你已经存过了',
+    alreadyDepositedReason: '这个项目每个钱包只收一次存款，你的已经到账 · 已投入 {committed} {quote}。'
+                          + '冷却期比创世窗口还长，所以没有第二次存款可等。',
+
+    amountInvalidLabel:  '检查一下金额',
+    amountInvalidReason: '这个输入没法作为 {quote} 金额发送出去。',
+    amountZeroLabel:     '输入金额',
+    amountZeroReason:    '请输入要存入的 {quote} 金额。',
+
+    quotaPendingLabel:  '正在读取你的额度…',
+    quotaPendingReason: '正在等工厂返回此钱包的认证记录和存款窗口。',
+
+    quotaExceededLabel:  '超出你的额度',
+    quotaExceededReason: '超过了此钱包在当前窗口还能存入的金额 · 还剩 {left} {quote}。',
+
+    walletCapLabel:  '超出单钱包上限 · 还剩 {left} {quote}',
+    walletCapReason: '超过了本项目允许单个钱包持有的上限 · 你还剩 {left} {quote}。',
+
+    notEnoughLabel:  '{quote} 不足',
+    notEnoughReason: '此钱包没有这么多 {quote}。',
+
+    approvingLabel: '正在授权…',
+    approveLabel:   '授权 {amount} {quote}',
+    approveReason:  '{quote} 是被划走的，不是你发过去的，所以工厂需要你先为这个确切金额授权才能扣款。'
+                  + '这次授权只覆盖本笔存款 —— 改了金额就要重新授权一次。',
+  },
+
+  ledger: {
+    // `[H-01]` 是和文档共用的编号，不动。
+    heading: '// [H-01] 额度台账',
+
+    quotaPerWindow: 'POG 额度 · 每窗口',
+    spentThisWindow: '本窗口已用',
+    remaining: '剩余',
+    projected: '本次预计',
+
+    statusConsumed:   '已用 {pct}%',
+    // ⚠ 这三句绝不能写成「暂时无法显示」之类的中性话。英文注释记了原因:这三种情况
+    //   下所有数字都是破折号，而页脚曾经照旧打印「在你的额度内」—— 一个永久不合格的
+    //   钱包被告知只差输入一个数字。「读不出来」和「你没问题」在任何语言里都不能合并。
+    statusCooldown:   '窗口读不出',
+    statusBanned:     '已被拉黑',
+    statusUnattested: '无认证记录',
+
+    within:   '→ 在你的额度内',
+    over:     '→ 超出本窗口额度',
+    staleCooldown:   '→ 冷却期结束前读不出来',
+    staleBanned:     '→ 这由封禁决定 · 拦住你的不是额度',
+    staleUnattested: '→ 没有登记额度 · 目前没有可衡量的上限',
+  },
+
+  awaitingLaunch: {
+    title:    '开池上线',
+    subtitle: '开池会为 Infinity 池注入初始流动性，把创世流动性就地锁定，并启动 shelf ladder。此操作不可撤销。',
+
+    raised:          '已募集',
+    status:          '状态',
+    statusValue:     '时间已到 · 可开池',
+    windowRemaining: '窗口剩余',
+
+    creatorBody: '{symbol} 是你创建的。触发上线会把募集到的 {quote} 与创世 LP 额度配对并启动 ladder。'
+               + '交易一确认，存款人就能按比例领取自己的份额。',
+    // `launch()` 是合约函数名，保留原样。
+    creatorDeadline: '还剩 {countdown}。过了这个点，launch() 将永久失效，每个存款人都会取回 100% 的 {quote}。',
+    cta:      '触发上线',
+    txAction: '开池',
+    txConfirmed: '池子已开 —— ladder 已上线',
+
+    waitingTitle: '等待项目方操作',
+    waitingBody:  '创世窗口已经关闭。如果 {countdown} 内池子仍未开启，退款终端会自动解锁，'
+                + '全额退回你存入的 100%。你的 {quote} 没有风险。',
+
+    expiredLabel:  '上线窗口已关闭',
+    expiredReason: '开启交易的窗口已经关闭，这个项目现在唯一还能做的事就是退款。',
+  },
+
   claim: {
     title:    '创世额度 · {symbol}',
     subtitle: '你在创世供应量中的份额，按你存入的金额等比分配。每个钱包只能领取一次。',

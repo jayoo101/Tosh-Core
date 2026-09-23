@@ -12,11 +12,7 @@ exports[`AwaitingLaunchPanel � english copy golden master > as a depositor 1`]
   "Window remaining",
   "167:00:00",
   "Waiting on the creator",
-  "The genesis window has closed. If the pool is not opened within",
-  "167:00:00",
-  ", the refund terminal unlocks automatically and returns 100% of your deposit. Your",
-  "TQUOTE",
-  "is not at risk.",
+  "The genesis window has closed. If the pool is not opened within 167:00:00, the refund terminal unlocks automatically and returns 100% of your deposit. Your TQUOTE is not at risk.",
 ]
 `;
 
@@ -33,15 +29,8 @@ exports[`AwaitingLaunchPanel � english copy golden master > as the creator 1`]
   "Time up · launchable",
   "Window remaining",
   "167:00:00",
-  "You created",
-  "QMT",
-  ". Triggering launch pairs the raised",
-  "TQUOTE",
-  "with the genesis LP allocation and starts the ladder. Depositors can claim their pro-rata share the moment it confirms.",
-  "167:00:00",
-  "left. After that, launch() dies permanently and every depositor reclaims 100% of their",
-  "TQUOTE",
-  ".",
+  "You created QMT. Triggering launch pairs the raised TQUOTE with the genesis LP allocation and starts the ladder. Depositors can claim their pro-rata share the moment it confirms.",
+  "167:00:00 left. After that, launch() dies permanently and every depositor reclaims 100% of their TQUOTE.",
   "Trigger Launch",
 ]
 `;

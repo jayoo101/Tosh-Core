@@ -1,7 +1,10 @@
+'use client'
+
 import type * as React from 'react'
 
 import { fmtQuote } from './format'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // H-01 LEDGER  ·  pure-text reconciliation
@@ -49,6 +52,7 @@ export function QuotaLedger({
   projected: bigint
   blocked:   QuotaBlock
 }) {
+  const t = useT()
   const stale     = blocked !== null
   const spent     = quota > remaining ? quota - remaining : 0n
   const breached  = !stale && projected > 0n && projected > remaining
@@ -58,20 +62,20 @@ export function QuotaLedger({
   const projConsumed = quota > 0n && projected > 0n
     ? Number(((spent + projected) * 10_000n) / quota) / 100
     : consumed
-  const statusTxt = blocked === 'cooldown'   ? 'WINDOW UNREADABLE'
-                  : blocked === 'banned'     ? 'BLACKLISTED'
-                  : blocked === 'unattested' ? 'NO ATTESTATION'
-                  : `${consumed.toFixed(1)}% CONSUMED`
+  const statusTxt = blocked === 'cooldown'   ? t.ledger.statusCooldown
+                  : blocked === 'banned'     ? t.ledger.statusBanned
+                  : blocked === 'unattested' ? t.ledger.statusUnattested
+                  : fill(t.ledger.statusConsumed, { pct: consumed.toFixed(1) })
 
   // Why there is no limit to be within, said once per reason. Each names the
   // fact that is standing in for the figures, so the dashes above have an
   // explanation sitting under them instead of a reassurance.
   const staleTxt = blocked === 'cooldown'
-      ? '→ NOT READABLE UNTIL THE COOLDOWN CLEARS'
+      ? t.ledger.staleCooldown
     : blocked === 'banned'
-      ? '→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU'
+      ? t.ledger.staleBanned
     : blocked === 'unattested'
-      ? '→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET'
+      ? t.ledger.staleUnattested
     : null
 
   const row = (label: string, value: React.ReactNode) => (
@@ -87,21 +91,21 @@ export function QuotaLedger({
     <div className="border border-border-subtle px-4 py-3 flex flex-col gap-1">
       <div className="flex items-center justify-between pb-1">
         <span className="text-label tracking-[0.4em] uppercase text-text-tertiary font-bold">
-          {'// [H-01] QUOTA LEDGER'}
+          {t.ledger.heading}
         </span>
         <span className="font-mono text-label text-text-tertiary tabular-nums">
           {statusTxt}
         </span>
       </div>
       {row(
-        'POG QUOTA · PER WINDOW',
+        t.ledger.quotaPerWindow,
         blocked === 'unattested' ? '—' : `${fmtQuote(quota)} ${QUOTE_SYMBOL}`,
       )}
-      {row('SPENT THIS WINDOW',      stale ? '—' : `${fmtQuote(spent)} ${QUOTE_SYMBOL}`)}
-      {row('REMAINING',              stale ? '—' : `${fmtQuote(remaining)} ${QUOTE_SYMBOL}`)}
+      {row(t.ledger.spentThisWindow, stale ? '—' : `${fmtQuote(spent)} ${QUOTE_SYMBOL}`)}
+      {row(t.ledger.remaining,       stale ? '—' : `${fmtQuote(remaining)} ${QUOTE_SYMBOL}`)}
       {!stale && projected > 0n && (
         row(
-          'PROJECTED (THIS TX)',
+          t.ledger.projected,
           <>
             +{fmtQuote(projected)} {QUOTE_SYMBOL}{' '}
             <span className="text-text-quiet">→ {projConsumed.toFixed(1)}%</span>
@@ -116,7 +120,7 @@ export function QuotaLedger({
         {breached
           ? (
             <p className="font-mono text-label tracking-[0.4em] uppercase text-warning">
-              → OVER YOUR LIMIT FOR THIS WINDOW
+              {t.ledger.over}
             </p>
           )
           : stale
@@ -129,7 +133,7 @@ export function QuotaLedger({
             )
             : (
               <p className="font-mono text-label tracking-[0.4em] uppercase text-text-tertiary">
-                → WITHIN YOUR LIMIT
+                {t.ledger.within}
               </p>
             )}
       </div>

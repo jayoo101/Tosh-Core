@@ -8,6 +8,7 @@ import {
   revertOrder,
 } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 import { fmtQuote } from './format'
 
 
@@ -26,9 +27,11 @@ export function AwaitingLaunchPanel({
   nowSec:            number
   refetch:           () => void
 }) {
+  const t = useT()
+
   const { send, isPending, isConfirming } = useTxAction({
-    action: 'open the pool',
-    labels: { confirmed: 'Pool open — the ladder is live' },
+    action: t.awaitingLaunch.txAction,
+    labels: { confirmed: t.awaitingLaunch.txConfirmed },
     onConfirmed: refetch,
   })
 
@@ -47,7 +50,7 @@ export function AwaitingLaunchPanel({
   // hitting 00:00:00 was previously cosmetic: the button stayed armed and paid
   // gas for a guaranteed revert.
   const gate = useActionGate({
-    action: 'Trigger Launch',
+    action: t.awaitingLaunch.cta,
     onAct: handleLaunch,
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
@@ -61,8 +64,8 @@ export function AwaitingLaunchPanel({
         // where `resolvePhase` uses `>` and would still say `awaiting_launch`
         // here. Only the button disagreed.
         active: nowSec > 0 && BigInt(nowSec) > expiresAt,
-        label: 'Launch window closed',
-        reason: 'The window to open trading has closed, so the only thing this project can still do is issue refunds.',
+        label: t.awaitingLaunch.expiredLabel,
+        reason: t.awaitingLaunch.expiredReason,
         tone: 'warn',
       },
     ),
@@ -71,36 +74,31 @@ export function AwaitingLaunchPanel({
   return (
     <Card
       id="P-1.5"
-      title="Launch the pool"
-      subtitle="Opening seeds the Infinity pool, locks the genesis liquidity in place, and starts the shelf ladder. It cannot be undone."
+      title={t.awaitingLaunch.title}
+      subtitle={t.awaitingLaunch.subtitle}
       tone={isCreator ? 'ok' : 'default'}
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
-        <Readout label="Raised" value={`${fmtQuote(totalNativeDeposited)} ${QUOTE_SYMBOL}`} />
-        <Readout label="Status" value="Time up · launchable" tone="ok" />
-        <Readout label="Window remaining" value={countdown} tone="warn" />
+        <Readout label={t.awaitingLaunch.raised} value={`${fmtQuote(totalNativeDeposited)} ${QUOTE_SYMBOL}`} />
+        <Readout label={t.awaitingLaunch.status} value={t.awaitingLaunch.statusValue} tone="ok" />
+        <Readout label={t.awaitingLaunch.windowRemaining} value={countdown} tone="warn" />
       </div>
 
       {isCreator ? (
         <>
           <p className="text-note text-text-secondary leading-relaxed">
-            You created {symbol}. Triggering launch pairs the raised {QUOTE_SYMBOL} with the
-            genesis LP allocation and starts the ladder. Depositors can claim their
-            pro-rata share the moment it confirms.
+            {fill(t.awaitingLaunch.creatorBody, { symbol, quote: QUOTE_SYMBOL })}
           </p>
           <p className="text-note text-warning leading-relaxed">
-            {countdown} left. After that, launch() dies permanently and every
-            depositor reclaims 100% of their {QUOTE_SYMBOL}.
+            {fill(t.awaitingLaunch.creatorDeadline, { countdown, quote: QUOTE_SYMBOL })}
           </p>
           <ActionButton gate={gate} size="lg" intent="primary" />
         </>
       ) : (
         <div className="rounded-card border border-warning/30 bg-warning/5 px-card py-gap">
-          <p className="font-mono text-label text-warning">Waiting on the creator</p>
+          <p className="font-mono text-label text-warning">{t.awaitingLaunch.waitingTitle}</p>
           <p className="mt-1 text-note text-text-secondary leading-relaxed">
-            The genesis window has closed. If the pool is not opened within{' '}
-            {countdown}, the refund terminal unlocks automatically and returns
-            100% of your deposit. Your {QUOTE_SYMBOL} is not at risk.
+            {fill(t.awaitingLaunch.waitingBody, { countdown, quote: QUOTE_SYMBOL })}
           </p>
         </div>
       )}

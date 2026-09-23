@@ -1,0 +1,35 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`WalletPip · english copy golden master > default · disconnected 1`] = `
+[
+  "CONNECT",
+  "CONNECT WALLET",
+]
+`;
+
+exports[`WalletPip · english copy golden master > default · disconnected 2`] = `"CONNECTCONNECT WALLET"`;
+
+exports[`WalletPip · english copy golden master > navbar · connected 1`] = `
+[
+  "0x7099…79C8",
+]
+`;
+
+exports[`WalletPip · english copy golden master > navbar · connected 2`] = `"0x7099…79C8"`;
+
+exports[`WalletPip · english copy golden master > navbar · connecting 1`] = `
+[
+  "CONNECTING…",
+]
+`;
+
+exports[`WalletPip · english copy golden master > navbar · connecting 2`] = `"CONNECTING…"`;
+
+exports[`WalletPip · english copy golden master > navbar · disconnected 1`] = `
+[
+  "CONNECT",
+  "CONNECT WALLET",
+]
+`;
+
+exports[`WalletPip · english copy golden master > navbar · disconnected 2`] = `"CONNECTCONNECT WALLET"`;

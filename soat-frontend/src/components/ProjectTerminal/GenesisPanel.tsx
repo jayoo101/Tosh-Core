@@ -7,6 +7,7 @@ import {
   QUOTE_DECIMALS, QUOTE_SYMBOL,
 } from '@/lib/contracts'
 import { resolveReferrerNow } from '@/lib/useReferral'
+import { Emph, fill, useT } from '@/i18n'
 import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc,
@@ -64,6 +65,7 @@ export interface GenesisProps {
 }
 
 export function GenesisPanel(p: GenesisProps) {
+  const t = useT()
   const [amount, setAmount] = useState('')
 
   /**
@@ -79,9 +81,9 @@ export function GenesisPanel(p: GenesisProps) {
   const [stakeAfterDeposit, setStakeAfterDeposit] = useState<bigint | null>(null)
 
   const amountWei = (() => {
-    const t = amount.trim()
-    if (!t) return 0n
-    try { return parseUnits(t, QUOTE_DECIMALS) } catch { return -1n }
+    const raw = amount.trim()
+    if (!raw) return 0n
+    try { return parseUnits(raw, QUOTE_DECIMALS) } catch { return -1n }
   })()
   const amountInvalid = amountWei === -1n
 
@@ -154,9 +156,9 @@ export function GenesisPanel(p: GenesisProps) {
   // only ever see a value they have been told is representable.
   const banHorizon = classifyHorizon(p.blacklistedUntil, p.nowSec)
   const banTxt = formatHorizonLabel(banHorizon, {
-    unbounded: 'PERMANENT · NO EXPIRY',
-    elapsed:   'LAPSED',
-    pending:   d => `LIFTS IN ${d}`,
+    unbounded: t.deposit.banPermanentStamp,
+    elapsed:   t.deposit.banLapsedStamp,
+    pending:   d => fill(t.deposit.banLiftsInStamp, { d }),
   })
   const banLiftsAt = formatHorizonUtc(banHorizon)
 
@@ -265,7 +267,7 @@ export function GenesisPanel(p: GenesisProps) {
     isConfirming: isDepositConfirming,
     isBusy: txBusy,
   } = useTxAction({
-    action: 'deposit',
+    action: t.deposit.txAction,
     onConfirmed: () => {
       // Before `setAmount('')` clears the field this reads from.
       setStakeAfterDeposit(p.userDeposited + (amountWei > 0n ? amountWei : 0n))
@@ -308,7 +310,7 @@ export function GenesisPanel(p: GenesisProps) {
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
     const rem = Number(p.cooldownEnd) - p.nowSec
-    if (rem <= 0) return 'CLEAR'
+    if (rem <= 0) return t.deposit.cooldownClear
     const h = Math.floor(rem / 3600)
     const m = Math.floor((rem % 3600) / 60)
     const s = rem % 60
@@ -342,7 +344,7 @@ export function GenesisPanel(p: GenesisProps) {
   //   limits the amount is measured against. Any blocker that appears in the
   //   field's `disabled` expression belongs above `amount-zero`.
   const gate = useActionGate({
-    action: `Deposit ${QUOTE_SYMBOL}`,
+    action: fill(t.deposit.cta, { quote: QUOTE_SYMBOL }),
     onAct: submitDeposit,
     tx: {
       isPending: isDepositing || pog.isPending,
@@ -355,41 +357,43 @@ export function GenesisPanel(p: GenesisProps) {
         // window shuts nothing else about this wallet can change the outcome.
         id: 'window-closed',
         active: windowClosed,
-        label: 'Funding closed',
-        reason: 'The genesis window has closed, and no further deposits are accepted.',
+        label: t.deposit.windowClosedLabel,
+        reason: t.deposit.windowClosedReason,
         tone: 'warn',
       },
       {
         id: 'blacklisted',
         active: banned,
-        label: 'Wallet blocked',
-        reason: `Deposits from this address are rejected while the ban stands · ${banTxt}.`,
+        label: t.deposit.bannedLabel,
+        reason: fill(t.deposit.bannedReason, { stamp: banTxt }),
       },
       {
         id: 'unattested',
         active: unattested,
         label: scanning
-          ? 'Reading gas history…'
+          ? t.deposit.pogScanningLabel
           : pog.registering
-            ? 'Activating quota…'
+            ? t.deposit.pogRegisteringLabel
             : scanEligible
-              ? 'Activate deposit quota'
+              ? t.deposit.pogActivateLabel
               : pog.phase === 'failed'
-                ? 'Retry gas check'
+                ? t.deposit.pogRetryLabel
                 : pog.phase === 'ready'
-                  ? 'Below gas floor'
-                  : 'Check gas history',
+                  ? t.deposit.pogBelowFloorLabel
+                  : t.deposit.pogCheckLabel,
         reason: scanning
-          ? 'Reading lifetime gas across every supported chain. No signature required for this step.'
+          ? t.deposit.pogScanningReason
           : pog.registering
-            ? 'Writing the deposit quota on-chain.'
+            ? t.deposit.pogRegisteringReason
             : scanEligible
-              ? 'Gas history qualifies. Click to sign once and register the quota; Deposit unlocks after that lands.'
+              ? t.deposit.pogActivateReason
+              // `pog.error` comes off the API and is not ours to translate; the
+              // dictionary line is the fallback for when it arrives empty.
               : pog.phase === 'failed'
-                ? (pog.error ?? 'The gas lookup failed. Click to try again.')
+                ? (pog.error ?? t.deposit.pogRetryReason)
                 : pog.phase === 'ready'
-                  ? `This wallet’s historical gas is below the floor of ${fmt(BigInt(pog.scan!.floorWei))} ETH, so no deposit quota can be sized.`
-                  : 'Proof-of-Gas sizes your deposit quota from lifetime gas spend. Click to read it — one request, no signature and no gas.',
+                  ? fill(t.deposit.pogBelowFloorReason, { floor: fmt(BigInt(pog.scan!.floorWei)) })
+                  : t.deposit.pogCheckReason,
         tone: 'warn',
         resolve: scanning || pog.registering
           ? undefined
@@ -415,10 +419,14 @@ export function GenesisPanel(p: GenesisProps) {
         // is not a wait at all — nothing the reader can do will make it clear in
         // time — and a countdown there reads as an invitation to come back,
         // which is the one thing that will not work.
-        label: capSpentForThisRound ? 'Already deposited' : `Cooldown · ${cooldownTxt}`,
+        label: capSpentForThisRound
+          ? t.deposit.alreadyDepositedLabel
+          : fill(t.deposit.cooldownLabelWaiting, { left: cooldownTxt }),
         reason: capSpentForThisRound
-          ? `This project takes one deposit per wallet, and yours has landed · ${fmtQuote(p.userDeposited)} ${QUOTE_SYMBOL} committed. The cooldown outlasts the genesis window, so there is no second deposit to wait for.`
-          : `Deposits from this wallet to this project are on cooldown for another ${cooldownTxt}.`,
+          ? fill(t.deposit.alreadyDepositedReason, {
+              committed: fmtQuote(p.userDeposited), quote: QUOTE_SYMBOL,
+            })
+          : fill(t.deposit.cooldownReasonWaiting, { left: cooldownTxt }),
         tone: 'warn',
       },
       // ── Everything above is a state of the WALLET or the RAISE, and none of it
@@ -427,15 +435,15 @@ export function GenesisPanel(p: GenesisProps) {
       {
         id: 'amount-invalid',
         active: amountInvalid,
-        label: 'Check the amount',
-        reason: `That is not a number this field can send as ${QUOTE_SYMBOL}.`,
+        label: t.deposit.amountInvalidLabel,
+        reason: fill(t.deposit.amountInvalidReason, { quote: QUOTE_SYMBOL }),
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !amountInvalid && amountWei === 0n,
-        label: 'Enter an amount',
-        reason: `Enter the amount of ${QUOTE_SYMBOL} to deposit.`,
+        label: t.deposit.amountZeroLabel,
+        reason: fill(t.deposit.amountZeroReason, { quote: QUOTE_SYMBOL }),
         tone: 'neutral',
       },
       {
@@ -450,26 +458,32 @@ export function GenesisPanel(p: GenesisProps) {
         // that rather than a spinner.
         id: 'quota-pending',
         active: p.isConnected && !banned && !quotaKnown && amountWei > 0n,
-        label: 'Reading your allowance…',
-        reason: 'Waiting on this wallet’s attestation and deposit window from the factory.',
+        label: t.deposit.quotaPendingLabel,
+        reason: t.deposit.quotaPendingReason,
       },
       {
         id: 'quota-exceeded',
         active: quotaBreached,
-        label: 'Over your limit',
-        reason: `That is more than this wallet may deposit in the current window · ${fmtQuote(quotaRemaining)} ${QUOTE_SYMBOL} left.`,
+        label: t.deposit.quotaExceededLabel,
+        reason: fill(t.deposit.quotaExceededReason, {
+          left: fmtQuote(quotaRemaining), quote: QUOTE_SYMBOL,
+        }),
       },
       {
         id: 'wallet-cap',
         active: walletCapBreached,
-        label: `Over the wallet cap · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} left`,
-        reason: `That is more than this project allows one wallet to hold · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} left for you.`,
+        label: fill(t.deposit.walletCapLabel, {
+          left: fmtQuote(walletHeadroom), quote: QUOTE_SYMBOL,
+        }),
+        reason: fill(t.deposit.walletCapReason, {
+          left: fmtQuote(walletHeadroom), quote: QUOTE_SYMBOL,
+        }),
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: `Not enough ${QUOTE_SYMBOL}`,
-        reason: `This wallet does not hold that much ${QUOTE_SYMBOL}.`,
+        label: fill(t.deposit.notEnoughLabel, { quote: QUOTE_SYMBOL }),
+        reason: fill(t.deposit.notEnoughReason, { quote: QUOTE_SYMBOL }),
         tone: 'warn',
       },
       {
@@ -485,9 +499,11 @@ export function GenesisPanel(p: GenesisProps) {
           !amountInvalid && amountWei > 0n && !insufficientBal
           && !quotaBreached && !walletCapBreached && approval.needsApproval,
         label: approval.tx.isBusy
-          ? 'Approving…'
-          : `Approve ${fmtQuote(amountWei)} ${QUOTE_SYMBOL}`,
-        reason: `${QUOTE_SYMBOL} is pulled rather than sent, so the factory needs your permission for this exact amount before it can take it. Approving authorises only this deposit — change the amount and it has to be approved again.`,
+          ? t.deposit.approvingLabel
+          : fill(t.deposit.approveLabel, {
+              amount: fmtQuote(amountWei), quote: QUOTE_SYMBOL,
+            }),
+        reason: fill(t.deposit.approveReason, { quote: QUOTE_SYMBOL }),
         tone: 'info',
         resolve: approval.approve,
       },
@@ -502,10 +518,10 @@ export function GenesisPanel(p: GenesisProps) {
   // above this input, so neither is repeated here.  What is left is the red
   // border and a short tag; the explanation and the remedy live with the button.
   const amountError =
-      amountInvalid     ? 'NOT A NUMBER'
-    : quotaBreached     ? 'ABOVE YOUR REMAINING WINDOW'
-    : walletCapBreached ? 'ABOVE THIS PROJECT’S WALLET CAP'
-    : insufficientBal   ? 'ABOVE YOUR BALANCE'
+      amountInvalid     ? t.deposit.errNotANumber
+    : quotaBreached     ? t.deposit.errOverWindow
+    : walletCapBreached ? t.deposit.errOverCap
+    : insufficientBal   ? t.deposit.errOverBalance
     : null
 
   /**
@@ -538,29 +554,26 @@ export function GenesisPanel(p: GenesisProps) {
           them left the reader to scroll and guess. */}
       <Card
         id="DEPOSIT"
-        title={`Deposit ${QUOTE_SYMBOL}`}
-        subtitle="Into this project's genesis window. The raise stays open until the clock runs out."
+        title={fill(t.deposit.title, { quote: QUOTE_SYMBOL })}
+        subtitle={t.deposit.subtitle}
         interactive={false}
       >
         {windowClosed && (
           <p className="font-mono text-label tracking-[0.32em] uppercase text-warning leading-relaxed">
-            → WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED
+            {t.deposit.bannerWindowClosed}
           </p>
         )}
 
         {banned && (
           <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
             <p className="font-mono text-label tracking-[0.32em] uppercase text-danger">
-              → WALLET BLACKLISTED · {banTxt}
+              {fill(t.deposit.bannerBanned, { stamp: banTxt })}
             </p>
             <p className="font-mono text-note text-text-tertiary leading-relaxed">
-              The factory rejects every <span className="text-text-primary">deposit</span> from this
-              address while the ban stands, whatever quota it holds — so the zero here is a
-              ban, not a spent allowance.{' '}
+              <Emph text={t.deposit.banBody} />{' '}
               {banLiftsAt
-                ? <>The ban expires on its own at <span className="text-text-primary">{banLiftsAt}</span>, after
-                   which the quota is spendable again with nothing to reset.</>
-                : <>Only the protocol owner can clear a permanent ban.</>}
+                ? <Emph text={fill(t.deposit.banExpires, { when: banLiftsAt })} />
+                : t.deposit.banPermanent}
             </p>
           </div>
         )}
@@ -569,28 +582,24 @@ export function GenesisPanel(p: GenesisProps) {
           <div className="border border-warning/40 px-4 py-3 flex flex-col gap-1">
             <p className="font-mono text-label tracking-[0.32em] uppercase text-warning">
               {scanning
-                ? '→ READING GAS HISTORY'
+                ? t.deposit.bannerScanning
                 : scanEligible
-                  ? '→ GAS HISTORY QUALIFIES'
+                  ? t.deposit.bannerQualifies
                   : pog.phase === 'ready'
-                    ? '→ BELOW GAS FLOOR'
-                    : '→ NO POG ATTESTATION ON FILE'}
+                    ? t.deposit.bannerBelowFloor
+                    : t.deposit.bannerNoPog}
             </p>
             <p className="font-mono text-note text-text-tertiary leading-relaxed">
               {scanning
-                ? <>Connected — looking up this address&apos;s lifetime gas on {formatGasScanChainList()}. No wallet signature is asked
-                  for this read.</>
+                ? fill(t.deposit.bodyScanning, { chains: formatGasScanChainList() })
                 : scanEligible
-                  ? <>Eligible for a deposit quota. Activate it once (signature +
-                    on-chain registration), then Deposit works normally — no separate
-                    gas-scan click.</>
+                  ? t.deposit.bodyQualifies
                   : pog.phase === 'ready' && pog.scan
-                    ? <>Historical gas is {fmt(BigInt(pog.scan.totalGasWei))} ETH against
-                      a floor of {fmt(BigInt(pog.scan.floorWei))} ETH. Open the breakdown
-                      for per-chain figures.</>
-                    : <>This wallet has never registered Proof-of-Gas, so it holds no
-                      quota to spend. The gas lookup starts automatically when you
-                      connect.</>}
+                    ? fill(t.deposit.bodyBelowFloor, {
+                        gas: fmt(BigInt(pog.scan.totalGasWei)),
+                        floor: fmt(BigInt(pog.scan.floorWei)),
+                      })
+                    : t.deposit.bodyNoPog}
             </p>
             {pog.scan && pog.phase === 'ready' && (
               <button
@@ -599,7 +608,7 @@ export function GenesisPanel(p: GenesisProps) {
                 className="mt-1 self-start font-mono text-label tracking-[0.2em] uppercase
                            text-brand hover:underline"
               >
-                View per-chain breakdown
+                {t.ineligible.breakdown}
               </button>
             )}
           </div>
@@ -619,10 +628,10 @@ export function GenesisPanel(p: GenesisProps) {
 
         {p.isConnected && (
           <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
-            <Readout label={`${QUOTE_SYMBOL} BALANCE`}
+            <Readout label={fill(t.deposit.balanceReadout, { quote: QUOTE_SYMBOL })}
                      value={`${fmtQuote(p.quoteBalance)} ${QUOTE_SYMBOL}`}
                      hint={fmtQuoteFull(p.quoteBalance)} />
-            <Readout label="COOLDOWN"
+            <Readout label={t.deposit.cooldownLabel}
                      value={cooldownTxt}
                      tone={onCooldown ? 'mute' : 'ink'} />
           </div>
@@ -630,30 +639,37 @@ export function GenesisPanel(p: GenesisProps) {
 
         {p.referrer !== ZERO_ADDRESS && (
           <Readout
-            label="REFERRED BY"
+            label={t.deposit.referredBy}
             value={`${p.referrer.slice(0, 10)}…${p.referrer.slice(-6)}`}
-            hint="bound platform-wide on your first deposit · 10% of it credits them"
+            hint={t.deposit.referredHint}
             tone="ok"
           />
         )}
 
         <Field
-          label={`DEPOSIT AMOUNT · ${QUOTE_SYMBOL}`}
+          label={fill(t.deposit.amountLabel, { quote: QUOTE_SYMBOL })}
           value={amount}
           onValueChange={setAmount}
-          placeholder="e.g. 0.05"
+          placeholder={t.deposit.amountPlaceholder}
           inputMode="decimal"
           disabled={txBusy || !p.isConnected || windowClosed || banned || unattested}
           error={amountError}
           armed={armed}
           hint={p.perWalletCap > 0n
             ? capSpentForThisRound
-              ? `ONE DEPOSIT PER WALLET · YOU COMMITTED ${fmtQuote(p.userDeposited)} ${QUOTE_SYMBOL} AND THIS ROUND TAKES NO MORE FROM YOU`
+              ? fill(t.deposit.hintOneAndDone, {
+                  committed: fmtQuote(p.userDeposited), quote: QUOTE_SYMBOL,
+                })
               : headroomIsOffered
-                ? `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET · ${fmtQuote(walletHeadroom)} ${QUOTE_SYMBOL} LEFT FOR YOU`
+                ? fill(t.deposit.hintCapAndYours, {
+                    cap: fmtQuote(p.perWalletCap), left: fmtQuote(walletHeadroom),
+                    quote: QUOTE_SYMBOL,
+                  })
                 // The project's ceiling without the personal claim. Same figure,
                 // and it is the only half of it this wallet has earned.
-                : `THIS PROJECT ALLOWS ${fmtQuote(p.perWalletCap)} ${QUOTE_SYMBOL} PER WALLET`
+                : fill(t.deposit.hintCapOnly, {
+                    cap: fmtQuote(p.perWalletCap), quote: QUOTE_SYMBOL,
+                  })
             : undefined}
           affix={
             <FieldAffix

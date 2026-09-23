@@ -110,6 +110,273 @@ export const EN = {
     confirming: 'Confirming…',
   },
 
+  /**
+   * The header wallet control, on every page.
+   *
+   * ⚠ NOT THE SAME STRINGS AS `gate.connect`, and reusing them would be a real
+   *   change rather than a tidy-up. These are uppercase in the source as well as
+   *   in CSS, so the visible result is identical either way — but `textContent`
+   *   is not, and the header has a short form the gate has no concept of: the
+   *   navbar does not fit at 390px, so the label sheds its second word there.
+   *   Both spans are always in the DOM and a media query picks one, which is why
+   *   there are two strings rather than an `aria-label` a voice-control user
+   *   could not see.
+   *
+   * ⚠ KEEP THEM THE SAME LENGTH ORDER. `connectShort` must be shorter than
+   *   `connect` or the phone case gets wider than the case it exists to escape.
+   *   In Chinese both fit, and the pair is kept anyway so the two locales take
+   *   the same code path rather than one of them relying on a string that is
+   *   never measured.
+   */
+  nav: {
+    connect:      'CONNECT WALLET',
+    connectShort: 'CONNECT',
+    connecting:   'CONNECTING…',
+  },
+
+  /**
+   * The deposit form — the widest surface in the app and the one with the most
+   * ways to say no.
+   *
+   * ⚠ THE BLOCKER ORDER IS THE CONTRACT'S, NOT THE SCREEN'S, and the component
+   *   carries the argument at length. Two things about it bind a translator:
+   *
+   *   · A BAN IS NOT AN ALLOWANCE THAT RAN OUT. `eligibility()` collapses a ban,
+   *     a missing attestation and a spent window into the same `(false, 0, 0)`,
+   *     so the three refusals have to be told apart in words. Rendering any of
+   *     them as "you have none left" tells a permanently banned wallet to wait.
+   *
+   *   · A REFUSAL IS NOT A MISSING FIELD. The list used to lead with "Enter an
+   *     amount", shown to wallets whose input had just been disabled for a
+   *     reason the button never mentioned. Readers resolved the contradiction by
+   *     retrying, the shared Proof-of-Gas scan budget ran out, and the raise
+   *     funnel was down for 26 minutes. Each label here has to name the thing
+   *     that is actually in the way.
+   */
+  deposit: {
+    title:    'Deposit {quote}',
+    subtitle: 'Into this project\'s genesis window. The raise stays open until '
+            + 'the clock runs out.',
+    cta:      'Deposit {quote}',
+    txAction: 'deposit',
+
+    /* ── The field ──────────────────────────────────────────────────────── */
+    amountLabel:       'DEPOSIT AMOUNT · {quote}',
+    amountPlaceholder: 'e.g. 0.05',
+
+    /*
+     * Terse, and only about the number typed. The gate states every blocker in
+     * full under the button and the wallet-level states each have a callout
+     * above the input, so nothing is repeated here.
+     */
+    errNotANumber: 'NOT A NUMBER',
+    errOverWindow: 'ABOVE YOUR REMAINING WINDOW',
+    errOverCap:    'ABOVE THIS PROJECT’S WALLET CAP',
+    errOverBalance: 'ABOVE YOUR BALANCE',
+
+    /*
+     * ⚠ THE SUBJECT OF THE HINT IS THE WHOLE POINT. "This project allows X per
+     *   wallet" is a fact about the project and stays true for a visitor who has
+     *   not connected. "X LEFT FOR YOU" is a claim about the reader, and it must
+     *   not be made to a wallet the panel is simultaneously refusing — it was,
+     *   printed directly under an input disabled for the same reason.
+     */
+    hintCapOnly:     'THIS PROJECT ALLOWS {cap} {quote} PER WALLET',
+    hintCapAndYours: 'THIS PROJECT ALLOWS {cap} {quote} PER WALLET · {left} {quote} LEFT FOR YOU',
+    hintOneAndDone:  'ONE DEPOSIT PER WALLET · YOU COMMITTED {committed} {quote} '
+                   + 'AND THIS ROUND TAKES NO MORE FROM YOU',
+
+    /* ── Readouts ───────────────────────────────────────────────────────── */
+    balanceReadout: '{quote} BALANCE',
+    cooldownLabel: 'COOLDOWN',
+    cooldownClear: 'CLEAR',
+    referredBy:    'REFERRED BY',
+    referredHint:  'bound platform-wide on your first deposit · 10% of it credits them',
+
+    /* ── How a ban's expiry is stated. `LIFTS IN {d}` gets the countdown. ── */
+    banPermanentStamp: 'PERMANENT · NO EXPIRY',
+    banLapsedStamp:    'LAPSED',
+    banLiftsInStamp:   'LIFTS IN {d}',
+
+    /* ── Callouts above the field ───────────────────────────────────────── */
+    bannerWindowClosed: '→ WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED',
+
+    bannerBanned: '→ WALLET BLACKLISTED · {stamp}',
+    banBody: 'The factory rejects every *deposit* from this address while the ban '
+           + 'stands, whatever quota it holds — so the zero here is a ban, not a '
+           + 'spent allowance.',
+    banExpires: 'The ban expires on its own at *{when}*, after which the quota is '
+              + 'spendable again with nothing to reset.',
+    banPermanent: 'Only the protocol owner can clear a permanent ban.',
+
+    bannerScanning:   '→ READING GAS HISTORY',
+    bannerQualifies:  '→ GAS HISTORY QUALIFIES',
+    bannerBelowFloor: '→ BELOW GAS FLOOR',
+    bannerNoPog:      '→ NO POG ATTESTATION ON FILE',
+
+    bodyScanning:  'Connected — looking up this address\'s lifetime gas on {chains}. '
+                 + 'No wallet signature is asked for this read.',
+    bodyQualifies: 'Eligible for a deposit quota. Activate it once (signature + '
+                 + 'on-chain registration), then Deposit works normally — no '
+                 + 'separate gas-scan click.',
+    bodyBelowFloor: 'Historical gas is {gas} ETH against a floor of {floor} ETH. '
+                  + 'Open the breakdown for per-chain figures.',
+    bodyNoPog: 'This wallet has never registered Proof-of-Gas, so it holds no quota '
+             + 'to spend. The gas lookup starts automatically when you connect.',
+
+    /* ── Blockers, in the factory's own revert order ────────────────────── */
+    windowClosedLabel:  'Funding closed',
+    windowClosedReason: 'The genesis window has closed, and no further deposits '
+                      + 'are accepted.',
+
+    bannedLabel:  'Wallet blocked',
+    bannedReason: 'Deposits from this address are rejected while the ban stands · {stamp}.',
+
+    /*
+     * One blocker, six faces. It is the same fact — no attestation — moving
+     * through a scan, a signature and two dead ends, and each face has to say
+     * which one the reader is looking at: a failed lookup is worth another
+     * click, a gas history below the floor is not, and offering "try again" for
+     * the second is what rebuilt the retry loop that took the funnel down.
+     */
+    pogScanningLabel:    'Reading gas history…',
+    pogRegisteringLabel: 'Activating quota…',
+    pogActivateLabel:    'Activate deposit quota',
+    pogRetryLabel:       'Retry gas check',
+    pogBelowFloorLabel:  'Below gas floor',
+    pogCheckLabel:       'Check gas history',
+
+    pogScanningReason:    'Reading lifetime gas across every supported chain. No '
+                        + 'signature required for this step.',
+    pogRegisteringReason: 'Writing the deposit quota on-chain.',
+    pogActivateReason:    'Gas history qualifies. Click to sign once and register '
+                        + 'the quota; Deposit unlocks after that lands.',
+    /* Fallback only — a failed lookup usually carries its own server message. */
+    pogRetryReason:       'The gas lookup failed. Click to try again.',
+    pogBelowFloorReason:  'This wallet’s historical gas is below the floor of {floor} '
+                        + 'ETH, so no deposit quota can be sized.',
+    pogCheckReason:       'Proof-of-Gas sizes your deposit quota from lifetime gas '
+                        + 'spend. Click to read it — one request, no signature and '
+                        + 'no gas.',
+
+    /*
+     * ⚠ TWO DIFFERENT FACTS WEAR THE SAME COUNTDOWN. While the cooldown ends
+     *   before the genesis window does it is a wait, and stating the remaining
+     *   time tells the reader what to do. Once it ends at or after the deadline
+     *   nothing the reader can do will clear it in time, and a countdown there
+     *   reads as an invitation to come back — the one thing that will not work.
+     */
+    cooldownLabelWaiting: 'Cooldown · {left}',
+    cooldownReasonWaiting: 'Deposits from this wallet to this project are on '
+                         + 'cooldown for another {left}.',
+    alreadyDepositedLabel:  'Already deposited',
+    alreadyDepositedReason: 'This project takes one deposit per wallet, and yours '
+                          + 'has landed · {committed} {quote} committed. The cooldown '
+                          + 'outlasts the genesis window, so there is no second '
+                          + 'deposit to wait for.',
+
+    amountInvalidLabel:  'Check the amount',
+    amountInvalidReason: 'That is not a number this field can send as {quote}.',
+    amountZeroLabel:     'Enter an amount',
+    amountZeroReason:    'Enter the amount of {quote} to deposit.',
+
+    quotaPendingLabel:  'Reading your allowance…',
+    quotaPendingReason: 'Waiting on this wallet’s attestation and deposit window '
+                      + 'from the factory.',
+
+    quotaExceededLabel:  'Over your limit',
+    quotaExceededReason: 'That is more than this wallet may deposit in the current '
+                       + 'window · {left} {quote} left.',
+
+    walletCapLabel:  'Over the wallet cap · {left} {quote} left',
+    walletCapReason: 'That is more than this project allows one wallet to hold · '
+                   + '{left} {quote} left for you.',
+
+    notEnoughLabel:  'Not enough {quote}',
+    notEnoughReason: 'This wallet does not hold that much {quote}.',
+
+    approvingLabel: 'Approving…',
+    approveLabel:   'Approve {amount} {quote}',
+    approveReason:  '{quote} is pulled rather than sent, so the factory needs your '
+                  + 'permission for this exact amount before it can take it. '
+                  + 'Approving authorises only this deposit — change the amount and '
+                  + 'it has to be approved again.',
+  },
+
+  /**
+   * The Proof-of-Gas quota ledger under the deposit form.
+   *
+   * ⚠ THE THREE "UNREADABLE" LINES ARE NOT A SOFTER VERSION OF "WITHIN YOUR
+   *   LIMIT", and the component's own header explains what happened when they
+   *   were: a cooldown, a ban and a missing attestation all short-circuit
+   *   `eligibility()` to zero, every figure rendered as an em-dash, and the
+   *   footer printed the panel's most reassuring sentence underneath them. A
+   *   permanently ineligible wallet was told it was one keystroke from
+   *   depositing. "I cannot read this" and "you are fine" must not converge in
+   *   any language.
+   */
+  ledger: {
+    /* `[H-01]` is a diagnostic id shared with the docs; only the words move. */
+    heading: '// [H-01] QUOTA LEDGER',
+
+    quotaPerWindow: 'POG QUOTA · PER WINDOW',
+    spentThisWindow: 'SPENT THIS WINDOW',
+    remaining: 'REMAINING',
+    projected: 'PROJECTED (THIS TX)',
+
+    /* The status chip, top right. One of four, and three of them are refusals. */
+    statusConsumed:   '{pct}% CONSUMED',
+    statusCooldown:   'WINDOW UNREADABLE',
+    statusBanned:     'BLACKLISTED',
+    statusUnattested: 'NO ATTESTATION',
+
+    /* The footer verdict. Each refusal names the fact standing in for the
+     * figures, so the dashes above have an explanation under them. */
+    within:   '→ WITHIN YOUR LIMIT',
+    over:     '→ OVER YOUR LIMIT FOR THIS WINDOW',
+    staleCooldown:   '→ NOT READABLE UNTIL THE COOLDOWN CLEARS',
+    staleBanned:     '→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU',
+    staleUnattested: '→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET',
+  },
+
+  /** Genesis is closed, the creator has not opened the pool, the clock is on. */
+  awaitingLaunch: {
+    title:    'Launch the pool',
+    subtitle: 'Opening seeds the Infinity pool, locks the genesis liquidity in '
+            + 'place, and starts the shelf ladder. It cannot be undone.',
+
+    raised:          'Raised',
+    status:          'Status',
+    statusValue:     'Time up · launchable',
+    windowRemaining: 'Window remaining',
+
+    /* The creator's half: a button, and the argument for pressing it. */
+    creatorBody: 'You created {symbol}. Triggering launch pairs the raised {quote} '
+               + 'with the genesis LP allocation and starts the ladder. Depositors '
+               + 'can claim their pro-rata share the moment it confirms.',
+    /* `launch()` is the contract function, and stays spelled that way. */
+    creatorDeadline: '{countdown} left. After that, launch() dies permanently and '
+                   + 'every depositor reclaims 100% of their {quote}.',
+    cta:      'Trigger Launch',
+    txAction: 'open the pool',
+    txConfirmed: 'Pool open — the ladder is live',
+
+    /*
+     * Everyone else gets the same wait with none of the agency, so the copy has
+     * to carry the reassurance the button would otherwise carry: nothing here
+     * can strand the deposit.
+     */
+    waitingTitle: 'Waiting on the creator',
+    waitingBody:  'The genesis window has closed. If the pool is not opened within '
+                + '{countdown}, the refund terminal unlocks automatically and '
+                + 'returns 100% of your deposit. Your {quote} is not at risk.',
+
+    /* Strictly later than the deadline, matching the hook — see the component. */
+    expiredLabel:  'Launch window closed',
+    expiredReason: 'The window to open trading has closed, so the only thing this '
+                 + 'project can still do is issue refunds.',
+  },
+
   /** Collecting a genesis allocation after the pool opens. */
   claim: {
     title:    'Genesis allocation · {symbol}',
@@ -235,7 +502,10 @@ export const EN = {
  * mixed language is ugly and safe, whereas a missing key rendering as
  * `refund.noneReason` is neither.
  */
-export const TIER0_SURFACES = ['tx', 'gate', 'refund', 'claim', 'ineligible'] as const
+export const TIER0_SURFACES = [
+  'tx', 'gate', 'nav', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
+  'awaitingLaunch',
+] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */
 export const TIER0_REQUIRED_LOCALES = ['en', 'zh-CN'] as const
