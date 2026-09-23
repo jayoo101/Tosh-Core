@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { cookies } from 'next/headers'
 import { JetBrains_Mono, Geist } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
@@ -11,6 +12,11 @@ import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { CHAIN_POSITIONING } from '@/lib/chain'
 import { QUOTE_POSITIONING } from '@/lib/contracts'
+import {
+  I18nProvider, LOCALE_COOKIE, LOCALES_ENABLED, DEFAULT_LOCALE, resolveLocale,
+  type Locale,
+} from '@/i18n'
+import { getDictionary } from '@/i18n/dictionary'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({
@@ -93,13 +99,61 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+/**
+ * Which language to render, from the cookie the picker writes.
+ *
+ * ⚠ THE COOKIE IS NOT READ ON A SINGLE-LANGUAGE BUILD, and that guard is the
+ *   whole reason localisation can ship dark. `cookies()` is a dynamic API: one
+ *   call opts the route out of static rendering, so reading it unconditionally
+ *   would turn `/` and `/projects` — both prerendered today — into per-request
+ *   renders in exchange for nothing, on a build that serves one language.
+ *
+ *   With `NEXT_PUBLIC_LOCALES` unset this returns immediately and the route stays
+ *   static.
+ */
+async function activeLocale(): Promise<Locale> {
+  if (!LOCALES_ENABLED) return DEFAULT_LOCALE
+  const jar = await cookies()
+  return resolveLocale(jar.get(LOCALE_COOKIE)?.value)
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const locale = await activeLocale()
+  const dict = await getDictionary(locale)
+
+  /*
+   * The whole tree, so the provider can be wrapped around it or not.
+   *
+   * ⚠ A SINGLE-LANGUAGE BUILD MOUNTS NO PROVIDER. `useT()` defaults to the
+   *   English dictionary with no provider above it (see `I18nProvider.tsx`), so
+   *   the wrapper buys nothing there — and skipping it means the dark-launched
+   *   build adds no context, no re-render and not one string to the RSC payload.
+   *   "Shipped dark" is then a fact about the output rather than a claim about
+   *   the code.
+   */
+  const tree = (
+    <Providers>
+      {/* useSearchParams needs a boundary or it opts the whole tree out of
+          static rendering. */}
+      <Suspense fallback={null}>
+        <ReferralCapture />
+      </Suspense>
+      <ToshNavbar />
+      <NetworkGuardClient />
+      <FactoryGuardClient />
+      <div className="flex-1">
+        <InstantProjectSlot>{children}</InstantProjectSlot>
+      </div>
+      <SiteFooter />
+    </Providers>
+  )
+
   return (
-    <html lang="en" className={`${jbm.variable} ${geist.variable}`} suppressHydrationWarning>
+    <html lang={locale} className={`${jbm.variable} ${geist.variable}`} suppressHydrationWarning>
       {/* Colour, selection and numeral defaults all come from globals.css, so
           the body carries layout only. `bg-bg-base` used to sit here and
           quietly overrode the canvas token on every page. */}
@@ -110,20 +164,9 @@ export default function RootLayout({
         className="terminal-grid-bg flex min-h-screen flex-col font-sans antialiased"
         suppressHydrationWarning
       >
-        <Providers>
-          {/* useSearchParams needs a boundary or it opts the whole tree out of
-              static rendering. */}
-          <Suspense fallback={null}>
-            <ReferralCapture />
-          </Suspense>
-          <ToshNavbar />
-          <NetworkGuardClient />
-          <FactoryGuardClient />
-          <div className="flex-1">
-            <InstantProjectSlot>{children}</InstantProjectSlot>
-          </div>
-          <SiteFooter />
-        </Providers>
+        {LOCALES_ENABLED
+          ? <I18nProvider dict={dict} locale={locale}>{tree}</I18nProvider>
+          : tree}
       </body>
     </html>
   )

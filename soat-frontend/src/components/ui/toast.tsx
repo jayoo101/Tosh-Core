@@ -21,6 +21,7 @@
 import { useEffect, useId, useRef, type ReactElement, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { testnetExplorerTx } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 import { truncateTxHash } from './format'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -160,6 +161,19 @@ export function useTxLifecycleToast(args: UseTxToastArgs): void {
   const toastId = useId()
   const lastPhase = useRef<Phase>('idle')
   const phase = resolvePhase(args)
+  /*
+   * The three defaults below are the only copy in this file a user reads on a
+   * successful transaction, so they are the whole of it that is translated. The
+   * error path still renders `shortErrorMessage`, which is a revert reason off
+   * the chain — English because the chain speaks English, and reproducing it
+   * verbatim is the point of showing it at all.
+   *
+   * ⚠ A LABEL PASSED IN STILL WINS. Each `??` keeps the caller's override ahead
+   *   of the dictionary, because that override is itself already translated —
+   *   `RefundPanel` hands over `t.refund.txConfirmed`. Reversing the precedence
+   *   would replace every surface's specific line with the generic one.
+   */
+  const t = useT()
 
   useEffect(() => {
     if (!enabled) return
@@ -169,19 +183,19 @@ export function useTxLifecycleToast(args: UseTxToastArgs): void {
     const action = labels.action
     switch (phase) {
       case 'signing':
-        toast.loading(labels.signing ?? `Awaiting signature — ${action}`, {
+        toast.loading(labels.signing ?? fill(t.tx.signing, { action }), {
           id: toastId,
           duration: Infinity,
         })
         break
       case 'confirming':
-        toast.loading(<TxBody title={labels.confirming ?? `Submitted · confirming ${action}`} hash={hash} />, {
+        toast.loading(<TxBody title={labels.confirming ?? fill(t.tx.confirming, { action })} hash={hash} />, {
           id: toastId,
           duration: Infinity,
         })
         break
       case 'confirmed':
-        toast.success(<TxBody title={labels.confirmed ?? `Confirmed — ${action}`} hash={hash} />, {
+        toast.success(<TxBody title={labels.confirmed ?? fill(t.tx.confirmed, { action })} hash={hash} />, {
           id: toastId,
           duration: 6_000,
         })
@@ -193,7 +207,9 @@ export function useTxLifecycleToast(args: UseTxToastArgs): void {
       case 'idle':
         break
     }
-  }, [phase, enabled, hash, error, labels, toastId])
+    // `t` is stable between locale changes — the provider memoises on locale —
+    // so listing it cannot re-fire this effect on an unrelated render.
+  }, [phase, enabled, hash, error, labels, toastId, t])
 
   // A fresh hash means a new transaction: let the next phase change open a new
   // toast instead of being swallowed as a no-op.

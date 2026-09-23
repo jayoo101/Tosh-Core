@@ -218,6 +218,19 @@ jobs:
       - name: Quote amounts use the quote scale
         run: npm run guard:quoteformat
 
+      # `PartialDictionary` already stops a locale inventing or misspelling a
+      # key, so this is here for the failures a type cannot express: a translator
+      # deleting the `{action}` out of a template, which still typechecks and
+      # still renders while losing the one part of the line that says which
+      # transaction confirmed; a blank value, which `mergeDictionary` treats as
+      # untranslated and papers over with English forever; and a Tier-0 surface
+      # left half-finished in a locale that has been promised complete. The types
+      # allow an incomplete locale on purpose — six languages of money copy
+      # cannot land in one commit — so which ones are DONE is a promise, and a
+      # promise belongs in a guard rather than in a comment.
+      - name: Locale dictionaries agree with English
+        run: npm run guard:i18n
+
       # Last of the guards, and the one that is about the list above rather than
       # about the source. `npm run guards` and the steps in this file are two
       # hand-maintained copies of the same list, and until now nothing compared

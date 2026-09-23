@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 import { CHAIN_BYLINE } from '@/lib/contracts'
+import { LocalePicker } from './LocalePicker'
 
 // ssr: false — WalletPip depends on wagmi account state which is only available
 // on the client. Bypassing SSR prevents React from hydrating wallet-connected
@@ -126,7 +127,14 @@ export function ToshNavbar() {
           </div>
         </div>
 
-        <WalletPip variant="navbar" />
+        {/* Wrapped so the picker can sit beside the pip. `LocalePicker` renders
+            nothing when this build serves one language, and a flex row with one
+            child is indistinguishable from the bare pip that used to be here —
+            so the dark-launched navbar is unchanged to the pixel. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <LocalePicker />
+          <WalletPip variant="navbar" />
+        </div>
       </div>
     </nav>
   )
