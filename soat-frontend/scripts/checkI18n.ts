@@ -107,6 +107,29 @@ function unbalancedStars(value: string): boolean {
   return (value.match(/\*/g) ?? []).length % 2 !== 0
 }
 
+/*
+ * ── Unbalanced link brackets ────────────────────────────────────────────────
+ *
+ * `Linked.tsx` marks the run that becomes an anchor in place — `'…or from [your
+ * referral ledger] for every project…'` — for the same reason the stars exist,
+ * and it degrades the same way: no pair means no link, plain text, no throw.
+ *
+ * The stakes are higher than a lost highlight, so this checks more than parity.
+ * One unmatched bracket renders as a literal `[` in the middle of a sentence, and
+ * a `]` that arrives before its `[` renders the whole thing as text while looking
+ * marked-up in the source — a translator would have no way to tell from the file
+ * that their link had silently stopped being one.
+ */
+function brokenLinkBrackets(value: string): string | null {
+  const opens = (value.match(/\[/g) ?? []).length
+  const closes = (value.match(/\]/g) ?? []).length
+  if (opens !== closes) return `${opens} "[" against ${closes} "]"`
+  if (opens === 0) return null
+  if (value.indexOf(']') < value.indexOf('[')) return 'a "]" before its "["'
+  if (opens > 1) return `${opens} bracketed runs, and \`Linked\` only makes the first one an anchor`
+  return null
+}
+
 function asciiPunctuationAfterCjk(locale: Locale, value: string): [string, string][] {
   const hits: [string, string][] = []
   const re = new RegExp(`[${CJK_RANGES}]([,.;:!?])`, 'g')
@@ -145,6 +168,10 @@ for (const group of enGroups) {
     }
     if (unbalancedStars(value)) {
       fail(`en.${String(group)}.${key} has an odd number of "*" — emphasis markers come in pairs, and the stray one will render as a literal asterisk`)
+    }
+    const brackets = brokenLinkBrackets(value)
+    if (brackets) {
+      fail(`en.${String(group)}.${key} has ${brackets} — \`Linked\` needs exactly one "[…]" run and the stray character renders literally`)
     }
   }
 }
@@ -213,6 +240,22 @@ for (const [locale, overlay] of Object.entries(OVERLAYS) as [Locale, PartialDict
         fail(`${path} drops the *emphasis* English marks — the phrase that answers "so what do I do" loses its highlight`)
       } else if (wantStars === 0 && gotStars > 0) {
         fail(`${path} adds an *emphasis* English does not have — deliberate, or a stray asterisk?`)
+      }
+
+      /*
+       * Where the anchor sits is the translator's call, whether there IS one is
+       * not: English marking a link and this locale not marking one is a reader
+       * who cannot reach the page the sentence is pointing them at.
+       */
+      const brackets = brokenLinkBrackets(value)
+      const wantLink = (base[key].match(/\[/g) ?? []).length > 0
+      const gotLink = (value.match(/\[/g) ?? []).length > 0
+      if (brackets) {
+        fail(`${path} has ${brackets} — \`Linked\` needs exactly one "[…]" run`)
+      } else if (wantLink && !gotLink) {
+        fail(`${path} drops the [link] English marks — the sentence names a page the reader then cannot reach`)
+      } else if (!wantLink && gotLink) {
+        fail(`${path} adds a [link] English does not have, and nothing supplies an href for it`)
       }
 
       if (CJK_PUNCTUATION_LOCALES.has(locale)) {

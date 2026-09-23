@@ -26,10 +26,10 @@
  */
 
 import { useEffect } from 'react'
-import Link from 'next/link'
 import { X } from 'lucide-react'
 import type { Address } from 'viem'
 
+import { fill, Linked, useT } from '@/i18n'
 import { PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fmtQuote } from './format'
@@ -48,6 +48,7 @@ export function DepositSuccessDialog({
   /** This wallet's total stake in the project, after the deposit that fired. */
   deposited:   bigint
 }) {
+  const t = useT()
   const link = useReferralLink(userAddress, symbol)
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export function DepositSuccessDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg-base/80 px-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Deposit confirmed"
+      aria-label={t.success.dialogLabel}
       onClick={onClose}
     >
       <div
@@ -74,14 +75,19 @@ export function DepositSuccessDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h4 className="text-title text-text-primary">You are in ${symbol}</h4>
+            <h4 className="text-title text-text-primary">
+              {fill(t.success.title, { symbol })}
+            </h4>
             <p className="mt-0.5 font-mono text-note text-success">
-              {fmtQuote(deposited)} {QUOTE_SYMBOL} staked in this genesis
+              {fill(t.success.staked, {
+                amount: fmtQuote(deposited),
+                quote:  QUOTE_SYMBOL,
+              })}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t.success.close}
             onClick={onClose}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input
                        border border-border-subtle text-text-tertiary
@@ -92,27 +98,31 @@ export function DepositSuccessDialog({
         </div>
 
         <p className="text-note leading-relaxed text-text-secondary">
-          Your referral link just became worth more: the {PROJECT_PCT}% project
-          commission only binds to a referrer who already holds a deposit here,
-          and you now do. Share it and you earn {PROJECT_PCT}% of every genesis
-          deposit made through it on {symbol}, plus {LIFETIME_PCT}% for life on
-          any wallet whose first Tosh link was yours.
+          {fill(t.success.body, {
+            pct:      PROJECT_PCT,
+            symbol,
+            lifetime: LIFETIME_PCT,
+          })}
         </p>
 
-        <ReferralLinkBox link={link} />
+        {/* The label and the button's verb are this component's copy even though
+            it does not own the markup — `ReferralLinkBox` defaults them to
+            English, which would leave two untranslated runs in the middle of a
+            translated dialog. */}
+        <ReferralLinkBox
+          link={link}
+          label={t.success.linkBoxLabel}
+          copyLabel={t.success.copy}
+        />
 
         <p className="text-label leading-relaxed tracking-wider text-text-quiet">
-          {'// '}Commission accrues as deposits arrive and unlocks when the
-          project launches. Claim it from the referral desk further down this
-          page, or from{' '}
-          <Link
+          {'// '}
+          <Linked
+            text={t.success.footer}
             href="/referrals"
             onClick={onClose}
             className="text-text-tertiary underline decoration-dotted underline-offset-2 hover:text-brand"
-          >
-            your referral ledger
-          </Link>
-          {' '}for every project at once. Nothing expires.
+          />
         </p>
       </div>
     </div>

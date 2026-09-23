@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`DepositSuccessDialog · english copy golden master > a fraction of a coin 1`] = `
+[
+  "[aria-label] Deposit confirmed",
+  "You are in $QMT",
+  "0.05 TQUOTE staked in this genesis",
+  "[aria-label] Close",
+  "Your referral link just became worth more: the 8% project commission only binds to a referrer who already holds a deposit here, and you now do. Share it and you earn 8% of every genesis deposit made through it on QMT, plus 2% for life on any wallet whose first Tosh link was yours.",
+  "YOUR REFERRAL LINK",
+  "https://toshx.io/r/A1B2C3",
+  "copy",
+  "//",
+  "Commission accrues as deposits arrive and unlocks when the project launches. Claim it from the referral desk further down this page, or from",
+  "your referral ledger",
+  "for every project at once. Nothing expires.",
+]
+`;
+
+exports[`DepositSuccessDialog · english copy golden master > a fraction of a coin 2`] = `"You are in $QMT0.05 TQUOTE staked in this genesisYour referral link just became worth more: the 8% project commission only binds to a referrer who already holds a deposit here, and you now do. Share it and you earn 8% of every genesis deposit made through it on QMT, plus 2% for life on any wallet whose first Tosh link was yours.YOUR REFERRAL LINKhttps://toshx.io/r/A1B2C3copy// Commission accrues as deposits arrive and unlocks when the project launches. Claim it from the referral desk further down this page, or from your referral ledger for every project at once. Nothing expires."`;
+
+exports[`DepositSuccessDialog · english copy golden master > a grouped figure 1`] = `
+[
+  "[aria-label] Deposit confirmed",
+  "You are in $QMT",
+  "1.25K TQUOTE staked in this genesis",
+  "[aria-label] Close",
+  "Your referral link just became worth more: the 8% project commission only binds to a referrer who already holds a deposit here, and you now do. Share it and you earn 8% of every genesis deposit made through it on QMT, plus 2% for life on any wallet whose first Tosh link was yours.",
+  "YOUR REFERRAL LINK",
+  "https://toshx.io/r/A1B2C3",
+  "copy",
+  "//",
+  "Commission accrues as deposits arrive and unlocks when the project launches. Claim it from the referral desk further down this page, or from",
+  "your referral ledger",
+  "for every project at once. Nothing expires.",
+]
+`;
+
+exports[`DepositSuccessDialog · english copy golden master > a grouped figure 2`] = `"You are in $QMT1.25K TQUOTE staked in this genesisYour referral link just became worth more: the 8% project commission only binds to a referrer who already holds a deposit here, and you now do. Share it and you earn 8% of every genesis deposit made through it on QMT, plus 2% for life on any wallet whose first Tosh link was yours.YOUR REFERRAL LINKhttps://toshx.io/r/A1B2C3copy// Commission accrues as deposits arrive and unlocks when the project launches. Claim it from the referral desk further down this page, or from your referral ledger for every project at once. Nothing expires."`;

@@ -489,6 +489,59 @@ export const EN = {
     noneLabel:  'Nothing to refund',
     noneReason: 'This wallet has nothing deposited in this project, so there is nothing to refund.',
   },
+
+  /**
+   * The dialog that fires the instant a deposit confirms.
+   *
+   * ⚠ `title` OPENS WITH A LITERAL DOLLAR SIGN, and it is not a typo or a stray
+   *   template literal. The JSX reads `You are in ${symbol}`, where `$` is text
+   *   and `{symbol}` is the expression — so it renders "You are in $QMT", the
+   *   ticker with the sigil every other surface gives it. A locale that drops the
+   *   `$` is losing the sigil, not a currency.
+   *
+   * ⚠ `{pct}` APPEARS TWICE IN `body` ON PURPOSE. `fill()` replaces every
+   *   occurrence, and both slots are the same project commission — the sentence
+   *   names it, then names it again as what the reader now earns. Splitting them
+   *   into `{pct1}`/`{pct2}` would invite a translator to think they can differ.
+   *
+   * `linkBoxLabel` and `copy` are `ReferralLinkBox`'s defaults, which this dialog
+   * does not pass. They are on screen inside it, so they are translated from
+   * here rather than left as the one English run in a Chinese dialog.
+   */
+  success: {
+    dialogLabel: 'Deposit confirmed',
+    close:       'Close',
+
+    title:  'You are in ${symbol}',
+    staked: '{amount} {quote} staked in this genesis',
+
+    /*
+     * Why the dialog exists at all: `canBindProjectReferral` requires the
+     * referrer to already hold a deposit here, so this transaction is the moment
+     * the reader's own link started paying the project leg. Said as one sentence
+     * because the two halves are cause and effect, and a translator handed them
+     * separately cannot keep that relationship.
+     */
+    body: 'Your referral link just became worth more: the {pct}% project '
+        + 'commission only binds to a referrer who already holds a deposit here, '
+        + 'and you now do. Share it and you earn {pct}% of every genesis deposit '
+        + 'made through it on {symbol}, plus {lifetime}% for life on any wallet '
+        + 'whose first Tosh link was yours.',
+
+    linkBoxLabel: 'YOUR REFERRAL LINK',
+    copy:         'copy',
+
+    /*
+     * ⚠ THE `[…]` RUN IS A LINK, rendered by `Linked`. The anchor sits mid-
+     *   sentence in English and Chinese puts it elsewhere, so its position
+     *   belongs to the translator for the same reason `Emph`'s stars do — see
+     *   `Emphasis.tsx` for the argument. The brackets must survive translation
+     *   and `guard:i18n` fails the build when they do not.
+     */
+    footer: 'Commission accrues as deposits arrive and unlocks when the project '
+          + 'launches. Claim it from the referral desk further down this page, or '
+          + 'from [your referral ledger] for every project at once. Nothing expires.',
+  },
 } as const
 
 /**
@@ -504,7 +557,7 @@ export const EN = {
  */
 export const TIER0_SURFACES = [
   'tx', 'gate', 'nav', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
-  'awaitingLaunch',
+  'awaitingLaunch', 'success',
 ] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */
