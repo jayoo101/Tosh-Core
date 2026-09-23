@@ -27,6 +27,29 @@ export const ZH_CN: PartialDictionary = {
     confirmed:  '已确认 —— {action}',
   },
 
+  gate: {
+    connect:       '连接钱包',
+    connecting:    '正在连接…',
+    connectReason: '当前会话还没有连接钱包。',
+
+    // `{chain}` 是链的官方英文名(BNB Smart Chain Testnet)，不译:用户要在钱包
+    // 的网络列表里按这个名字去找，译成中文反而对不上。
+    switchTo:  '切换到 {chain}',
+    switching: '正在切换…',
+
+    switchReasonUnknownChain:
+      '此钱包没有报告所在的链。Tosh 在链 {target} 上结算，'
+      + '每一笔写入都锁定在这条链上，从其他任何链发起都会被拒绝。',
+    switchReasonWrongChain:
+      '此钱包当前在链 {current} 上。Tosh 在链 {target} 上结算，'
+      + '每一笔写入都锁定在这条链上，从这里发起会被拒绝。',
+
+    // 按钮上的字，和上面 `tx` 里的通知文案是两回事:通知会活得比面板久，所以要
+    // 带上动作名；按钮就长在那个面板里，不用重复说一遍。
+    signing:    '等待签名…',
+    confirming: '正在确认…',
+  },
+
   refund: {
     title: '申领退款',
 

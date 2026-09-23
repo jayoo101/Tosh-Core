@@ -60,6 +60,57 @@ export const EN = {
   },
 
   /**
+   * The Smart CTA's own verdicts — the button face before any surface's own
+   * blockers get a say.
+   *
+   * ⚠ TIER 0, AND THE HIGHEST-LEVERAGE COPY IN THE APP. Every action card in
+   *   every panel renders these first: `connect` and `switch` outrank every
+   *   domain blocker by design, so one wrong string here is wrong everywhere at
+   *   once, where a wrong string in `refund` is wrong on one panel.
+   *
+   *   That is also why they were the last thing pinned — both panel golden
+   *   masters mock a wallet already connected and on the right chain, because a
+   *   domain blocker cannot be rendered otherwise. See the golden master in
+   *   `actionGate.test.tsx`.
+   *
+   * The ambient-gate defaults (`[read_only]` and its reason) are deliberately
+   * NOT here. That branch only fires under an `ActionGateProvider` carrying a
+   * closed gate, and the only one in the app is `/admin` — an operator console
+   * that stays English on purpose.
+   */
+  gate: {
+    connect:       'Connect Wallet',
+    connecting:    'Connecting…',
+    connectReason: 'No wallet is connected to this session.',
+
+    switchTo:  'Switch to {chain}',
+    switching: 'Switching…',
+
+    /*
+     * Two arms, because the number the user needs is different in each. Naming
+     * the chain they are actually on is the only way they can tell a wallet on
+     * the wrong network from a build pointed at the wrong one — reporting the
+     * target in both would tell a misconfigured wallet it was already correct.
+     */
+    switchReasonUnknownChain:
+      'This wallet has not reported a chain. Tosh settles on chain {target}; '
+      + 'every write is pinned to it and would be rejected from anywhere else.',
+    switchReasonWrongChain:
+      'This wallet is on chain {current}. Tosh settles on chain {target}; '
+      + 'every write is pinned to it and would be rejected from here.',
+
+    /*
+     * The BUTTON FACE while a write is in flight, which is not the toast copy in
+     * `tx` above. Same moment, two surfaces, and they read differently on
+     * purpose: the toast names the action ("Awaiting signature — deposit")
+     * because it outlives the panel it came from, and the button does not
+     * because it is sitting inside the panel that says so.
+     */
+    signing:    'Awaiting signature…',
+    confirming: 'Confirming…',
+  },
+
+  /**
    * The panel that hands a failed round's money back.
    *
    * ⚠ TIER 0. Every string here is read by someone trying to recover funds, and
@@ -118,7 +169,7 @@ export const EN = {
  * mixed language is ugly and safe, whereas a missing key rendering as
  * `refund.noneReason` is neither.
  */
-export const TIER0_SURFACES = ['tx', 'refund'] as const
+export const TIER0_SURFACES = ['tx', 'gate', 'refund'] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */
 export const TIER0_REQUIRED_LOCALES = ['en', 'zh-CN'] as const

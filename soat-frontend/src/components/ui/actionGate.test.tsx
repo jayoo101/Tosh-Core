@@ -92,12 +92,15 @@ interface Reading {
  * Mount the gate under a real provider, connect the fake wallet, and hand back
  * what the hooks settled on.
  */
-async function readGate(connectWallet: boolean): Promise<Reading> {
+async function readGate(
+  connectWallet: boolean,
+  over: Partial<Parameters<typeof useActionGate>[0]> = {},
+): Promise<Reading> {
   const config = makeConfig()
   const captured: Partial<Reading> = {}
 
   function Probe() {
-    captured.verdict = useActionGate({ action: 'Deploy', onAct: () => {} }).verdict
+    captured.verdict = useActionGate({ action: 'Deploy', onAct: () => {}, ...over }).verdict
     captured.walletChainId = useWalletChainId()
     captured.configChainId = useChainId()
     return null
@@ -158,5 +161,97 @@ describe('useActionGate — wrong network', () => {
     const { verdict } = await readGate(false)
 
     expect(verdict.kind).toBe('connect')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENGLISH GOLDEN MASTER
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Taken before this gate's copy moves into a translation dictionary.
+//
+// ⚠ THIS GATE'S OWN STRINGS WERE THE ONE GAP IN THE TIER-0 COVERAGE, and the
+//   reason is worth recording. The two panel golden masters both mock a wallet
+//   that is CONNECTED AND ON THE RIGHT CHAIN, deliberately, because a domain
+//   blocker cannot be rendered otherwise — `connect` and `switch` outrank every
+//   one of them. So the four verdicts a user meets most often, on every panel in
+//   the app, were pinned nowhere.
+//
+//   They are also the highest-leverage strings in the extraction: one swap here
+//   is wrong on every action card at once, where a swap inside `RefundPanel` is
+//   wrong on one.
+//
+// ⚠ RED DURING THE i18n WORK MEANS STOP, not `-u`.
+//
+// The whole verdict object is snapshotted rather than `strings()`, because this
+// is a hook with no DOM of its own — and `tone` and `disabled` are worth pinning
+// beside the copy anyway: they decide whether the button is clickable and what
+// colour it is, and a wrong pairing there is the same class of error as a wrong
+// sentence.
+//
+// NOT COVERED, and neither is reachable from this harness: the transient
+// `Connecting…` / `Switching…` labels, which need a wallet prompt held open
+// mid-flight, and the `chainId === undefined` arm of the switch reason, which
+// needs a connected wallet that reports no chain — the fake provider always
+// answers `eth_chainId`. `guard:i18n` still checks those three for placeholder
+// drift in every locale; what is unpinned is only their English wording.
+describe('english copy · golden master', () => {
+  /** `reason` carries a `{chain}` the fixture controls, so it is safe to pin. */
+  function shape(verdict: Reading['verdict']) {
+    return {
+      kind: verdict.kind,
+      label: verdict.label,
+      reason: verdict.reason,
+      tone: verdict.tone,
+      disabled: verdict.disabled,
+    }
+  }
+
+  it('no wallet connected', async () => {
+    const { verdict } = await readGate(false)
+    expect(shape(verdict)).toMatchSnapshot()
+  })
+
+  it('connected, wrong chain', async () => {
+    const { verdict } = await readGate(true)
+    expect(shape(verdict)).toMatchSnapshot()
+  })
+
+  // `requiresNetwork: false` is how an off-chain action opts out of the switch
+  // check, and here it is what lets the later verdicts be reached at all — the
+  // fake wallet is parked on 4663 on purpose, so `switch` would otherwise win.
+  it('awaiting signature', async () => {
+    const { verdict } = await readGate(true, {
+      requiresNetwork: false, tx: { isPending: true },
+    })
+    expect(shape(verdict)).toMatchSnapshot()
+  })
+
+  it('confirming', async () => {
+    const { verdict } = await readGate(true, {
+      requiresNetwork: false, tx: { isConfirming: true },
+    })
+    expect(shape(verdict)).toMatchSnapshot()
+  })
+
+  it('ready · the action label is the caller’s, not the gate’s', async () => {
+    const { verdict } = await readGate(true, { requiresNetwork: false })
+    expect(shape(verdict)).toMatchSnapshot()
+  })
+
+  // The blocker's own copy belongs to the surface that declared it, so this pins
+  // only that the gate passes it through untouched.
+  it('a domain blocker wins once the wallet and chain are settled', async () => {
+    const { verdict } = await readGate(true, {
+      requiresNetwork: false,
+      blockersInRevertOrder: [{
+        id: 'fixture',
+        active: true,
+        label: 'Fixture blocker',
+        reason: 'A blocker supplied by the calling surface, passed through verbatim.',
+        tone: 'warn',
+      }],
+    })
+    expect(shape(verdict)).toMatchSnapshot()
   })
 })

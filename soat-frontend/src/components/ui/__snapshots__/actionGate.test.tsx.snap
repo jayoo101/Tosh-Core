@@ -1,0 +1,61 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`english copy · golden master > a domain blocker wins once the wallet and chain are settled 1`] = `
+{
+  "disabled": true,
+  "kind": "blocked",
+  "label": "Fixture blocker",
+  "reason": "A blocker supplied by the calling surface, passed through verbatim.",
+  "tone": "warn",
+}
+`;
+
+exports[`english copy · golden master > awaiting signature 1`] = `
+{
+  "disabled": true,
+  "kind": "busy",
+  "label": "Awaiting signature…",
+  "reason": null,
+  "tone": "neutral",
+}
+`;
+
+exports[`english copy · golden master > confirming 1`] = `
+{
+  "disabled": true,
+  "kind": "busy",
+  "label": "Confirming…",
+  "reason": null,
+  "tone": "neutral",
+}
+`;
+
+exports[`english copy · golden master > connected, wrong chain 1`] = `
+{
+  "disabled": false,
+  "kind": "switch",
+  "label": "Switch to BNB Smart Chain Testnet",
+  "reason": "This wallet is on chain 4663. Tosh settles on chain 97; every write is pinned to it and would be rejected from here.",
+  "tone": "warn",
+}
+`;
+
+exports[`english copy · golden master > no wallet connected 1`] = `
+{
+  "disabled": false,
+  "kind": "connect",
+  "label": "Connect Wallet",
+  "reason": "No wallet is connected to this session.",
+  "tone": "info",
+}
+`;
+
+exports[`english copy · golden master > ready · the action label is the caller’s, not the gate’s 1`] = `
+{
+  "disabled": false,
+  "kind": "ready",
+  "label": "Deploy",
+  "reason": null,
+  "tone": "ok",
+}
+`;

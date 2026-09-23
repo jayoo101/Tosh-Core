@@ -43,6 +43,7 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useAccount, useConnect, useSwitchChain } from 'wagmi'
 import { TARGET_CHAIN_ID, ACTIVE_CHAIN_LABEL } from '@/lib/contracts'
 import { useWalletChainId } from '@/lib/useWalletChainId'
+import { fill, useT } from '@/i18n'
 import { useIsHydrated } from './useClock'
 import { toshToast } from './toast'
 import type { Tone } from './Badge'
@@ -253,6 +254,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain()
   const ambient = useAmbientGate()
+  const t = useT()
 
   const connected = hydrated && isConnected
   const isWrongNetwork = connected && chainId !== TARGET_CHAIN_ID
@@ -272,7 +274,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     if (!hydrated) {
       return {
         kind: 'connect',
-        label: 'Connect Wallet',
+        label: t.gate.connect,
         reason: null,
         tone: 'info',
         disabled: true,
@@ -284,8 +286,8 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
       const connector = connectors[0]
       return {
         kind: 'connect',
-        label: isConnecting ? 'Connecting…' : 'Connect Wallet',
-        reason: 'No wallet is connected to this session.',
+        label: isConnecting ? t.gate.connecting : t.gate.connect,
+        reason: t.gate.connectReason,
         tone: 'info',
         disabled: isConnecting || connector === undefined,
         act: connector === undefined
@@ -297,10 +299,12 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     if (requiresNetwork && isWrongNetwork) {
       return {
         kind: 'switch',
-        label: isSwitching ? 'Switching…' : `Switch to ${ACTIVE_CHAIN_LABEL}`,
+        label: isSwitching
+          ? t.gate.switching
+          : fill(t.gate.switchTo, { chain: ACTIVE_CHAIN_LABEL }),
         reason: chainId === undefined
-          ? `This wallet has not reported a chain. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from anywhere else.`
-          : `This wallet is on chain ${chainId}. Tosh settles on chain ${TARGET_CHAIN_ID}; every write is pinned to it and would be rejected from here.`,
+          ? fill(t.gate.switchReasonUnknownChain, { target: TARGET_CHAIN_ID })
+          : fill(t.gate.switchReasonWrongChain, { current: chainId, target: TARGET_CHAIN_ID }),
         tone: 'warn',
         disabled: isSwitching,
         act: () => {
@@ -312,7 +316,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     if (busy) {
       return {
         kind: 'busy',
-        label: isConfirming ? 'Confirming…' : 'Awaiting signature…',
+        label: isConfirming ? t.gate.confirming : t.gate.signing,
         reason: null,
         tone: 'neutral',
         disabled: true,
@@ -321,6 +325,9 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
       }
     }
 
+    // Untranslated on purpose, and not an oversight to tidy up later: this
+    // branch only fires under an `ActionGateProvider` carrying a closed gate,
+    // and the only one in the app is `/admin`, which stays English.
     if (!bypassAmbientGate && !ambient.allowed) {
       return {
         kind: 'blocked',
@@ -365,6 +372,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     firstBlocker,
     action,
     onAct,
+    t,
   ])
 
   return { verdict, isConnected: connected, isWrongNetwork, isResolving: !hydrated }
