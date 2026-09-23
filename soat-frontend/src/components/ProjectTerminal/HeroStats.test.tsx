@@ -94,6 +94,90 @@ describe('HeroStats genesis countdown', () => {
     expect(container.textContent).not.toContain('Raised')
   })
 
+  /*
+   * `totalNativeDeposited` NEVER FALLS. `refund()` zeroes the per-wallet entry
+   * and leaves the total alone on purpose, because `claimTokens` divides by it
+   * — so a round refunded down to zero reports its peak forever, and this cell
+   * was printing that peak under the present-tense label "Raised" beside a
+   * REFUND OPEN badge. A depositor reading it was told the money was in.
+   *
+   * The fixtures below all keep `totalNativeDeposited` at its peak while the
+   * balance varies, because that IS the state being tested: the two figures
+   * disagreeing is the normal case in this phase, not a contrived one.
+   */
+  describe('once refunds open', () => {
+    function refund(hookQuoteBalance?: bigint) {
+      return mount(
+        <HeroStats {...BASE} phase="refund" hookQuoteBalance={hookQuoteBalance} />,
+      )
+    }
+
+    it('stops calling the peak a present-tense balance', () => {
+      const { container } = refund(0n)
+      expect(container.textContent).toContain('Raised at genesis')
+    })
+
+    it('says the money is gone when the hook is empty, rather than implying it is in', () => {
+      const { container } = refund(0n)
+      expect(container.textContent).toContain('every refund paid out')
+      // The peak is still drawn — it is a true historical figure and the label
+      // now scopes it. What must not survive is it standing alone.
+      //
+      // `5.00e-6`, not `500`: the fixture is 500 raw units on the quote
+      // asset's 8-decimal scale. See the p0 case at the bottom of this file.
+      expect(container.textContent).toContain('5.00e-6')
+    })
+
+    it('states what is left when refunds are still outstanding', () => {
+      const { container } = refund(120n)
+      expect(container.textContent).toContain('still waiting to be claimed')
+      expect(container.textContent).not.toContain('every refund paid out')
+    })
+
+    /*
+     * The failure this guards is a verdict printed on a guess. `0n` and "not
+     * read yet" render the same if the prop is coalesced anywhere on the way
+     * in, and the coalesced answer is the alarming one: a hook still holding
+     * every depositor's money, captioned as fully refunded.
+     */
+    it('claims nothing while the balance read is in flight', () => {
+      const { container } = refund(undefined)
+      expect(container.textContent).toContain('reading what is left')
+      expect(container.textContent).not.toContain('every refund paid out')
+    })
+
+    it('does not caption an empty stake as claimable', () => {
+      const { container } = refund(0n)
+      expect(container.textContent).toContain('nothing to claim here')
+      expect(container.textContent).not.toContain('claimable in full')
+    })
+
+    it('still offers the refund to a wallet that has a deposit', () => {
+      const { container } = mount(
+        <HeroStats {...BASE} phase="refund" userEthDeposited={250n} hookQuoteBalance={250n} />,
+      )
+      expect(container.textContent).toContain('claimable in full')
+      expect(container.textContent).not.toContain('nothing to claim here')
+    })
+  })
+
+  /*
+   * The outstanding line sits in the slot the countdown uses, so the two are
+   * mutually exclusive by phase rather than by layout. Worth pinning: the
+   * cheapest way to regress it is to drop the `phase === 'refund'` guard and
+   * let the line render everywhere, which looks fine in genesis review
+   * because the countdown is the thing being looked at.
+   */
+  it('keeps the outstanding line out of every phase but refund', () => {
+    for (const phase of ['genesis', 'awaiting_launch', 'bonding'] as const) {
+      const { container } = mount(
+        <HeroStats {...BASE} phase={phase} hookQuoteBalance={0n} />,
+      )
+      expect(container.textContent, phase).not.toContain('every refund paid out')
+      expect(container.textContent, phase).not.toContain('Raised at genesis')
+    }
+  })
+
   it('draws p0 on the quote scale, not the 18-decimal default', () => {
     // p0 is quote-wei per whole token. 1000n is 0.00001 quote. Drawn at 18
     // decimals it is 1.00e-15 — ten orders small, and still a plausible

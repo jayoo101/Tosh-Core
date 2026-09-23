@@ -39,6 +39,7 @@ export function HeroStats({
   totalNativeDeposited,
   phase2Minted, bondingMax,
   userEthDeposited,
+  hookQuoteBalance,
   windowLabel,
   genesisWindow,
 }: {
@@ -51,6 +52,19 @@ export function HeroStats({
   phase2Minted: bigint
   bondingMax: bigint
   userEthDeposited: bigint
+  /**
+   * `quoteAsset.balanceOf(hook)` — what the round still holds. `undefined`
+   * while the read is in flight, and that is NOT `0n`: zero is the verdict
+   * "everything has been refunded", which must never be printed on a guess.
+   *
+   * Only read during `refund`, where it is exact. An unlaunched hook takes
+   * money in one way (deposits) and lets it out one way (refunds), so its
+   * balance IS its outstanding liability — every other outflow in the contract
+   * is gated behind `launched`. The one thing that can inflate it is an
+   * unsolicited transfer to the hook, which nothing stops and which would
+   * overstate what is owed rather than hide a shortfall.
+   */
+  hookQuoteBalance?: bigint
   /** One-word status under the phase badge, when there is no live clock. */
   windowLabel?: string
   /**
@@ -97,10 +111,42 @@ export function HeroStats({
     ? Number((phase2Minted * 10_000n) / bondingMax) / 100
     : 0
 
+  /*
+   * ⚠ `refund` SPANS FROM THE WINDOW CLOSING TO THE LAST WALLET BEING PAID,
+   *   and this hint used to be the single word "claimable in full" across all
+   *   of it. `userEthDeposited` is `nativeDeposited(wallet)`, which `refund()`
+   *   zeroes — so the wallet that had already taken its money back read
+   *   "0 BEM · claimable in full", a figure and a caption contradicting each
+   *   other in the page's own header.
+   *
+   *   IT DOES NOT SAY "already refunded" EITHER, tempting as that is. Zero is
+   *   also what a wallet that never deposited sees, and what a pending read
+   *   looks like — `ProjectTerminal` passes `userEthDeposited ?? 0n` into this
+   *   prop by design, because the panels that spend the value take the
+   *   `undefined` and the cells that only display it take the zero. So a
+   *   refund is one of three things zero can mean here, and the only honest
+   *   line is the one that claims no history. Whether the ROUND has paid out
+   *   is a separate question, and the Raised cell answers it.
+   */
   const stakeHint =
-    phase === 'refund'  ? 'claimable in full'
+    phase === 'refund'
+      ? (userEthDeposited > 0n ? 'claimable in full' : 'nothing to claim here')
     : phase === 'bonding' ? 'genesis allocation unlocked at launch'
     : 'in this raise'
+
+  /*
+   * The raise's figure is a PEAK once refunds open, so the label stops calling
+   * it the present tense and the line below says where the money actually is.
+   *
+   * "Raised at genesis" is lifted verbatim from the directory's completed-tab
+   * card, which has been wording it that way all along — this cell was the one
+   * place still printing the high-water mark as though it were a balance.
+   */
+  const raisedLabel = phase === 'refund' ? 'Raised at genesis' : 'Raised'
+  const outstandingTxt =
+    hookQuoteBalance === undefined ? '→ reading what is left…'
+    : hookQuoteBalance === 0n      ? '→ every refund paid out · nothing left here'
+    : `→ ${fmtQuote(hookQuoteBalance)} ${QUOTE_SYMBOL} still waiting to be claimed`
 
   return (
     <div className="grid grid-cols-2 gap-card @lg:grid-cols-4">
@@ -144,11 +190,19 @@ export function HeroStats({
             <Readout
               layout="stack"
               size="figure"
-              label="Raised"
+              label={raisedLabel}
               value={fmtQuote(totalNativeDeposited)}
               hint={genesisWindow ? undefined : QUOTE_SYMBOL}
               tone={phase === 'refund' ? 'mute' : 'ok'}
             />
+            {/* Takes the slot the countdown holds during genesis, which is free
+                here: `genesisWindow` is `undefined` in every phase but that
+                one, so the two can never stack. */}
+            {phase === 'refund' && (
+              <span className="font-mono text-note tabular-nums text-text-tertiary">
+                {outstandingTxt}
+              </span>
+            )}
             {/* The clock takes the slot the soft-cap bar used to hold, and it
                 is the one meter on this card during genesis — so it gets
                 `bar` rather than the hairline, per the note in Progress.tsx.

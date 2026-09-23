@@ -234,6 +234,16 @@ export default function ProjectTerminal({ project, about, header }: {
       { address: hookAddress,    abi: HOOK_ABI,    functionName: 'shelfP0'           },
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'blacklistedUntil',
         args: userAddress ? [userAddress] : undefined },
+      // APPENDED, not inserted — see the note on slot 6. Every index below is
+      // positional.
+      //
+      // What the hook still holds, which is the only way to tell a round that
+      // owes refunds from one that has already paid them all out.
+      // `totalNativeDeposited` cannot: `refund()` zeroes the per-wallet entry
+      // and deliberately leaves the total alone, because `claimTokens` divides
+      // by it. So the total is a high-water mark that never falls, and a raise
+      // refunded down to nothing still reports its peak forever.
+      { address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf', args: [hookAddress] },
     ] : []
 
   const { data, refetch } = useReadContracts({
@@ -269,6 +279,11 @@ export default function ProjectTerminal({ project, about, header }: {
   const cooldownEnd        = (data?.[12]?.result as bigint  | undefined) ?? 0n
   const shelfP0           = (data?.[13]?.result as bigint  | undefined) ?? 0n
   const blacklistedUntil   = (data?.[14]?.result as bigint  | undefined) ?? 0n
+  // No `?? 0n`. Zero is a real and loud answer here — "every refund on this
+  // round has been paid" — and a read still in flight is not it. Coalescing
+  // would print that verdict over a hook still holding everyone's money for as
+  // long as the 12s bulk call takes to land.
+  const hookQuoteBalance   = data?.[15]?.result as bigint  | undefined
 
   // (eligible, remainingQuota, cooldownRemaining) — the factory's own verdict,
   // which is the only place that knows whether a lapsed quota window has been
@@ -430,6 +445,9 @@ export default function ProjectTerminal({ project, about, header }: {
             // Display only: a zero reads as "you have not deposited", which is
             // the right thing to show while the figure is still loading.
             userEthDeposited={userEthDeposited ?? 0n}
+            // Passed through UNCOALESCED, unlike the line above: this one is
+            // read as a verdict about the round rather than about the reader.
+            hookQuoteBalance={hookQuoteBalance}
             windowLabel={windowLabel}
             genesisWindow={genesisClock}
           />
