@@ -336,6 +336,24 @@ describe('QuotaLedger · an unreadable ledger is not a clean one', () => {
 // asserted above, plus the resting case, because a golden master that skips the
 // healthy state would not notice the extraction breaking it.
 describe('english copy · golden master', () => {
+  /**
+   * Both halves of the net. `strings()` is ordered and node-sensitive, which is
+   * what catches a swap; that same sensitivity makes it go red when extracting
+   * copy merges text nodes without touching a word, which it does every time a
+   * sentence is split mid-way by an interpolated ticker or figure. `prose()` is
+   * the assertion that stays green through that, and still fails a rewording:
+   * identical collapsed text content is identical characters in identical order.
+   *
+   * ⚠ `strings()` STAYS FIRST so it keeps the snapshot keys it already had, and
+   *   both are `soft` so a failure in the first still lets the second answer —
+   *   which is the moment its answer matters. See the longer note in
+   *   `moneyBackCopy.golden.test.tsx`.
+   */
+  function pin(ui: { strings(): string[]; prose(): string }) {
+    expect.soft(ui.strings()).toMatchSnapshot()
+    expect.soft(ui.prose()).toMatchSnapshot()
+  }
+
   const STATES: ReadonlyArray<readonly [string, Partial<GenesisProps>, typeof pog | null]> = [
     ['unattested · no gas history yet',   {},                                          null],
     ['attested · resting, nothing typed', ATTESTED,                                    null],
@@ -348,7 +366,7 @@ describe('english copy · golden master', () => {
     it(name, () => {
       const ui = render(over)
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }
@@ -360,7 +378,7 @@ describe('english copy · golden master', () => {
     pog = pogFlow({ phase: 'ready', scan: REFUSED })
     const ui = render()
     try {
-      expect(ui.strings()).toMatchSnapshot()
+      pin(ui)
     } finally { ui.unmount() }
   })
 
@@ -368,7 +386,7 @@ describe('english copy · golden master', () => {
     pog = pogFlow({ phase: 'ready', scan: REFUSED })
     const ui = render({ genesisDeadline: BigInt(NOW - 10) })
     try {
-      expect(ui.strings()).toMatchSnapshot()
+      pin(ui)
     } finally { ui.unmount() }
   })
 
@@ -385,7 +403,7 @@ describe('english copy · golden master', () => {
     it(`QuotaLedger · ${name}`, () => {
       const ui = mount(<QuotaLedger {...props} />)
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }

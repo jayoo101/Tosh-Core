@@ -110,6 +110,72 @@ export const EN = {
     confirming: 'Confirming…',
   },
 
+  /** Collecting a genesis allocation after the pool opens. */
+  claim: {
+    title:    'Genesis allocation · {symbol}',
+    subtitle: 'Your share of the genesis supply, in proportion to what you '
+            + 'deposited. One claim per wallet.',
+
+    yourDeposit: 'Your genesis deposit',
+    cta:         'Claim {symbol}',
+    /** Lower case: the toast reads "Confirmed — claim QMT". */
+    txAction:    'claim {symbol}',
+
+    /*
+     * Two separate reads, two separate waits, and they are not interchangeable:
+     * one is "how big is your share", the other is "have you already taken it".
+     * Both hold the button rather than letting it offer a transaction that the
+     * contract would reject.
+     */
+    depositPendingLabel:  'Reading your deposit…',
+    depositPendingReason: 'Fetching this wallet’s genesis deposit, which is what '
+                        + 'the allocation is proportional to.',
+
+    claimedUnknownLabel:  'Checking your claim…',
+    claimedUnknownReason: 'Reading whether this wallet has already claimed. There '
+                        + 'is one claim per wallet, so the button waits for the '
+                        + 'answer rather than offering a transaction that would fail.',
+  },
+
+  /**
+   * What the deposit form becomes for a wallet the Proof-of-Gas floor refused.
+   *
+   * ⚠ EVERY SENTENCE HERE IS LOAD-BEARING, and the file it lives in says why at
+   *   length: the screen this replaced showed a disabled form saying the only
+   *   missing thing was a number, readers did the reasonable thing and retried,
+   *   the shared scan budget ran out, and the raise funnel was down for 26
+   *   minutes. The copy's whole job is to say "this is not a wait" clearly
+   *   enough that nobody tries again. A translation that softens that into
+   *   "temporarily unavailable" rebuilds the outage in another language.
+   */
+  ineligible: {
+    title:    'This wallet cannot deposit',
+    subtitle: 'Proof-of-Gas sizes every deposit quota from gas already spent '
+            + 'on-chain. This address has not spent enough for a quota to exist.',
+
+    banner: '→ BELOW THE GAS FLOOR',
+    /* Row labels for the two figures and the multiple between them. */
+    thisWallet: 'THIS WALLET',
+    floor:      'FLOOR',
+    shortBy:    'SHORT BY',
+
+    /* `*already spent*` is emphasised in place — see `Emphasis.tsx`. */
+    notAWait: 'This is not a queue and not a cooldown — there is nothing here to '
+            + 'wait for. The floor is measured against gas this address has '
+            + '*already spent*, across {chains}, so it only moves as that history grows.',
+
+    whatWouldWork: '// WHAT WOULD WORK',
+    switchWallet:  'Connect an address you have actually used — a main wallet with '
+                 + 'a real transaction history will usually clear the floor on its '
+                 + 'own. Switching wallets re-reads the history automatically; '
+                 + 'there is nothing to press here.',
+    fundingWontHelp: 'A fresh address cannot be made eligible by funding it with '
+                   + '{symbol}. The quota comes from gas spent, which is the whole '
+                   + 'point of the mechanism.',
+
+    breakdown: 'View per-chain breakdown',
+  },
+
   /**
    * The panel that hands a failed round's money back.
    *
@@ -169,7 +235,7 @@ export const EN = {
  * mixed language is ugly and safe, whereas a missing key rendering as
  * `refund.noneReason` is neither.
  */
-export const TIER0_SURFACES = ['tx', 'gate', 'refund'] as const
+export const TIER0_SURFACES = ['tx', 'gate', 'refund', 'claim', 'ineligible'] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */
 export const TIER0_REQUIRED_LOCALES = ['en', 'zh-CN'] as const

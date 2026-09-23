@@ -2,6 +2,7 @@
 
 import { Card } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { Emph, fill, useT } from '@/i18n'
 import { formatGasScanChainList } from '@/app/lib/gasScanCopy'
 import { fmt } from './format'
 
@@ -44,6 +45,8 @@ export function GenesisIneligible({
   floorWei: bigint
   onOpenBreakdown: () => void
 }) {
+  const t = useT()
+
   /**
    * How far short, as a multiple.
    *
@@ -63,31 +66,31 @@ export function GenesisIneligible({
   return (
     <Card
       id="DEPOSIT"
-      title="This wallet cannot deposit"
-      subtitle="Proof-of-Gas sizes every deposit quota from gas already spent on-chain. This address has not spent enough for a quota to exist."
+      title={t.ineligible.title}
+      subtitle={t.ineligible.subtitle}
       interactive={false}
     >
       <div className="border border-warning/40 px-4 py-3 flex flex-col gap-2">
         <p className="font-mono text-label tracking-[0.32em] uppercase text-warning">
-          → BELOW THE GAS FLOOR
+          {t.ineligible.banner}
         </p>
 
         <div className="flex flex-col gap-1">
           <div className="flex items-baseline justify-between gap-4">
-            <span className="font-mono text-label text-text-tertiary">THIS WALLET</span>
+            <span className="font-mono text-label text-text-tertiary">{t.ineligible.thisWallet}</span>
             <span className="font-mono text-note text-text-primary tabular-nums">
               {fmt(totalGasWei)} ETH
             </span>
           </div>
           <div className="flex items-baseline justify-between gap-4">
-            <span className="font-mono text-label text-text-tertiary">FLOOR</span>
+            <span className="font-mono text-label text-text-tertiary">{t.ineligible.floor}</span>
             <span className="font-mono text-note text-text-primary tabular-nums">
               {fmt(floorWei)} ETH
             </span>
           </div>
           {shortfall !== null && (
             <div className="flex items-baseline justify-between gap-4 border-t border-border-subtle/60 pt-1.5">
-              <span className="font-mono text-label text-text-tertiary">SHORT BY</span>
+              <span className="font-mono text-label text-text-tertiary">{t.ineligible.shortBy}</span>
               <span className="font-mono text-note text-warning tabular-nums">
                 {shortfall >= 100
                   ? `${Math.round(shortfall).toLocaleString('en-US')}×`
@@ -106,23 +109,18 @@ export function GenesisIneligible({
         was a minute spent on the wrong plan.
       */}
       <p className="font-mono text-note text-text-tertiary leading-relaxed">
-        This is not a queue and not a cooldown — there is nothing here to wait for.
-        The floor is measured against gas this address has <span className="text-text-primary">already
-        spent</span>, across {formatGasScanChainList()}, so it only moves as that history grows.
+        <Emph text={fill(t.ineligible.notAWait, { chains: formatGasScanChainList() })} />
       </p>
 
       <div className="border border-border-subtle px-4 py-3 flex flex-col gap-1.5">
         <span className="text-label tracking-[0.4em] uppercase text-text-tertiary font-bold">
-          {'// WHAT WOULD WORK'}
+          {t.ineligible.whatWouldWork}
         </span>
         <p className="font-mono text-note text-text-tertiary leading-relaxed">
-          Connect an address you have actually used — a main wallet with a real transaction
-          history will usually clear the floor on its own. Switching wallets re-reads the
-          history automatically; there is nothing to press here.
+          {t.ineligible.switchWallet}
         </p>
         <p className="font-mono text-note text-text-quiet leading-relaxed">
-          A fresh address cannot be made eligible by funding it with {QUOTE_SYMBOL}. The
-          quota comes from gas spent, which is the whole point of the mechanism.
+          {fill(t.ineligible.fundingWontHelp, { symbol: QUOTE_SYMBOL })}
         </p>
       </div>
 
@@ -132,7 +130,7 @@ export function GenesisIneligible({
         className="self-start font-mono text-label tracking-[0.2em] uppercase
                    text-brand hover:underline"
       >
-        View per-chain breakdown
+        {t.ineligible.breakdown}
       </button>
     </Card>
   )

@@ -50,6 +50,53 @@ export const ZH_CN: PartialDictionary = {
     confirming: '正在确认…',
   },
 
+  claim: {
+    title:    '创世额度 · {symbol}',
+    subtitle: '你在创世供应量中的份额，按你存入的金额等比分配。每个钱包只能领取一次。',
+
+    yourDeposit: '你的创世存入金额',
+    cta:         '领取 {symbol}',
+    // 名词短语，理由同 `refund.txAction`:要套进「正在确认……」。
+    txAction:    '领取 {symbol}',
+
+    depositPendingLabel:  '正在读取你存入的金额…',
+    depositPendingReason: '正在获取此钱包的创世存入金额 —— 额度就是按它等比算出来的。',
+
+    claimedUnknownLabel:  '正在核对领取状态…',
+    claimedUnknownReason: '正在读取此钱包是否已经领取过。每个钱包只能领一次，'
+                        + '所以按钮会等这个答案，而不是让你发一笔注定失败的交易。',
+  },
+
+  ineligible: {
+    title:    '此钱包无法存入',
+    subtitle: 'Proof-of-Gas 按链上已经花掉的 gas 来决定每个钱包的存款额度。'
+            + '这个地址花掉的还不够，因此没有额度。',
+
+    banner: '→ 低于 GAS 门槛',
+    thisWallet: '此钱包',
+    floor:      '门槛',
+    shortBy:    '相差',
+
+    // ⚠ 这句话的任务是让读者别再试一次 —— 英文那边的注释记了一次事故:上一版界面
+    //   摆着一个禁用的表单，暗示只差一个数字，读者反复重试把共享的扫描额度耗光，
+    //   整个募资入口宕了 26 分钟。所以「这不是等待」必须说得毫不含糊，绝不能翻成
+    //   「暂时不可用」「请稍后再试」之类。
+    //
+    // 强调落在「已经花掉的」，位置和英文不同 —— 英文的 *already spent* 在从句末尾，
+    // 中文要挪到名词前面。这正是星号约定存在的原因。
+    notAWait: '这不是排队，也不是冷却期 —— 这里没有什么可等的。'
+            + '门槛比的是这个地址 *已经花掉的* gas，横跨 {chains}，'
+            + '所以它只会随着这段历史增长而变化。',
+
+    whatWouldWork: '// 什么做法有用',
+    switchWallet:  '换一个你真正在用的地址 —— 有真实交易记录的主钱包通常自己就能过线。'
+                 + '切换钱包会自动重新读取历史，这里没有需要你按的东西。',
+    fundingWontHelp: '往一个新地址里转 {symbol} 并不能让它变得合格。额度来自花掉的 gas，'
+                   + '这正是这套机制的用意。',
+
+    breakdown: '查看各链明细',
+  },
+
   refund: {
     title: '申领退款',
 

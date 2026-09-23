@@ -89,6 +89,24 @@ const FULL_WIDTH: Readonly<Record<string, string>> = {
   ':': '\uFF1A', '!': '\uFF01', '?': '\uFF1F',
 }
 
+/*
+ * ── Unbalanced emphasis stars ───────────────────────────────────────────────
+ *
+ * `Emphasis.tsx` marks the phrase to highlight in place — `'…has *already
+ * spent*, across {chains}…'` — because the highlight falls on a different word
+ * in every language and a `<span>` in the JSX can only ever pin it to English
+ * word order.
+ *
+ * `Emph` renders an odd number of stars by leaving the tail unemphasised, which
+ * is the right behaviour at render time: a missing highlight is cosmetic, and a
+ * thrown exception on a page about money is not. That makes this the only place
+ * the mistake can be caught, so it is caught here — and English is checked too,
+ * since a typo in the source string propagates to every translation of it.
+ */
+function unbalancedStars(value: string): boolean {
+  return (value.match(/\*/g) ?? []).length % 2 !== 0
+}
+
 function asciiPunctuationAfterCjk(locale: Locale, value: string): [string, string][] {
   const hits: [string, string][] = []
   const re = new RegExp(`[${CJK_RANGES}]([,.;:!?])`, 'g')
@@ -124,6 +142,9 @@ for (const group of enGroups) {
     if (value.trim() === '') fail(`en.${String(group)}.${key} is empty`)
     if (value !== value.trim()) {
       fail(`en.${String(group)}.${key} has leading or trailing whitespace — it will show up in the layout`)
+    }
+    if (unbalancedStars(value)) {
+      fail(`en.${String(group)}.${key} has an odd number of "*" — emphasis markers come in pairs, and the stray one will render as a literal asterisk`)
     }
   }
 }
@@ -176,6 +197,22 @@ for (const [locale, overlay] of Object.entries(OVERLAYS) as [Locale, PartialDict
       }
       for (const p of got) {
         if (!want.has(p)) fail(`${path} invents {${p}}, which nothing fills — it would render literally`)
+      }
+
+      /*
+       * Count, not position. Which word carries the emphasis is the translator's
+       * call — that is the whole reason the marker lives in the string — but a
+       * pair that English opens and this locale never closes is a dropped star,
+       * and the reader gets a literal `*` in the middle of a sentence.
+       */
+      const wantStars = (base[key].match(/\*/g) ?? []).length
+      const gotStars = (value.match(/\*/g) ?? []).length
+      if (unbalancedStars(value)) {
+        fail(`${path} has an odd number of "*" — emphasis markers come in pairs; the stray one renders literally`)
+      } else if (wantStars > 0 && gotStars === 0) {
+        fail(`${path} drops the *emphasis* English marks — the phrase that answers "so what do I do" loses its highlight`)
+      } else if (wantStars === 0 && gotStars > 0) {
+        fail(`${path} adds an *emphasis* English does not have — deliberate, or a stray asterisk?`)
       }
 
       if (CJK_PUNCTUATION_LOCALES.has(locale)) {

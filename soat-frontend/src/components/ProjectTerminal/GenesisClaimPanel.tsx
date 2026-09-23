@@ -8,6 +8,7 @@ import {
   Card, Readout, ActionButton, useActionGate, useTxAction, revertOrder,
 } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 import { fmtQuote } from './format'
 
 
@@ -25,6 +26,8 @@ export function GenesisClaimPanel({
   nativeDeposited: bigint | undefined
   refetch:      () => void
 }) {
+  const t = useT()
+
   const { data: hasClaimedRaw, refetch: refetchClaimed } = useReadContract({
     address:      hookAddress,
     abi:          HOOK_ABI,
@@ -40,7 +43,7 @@ export function GenesisClaimPanel({
   const hasClaimed = (hasClaimedRaw as boolean | undefined) ?? false
 
   const { send, isPending, isConfirming } = useTxAction({
-    action: `claim ${symbol}`,
+    action: fill(t.claim.txAction, { symbol }),
     onConfirmed: () => { refetch(); void refetchClaimed() },
   })
 
@@ -52,7 +55,7 @@ export function GenesisClaimPanel({
   }, [hookAddress, send])
 
   const gate = useActionGate({
-    action: `Claim ${symbol}`,
+    action: fill(t.claim.cta, { symbol }),
     onAct: handleClaim,
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
@@ -62,15 +65,15 @@ export function GenesisClaimPanel({
         // be the thing that waits.
         id: 'deposit-pending',
         active: nativeDeposited === undefined,
-        label: 'Reading your deposit…',
-        reason: 'Fetching this wallet’s genesis deposit, which is what the allocation is proportional to.',
+        label: t.claim.depositPendingLabel,
+        reason: t.claim.depositPendingReason,
         tone: 'neutral',
       },
       {
         id: 'claimed-unknown',
         active: claimedUnknown,
-        label: 'Checking your claim…',
-        reason: 'Reading whether this wallet has already claimed. There is one claim per wallet, so the button waits for the answer rather than offering a transaction that would fail.',
+        label: t.claim.claimedUnknownLabel,
+        reason: t.claim.claimedUnknownReason,
         tone: 'neutral',
       },
     ),
@@ -83,11 +86,11 @@ export function GenesisClaimPanel({
   return (
     <Card
       id="P-1.9"
-      title={`Genesis allocation · ${symbol}`}
-      subtitle="Your share of the genesis supply, in proportion to what you deposited. One claim per wallet."
+      title={fill(t.claim.title, { symbol })}
+      subtitle={t.claim.subtitle}
     >
       <Readout
-        label="Your genesis deposit"
+        label={t.claim.yourDeposit}
         value={nativeDeposited === undefined ? '…' : `${fmtQuote(nativeDeposited)} ${QUOTE_SYMBOL}`}
       />
       <ActionButton gate={gate} />

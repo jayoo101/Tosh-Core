@@ -62,6 +62,37 @@ export interface Mounted {
    * string an extraction walks past.
    */
   strings(): string[]
+  /**
+   * Everything visible as ONE string, whitespace collapsed the way a browser
+   * collapses it.
+   *
+   * The companion to `strings()`, and orthogonal to it on purpose. `strings()`
+   * is sensitive to where the text nodes fall, which is what makes it good at
+   * catching a swap — two blockers trading reasons moves entries around — and
+   * bad at surviving a change that merges nodes without touching a word.
+   *
+   * That merge is not hypothetical, it is what extracting copy DOES. This
+   * sentence is three text nodes today:
+   *
+   *     A fresh address cannot be made eligible by funding it with {QUOTE_SYMBOL}.
+   *     The quota comes from gas spent, ...
+   *
+   * because the ticker is interpolated mid-sentence. A dictionary stores the
+   * whole sentence with a `{symbol}` placeholder — that is the entire point, a
+   * translator cannot reorder fragments they receive separately — and `fill()`
+   * hands back one node. `strings()` goes red on a change that altered nothing
+   * a reader can see.
+   *
+   * So when that happens, this is the assertion that has to stay green, and it
+   * is a strong claim: identical collapsed text content means the two markups
+   * render the same characters in the same order. A reworded sentence cannot
+   * pass it, and neither can a dropped one.
+   *
+   * ⚠ IT CANNOT SEE ATTRIBUTES, and `textContent` never could. A `placeholder`
+   *   or a `title` is real copy — `RefundPanel` puts a whole blocker reason in
+   *   a `title` — and only `strings()` covers those. Neither replaces the other.
+   */
+  prose(): string
   unmount(): void
 }
 
@@ -152,6 +183,7 @@ export function mount(node: ReactNode): Mounted {
       collectStrings(container, out)
       return out
     },
+    prose: () => (container.textContent ?? '').replace(/\s+/g, ' ').trim(),
     unmount() {
       act(() => { root.unmount() })
       container.remove()

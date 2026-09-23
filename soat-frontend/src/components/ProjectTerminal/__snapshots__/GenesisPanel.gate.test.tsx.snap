@@ -14,6 +14,8 @@ exports[`english copy · golden master > QuotaLedger · banned 1`] = `
 ]
 `;
 
+exports[`english copy · golden master > QuotaLedger · banned 2`] = `"// [H-01] QUOTA LEDGERBLACKLISTEDPOG QUOTA · PER WINDOW0 TQUOTESPENT THIS WINDOW—REMAINING—→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOU"`;
+
 exports[`english copy · golden master > QuotaLedger · cooldown 1`] = `
 [
   "// [H-01] QUOTA LEDGER",
@@ -27,6 +29,8 @@ exports[`english copy · golden master > QuotaLedger · cooldown 1`] = `
   "→ NOT READABLE UNTIL THE COOLDOWN CLEARS",
 ]
 `;
+
+exports[`english copy · golden master > QuotaLedger · cooldown 2`] = `"// [H-01] QUOTA LEDGERWINDOW UNREADABLEPOG QUOTA · PER WINDOW0 TQUOTESPENT THIS WINDOW—REMAINING—→ NOT READABLE UNTIL THE COOLDOWN CLEARS"`;
 
 exports[`english copy · golden master > QuotaLedger · readable · fits 1`] = `
 [
@@ -49,6 +53,8 @@ exports[`english copy · golden master > QuotaLedger · readable · fits 1`] = `
 ]
 `;
 
+exports[`english copy · golden master > QuotaLedger · readable · fits 2`] = `"// [H-01] QUOTA LEDGER40.0% CONSUMEDPOG QUOTA · PER WINDOW1.00e-6 TQUOTESPENT THIS WINDOW4.00e-7 TQUOTEREMAINING6.00e-7 TQUOTEPROJECTED (THIS TX)+1.00e-7 TQUOTE → 50.0%→ WITHIN YOUR LIMIT"`;
+
 exports[`english copy · golden master > QuotaLedger · readable · over 1`] = `
 [
   "// [H-01] QUOTA LEDGER",
@@ -70,6 +76,8 @@ exports[`english copy · golden master > QuotaLedger · readable · over 1`] = `
 ]
 `;
 
+exports[`english copy · golden master > QuotaLedger · readable · over 2`] = `"// [H-01] QUOTA LEDGER40.0% CONSUMEDPOG QUOTA · PER WINDOW1.00e-6 TQUOTESPENT THIS WINDOW4.00e-7 TQUOTEREMAINING6.00e-7 TQUOTEPROJECTED (THIS TX)+9.00e-7 TQUOTE → 130.0%→ OVER YOUR LIMIT FOR THIS WINDOW"`;
+
 exports[`english copy · golden master > QuotaLedger · unattested 1`] = `
 [
   "// [H-01] QUOTA LEDGER",
@@ -83,6 +91,8 @@ exports[`english copy · golden master > QuotaLedger · unattested 1`] = `
   "→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET",
 ]
 `;
+
+exports[`english copy · golden master > QuotaLedger · unattested 2`] = `"// [H-01] QUOTA LEDGERNO ATTESTATIONPOG QUOTA · PER WINDOW—SPENT THIS WINDOW—REMAINING—→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YET"`;
 
 exports[`english copy · golden master > attested · resting, nothing typed 1`] = `
 [
@@ -112,6 +122,8 @@ exports[`english copy · golden master > attested · resting, nothing typed 1`] 
   "→ Enter the amount of TQUOTE to deposit.",
 ]
 `;
+
+exports[`english copy · golden master > attested · resting, nothing typed 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.// [H-01] QUOTA LEDGER0.0% CONSUMEDPOG QUOTA · PER WINDOW46.4 TQUOTESPENT THIS WINDOW0 TQUOTEREMAINING46.4 TQUOTE→ WITHIN YOUR LIMITTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN—DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET · 46.4 TQUOTE LEFT FOR YOUEnter an amount→ Enter the amount of TQUOTE to deposit."`;
 
 exports[`english copy · golden master > banned 1`] = `
 [
@@ -150,6 +162,8 @@ exports[`english copy · golden master > banned 1`] = `
 ]
 `;
 
+exports[`english copy · golden master > banned 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.→ WALLET BLACKLISTED · LIFTS IN 1H 00MThe factory rejects every deposit from this address while the ban stands, whatever quota it holds — so the zero here is a ban, not a spent allowance. The ban expires on its own at 2023-11-14 23:13 UTC, after which the quota is spendable again with nothing to reset.// [H-01] QUOTA LEDGERBLACKLISTEDPOG QUOTA · PER WINDOW46.4 TQUOTESPENT THIS WINDOW—REMAINING—→ THE BAN DECIDES THIS · THE LIMIT IS NOT WHAT STOPS YOUTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN—DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLETWallet blocked→ Deposits from this address are rejected while the ban stands · LIFTS IN 1H 00M."`;
+
 exports[`english copy · golden master > below the gas floor AND the window is closed 1`] = `
 [
   "/// DEPOSIT",
@@ -187,6 +201,8 @@ exports[`english copy · golden master > below the gas floor AND the window is c
 ]
 `;
 
+exports[`english copy · golden master > below the gas floor AND the window is closed 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.→ WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED→ BELOW GAS FLOORHistorical gas is 7.62e-6 ETH against a floor of 0.025 ETH. Open the breakdown for per-chain figures.View per-chain breakdown// [H-01] QUOTA LEDGERNO ATTESTATIONPOG QUOTA · PER WINDOW—SPENT THIS WINDOW—REMAINING—→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YETTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN—DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLETFunding closed→ The genesis window has closed, and no further deposits are accepted."`;
+
 exports[`english copy · golden master > below the gas floor · the panel is replaced 1`] = `
 [
   "/// DEPOSIT",
@@ -203,17 +219,15 @@ exports[`english copy · golden master > below the gas floor · the panel is rep
   "3,281×",
   "This is not a queue and not a cooldown — there is nothing here to wait for. The floor is measured against gas this address has",
   "already spent",
-  ", across",
-  "Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood",
-  ", so it only moves as that history grows.",
+  ", across Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood, so it only moves as that history grows.",
   "// WHAT WOULD WORK",
   "Connect an address you have actually used — a main wallet with a real transaction history will usually clear the floor on its own. Switching wallets re-reads the history automatically; there is nothing to press here.",
-  "A fresh address cannot be made eligible by funding it with",
-  "TQUOTE",
-  ". The quota comes from gas spent, which is the whole point of the mechanism.",
+  "A fresh address cannot be made eligible by funding it with TQUOTE. The quota comes from gas spent, which is the whole point of the mechanism.",
   "View per-chain breakdown",
 ]
 `;
+
+exports[`english copy · golden master > below the gas floor · the panel is replaced 2`] = `"/// DEPOSITThis wallet cannot depositProof-of-Gas sizes every deposit quota from gas already spent on-chain. This address has not spent enough for a quota to exist.→ BELOW THE GAS FLOORTHIS WALLET7.62e-6 ETHFLOOR0.025 ETHSHORT BY3,281×This is not a queue and not a cooldown — there is nothing here to wait for. The floor is measured against gas this address has already spent, across Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood, so it only moves as that history grows.// WHAT WOULD WORKConnect an address you have actually used — a main wallet with a real transaction history will usually clear the floor on its own. Switching wallets re-reads the history automatically; there is nothing to press here.A fresh address cannot be made eligible by funding it with TQUOTE. The quota comes from gas spent, which is the whole point of the mechanism.View per-chain breakdown"`;
 
 exports[`english copy · golden master > cooldown 1`] = `
 [
@@ -243,6 +257,8 @@ exports[`english copy · golden master > cooldown 1`] = `
   "→ Deposits from this wallet to this project are on cooldown for another 01:00:00.",
 ]
 `;
+
+exports[`english copy · golden master > cooldown 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.// [H-01] QUOTA LEDGERWINDOW UNREADABLEPOG QUOTA · PER WINDOW46.4 TQUOTESPENT THIS WINDOW—REMAINING—→ NOT READABLE UNTIL THE COOLDOWN CLEARSTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN01:00:00DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLET · 46.4 TQUOTE LEFT FOR YOUCooldown · 01:00:00→ Deposits from this wallet to this project are on cooldown for another 01:00:00."`;
 
 exports[`english copy · golden master > unattested · no gas history yet 1`] = `
 [
@@ -274,6 +290,8 @@ exports[`english copy · golden master > unattested · no gas history yet 1`] = 
 ]
 `;
 
+exports[`english copy · golden master > unattested · no gas history yet 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.→ NO POG ATTESTATION ON FILEThis wallet has never registered Proof-of-Gas, so it holds no quota to spend. The gas lookup starts automatically when you connect.// [H-01] QUOTA LEDGERNO ATTESTATIONPOG QUOTA · PER WINDOW—SPENT THIS WINDOW—REMAINING—→ NO QUOTA REGISTERED · THERE IS NO LIMIT TO MEASURE YETTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN—DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLETCheck gas history→ Proof-of-Gas sizes your deposit quota from lifetime gas spend. Click to read it — one request, no signature and no gas."`;
+
 exports[`english copy · golden master > window closed 1`] = `
 [
   "/// DEPOSIT",
@@ -303,3 +321,5 @@ exports[`english copy · golden master > window closed 1`] = `
   "→ The genesis window has closed, and no further deposits are accepted.",
 ]
 `;
+
+exports[`english copy · golden master > window closed 2`] = `"/// DEPOSITDeposit TQUOTEInto this project's genesis window. The raise stays open until the clock runs out.→ WINDOW CLOSED · NO FURTHER DEPOSITS ACCEPTED// [H-01] QUOTA LEDGER0.0% CONSUMEDPOG QUOTA · PER WINDOW46.4 TQUOTESPENT THIS WINDOW0 TQUOTEREMAINING46.4 TQUOTE→ WITHIN YOUR LIMITTQUOTE BALANCE298.6928 TQUOTE298.6928COOLDOWN—DEPOSIT AMOUNT · TQUOTEmaxTHIS PROJECT ALLOWS 46.4 TQUOTE PER WALLETFunding closed→ The genesis window has closed, and no further deposits are accepted."`;

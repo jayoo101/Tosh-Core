@@ -9,6 +9,7 @@
  */
 export { I18nProvider, useT, useLocale } from './I18nProvider'
 export { fill, placeholdersIn } from './fill'
+export { Emph } from './Emphasis'
 export {
   LOCALES, LOCALE_NAMES, LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE,
   DEFAULT_LOCALE, ENABLED_LOCALES, LOCALES_ENABLED,

@@ -10,25 +10,25 @@ import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
 import { GenesisIneligible } from './GenesisIneligible'
 
 /**
- * ENGLISH GOLDEN MASTER · the three surfaces that hand money back, plus the one
+ * ENGLISH GOLDEN MASTER � the three surfaces that hand money back, plus the one
  * that refuses a wallet outright.
  *
  * Taken BEFORE any string here moves into a translation dictionary. Its only
  * job is to stay unchanged while ~120 of them do.
  *
- * ⚠ WHY A SNAPSHOT AND NOT MORE `toContain`. The extraction is mechanical, and
+ * ? WHY A SNAPSHOT AND NOT MORE `toContain`. The extraction is mechanical, and
  *   its worst failure is a swap rather than a loss: hand two blockers each
  *   other's `reason` and the panel states the wrong cause for refusing to pay a
- *   depositor. Single-string assertions cannot see that — both strings are still
- *   on the page — and neither can `tsc`, eslint or a screenshot. `strings()` is
+ *   depositor. Single-string assertions cannot see that ? both strings are still
+ *   on the page ? and neither can `tsc`, eslint or a screenshot. `strings()` is
  *   ordered, so a swap moves two entries and this goes red.
  *
- * ⚠ RED DURING THE i18n WORK MEANS STOP, not `-u`. The extraction is not allowed
+ * ? RED DURING THE i18n WORK MEANS STOP, not `-u`. The extraction is not allowed
  *   to change a single word a user reads; that is the entire premise that makes
  *   it safe to do across sixty files. Outside that work, a deliberate rewording
  *   updates the snapshot in the commit that argues for it.
  *
- * ── Why this file exists next to `refundReads.test.tsx` rather than inside it ──
+ * ?? Why this file exists next to `refundReads.test.tsx` rather than inside it ??
  *
  * That file mounts these panels with NO WALLET CONNECTED, deliberately, and its
  * own header explains the consequence: `useActionGate` returns its `connect`
@@ -36,7 +36,7 @@ import { GenesisIneligible } from './GenesisIneligible'
  * "Connect Wallet" and no blocker reason reaches the DOM. Its assertions are on
  * the readout for exactly that reason.
  *
- * A golden master needs the opposite — the blocker copy is the most dangerous
+ * A golden master needs the opposite ? the blocker copy is the most dangerous
  * copy on these surfaces, so it has to be rendered. Rather than add a connected
  * account to that file and quietly invalidate the premise its comments argue
  * for, the wallet lives here.
@@ -55,12 +55,12 @@ const HOOK = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as Address
  * domain blockers instead of stopping at `connect` or `switch network`.
  *
  * `chainId` sits on the account rather than on `useChainId` because
- * `useWalletChainId` reads the connection — a mock without it is a wallet on no
+ * `useWalletChainId` reads the connection ? a mock without it is a wallet on no
  * chain, which the wrong-network gate correctly refuses, and every snapshot
  * below would record "Switch network" instead of the copy under test.
  *
  * `useReadContract` answers `false`, which is `hasClaimed` for
- * `GenesisClaimPanel` — the only read either of these panels makes on its own.
+ * `GenesisClaimPanel` ? the only read either of these panels makes on its own.
  * False leaves the claim path open so the deposit is the sole variable.
  */
 vi.mock('wagmi', () => ({
@@ -85,7 +85,40 @@ vi.mock('wagmi', () => ({
 const NOW = 1_700_000_000
 const noop = () => {}
 
-describe('RefundPanel · english copy golden master', () => {
+/**
+ * Both halves of the net, on every state below.
+ *
+ * `strings()` is ordered and node-sensitive, which is what catches a swap. That
+ * same sensitivity makes it go red on a change that merges text nodes without
+ * touching a word ? and merging nodes is exactly what extracting copy does here,
+ * because half the sentences on these panels are split mid-way by an
+ * interpolated ticker or figure. One of them is visible in the snapshots below
+ * as `"?funding it with" / "TQUOTE" / ". The quota comes from?"`. A dictionary
+ * stores that as one sentence with a `{symbol}` placeholder, because a translator
+ * handed three fragments cannot reorder them, and Chinese needs a different
+ * order.
+ *
+ * `prose()` is the assertion that has to stay green through that. Identical
+ * collapsed text content means identical characters in identical order, so a
+ * reworded or dropped sentence still fails it ? only the node boundaries are
+ * free to move.
+ *
+ * ? ORDER MATTERS. `strings()` stays the first call so it keeps the snapshot key
+ *   it already had; putting `prose()` ahead of it would renumber every baseline
+ *   taken before the extraction and discard the thing being compared against.
+ *
+ * ? AND `soft`, SO THE SECOND ONE STILL RUNS. A hard failure on `strings()` ends
+ *   the test, `prose()` never evaluates, and Vitest reports it as an obsolete
+ *   snapshot ? at the one moment its answer matters most. Together they are a
+ *   diagnosis rather than an alarm: `strings()` red with `prose()` green says the
+ *   text nodes moved; both red says the words did.
+ */
+function pin(ui: { strings(): string[]; prose(): string }) {
+  expect.soft(ui.strings()).toMatchSnapshot()
+  expect.soft(ui.prose()).toMatchSnapshot()
+}
+
+describe('RefundPanel � english copy golden master', () => {
   /*
    * `ladderViable` picks between the two refund reasons, and the pair is the
    * reason this panel has a `refundReason` function at all: the subtitle used to
@@ -94,14 +127,14 @@ describe('RefundPanel · english copy golden master', () => {
    *
    * `nativeDeposited` then picks the blocker: `undefined` is a read in flight,
    * `0n` is a definite nothing, and a real figure arms the button. The first two
-   * are separate states on purpose — collapsing them told a depositor arriving
+   * are separate states on purpose ? collapsing them told a depositor arriving
    * to collect a failed round that they had nothing here.
    */
   for (const [name, props] of [
-    ['too small to open a pool · deposit in flight', { ladderViable: false, nativeDeposited: undefined }],
-    ['too small to open a pool · nothing deposited', { ladderViable: false, nativeDeposited: 0n }],
-    ['too small to open a pool · refund armed',      { ladderViable: false, nativeDeposited: 250_00000000n }],
-    ['launch window lapsed · refund armed',          { ladderViable: true,  nativeDeposited: 250_00000000n }],
+    ['too small to open a pool � deposit in flight', { ladderViable: false, nativeDeposited: undefined }],
+    ['too small to open a pool � nothing deposited', { ladderViable: false, nativeDeposited: 0n }],
+    ['too small to open a pool � refund armed',      { ladderViable: false, nativeDeposited: 250_00000000n }],
+    ['launch window lapsed � refund armed',          { ladderViable: true,  nativeDeposited: 250_00000000n }],
   ] as const) {
     it(name, () => {
       const ui = mount(
@@ -113,13 +146,13 @@ describe('RefundPanel · english copy golden master', () => {
         />,
       )
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }
 })
 
-describe('GenesisClaimPanel · english copy golden master', () => {
+describe('GenesisClaimPanel � english copy golden master', () => {
   // `0n` unmounts the card entirely, which `refundReads.test.tsx` already pins
   // as a behaviour. There is no copy in that state, so it is not a golden case.
   for (const [name, nativeDeposited] of [
@@ -137,13 +170,13 @@ describe('GenesisClaimPanel · english copy golden master', () => {
         />,
       )
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }
 })
 
-describe('AwaitingLaunchPanel · english copy golden master', () => {
+describe('AwaitingLaunchPanel � english copy golden master', () => {
   // The creator sees a button and an argument for pressing it; everyone else
   // sees the same wait with none of the agency. Both are user-facing.
   for (const [name, isCreator] of [
@@ -163,22 +196,22 @@ describe('AwaitingLaunchPanel · english copy golden master', () => {
         />,
       )
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }
 })
 
-describe('GenesisIneligible · english copy golden master', () => {
+describe('GenesisIneligible � english copy golden master', () => {
   /*
    * The gap is rendered as a multiple, and the two branches of that formatting
-   * are separate states: under 100× keeps one decimal, at or above it rounds and
-   * groups. A translation that moves the `×` or the grouping would change a
+   * are separate states: under 100� keeps one decimal, at or above it rounds and
+   * groups. A translation that moves the `�` or the grouping would change a
    * figure whose whole purpose is to read as structural rather than near.
    */
   for (const [name, totalGasWei] of [
-    ['three thousand times under · the figure from the outage', '7620000000000'],
-    ['just under · one decimal survives',                       '500000000000000'],
+    ['three thousand times under � the figure from the outage', '7620000000000'],
+    ['just under � one decimal survives',                       '500000000000000'],
   ] as const) {
     it(name, () => {
       const ui = mount(
@@ -189,7 +222,7 @@ describe('GenesisIneligible · english copy golden master', () => {
         />,
       )
       try {
-        expect(ui.strings()).toMatchSnapshot()
+        pin(ui)
       } finally { ui.unmount() }
     })
   }
