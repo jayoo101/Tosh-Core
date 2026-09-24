@@ -1250,6 +1250,106 @@ export const EN = {
     dialCap:       'Per-wallet cap',
     dialNetwork:   'Network',
   },
+
+  /**
+   * `/referrals`, every project that owes this wallet commission. The `//`
+   * prefixes on the footnotes stay in the JSX.
+   */
+  referralLedger: {
+    txAction:      'claim commission',
+    action:        'claim',
+    lockedLabel:   'Locked until launch',
+    lockedReason:  'Commission unlocks when the project calls launch(). A raise that is never launched refunds depositors in full and never pays commission, so this is the contract holding the money until the outcome is known.',
+    nothingLabel:  'Nothing to claim',
+    nothingReason: 'This project has launched and everything it owed this wallet is already withdrawn.',
+    launched:      'launched',
+    inGenesis:     'in genesis',
+    claimable:     'CLAIMABLE',
+    claimableHint: 'unlocks at launch()',
+    earned:        'EARNED',
+    earnedHint:    'no deposits through your link yet',
+    brought:       'WALLETS BROUGHT',
+    broughtHint:   'bound to you on this project',
+    degraded:      'At least one read for this project failed, so the figures above may be low. Claiming is still safe — the contract pays what it owes regardless of what this page managed to read. Refresh to get the real numbers.',
+
+    eyebrow:  '// referral ledger',
+    title:    'Your',
+    accent:   'commission',
+    subtitle: "{project}% of every genesis deposit made through your link on a project you have staked, plus {lifetime}% for life on every wallet you first brought to Tosh. {total}% in total, carved from the raise and not from anyone's allocation.",
+
+    connectTitle:    'Connect a wallet',
+    connectSubtitle: 'The ledger is keyed to an address',
+    connectBody:     'Commission accrues to whichever address a referral link named, so there is nothing to show until one is connected. Nothing here is a transaction — connecting only reads what the projects already owe.',
+
+    totalClaimable:     'CLAIMABLE NOW',
+    totalClaimableHint: 'across every launched project',
+    totalLocked:        'LOCKED UNTIL LAUNCH',
+    totalLockedHint:    'earned on raises still in genesis',
+    totalBrought:       'WALLETS BROUGHT TO TOSH',
+    totalBroughtHint:   'each pays you {lifetime}% for life',
+
+    emptyTitle:      'No commission yet',
+    emptySubtitle:   'What earns it',
+    emptyEarns:      'Nothing has accrued to this wallet. A referral link earns on the deposits made through it, so the ledger fills in as the people you shared with arrive — not when the link is created.',
+    emptyConditions: 'Two conditions decide what a link pays, and both are worth checking before sharing. You need your own PoG attestation, or neither leg binds. And the {project}% project leg only binds on a project you already hold a deposit in — so deposit first, then share, or that share of the carve goes to the buyback reservoir instead of to you. The {lifetime}% lifetime leg has no such condition.',
+    emptyDesks:      'Any project still in genesis carries its own referral desk, with the link and a live read on whether it will pay there. Once a raise closes the desk goes too, since a link cannot earn on one that has — except on a project that still owes this wallet, which keeps its claim. This page is the same claim for all of them at once: one row per project that owes you, each with its own button. There is none to press yet because nothing owes you. [Browse projects].',
+
+    perProject: 'Claims are per project, because each project holds its own commission reserve. There is no single button that drains them all, and there deliberately is not: a platform-wide pot would have to stay solvent across every raise at once.',
+    truncated:  'This ledger covers the most recent {depth} launches, and there are now {count}. Commission on an older project is still yours and still claimable — open that project and use the referral desk on its own page, which stays for as long as it owes you anything.',
+  },
+
+  /**
+   * The wallet drawer off the navbar pip. The `//`, `/` and `///` prefixes
+   * stay in the JSX; `bannedNote`'s `{ban}` is one of the three `ban*` values,
+   * lower-cased by the caller.
+   */
+  drawer: {
+    closeDrawer:     'close drawer',
+    title:           'My Profile',
+    close:           'close',
+    switchTitle:     'Re-open wallet account picker (EIP-2255)',
+    switch:          'Switch',
+    disconnectTitle: 'Terminate wagmi session for this address',
+    disconnect:      'Disconnect',
+    ledgerEyebrow:   'REFERRAL LEDGER',
+    ledgerBody:      'Commission from every project, and the claims',
+    footerHint:      'esc · click_outside',
+
+    quotaEyebrow:   'POG REMAINING · THIS WINDOW',
+    banned:         'BLACKLISTED',
+    unattested:     'NO ATTESTATION',
+    allocation:     'Per-window Allocation',
+    spent:          'Spent This Window',
+    bannedNote:     'every deposit is rejected while the ban stands · {ban}',
+    unattestedNote: 'no quota was ever issued to this wallet · register proof-of-gas to receive one',
+    refillNote:     'refills every 24h · refunds never credit it back',
+    banPermanent:   'PERMANENT · NO EXPIRY',
+    banLapsed:      'LAPSED',
+    banLifts:       'LIFTS {date}',
+
+    cooldownTitle:  'Cooldown Matrix',
+    readyToDeposit: 'READY TO DEPOSIT',
+    activeReady:    'ACTIVE READY',
+    onCooldown:     'ON COOLDOWN',
+
+    assetsTitle:  'Participated Assets',
+    scanning:     'scanning on-chain registry…',
+    emptyLead:    'no genesis deposits detected ·',
+    emptyHow:     'deposit {quote} in any live genesis window, then claim after launch()',
+    claimTx:      'claim {symbol}',
+    unread:       'UNREAD',
+    curve:        'CURVE',
+    genesis:      'GENESIS',
+    deposited:    'DEPOSITED',
+    unreadNote:   'COULD NOT READ THIS LAUNCH — RETRYING. NOTHING BELOW IS A STATEMENT ABOUT YOUR BALANCE.',
+    raiseTotal:   'RAISE_TOTAL',
+    claimable:    'CLAIMABLE',
+    claimed:      '[ TRANSFERRED_CLOSED ]',
+    signing:      '[ SIGN… ]',
+    mining:       '[ MINING… ]',
+    claim:        '[ CLAIM_TOKENS ]',
+    noAllocation: '[ NO_ALLOCATION ]',
+  },
 } as const
 
 /**

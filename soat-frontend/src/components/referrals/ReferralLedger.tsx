@@ -17,6 +17,7 @@ import {
   ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
 import { fmtQuote, fmtQuoteFull } from '@/components/ProjectTerminal/format'
+import { fill, Linked, useT } from '@/i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REFERRAL LEDGER  ·  every project that owes this wallet, in one place
@@ -81,9 +82,10 @@ interface LedgerRow {
 
 function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void }) {
   const { project, accrued, claimable, recruits, degraded } = row
+  const t = useT().referralLedger
 
   const { send, isPending, isConfirming } = useTxAction({
-    action: 'claim commission',
+    action: t.txAction,
     onConfirmed: onClaimed,
   })
 
@@ -95,18 +97,15 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
   }, [project.hook, send])
 
   const gate = useActionGate({
-    action: 'claim',
+    action: t.action,
     onAct: handleClaim,
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
       {
         id: 'not-launched',
         active: !project.launched,
-        label: 'Locked until launch',
-        reason:
-          'Commission unlocks when the project calls launch(). A raise that is never launched '
-          + 'refunds depositors in full and never pays commission, so this is the '
-          + 'contract holding the money until the outcome is known.',
+        label: t.lockedLabel,
+        reason: t.lockedReason,
         tone: 'neutral',
       },
       {
@@ -118,8 +117,8 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
         //   cause is a flaky RPC. The warning is rendered in the card instead.
         id: 'nothing-to-claim',
         active: !degraded && claimable === 0n,
-        label: 'Nothing to claim',
-        reason: 'This project has launched and everything it owed this wallet is already withdrawn.',
+        label: t.nothingLabel,
+        reason: t.nothingReason,
         tone: 'neutral',
       },
     ),
@@ -137,30 +136,30 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
       subtitle={project.name}
       status={
         <Badge tone={project.launched ? 'ok' : 'warn'}>
-          {project.launched ? 'launched' : 'in genesis'}
+          {project.launched ? t.launched : t.inGenesis}
         </Badge>
       }
     >
       <ReadoutGrid columns={3}>
         <Readout
           layout="stack"
-          label="CLAIMABLE"
+          label={t.claimable}
           value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
-          hint={claimable === 0n ? 'unlocks at launch()' : fmtQuoteFull(claimable)}
+          hint={claimable === 0n ? t.claimableHint : fmtQuoteFull(claimable)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
         <Readout
           layout="stack"
-          label="EARNED"
+          label={t.earned}
           value={`${fmtQuote(accrued)} ${QUOTE_SYMBOL}`}
-          hint={accrued === 0n ? 'no deposits through your link yet' : fmtQuoteFull(accrued)}
+          hint={accrued === 0n ? t.earnedHint : fmtQuoteFull(accrued)}
           tone={accrued > 0n ? 'ink' : 'mute'}
         />
         <Readout
           layout="stack"
-          label="WALLETS BROUGHT"
+          label={t.brought}
           value={recruits.toString()}
-          hint="bound to you on this project"
+          hint={t.broughtHint}
           tone={recruits > 0n ? 'ink' : 'mute'}
         />
       </ReadoutGrid>
@@ -170,9 +169,7 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
           published as a figure it read as zero. The claim button stays armed. */}
       {degraded && (
         <p className="text-label text-warning tracking-wider leading-relaxed">
-          {'// '}At least one read for this project failed, so the figures above may be low.
-          Claiming is still safe — the contract pays what it owes regardless of what this page
-          managed to read. Refresh to get the real numbers.
+          {'// '}{t.degraded}
         </p>
       )}
 
@@ -184,6 +181,7 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
 export function ReferralLedger() {
   const { address: userAddress } = useAccount()
   const { projects, loading: projectsLoading, launchCount } = useDirectoryProjects()
+  const t = useT().referralLedger
 
   // The enumeration is the whole product here, and it is bounded. Past
   // `SCAN_DEPTH` launches an older project's commission stops appearing, which
@@ -276,23 +274,17 @@ export function ReferralLedger() {
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-10 flex flex-col gap-card-lg">
       <PageHeader
-        eyebrow="// referral ledger"
-        title="Your"
-        accent="commission"
-        subtitle={
-          `${PROJECT_PCT}% of every genesis deposit made through your link on a project you have `
-          + `staked, plus ${LIFETIME_PCT}% for life on every wallet you first brought to Tosh. `
-          + `${REFERRAL_PCT}% in total, carved from the raise and not from anyone's allocation.`
-        }
+        eyebrow={t.eyebrow}
+        title={t.title}
+        accent={t.accent}
+        subtitle={fill(t.subtitle, { project: PROJECT_PCT, lifetime: LIFETIME_PCT, total: REFERRAL_PCT })}
         status={<Badge tone="neutral">{CHAIN_BYLINE}</Badge>}
       />
 
       {!userAddress ? (
-        <Card title="Connect a wallet" subtitle="The ledger is keyed to an address">
+        <Card title={t.connectTitle} subtitle={t.connectSubtitle}>
           <p className="text-note text-text-secondary leading-relaxed">
-            Commission accrues to whichever address a referral link named, so there is nothing
-            to show until one is connected. Nothing here is a transaction — connecting only
-            reads what the projects already owe.
+            {t.connectBody}
           </p>
         </Card>
       ) : (
@@ -300,25 +292,25 @@ export function ReferralLedger() {
           <ReadoutGrid columns={3}>
             <Readout
               layout="stack"
-              label="CLAIMABLE NOW"
+              label={t.totalClaimable}
               value={`${fmtQuote(totals.claimable)} ${QUOTE_SYMBOL}`}
-              hint={totals.claimable === 0n ? 'across every launched project' : fmtQuoteFull(totals.claimable)}
+              hint={totals.claimable === 0n ? t.totalClaimableHint : fmtQuoteFull(totals.claimable)}
               tone={totals.claimable > 0n ? 'ok' : 'mute'}
               loading={loading}
             />
             <Readout
               layout="stack"
-              label="LOCKED UNTIL LAUNCH"
+              label={t.totalLocked}
               value={`${fmtQuote(totals.locked)} ${QUOTE_SYMBOL}`}
-              hint="earned on raises still in genesis"
+              hint={t.totalLockedHint}
               tone={totals.locked > 0n ? 'warn' : 'mute'}
               loading={loading}
             />
             <Readout
               layout="stack"
-              label="WALLETS BROUGHT TO TOSH"
+              label={t.totalBrought}
               value={lifetimeRecruits.toString()}
-              hint={`each pays you ${LIFETIME_PCT}% for life`}
+              hint={fill(t.totalBroughtHint, { lifetime: LIFETIME_PCT })}
               tone={lifetimeRecruits > 0n ? 'ink' : 'mute'}
               loading={loading}
             />
@@ -330,20 +322,13 @@ export function ReferralLedger() {
               <Skeleton className="h-32" />
             </div>
           ) : rows.length === 0 ? (
-            <Card title="No commission yet" subtitle="What earns it">
+            <Card title={t.emptyTitle} subtitle={t.emptySubtitle}>
               <div className="flex flex-col gap-3 text-note text-text-secondary leading-relaxed">
                 <p>
-                  Nothing has accrued to this wallet. A referral link earns on the deposits
-                  made through it, so the ledger fills in as the people you shared with
-                  arrive — not when the link is created.
+                  {t.emptyEarns}
                 </p>
                 <p>
-                  Two conditions decide what a link pays, and both are worth checking before
-                  sharing. You need your own PoG attestation, or neither leg binds. And the{' '}
-                  {PROJECT_PCT}% project leg only binds on a project you already hold a
-                  deposit in — so deposit first, then share, or that share of the carve goes
-                  to the buyback reservoir instead of to you. The {LIFETIME_PCT}% lifetime
-                  leg has no such condition.
+                  {fill(t.emptyConditions, { project: PROJECT_PCT, lifetime: LIFETIME_PCT })}
                 </p>
                 {/* Said "It is not on launched projects", which the desk itself
                     contradicts: it hides on a launched project only when there
@@ -353,16 +338,7 @@ export function ReferralLedger() {
                     card hunting for a button that only exists on a row, which
                     an empty ledger has none of. Both now say what happens. */}
                 <p className="text-text-tertiary">
-                  Any project still in genesis carries its own referral desk, with the link
-                  and a live read on whether it will pay there. Once a raise closes the desk
-                  goes too, since a link cannot earn on one that has — except on a project
-                  that still owes this wallet, which keeps its claim. This page is the same
-                  claim for all of them at once: one row per project that owes you, each with
-                  its own button. There is none to press yet because nothing owes you.{' '}
-                  <Link href="/projects" className="text-brand hover:underline">
-                    Browse projects
-                  </Link>
-                  .
+                  <Linked text={t.emptyDesks} href="/projects" className="text-brand hover:underline" />
                 </p>
               </div>
             </Card>
@@ -375,17 +351,12 @@ export function ReferralLedger() {
           )}
 
           <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-            {'// '}Claims are per project, because each project holds its own commission
-            reserve. There is no single button that drains them all, and there deliberately
-            is not: a platform-wide pot would have to stay solvent across every raise at once.
+            {'// '}{t.perProject}
           </p>
 
           {scanTruncated && (
             <p className="text-label text-warning tracking-wider leading-relaxed">
-              {'// '}This ledger covers the most recent {SCAN_DEPTH} launches, and there are
-              now {launchCount}. Commission on an older project is still yours and still
-              claimable — open that project and use the referral desk on its own page, which
-              stays for as long as it owes you anything.
+              {'// '}{fill(t.truncated, { depth: SCAN_DEPTH, count: launchCount })}
             </p>
           )}
         </>

@@ -68,6 +68,7 @@ import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
   useNowMs, CLOCK_UNSYNCED,
 } from '@/components/ui'
+import { fill, useT } from '@/i18n'
 
 /**
  * How many launches back the drawer walks when rebuilding a wallet's positions.
@@ -186,6 +187,7 @@ export interface UserDrawerProps {
 export function UserDrawer({ open, onClose }: UserDrawerProps) {
   const { address }    = useAccount()
   const { disconnect } = useDisconnect()
+  const t = useT().drawer
 
   useDrawerSideEffects(open, onClose)
 
@@ -379,9 +381,9 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   const banHorizon = classifyHorizon(banStamp, Math.floor(now / 1000))
   const banTxt     = formatHorizonLabel(banHorizon, {
     unsynced:  '—',
-    unbounded: 'PERMANENT · NO EXPIRY',
-    elapsed:   'LAPSED',
-    pending:   () => `LIFTS ${formatHorizonUtc(banHorizon) ?? '—'}`,
+    unbounded: t.banPermanent,
+    elapsed:   t.banLapsed,
+    pending:   () => fill(t.banLifts, { date: formatHorizonUtc(banHorizon) ?? '—' }),
   })
 
   // ── REFETCH bus — claim TXs invalidate every cached read so the drawer
@@ -422,7 +424,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
           <button> (not <div>) so keyboard users can also dismiss it. */}
       <button
         type="button"
-        aria-label="close drawer"
+        aria-label={t.closeDrawer}
         tabIndex={open ? 0 : -1}
         onClick={onClose}
         className={`fixed inset-0 z-40 bg-bg-base/70 transition-opacity duration-200
@@ -502,17 +504,18 @@ function DrawerHeader({
   onSwitchAccount:  () => void
 }) {
   const initials = address ? address.slice(2, 4).toUpperCase() : '--'
+  const t = useT().drawer
 
   return (
     <header className="p-5 pb-4 border-b border-border-subtle/60 shrink-0">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-black text-text-primary uppercase tracking-widest">My Profile</h2>
+          <h2 className="text-sm font-black text-text-primary uppercase tracking-widest">{t.title}</h2>
           <p className="text-label text-text-quiet font-mono mt-0.5">{CHAIN_BYLINE}</p>
         </div>
         <button
           type="button"
-          aria-label="close"
+          aria-label={t.close}
           onClick={onClose}
           className="w-8 h-8 rounded-lg bg-surface-card border border-border-subtle flex items-center justify-center text-text-tertiary hover:text-text-primary hover:border-border-strong transition-all"
         >
@@ -535,7 +538,7 @@ function DrawerHeader({
         <button
           type="button"
           onClick={onSwitchAccount}
-          title="Re-open wallet account picker (EIP-2255)"
+          title={t.switchTitle}
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
                      border border-border-subtle bg-surface-card/50
                      text-label tracking-[0.32em] uppercase font-mono text-text-secondary
@@ -548,13 +551,13 @@ function DrawerHeader({
             <polyline points="7 23 3 19 7 15" />
             <path d="M21 13v2a4 4 0 0 1-4 4H3" />
           </svg>
-          <span>Switch</span>
+          <span>{t.switch}</span>
         </button>
 
         <button
           type="button"
           onClick={onDisconnect}
-          title="Terminate wagmi session for this address"
+          title={t.disconnectTitle}
           className="group flex items-center justify-center gap-2 px-3 py-2 rounded-lg
                      border border-border-subtle bg-surface-card/50
                      text-label tracking-[0.32em] uppercase font-mono text-text-secondary
@@ -565,7 +568,7 @@ function DrawerHeader({
             <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
             <line x1="12" y1="2" x2="12" y2="12" />
           </svg>
-          <span>Disconnect</span>
+          <span>{t.disconnect}</span>
         </button>
       </div>
     </header>
@@ -582,6 +585,7 @@ function DrawerHeader({
  * connected one. Closing the drawer on navigate is the point of `onNavigate`.
  */
 function ReferralLedgerLink({ onNavigate }: { onNavigate: () => void }) {
+  const t = useT().drawer
   return (
     <section className="px-4 pb-4 pt-2">
       <Link
@@ -592,10 +596,10 @@ function ReferralLedgerLink({ onNavigate }: { onNavigate: () => void }) {
       >
         <span className="min-w-0">
           <span className="block font-mono text-micro font-bold tracking-widest text-brand/70">
-            REFERRAL LEDGER
+            {t.ledgerEyebrow}
           </span>
           <span className="mt-1 block text-note text-text-secondary">
-            Commission from every project, and the claims
+            {t.ledgerBody}
           </span>
         </span>
         <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-text-tertiary" />
@@ -605,12 +609,13 @@ function ReferralLedgerLink({ onNavigate }: { onNavigate: () => void }) {
 }
 
 function DrawerFooter() {
+  const t = useT().drawer
   return (
     <footer className="px-5 py-3 border-t border-border-subtle
                        text-micro tracking-[0.32em] uppercase text-text-quiet
                        flex items-center justify-between gap-3">
       <span>v4.3 · {CHAIN_BYLINE}</span>
-      <span>esc · click_outside</span>
+      <span>{t.footerHint}</span>
     </footer>
   )
 }
@@ -633,19 +638,20 @@ function PoGQuotaPanel({
   unattested:   boolean
 }) {
   const blocked = banned || unattested
+  const t = useT().drawer
   return (
     <section className="px-4 pt-4 pb-2">
       <div className="rounded-xl border border-border-subtle/70 bg-surface-card/50 p-4">
         <div className="text-brand/70 font-mono text-micro font-bold tracking-widest mb-1">
-          POG REMAINING · THIS WINDOW
+          {t.quotaEyebrow}
         </div>
         {banned ? (
           <div className="text-danger font-mono text-xl font-black tracking-tight leading-none">
-            BLACKLISTED
+            {t.banned}
           </div>
         ) : unattested ? (
           <div className="text-warning font-mono text-xl font-black tracking-tight leading-none">
-            NO ATTESTATION
+            {t.unattested}
           </div>
         ) : (
           <div className="text-brand font-mono text-3xl font-black tabular-nums tracking-tight leading-none">
@@ -655,13 +661,13 @@ function PoGQuotaPanel({
         )}
         <div className="border-t border-border-subtle/50 pt-3 mt-3 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-text-tertiary font-mono text-label uppercase">Per-window Allocation</span>
+            <span className="text-text-tertiary font-mono text-label uppercase">{t.allocation}</span>
             <span className="text-text-primary font-mono text-xs font-bold tabular-nums">
               {unattested ? '—' : `${formatQuote(pogQuota)} ${QUOTE_SYMBOL}`}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-text-tertiary font-mono text-label uppercase">Spent This Window</span>
+            <span className="text-text-tertiary font-mono text-label uppercase">{t.spent}</span>
             <span className="text-text-secondary font-mono text-xs font-bold tabular-nums">
               {blocked ? '—' : `${formatQuote(windowSpent)} ${QUOTE_SYMBOL}`}
             </span>
@@ -670,10 +676,10 @@ function PoGQuotaPanel({
         <p className={`mt-3 text-micro font-mono leading-relaxed
                        ${banned ? 'text-danger' : unattested ? 'text-warning' : 'text-text-quiet'}`}>
           {banned
-            ? `${'// '}every deposit is rejected while the ban stands · ${banTxt.toLowerCase()}`
+            ? `${'// '}${fill(t.bannedNote, { ban: banTxt.toLowerCase() })}`
             : unattested
-              ? `${'// '}no quota was ever issued to this wallet · register proof-of-gas to receive one`
-              : `${'// '}refills every 24h · refunds never credit it back`}
+              ? `${'// '}${t.unattestedNote}`
+              : `${'// '}${t.refillNote}`}
         </p>
       </div>
     </section>
@@ -692,25 +698,26 @@ function CooldownPanel({
   remainingMs:     number
   knowsWallTime:   boolean
 }) {
+  const t = useT().drawer
   return (
     <section className="px-4 py-3">
-      <p className="text-label font-mono text-text-tertiary uppercase tracking-widest mb-2">Cooldown Matrix</p>
+      <p className="text-label font-mono text-text-tertiary uppercase tracking-widest mb-2">{t.cooldownTitle}</p>
       <div className="rounded-xl border border-border-subtle/70 bg-surface-card/30 px-4 py-3">
       {!cooldownPresent ? (
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
-          <span className="text-brand font-bold tracking-wider text-micro">READY TO DEPOSIT</span>
+          <span className="text-brand font-bold tracking-wider text-micro">{t.readyToDeposit}</span>
         </div>
       ) : cooldownReady ? (
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="w-2 h-2 rounded-full bg-brand dot-breathe" />
-          <span className="text-brand font-bold tracking-wider">ACTIVE READY</span>
+          <span className="text-brand font-bold tracking-wider">{t.activeReady}</span>
         </div>
       ) : (
         <>
           <div className="flex items-center gap-2 text-xs font-mono text-danger mb-2">
             <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
-            <span className="font-bold tracking-wider">ON COOLDOWN</span>
+            <span className="font-bold tracking-wider">{t.onCooldown}</span>
           </div>
           <p
             suppressHydrationWarning
@@ -737,22 +744,23 @@ function ParticipatedAssetsPanel({
   empty:     boolean
   onClaimed: () => void
 }) {
+  const t = useT().drawer
   return (
     <section className="px-4 pt-2 pb-8">
       <p className="text-success/80 font-mono text-label font-bold tracking-widest mb-3 px-1">
-        {`/// Participated Assets`}
+        {`/// ${t.assetsTitle}`}
       </p>
 
       {loading && snapshots.length === 0 && (
         <p className="text-label tracking-wider text-text-tertiary uppercase">
-          / scanning on-chain registry…
+          / {t.scanning}
         </p>
       )}
 
       {empty && (
         <p className="text-label tracking-wider text-text-tertiary uppercase leading-relaxed">
-          / no genesis deposits detected ·{' '}
-          <span className="text-text-primary">deposit {QUOTE_SYMBOL} in any live genesis window, then claim after launch()</span>
+          / {t.emptyLead}{' '}
+          <span className="text-text-primary">{fill(t.emptyHow, { quote: QUOTE_SYMBOL })}</span>
         </p>
       )}
 
@@ -772,13 +780,14 @@ function AssetRow({
   onClaimed: () => void
 }) {
   const { row, degraded, launched, totalNative, hasClaimed, claimable, symbol } = snapshot
+  const t = useT().drawer
 
   // Routed through useTxAction rather than a bare useWriteContract: this row
   // previously read neither the write error nor the receipt, so a rejected
   // signature or an on-chain revert just returned the button to its idle label
   // with nothing said anywhere.
   const claim = useTxAction({
-    action: `claim ${symbol}`,
+    action: fill(t.claimTx, { symbol }),
     onConfirmed: onClaimed,
   })
 
@@ -811,17 +820,17 @@ function AssetRow({
         </div>
         <span className={`text-micro tracking-[0.32em] uppercase
                           ${degraded ? 'text-text-quiet' : launched ? 'text-brand' : 'text-text-tertiary'}`}>
-          {degraded ? 'UNREAD' : launched ? 'CURVE' : 'GENESIS'}
+          {degraded ? t.unread : launched ? t.curve : t.genesis}
         </span>
       </header>
 
       {/* `nativeDeposited` came from an earlier read that succeeded, so it stays
           on the degraded row — it is the one number here that is still known. */}
-      <Row label="DEPOSITED" value={`${formatQuote(row.nativeDeposited)} ${QUOTE_SYMBOL}`} />
+      <Row label={t.deposited} value={`${formatQuote(row.nativeDeposited)} ${QUOTE_SYMBOL}`} />
 
       {degraded && (
         <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">
-          COULD NOT READ THIS LAUNCH — RETRYING. NOTHING BELOW IS A STATEMENT ABOUT YOUR BALANCE.
+          {t.unreadNote}
         </p>
       )}
 
@@ -829,7 +838,7 @@ function AssetRow({
         <div className="mt-3">
           <p className="mt-1.5 text-micro tracking-[0.32em] uppercase
                         text-text-tertiary flex items-baseline justify-between gap-2">
-            <span>RAISE_TOTAL</span>
+            <span>{t.raiseTotal}</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
               {formatQuote(totalNative)}
             </span>
@@ -841,7 +850,7 @@ function AssetRow({
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-micro tracking-[0.32em] uppercase text-text-tertiary">
-              CLAIMABLE
+              {t.claimable}
             </p>
             <p className="text-body text-text-primary tabular-nums truncate">
               {formatToken(claimable)} {symbol}
@@ -851,7 +860,7 @@ function AssetRow({
           {hasClaimed ? (
             <span className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                              border border-border-subtle text-text-quiet shrink-0">
-              [ TRANSFERRED_CLOSED ]
+              {t.claimed}
             </span>
           ) : claimable > 0n ? (
             <button
@@ -863,12 +872,12 @@ function AssetRow({
                          hover:bg-brand hover:text-bg-base transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
-              {claim.isPending ? '[ SIGN… ]' : claim.isConfirming ? '[ MINING… ]' : '[ CLAIM_TOKENS ]'}
+              {claim.isPending ? t.signing : claim.isConfirming ? t.mining : t.claim}
             </button>
           ) : (
             <span className="text-label tracking-[0.32em] uppercase px-3 py-1.5
                              border border-border-subtle text-text-quiet shrink-0">
-              [ NO_ALLOCATION ]
+              {t.noAllocation}
             </span>
           )}
         </div>
