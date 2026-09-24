@@ -43,7 +43,7 @@ const LOG_PAGE_SIZE = 50_000n
  * BSC is the third chain this has outlived, which is the argument for deriving
  * the count instead of writing one down. At 0.75 s/block a fortnight is 1.61M
  * blocks, so the page budget below binds first and the real coverage is about
- * ten days — reported by `lpScanCoverageLabel` rather than asserted here.
+ * ten days — reported by `lpScanCoverage` rather than asserted here.
  */
 const LOG_TARGET_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
@@ -83,20 +83,22 @@ function lookbackPlan(): { blocks: bigint; coverageMs: number | undefined } {
 }
 
 /**
- * How recent a position has to be for the log scan to find it, as prose.
+ * How recent a position has to be for the log scan to find it.
  *
  * Exported because the panel's degraded notice used to promise nothing about
  * coverage, which was survivable while the window was two weeks and was not
  * when it turned out to be hours. Still exported on BSC, where it reads about
  * ten days: a user who cannot see a position they hold should be told the
  * boundary rather than left to infer it, and "ten days" is a boundary too.
+ *
+ * A count and a unit rather than a phrase, so the panel's dictionary words it.
  */
-export function lpScanCoverageLabel(): string | undefined {
+export function lpScanCoverage(): { n: number; unit: 'hours' | 'days' } | undefined {
   const { coverageMs } = lookbackPlan()
   if (coverageMs === undefined) return undefined
   const hours = coverageMs / 3_600_000
-  if (hours < 48) return `${Math.round(hours)} hours`
-  return `${Math.round(hours / 24)} days`
+  if (hours < 48) return { n: Math.round(hours), unit: 'hours' }
+  return { n: Math.round(hours / 24), unit: 'days' }
 }
 
 /**

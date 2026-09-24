@@ -13,8 +13,9 @@ import {
   useLpPoolState,
   useLpPositions,
   rememberLpPosition,
-  lpScanCoverageLabel,
+  lpScanCoverage,
 } from '@/lib/useLpPosition'
+import { fill, useT } from '@/i18n'
 import {
   Card, Readout, Field, ActionButton, useActionGate, revertOrder, useTxAction, toshToast,
   CLOCK_UNSYNCED,
@@ -61,6 +62,7 @@ export function LiquidityPanel({
   /** Ticking clock lifted to the parent, so render stays pure. */
   nowSec:       number
 }) {
+  const t = useT().liquidity
   const [quoteAmount, setEthAmount] = useState('')
   const [slippageBps, setSlippageBps] = useState(100n)
 
@@ -71,7 +73,7 @@ export function LiquidityPanel({
 
   // Derived from the chain definition, so it is constant for a build; read once
   // rather than per render.
-  const scanCoverage = useMemo(() => lpScanCoverageLabel(), [])
+  const scanCoverage = useMemo(() => lpScanCoverage(), [])
 
   const poolAmounts = amountsForLiquidity(sqrtPriceX96, totalLiquidity)
 
@@ -244,7 +246,7 @@ export function LiquidityPanel({
   // from "the receipt arrived"; taking the receipt from it rather than
   // re-fetching one keeps that distinction in a single place.
   const { send, isBusy: busy } = useTxAction({
-    action: 'liquidity',
+    action: t.txAction,
     onConfirmed,
   })
 
@@ -328,7 +330,7 @@ export function LiquidityPanel({
 
   const withdraw = useCallback((tokenId: bigint, amount0: bigint, amount1: bigint) => {
     if (!userAddress || !tokenAddress) {
-      toshToast.error('Connect a wallet first')
+      toshToast.error(t.connectFirst)
       return
     }
 
@@ -344,15 +346,15 @@ export function LiquidityPanel({
       address: CL_POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
     })
-  }, [userAddress, tokenAddress, nowSeconds, send, slippageBps])
+  }, [userAddress, tokenAddress, nowSeconds, send, slippageBps, t])
 
   // Terse: the red border plus a short tag.  The gate states each of these in
   // full under the button, including the numbers, so repeating them here would
   // show one fault as two.
   const ethError =
-      quoteInvalid        ? 'NOT A NUMBER'
-    : insufficientQuote   ? `ABOVE YOUR ${QUOTE_SYMBOL} BALANCE`
-    : insufficientToken ? `NEEDS MORE ${symbol}`
+      quoteInvalid        ? t.errNotNumber
+    : insufficientQuote   ? fill(t.errAboveBalance, { quote: QUOTE_SYMBOL })
+    : insufficientToken ? fill(t.errNeedsMore, { symbol })
     : null
 
   // One live step at a time, so the CTA always says exactly what the next
@@ -365,71 +367,73 @@ export function LiquidityPanel({
   // typing a stray letter reported "Enter an ETH amount" at a field that was
   // visibly not empty.
   const gate = useActionGate({
-    action: 'Step 3 of 3 — deposit into the pool',
+    action: t.action,
     onAct: addLiquidity,
     tx: { isBusy: busy },
     blockersInRevertOrder: revertOrder(
       {
         id: 'clock-unsynced',
         active: nowSec === CLOCK_UNSYNCED,
-        label: 'Syncing the clock…',
-        reason: 'Every signature below carries a deadline derived from the wall clock. Until it syncs, that deadline would land in 1970 and Permit2 would reject the position.',
+        label: t.clockLabel,
+        reason: t.clockReason,
         tone: 'neutral',
       },
       {
         id: 'token-unresolved',
         active: !tokenAddress,
-        label: 'Loading the token…',
-        reason: 'Still reading this project’s token address.',
+        label: t.tokenLabel,
+        reason: t.tokenReason,
         tone: 'neutral',
       },
       {
         id: 'amount-invalid',
         active: quoteInvalid,
-        label: 'Check the amount',
-        reason: `That is not a number this field can send as ${QUOTE_SYMBOL}.`,
+        label: t.invalidLabel,
+        reason: fill(t.invalidReason, { quote: QUOTE_SYMBOL }),
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !quoteInvalid && quoteUnits === 0n,
-        label: 'Enter an amount',
-        reason: `Enter the amount of ${QUOTE_SYMBOL} to put into the pool.`,
+        label: t.zeroLabel,
+        reason: fill(t.zeroReason, { quote: QUOTE_SYMBOL }),
         tone: 'neutral',
       },
       {
         id: 'pool-price',
         active: sqrtPriceX96 === 0n,
-        label: 'Pool price unavailable',
-        reason: 'The pool price has not come back yet, and a full-range position cannot be sized without it.',
+        label: t.priceLabel,
+        reason: t.priceReason,
         tone: 'neutral',
       },
       {
         id: 'bitmap-unresolved',
         active: hooksRegistrationBitmap === undefined || hooksRegistrationBitmap === 0,
-        label: 'Reading the pool key…',
-        reason: 'The hook’s permission bitmap has not come back yet, and a PoolKey cannot be encoded without it.',
+        label: t.bitmapLabel,
+        reason: t.bitmapReason,
         tone: 'neutral',
       },
       {
         id: 'reads-unresolved',
         active: readsUnresolved,
-        label: 'Reading your wallet…',
-        reason: `Still reading this wallet’s ${symbol} balance and Permit2 allowances. The next step depends on both, so it is named once they land rather than guessed now.`,
+        label: t.readsLabel,
+        reason: fill(t.readsReason, { symbol }),
         tone: 'neutral',
       },
       {
         id: 'balance-eth',
         active: insufficientQuote,
-        label: `Not enough ${QUOTE_SYMBOL}`,
-        reason: `This wallet does not hold the deposit plus its ${Number(slippageBps) / 100}% headroom.`,
+        label: fill(t.quoteLowLabel, { quote: QUOTE_SYMBOL }),
+        reason: fill(t.quoteLowReason, { pct: Number(slippageBps) / 100 }),
         tone: 'warn',
       },
       {
         id: 'balance-token',
         active: insufficientToken,
-        label: `Not enough ${symbol}`,
-        reason: `A full-range position funds both legs — this one needs ${fmt(tokenNeeded)} ${symbol} and the wallet holds ${fmt(tokenBalance ?? 0n)}.`,
+        label: fill(t.tokenLowLabel, { symbol }),
+        reason: fill(t.tokenLowReason, {
+          needed: fmt(tokenNeeded), symbol, held: fmt(tokenBalance ?? 0n),
+        }),
         // `?? 0n` is safe to print here only because `reads-unresolved` above
         // holds the gate until `tokenBalance` is defined, so this blocker
         // cannot be the active one while the number is still a placeholder.
@@ -438,8 +442,8 @@ export function LiquidityPanel({
       {
         id: 'dust',
         active: liquidity === 0n && quoteUnits > 0n && sqrtPriceX96 > 0n,
-        label: 'Amount too small',
-        reason: 'That deposit is too small to add any liquidity at the current price. Raise it.',
+        label: t.dustLabel,
+        reason: t.dustReason,
         tone: 'warn',
       },
       /*
@@ -458,32 +462,32 @@ export function LiquidityPanel({
       {
         id: 'approve-erc20',
         active: needsErc20Approval,
-        label: `Step 1 of 5 — approve ${symbol} for Permit2`,
-        reason: `Permit2 needs a one-time allowance on ${symbol} before it can move the token leg of the position.`,
+        label: fill(t.step1Label, { symbol }),
+        reason: fill(t.step1Reason, { symbol }),
         tone: 'info',
         resolve: approveErc20,
       },
       {
         id: 'approve-permit2',
         active: needsPermit2Approval,
-        label: `Step 2 of 5 — let Permit2 spend your ${symbol}`,
-        reason: `Permit2 holds the ${symbol} allowance but has not been told the position manager may draw on it.`,
+        label: fill(t.step2Label, { symbol }),
+        reason: fill(t.step2Reason, { symbol }),
         tone: 'info',
         resolve: approvePermit2,
       },
       {
         id: 'approve-quote-erc20',
         active: needsQuoteErc20Approval,
-        label: `Step 3 of 5 — approve ${QUOTE_SYMBOL} for Permit2`,
-        reason: `The other leg is ${QUOTE_SYMBOL} now rather than the chain's own coin, so it is pulled like the token instead of being sent with the transaction. Permit2 needs its own one-time allowance on it.`,
+        label: fill(t.step3Label, { quote: QUOTE_SYMBOL }),
+        reason: fill(t.step3Reason, { quote: QUOTE_SYMBOL }),
         tone: 'info',
         resolve: approveQuoteErc20,
       },
       {
         id: 'approve-quote-permit2',
         active: needsQuotePermit2Approval,
-        label: `Step 4 of 5 — let Permit2 spend your ${QUOTE_SYMBOL}`,
-        reason: `Same as step 2, for the ${QUOTE_SYMBOL} leg: Permit2 grants the position manager a spending window per token, and this one has either expired or was never opened.`,
+        label: fill(t.step4Label, { quote: QUOTE_SYMBOL }),
+        reason: fill(t.step4Reason, { quote: QUOTE_SYMBOL }),
         tone: 'info',
         resolve: approveQuotePermit2,
       },
@@ -498,47 +502,47 @@ export function LiquidityPanel({
       // words. That card is gone; the title stays, because this panel is
       // still about the reader's own position, not about market making in
       // general. Copy only: nothing below moved.
-      title={`YOUR LIQUIDITY · ${symbol}/${QUOTE_SYMBOL}`}
-      subtitle="Infinity PositionManager · full range · 0.30% pool fee accrues to LPs"
+      title={fill(t.title, { symbol, quote: QUOTE_SYMBOL })}
+      subtitle={t.subtitle}
     >
       <div className="grid grid-cols-2 gap-6 @lg:grid-cols-4">
         <Readout layout="stack"
-                 label={`POOL DEPTH · ${QUOTE_SYMBOL}`}
+                 label={fill(t.poolDepth, { asset: QUOTE_SYMBOL })}
                  value={fmtQuote(poolAmounts.amount0)}
-                 hint="all LPs incl. genesis" />
+                 hint={t.poolDepthHint} />
         <Readout layout="stack"
-                 label={`POOL DEPTH · ${symbol}`}
+                 label={fill(t.poolDepth, { asset: symbol })}
                  value={fmt(poolAmounts.amount1)}
-                 hint="all LPs incl. genesis" />
+                 hint={t.poolDepthHint} />
         <Readout layout="stack"
-                 label={`MY POSITION · ${QUOTE_SYMBOL}`}
+                 label={fill(t.myPosition, { asset: QUOTE_SYMBOL })}
                  value={fmtQuote(totals.amount0)}
-                 hint={`${positions.length} position${positions.length === 1 ? '' : 's'}`} />
+                 hint={fill(positions.length === 1 ? t.positionsOne : t.positionsMany, { n: positions.length })} />
         <Readout layout="stack"
-                 label={`MY POSITION · ${symbol}`}
+                 label={fill(t.myPosition, { asset: symbol })}
                  value={fmt(totals.amount1)}
-                 hint="withdrawable any time" />
+                 hint={t.withdrawableHint} />
       </div>
 
       <Field
-        label={`${QUOTE_SYMBOL} TO DEPOSIT`}
+        label={fill(t.depositLabel, { quote: QUOTE_SYMBOL })}
         value={quoteAmount}
         onValueChange={setEthAmount}
-        placeholder="e.g. 5"
+        placeholder={t.depositPlaceholder}
         inputMode="decimal"
         disabled={busy || !isConnected}
         error={ethError}
         armed={gate.verdict.kind === 'ready'}
         hint={quoteUnits > 0n && sqrtPriceX96 > 0n
-          ? `PAIRS WITH ${fmt(tokenNeeded)} ${symbol} AT THE CURRENT PRICE`
-          : 'FULL RANGE · BOTH LEGS REQUIRED · WITHDRAW ANY TIME'}
+          ? fill(t.hintPairs, { amount: fmt(tokenNeeded), symbol })
+          : t.hintIdle}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-label font-semibold text-text-tertiary uppercase tracking-widest">
-          Slippage
+          {t.slippage}
         </span>
-        <div role="radiogroup" aria-label="LP slippage tolerance" className="flex gap-1">
+        <div role="radiogroup" aria-label={t.slippageGroup} className="flex gap-1">
           {LP_SLIPPAGE_PRESETS.map(p => {
             const selected = p.bps === slippageBps
             return (
@@ -571,11 +575,11 @@ export function LiquidityPanel({
           approve. The grid is still one row: a wrapped progress indicator reads
           as two separate processes, which is the opposite of what it is for. */}
       <ol className="grid grid-cols-5 gap-gap-tight">
-        {([
-          `${symbol} →P2`, `P2 →${symbol}`,
-          `${QUOTE_SYMBOL} →P2`, `P2 →${QUOTE_SYMBOL}`,
-          'Deposit',
-        ] as const).map((label, i) => {
+        {[
+          fill(t.stepToPermit2, { asset: symbol }), fill(t.stepFromPermit2, { asset: symbol }),
+          fill(t.stepToPermit2, { asset: QUOTE_SYMBOL }), fill(t.stepFromPermit2, { asset: QUOTE_SYMBOL }),
+          t.stepDeposit,
+        ].map((label, i) => {
           // The same traversal order the blockers are listed in, so the lit cell
           // always matches the button underneath.
           const current =
@@ -609,7 +613,7 @@ export function LiquidityPanel({
       {positions.length > 0 && (
         <div className="border border-border-subtle">
           <div className="px-4 py-2 border-b border-border-subtle">
-            <span className="font-mono text-label text-text-tertiary">{'// OPEN POSITIONS'}</span>
+            <span className="font-mono text-label text-text-tertiary">{`// ${t.openPositions}`}</span>
           </div>
           {positions.map(pos => (
             <div
@@ -628,7 +632,7 @@ export function LiquidityPanel({
                            border border-border-strong text-text-secondary hover:bg-surface-elevated/60
                            disabled:opacity-40 transition-colors"
               >
-                Withdraw
+                {t.withdraw}
               </button>
             </div>
           ))}
@@ -637,9 +641,7 @@ export function LiquidityPanel({
 
       {degraded && (
         <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
-          {'// '}This RPC would not serve position logs, so only positions minted from this
-          browser are listed. Your other positions are safe on-chain and remain withdrawable
-          through any PancakeSwap Infinity interface.
+          {'// '}{t.degraded}
         </p>
       )}
 
@@ -654,9 +656,9 @@ export function LiquidityPanel({
       */}
       {!degraded && scanCoverage && (
         <p className="text-label font-mono text-text-tertiary tracking-wider leading-relaxed">
-          {'// '}Position discovery scans the last {scanCoverage} of transfers. Anything older,
-          minted from another browser, is not listed here — it remains yours on-chain and
-          withdrawable through any PancakeSwap Infinity interface.
+          {'// '}{fill(t.coverage, {
+            window: fill(scanCoverage.unit === 'days' ? t.coverageDays : t.coverageHours, { n: scanCoverage.n }),
+          })}
         </p>
       )}
     </Card>

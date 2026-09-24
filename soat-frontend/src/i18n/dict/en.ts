@@ -904,6 +904,87 @@ export const EN = {
     // A zero average is "no full window yet", not a price of zero.
     footAverageSettling: 'average = *SETTLING · {window} WINDOW · CEILING HELD AT OPENING*',
   },
+
+  /**
+   * The liquidity panel: five signatures in a fixed order, then a deposit.
+   *
+   * ⚠ THE STEP NUMBERS ARE THE PANEL'S TRAVERSAL, NOT A LIST. `revertOrder`
+   *   names the last active blocker, so the token's two approvals come up
+   *   first and the quote's two after — which is why the quote steps carry 3
+   *   and 4. A translation must keep each number on the step it is on now.
+   *
+   * ⚠ `action` STILL SAYS "Step 3 of 3", and it is step 5 of 5. It predates the
+   *   quote leg becoming an ERC-20, and is left alone here because this
+   *   extraction may not change an English word. Other locales must not copy
+   *   it; `zh-CN` numbers it correctly.
+   */
+  liquidity: {
+    txAction:     'liquidity',
+    connectFirst: 'Connect a wallet first',
+
+    title:            'YOUR LIQUIDITY · {symbol}/{quote}',
+    subtitle:         'Infinity PositionManager · full range · 0.30% pool fee accrues to LPs',
+    poolDepth:        'POOL DEPTH · {asset}',
+    poolDepthHint:    'all LPs incl. genesis',
+    myPosition:       'MY POSITION · {asset}',
+    positionsOne:     '{n} position',
+    positionsMany:    '{n} positions',
+    withdrawableHint: 'withdrawable any time',
+
+    depositLabel:       '{quote} TO DEPOSIT',
+    depositPlaceholder: 'e.g. 5',
+    hintPairs:          'PAIRS WITH {amount} {symbol} AT THE CURRENT PRICE',
+    hintIdle:           'FULL RANGE · BOTH LEGS REQUIRED · WITHDRAW ANY TIME',
+    errNotNumber:       'NOT A NUMBER',
+    errAboveBalance:    'ABOVE YOUR {quote} BALANCE',
+    errNeedsMore:       'NEEDS MORE {symbol}',
+
+    slippage:      'Slippage',
+    slippageGroup: 'LP slippage tolerance',
+
+    stepToPermit2:   '{asset} →P2',
+    stepFromPermit2: 'P2 →{asset}',
+    stepDeposit:     'Deposit',
+
+    action: 'Step 3 of 3 — deposit into the pool',
+
+    clockLabel:     'Syncing the clock…',
+    clockReason:    'Every signature below carries a deadline derived from the wall clock. Until it syncs, that deadline would land in 1970 and Permit2 would reject the position.',
+    tokenLabel:     'Loading the token…',
+    tokenReason:    'Still reading this project’s token address.',
+    invalidLabel:   'Check the amount',
+    invalidReason:  'That is not a number this field can send as {quote}.',
+    zeroLabel:      'Enter an amount',
+    zeroReason:     'Enter the amount of {quote} to put into the pool.',
+    priceLabel:     'Pool price unavailable',
+    priceReason:    'The pool price has not come back yet, and a full-range position cannot be sized without it.',
+    bitmapLabel:    'Reading the pool key…',
+    bitmapReason:   'The hook’s permission bitmap has not come back yet, and a PoolKey cannot be encoded without it.',
+    readsLabel:     'Reading your wallet…',
+    readsReason:    'Still reading this wallet’s {symbol} balance and Permit2 allowances. The next step depends on both, so it is named once they land rather than guessed now.',
+    quoteLowLabel:  'Not enough {quote}',
+    quoteLowReason: 'This wallet does not hold the deposit plus its {pct}% headroom.',
+    tokenLowLabel:  'Not enough {symbol}',
+    tokenLowReason: 'A full-range position funds both legs — this one needs {needed} {symbol} and the wallet holds {held}.',
+    dustLabel:      'Amount too small',
+    dustReason:     'That deposit is too small to add any liquidity at the current price. Raise it.',
+
+    step1Label:  'Step 1 of 5 — approve {symbol} for Permit2',
+    step1Reason: 'Permit2 needs a one-time allowance on {symbol} before it can move the token leg of the position.',
+    step2Label:  'Step 2 of 5 — let Permit2 spend your {symbol}',
+    step2Reason: 'Permit2 holds the {symbol} allowance but has not been told the position manager may draw on it.',
+    step3Label:  'Step 3 of 5 — approve {quote} for Permit2',
+    step3Reason: 'The other leg is {quote} now rather than the chain\'s own coin, so it is pulled like the token instead of being sent with the transaction. Permit2 needs its own one-time allowance on it.',
+    step4Label:  'Step 4 of 5 — let Permit2 spend your {quote}',
+    step4Reason: 'Same as step 2, for the {quote} leg: Permit2 grants the position manager a spending window per token, and this one has either expired or was never opened.',
+
+    openPositions: 'OPEN POSITIONS',
+    withdraw:      'Withdraw',
+    degraded:      'This RPC would not serve position logs, so only positions minted from this browser are listed. Your other positions are safe on-chain and remain withdrawable through any PancakeSwap Infinity interface.',
+    coverage:      'Position discovery scans the last {window} of transfers. Anything older, minted from another browser, is not listed here — it remains yours on-chain and withdrawable through any PancakeSwap Infinity interface.',
+    coverageHours: '{n} hours',
+    coverageDays:  '{n} days',
+  },
 } as const
 
 /**
