@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Address } from 'viem'
 
 import { buildReferralLink, buildShortReferralLink, useReferralCode } from '@/lib/useReferral'
+import { useT } from '@/i18n'
 
 /** The best link this wallet can share right now, or `''` if it has none. */
 export function useReferralLink(userAddress: Address | undefined, symbol: string): string {
@@ -45,6 +46,7 @@ export function ReferralLinkBox({
   copyLabel?: string
   children?: React.ReactNode
 }) {
+  const t = useT().referral
   const [copied, setCopied] = useState(false)
 
   const copy = useCallback(() => {
@@ -74,7 +76,7 @@ export function ReferralLinkBox({
                    uppercase tracking-[0.32em] text-text-tertiary
                    transition-colors duration-150 hover:border-brand hover:text-brand"
       >
-        {copied ? 'copied' : copyLabel}
+        {copied ? t.copied : copyLabel}
       </button>
       {children}
     </div>

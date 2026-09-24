@@ -15,6 +15,7 @@ import {
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fmtQuote, fmtQuoteFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
+import { Linked, fill, useT } from '@/i18n'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
  *  `toFixed` would print "10.0%" and they are quoted as prose. */
@@ -71,6 +72,8 @@ export function ReferralPanel({
   userAddress: Address | undefined
   refetch:     () => void
 }) {
+  const t = useT().referral
+  const pct = { total: REFERRAL_PCT, project: PROJECT_PCT, lifetime: LIFETIME_PCT }
   const { data: claimableRaw, refetch: refetchClaimable } = useReadContract({
     address:      hookAddress,
     abi:          HOOK_ABI,
@@ -142,7 +145,7 @@ export function ReferralPanel({
   const projectLegIsLive = (projectLegRaw as boolean | undefined) ?? false
 
   const { send, isPending, isConfirming } = useTxAction({
-    action: 'claim commission',
+    action: t.txAction,
     onConfirmed: () => { refetch(); void refetchClaimable() },
   })
 
@@ -159,14 +162,14 @@ export function ReferralPanel({
   const link = useReferralLink(userAddress, symbol)
 
   const gate = useActionGate({
-    action: 'claim commission',
+    action: t.action,
     onAct: handleClaim,
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder({
       id: 'nothing-to-claim',
       active: claimable === 0n,
-      label: 'Nothing to claim',
-      reason: 'No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.',
+      label: t.nothingLabel,
+      reason: t.nothingReason,
       tone: 'neutral',
     }),
   })
@@ -206,21 +209,21 @@ export function ReferralPanel({
   const pays = !quotaKnown || !projectLegKnown ? null
     : !hasAttestation ? {
       tone: 'text-danger' as const,
-      headline: 'This link pays nothing yet',
-      detail: `Both legs need your own PoG attestation. Register it, and the same link starts paying ${REFERRAL_PCT}%.`,
-      fix: 'Register PoG',
+      headline: t.noneHeadline,
+      detail: fill(t.noneDetail, pct),
+      hasFix: true,
     }
     : !projectLegIsLive ? {
       tone: 'text-warning' as const,
-      headline: `This link pays ${LIFETIME_PCT}%, not ${REFERRAL_PCT}%`,
-      detail: `The ${PROJECT_PCT}% leg binds only to a referrer already holding a deposit here. It starts paying on the next deposit after you stake.`,
-      fix: 'Deposit first',
+      headline: fill(t.partHeadline, pct),
+      detail: fill(t.partDetail, pct),
+      hasFix: true,
     }
     : {
       tone: 'text-success' as const,
-      headline: `This link pays the full ${REFERRAL_PCT}%`,
-      detail: `${PROJECT_PCT}% on deposits here, ${LIFETIME_PCT}% for life on wallets new to Tosh.`,
-      fix: null,
+      headline: fill(t.fullHeadline, pct),
+      detail: fill(t.fullDetail, pct),
+      hasFix: false,
     }
 
   // Withheld entirely during genesis with nothing earned, when it could only
@@ -232,8 +235,8 @@ export function ReferralPanel({
   return (
     <Card
       id="REF"
-      title="REFERRAL DESK"
-      subtitle={`${PROJECT_PCT}% on deposits made through your link here, plus ${LIFETIME_PCT}% for life on wallets you bring to Tosh · paid out when the project launches`}
+      title={t.title}
+      subtitle={fill(t.subtitle, pct)}
     >
       {pays && (
         <div className="flex flex-col gap-1">
@@ -241,41 +244,30 @@ export function ReferralPanel({
             {'→ '}{pays.headline}
           </p>
           <p className="font-mono text-note text-text-tertiary leading-relaxed">
-            {pays.detail}
-            {pays.fix && (
-              <>
-                {' '}
-                <Link href="#DEPOSIT" className="text-brand underline decoration-dotted underline-offset-2">
-                  {pays.fix}
-                </Link>
-                .
-              </>
-            )}
+            <Linked
+              text={pays.detail}
+              href="#DEPOSIT"
+              className="text-brand underline decoration-dotted underline-offset-2"
+            />
           </p>
         </div>
       )}
 
-      <ReferralLinkBox link={link} copyLabel={pays && pays.fix ? 'copy anyway' : 'copy'}>
+      <ReferralLinkBox link={link} label={t.linkLabel} copyLabel={pays && pays.hasFix ? t.copyAnyway : t.copy}>
         {/* Collapsed, because the binding rules are reference material: correct,
             worth having, and read once. Left expanded they tripled the height of
             the card and buried the link they were describing. */}
         <details className="group">
           <summary className="cursor-pointer list-none font-mono text-label tracking-wider
                               text-text-quiet transition-colors hover:text-brand">
-            {'// '}How the two legs bind
+            {'// '}{t.bindSummary}
           </summary>
           <div className="mt-2 flex flex-col gap-2">
             <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-              The first link a wallet arrives on through this project binds it to you
-              here, for {PROJECT_PCT}%. If it is also the first Tosh link that wallet ever
-              used, you keep {LIFETIME_PCT}% of everything it deposits anywhere, for life.
-              Both bindings are permanent, and self-referral is ignored by the factory.
+              {fill(t.bindHow, pct)}
             </p>
             <p className="text-label text-text-quiet tracking-wider leading-relaxed">
-              A leg that does not bind is not an error anyone sees: the deposit still
-              succeeds and that share of the carve goes to the buyback reservoir instead
-              of to you. The factory retries the binding on every deposit, so a link
-              already in circulation starts paying as soon as its condition is met.
+              {t.bindSilent}
             </p>
           </div>
         </details>
@@ -283,10 +275,10 @@ export function ReferralPanel({
 
       {showClaim && (
         <Readout
-          label="CLAIMABLE COMMISSION"
+          label={t.claimLabel}
           value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
           hint={claimable === 0n
-            ? `${fmtQuote(accrued)} ${QUOTE_SYMBOL} earned · unlocks at launch()`
+            ? fill(t.earnedHint, { amount: fmtQuote(accrued), quote: QUOTE_SYMBOL })
             : fmtQuoteFull(claimable)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
@@ -304,7 +296,7 @@ export function ReferralPanel({
                    underline decoration-dotted underline-offset-2
                    transition-colors hover:text-brand"
       >
-        {'→ '}Commission across every project
+        {'→ '}{t.ledgerLink}
       </Link>
     </Card>
   )

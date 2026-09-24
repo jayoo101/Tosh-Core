@@ -1033,6 +1033,47 @@ export const EN = {
     onFile:          'Eligible — deposit quota is already on file for this wallet.',
     belowFloor:      'Below the floor — {total} ETH of historical gas against a floor of {floor} ETH. Deposits stay locked for this wallet until that changes.',
   },
+
+  /**
+   * The referral desk on a project page.
+   *
+   * `{total}`, `{project}` and `{lifetime}` are the commission rates in whole
+   * percent, read from the contract mirrors rather than typed in here.
+   *
+   * The `[…]` run in `noneDetail` and `partDetail` is the link to the deposit
+   * card, rendered by `Linked`.
+   *
+   * `copied` is `ReferralLinkBox`'s own word after a click, so it also shows in
+   * the deposit-confirmed dialog.
+   */
+  referral: {
+    txAction:      'claim commission',
+    action:        'claim commission',
+    nothingLabel:  'Nothing to claim',
+    nothingReason: 'No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.',
+
+    title:    'REFERRAL DESK',
+    subtitle: '{project}% on deposits made through your link here, plus {lifetime}% for life on wallets you bring to Tosh · paid out when the project launches',
+
+    noneHeadline: 'This link pays nothing yet',
+    noneDetail:   'Both legs need your own PoG attestation. Register it, and the same link starts paying {total}%. [Register PoG].',
+    partHeadline: 'This link pays {lifetime}%, not {total}%',
+    partDetail:   'The {project}% leg binds only to a referrer already holding a deposit here. It starts paying on the next deposit after you stake. [Deposit first].',
+    fullHeadline: 'This link pays the full {total}%',
+    fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh.',
+
+    linkLabel:  'YOUR REFERRAL LINK',
+    copy:       'copy',
+    copyAnyway: 'copy anyway',
+    copied:     'copied',
+    bindSummary: 'How the two legs bind',
+    bindHow:    'The first link a wallet arrives on through this project binds it to you here, for {project}%. If it is also the first Tosh link that wallet ever used, you keep {lifetime}% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.',
+    bindSilent: 'A leg that does not bind is not an error anyone sees: the deposit still succeeds and that share of the carve goes to the buyback reservoir instead of to you. The factory retries the binding on every deposit, so a link already in circulation starts paying as soon as its condition is met.',
+
+    claimLabel:  'CLAIMABLE COMMISSION',
+    earnedHint:  '{amount} {quote} earned · unlocks at launch()',
+    ledgerLink:  'Commission across every project',
+  },
 } as const
 
 /**
@@ -1048,7 +1089,7 @@ export const EN = {
  */
 export const TIER0_SURFACES = [
   'tx', 'gate', 'nav', 'wallet', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
-  'awaitingLaunch', 'success', 'gas',
+  'awaitingLaunch', 'success', 'gas', 'referral',
 ] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */

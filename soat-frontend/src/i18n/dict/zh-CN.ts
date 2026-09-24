@@ -708,4 +708,33 @@ export const ZH_CN: PartialDictionary = {
     // Historical gas figure: ETH here is the PoG denomination, not the settlement coin.
     belowFloor:      '低于门槛 —— 历史 gas 为 {total} ETH，门槛是 {floor} ETH。在达到门槛之前，这个钱包无法存款。',
   },
+
+  referral: {
+    txAction:      '推荐佣金领取',
+    action:        '领取佣金',
+    nothingLabel:  '暂无可领取',
+    nothingReason: '这个钱包还没有累计任何佣金 —— 有人通过你的链接存款时才会累计，项目上线时解锁。',
+
+    title:    '推荐台',
+    subtitle: '通过你的链接在本项目的存款计 {project}%，你带来 Tosh 的钱包终身再计 {lifetime}% · 项目上线时发放',
+
+    noneHeadline: '这个链接目前还不产生佣金',
+    noneDetail:   '两部分佣金都要求你本人先完成 PoG 认证。认证之后，同一个链接就会开始按 {total}% 计佣。[去认证 PoG]。',
+    partHeadline: '这个链接只按 {lifetime}% 计佣，而不是 {total}%',
+    partDetail:   '{project}% 这部分只会绑定给已经在本项目存过款的推荐人。你存款之后，从下一笔存款起开始计佣。[先去存款]。',
+    fullHeadline: '这个链接按完整的 {total}% 计佣',
+    fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。',
+
+    linkLabel:  '你的推荐链接',
+    copy:       '复制',
+    copyAnyway: '仍然复制',
+    copied:     '已复制',
+    bindSummary: '两部分佣金如何绑定',
+    bindHow:    '钱包第一次通过本项目的链接进来时，会在本项目绑定给你，计 {project}%。如果这也是这个钱包用过的第一个 Tosh 链接，它今后在任何项目的全部存款，你都终身获得 {lifetime}%。两种绑定都是永久的，工厂合约会忽略自我推荐。',
+    bindSilent: '没绑定上的那部分不会报错，也没人看得到：存款照常成功，这份佣金会进入回购池，而不是给你。工厂合约在每一笔存款时都会重新尝试绑定，所以已经发出去的链接，一旦满足条件就会开始计佣。',
+
+    claimLabel:  '可领取佣金',
+    earnedHint:  '已赚取 {amount} {quote} · launch() 后解锁',
+    ledgerLink:  '所有项目的佣金',
+  },
 }
