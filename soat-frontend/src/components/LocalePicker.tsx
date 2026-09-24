@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import {
   ENABLED_LOCALES, LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE, LOCALE_NAMES,
-  LOCALES_ENABLED, isLocale, useLocale,
+  LOCALES_ENABLED, isLocale, useLocale, type Locale,
 } from '@/i18n'
 
 /**
@@ -17,24 +17,33 @@ import {
  *   ones who cannot read the page it is on, so it has to be where the eye lands
  *   without instruction — next to the wallet, at the top.
  *
- * ⚠ A NATIVE `<select>`, not a styled dropdown. It is keyboard and screen-reader
- *   correct for free, it renders as the platform's own picker on mobile, and it
- *   needs no open/close state that could be left open across a `router.refresh`.
- *   The one thing lost is the terminal look of the rest of the chrome, which is
- *   not worth a custom listbox on a control most users touch once.
+ * ⚠ TWO LANGUAGES GET A TOGGLE, MORE GET A `<select>`. A toggle shows both
+ *   options at once, so the way back is visible to someone who switched by
+ *   accident and can no longer read the page. It does not scale: seven segments
+ *   will not fit a navbar that already overflows at 390px, so past two the
+ *   native select takes over — keyboard, screen-reader and mobile picker
+ *   correct for free.
  *
- * Each language is named IN ITSELF — `简体中文`, not `Chinese (Simplified)`. A
- * reader looking for their language is scanning for the shape of their own
- * script; the English name of it is no use to them.
+ * Each language is named IN ITSELF — `中`, `简体中文`, not `Chinese`. A reader
+ * looking for their language is scanning for the shape of their own script.
  */
+const SHORT_NAMES: Readonly<Record<Locale, string>> = {
+  'en':    'EN',
+  'zh-CN': '中',
+  'zh-TW': '繁',
+  'ja':    '日',
+  'ko':    '한',
+  'vi':    'VI',
+  'ru':    'RU',
+}
+
 export function LocalePicker() {
   const router = useRouter()
   const locale = useLocale()
 
-  const onChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const next = e.target.value
-      if (!isLocale(next)) return
+  const choose = useCallback(
+    (next: string) => {
+      if (!isLocale(next) || next === locale) return
 
       /*
        * Written from the client rather than through a server action, because a
@@ -54,7 +63,7 @@ export function LocalePicker() {
       // heavy price for changing a caption.
       router.refresh()
     },
-    [router],
+    [locale, router],
   )
 
   // Module constant, so this is not a conditional hook — and it is checked after
@@ -62,10 +71,40 @@ export function LocalePicker() {
   // here at all.
   if (!LOCALES_ENABLED) return null
 
+  if (ENABLED_LOCALES.length === 2) {
+    return (
+      <div
+        role="group"
+        aria-label="Language"
+        className="flex shrink-0 items-center rounded-input border border-border-subtle bg-surface-card p-0.5 font-mono text-micro"
+      >
+        {ENABLED_LOCALES.map((l) => {
+          const active = l === locale
+          return (
+            <button
+              key={l}
+              type="button"
+              lang={l}
+              onClick={() => choose(l)}
+              aria-pressed={active}
+              title={LOCALE_NAMES[l]}
+              className={`min-w-7 rounded-[3px] px-2 py-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-brand
+                ${active
+                  ? 'bg-brand/15 text-brand'
+                  : 'text-text-tertiary hover:text-text-secondary'}`}
+            >
+              {SHORT_NAMES[l]}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <select
       value={locale}
-      onChange={onChange}
+      onChange={(e) => choose(e.target.value)}
       // The control has no visible label; the navbar has no room for one and the
       // selected value already names the language in its own script.
       aria-label="Language"
