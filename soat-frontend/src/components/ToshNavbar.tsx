@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 import { CHAIN_BYLINE } from '@/lib/contracts'
+import { useT, type Dictionary } from '@/i18n'
 import { LocalePicker } from './LocalePicker'
 
 // ssr: false — WalletPip depends on wagmi account state which is only available
@@ -48,15 +49,18 @@ const WalletPip = dynamic(
  * its first word below `sm`, which is the 52px the bar actually needed; the
  * other two labels stay in full because they are the short ones.
  */
-const NAV = [
-  { href: '/projects',  label: 'Directory',  full: 'Agent Directory', exact: false },
-  { href: '/launch',    label: 'Launch',     full: 'Launch',          exact: false },
-  { href: '/referrals', label: 'Referrals',  full: 'Referrals',       exact: false },
-] as const
+function navItems(t: Dictionary) {
+  return [
+    { href: '/projects',  label: t.site.navDirectory, full: t.site.navDirectoryFull, exact: false },
+    { href: '/launch',    label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false },
+    { href: '/referrals', label: t.site.navReferrals, full: t.site.navReferrals,     exact: false },
+  ] as const
+}
 
 /** MeritX Navbar — sticky, wallet drawer via WalletPip. Hidden on /admin. */
 export function ToshNavbar() {
   const pathname = usePathname()
+  const t = useT()
   if (pathname?.startsWith('/admin')) return null
 
   return (
@@ -102,9 +106,9 @@ export function ToshNavbar() {
           {/* Not `hidden sm:flex` as a block: /launch has no other way in, and
               /referrals was invisible for exactly as long as it lived only
               below the fold. All three survive to 390px; Directory is the one
-              that shortens (see NAV). */}
+              that shortens (see navItems). */}
           <div className="flex items-center gap-1 min-w-0">
-            {NAV.map(({ href, label, full, exact }) => {
+            {navItems(t).map(({ href, label, full, exact }) => {
               const active = exact ? pathname === href : pathname?.startsWith(href)
               return (
                 <Link

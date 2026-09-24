@@ -1,0 +1,409 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`AgentDirectoryPage · english copy golden master > no launches yet 1`] = `
+[
+  "Agent Directory",
+  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "[placeholder] Search…",
+  "[aria-label] Search launches by name, ticker or address",
+  "Phase",
+  "All launches",
+  "0",
+  "Every agent on the protocol",
+  "Funding",
+  "0",
+  "Proof-of-Gas TQUOTE deposits open",
+  "Awaiting launch",
+  "0",
+  "Window closed · waiting on creator",
+  "Trading",
+  "0",
+  "Live on the 4,000-shelf ladder",
+  "Archived",
+  "0",
+  "Refunds open · full deposit reclaimable",
+  "0 launches on the factory · BNB Smart Chain Testnet",
+  "0",
+  "launches",
+  "Newest",
+  "Most raised",
+  "Closing soon",
+  "Oldest",
+  "No launches yet",
+  "The first one appears here the moment its factory event lands.",
+  "Countdowns update every second; phases re-bucket every ten.",
+  "Launch an agent →",
+]
+`;
+
+exports[`AgentDirectoryPage · english copy golden master > no launches yet 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches0Every agent on the protocolFunding0Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable0 launches on the factory · BNB Smart Chain Testnet0 launchesNewestMost raisedClosing soonOldestNo launches yetThe first one appears here the moment its factory event lands.Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+
+exports[`AgentDirectoryPage · english copy golden master > one launch on the factory 1`] = `
+[
+  "Agent Directory",
+  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "[placeholder] Search…",
+  "[aria-label] Search launches by name, ticker or address",
+  "Phase",
+  "All launches",
+  "1",
+  "Every agent on the protocol",
+  "Funding",
+  "1",
+  "Proof-of-Gas TQUOTE deposits open",
+  "Awaiting launch",
+  "0",
+  "Window closed · waiting on creator",
+  "Trading",
+  "0",
+  "Live on the 4,000-shelf ladder",
+  "Archived",
+  "0",
+  "Refunds open · full deposit reclaimable",
+  "1 launch on the factory · BNB Smart Chain Testnet",
+  "1",
+  "launch",
+  "Newest",
+  "Most raised",
+  "Closing soon",
+  "Oldest",
+  "T",
+  "$",
+  "TO",
+  "Tosh",
+  "FUNDING",
+  "An agent that trades its own ladder.",
+  "Raised",
+  "ends in 9h 0m",
+  "1,862.4523",
+  "TQUOTE",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+  "Countdowns update every second; phases re-bucket every ten.",
+  "Launch an agent →",
+]
+`;
+
+exports[`AgentDirectoryPage · english copy golden master > one launch on the factory 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches1Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet1 launchNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+
+exports[`AgentDirectoryPage · english copy golden master > phase with nothing in it 1`] = `
+[
+  "Agent Directory",
+  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "[placeholder] Search…",
+  "[aria-label] Search launches by name, ticker or address",
+  "Phase",
+  "All launches",
+  "1",
+  "Every agent on the protocol",
+  "Funding",
+  "1",
+  "Proof-of-Gas TQUOTE deposits open",
+  "Awaiting launch",
+  "0",
+  "Window closed · waiting on creator",
+  "Trading",
+  "0",
+  "Live on the 4,000-shelf ladder",
+  "Archived",
+  "0",
+  "Refunds open · full deposit reclaimable",
+  "1 launch on the factory · BNB Smart Chain Testnet",
+  "0",
+  "launches shown",
+  "Newest",
+  "Most raised",
+  "Closing soon",
+  "Oldest",
+  "No launches in this phase",
+  "Try a different phase or search term.",
+  "Clear filters",
+  "Countdowns update every second; phases re-bucket every ten.",
+  "Launch an agent →",
+]
+`;
+
+exports[`AgentDirectoryPage · english copy golden master > phase with nothing in it 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches1Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNo launches in this phaseTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+
+exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
+[
+  "Agent Directory",
+  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "[placeholder] Search…",
+  "[aria-label] Search launches by name, ticker or address",
+  "Phase",
+  "All launches",
+  "4",
+  "Every agent on the protocol",
+  "Funding",
+  "1",
+  "Proof-of-Gas TQUOTE deposits open",
+  "Awaiting launch",
+  "1",
+  "Window closed · waiting on creator",
+  "Trading",
+  "1",
+  "Live on the 4,000-shelf ladder",
+  "Archived",
+  "1",
+  "Refunds open · full deposit reclaimable",
+  "4 launches on the factory · BNB Smart Chain Testnet",
+  "4",
+  "launches",
+  "Newest",
+  "Most raised",
+  "Closing soon",
+  "Oldest",
+  "T",
+  "$",
+  "TO",
+  "Tosh",
+  "FUNDING",
+  "An agent that trades its own ladder.",
+  "Raised",
+  "ends in 9h 0m",
+  "1,862.4523",
+  "TQUOTE",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+  "Q",
+  "$",
+  "QMT",
+  "Quant",
+  "AWAITING LAUNCH",
+  "An agent that trades its own ladder.",
+  "Waiting on creator",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+  "B",
+  "$",
+  "BEMCAT",
+  "Bem Cat",
+  "TRADING",
+  "No description provided.",
+  "Raised at genesis",
+  "1,862.4523",
+  "TQUOTE",
+  "no price feed",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+  "T",
+  "$",
+  "TAP",
+  "Tap",
+  "ARCHIVED",
+  "An agent that trades its own ladder.",
+  "Refunds open · full deposit reclaimable",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+  "Countdowns update every second; phases re-bucket every ten.",
+  "Launch an agent →",
+]
+`;
+
+exports[`AgentDirectoryPage · english copy golden master > populated 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches4Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet4 launchesNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View agent →B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View agent →T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View agent →Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+
+exports[`AgentDirectoryPage · english copy golden master > search matches nothing 1`] = `
+[
+  "Agent Directory",
+  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "[placeholder] Search…",
+  "[aria-label] Search launches by name, ticker or address",
+  "Phase",
+  "All launches",
+  "4",
+  "Every agent on the protocol",
+  "Funding",
+  "1",
+  "Proof-of-Gas TQUOTE deposits open",
+  "Awaiting launch",
+  "1",
+  "Window closed · waiting on creator",
+  "Trading",
+  "1",
+  "Live on the 4,000-shelf ladder",
+  "Archived",
+  "1",
+  "Refunds open · full deposit reclaimable",
+  "4 launches on the factory · BNB Smart Chain Testnet",
+  "0",
+  "launches shown",
+  "Newest",
+  "Most raised",
+  "Closing soon",
+  "Oldest",
+  "Nothing matches",
+  "zzz",
+  "Try a different phase or search term.",
+  "Clear filters",
+  "Countdowns update every second; phases re-bucket every ten.",
+  "Launch an agent →",
+]
+`;
+
+exports[`AgentDirectoryPage · english copy golden master > search matches nothing 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches4Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNothing matches zzzTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+
+exports[`ProjectCard · english copy golden master > feature card · completed 1`] = `
+[
+  "B",
+  "$",
+  "BEMCAT",
+  "TRADING",
+  "Bem Cat",
+  "No description provided.",
+  "1,862.4523",
+  "raised at genesis",
+  "TQUOTE",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > feature card · completed 2`] = `"B$BEMCATTRADINGBem CatNo description provided.1,862.4523raised at genesis TQUOTE"`;
+
+exports[`ProjectCard · english copy golden master > feature card · launching 1`] = `
+[
+  "Q",
+  "$",
+  "QMT",
+  "AWAITING LAUNCH",
+  "Quant",
+  "An agent that trades its own ladder.",
+  "waiting on creator",
+  "166:00:00",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > feature card · launching 2`] = `"Q$QMTAWAITING LAUNCHQuantAn agent that trades its own ladder.waiting on creator166:00:00"`;
+
+exports[`ProjectCard · english copy golden master > feature card · live 1`] = `
+[
+  "T",
+  "$",
+  "TO",
+  "FUNDING",
+  "Tosh",
+  "An agent that trades its own ladder.",
+  "1,862.4523",
+  "TQUOTE",
+  "09:00:00",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > feature card · live 2`] = `"T$TOFUNDINGToshAn agent that trades its own ladder.1,862.4523 TQUOTE09:00:00"`;
+
+exports[`ProjectCard · english copy golden master > grid card · archived 1`] = `
+[
+  "T",
+  "$",
+  "TAP",
+  "Tap",
+  "ARCHIVED",
+  "An agent that trades its own ladder.",
+  "Refunds open · full deposit reclaimable",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > grid card · archived 2`] = `"T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View agent →"`;
+
+exports[`ProjectCard · english copy golden master > grid card · completed 1`] = `
+[
+  "B",
+  "$",
+  "BEMCAT",
+  "Bem Cat",
+  "TRADING",
+  "No description provided.",
+  "Raised at genesis",
+  "1,862.4523",
+  "TQUOTE",
+  "no price feed",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > grid card · completed 2`] = `"B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View agent →"`;
+
+exports[`ProjectCard · english copy golden master > grid card · launching 1`] = `
+[
+  "Q",
+  "$",
+  "QMT",
+  "Quant",
+  "AWAITING LAUNCH",
+  "An agent that trades its own ladder.",
+  "Waiting on creator",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > grid card · launching 2`] = `"Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View agent →"`;
+
+exports[`ProjectCard · english copy golden master > grid card · live 1`] = `
+[
+  "T",
+  "$",
+  "TO",
+  "Tosh",
+  "FUNDING",
+  "An agent that trades its own ladder.",
+  "Raised",
+  "ends in 9h 0m",
+  "1,862.4523",
+  "TQUOTE",
+  "0x7074",
+  "…",
+  "8df2",
+  "View agent →",
+]
+`;
+
+exports[`ProjectCard · english copy golden master > grid card · live 2`] = `"T$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →"`;
+
+exports[`site chrome · english copy golden master > footer 1`] = `
+[
+  "Tosh",
+  "Protocol",
+  "GitHub",
+  "X",
+  "Security",
+  "©",
+  "2026",
+  "Tosh Protocol —",
+  "BNB Smart Chain · testnet",
+]
+`;
+
+exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXSecurity© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
+
+exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
+[
+  "Tosh",
+  "X",
+  "BNB Smart Chain · testnet",
+  "Directory",
+  "Agent Directory",
+  "Launch",
+  "Referrals",
+]
+`;
+
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryAgent DirectoryLaunchReferrals"`;

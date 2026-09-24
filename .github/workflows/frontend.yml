@@ -410,10 +410,23 @@ jobs:
       #     launch with no registry row, which would answer 200 and change
       #     nothing. Verified by mutation: dropping the `not(... is null)` filter
       #     and raising the 14-day ceiling turn exactly two of these red.
+      #
+      # 398 -> 482, the localisation work, which grew the suite across several
+      # commits before this step was next run:
+      #
+      #   • English golden masters for every surface put through the dictionary —
+      #     the money-back panels, the deposit success dialog, the wallet pip, and
+      #     now the navbar, footer, directory page and both card shapes (+14 in
+      #     `directory.golden.test.tsx`). Each pins the rendered English before
+      #     the strings move, so a translation layer that changes a word of it
+      #     turns red rather than shipping.
+      #
+      #   • The GENESIS panel's gate ordering and the action gate's readouts,
+      #     which the localised verdicts had to keep outranking correctly.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=398
+          floor=482
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

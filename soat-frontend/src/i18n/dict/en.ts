@@ -542,6 +542,121 @@ export const EN = {
           + 'launches. Claim it from the referral desk further down this page, or '
           + 'from [your referral ledger] for every project at once. Nothing expires.',
   },
+
+  /**
+   * The navbar links and the footer, on every page but `/admin`.
+   *
+   * ⚠ `navDirectory` IS THE PHONE FORM OF `navDirectoryFull`, not a synonym.
+   *   Below `sm` the bar does not fit at 390px and the directory link sheds a
+   *   word; both are always in the DOM and a media query picks one. A locale
+   *   whose full form is already short may make the two identical, but the short
+   *   one must never be the longer of the pair.
+   *
+   * `navLaunch` and `navReferrals` have no short form because they were never
+   * the ones that overflowed.
+   *
+   * GitHub, X and "Tosh Protocol" are names, not copy, and stay in the JSX.
+   */
+  site: {
+    navDirectory:     'Directory',
+    navDirectoryFull: 'Agent Directory',
+    navLaunch:        'Launch',
+    navReferrals:     'Referrals',
+    footerSecurity:   'Security',
+  },
+
+  /**
+   * `/projects` and the cards it shares with the home page.
+   *
+   * ⚠ THE PHASE BLURBS MAKE CLAIMS THE CONTRACTS HAVE TO BACK, and each one was
+   *   rewritten away from a mock that described something false. `launching` is
+   *   "waiting on creator" because nothing deploys on its own — `launch()` is
+   *   creator-only. `archived` names the refund and not an expired window,
+   *   because a raise too small to open a pool is archived at genesis close with
+   *   most of the window unspent. A translation must keep each claim, not
+   *   smooth it back toward the mock.
+   *
+   * ⚠ ONE / MANY ARE SEPARATE STRINGS rather than a suffix bolted onto one,
+   *   because a language without plural inflection needs to write the same
+   *   thing twice and a language with more than two forms needs to be able to
+   *   say so. The count itself is a styled span in front of `results*`, which is
+   *   why those four strings start after the number.
+   *
+   * `nothingMatches` carries the reader's own query in `*{query}*`, rendered by
+   * `Emph` with the query passed as `vars` so a typed `*` cannot re-cut it.
+   */
+  directory: {
+    title: 'Agent Directory',
+    lede:  'Every agent token on Tosh Protocol — from open funding windows to '
+         + 'shelf-ladder trading, all settled on {chain}.',
+
+    searchPlaceholder: 'Search…',
+    searchLabel:       'Search launches by name, ticker or address',
+
+    phaseHeading:        'Phase',
+    phaseAll:            'All launches',
+    phaseAllBlurb:       'Every agent on the protocol',
+    phaseLive:           'Funding',
+    phaseLiveBlurb:      'Proof-of-Gas {quote} deposits open',
+    phaseLaunching:      'Awaiting launch',
+    phaseLaunchingBlurb: 'Window closed · waiting on creator',
+    phaseCompleted:      'Trading',
+    phaseCompletedBlurb: 'Live on the 4,000-shelf ladder',
+    phaseArchived:       'Archived',
+    phaseArchivedBlurb:  'Refunds open · full deposit reclaimable',
+
+    factoryCountOne:  '{n} launch on the factory · {chain}',
+    factoryCountMany: '{n} launches on the factory · {chain}',
+
+    resultsOne:          'launch',
+    resultsMany:         'launches',
+    resultsOneFiltered:  'launch shown',
+    resultsManyFiltered: 'launches shown',
+
+    sortNewest:  'Newest',
+    sortRaised:  'Most raised',
+    sortClosing: 'Closing soon',
+    sortOldest:  'Oldest',
+
+    nothingMatches:  'Nothing matches *{query}*',
+    emptyTitle:      'No launches yet',
+    emptyPhaseTitle: 'No launches in this phase',
+    emptyBody:       'The first one appears here the moment its factory event lands.',
+    emptyPhaseBody:  'Try a different phase or search term.',
+    clearFilters:    'Clear filters',
+
+    clockNote:   'Countdowns update every second; phases re-bucket every ten.',
+    launchCta:   'Launch an agent →',
+
+    // The card's phase pill. Uppercase in the source because the pill is.
+    pillLive:      'FUNDING',
+    pillLaunching: 'AWAITING LAUNCH',
+    pillCompleted: 'TRADING',
+    pillArchived:  'ARCHIVED',
+
+    noDescription: 'No description provided.',
+
+    /*
+     * The grid card's two-unit countdown. Units are copy — `d`/`h`/`m` are
+     * English abbreviations — so the shape of the whole reading belongs here.
+     */
+    endsIn:       'ends in {left}',
+    closed:       'closed',
+    durationDays: '{d}d {h}h',
+    durationHours: '{h}h {m}m',
+
+    raised:          'Raised',
+    raisedAtGenesis: 'Raised at genesis',
+    noPriceFeed:     'no price feed',
+    waitingOnCreator: 'Waiting on creator',
+    refundsOpen:     'Refunds open · full deposit reclaimable',
+    viewAgent:       'View agent →',
+
+    // The feature card writes these lowercase and lets CSS uppercase them; the
+    // ticker is `*{quote}*` so it can be exempted from that — `mBEM` is not `MBEM`.
+    featureWaiting: 'waiting on creator',
+    featureRaised:  'raised at genesis *{quote}*',
+  },
 } as const
 
 /**

@@ -1,3 +1,5 @@
+import { fill } from './fill'
+
 /**
  * One phrase inside a sentence, brighter than the rest.
  *
@@ -29,15 +31,27 @@
  *   highlight is a cosmetic loss and a blank panel on a page about money is not.
  *   `guard:i18n` fails the build on unbalanced stars, which is where that belongs
  *   — before it ships, not after.
+ *
+ * ⚠ PASS USER INPUT AS `vars`, NEVER PRE-FILLED INTO `text`. The template is
+ *   split on stars first and each run is filled afterwards, so a value cannot
+ *   contribute a marker. `fill()`-ing a search query into `text` first would let
+ *   a reader who types `*` re-cut the sentence at a place no translator chose.
  */
-export function Emph({ text }: { text: string }) {
+export function Emph({
+  text, vars, className = 'text-text-primary',
+}: {
+  text:       string
+  vars?:      Readonly<Record<string, string | number>>
+  className?: string
+}) {
   return (
     <>
-      {text.split('*').map((run, i) =>
-        i % 2 === 1
-          ? <span key={i} className="text-text-primary">{run}</span>
-          : run,
-      )}
+      {text.split('*').map((raw, i) => {
+        const run = vars ? fill(raw, vars) : raw
+        return i % 2 === 1
+          ? <span key={i} className={className}>{run}</span>
+          : run
+      })}
     </>
   )
 }

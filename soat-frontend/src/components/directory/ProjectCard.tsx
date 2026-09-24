@@ -37,6 +37,7 @@ import { CLOCK_UNSYNCED, formatCountdown, Progress, useNowSec } from '@/componen
 import { genesisWindow } from '@/components/ProjectTerminal/phase'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
+import { Emph, fill, useT, type Dictionary } from '@/i18n'
 
 function directoryToRow(p: DirectoryProject): ProjectRow {
   return {
@@ -74,9 +75,9 @@ function directoryToRow(p: DirectoryProject): ProjectRow {
  *
  * A muted line rather than an omission: the card clamps this paragraph to two
  * lines and the phase body below it is positioned against that, so dropping
- * the element would reflow every card that does have a description.
+ * the element would reflow every card that does have a description. The text
+ * lives in the dictionary as `directory.noDescription`.
  */
-const NO_DESCRIPTION = 'No description provided.'
 
 /**
  * The phase pill.
@@ -91,31 +92,31 @@ const NO_DESCRIPTION = 'No description provided.'
  * pip on an archived row claims something is still happening.
  */
 const PHASE: Record<DirectoryProject['tab'], {
-  label: string
+  label: 'pillLive' | 'pillLaunching' | 'pillCompleted' | 'pillArchived'
   cls: string
   pip: string
   pulse: boolean
 }> = {
   live: {
-    label: 'FUNDING',
+    label: 'pillLive',
     cls: 'border-brand/40 bg-brand/10 text-brand',
     pip: 'bg-brand',
     pulse: true,
   },
   launching: {
-    label: 'AWAITING LAUNCH',
+    label: 'pillLaunching',
     cls: 'border-warning/40 bg-warning/10 text-warning',
     pip: 'bg-warning',
     pulse: true,
   },
   completed: {
-    label: 'TRADING',
+    label: 'pillCompleted',
     cls: 'border-success/40 bg-success/10 text-success',
     pip: 'bg-success',
     pulse: false,
   },
   archived: {
-    label: 'ARCHIVED',
+    label: 'pillArchived',
     cls: 'border-border-subtle bg-surface-hover text-text-secondary',
     pip: 'bg-text-secondary',
     pulse: false,
@@ -123,12 +124,11 @@ const PHASE: Record<DirectoryProject['tab'], {
 }
 
 /** `8h 59m`, or `1d 6h` past a day — the mock's two-unit form. */
-function coarse(seconds: number): string {
-  if (seconds <= 0) return 'closed'
+function coarse(seconds: number, t: Dictionary['directory']): string {
   const d = Math.floor(seconds / 86_400)
   const h = Math.floor((seconds % 86_400) / 3_600)
   const m = Math.floor((seconds % 3_600) / 60)
-  return d > 0 ? `${d}d ${h}h` : `${h}h ${m}m`
+  return d > 0 ? fill(t.durationDays, { d, h }) : fill(t.durationHours, { h, m })
 }
 
 /**
@@ -148,6 +148,7 @@ function Remaining({
   precise?: boolean
 }) {
   const nowSec = useNowSec()
+  const d = useT().directory
   if (nowSec === CLOCK_UNSYNCED) return <span>&nbsp;</span>
 
   const target = tab === 'launching' ? deadline + LAUNCH_WINDOW_SECONDS : deadline
@@ -155,11 +156,11 @@ function Remaining({
   if (precise) {
     return (
       <span className="font-mono tabular-nums text-brand">
-        {left <= 0 ? 'closed' : formatCountdown(left)}
+        {left <= 0 ? d.closed : formatCountdown(left)}
       </span>
     )
   }
-  return <span>ends in {coarse(left)}</span>
+  return <span>{left <= 0 ? d.closed : fill(d.endsIn, { left: coarse(left, d) })}</span>
 }
 
 /**
@@ -202,6 +203,7 @@ function GenesisTrack({
 
 function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
+  const d = useT().directory
   const phase = PHASE[p.tab]
   const desc = p.description?.trim()
 
@@ -239,12 +241,12 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
             aria-hidden
             className={`h-1.5 w-1.5 rounded-pill ${phase.pip} ${phase.pulse ? 'dot-breathe' : ''}`}
           />
-          {phase.label}
+          {d[phase.label]}
         </span>
       </div>
 
       <p className="mt-gap line-clamp-2 text-note leading-relaxed text-text-secondary">
-        {desc || <span className="text-text-quiet">{NO_DESCRIPTION}</span>}
+        {desc || <span className="text-text-quiet">{d.noDescription}</span>}
       </p>
 
       {/* ── The per-phase body ─────────────────────────────────────────────── */}
@@ -275,7 +277,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
       {p.tab === 'live' && (
         <div className="mt-card">
           <div className="flex items-center justify-between font-mono text-micro uppercase text-text-tertiary">
-            <span>Raised</span>
+            <span>{d.raised}</span>
             <Remaining deadline={p.genesisDeadline} tab={p.tab} />
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
@@ -303,7 +305,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
                 paint one grid. What it does hold is what the genesis raise
                 settled at, which is also what the ladder opened from. */}
             <div className="font-mono text-micro uppercase text-text-tertiary">
-              Raised at genesis
+              {d.raisedAtGenesis}
             </div>
             <div className="font-mono text-readout tabular-nums text-text-primary">
               {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
@@ -313,7 +315,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               compute a 24h delta from. The slot says that rather than showing
               a number — on a screen about money, a plausible placeholder is
               read as a quote. */}
-          <span className="font-mono text-micro text-text-quiet">no price feed</span>
+          <span className="font-mono text-micro text-text-quiet">{d.noPriceFeed}</span>
         </div>
       )}
 
@@ -323,7 +325,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               describes something automatic. Nothing deploys on its own here:
               `launch()` is creator-only and expires after LAUNCH_WINDOW, at
               which point every depositor is refunded instead. See v0 audit §D2. */}
-          Waiting on creator
+          {d.waitingOnCreator}
         </div>
       )}
 
@@ -333,7 +335,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               archived the moment genesis ends, with most of the window still
               unspent, so naming the window would be false on half these cards.
               The refund is what both failures have in common. */}
-          Refunds open · full deposit reclaimable
+          {d.refundsOpen}
         </div>
       )}
 
@@ -343,7 +345,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
       <div className="mt-card flex items-center justify-between gap-gap border-t border-border-subtle pt-3 font-mono text-micro text-text-tertiary">
         <span className="truncate">{p.token.slice(0, 6)}…{p.token.slice(-4)}</span>
         <span className="shrink-0 text-text-quiet transition-colors group-hover:text-brand">
-          View agent →
+          {d.viewAgent}
         </span>
       </div>
     </Link>
@@ -377,6 +379,7 @@ export const ProjectCard = memo(ProjectCardImpl)
  */
 function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
   const router = useRouter()
+  const d = useT().directory
   const phase = PHASE[p.tab]
   const desc = p.description?.trim()
 
@@ -407,7 +410,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
                   aria-hidden
                   className={`h-1.5 w-1.5 rounded-pill ${phase.pip} ${phase.pulse ? 'dot-breathe' : ''}`}
                 />
-                {phase.label}
+                {d[phase.label]}
               </span>
             </div>
             <span className="truncate text-readout text-text-secondary">{p.name}</span>
@@ -420,7 +423,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
       </div>
 
       <p className="relative mt-5 line-clamp-2 text-readout leading-relaxed text-text-secondary">
-        {desc || <span className="text-text-quiet">{NO_DESCRIPTION}</span>}
+        {desc || <span className="text-text-quiet">{d.noDescription}</span>}
       </p>
 
       <div className="relative mt-6">
@@ -444,7 +447,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           </div>
         ) : p.tab === 'launching' ? (
           <div className="flex items-center justify-between gap-gap rounded-input border border-warning/30 bg-warning/5 px-3 py-2 font-mono text-micro uppercase text-warning">
-            <span>waiting on creator</span>
+            <span>{d.featureWaiting}</span>
             <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
           </div>
         ) : (
@@ -463,7 +466,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               {fmtQuote(p.totalNative)}
             </div>
             <div className="font-mono text-micro uppercase text-text-tertiary">
-              raised at genesis <span className="normal-case">{QUOTE_SYMBOL}</span>
+              <Emph text={d.featureRaised} vars={{ quote: QUOTE_SYMBOL }} className="normal-case" />
             </div>
           </div>
         )}

@@ -196,7 +196,7 @@ export default async function RootLayout({
       <div className="flex-1">
         <InstantProjectSlot>{children}</InstantProjectSlot>
       </div>
-      <SiteFooter />
+      <SiteFooter t={dict} />
     </Providers>
   )
 

@@ -1,4 +1,6 @@
 import { CHAIN_BYLINE } from '@/lib/contracts'
+import { EN } from '@/i18n/dict/en'
+import type { Dictionary } from '@/i18n'
 
 /**
  * The one footer, rendered by the root layout.
@@ -6,8 +8,13 @@ import { CHAIN_BYLINE } from '@/lib/contracts'
  * It used to live inside the directory page, so `/launch`, `/projects/*` and
  * `/admin` simply ended mid-air. A server component, so the year is stamped on
  * the server and there is no client snapshot to disagree with.
+ *
+ * Takes the dictionary as a prop because `useT()` is a client hook and this
+ * renders on the server. The layout already holds the merged dictionary for the
+ * request; English is the default so a caller that passes nothing gets what the
+ * footer said before localisation.
  */
-export function SiteFooter() {
+export function SiteFooter({ t = EN }: { t?: Dictionary }) {
   return (
     <footer className="mt-auto border-t border-border-subtle/60">
       <div className="max-w-7xl mx-auto flex flex-col gap-gap px-4 py-card-lg sm:px-6 md:flex-row md:items-center md:justify-between">
@@ -52,7 +59,7 @@ export function SiteFooter() {
           rel="noopener noreferrer"
           className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
         >
-          Security
+          {t.site.footerSecurity}
         </a>
         </div>
         <span className="font-mono text-label text-text-quiet">

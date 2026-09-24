@@ -32,6 +32,7 @@ import { Search } from 'lucide-react'
 import { ACTIVE_CHAIN_LABEL, MAINNET_CHAIN_LABEL } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
+import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import { ProjectCard, SkeletonCard } from './ProjectCard'
 import { useDirectoryProjects, type DirectoryTab } from './useDirectoryProjects'
 
@@ -44,64 +45,73 @@ import { useDirectoryProjects, type DirectoryTab } from './useDirectoryProjects'
  */
 type PhaseFilter = DirectoryTab | null
 
-const PHASES: {
+function phases(t: Dictionary): {
   key: PhaseFilter
   label: string
   blurb: string
   pip: string
-}[] = [
-  {
-    key: null,
-    label: 'All launches',
-    blurb: 'Every agent on the protocol',
-    pip: 'bg-text-secondary',
-  },
-  {
-    key: 'live',
-    label: 'Funding',
-    blurb: `Proof-of-Gas ${QUOTE_SYMBOL} deposits open`,
-    pip: 'bg-brand',
-  },
-  {
-    key: 'launching',
-    label: 'Awaiting launch',
-    // The mock reads "Floor cleared · ladder deploying". Nothing deploys by
-    // itself: `launch()` is creator-only, and no raise target gates it — this
-    // phase is "genesis window closed, a launch is still possible, creator has
-    // not called it". See v0 audit §D2. A raise that CANNOT launch never lands
-    // here; it goes straight to `archived`, because `canRefund()` opens for it
-    // at genesis close.
-    blurb: 'Window closed · waiting on creator',
-    pip: 'bg-warning',
-  },
-  {
-    key: 'completed',
-    label: 'Trading',
-    blurb: 'Live on the 4,000-shelf ladder',
-    pip: 'bg-success',
-  },
-  {
-    key: 'archived',
-    label: 'Archived',
-    // NOT "launch window expired". Two failures land here and only one of them
-    // ran out of time: a raise too small to open a pool is archived at genesis
-    // close, with six days of window still on the clock. The refund is the
-    // half that is true of both.
-    blurb: 'Refunds open · full deposit reclaimable',
-    pip: 'bg-text-secondary',
-  },
-]
+}[] {
+  const d = t.directory
+  return [
+    {
+      key: null,
+      label: d.phaseAll,
+      blurb: d.phaseAllBlurb,
+      pip: 'bg-text-secondary',
+    },
+    {
+      key: 'live',
+      label: d.phaseLive,
+      blurb: fill(d.phaseLiveBlurb, { quote: QUOTE_SYMBOL }),
+      pip: 'bg-brand',
+    },
+    {
+      key: 'launching',
+      label: d.phaseLaunching,
+      // The mock reads "Floor cleared · ladder deploying". Nothing deploys by
+      // itself: `launch()` is creator-only, and no raise target gates it — this
+      // phase is "genesis window closed, a launch is still possible, creator has
+      // not called it". See v0 audit §D2. A raise that CANNOT launch never lands
+      // here; it goes straight to `archived`, because `canRefund()` opens for it
+      // at genesis close.
+      blurb: d.phaseLaunchingBlurb,
+      pip: 'bg-warning',
+    },
+    {
+      key: 'completed',
+      label: d.phaseCompleted,
+      blurb: d.phaseCompletedBlurb,
+      pip: 'bg-success',
+    },
+    {
+      key: 'archived',
+      label: d.phaseArchived,
+      // NOT "launch window expired". Two failures land here and only one of them
+      // ran out of time: a raise too small to open a pool is archived at genesis
+      // close, with six days of window still on the clock. The refund is the
+      // half that is true of both.
+      blurb: d.phaseArchivedBlurb,
+      pip: 'bg-text-secondary',
+    },
+  ]
+}
 
 type SortKey = 'newest' | 'raised' | 'closing' | 'oldest'
 
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'newest',  label: 'Newest' },
-  { key: 'raised',  label: 'Most raised' },
-  { key: 'closing', label: 'Closing soon' },
-  { key: 'oldest',  label: 'Oldest' },
-]
+function sorts(t: Dictionary): { key: SortKey; label: string }[] {
+  return [
+    { key: 'newest',  label: t.directory.sortNewest },
+    { key: 'raised',  label: t.directory.sortRaised },
+    { key: 'closing', label: t.directory.sortClosing },
+    { key: 'oldest',  label: t.directory.sortOldest },
+  ]
+}
 
 export default function AgentDirectoryPage() {
+  const t = useT()
+  const d = t.directory
+  const PHASES = phases(t)
+  const SORTS = sorts(t)
   const { projects, counts, loading, launchCount } = useDirectoryProjects()
   const [phase, setPhase] = useState<PhaseFilter>(null)
   const [query, setQuery] = useState('')
@@ -155,10 +165,9 @@ export default function AgentDirectoryPage() {
     <main>
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-section">
-          <h1 className="font-mono text-hero text-text-primary">Agent Directory</h1>
+          <h1 className="font-mono text-hero text-text-primary">{d.title}</h1>
           <p className="max-w-xl text-readout text-text-secondary">
-            Every agent token on Tosh Protocol — from open funding windows to
-            shelf-ladder trading, all settled on {MAINNET_CHAIN_LABEL}.
+            {fill(d.lede, { chain: MAINNET_CHAIN_LABEL })}
           </p>
         </div>
 
@@ -173,8 +182,8 @@ export default function AgentDirectoryPage() {
                 type="search"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search…"
-                aria-label="Search launches by name, ticker or address"
+                placeholder={d.searchPlaceholder}
+                aria-label={d.searchLabel}
                 spellCheck={false}
                 className="w-full rounded-input border border-border-subtle bg-surface-card py-2.5 pl-9 pr-3 text-readout text-text-primary placeholder:text-text-quiet transition-colors focus:border-brand focus:outline-none"
               />
@@ -182,7 +191,7 @@ export default function AgentDirectoryPage() {
 
             <div className="flex flex-col gap-1.5">
               <span className="px-1 pb-1 font-mono text-micro uppercase text-text-tertiary">
-                Phase
+                {d.phaseHeading}
               </span>
               {PHASES.map(p => {
                 const active = phase === p.key
@@ -228,7 +237,7 @@ export default function AgentDirectoryPage() {
                 how deep it looked. */}
             <p className="text-micro leading-relaxed text-text-quiet">
               {launchCount !== null
-                ? `${launchCount} launch${launchCount === 1 ? '' : 'es'} on the factory · ${ACTIVE_CHAIN_LABEL}`
+                ? fill(launchCount === 1 ? d.factoryCountOne : d.factoryCountMany, { n: launchCount, chain: ACTIVE_CHAIN_LABEL })
                 : ACTIVE_CHAIN_LABEL}
             </p>
           </aside>
@@ -240,8 +249,9 @@ export default function AgentDirectoryPage() {
                   {visible.length}
                 </span>
                 {' '}
-                {visible.length === 1 ? 'launch' : 'launches'}
-                {query.trim() || phase !== null ? ' shown' : ''}
+                {query.trim() || phase !== null
+                  ? (visible.length === 1 ? d.resultsOneFiltered : d.resultsManyFiltered)
+                  : (visible.length === 1 ? d.resultsOne : d.resultsMany)}
               </span>
 
               <div className="inline-flex items-center gap-1 rounded-card border border-border-subtle bg-surface-card p-1">
@@ -278,15 +288,13 @@ export default function AgentDirectoryPage() {
               <div className="flex flex-col items-center justify-center gap-gap-tight rounded-panel border border-dashed border-border-subtle bg-surface-card py-24 text-center">
                 <p className="text-lede font-semibold text-text-primary">
                   {query.trim()
-                    ? <>Nothing matches <span className="font-mono text-brand">{query.trim()}</span></>
+                    ? <Emph text={d.nothingMatches} vars={{ query: query.trim() }} className="font-mono text-brand" />
                     : total === 0
-                      ? 'No launches yet'
-                      : 'No launches in this phase'}
+                      ? d.emptyTitle
+                      : d.emptyPhaseTitle}
                 </p>
                 <p className="max-w-sm text-readout leading-relaxed text-text-secondary">
-                  {total === 0
-                    ? 'The first one appears here the moment its factory event lands.'
-                    : 'Try a different phase or search term.'}
+                  {total === 0 ? d.emptyBody : d.emptyPhaseBody}
                 </p>
                 {(query.trim() || phase !== null) && (
                   <button
@@ -294,7 +302,7 @@ export default function AgentDirectoryPage() {
                     onClick={() => { setQuery(''); setPhase(null) }}
                     className="mt-gap-tight inline-flex min-h-11 items-center font-mono text-label text-brand hover:underline"
                   >
-                    Clear filters
+                    {d.clearFilters}
                   </button>
                 )}
               </div>
@@ -305,10 +313,10 @@ export default function AgentDirectoryPage() {
             )}
 
             <p className="mt-card-lg text-micro text-text-quiet">
-              {nowSec === CLOCK_UNSYNCED ? ' ' : 'Countdowns update every second; phases re-bucket every ten.'}
+              {nowSec === CLOCK_UNSYNCED ? ' ' : d.clockNote}
               {' '}
               <Link href="/launch" className="text-brand hover:underline">
-                Launch an agent →
+                {d.launchCta}
               </Link>
             </p>
           </div>

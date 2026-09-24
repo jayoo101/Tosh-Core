@@ -314,4 +314,81 @@ export const ZH_CN: PartialDictionary = {
     footer: '佣金随存款到账累计，项目上线时解锁。你可以在本页下方的推荐台申领，'
           + '也可以到[你的推荐台账]里一次结清所有项目。佣金永不过期。',
   },
+
+  site: {
+    // 中文「目录」本身够短，窄屏不需要再缩；两个键仍分开，便于日后改全称。
+    navDirectory:     '目录',
+    navDirectoryFull: '智能体目录',
+    navLaunch:        '发射',
+    navReferrals:     '推荐',
+    footerSecurity:   '安全',
+  },
+
+  directory: {
+    title: '智能体目录',
+    lede:  'Tosh Protocol 上的每一个智能体代币 —— 从开放中的募资窗口到 shelf-ladder 交易，全部在 {chain} 上结算。',
+
+    searchPlaceholder: '搜索…',
+    searchLabel:       '按名称、代号或地址搜索项目',
+
+    phaseHeading:        '阶段',
+    phaseAll:            '全部项目',
+    phaseAllBlurb:       '协议上的所有智能体',
+    phaseLive:           '募资中',
+    phaseLiveBlurb:      'Proof-of-Gas {quote} 存款开放中',
+    // 与英文同样的约束:不能说「即将部署」—— launch() 只有创建者能调用。
+    phaseLaunching:      '待上线',
+    phaseLaunchingBlurb: '窗口已关闭 · 等待创建者',
+    phaseCompleted:      '交易中',
+    phaseCompletedBlurb: '已在 4,000 档 shelf ladder 上交易',
+    // 不能说「窗口已过期」:募资不足的项目在 GENESIS 结束时就归档，窗口还没用完。
+    phaseArchived:       '已归档',
+    phaseArchivedBlurb:  '退款已开放 · 可全额取回存款',
+
+    // 中文没有单复数，两个键同文。
+    factoryCountOne:  '工厂合约上共 {n} 个项目 · {chain}',
+    factoryCountMany: '工厂合约上共 {n} 个项目 · {chain}',
+
+    // 前面紧跟加粗的数字和一个空格:「3 个项目」。
+    resultsOne:         '个项目',
+    resultsMany:        '个项目',
+    resultsOneFiltered: '个项目（已筛选）',
+    resultsManyFiltered:'个项目（已筛选）',
+
+    sortNewest:  '最新',
+    sortRaised:  '募资最多',
+    sortClosing: '即将截止',
+    sortOldest:  '最早',
+
+    nothingMatches:  '没有匹配 *{query}* 的项目',
+    emptyTitle:      '还没有项目',
+    emptyPhaseTitle: '这个阶段暂无项目',
+    emptyBody:       '工厂合约的创建事件一上链，第一个项目就会出现在这里。',
+    emptyPhaseBody:  '换个阶段或搜索词试试。',
+    clearFilters:    '清除筛选',
+    clockNote:       '倒计时每秒更新，阶段每 10 秒重新归类。',
+    launchCta:       '发射一个智能体 →',
+
+    pillLive:      '募资中',
+    pillLaunching: '待上线',
+    pillCompleted: '交易中',
+    pillArchived:  '已归档',
+
+    noDescription: '创建者未提供描述。',
+
+    endsIn:        '{left}后截止',
+    closed:        '已截止',
+    durationDays:  '{d} 天 {h} 小时',
+    durationHours: '{h} 小时 {m} 分',
+
+    raised:           '已募集',
+    raisedAtGenesis:  'GENESIS 募集额',
+    noPriceFeed:      '暂无价格源',
+    waitingOnCreator: '等待创建者',
+    refundsOpen:      '退款已开放 · 可全额取回存款',
+    viewAgent:        '查看智能体 →',
+
+    featureWaiting: '等待创建者',
+    featureRaised:  'GENESIS 募集额 *{quote}*',
+  },
 }
