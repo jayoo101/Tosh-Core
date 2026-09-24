@@ -20,6 +20,7 @@ import { Check, Copy, ExternalLink } from 'lucide-react'
 import { testnetExplorerAddress, testnetExplorerTx } from '@/lib/contracts'
 import { EM_DASH, truncateHex, truncateTxHash } from './format'
 import { cn } from './cn'
+import { useT } from '@/i18n'
 
 export type ExplorerKind = 'address' | 'tx'
 
@@ -49,6 +50,7 @@ export function AddressLink({
   className,
 }: AddressLinkProps) {
   const [copied, setCopied] = useState(false)
+  const t = useT().chrome
 
   useEffect(() => {
     if (!copied) return
@@ -99,8 +101,8 @@ export function AddressLink({
         <button
           type="button"
           onClick={copy}
-          aria-label={copied ? 'copied' : `copy ${kind}`}
-          title={copied ? 'copied' : `copy ${kind}`}
+          aria-label={copied ? t.copied : kind === 'tx' ? t.copyTx : t.copyAddress}
+          title={copied ? t.copied : kind === 'tx' ? t.copyTx : t.copyAddress}
           className="shrink-0 text-text-quiet transition-colors hover:text-brand"
         >
           {copied ? (

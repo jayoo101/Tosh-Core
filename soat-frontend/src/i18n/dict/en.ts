@@ -1350,6 +1350,32 @@ export const EN = {
     claim:        '[ CLAIM_TOKENS ]',
     noAllocation: '[ NO_ALLOCATION ]',
   },
+
+  /**
+   * Site-wide pieces outside any one page: the wrong-network strip, the copy
+   * control on every address, and the 404 page. The 404's `→` arrows stay in
+   * the JSX.
+   */
+  chrome: {
+    wrongNetwork:        'Wrong network — Tosh settles on {chain}. Switch to continue.',
+    wrongNetworkStaging: 'Wrong network — Tosh settles on {chain}; staging runs on {staging}. Switch to continue.',
+    switchNetwork:       'Switch network',
+    switching:           'Switching…',
+
+    copyAddress: 'copy address',
+    copyTx:      'copy tx',
+    copied:      'copied',
+
+    notFoundEyebrow:  '// ROUTE // 404 · UNMAPPED_PATH',
+    notFoundTitle:    'That endpoint is not on the registry.',
+    notFoundBody:     'You either followed a stale link or mistyped a path. The protocol surfaces only the routes shipped in the current build — nothing dynamic gets resolved client-side, so this is a hard miss.',
+    notFoundNav:      'Common destinations',
+    notFoundHome:     'CONSOLE_HOME',
+    notFoundProjects: 'PROJECTS_RADAR',
+    notFoundLaunch:   'LAUNCH_TERMINAL',
+    notFoundAdmin:    'ADMIN_PANEL',
+    notFoundFooter:   '// PROTOCOL_STATE_IS_FINE · ONLY_THIS_URL_IS_NOT_REGISTERED',
+  },
 } as const
 
 /**

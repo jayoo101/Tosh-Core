@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`NetworkGuard on mainnet · english copy golden master > wrong network 1`] = `
+[
+  "Wrong network — Tosh settles on BNB Smart Chain. Switch to continue.",
+  "Switch network",
+]
+`;
+
+exports[`NetworkGuard on mainnet · english copy golden master > wrong network 2`] = `"Wrong network — Tosh settles on BNB Smart Chain. Switch to continue.Switch network"`;

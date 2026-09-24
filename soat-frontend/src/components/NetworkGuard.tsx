@@ -9,6 +9,7 @@ import {
 } from '@/lib/contracts'
 import { useWalletChainId } from '@/lib/useWalletChainId'
 import { toshToast, useIsHydrated } from '@/components/ui'
+import { fill, useT } from '@/i18n'
 
 /** Wrong-network strip — wallet connected but not on the settlement chain. */
 export function NetworkGuard() {
@@ -18,6 +19,7 @@ export function NetworkGuard() {
   // external-store read for exactly this purpose, which is both the same
   // answer and one that does not need the rule switched off to get it.
   const hydrated = useIsHydrated()
+  const t = useT().chrome
 
   const { isConnected } = useAccount()
   const chainId         = useWalletChainId()
@@ -32,8 +34,9 @@ export function NetworkGuard() {
           {/* The "staging runs on" clause is only true off mainnet; on a
               production build it would read "settles on Ethereum; staging runs
               on Ethereum". */}
-          Wrong network — Tosh settles on {MAINNET_CHAIN_LABEL}
-          {IS_TESTNET && <>; staging runs on {ACTIVE_CHAIN_LABEL}</>}. Switch to continue.
+          {IS_TESTNET
+            ? fill(t.wrongNetworkStaging, { chain: MAINNET_CHAIN_LABEL, staging: ACTIVE_CHAIN_LABEL })
+            : fill(t.wrongNetwork, { chain: MAINNET_CHAIN_LABEL })}
         </p>
         {/* THIS BUTTON USED TO SWALLOW ITS OWN FAILURES — `.catch(() => {})`,
             which is the identical defect `actionGate.tsx` already carries the
@@ -61,7 +64,7 @@ export function NetworkGuard() {
                      border border-warning/40 text-warning transition-colors
                      hover:bg-warning/10 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSwitching ? 'Switching…' : 'Switch network'}
+          {isSwitching ? t.switching : t.switchNetwork}
         </button>
       </div>
     </div>

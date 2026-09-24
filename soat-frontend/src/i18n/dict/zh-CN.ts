@@ -989,4 +989,25 @@ export const ZH_CN: PartialDictionary = {
     claim:        '[ 领取代币 ]',
     noAllocation: '[ 无额度 ]',
   },
+
+  chrome: {
+    wrongNetwork:        '网络不对 —— Tosh 在 {chain} 上结算。请切换网络后继续。',
+    wrongNetworkStaging: '网络不对 —— Tosh 在 {chain} 上结算；测试环境运行在 {staging} 上。请切换网络后继续。',
+    switchNetwork:       '切换网络',
+    switching:           '正在切换…',
+
+    copyAddress: '复制地址',
+    copyTx:      '复制交易哈希',
+    copied:      '已复制',
+
+    notFoundEyebrow:  '// 路由 // 404 · 未登记的路径',
+    notFoundTitle:    '这个地址不在登记表上。',
+    notFoundBody:     '你可能点了一个过期的链接，或者输错了路径。协议只提供当前版本里发布的页面 —— 不会在客户端动态解析任何路径，所以这里确实没有内容。',
+    notFoundNav:      '常用入口',
+    notFoundHome:     '首页',
+    notFoundProjects: '项目目录',
+    notFoundLaunch:   '发射项目',
+    notFoundAdmin:    '管理后台',
+    notFoundFooter:   '// 协议状态正常 · 只是这个网址没有登记',
+  },
 }

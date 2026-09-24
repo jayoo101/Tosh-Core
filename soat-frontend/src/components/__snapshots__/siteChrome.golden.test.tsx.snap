@@ -1,0 +1,65 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`site chrome · english copy golden master > 404 1`] = `
+[
+  "// ROUTE // 404 · UNMAPPED_PATH",
+  "That endpoint is not on the registry.",
+  "You either followed a stale link or mistyped a path. The protocol surfaces only the routes shipped in the current build — nothing dynamic gets resolved client-side, so this is a hard miss.",
+  "[aria-label] Common destinations",
+  "→",
+  "CONSOLE_HOME",
+  "→",
+  "PROJECTS_RADAR",
+  "→",
+  "LAUNCH_TERMINAL",
+  "→",
+  "ADMIN_PANEL",
+  "// PROTOCOL_STATE_IS_FINE · ONLY_THIS_URL_IS_NOT_REGISTERED",
+]
+`;
+
+exports[`site chrome · english copy golden master > 404 2`] = `"// ROUTE // 404 · UNMAPPED_PATHThat endpoint is not on the registry.You either followed a stale link or mistyped a path. The protocol surfaces only the routes shipped in the current build — nothing dynamic gets resolved client-side, so this is a hard miss.→ CONSOLE_HOME→ PROJECTS_RADAR→ LAUNCH_TERMINAL→ ADMIN_PANEL// PROTOCOL_STATE_IS_FINE · ONLY_THIS_URL_IS_NOT_REGISTERED"`;
+
+exports[`site chrome · english copy golden master > address and tx controls 1`] = `
+[
+  "[title] 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "0x9fE4…a6e0",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "[title] 0xabababababababababababababababababababababababababababababababab",
+  "0xabababab…ababab",
+  "[aria-label] copy tx",
+  "[title] copy tx",
+]
+`;
+
+exports[`site chrome · english copy golden master > address and tx controls 2`] = `"0x9fE4…a6e00xabababab…ababab"`;
+
+exports[`site chrome · english copy golden master > address control after copying 1`] = `
+[
+  "[title] 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+  "0x9fE4…a6e0",
+  "[aria-label] copied",
+  "[title] copied",
+]
+`;
+
+exports[`site chrome · english copy golden master > address control after copying 2`] = `"0x9fE4…a6e0"`;
+
+exports[`site chrome · english copy golden master > wrong network 1`] = `
+[
+  "Wrong network — Tosh settles on BNB Smart Chain; staging runs on BNB Smart Chain Testnet. Switch to continue.",
+  "Switch network",
+]
+`;
+
+exports[`site chrome · english copy golden master > wrong network 2`] = `"Wrong network — Tosh settles on BNB Smart Chain; staging runs on BNB Smart Chain Testnet. Switch to continue.Switch network"`;
+
+exports[`site chrome · english copy golden master > wrong network, switching 1`] = `
+[
+  "Wrong network — Tosh settles on BNB Smart Chain; staging runs on BNB Smart Chain Testnet. Switch to continue.",
+  "Switching…",
+]
+`;
+
+exports[`site chrome · english copy golden master > wrong network, switching 2`] = `"Wrong network — Tosh settles on BNB Smart Chain; staging runs on BNB Smart Chain Testnet. Switch to continue.Switching…"`;
