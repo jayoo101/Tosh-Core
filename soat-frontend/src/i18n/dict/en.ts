@@ -1139,6 +1139,51 @@ export const EN = {
     poolPending:            'ground at deploy',
     footer:                 'This is how your launch appears in the directory once it confirms.',
   },
+
+  /**
+   * `/launch`. `revert*` are the factory's custom errors decoded in the
+   * pre-flight; `revertOther` names one this page has no sentence for. The
+   * blocker pairs are the Deploy button's, in the order they are listed.
+   */
+  launch: {
+    txAction: 'create launch',
+
+    revertFeeChanged:      'The launch fee was raised above your quote. Reload to see the new terms.',
+    revertNameTaken:       'That name and ticker pair is already claimed. Pick another.',
+    revertCapsChanged:     'The factory dials moved while you were reading. Deploy again to quote the new ones.',
+    revertInsufficientFee: 'The value sent does not cover the launch fee.',
+    revertInvalidAdmin:    'The Phase-2 admin cannot be the zero address.',
+    revertDeployFailed:    'The hook clone failed to deploy. Deploy again for a fresh salt.',
+    revertPaused:          'The factory is paused and is not taking new projects.',
+    revertOther:           'The factory rejected this launch: {name}.',
+
+    noFreeSalt: 'Could not find an unused hook address in 8 attempts — please retry.',
+    capsMoved:  'Factory soft cap / wallet cap changed — the next deploy will use a fresh salt.',
+    feeMoved:   'Launch fee is now {now}, not {was}. Review the terms and tick the pact again.',
+
+    noTokenAddress: 'Launch confirmed, but the token address was not in the receipt.',
+    notListed:      'Launch confirmed, but the listing was not published. Open your project and use Publish listing to finish it.',
+    opening:        'Launch confirmed — opening your project',
+
+    deploy: 'Deploy — {fee} {symbol}',
+
+    identityLabel:     'Name the token first',
+    identityReason:    'The name, ticker and a valid admin address are fixed into the token the moment it deploys, so they have to be settled before you sign.',
+    logoLabel:         'Uploading logo…',
+    logoReason:        'The picture has to finish landing before you sign: its URL is inside the directory attestation, and a snapshot taken now would list the token without it.',
+    dialsLabel:        'Reading the terms…',
+    dialsReason:       'Fetching the launch fee and the factory dials your hook address is derived from, before quoting what you owe.',
+    unreachableLabel:  'Factory unreachable',
+    unreachableReason: 'The factory at {factory} did not answer on chain {chain}. Signing against an unknown fee would either fail or overpay, so this stays locked until it responds.',
+    ackLabel:          'Acknowledge the pact',
+    ackReason:         'The rules on the right are immutable once this transaction lands. Tick the box to proceed.',
+    fundsLabel:        'Need {due}',
+    fundsReason:       'Deploying costs {fee} in launch fee plus about {gas} in gas, both in {symbol}. This wallet does not hold the {due} that comes to.',
+    saltLabel:         'Reserving your pool address…',
+    saltReason:        'Reserving an address for a {hours}h window and checking it is free. Takes a moment.',
+    confirmedLabel:    'Launch confirmed',
+    confirmedReason:   'Your token is on chain. Listing it in the directory runs in the background.',
+  },
 } as const
 
 /**

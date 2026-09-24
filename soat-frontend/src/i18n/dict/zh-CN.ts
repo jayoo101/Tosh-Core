@@ -791,4 +791,45 @@ export const ZH_CN: PartialDictionary = {
     poolPending:            '部署时生成',
     footer:                 '发射确认后，你的项目在目录里就会是这个样子。',
   },
+
+  launch: {
+    // 名词短语，理由同 `refund.txAction`。
+    txAction: '项目创建',
+
+    revertFeeChanged:      '发射费已上调，高于你看到的报价。请刷新页面查看新的条款。',
+    revertNameTaken:       '这个名称和代号的组合已被占用，请换一个。',
+    revertCapsChanged:     '你阅读期间工厂参数发生了变动。请重新部署，按新参数报价。',
+    revertInsufficientFee: '发送的金额不足以支付发射费。',
+    revertInvalidAdmin:    '第二阶段管理员不能是零地址。',
+    revertDeployFailed:    'hook 克隆合约部署失败。请重新部署，会换一个新的 salt。',
+    revertPaused:          '工厂已暂停，暂不接受新项目。',
+    revertOther:           '工厂拒绝了这次发射：{name}。',
+
+    noFreeSalt: '尝试 8 次都没有找到未被占用的 hook 地址 —— 请重试。',
+    capsMoved:  '工厂的软顶 / 单钱包上限已变动 —— 下次部署会使用新的 salt。',
+    feeMoved:   '发射费现在是 {now}，不是 {was}。请重新查看条款，再勾选一次公约。',
+
+    noTokenAddress: '发射已确认，但交易回执里没有代币地址。',
+    notListed:      '发射已确认，但项目资料没有发布。请打开你的项目，用「发布项目资料」完成这一步。',
+    opening:        '发射已确认 —— 正在打开你的项目',
+
+    deploy: '部署 —— {fee} {symbol}',
+
+    identityLabel:     '先给代币命名',
+    identityReason:    '名称、代号和有效的管理员地址会在部署那一刻写进代币，所以签名之前必须定好。',
+    logoLabel:         '正在上传图标…',
+    logoReason:        '要等图片上传完成再签名：图片地址包含在目录签名里，现在签名的话，代币上架时会没有图标。',
+    dialsLabel:        '正在读取条款…',
+    dialsReason:       '正在读取发射费和推导 hook 地址所需的工厂参数，读完才能报出你要支付的金额。',
+    unreachableLabel:  '工厂无响应',
+    unreachableReason: '链 {chain} 上的工厂 {factory} 没有响应。按未知的费用签名，要么失败，要么多付，所以在它响应之前这里保持锁定。',
+    ackLabel:          '确认公约',
+    ackReason:         '这笔交易上链后，右侧的规则就不可更改。勾选复选框后才能继续。',
+    fundsLabel:        '需要 {due}',
+    fundsReason:       '部署需要 {fee} 发射费，外加约 {gas} 的 gas，都以 {symbol} 支付。这个钱包里没有这合计的 {due}。',
+    saltLabel:         '正在预留你的池子地址…',
+    saltReason:        '正在为 {hours} 小时的窗口预留地址，并检查它是否空闲，请稍候。',
+    confirmedLabel:    '发射已确认',
+    confirmedReason:   '你的代币已经上链。登记到项目目录会在后台完成。',
+  },
 }

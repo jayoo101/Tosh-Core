@@ -91,6 +91,7 @@ import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
 import { LogoField } from '@/components/LogoField'
 import { LaunchPreview } from '@/components/LaunchPreview'
+import { fill, useT, type Dictionary } from '@/i18n'
 import {
   AddressLink, Badge, Card, Field,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
@@ -141,7 +142,7 @@ const GENESIS_WINDOWS = [
  * and a launch the factory would have accepted, so only a decoded revert is
  * grounds to stop.
  */
-function launchRevertMessage(err: unknown): string | null {
+function launchRevertMessage(err: unknown, t: Dictionary['launch']): string | null {
   const reverted = err instanceof BaseError
     ? err.walk((e) => e instanceof ContractFunctionRevertedError)
     : null
@@ -150,9 +151,9 @@ function launchRevertMessage(err: unknown): string | null {
   const name = reverted.data?.errorName ?? reverted.reason ?? ''
   switch (name) {
     case 'FeeChanged':
-      return 'The launch fee was raised above your quote. Reload to see the new terms.'
+      return t.revertFeeChanged
     case 'NameTaken':
-      return 'That name and ticker pair is already claimed. Pick another.'
+      return t.revertNameTaken
     // The dial guard, and it replaced `InvalidHookSalt` rather than joining it.
     // Under Uniswap V4 a rotated cap re-rolled the CREATE2 address, which then
     // failed the permission mask about 31 times in 32 — the salt error was the
@@ -160,17 +161,17 @@ function launchRevertMessage(err: unknown): string | null {
     // permissions from the hook itself, so the address no longer objects and the
     // factory has to; `expectedSoftCap` / `expectedWalletCap` are what it checks.
     case 'CapsChanged':
-      return 'The factory dials moved while you were reading. Deploy again to quote the new ones.'
+      return t.revertCapsChanged
     case 'InsufficientLaunchFee':
-      return 'The value sent does not cover the launch fee.'
+      return t.revertInsufficientFee
     case 'InvalidAdmin':
-      return 'The Phase-2 admin cannot be the zero address.'
+      return t.revertInvalidAdmin
     case 'DeployFailed':
-      return 'The hook clone failed to deploy. Deploy again for a fresh salt.'
+      return t.revertDeployFailed
     case 'EnforcedPause':
-      return 'The factory is paused and is not taking new projects.'
+      return t.revertPaused
     default:
-      return name ? `The factory rejected this launch: ${name}.` : null
+      return name ? fill(t.revertOther, { name }) : null
   }
 }
 
@@ -272,6 +273,7 @@ export default function GenesisConsole() {
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
   const router = useRouter()
+  const t = useT().launch
 
   const {
     createLaunch,
@@ -345,7 +347,7 @@ export default function GenesisConsole() {
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
 
   useTxLifecycleToast({
-    labels: { action: 'create launch' },
+    labels: { action: t.txAction },
     hash,
     isPending,
     isConfirming,
@@ -567,7 +569,7 @@ export default function GenesisConsole() {
         }
       }
       if (rawSalt === null || hookAddress === null) {
-        throw new Error('Could not find an unused hook address in 8 attempts — please retry.')
+        throw new Error(t.noFreeSalt)
       }
       setSalt(rawSalt)
       setPredictedHook(hookAddress)
@@ -579,7 +581,7 @@ export default function GenesisConsole() {
     } finally {
       setIsDerivingSalt(false)
     }
-  }, [address, publicClient, adminAddr, genesisDuration])
+  }, [address, publicClient, adminAddr, genesisDuration, t])
 
   useEffect(() => {
     if (!saltCaps) return
@@ -587,8 +589,8 @@ export default function GenesisConsole() {
     if (saltCaps.soft === softCapWei && saltCaps.wallet === perWalletCapWei) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSalt(''); setPredictedHook(''); setSaltCaps(null)
-    setSaltError('Factory soft cap / wallet cap changed — the next deploy will use a fresh salt.')
-  }, [saltCaps, dialsReady, softCapWei, perWalletCapWei])
+    setSaltError(t.capsMoved)
+  }, [saltCaps, dialsReady, softCapWei, perWalletCapWei, t])
 
   const nameTrimmed = name.trim()
   const symbolTrimmed = symbol.trim().toUpperCase()
@@ -714,8 +716,7 @@ export default function GenesisConsole() {
             // Read in BEM this sentence was out by ten orders of magnitude and
             // named the wrong coin, so a creator comparing it against the cost
             // card beside it saw two different fees for the same launch.
-            `Launch fee is now ${nativeDisplay(liveFee)}, not `
-            + `${nativeDisplay(launchFeeWei)}. Review the terms and tick the pact again.`,
+            fill(t.feeMoved, { now: nativeDisplay(liveFee), was: nativeDisplay(launchFeeWei) }),
           )
           void refetchDials()
           return
@@ -759,7 +760,7 @@ export default function GenesisConsole() {
             account: address,
         })
       } catch (e: unknown) {
-        const reason = launchRevertMessage(e)
+        const reason = launchRevertMessage(e, t)
         if (reason !== null) {
           setSaltError(reason)
           return
@@ -779,7 +780,7 @@ export default function GenesisConsole() {
     address, adminAddr, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
     logoUrl, website, twitter, telegram, description, salt, deriveSalt,
     createLaunch, launchFeeWei, genesisDuration, reset, publicClient, saltCaps,
-    dialsReady, predictedHook, refetchDials,
+    dialsReady, predictedHook, refetchDials, t,
   ])
 
   useEffect(() => {
@@ -805,7 +806,7 @@ export default function GenesisConsole() {
       hookAddress = hookAddress ?? snap.predictedHook
       const destination = tokenAddress ?? hookAddress
       if (!destination) {
-        toshToast.error('Launch confirmed, but the token address was not in the receipt.')
+        toshToast.error(t.noTokenAddress)
         return
       }
 
@@ -924,18 +925,14 @@ export default function GenesisConsole() {
         await publish()
       } catch {
         setSyncState('error')
-        toshToast.error(
-          'Launch confirmed, but the listing was not published. Open your ' +
-          'project and use Publish listing to finish it.',
-          { duration: 10_000 },
-        )
+        toshToast.error(t.notListed, { duration: 10_000 })
       }
 
-      toshToast.success('Launch confirmed — opening your project')
+      toshToast.success(t.opening)
       router.push(`/projects/${destination}`)
     }
     void sync()
-  }, [isConfirmed, hash, receipt, publicClient, router, signMessageAsync])
+  }, [isConfirmed, hash, receipt, publicClient, router, signMessageAsync, t])
 
   const pickWindow = (next: bigint) => {
     if (next === genesisDuration) return
@@ -949,43 +946,43 @@ export default function GenesisConsole() {
     // `NATIVE_SYMBOL`, because this figure is the launch fee and the launch fee
     // is BNB. The pact checkbox and the cost card two cells away already say so;
     // this button was the one place still labelling the same number in BEM.
-    action: `Deploy — ${feeDisplay} ${NATIVE_SYMBOL}`,
+    action: fill(t.deploy, { fee: feeDisplay, symbol: NATIVE_SYMBOL }),
     onAct: () => { void handleLaunch() },
     tx: { isPending, isConfirming },
     blockersInRevertOrder: revertOrder(
       {
         id: 'identity',
         active: !identityComplete,
-        label: 'Name the token first',
-        reason: 'The name, ticker and a valid admin address are fixed into the token the moment it deploys, so they have to be settled before you sign.',
+        label: t.identityLabel,
+        reason: t.identityReason,
         tone: 'neutral',
       },
       {
         id: 'logo-uploading',
         active: logoUploading,
-        label: 'Uploading logo…',
-        reason: 'The picture has to finish landing before you sign: its URL is inside the directory attestation, and a snapshot taken now would list the token without it.',
+        label: t.logoLabel,
+        reason: t.logoReason,
         tone: 'info',
       },
       {
         id: 'dials-unread',
         active: !dialsReady && !dialsFailed,
-        label: 'Reading the terms…',
-        reason: 'Fetching the launch fee and the factory dials your hook address is derived from, before quoting what you owe.',
+        label: t.dialsLabel,
+        reason: t.dialsReason,
         tone: 'neutral',
       },
       {
         id: 'dials-unreachable',
         active: dialsFailed,
-        label: 'Factory unreachable',
-        reason: `The factory at ${FACTORY_ADDRESS} did not answer on chain ${TARGET_CHAIN_ID}. Signing against an unknown fee would either fail or overpay, so this stays locked until it responds.`,
+        label: t.unreachableLabel,
+        reason: fill(t.unreachableReason, { factory: FACTORY_ADDRESS, chain: String(TARGET_CHAIN_ID) }),
         tone: 'danger',
       },
       {
         id: 'ack',
         active: !ack,
-        label: 'Acknowledge the pact',
-        reason: 'The rules on the right are immutable once this transaction lands. Tick the box to proceed.',
+        label: t.ackLabel,
+        reason: t.ackReason,
         tone: 'warn',
       },
       /*
@@ -1001,8 +998,11 @@ export default function GenesisConsole() {
       {
         id: 'insufficient-funds',
         active: insufficientFunds,
-        label: `Need ${nativeDisplay(dueNowWei)}`,
-        reason: `Deploying costs ${nativeDisplay(launchFeeWei)} in launch fee plus about ${nativeDisplay(gasNowWei)} in gas, both in ${NATIVE_SYMBOL}. This wallet does not hold the ${nativeDisplay(dueNowWei)} that comes to.`,
+        label: fill(t.fundsLabel, { due: nativeDisplay(dueNowWei) }),
+        reason: fill(t.fundsReason, {
+          fee: nativeDisplay(launchFeeWei), gas: nativeDisplay(gasNowWei),
+          symbol: NATIVE_SYMBOL, due: nativeDisplay(dueNowWei),
+        }),
         tone: 'warn',
       },
       {
@@ -1011,15 +1011,15 @@ export default function GenesisConsole() {
         // No longer a search, and the copy should not promise one. This used to
         // say "Searching for an address Uniswap will accept" and take seconds;
         // it is now two contract reads and an occupancy check.
-        label: 'Reserving your pool address…',
-        reason: `Reserving an address for a ${genesisDuration / 3600n}h window and checking it is free. Takes a moment.`,
+        label: t.saltLabel,
+        reason: fill(t.saltReason, { hours: String(genesisDuration / 3600n) }),
         tone: 'info',
       },
       {
         id: 'confirmed',
         active: isConfirmed,
-        label: 'Launch confirmed',
-        reason: 'Your token is on chain. Listing it in the directory runs in the background.',
+        label: t.confirmedLabel,
+        reason: t.confirmedReason,
         tone: 'info',
       },
     ),
