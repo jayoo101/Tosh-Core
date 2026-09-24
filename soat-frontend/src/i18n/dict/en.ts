@@ -785,6 +785,100 @@ export const EN = {
     shelfPosition: 'shelf #{n} / {total}',
     about:         'About',
   },
+
+  /**
+   * The shelf ladder and the buy form. A money path: each blocker's label and
+   * reason are a pair, listed here in the hook's revert order.
+   */
+  bonding: {
+    // The noun phrase the transaction toasts slot into `tx.*`.
+    buyAction:    'buy {symbol}',
+    haltPending:  'PENDING RESUME',
+
+    amountInvalidLabel:  'Check the amount',
+    amountInvalidReason: 'That is not a number this field can send as a token amount.',
+    amountZeroLabel:     'Enter an amount',
+    amountZeroReason:    'Enter how many {symbol} to buy.',
+    // `{time}` is either a countdown (01:02:05) or `haltPending`.
+    haltedLabel:         'Paused · resumes {time}',
+    haltedReasonGlobal:  'Shelf minting is suspended by the protocol circuit breaker platform-wide — it lifts on its own in {time}, and the pool keeps trading meanwhile.',
+    haltedReasonHook:    'Shelf minting is suspended by the protocol circuit breaker for this project — it lifts on its own in {time}, and the pool keeps trading meanwhile.',
+    sameBlockLabel:      'Paused for this block',
+    sameBlockReason:     'A swap landed in this block, and the contract will not sell from the shelves alongside one. It reopens on the next block.',
+    exceedsLabel:        'Amount too large',
+    exceedsReason:       'A single purchase can take at most {max} right now — send the rest as a second transaction.',
+    awaitingLabel:       'Waiting for the market',
+    awaitingReason:      'The first shelf sits 5% above the pool by design, so it opens only once the market price reaches it.',
+    lockedLabel:         'Above the price ceiling',
+    lockedReason:        'The next shelf is more than 5% above the current pool price, so it stays shut until the market catches up.',
+    noCapacityLabel:     'No supply available',
+    noCapacityReason:    'No shelf can serve any amount right now — the ladder is either sold out or priced out at the margin.',
+    quotePendingLabel:   'Checking the price…',
+    quotePendingReason:  'Working out what {symbol} costs at the current shelf. The button arms as soon as the price comes back.',
+    quoteUnavailableLabel:  'Price unavailable',
+    quoteUnavailableReason: 'No price came back for that amount, so there is nothing to attach to the transaction. This is usually a network hiccup — it retries every few seconds.',
+    dustLabel:           'Amount too small',
+    dustReason:          'That amount costs less than the smallest unit of {quote} the shelf can charge for. Raise it until the order is worth at least 0.00000001 {quote}.',
+    balanceLabel:        'Not enough {quote}',
+    balanceReason:       'This wallet does not hold the quoted cost plus its slippage headroom — {amount} {quote} in total.',
+    approvingLabel:      'Approving…',
+    approveLabel:        'Approve {amount} {quote}',
+    // A pull, not a payment: the headroom is allowance, never charged.
+    approveReason:       'The shelf pulls {quote} from your wallet rather than being sent it, so it needs permission for up to {amount} {quote} — the quoted cost plus slippage headroom. It only ever takes the real cost; the difference stays yours.',
+
+    // Terse tags on the amount field; the button carries the full sentence.
+    errNotNumber: 'NOT A NUMBER',
+    errTooBig:    'TOO BIG FOR ONE ORDER',
+    errDust:      'COSTS LESS THAN A UNIT',
+    errBalance:   'ABOVE YOUR BALANCE',
+    hintSameBlock: 'THE LADDER IS SHUT FOR THIS BLOCK — IT REOPENS ON THE NEXT ONE',
+    hintAwaiting:  'THE LADDER OPENS ONCE THE MARKET REACHES THE FIRST SHELF',
+    hintMax:       'UP TO {max} IN ONE ORDER · SWEEPS SHELVES',
+
+    ladderTitle:     'SHELF LADDER · {symbol}',
+    ladderSubtitle:  'Every buy lands on the live shelf. Cleared shelves stay filled below; queued shelves open once the live one clears.',
+    suspendedGlobal: '→ LADDER SUSPENDED · PLATFORM-WIDE · LIFTS IN {time}',
+    suspendedHook:   '→ LADDER SUSPENDED · THIS PROJECT · LIFTS IN {time}',
+    suspendedBody:   'The protocol owner has tripped the circuit breaker, so the contract turns away every shelf purchase until it expires. The pool itself is untouched — the token still trades on PancakeSwap, existing balances are unaffected, and the halt lapses on its own without any further action.',
+
+    // `$` is the ticker sigil, not a currency sign.
+    buyTitle:          'Buy ${symbol}',
+    buyEyebrow:        'shelf ladder',
+    amountLabel:       'AMOUNT TO BUY',
+    amountPlaceholder: 'e.g. 1000',
+    quotedCost:        'QUOTED COST',
+    unavailable:       'Unavailable',
+    mostYouPay:        'MOST YOU CAN PAY',
+    mostYouPayHint:    '0.5% over the quote; you are only charged the true cost',
+    orderSize:         'ORDER SIZE',
+    belowMinimum:      'Below minimum',
+    accepted:          'Accepted',
+    orderSizeHint:     'Raise the amount until it costs at least 0.00000001 {quote}',
+    buyFooter:         'One order sweeps as many shelves as it needs, and a 105% ceiling stops it clearing far above the market price.',
+
+    gateHalted:    'LADDER HALTED · BREAKER',
+    gateSameBlock: '105% GATE · SAME-BLOCK LOCK',
+    gateAwaiting:  '105% GATE · AWAITING MARKET',
+    gateOpen:      '105% GATE · OPEN',
+    gateLocked:    '105% GATE · LOCKED',
+    shelfPrice:    'SHELF PRICE',
+    perToken:      'per whole token',
+    remaining:     'REMAINING',
+    tokensOnRung:  'tokens on this rung',
+    ceiling:       '105% CEILING',
+    ceilingTracks: 'tracks the pool and its average',
+    ceilingHeld:   'held at the opening price',
+    fillLabel:     'SHELF #{n} FILL',
+    rowLive:       'LIVE',
+    rowCleared:    'CLEARED',
+    rowQueued:     'QUEUED',
+    // `*…*` is the figure, set brighter than its label.
+    footOpening:  'opening = *{price} {quote}*',
+    footNow:      'now = *{price}*',
+    footAverage:  'average = *{price}*',
+    // A zero average is "no full window yet", not a price of zero.
+    footAverageSettling: 'average = *SETTLING · {window} WINDOW · CEILING HELD AT OPENING*',
+  },
 } as const
 
 /**

@@ -32,6 +32,7 @@ import {
   Card, Readout, Field, ActionButton,
 } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 import { fmtQuote } from './format'
 import { ShelfLadder } from './ShelfLadder'
 import { useBondingState } from './bondingState'
@@ -50,12 +51,13 @@ export function BondingLadderSection() {
     p, status, halted, haltIsGlobal, haltTxt,
     sameBlockLock, awaitingFirstUnlock,
   } = useBondingState()
+  const t = useT().bonding
 
   return (
     <Card
       id="P-2"
-      title={`SHELF LADDER · ${p.symbol}`}
-      subtitle="Every buy lands on the live shelf. Cleared shelves stay filled below; queued shelves open once the live one clears."
+      title={fill(t.ladderTitle, { symbol: p.symbol })}
+      subtitle={t.ladderSubtitle}
     >
       <ShelfLadder
         hookAddress={p.hookAddress}
@@ -69,14 +71,10 @@ export function BondingLadderSection() {
       {halted && (
         <div className="border border-danger/40 px-4 py-3 flex flex-col gap-1">
           <p className="font-mono text-label tracking-[0.32em] uppercase text-danger">
-            → LADDER SUSPENDED · {haltIsGlobal ? 'PLATFORM-WIDE' : 'THIS PROJECT'} · LIFTS IN {haltTxt}
+            {fill(haltIsGlobal ? t.suspendedGlobal : t.suspendedHook, { time: haltTxt })}
           </p>
           <p className="font-mono text-note text-text-tertiary leading-relaxed">
-            The protocol owner has tripped the circuit breaker, so the contract
-            turns away every shelf purchase until it expires. The pool itself is
-            untouched — the token still
-            trades on PancakeSwap, existing balances are unaffected, and the halt
-            lapses on its own without any further action.
+            {t.suspendedBody}
           </p>
         </div>
       )}
@@ -121,10 +119,11 @@ export function BondingBuyPanel() {
     tokenAmount, setTokenAmount, txBusy, amountError, amountHint,
     gate, armed,
   } = useBondingState()
+  const t = useT().bonding
 
   return (
     <Card
-      title={`Buy $${p.symbol}`}
+      title={fill(t.buyTitle, { symbol: p.symbol })}
       // The reference's eyebrow for this card, which sits top-right of the
       // title rather than above it. `status` is that slot.
       //
@@ -134,14 +133,14 @@ export function BondingBuyPanel() {
       // `flex-wrap justify-between`, so at this column's 360px a title with a
       // subtitle beside it pushed the eyebrow onto its own line, where it read
       // as an orphaned caption rather than a label on the card.
-      status={<span className="font-mono text-micro uppercase text-text-quiet">shelf ladder</span>}
+      status={<span className="font-mono text-micro uppercase text-text-quiet">{t.buyEyebrow}</span>}
       interactive={false}
     >
       <Field
-        label="AMOUNT TO BUY"
+        label={t.amountLabel}
         value={tokenAmount}
         onValueChange={setTokenAmount}
-        placeholder="e.g. 1000"
+        placeholder={t.amountPlaceholder}
         inputMode="decimal"
         disabled={txBusy || !p.isConnected || halted}
         error={amountError}
@@ -160,14 +159,14 @@ export function BondingBuyPanel() {
             <Readout
               layout="stack"
               className="px-4 py-3"
-              label="QUOTED COST"
-              value={quoteUnknown ? '…' : quoteUnavailable ? 'Unavailable' : `${fmtQuote(quoteCost)} ${QUOTE_SYMBOL}`}
+              label={t.quotedCost}
+              value={quoteUnknown ? '…' : quoteUnavailable ? t.unavailable : `${fmtQuote(quoteCost)} ${QUOTE_SYMBOL}`}
               tone={quoteUnavailable ? 'warn' : 'ink'}
             />
             <Readout
               layout="stack"
               className="px-4 py-3"
-              label="MOST YOU CAN PAY"
+              label={t.mostYouPay}
               // Only one of these three cells used to admit it was waiting. The
               // other two read straight off `maxQuoteCost`, which is 0n until the
               // quote lands — so the panel spent every in-flight moment stating
@@ -182,15 +181,15 @@ export function BondingBuyPanel() {
               // already uses. The old line was left over from the native-value
               // era, when the call really did carry `msg.value` and really did
               // send change back.
-              hint="0.5% over the quote; you are only charged the true cost"
+              hint={t.mostYouPayHint}
             />
             <Readout
               layout="stack"
               className="px-4 py-3"
-              label="ORDER SIZE"
-              value={quoteUnknown ? '…' : isDust ? 'Below minimum' : 'Accepted'}
+              label={t.orderSize}
+              value={quoteUnknown ? '…' : isDust ? t.belowMinimum : t.accepted}
               tone={isDust ? 'warn' : 'ok'}
-              hint={isDust ? `Raise the amount until it costs at least 0.00000001 ${QUOTE_SYMBOL}` : undefined}
+              hint={isDust ? fill(t.orderSizeHint, { quote: QUOTE_SYMBOL }) : undefined}
             />
           </div>
         </div>
@@ -199,8 +198,7 @@ export function BondingBuyPanel() {
       <ActionButton gate={gate} />
 
       <p className="text-micro leading-relaxed text-text-quiet">
-        One order sweeps as many shelves as it needs, and a 105% ceiling stops
-        it clearing far above the market price.
+        {t.buyFooter}
       </p>
     </Card>
   )

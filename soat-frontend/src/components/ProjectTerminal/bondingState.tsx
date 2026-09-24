@@ -41,6 +41,7 @@ import {
 import {
   useActionGate, revertOrder, useTxAction, useQuoteApproval, type ActionGate,
 } from '@/components/ui'
+import { fill, useT } from '@/i18n'
 import { fmt, fmtQuote } from './format'
 import type { TierStatus } from './ShelfLadder'
 
@@ -125,6 +126,7 @@ export function useBondingState(): BondingState {
 export function BondingStateProvider(
   { children, ...p }: BondingProps & { children: ReactNode },
 ) {
+  const t = useT().bonding
   const [tokenAmount, setTokenAmount] = useState('')
 
   const tokenAmountWei = (() => {
@@ -181,7 +183,7 @@ export function BondingStateProvider(
   const haltEndsAt    = haltIsGlobal ? globalHaltEnd : hookHaltEnd
   const haltTxt = (() => {
     const rem = Number(haltEndsAt) - p.nowSec
-    if (rem <= 0) return 'PENDING RESUME'
+    if (rem <= 0) return t.haltPending
     const h = Math.floor(rem / 3600)
     const m = Math.floor((rem % 3600) / 60)
     const s = rem % 60
@@ -284,7 +286,7 @@ export function BondingStateProvider(
     isConfirming: isMintConfirming,
     isBusy: txBusy,
   } = useTxAction({
-    action: `buy ${p.symbol}`,
+    action: fill(t.buyAction, { symbol: p.symbol }),
     onConfirmed: () => { p.refetch(); setTokenAmount('') },
   })
 
@@ -342,94 +344,94 @@ export function BondingStateProvider(
   // was told to send a smaller order — which would have reverted too.  The truth
   // was "wait one block", and lowering the amount could never reveal it.
   const gate = useActionGate({
-    action: `buy ${p.symbol}`,
+    action: fill(t.buyAction, { symbol: p.symbol }),
     onAct: submitMint,
     tx: { isPending: isMinting, isConfirming: isMintConfirming },
     blockersInRevertOrder: revertOrder(
       {
         id: 'amount-invalid',
         active: tokenAmountInvalid,
-        label: 'Check the amount',
-        reason: 'That is not a number this field can send as a token amount.',
+        label: t.amountInvalidLabel,
+        reason: t.amountInvalidReason,
         tone: 'warn',
       },
       {
         id: 'amount-zero',
         active: !tokenAmountInvalid && tokenAmountWei === 0n,
-        label: 'Enter an amount',
-        reason: `Enter how many ${p.symbol} to buy.`,
+        label: t.amountZeroLabel,
+        reason: fill(t.amountZeroReason, { symbol: p.symbol }),
         tone: 'neutral',
       },
       {
         id: 'ladder-halted',
         active: halted,
-        label: `Paused · resumes ${haltTxt}`,
-        reason: `Shelf minting is suspended by the protocol circuit breaker${haltIsGlobal ? ' platform-wide' : ' for this project'} — it lifts on its own in ${haltTxt}, and the pool keeps trading meanwhile.`,
+        label: fill(t.haltedLabel, { time: haltTxt }),
+        reason: fill(haltIsGlobal ? t.haltedReasonGlobal : t.haltedReasonHook, { time: haltTxt }),
       },
       {
         id: 'same-block',
         active: sameBlockLock,
-        label: 'Paused for this block',
-        reason: 'A swap landed in this block, and the contract will not sell from the shelves alongside one. It reopens on the next block.',
+        label: t.sameBlockLabel,
+        reason: t.sameBlockReason,
         tone: 'warn',
       },
       {
         id: 'exceeds-max',
         active: exceedsMax,
-        label: 'Amount too large',
-        reason: `A single purchase can take at most ${fmt(maxMintable)} right now — send the rest as a second transaction.`,
+        label: t.exceedsLabel,
+        reason: fill(t.exceedsReason, { max: fmt(maxMintable) }),
       },
       {
         id: 'awaiting-first-unlock',
         active: awaitingFirstUnlock,
-        label: 'Waiting for the market',
-        reason: 'The first shelf sits 5% above the pool by design, so it opens only once the market price reaches it.',
+        label: t.awaitingLabel,
+        reason: t.awaitingReason,
         tone: 'neutral',
       },
       {
         id: 'gate-locked',
         active: gateLocked,
-        label: 'Above the price ceiling',
-        reason: 'The next shelf is more than 5% above the current pool price, so it stays shut until the market catches up.',
+        label: t.lockedLabel,
+        reason: t.lockedReason,
       },
       {
         id: 'no-capacity',
         active: noCapacity,
-        label: 'No supply available',
-        reason: 'No shelf can serve any amount right now — the ladder is either sold out or priced out at the margin.',
+        label: t.noCapacityLabel,
+        reason: t.noCapacityReason,
       },
       {
         id: 'quote-pending',
         active: quotePending,
-        label: 'Checking the price…',
-        reason: `Working out what ${p.symbol} costs at the current shelf. The button arms as soon as the price comes back.`,
+        label: t.quotePendingLabel,
+        reason: fill(t.quotePendingReason, { symbol: p.symbol }),
         tone: 'neutral',
       },
       {
         id: 'quote-unavailable',
         active: quoteUnavailable,
-        label: 'Price unavailable',
-        reason: 'No price came back for that amount, so there is nothing to attach to the transaction. This is usually a network hiccup — it retries every few seconds.',
+        label: t.quoteUnavailableLabel,
+        reason: t.quoteUnavailableReason,
         tone: 'warn',
       },
       {
         id: 'dust',
         active: isDust,
-        label: 'Amount too small',
+        label: t.dustLabel,
         // "At least a wei" was the old wording and it is now doubly wrong: the
         // cost is not in the native coin, and the quote asset's smallest unit is
         // 1e-8 rather than 1e-18. The threshold is also ten orders of magnitude
         // less forgiving than it was, so a token amount that used to round to a
         // nonzero cost can now genuinely round to nothing — this blocker fires far
         // more often than it did, and its copy has to be about the real limit.
-        reason: `That amount costs less than the smallest unit of ${QUOTE_SYMBOL} the shelf can charge for. Raise it until the order is worth at least 0.00000001 ${QUOTE_SYMBOL}.`,
+        reason: fill(t.dustReason, { quote: QUOTE_SYMBOL }),
         tone: 'warn',
       },
       {
         id: 'balance',
         active: insufficientBal,
-        label: `Not enough ${QUOTE_SYMBOL}`,
-        reason: `This wallet does not hold the quoted cost plus its slippage headroom — ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL} in total.`,
+        label: fill(t.balanceLabel, { quote: QUOTE_SYMBOL }),
+        reason: fill(t.balanceReason, { amount: fmtQuote(maxQuoteCost), quote: QUOTE_SYMBOL }),
         tone: 'warn',
       },
       {
@@ -441,9 +443,9 @@ export function BondingStateProvider(
           maxQuoteCost > 0n && !insufficientBal && !isDust
           && !quoteUnknown && !quoteUnavailable && approval.needsApproval,
         label: approval.tx.isBusy
-          ? 'Approving…'
-          : `Approve ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL}`,
-        reason: `The shelf pulls ${QUOTE_SYMBOL} from your wallet rather than being sent it, so it needs permission for up to ${fmtQuote(maxQuoteCost)} ${QUOTE_SYMBOL} — the quoted cost plus slippage headroom. It only ever takes the real cost; the difference stays yours.`,
+          ? t.approvingLabel
+          : fill(t.approveLabel, { amount: fmtQuote(maxQuoteCost), quote: QUOTE_SYMBOL }),
+        reason: fill(t.approveReason, { amount: fmtQuote(maxQuoteCost), quote: QUOTE_SYMBOL }),
         tone: 'info',
         resolve: approval.approve,
       },
@@ -459,19 +461,19 @@ export function BondingStateProvider(
   // What is left here is the red border and a three-word tag; the button carries
   // the explanation and the remedy.
   const amountError =
-      tokenAmountInvalid ? 'NOT A NUMBER'
-    : exceedsMax         ? 'TOO BIG FOR ONE ORDER'
-    : isDust             ? 'COSTS LESS THAN A UNIT'
-    : insufficientBal    ? 'ABOVE YOUR BALANCE'
+      tokenAmountInvalid ? t.errNotNumber
+    : exceedsMax         ? t.errTooBig
+    : isDust             ? t.errDust
+    : insufficientBal    ? t.errBalance
     : null
 
   // Not faults.  A shut gate before the first mint is the designed opening
   // state, and a same-block lock clears by itself on the next block — colouring
   // either of them as an error was the thing the old cascade got wrong.
   const amountHint =
-      sameBlockLock       ? 'THE LADDER IS SHUT FOR THIS BLOCK — IT REOPENS ON THE NEXT ONE'
-    : awaitingFirstUnlock ? 'THE LADDER OPENS ONCE THE MARKET REACHES THE FIRST SHELF'
-    : maxMintable > 0n    ? `UP TO ${fmt(maxMintable)} IN ONE ORDER · SWEEPS SHELVES`
+      sameBlockLock       ? t.hintSameBlock
+    : awaitingFirstUnlock ? t.hintAwaiting
+    : maxMintable > 0n    ? fill(t.hintMax, { max: fmt(maxMintable) })
     : undefined
 
   // Not memoised, and that is not an oversight: `ProjectTerminal` re-renders

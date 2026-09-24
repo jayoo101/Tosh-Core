@@ -7,6 +7,7 @@ import type { Address } from 'viem'
 import { HOOK_ABI, TIER_SIZE, TWAP_WINDOW_LABEL } from '@/lib/contracts'
 import { Readout, Progress } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import { fmt, fmtQuote } from './format'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,12 +39,12 @@ function gateLine(s: {
   sameBlockLock: boolean
   awaitingFirstUnlock: boolean
   unlocked: boolean
-}): { text: string; cls: string } {
-  if (s.halted)              return { text: 'LADDER HALTED · BREAKER',   cls: 'text-danger'         }
-  if (s.sameBlockLock)       return { text: '105% GATE · SAME-BLOCK LOCK', cls: 'text-warn'         }
-  if (s.awaitingFirstUnlock) return { text: '105% GATE · AWAITING MARKET', cls: 'text-text-tertiary' }
-  if (s.unlocked)            return { text: '105% GATE · OPEN',          cls: 'text-ok'             }
-  return { text: '105% GATE · LOCKED', cls: 'text-warn' }
+}, t: Dictionary['bonding']): { text: string; cls: string } {
+  if (s.halted)              return { text: t.gateHalted,    cls: 'text-danger'         }
+  if (s.sameBlockLock)       return { text: t.gateSameBlock, cls: 'text-warn'           }
+  if (s.awaitingFirstUnlock) return { text: t.gateAwaiting,  cls: 'text-text-tertiary'  }
+  if (s.unlocked)            return { text: t.gateOpen,      cls: 'text-ok'             }
+  return { text: t.gateLocked, cls: 'text-warn' }
 }
 
 export function ShelfLadder({
@@ -66,6 +67,7 @@ export function ShelfLadder({
   /// page ran the call twice and could render the two copies a beat apart.
   status:      TierStatus | undefined
 }) {
+  const t = useT().bonding
   const tierIndex = status?.[0] ?? 0n
   const tierPrice = status?.[1] ?? 0n
   const remaining = status?.[2] ?? 0n
@@ -96,7 +98,7 @@ export function ShelfLadder({
   })
   const window = (windowRaw as readonly TierRow[] | undefined) ?? []
 
-  const gate = gateLine({ halted, sameBlockLock, awaitingFirstUnlock, unlocked })
+  const gate = gateLine({ halted, sameBlockLock, awaitingFirstUnlock, unlocked }, t)
 
   const fillPct = TIER_SIZE > 0n
     ? Number(((TIER_SIZE - remaining) * 10_000n) / TIER_SIZE) / 100
@@ -128,13 +130,13 @@ export function ShelfLadder({
           that row `LIVE`, and the page header prints `shelf #0 / 4,000` beside
           the headline price. */}
       <div className="grid grid-cols-2 @lg:grid-cols-3 gap-4 px-4 py-3">
-        <Readout layout="stack" label="SHELF PRICE"  value={`${fmtQuote(tierPrice)} ${QUOTE_SYMBOL}`} hint="per whole token" />
-        <Readout layout="stack" label="REMAINING"    value={fmt(remaining)} hint="tokens on this rung" />
+        <Readout layout="stack" label={t.shelfPrice} value={`${fmtQuote(tierPrice)} ${QUOTE_SYMBOL}`} hint={t.perToken} />
+        <Readout layout="stack" label={t.remaining}  value={fmt(remaining)} hint={t.tokensOnRung} />
         <Readout
           layout="stack"
-          label="105% CEILING"
+          label={t.ceiling}
           value={`${fmtQuote(ceiling)} ${QUOTE_SYMBOL}`}
-          hint={unlocked ? 'tracks the pool and its average' : 'held at the opening price'}
+          hint={unlocked ? t.ceilingTracks : t.ceilingHeld}
           tone={unlocked ? 'ok' : 'mute'}
         />
       </div>
@@ -142,7 +144,7 @@ export function ShelfLadder({
       <div className="px-4 pb-3">
         <Progress
           pct={fillPct}
-          label={`SHELF #${tierIndex.toString()} FILL`}
+          label={fill(t.fillLabel, { n: tierIndex.toString() })}
           caption={`${fmt(TIER_SIZE - remaining)} / ${fmt(TIER_SIZE)}`}
           tone="ink"
           ascii
@@ -150,11 +152,11 @@ export function ShelfLadder({
       </div>
 
       <div className="border-t border-border-subtle divide-y divide-border-subtle/60">
-        {window.map((t, i) => {
+        {window.map((row, i) => {
           const idx = windowStart + BigInt(i)
           const active = idx === tierIndex
-          const soldPct = t.totalAmount > 0n
-            ? Number((t.soldAmount * 10_000n) / t.totalAmount) / 100
+          const soldPct = row.totalAmount > 0n
+            ? Number((row.soldAmount * 10_000n) / row.totalAmount) / 100
             : 0
           return (
             <div
@@ -163,9 +165,9 @@ export function ShelfLadder({
                           ${active ? 'text-text-primary bg-surface-hover' : 'text-text-tertiary'}`}
             >
               <span>#{idx.toString()}</span>
-              <span>{fmtQuote(t.price)} {QUOTE_SYMBOL}</span>
+              <span>{fmtQuote(row.price)} {QUOTE_SYMBOL}</span>
               <span>{soldPct.toFixed(1)}%</span>
-              <span className="text-right">{active ? 'LIVE' : idx < tierIndex ? 'CLEARED' : 'QUEUED'}</span>
+              <span className="text-right">{active ? t.rowLive : idx < tierIndex ? t.rowCleared : t.rowQueued}</span>
             </div>
           )
         })}
@@ -173,16 +175,15 @@ export function ShelfLadder({
 
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle
                       font-mono text-label text-text-tertiary tabular-nums">
-        <span>opening = <span className="text-text-primary">{fmtQuote(p0)} {QUOTE_SYMBOL}</span></span>
-        <span>now = <span className="text-text-primary">{fmtQuote(spotPrice)}</span></span>
+        <span><Emph text={t.footOpening} vars={{ price: fmtQuote(p0), quote: QUOTE_SYMBOL }} /></span>
+        <span><Emph text={t.footNow} vars={{ price: fmtQuote(spotPrice) }} /></span>
         {/* A zero average is the contract's "no full window yet" signal, not a
             price of zero — the ceiling caps against the opening price until the
             window matures, which is what the fallback text has to say. */}
         <span>
-          average ={' '}
           {twapPrice > 0n
-            ? <span className="text-text-primary">{fmtQuote(twapPrice)}</span>
-            : <span className="text-text-tertiary">SETTLING · {TWAP_WINDOW_LABEL} WINDOW · CEILING HELD AT OPENING</span>}
+            ? <Emph text={t.footAverage} vars={{ price: fmtQuote(twapPrice) }} />
+            : <Emph text={t.footAverageSettling} vars={{ window: TWAP_WINDOW_LABEL }} className="text-text-tertiary" />}
         </span>
       </div>
     </div>
