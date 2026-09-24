@@ -1208,6 +1208,47 @@ export const EN = {
     saltTitle:              'Hook salt',
     saltHeld:               'salt held',
     poolAddress:            'Your pool address',
+
+    pactTitle:          'Immutable rules',
+    genesisSupply:      'Genesis supply',
+    ladderSupply:       'Ladder supply',
+    ladderShelves:      'Ladder shelves',
+    ladderShelvesValue: '{count} · {span}× span',
+    openingPrice:       'Opening price',
+    openingPriceValue:  '1.10× genesis',
+    deadline:           'Your deadline to launch',
+    deadlineValue:      '{days} days',
+    pactFootnote:       'Fixed at deploy, and unsold supply is never re-mintable. Genesis splits {share} to depositor claims and the rest to pool liquidity, which is what opens the market above what they paid. The clock starts when genesis closes: open the pool inside it, or every depositor can take back 100% of their {quote} — with no deadline of their own to beat. A raise that finishes too small to open a pool skips the clock entirely and refunds the moment genesis closes; there is nothing you could have done with the week, so you do not get one.',
+
+    costTitle:    'What this costs you',
+    costSubtitle: 'Two transactions, and only the first is due now.',
+    dueNow:       'Due now',
+    costFee:      '└ launch fee',
+    costGasNow:   '└ gas, deploy now',
+    costGasLater: 'Gas, open pool later',
+    costFootnote: '{native} only, and one signature — the fee is sent with the transaction, not approved first. Send more than the fee and the difference comes straight back. Gas is estimated at the current rate, which moves before you sign. Opening the pool is a later transaction only you can send.',
+
+    noUpgrade:    "No upgrade path and no admin key over your token: the terms above are fixed in the contract's own bytecode at deploy, and only this project's contract can ever mint. The platform keeps one bounded brake — it can pause shelf minting for up to 7 days at a time, on the record, and it can never reach a deposit, a refund or a claim.",
+    factoryLabel: 'Factory {address}',
+
+    pactAccept:  'I accept the immutable pact: {fee} {symbol} launch fee, a genesis window that cannot close early, and a *full refund* to every depositor if I let the {days}-day window to open trading expire — or, whatever I do, if the raise finishes too small to open a pool.',
+    pactFailed:  'The factory did not answer on chain {chain}, so the launch fee is unknown. There are no terms to accept yet.',
+    pactLoading: 'Reading the launch fee off the factory — the pact appears here with its real numbers in it.',
+    deployNote:  'Deploy reserves your pool address before the wallet opens, so expect a moment before the prompt.',
+
+    confirmed:   'Confirmed.',
+    syncSigning: 'sign to list in the directory',
+    syncDone:    'directory synced',
+    syncError:   'not listed — finish from the project page',
+    cancel:      'Cancel',
+
+    windowShort: '{hours}h',
+
+    dialsTitle:    'Live factory dials',
+    dialsSubtitle: 'Read from the factory now — these move between launches.',
+    dialFee:       'Launch fee',
+    dialCap:       'Per-wallet cap',
+    dialNetwork:   'Network',
   },
 } as const
 

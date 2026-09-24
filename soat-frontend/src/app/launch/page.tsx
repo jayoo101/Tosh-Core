@@ -91,7 +91,7 @@ import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
 import { LogoField } from '@/components/LogoField'
 import { LaunchPreview } from '@/components/LaunchPreview'
-import { fill, useT, type Dictionary } from '@/i18n'
+import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import {
   AddressLink, Badge, Card, Field,
   ActionButton, useActionGate, revertOrder, useTxLifecycleToast,
@@ -1404,29 +1404,29 @@ export default function GenesisConsole() {
                   with a timestamp attached. The cost card keeps its subtitle
                   because "only the first is due now" is a fact its four rows
                   genuinely do not state. */}
-              <Card id="PACT" title="Immutable rules" interactive={false}>
+              <Card id="PACT" title={t.pactTitle} interactive={false}>
                 <dl className="flex flex-col gap-gap-tight font-mono text-note">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Genesis supply</dt>
+                    <dt className="text-text-tertiary">{t.genesisSupply}</dt>
                     <dd className="text-text-primary">
                       {millions(GENESIS_SUPPLY)} · {shareOf(GENESIS_SUPPLY, TOTAL_SUPPLY)}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Ladder supply</dt>
+                    <dt className="text-text-tertiary">{t.ladderSupply}</dt>
                     <dd className="text-text-primary">
                       {millions(BONDING_MAX)} · {shareOf(BONDING_MAX, TOTAL_SUPPLY)}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Ladder shelves</dt>
+                    <dt className="text-text-tertiary">{t.ladderShelves}</dt>
                     <dd className="text-text-primary">
-                      {TIER_COUNT.toLocaleString()} · {LADDER_SPAN}× span
+                      {fill(t.ladderShelvesValue, { count: TIER_COUNT.toLocaleString(), span: String(LADDER_SPAN) })}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Opening price</dt>
-                    <dd className="text-text-primary">1.10× genesis</dd>
+                    <dt className="text-text-tertiary">{t.openingPrice}</dt>
+                    <dd className="text-text-primary">{t.openingPriceValue}</dd>
                   </div>
                   {/* ⚠ THIS ROW WAS LABELLED "Refund window", WHICH NAMED THE
                       WRONG WINDOW AND POINTED IT AT THE WRONG PERSON.
@@ -1449,29 +1449,23 @@ export default function GenesisConsole() {
                       genesis close and never reaches this clock at all. That
                       is not a deadline, so it is not a row here. */}
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Your deadline to launch</dt>
+                    <dt className="text-text-tertiary">{t.deadline}</dt>
                     <dd className="text-text-primary">
-                      {Number(LAUNCH_WINDOW_SECONDS / 86400n)} days
+                      {fill(t.deadlineValue, { days: Number(LAUNCH_WINDOW_SECONDS / 86400n) })}
                     </dd>
                   </div>
                 </dl>
                 <p className="text-micro leading-relaxed text-text-quiet">
-                  Fixed at deploy, and unsold supply is never re-mintable. Genesis
-                  splits {shareOf(GENESIS_CLAIM_SUPPLY, GENESIS_SUPPLY)} to depositor
-                  claims and the rest to pool liquidity, which is what opens the market
-                  above what they paid. The clock starts when genesis closes: open the
-                  pool inside it, or every depositor can take back 100% of their{' '}
-                  {QUOTE_SYMBOL} — with no deadline of their own to beat. A raise that
-                  finishes too small to open a pool skips the clock entirely and refunds
-                  the moment genesis closes; there is nothing you could have done with
-                  the week, so you do not get one.
+                  {fill(t.pactFootnote, {
+                    share: shareOf(GENESIS_CLAIM_SUPPLY, GENESIS_SUPPLY), quote: QUOTE_SYMBOL,
+                  })}
                 </p>
               </Card>
 
               <Card
                 id="COST"
-                title="What this costs you"
-                subtitle="Two transactions, and only the first is due now."
+                title={t.costTitle}
+                subtitle={t.costSubtitle}
                 interactive={false}
               >
                 {/* SHORTER LABELS, and one of them was also wrong. Both gas
@@ -1501,30 +1495,26 @@ export default function GenesisConsole() {
                     strands a raise that already succeeded. */}
                 <dl className="flex flex-col gap-gap-tight font-mono text-note">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Due now</dt>
+                    <dt className="text-text-tertiary">{t.dueNow}</dt>
                     <dd className="text-text-primary">{nativeDisplay(dueNowWei)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">└ launch fee</dt>
+                    <dt className="text-text-tertiary">{t.costFee}</dt>
                     <dd className="text-text-secondary">{nativeDisplay(dialsReady ? launchFeeWei : null)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">└ gas, deploy now</dt>
+                    <dt className="text-text-tertiary">{t.costGasNow}</dt>
                     <dd className="text-text-secondary">{nativeDisplay(gasNowWei)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Gas, open pool later</dt>
+                    <dt className="text-text-tertiary">{t.costGasLater}</dt>
                     <dd className="text-text-secondary">
                       {nativeDisplay(gasCostWei(LAUNCH_GAS_TOTAL, feePerGas))}
                     </dd>
                   </div>
                 </dl>
                 <p className="text-micro leading-relaxed text-text-quiet">
-                  {NATIVE_SYMBOL} only, and one signature — the fee is sent with the
-                  transaction, not approved first. Send more than the fee and the
-                  difference comes straight back. Gas is estimated at the current
-                  rate, which moves before you sign. Opening the pool is a later
-                  transaction only you can send.
+                  {fill(t.costFootnote, { native: NATIVE_SYMBOL })}
                 </p>
               </Card>
             </div>
@@ -1566,12 +1556,8 @@ export default function GenesisConsole() {
                 than the overclaim was, and it does not fall over when someone
                 reads the contract. */}
             <p className="flex flex-wrap items-center gap-x-gap-tight text-note leading-relaxed text-text-quiet">
-              No upgrade path and no admin key over your token: the terms above are
-              fixed in the contract&apos;s own bytecode at deploy, and only this
-              project&apos;s contract can ever mint. The platform keeps one bounded
-              brake — it can pause shelf minting for up to 7 days at a time, on the
-              record, and it can never reach a deposit, a refund or a claim.
-              <AddressLink value={FACTORY_ADDRESS} label={`Factory ${truncateHex(FACTORY_ADDRESS)}`} className="text-micro" />
+              {t.noUpgrade}
+              <AddressLink value={FACTORY_ADDRESS} label={fill(t.factoryLabel, { address: truncateHex(FACTORY_ADDRESS) })} className="text-micro" />
             </p>
 
             {/* The submit block: the mock's fifth panel, and like the mock's it
@@ -1607,21 +1593,19 @@ export default function GenesisConsole() {
                 <span className="text-note leading-relaxed text-text-secondary">
                   {dialsReady ? (
                     <>
-                      I accept the immutable pact: {feeDisplay} {NATIVE_SYMBOL} launch fee, a genesis
-                      window that cannot close early, and a{' '}
-                      <span className="text-warning">full refund</span> to every depositor if I
-                      let the {Number(LAUNCH_WINDOW_SECONDS / 86400n)}-day window to open trading
-                      expire — or, whatever I do, if the raise finishes too small to open a pool.
+                      <Emph
+                        text={t.pactAccept}
+                        vars={{ fee: feeDisplay, symbol: NATIVE_SYMBOL, days: Number(LAUNCH_WINDOW_SECONDS / 86400n) }}
+                        className="text-warning"
+                      />
                     </>
                   ) : dialsFailed ? (
                     <span className="text-danger">
-                      The factory did not answer on chain {TARGET_CHAIN_ID}, so the launch fee is
-                      unknown. There are no terms to accept yet.
+                      {fill(t.pactFailed, { chain: String(TARGET_CHAIN_ID) })}
                     </span>
                   ) : (
                     <span className="text-text-tertiary">
-                      Reading the launch fee off the factory — the pact appears here with its
-                      real numbers in it.
+                      {t.pactLoading}
                     </span>
                   )}
                 </span>
@@ -1643,13 +1627,12 @@ export default function GenesisConsole() {
                   It says "a moment" rather than the old "a few seconds" because
                   the wait is now three RPC calls instead of a salt search. */}
               <p className="text-micro leading-relaxed text-text-quiet">
-                Deploy reserves your pool address before the wallet opens, so
-                expect a moment before the prompt.
+                {t.deployNote}
               </p>
 
               {isConfirmed && hash && (
                 <p className="font-mono text-note text-success">
-                  Confirmed.{' '}
+                  {t.confirmed}{' '}
                   <a
                     href={testnetExplorerTx(hash)}
                     target="_blank"
@@ -1658,9 +1641,9 @@ export default function GenesisConsole() {
                   >
                     {hash.slice(0, 10)}…{hash.slice(-6)}
                   </a>
-                  {syncState === 'syncing' && ' · sign to list in the directory'}
-                  {syncState === 'done' && ' · directory synced'}
-                  {syncState === 'error' && ' · not listed — finish from the project page'}
+                  {syncState === 'syncing' && ` · ${t.syncSigning}`}
+                  {syncState === 'done' && ` · ${t.syncDone}`}
+                  {syncState === 'error' && ` · ${t.syncError}`}
                 </p>
               )}
 
@@ -1674,7 +1657,7 @@ export default function GenesisConsole() {
                 href="/"
                 className="inline-flex min-h-11 items-center self-start font-mono text-label text-text-tertiary hover:text-text-secondary"
               >
-                Cancel
+                {t.cancel}
               </Link>
             </div>
           </form>
@@ -1701,7 +1684,7 @@ export default function GenesisConsole() {
                 symbol={symbolTrimmed}
                 description={description}
                 logoUrl={logoUrl}
-                windowLabel={`${activeWindow.seconds / 3600n}h`}
+                windowLabel={fill(t.windowShort, { hours: String(activeWindow.seconds / 3600n) })}
                 poolAddress={predictedHook}
               />
 
@@ -1715,13 +1698,13 @@ export default function GenesisConsole() {
                   three-panel version was not. */}
               <Card
                 id="DIALS"
-                title="Live factory dials"
-                subtitle="Read from the factory now — these move between launches."
+                title={t.dialsTitle}
+                subtitle={t.dialsSubtitle}
                 interactive={false}
               >
                 <dl className="flex flex-col gap-gap-tight font-mono text-note">
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Launch fee</dt>
+                    <dt className="text-text-tertiary">{t.dialFee}</dt>
                     <dd className="text-text-primary">
                       {dialsReady ? `${feeDisplay} ${NATIVE_SYMBOL}` : EM_DASH}
                     </dd>
@@ -1746,13 +1729,13 @@ export default function GenesisConsole() {
                       still decides the CREATE2 address — it simply has nothing
                       to say to a creator. */}
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Per-wallet cap</dt>
+                    <dt className="text-text-tertiary">{t.dialCap}</dt>
                     <dd className="text-text-primary">
                       {dialsReady ? `${trimEth(formatUnits(perWalletCapWei, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}` : EM_DASH}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-text-tertiary">Network</dt>
+                    <dt className="text-text-tertiary">{t.dialNetwork}</dt>
                     <dd className="text-text-primary">{ACTIVE_CHAIN_LABEL}</dd>
                   </div>
                 </dl>

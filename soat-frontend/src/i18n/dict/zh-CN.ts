@@ -856,5 +856,46 @@ export const ZH_CN: PartialDictionary = {
     saltTitle:              'Hook salt',
     saltHeld:               '已持有 salt',
     poolAddress:            '你的池子地址',
+
+    pactTitle:          '不可更改的规则',
+    genesisSupply:      'GENESIS 供应量',
+    ladderSupply:       'Ladder 供应量',
+    ladderShelves:      'Ladder shelf 数',
+    ladderShelvesValue: '{count} · {span}× 跨度',
+    openingPrice:       '开盘价',
+    openingPriceValue:  'GENESIS 价格的 1.10×',
+    deadline:           '你的上线期限',
+    deadlineValue:      '{days} 天',
+    pactFootnote:       '部署时即固定，未售出的供应量永远不能再增发。GENESIS 把 {share} 分给存款人领取，其余进入池子流动性 —— 正是这部分让市场以高于他们成本的价格开盘。GENESIS 结束时开始计时：在期限内开池，否则每位存款人都可以取回 100% 的 {quote} —— 而且他们自己没有任何期限要赶。如果募资结束时金额太小、开不了池子，就会完全跳过这段计时，GENESIS 一结束就退款；那一周你本来也做不了什么，所以不会给你。',
+
+    costTitle:    '你需要支付的费用',
+    costSubtitle: '共两笔交易，现在只需支付第一笔。',
+    dueNow:       '现在应付',
+    costFee:      '└ 发射费',
+    costGasNow:   '└ gas，现在部署',
+    costGasLater: 'gas，稍后开池',
+    costFootnote: '只用 {native}，只需一次签名 —— 发射费随交易一起发送，不需要先授权。多发的部分会直接退回。gas 按当前费率估算，签名前可能会变动。开池是之后的另一笔交易，只有你能发起。',
+
+    noUpgrade:    '你的代币没有升级路径，也没有管理员密钥：上面的条款在部署时就固定在合约自己的字节码里，只有这个项目自己的合约能增发。平台只保留一个有上限的刹车 —— 它可以暂停 shelf 增发，每次最多 7 天，全程公开记录，而且永远碰不到任何存款、退款或领取。',
+    factoryLabel: '工厂 {address}',
+
+    pactAccept:  '我接受这份不可更改的公约：{fee} {symbol} 发射费；GENESIS 窗口不能提前结束；如果我让 {days} 天的开盘期限过期 —— 或者无论我怎么做，只要募资结束时金额太小、开不了池子 —— 每位存款人都会获得*全额退款*。',
+    pactFailed:  '链 {chain} 上的工厂没有响应，所以发射费未知。暂时没有可接受的条款。',
+    pactLoading: '正在从工厂读取发射费 —— 公约会带着真实数字显示在这里。',
+    deployNote:  '部署会在钱包弹出前先预留你的池子地址，所以弹窗出现前会稍等片刻。',
+
+    confirmed:   '已确认。',
+    syncSigning: '签名以登记到目录',
+    syncDone:    '目录已同步',
+    syncError:   '未登记 —— 请在项目页完成',
+    cancel:      '取消',
+
+    windowShort: '{hours} 小时',
+
+    dialsTitle:    '工厂实时参数',
+    dialsSubtitle: '此刻从工厂读取 —— 这些参数在不同项目之间会变动。',
+    dialFee:       '发射费',
+    dialCap:       '单钱包上限',
+    dialNetwork:   '网络',
   },
 }
