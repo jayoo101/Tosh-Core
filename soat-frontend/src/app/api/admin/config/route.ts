@@ -64,9 +64,10 @@
  *         to the owner's shape, which in turn required persisting the nonce —
  *         see `SIGNATURE_WINDOW_SEC` and `app/lib/adminNonce.ts`.
  *
- *       • Nothing in the browser can connect a Safe. `providers.tsx` registers
- *         `injected()` and nothing else, so `useAccount().address` is always an
- *         extension EOA — never the owner the server now checks against. The
+ *       • Nothing on the admin page can connect a Safe. `/admin` opts out of the
+ *         wallet picker and connects through `injected()` alone, so
+ *         `useAccount().address` there is an extension EOA — never the owner
+ *         the server now checks against. The
  *         admin panel therefore cannot produce a valid signature no matter how
  *         correct it is, and says so instead of offering a button that 403s; the
  *         working path is `scripts/rotateGasRate.mjs`.

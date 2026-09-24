@@ -43,6 +43,8 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useAccount, useConnect, useSwitchChain } from 'wagmi'
 import { TARGET_CHAIN_ID, ACTIVE_CHAIN_LABEL } from '@/lib/contracts'
 import { useWalletChainId } from '@/lib/useWalletChainId'
+import { BROWSER_CONNECTOR_ID } from '@/lib/wallets'
+import { useWalletPicker } from '@/components/WalletPicker'
 import { fill, useT } from '@/i18n'
 import { useIsHydrated } from './useClock'
 import { toshToast } from './toast'
@@ -254,6 +256,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
   const { connectAsync, connectors, isPending: isConnecting } = useConnect()
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain()
   const ambient = useAmbientGate()
+  const picker = useWalletPicker()
   const t = useT()
 
   const connected = hydrated && isConnected
@@ -283,13 +286,25 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     }
 
     if (requiresWallet && !isConnected) {
-      const connector = connectors[0]
+      const connecting = isConnecting || (picker?.isConnecting ?? false)
+      if (picker) {
+        return {
+          kind: 'connect',
+          label: connecting ? t.gate.connecting : t.gate.connect,
+          reason: t.gate.connectReason,
+          tone: 'info',
+          disabled: connecting,
+          act: picker.open,
+        }
+      }
+      // No picker: `/admin`, and tests that render a panel bare.
+      const connector = connectors.find((c) => c.id === BROWSER_CONNECTOR_ID) ?? connectors[0]
       return {
         kind: 'connect',
-        label: isConnecting ? t.gate.connecting : t.gate.connect,
+        label: connecting ? t.gate.connecting : t.gate.connect,
         reason: t.gate.connectReason,
         tone: 'info',
-        disabled: isConnecting || connector === undefined,
+        disabled: connecting || connector === undefined,
         act: connector === undefined
           ? null
           : () => { void connectAsync({ connector }).catch(reportWalletFailure) },
@@ -360,6 +375,7 @@ export function useActionGate(options: ActionGateOptions): ActionGate {
     isConnecting,
     connectors,
     connectAsync,
+    picker,
     requiresNetwork,
     isWrongNetwork,
     isSwitching,

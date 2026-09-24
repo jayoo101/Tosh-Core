@@ -4,10 +4,11 @@ import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider, createConfig, http, fallback } from 'wagmi'
-import { injected } from 'wagmi/connectors'
 import type { ToasterProps } from 'react-hot-toast'
 import { targetChain, BSC_ID, BSC_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
+import { makeConnectors } from '@/lib/wallets'
 import { PogLookupProvider } from '@/components/ProjectTerminal/PogLookupProvider'
+import { WalletPickerProvider } from '@/components/WalletPicker'
 
 // ssr: false — react-hot-toast maintains an internal toast store; the SSR
 // snapshot of that store never matches the hydration snapshot, producing a
@@ -95,10 +96,10 @@ function buildFoundryTransport() {
   return http(url, { retryCount: 0, timeout: 6_000 })
 }
 
-// Use injected() only — it handles MetaMask, Coinbase Wallet, Rabby, etc.
-// This is also what `useActionGate` reaches for when it renders the
-// Connect Wallet verdict: it takes `connectors[0]`, so the order of this
-// array is the connect UX.
+// Binance Wallet, the generic injected wallet and, when a Reown project ID is
+// set, WalletConnect — see `lib/wallets.ts`. EIP-6963 discovery stays on, so
+// every installed extension adds itself as well. Nothing picks a connector by
+// position any more: every Connect button opens `WalletPicker`.
 //
 // ⚠ EXACTLY ONE CHAIN IS REGISTERED, AND THAT IS THE POINT. This used to list
 //   `[targetChain, foundry]`, which handed every unpinned read a second chain
@@ -127,13 +128,19 @@ function buildFoundryTransport() {
 //
 //   Local development sets `NEXT_PUBLIC_CHAIN_ID=31337`, which makes Foundry
 //   the target and gets it registered through the same single slot.
+// WalletConnect shows this origin to the wallet as the requesting site, so the
+// browser's own is used where there is one. The config is also built during
+// server rendering, where there is not.
+function siteOrigin(): string {
+  if (typeof window !== 'undefined') return window.location.origin
+  return trimmedEnv(process.env.NEXT_PUBLIC_SITE_URL) ?? 'https://toshx.xyz'
+}
+
 function makeConfig() {
   const isFoundry = targetChain.id === FOUNDRY_CHAIN_ID
   return createConfig({
     chains: [targetChain],
-    connectors: [
-      injected({ shimDisconnect: true }),
-    ],
+    connectors: makeConnectors(siteOrigin(), `${siteOrigin()}/icon.png`),
     transports: {
       [targetChain.id]: isFoundry ? buildFoundryTransport() : buildTargetTransport(),
     },
@@ -147,9 +154,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <PogLookupProvider>
-          {children}
-        </PogLookupProvider>
+        <WalletPickerProvider>
+          <PogLookupProvider>
+            {children}
+          </PogLookupProvider>
+        </WalletPickerProvider>
         {/* THE toaster.  Mounted here rather than in layout.tsx for two
             reasons: layout.tsx is a server component, so hosting it there
             would need a second client boundary purely to carry this; and the

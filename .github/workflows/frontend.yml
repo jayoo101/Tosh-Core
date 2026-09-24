@@ -432,7 +432,7 @@ jobs:
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=523
+          floor=532
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

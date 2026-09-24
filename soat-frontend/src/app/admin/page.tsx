@@ -62,6 +62,7 @@ import {
 } from '@/lib/contracts'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
 import { ActionGateProvider, type AmbientGate } from '@/components/ui'
+import { WithoutWalletPicker } from '@/components/WalletPicker'
 import { Line, GroupHeader, AddressLink } from './shared'
 import { LaunchFeePanel, SoftCapPanel, PogLimitPanel, CooldownDurationPanel, QuotaWindowPanel } from './FactoryDials'
 import { PogSignerPanel, PlatformTreasuryPanel } from './Signers'
@@ -286,6 +287,7 @@ export default function AdminPage() {
   }, [ownerLoading, isOwner])
 
   return (
+    <WithoutWalletPicker>
     <ActionGateProvider value={access}>
       <div className="text-text-primary font-sans">
         <header className="border-b border-border-subtle/60 px-6 py-6">
@@ -362,5 +364,6 @@ export default function AdminPage() {
       </main>
     </div>
     </ActionGateProvider>
+    </WithoutWalletPicker>
   )
 }

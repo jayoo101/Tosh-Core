@@ -8,6 +8,7 @@ import { injected } from 'wagmi/connectors'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
 import { useT } from '@/i18n'
 import { UserDrawer } from './UserDrawer'
+import { useWalletPicker } from './WalletPicker'
 
 /**
  * MeritX-style wallet control — adapted for Tosh:
@@ -17,9 +18,11 @@ import { UserDrawer } from './UserDrawer'
  */
 export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navbar' }) {
   const { address, isConnected } = useAccount()
-  const { connect, isPending }   = useConnect()
+  const { connect, isPending: connectPending } = useConnect()
+  const picker                   = useWalletPicker()
   const { isOwner }              = useProtocolOwner()
   const t                        = useT()
+  const isPending                = connectPending || (picker?.isConnecting ?? false)
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
@@ -57,7 +60,7 @@ export function WalletPip({ variant = 'default' }: { variant?: 'default' | 'navb
       {!connected ? (
         <button
           type="button"
-          onClick={() => connect({ connector: injected() })}
+          onClick={() => picker ? picker.open() : connect({ connector: injected() })}
           disabled={isPending}
           className={`${connectCls} disabled:opacity-40 disabled:cursor-not-allowed`}
         >

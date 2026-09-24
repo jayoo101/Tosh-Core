@@ -135,6 +135,31 @@ export const EN = {
   },
 
   /**
+   * The wallet picker every Connect button opens.
+   *
+   * Wallet names are not here — they are brand names and come from the
+   * connector or the wallet's own EIP-6963 announcement. Each `binance*` hint
+   * describes what pressing the row will actually do on this device, so it
+   * changes with it: connect, reopen in the app, show a QR code, or download.
+   */
+  wallet: {
+    title: 'Connect a wallet',
+    close: 'Close',
+
+    binanceDetected: 'Detected in this browser',
+    binanceOpenApp:  'Opens this page in the Binance app',
+    binanceScan:     'Scan a QR code with the Binance app',
+    binanceInstall:  'Get the Binance app',
+
+    detected:          'Detected',
+    browserWallet:     'Browser wallet',
+    browserWalletHint: 'MetaMask, Rabby, OKX and other extensions',
+    walletConnectHint: 'Scan a QR code with any mobile wallet',
+
+    footer: 'Tosh settles on {chain}. A wallet on another network is asked to switch once it connects.',
+  },
+
+  /**
    * The deposit form — the widest surface in the app and the one with the most
    * ways to say no.
    *
@@ -893,7 +918,7 @@ export const EN = {
  * `refund.noneReason` is neither.
  */
 export const TIER0_SURFACES = [
-  'tx', 'gate', 'nav', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
+  'tx', 'gate', 'nav', 'wallet', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
   'awaitingLaunch', 'success',
 ] as const
 

@@ -25,8 +25,8 @@
  *
  * Putting it behind the owner path would price it at a 2-of-3 Safe signature
  * collected across two devices, for a decision that is reversed by waiting.
- * And it would not work from the admin page at all: `providers.tsx` registers
- * only `injected()`, so the browser can never hold the Safe's pen — the reason
+ * And it would not work from the admin page at all: `/admin` connects through
+ * `injected()` alone, so the browser can never hold the Safe's pen — the reason
  * `ExchangeRatePanel` renders a blocker instead of a button and the working
  * path for the PoG rate is a CLI script.
  *

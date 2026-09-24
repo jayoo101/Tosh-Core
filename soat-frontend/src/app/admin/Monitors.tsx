@@ -201,8 +201,8 @@ export function ExchangeRatePanel() {
     requiresNetwork: false,
     blockersInRevertOrder: revertOrder(
       // First, because nothing the operator types can clear it. A contract owner
-      // — the 2-of-3 Safe — cannot sign here: `providers.tsx` registers only
-      // `injected()`, so the wallet behind `signMessageAsync` is always an
+      // — the 2-of-3 Safe — cannot sign here: `/admin` connects through
+      // `injected()` alone, so the wallet behind `signMessageAsync` is always an
       // extension EOA, and the server checks the signature against the owner.
       // The request would be well-formed and 403 every time. Saying so beats
       // offering a button whose only outcome is that.

@@ -15,8 +15,8 @@
  * writes that would revert from anyone else.
  *
  * It is the wrong question here, and answering it would make this panel
- * unusable. The owner is a 2-of-3 Safe, and `providers.tsx` registers only
- * `injected()` — so the ambient verdict on this page is permanently
+ * unusable. The owner is a 2-of-3 Safe, and `/admin` connects through
+ * `injected()` alone — so the ambient verdict on this page is permanently
  * `[read_only]` for any wallet a browser can actually connect. Deciding which
  * of three eligible cards is drawn widest is not an owner power and does not
  * need the Safe's pen; it needs a credential scoped to exactly that. So the

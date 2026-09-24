@@ -58,6 +58,23 @@ export const ZH_CN: PartialDictionary = {
     connecting:   '连接中…',
   },
 
+  wallet: {
+    title: '连接钱包',
+    close: '关闭',
+
+    binanceDetected: '已在此浏览器中检测到',
+    binanceOpenApp:  '在币安 App 中打开此页面',
+    binanceScan:     '用币安 App 扫码连接',
+    binanceInstall:  '下载币安 App',
+
+    detected:          '已检测到',
+    browserWallet:     '浏览器钱包',
+    browserWalletHint: 'MetaMask、Rabby、OKX 等插件钱包',
+    walletConnectHint: '用任意手机钱包扫码连接',
+
+    footer: 'Tosh 在 {chain} 上结算。钱包连接后如果在其他网络，会请求切换。',
+  },
+
   deposit: {
     title:    '存入 {quote}',
     subtitle: '存进这个项目的创世窗口。募资在倒计时结束前一直开放。',
