@@ -490,6 +490,8 @@ export const ZH_CN: PartialDictionary = {
     outstandingNone:    '→ 退款已全部发放 · 这里已无余额',
     outstandingSome:    '→ 还有 {amount} {quote} 待领取',
     windowCaption:      '{quote} · {hours} 小时窗口',
+    windowLeft:         '剩余 {clock}',
+    windowClosed:       '窗口已关闭',
 
     stakeLabel:     '你的存款',
     stakeClaimable: '可全额取回',

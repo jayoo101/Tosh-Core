@@ -779,6 +779,8 @@ export const EN = {
     outstandingNone:    '→ every refund paid out · nothing left here',
     outstandingSome:    '→ {amount} {quote} still waiting to be claimed',
     windowCaption:      '{quote} · {hours}h window',
+    windowLeft:         '{clock} left',
+    windowClosed:       'window closed',
 
     stakeLabel: 'Your stake',
     // Zero means refunded, never deposited, or still reading, so the zero

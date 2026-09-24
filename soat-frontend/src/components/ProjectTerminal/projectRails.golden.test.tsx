@@ -87,7 +87,7 @@ describe('HeroStats · english copy golden master', () => {
     ['refund · this wallet already took its money back',
       { phase: 'refund' as Phase, userEthDeposited: 0n, hookQuoteBalance: 12_00000000n }],
     ['genesis · with the window countdown',
-      { phase: 'genesis' as Phase, genesisWindow: { elapsedPct: 62, label: '2d 14h left', hours: 168 } }],
+      { phase: 'genesis' as Phase, genesisWindow: { elapsedPct: 62, clock: '2d 14h', hours: 168 } }],
     ['awaiting launch · with a status word instead of a clock',
       { phase: 'awaiting_launch' as Phase, windowLabel: 'time up' }],
     ['bonding · a live shelf price',

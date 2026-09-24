@@ -76,7 +76,7 @@ export function HeroStats({
    * The genesis countdown, pre-derived. `elapsedPct` is how much of the chosen
    * window is GONE, so the track fills toward the deadline.
    */
-  genesisWindow?: { elapsedPct: number; label: string; hours: number }
+  genesisWindow?: { elapsedPct: number; clock: string; hours: number }
 }) {
   const t = useT().project
   const meta = PHASE_BADGE[phase]
@@ -224,7 +224,7 @@ export function HeroStats({
                 variant="bar"
                 burn
                 label={fill(t.windowCaption, { quote: QUOTE_SYMBOL, hours: genesisWindow.hours })}
-                caption={genesisWindow.label}
+                caption={fill(t.windowLeft, { clock: genesisWindow.clock })}
               />
             )}
           </>

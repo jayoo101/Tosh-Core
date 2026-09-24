@@ -76,9 +76,9 @@ describe('genesisWindow', () => {
   })
 
   it('formats the remainder as a zero-padded countdown', () => {
-    expect(at(0, 3 * HOUR)!.label).toBe('03:00:00 left')
-    expect(at(3 * HOUR - 1, 3 * HOUR)!.label).toBe('00:00:01 left')
-    expect(at(DAY - (9 * HOUR + 5 * 60 + 3))!.label).toBe('09:05:03 left')
+    expect(at(0, 3 * HOUR)!.clock).toBe('03:00:00')
+    expect(at(3 * HOUR - 1, 3 * HOUR)!.clock).toBe('00:00:01')
+    expect(at(DAY - (9 * HOUR + 5 * 60 + 3))!.clock).toBe('09:05:03')
   })
 
   it('reports the window length the fraction is measured against', () => {

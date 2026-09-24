@@ -80,8 +80,8 @@ export interface GenesisWindow {
   /** 0–100, how much of the window has ELAPSED. It positions the flame on the
    *  fuse; the lit stretch is what lies AHEAD of it. See `burn` in `Progress`. */
   elapsedPct: number
-  /** `HH:MM:SS left`. */
-  label: string
+  /** `HH:MM:SS` remaining; the words around it are the dictionary's. */
+  clock: string
   /** The chosen window in whole hours — 3, 24 or 72. */
   hours: number
 }
@@ -136,7 +136,7 @@ export function genesisWindow({
 
   return {
     elapsedPct: Math.max(0, Math.min(100, ((total - remaining) / total) * 100)),
-    label: `${pad(h)}:${pad(m)}:${pad(s)} left`,
+    clock: `${pad(h)}:${pad(m)}:${pad(s)}`,
     hours: Math.round(total / 3600),
   }
 }

@@ -46,13 +46,13 @@ function bar(container: HTMLElement): HTMLElement | null {
   return container.querySelector('[role="progressbar"]')
 }
 
-function render(phase: Phase, genesisWindow?: { elapsedPct: number; label: string; hours: number }) {
+function render(phase: Phase, genesisWindow?: { elapsedPct: number; clock: string; hours: number }) {
   return mount(<HeroStats {...BASE} phase={phase} genesisWindow={genesisWindow} />)
 }
 
 describe('HeroStats genesis countdown', () => {
   it('draws the track at the fraction it is given, and the countdown beside it', () => {
-    const { container } = render('genesis', { elapsedPct: 25, label: '18:00:00 left', hours: 24 })
+    const { container } = render('genesis', { elapsedPct: 25, clock: '18:00:00', hours: 24 })
     const track = bar(container)
     expect(track).not.toBeNull()
     expect(track!.getAttribute('aria-valuenow')).toBe('25')
@@ -60,7 +60,7 @@ describe('HeroStats genesis countdown', () => {
   })
 
   it('exposes the fraction to assistive tech, not just to the eye', () => {
-    const { container } = render('genesis', { elapsedPct: 99, label: '00:43:12 left', hours: 72 })
+    const { container } = render('genesis', { elapsedPct: 99, clock: '00:43:12', hours: 72 })
     const track = bar(container)!
     expect(track.getAttribute('aria-valuenow')).toBe('99')
     expect(track.getAttribute('aria-valuemin')).toBe('0')
@@ -68,12 +68,12 @@ describe('HeroStats genesis countdown', () => {
   })
 
   it('names the window length, so the fraction has a stated denominator', () => {
-    const { container } = render('genesis', { elapsedPct: 50, label: '01:30:00 left', hours: 3 })
+    const { container } = render('genesis', { elapsedPct: 50, clock: '01:30:00', hours: 3 })
     expect(container.textContent).toContain('3h window')
   })
 
   it('still shows the raised figure beside the clock', () => {
-    const { container } = render('genesis', { elapsedPct: 50, label: '12:00:00 left', hours: 24 })
+    const { container } = render('genesis', { elapsedPct: 50, clock: '12:00:00', hours: 24 })
     expect(container.textContent).toContain('Raised')
   })
 
@@ -193,7 +193,7 @@ describe('HeroStats genesis countdown', () => {
    */
   describe('english copy · golden master', () => {
     for (const [name, props] of [
-      ['genesis · clock running', { phase: 'genesis' as const, genesisWindow: { elapsedPct: 25, label: '18:00:00 left', hours: 24 } }],
+      ['genesis · clock running', { phase: 'genesis' as const, genesisWindow: { elapsedPct: 25, clock: '18:00:00', hours: 24 } }],
       ['awaiting launch',         { phase: 'awaiting_launch' as const }],
       ['ladder open',             { phase: 'bonding' as const, phase2Minted: 6_300_000n }],
       ['refund · all paid out',   { phase: 'refund' as const, hookQuoteBalance: 0n }],

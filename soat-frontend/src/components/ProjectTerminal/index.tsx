@@ -40,6 +40,7 @@ import { useBoundReferrer } from '@/lib/useReferral'
 import {
   Card, Skeleton, useIsHydrated, useNowSec, CLOCK_UNSYNCED,
 } from '@/components/ui'
+import { useT } from '@/i18n'
 import { genesisWindow, resolvePhase, type Phase } from './phase'
 import { HeroStats } from './HeroStats'
 import { GenesisPanel } from './GenesisPanel'
@@ -150,6 +151,7 @@ export default function ProjectTerminal({ project, about, header }: {
   about?: ReactNode
   header?: (live: TerminalHeaderState | null) => ReactNode
 }) {
+  const t = useT().project
   const { address, isConnected } = useAccount()
   const hydrated    = useIsHydrated()
   const userAddress = hydrated ? (address as Address | undefined) : undefined
@@ -361,7 +363,7 @@ export default function ProjectTerminal({ project, about, header }: {
   // component where something later will reach for it.
   const genesisClock = genesisWindow({ phase, genesisDeadline, genesisDuration, nowSec })
 
-  const windowLabel = phase === 'awaiting_launch' ? 'window closed' : undefined
+  const windowLabel = phase === 'awaiting_launch' ? t.windowClosed : undefined
 
 
   if (!hookAddress) {
