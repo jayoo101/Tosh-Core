@@ -37,10 +37,12 @@ import {
   isSupportedPogChain, buildPoGScanAuthMessage,
 } from '@/lib/contracts'
 import { useTxAction, toshToast } from '@/components/ui'
+import { fill, useT } from '@/i18n'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useWalletChainId } from '@/lib/useWalletChainId'
 import { fmtQuote } from './format'
 import { readPogAuthCache, writePogAuthCache } from './pogAuthCache'
+import { formatMissingChainList } from '@/app/lib/gasScanCopy'
 import {
   runUnsignedPogScan,
   type PogChainSpend,
@@ -84,6 +86,7 @@ export function usePogFlow() {
   const chainId = useWalletChainId()
   const publicClient = usePublicClient()
   const { signMessageAsync } = useSignMessage()
+  const t = useT().gas
 
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [dialogOpen, setDialogOpenRaw] = useState(false)
@@ -102,7 +105,7 @@ export function usePogFlow() {
   }, [])
 
   const { send, isPending, isConfirming, isBusy } = useTxAction({
-    action: 'register Proof-of-Gas',
+    action: t.txAction,
     onConfirmed: () => {
       setDialogOpenRaw(false)
       if (addrKey) markDialogDismissed(addrKey)
@@ -123,7 +126,7 @@ export function usePogFlow() {
         address: key,
         phase: 'failed',
         scan: null,
-        error: `Unsupported chain (got ${chainId ?? 'none'})`,
+        error: fill(t.unsupportedChain, { chain: chainId ?? t.noChain }),
       })
       return
     }
@@ -151,8 +154,8 @@ export function usePogFlow() {
       if (result.truncated) {
         toshToast.info(
           missing.length > 0
-            ? `${missing.join(' and ')} could not be read; this total is a lower bound.`
-            : 'Some history was too large to page through; this is a lower bound.',
+            ? fill(t.lowerBoundMissing, { chains: formatMissingChainList(missing, t) })
+            : t.lowerBoundPaged,
         )
       }
     } catch (err) {
@@ -164,7 +167,7 @@ export function usePogFlow() {
       if (!dialogDismissed(key)) setDialogOpenRaw(true)
       toshToast.fromError(err)
     }
-  }, [userAddress, chainId])
+  }, [userAddress, chainId, t])
 
   // Disconnect only. Connecting a wallet deliberately does nothing here — see
   // the header for what starting a scan costs and what that cost took down.
@@ -176,13 +179,13 @@ export function usePogFlow() {
   useEffect(() => () => { abortRef.current?.abort() }, [])
 
   const registerQuota = useCallback(async () => {
-    if (!userAddress) { toshToast.error('Connect a wallet first'); return }
+    if (!userAddress) { toshToast.error(t.connectFirst); return }
     if (!isSupportedPogChain(chainId)) {
-      toshToast.error(`Unsupported chain (got ${chainId ?? 'none'})`)
+      toshToast.error(fill(t.unsupportedChain, { chain: chainId ?? t.noChain }))
       return
     }
     if (!scan?.eligible) {
-      toshToast.error('This wallet is not eligible for a deposit quota yet.')
+      toshToast.error(t.notEligible)
       return
     }
 
@@ -231,7 +234,7 @@ export function usePogFlow() {
 
       // The quota is what the wallet may DEPOSIT, so it is the settlement coin
       // — not the ETH the gas history that sized it was measured in.
-      toshToast.info(`Quota sized · ${fmtQuote(BigInt(maxAlloc))} ${QUOTE_SYMBOL}`)
+      toshToast.info(fill(t.quotaToast, { amount: fmtQuote(BigInt(maxAlloc)), quote: QUOTE_SYMBOL }))
 
       send({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI,
@@ -241,7 +244,7 @@ export function usePogFlow() {
     } catch (err) {
       toshToast.fromError(err)
     }
-  }, [userAddress, chainId, scan, signMessageAsync, publicClient, send])
+  }, [userAddress, chainId, scan, signMessageAsync, publicClient, send, t])
 
   return {
     userAddress: userAddress as Address | undefined,

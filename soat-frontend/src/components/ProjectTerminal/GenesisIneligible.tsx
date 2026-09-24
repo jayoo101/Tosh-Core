@@ -109,7 +109,7 @@ export function GenesisIneligible({
         was a minute spent on the wrong plan.
       */}
       <p className="font-mono text-note text-text-tertiary leading-relaxed">
-        <Emph text={fill(t.ineligible.notAWait, { chains: formatGasScanChainList() })} />
+        <Emph text={fill(t.ineligible.notAWait, { chains: formatGasScanChainList(undefined, t.gas) })} />
       </p>
 
       <div className="border border-border-subtle px-4 py-3 flex flex-col gap-1.5">

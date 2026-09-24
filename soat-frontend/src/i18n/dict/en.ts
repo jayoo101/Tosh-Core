@@ -985,6 +985,54 @@ export const EN = {
     coverageHours: '{n} hours',
     coverageDays:  '{n} days',
   },
+
+  /**
+   * The gas lookup: the dialog `PogLookupProvider` mounts on every page, and
+   * the toasts and `error` that `usePogFlow` raises around it.
+   *
+   * `listSeries` and `listLast` join chain names wherever a sentence lists them,
+   * including `deposit.bodyScanning` and `ineligible.notAWait`: every pair but
+   * the last is joined by `listSeries`, the last by `listLast`. English puts no
+   * comma before the last name. `listEvery` joins the chains a scan could not
+   * read, which English has always run together with "and".
+   *
+   * The attestation-signer mismatch is deliberately not here. It is a
+   * deployment fault quoting two addresses, read by whoever runs the site.
+   */
+  gas: {
+    txAction:          'register Proof-of-Gas',
+    connectFirst:      'Connect a wallet first',
+    unsupportedChain:  'Unsupported chain (got {chain})',
+    noChain:           'none',
+    notEligible:       'This wallet is not eligible for a deposit quota yet.',
+    quotaToast:        'Quota sized · {amount} {quote}',
+    lowerBoundMissing: '{chains} could not be read; this total is a lower bound.',
+    lowerBoundPaged:   'Some history was too large to page through; this is a lower bound.',
+    listSeries:        '{a}, {b}',
+    listLast:          '{a} and {b}',
+    listEvery:         '{a} and {b}',
+
+    title:           'Gas history',
+    close:           'Close',
+    noteUnavailable: 'unavailable',
+    noteSkipped:     'skipped (cap reached)',
+    noteLowerBound:  'lower bound',
+    txCount:         '{n} tx',
+    scanning:        'Reading lifetime gas on {chains}. This takes a few seconds and does not ask for a signature.',
+    failed:          'The gas lookup failed.',
+    retry:           'Retry',
+    intro:           'Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.',
+    total:           'Total',
+    floor:           'Floor',
+    quotaSized:      'Quota sized',
+    unitsNote:       'Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in {quote} because that is what you deposit.',
+    missing:         '{chains} could not be read, so this total may be a lower bound.',
+    activateBody:    'Eligible. Activating writes the quota on-chain (one signature and one transaction). After that, Deposit works with no further gas check.',
+    activate:        'Activate deposit quota',
+    activating:      'Activating quota…',
+    onFile:          'Eligible — deposit quota is already on file for this wallet.',
+    belowFloor:      'Below the floor — {total} ETH of historical gas against a floor of {floor} ETH. Deposits stay locked for this wallet until that changes.',
+  },
 } as const
 
 /**
@@ -1000,7 +1048,7 @@ export const EN = {
  */
 export const TIER0_SURFACES = [
   'tx', 'gate', 'nav', 'wallet', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
-  'awaitingLaunch', 'success',
+  'awaitingLaunch', 'success', 'gas',
 ] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */

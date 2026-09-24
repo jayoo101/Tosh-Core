@@ -1,0 +1,253 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GasHistoryDialog · english copy golden master > below the floor, one chain missing 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.003",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "BSC could not be read, so this total may be a lower bound.",
+  "Below the floor — 0.003 ETH of historical gas against a floor of 0.025 ETH. Deposits stay locked for this wallet until that changes.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > below the floor, one chain missing 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.003 ETHFloor0.025 ETHBSC could not be read, so this total may be a lower bound.Below the floor — 0.003 ETH of historical gas against a floor of 0.025 ETH. Deposits stay locked for this wallet until that changes."`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, activating 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.5",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "Quota sized",
+  "1.16",
+  "TQUOTE",
+  "Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.",
+  "Eligible. Activating writes the quota on-chain (one signature and one transaction). After that, Deposit works with no further gas check.",
+  "Awaiting signature…",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, activating 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.5 ETHFloor0.025 ETHQuota sized1.16 TQUOTEGas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.Eligible. Activating writes the quota on-chain (one signature and one transaction). After that, Deposit works with no further gas check.Awaiting signature…"`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, can activate 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.5",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "Quota sized",
+  "1.16",
+  "TQUOTE",
+  "Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.",
+  "Eligible. Activating writes the quota on-chain (one signature and one transaction). After that, Deposit works with no further gas check.",
+  "Activate deposit quota",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, can activate 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.5 ETHFloor0.025 ETHQuota sized1.16 TQUOTEGas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.Eligible. Activating writes the quota on-chain (one signature and one transaction). After that, Deposit works with no further gas check.Activate deposit quota"`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, quota already on file 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.5",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "Quota sized",
+  "1.16",
+  "TQUOTE",
+  "Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.",
+  "Eligible — deposit quota is already on file for this wallet.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, quota already on file 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.5 ETHFloor0.025 ETHQuota sized1.16 TQUOTEGas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.Eligible — deposit quota is already on file for this wallet."`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, quota not read yet 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.5",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "Quota sized",
+  "1.16",
+  "TQUOTE",
+  "Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > eligible, quota not read yet 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.5 ETHFloor0.025 ETHQuota sized1.16 TQUOTEGas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit."`;
+
+exports[`GasHistoryDialog · english copy golden master > failed, with an error and a retry 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Unsupported chain (got 4663)",
+  "Retry",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > failed, with an error and a retry 2`] = `"Gas history0x7099…79C8Unsupported chain (got 4663)Retry"`;
+
+exports[`GasHistoryDialog · english copy golden master > failed, with no error and no retry 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "The gas lookup failed.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > failed, with no error and no retry 2`] = `"Gas history0x7099…79C8The gas lookup failed."`;
+
+exports[`GasHistoryDialog · english copy golden master > scanning 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Reading lifetime gas on Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood. This takes a few seconds and does not ask for a signature.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > scanning 2`] = `"Gas history0x7099…79C8Reading lifetime gas on Ethereum, Arbitrum, Optimism, Base, BNB Smart Chain and Robinhood. This takes a few seconds and does not ask for a signature."`;
+
+exports[`GasHistoryDialog · english copy golden master > two chains missing 1`] = `
+[
+  "[aria-label] Gas history",
+  "Gas history",
+  "0x7099…79C8",
+  "[aria-label] Close",
+  "Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.",
+  "Ethereum",
+  "0.012 ETH",
+  "1,234 tx",
+  "Arbitrum",
+  "lower bound",
+  "0.012 ETH",
+  "1,234 tx",
+  "Optimism",
+  "skipped (cap reached)",
+  "0.012 ETH",
+  "BNB Smart Chain",
+  "unavailable",
+  "—",
+  "Total",
+  "0.5",
+  "ETH",
+  "Floor",
+  "0.025",
+  "ETH",
+  "Quota sized",
+  "1.16",
+  "TQUOTE",
+  "Gas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.",
+  "BSC and Robinhood could not be read, so this total may be a lower bound.",
+  "Eligible — deposit quota is already on file for this wallet.",
+]
+`;
+
+exports[`GasHistoryDialog · english copy golden master > two chains missing 2`] = `"Gas history0x7099…79C8Lifetime gas spent sending transactions, read from public explorers. No wallet signature was required for this lookup.Ethereum0.012 ETH1,234 txArbitrumlower bound0.012 ETH1,234 txOptimismskipped (cap reached)0.012 ETHBNB Smart Chainunavailable—Total0.5 ETHFloor0.025 ETHQuota sized1.16 TQUOTEGas is measured in ETH because the scanned chains are ETH-settled; the quota is in TQUOTE because that is what you deposit.BSC and Robinhood could not be read, so this total may be a lower bound.Eligible — deposit quota is already on file for this wallet."`;

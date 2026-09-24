@@ -16,19 +16,21 @@ import { fmt, fmtQuote } from './format'
 import type { PogChainSpend, PogScanResult } from './pogScanClient'
 import type { PogLookupPhase } from './usePogFlow'
 import { ActionButton, useActionGate } from '@/components/ui'
-import { formatGasScanChainList, gasScanChainLabel } from '@/app/lib/gasScanCopy'
+import { formatGasScanChainList, formatMissingChainList, gasScanChainLabel } from '@/app/lib/gasScanCopy'
+import { fill, useT } from '@/i18n'
 
 function shortAddr(a: Address): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
 }
 
 function ChainRow({ c }: { c: PogChainSpend }) {
+  const t = useT().gas
   const note = c.unavailable
-    ? 'unavailable'
+    ? t.noteUnavailable
     : c.skipped
-      ? 'skipped (cap reached)'
+      ? t.noteSkipped
       : c.truncated
-        ? 'lower bound'
+        ? t.noteLowerBound
         : null
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border-subtle py-2 last:border-0">
@@ -46,7 +48,7 @@ function ChainRow({ c }: { c: PogChainSpend }) {
         </p>
         {!c.unavailable && !c.skipped && (
           <p className="font-mono text-note text-text-tertiary">
-            {c.sentTxs.toLocaleString()} tx
+            {fill(t.txCount, { n: c.sentTxs.toLocaleString() })}
           </p>
         )}
       </div>
@@ -79,6 +81,8 @@ export function GasHistoryDialog({
   onActivate?: () => void
   activating?: boolean
 }) {
+  const t = useT().gas
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -108,7 +112,7 @@ export function GasHistoryDialog({
    *   reaches the signing path at all.
    */
   const activateGate = useActionGate({
-    action: activating ? 'Activating quota…' : 'Activate deposit quota',
+    action: activating ? t.activating : t.activate,
     onAct: () => { onActivate?.() },
     bypassAmbientGate: true,
     tx: { isBusy: Boolean(activating), isPending: Boolean(activating), isConfirming: false },
@@ -126,7 +130,7 @@ export function GasHistoryDialog({
       className="fixed inset-0 z-[60] flex items-center justify-center bg-bg-base/80 px-6"
       role="dialog"
       aria-modal="true"
-      aria-label="Gas history"
+      aria-label={t.title}
       onClick={onClose}
     >
       <div
@@ -136,14 +140,14 @@ export function GasHistoryDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h4 className="text-title text-text-primary">Gas history</h4>
+            <h4 className="text-title text-text-primary">{t.title}</h4>
             <p className="mt-0.5 font-mono text-note text-text-tertiary">
               {shortAddr(userAddress)}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t.close}
             onClick={onClose}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input
                        border border-border-subtle text-text-tertiary
@@ -157,8 +161,7 @@ export function GasHistoryDialog({
           <div className="flex flex-col items-center gap-3 py-6">
             <Loader2 aria-hidden className="h-6 w-6 animate-spin text-brand" />
             <p className="font-mono text-note leading-relaxed text-text-secondary text-center">
-              Reading lifetime gas on {formatGasScanChainList()}. This takes a
-              few seconds and does not ask for a signature.
+              {fill(t.scanning, { chains: formatGasScanChainList(undefined, t) })}
             </p>
           </div>
         )}
@@ -166,7 +169,7 @@ export function GasHistoryDialog({
         {failed && (
           <div className="flex flex-col gap-3">
             <p className="font-mono text-note leading-relaxed text-warning">
-              {error ?? 'The gas lookup failed.'}
+              {error ?? t.failed}
             </p>
             {onRetry && (
               <button
@@ -175,7 +178,7 @@ export function GasHistoryDialog({
                 className="self-start font-mono text-label tracking-[0.2em] uppercase
                            text-brand hover:underline"
               >
-                Retry
+                {t.retry}
               </button>
             )}
           </div>
@@ -184,8 +187,7 @@ export function GasHistoryDialog({
         {phase === 'ready' && scan && (
           <>
             <p className="font-mono text-note leading-relaxed text-text-secondary">
-              Lifetime gas spent sending transactions, read from public explorers.
-              No wallet signature was required for this lookup.
+              {t.intro}
             </p>
 
             <div>
@@ -197,7 +199,7 @@ export function GasHistoryDialog({
             <div className="flex flex-col gap-1 border-t border-border-subtle pt-3">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-mono text-label tracking-[0.2em] uppercase text-text-tertiary">
-                  Total
+                  {t.total}
                 </span>
                 <span className="font-mono text-note text-text-primary">
                   {fmt(BigInt(scan.totalGasWei))} ETH
@@ -205,7 +207,7 @@ export function GasHistoryDialog({
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-mono text-label tracking-[0.2em] uppercase text-text-tertiary">
-                  Floor
+                  {t.floor}
                 </span>
                 <span className="font-mono text-note text-text-tertiary">
                   {fmt(BigInt(scan.floorWei))} ETH
@@ -233,7 +235,7 @@ export function GasHistoryDialog({
               {scan.maxAllocWei && eligible && (
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="font-mono text-label tracking-[0.2em] uppercase text-text-tertiary">
-                    Quota sized
+                    {t.quotaSized}
                   </span>
                   <span className="font-mono text-note text-success">
                     {fmtQuote(BigInt(scan.maxAllocWei))} {QUOTE_SYMBOL}
@@ -261,15 +263,13 @@ export function GasHistoryDialog({
                     removed. Rewording to name the reason is the honest fix; adding
                     `QUOTE_SYMBOL` to the guard's marker list would have let every
                     label on the site claim the gas exception. */}
-                Gas is measured in ETH because the scanned chains are ETH-settled; the
-                quota is in {QUOTE_SYMBOL} because that is what you deposit.
+                {fill(t.unitsNote, { quote: QUOTE_SYMBOL })}
               </p>
             )}
 
             {missing.length > 0 && (
               <p className="font-mono text-note text-warning leading-relaxed">
-                {missing.join(' and ')} could not be read, so this total may be a
-                lower bound.
+                {fill(t.missing, { chains: formatMissingChainList(missing, t) })}
               </p>
             )}
 
@@ -277,21 +277,18 @@ export function GasHistoryDialog({
               onActivate ? (
                 <div className="flex flex-col gap-2">
                   <p className="font-mono text-note text-text-secondary leading-relaxed">
-                    Eligible. Activating writes the quota on-chain (one signature and
-                    one transaction). After that, Deposit works with no further gas check.
+                    {t.activateBody}
                   </p>
                   <ActionButton gate={activateGate} size="lg" />
                 </div>
               ) : quotaKnown ? (
                 <p className="font-mono text-note text-success leading-relaxed">
-                  Eligible — deposit quota is already on file for this wallet.
+                  {t.onFile}
                 </p>
               ) : null
             ) : (
               <p className="font-mono text-note text-warning leading-relaxed">
-                Below the floor — {fmt(BigInt(scan.totalGasWei))} ETH of historical
-                gas against a floor of {fmt(BigInt(scan.floorWei))} ETH. Deposits stay
-                locked for this wallet until that changes.
+                {fill(t.belowFloor, { total: fmt(BigInt(scan.totalGasWei)), floor: fmt(BigInt(scan.floorWei)) })}
               </p>
             )}
           </>

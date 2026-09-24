@@ -591,7 +591,7 @@ export function GenesisPanel(p: GenesisProps) {
             </p>
             <p className="font-mono text-note text-text-tertiary leading-relaxed">
               {scanning
-                ? fill(t.deposit.bodyScanning, { chains: formatGasScanChainList() })
+                ? fill(t.deposit.bodyScanning, { chains: formatGasScanChainList(undefined, t.gas) })
                 : scanEligible
                   ? t.deposit.bodyQualifies
                   : pog.phase === 'ready' && pog.scan

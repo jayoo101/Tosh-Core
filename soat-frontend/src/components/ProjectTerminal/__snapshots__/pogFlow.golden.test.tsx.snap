@@ -1,0 +1,54 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`usePogFlow · english copy golden master > lookup on an unsupported chain 1`] = `
+[
+  "error field: Unsupported chain (got 4663)",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > lookup on no chain 1`] = `
+[
+  "error field: Unsupported chain (got none)",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > lookup truncated, chains missing 1`] = `
+[
+  "info: BSC and Robinhood could not be read; this total is a lower bound.",
+  "error field: null",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > lookup truncated, nothing missing 1`] = `
+[
+  "info: Some history was too large to page through; this is a lower bound.",
+  "error field: null",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > register after an eligible scan 1`] = `
+[
+  "info: Quota sized · 1.16 TQUOTE",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > register before any eligible scan 1`] = `
+[
+  "error: This wallet is not eligible for a deposit quota yet.",
+  "error field: null",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > register on an unsupported chain 1`] = `
+[
+  "error: Unsupported chain (got 4663)",
+  "error field: null",
+]
+`;
+
+exports[`usePogFlow · english copy golden master > register with no wallet 1`] = `
+[
+  "error: Connect a wallet first",
+  "error field: null",
+]
+`;
