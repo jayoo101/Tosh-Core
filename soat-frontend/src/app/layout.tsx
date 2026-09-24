@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { cookies } from 'next/headers'
 import { JetBrains_Mono, Geist, Noto_Sans_SC } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
@@ -12,11 +11,8 @@ import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { CHAIN_POSITIONING } from '@/lib/chain'
 import { QUOTE_POSITIONING } from '@/lib/contracts'
-import {
-  I18nProvider, LOCALE_COOKIE, LOCALES_ENABLED, DEFAULT_LOCALE, resolveLocale,
-  type Locale,
-} from '@/i18n'
-import { getDictionary } from '@/i18n/dictionary'
+import { I18nProvider, LOCALES_ENABLED, DEFAULT_LOCALE, type Locale } from '@/i18n'
+import { requestDictionary } from '@/i18n/server'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
 const jbm = JetBrains_Mono({
@@ -101,68 +97,62 @@ const CJK_FONT: Partial<Record<Locale, { style: { fontFamily: string } }>> = {
  */
 const SITE_URL = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://toshx.xyz')
 
-/**
- * One description, used three times.
- *
- * Both derived clauses are here rather than written out: see `CHAIN_POSITIONING`
- * in lib/chain.ts and `QUOTE_POSITIONING` in lib/contracts.ts for what each one
- * is protecting against. Between them they carry the two facts most likely to
- * age — which chain this settles on, and what the numbers are denominated in.
- */
-const DESCRIPTION =
-  'Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. '
-+ 'Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. '
-+ `${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
+/** `openGraph.locale` wants the underscore form. */
+const OG_LOCALE: Partial<Record<Locale, string>> = { 'en': 'en_US', 'zh-CN': 'zh_CN' }
 
-export const metadata: Metadata = {
-  metadataBase: SITE_URL,
-  // `ToshX`, matching the navbar wordmark and the domain. It read
-  // `TOSH // Cryptographic Console`, which made the product answer to two names
-  // across three surfaces: the tab said TOSH, the wordmark renders
-  // `Tosh<span>X</span>`, and the site is served from toshx.xyz.
-  title: 'ToshX',
-  description: DESCRIPTION,
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale, dict } = await requestDictionary()
+  const t = dict.meta
 
-  /* Link previews. There were none: every `toshx.xyz` link shared anywhere
-     rendered as a bare URL with no title, no description and no image, which
-     for a launchpad is the main distribution path carrying nothing.
-     `opengraph-image.tsx` and `twitter-image.tsx` supply the image itself; the
-     `url`, `siteName` and `type` are what turn it into a card rather than a
-     loose image. */
-  openGraph: {
-    type:        'website',
-    url:         SITE_URL,
-    siteName:    'ToshX',
-    title:       'ToshX — fair-launch terminal for agent tokens',
-    description: DESCRIPTION,
-    locale:      'en_US',
-  },
-  twitter: {
-    // `summary_large_image`, not `summary`: the small card crops to a square
-    // thumbnail, and a 1200x630 image with a headline in it becomes unreadable
-    // at that aspect. The card is only worth having at the size it was drawn.
-    card:        'summary_large_image',
-    title:       'ToshX — fair-launch terminal for agent tokens',
-    description: DESCRIPTION,
-  },
-}
+  /*
+   * One description, used three times.
+   *
+   * Both derived clauses are appended rather than written out: see
+   * `CHAIN_POSITIONING` in lib/chain.ts and `QUOTE_POSITIONING` in
+   * lib/contracts.ts for what each one is protecting against. Between them they
+   * carry the two facts most likely to age — which chain this settles on, and
+   * what the numbers are denominated in.
+   *
+   * ⚠ ENGLISH ONLY. Both clauses are English constants that
+   *   `checkChainCopy.mjs` evaluates per chain; appending them to a translated
+   *   sentence would ship a description in two languages.
+   */
+  const description = locale === DEFAULT_LOCALE
+    ? `${t.siteDescription} ${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
+    : t.siteDescription
 
-/**
- * Which language to render, from the cookie the picker writes.
- *
- * ⚠ THE COOKIE IS NOT READ ON A SINGLE-LANGUAGE BUILD, and that guard is the
- *   whole reason localisation can ship dark. `cookies()` is a dynamic API: one
- *   call opts the route out of static rendering, so reading it unconditionally
- *   would turn `/` and `/projects` — both prerendered today — into per-request
- *   renders in exchange for nothing, on a build that serves one language.
- *
- *   With `NEXT_PUBLIC_LOCALES` unset this returns immediately and the route stays
- *   static.
- */
-async function activeLocale(): Promise<Locale> {
-  if (!LOCALES_ENABLED) return DEFAULT_LOCALE
-  const jar = await cookies()
-  return resolveLocale(jar.get(LOCALE_COOKIE)?.value)
+  return {
+    metadataBase: SITE_URL,
+    // `ToshX`, matching the navbar wordmark and the domain. It read
+    // `TOSH // Cryptographic Console`, which made the product answer to two names
+    // across three surfaces: the tab said TOSH, the wordmark renders
+    // `Tosh<span>X</span>`, and the site is served from toshx.xyz.
+    title: 'ToshX',
+    description,
+
+    /* Link previews. There were none: every `toshx.xyz` link shared anywhere
+       rendered as a bare URL with no title, no description and no image, which
+       for a launchpad is the main distribution path carrying nothing.
+       `opengraph-image.tsx` and `twitter-image.tsx` supply the image itself; the
+       `url`, `siteName` and `type` are what turn it into a card rather than a
+       loose image. */
+    openGraph: {
+      type:        'website',
+      url:         SITE_URL,
+      siteName:    'ToshX',
+      title:       t.cardTitle,
+      description,
+      locale:      OG_LOCALE[locale] ?? 'en_US',
+    },
+    twitter: {
+      // `summary_large_image`, not `summary`: the small card crops to a square
+      // thumbnail, and a 1200x630 image with a headline in it becomes unreadable
+      // at that aspect. The card is only worth having at the size it was drawn.
+      card:        'summary_large_image',
+      title:       t.cardTitle,
+      description,
+    },
+  }
 }
 
 export default async function RootLayout({
@@ -170,8 +160,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const locale = await activeLocale()
-  const dict = await getDictionary(locale)
+  const { locale, dict } = await requestDictionary()
 
   /*
    * The whole tree, so the provider can be wrapped around it or not.

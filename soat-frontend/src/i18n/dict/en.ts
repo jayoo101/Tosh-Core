@@ -1376,6 +1376,21 @@ export const EN = {
     notFoundAdmin:    'ADMIN_PANEL',
     notFoundFooter:   '// PROTOCOL_STATE_IS_FINE · ONLY_THIS_URL_IS_NOT_REGISTERED',
   },
+
+  /**
+   * Page metadata: tab titles, search descriptions, link-preview cards. The
+   * bare `ToshX` brand title and the 404's title stay in code.
+   * `siteDescription` is followed by two derived English clauses on the English
+   * build only — see `generateMetadata` in `app/layout.tsx`.
+   */
+  meta: {
+    siteDescription:      'Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
+    cardTitle:            'ToshX — fair-launch terminal for agent tokens',
+    projectsTitle:        'Agent Directory // ToshX',
+    projectsDescription:  'Every agent token on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading on {chain}.',
+    referralsTitle:       'Referral Ledger // ToshX',
+    referralsDescription: 'Commission earned across every Tosh Protocol launch — claimable balances, amounts still locked until launch, and wallets bound to you on {chain}.',
+  },
 } as const
 
 /**

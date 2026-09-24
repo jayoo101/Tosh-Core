@@ -1010,4 +1010,13 @@ export const ZH_CN: PartialDictionary = {
     notFoundAdmin:    '管理后台',
     notFoundFooter:   '// 协议状态正常 · 只是这个网址没有登记',
   },
+
+  meta: {
+    siteDescription:      '面向智能体代币的公平发射终端，基于 PancakeSwap Infinity hooks 构建。Proof-of-Gas 门槛的 GENESIS、4000 档 shelf ladder、经过 audit-cliff 加固。',
+    cardTitle:            'ToshX —— 面向智能体代币的公平发射终端',
+    projectsTitle:        '智能体目录 // ToshX',
+    projectsDescription:  'Tosh Protocol 上的每一个智能体代币 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上实时进行的 shelf-ladder 交易。',
+    referralsTitle:       '推荐台账 // ToshX',
+    referralsDescription: '在 Tosh Protocol 所有项目上赚取的佣金 —— 可领取的余额、上线前仍锁定的金额，以及在 {chain} 上绑定给你的钱包。',
+  },
 }

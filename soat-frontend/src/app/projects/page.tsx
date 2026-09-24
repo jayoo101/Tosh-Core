@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 
 import AgentDirectoryPage from '@/components/directory/AgentDirectoryPage'
 import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
+import { fill } from '@/i18n'
+import { requestDictionary } from '@/i18n/server'
 
 /**
  * This route used to be `redirect('/#directory')`.
@@ -15,11 +17,12 @@ import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
  * A server component so it can carry its own metadata; the grid underneath is
  * a client component because it polls the factory.
  */
-export const metadata: Metadata = {
-  title: 'Agent Directory // ToshX',
-  description:
-    'Every agent token on Tosh Protocol — open funding windows, launches '
-    + `awaiting their pool, and live shelf-ladder trading on ${MAINNET_CHAIN_LABEL}.`,
+export async function generateMetadata(): Promise<Metadata> {
+  const t = (await requestDictionary()).dict.meta
+  return {
+    title:       t.projectsTitle,
+    description: fill(t.projectsDescription, { chain: MAINNET_CHAIN_LABEL }),
+  }
 }
 
 export default function ProjectsPage() {

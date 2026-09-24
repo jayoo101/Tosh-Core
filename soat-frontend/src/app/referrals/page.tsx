@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 
 import { ReferralLedger } from '@/components/referrals/ReferralLedger'
 import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
+import { fill } from '@/i18n'
+import { requestDictionary } from '@/i18n/server'
 
 /**
  * `/referrals` — every project that owes this wallet commission, in one place.
@@ -14,11 +16,12 @@ import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
  * A server component so it can carry its own metadata; the ledger underneath
  * is a client component because it reads the factory and every hook on it.
  */
-export const metadata: Metadata = {
-  title: 'Referral Ledger // ToshX',
-  description:
-    'Commission earned across every Tosh Protocol launch — claimable balances, '
-    + `amounts still locked until launch, and wallets bound to you on ${MAINNET_CHAIN_LABEL}.`,
+export async function generateMetadata(): Promise<Metadata> {
+  const t = (await requestDictionary()).dict.meta
+  return {
+    title:       t.referralsTitle,
+    description: fill(t.referralsDescription, { chain: MAINNET_CHAIN_LABEL }),
+  }
 }
 
 export default function ReferralsPage() {
