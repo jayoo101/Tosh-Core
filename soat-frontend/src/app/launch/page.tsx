@@ -117,9 +117,9 @@ const shareOf = (wei: bigint, of: bigint) =>
  * saying the window cannot close early. There is nothing left to explain.
  */
 const GENESIS_WINDOWS = [
-  { seconds: GENESIS_DURATION_FAST,     label: '3 hours'  },
-  { seconds: GENESIS_DURATION_STANDARD, label: '24 hours' },
-  { seconds: GENESIS_DURATION_SLOW,     label: '72 hours' },
+  { seconds: GENESIS_DURATION_FAST     },
+  { seconds: GENESIS_DURATION_STANDARD },
+  { seconds: GENESIS_DURATION_SLOW     },
 ] as const
 
 /**
@@ -231,6 +231,7 @@ function StepLegend({ n, children, optional = false }: {
   children: ReactNode
   optional?: boolean
 }) {
+  const t = useT().launch
   return (
     <legend className="mb-gap flex flex-wrap items-center gap-gap-tight px-1 text-readout font-semibold text-text-primary">
       <span
@@ -242,7 +243,7 @@ function StepLegend({ n, children, optional = false }: {
       {children}
       {optional && (
         <span className="ml-1 rounded-pill bg-surface-hover px-2 py-0.5 text-micro font-normal text-text-secondary">
-          optional
+          {t.optional}
         </span>
       )}
     </legend>
@@ -1049,20 +1050,19 @@ export default function GenesisConsole() {
           <div className="flex flex-wrap items-center gap-gap-tight">
             {!BADGE_NAMES_SETTLEMENT_CHAIN && (
               <span className="font-mono text-label text-text-tertiary">
-                Settles on {MAINNET_CHAIN_LABEL}
+                {fill(t.settlesOn, { chain: MAINNET_CHAIN_LABEL })}
               </span>
             )}
             <Badge tone="ok" pip>{CHAIN_STATUS_BADGE}</Badge>
           </div>
 
           <h1 className="font-mono text-section text-text-primary sm:text-hero">
-            Launch an agent
+            {t.title}
           </h1>
 
           <p className="max-w-xl text-readout leading-relaxed text-text-secondary">
             {CHAIN_STAGING_NOTE ? `${CHAIN_STAGING_NOTE} ` : ''}
-            One signature deploys your token with its own PancakeSwap Infinity pool and opens a
-            gas-gated funding round that cannot close early.
+            {t.lede}
           </p>
         </div>
 
@@ -1083,7 +1083,7 @@ export default function GenesisConsole() {
             onSubmit={e => { e.preventDefault() }}
           >
             <fieldset className={SECTION}>
-              <StepLegend n={1}>Identity</StepLegend>
+              <StepLegend n={1}>{t.identity}</StepLegend>
               <div className={SECTION_BODY}>
                 {/* NO SECTION NOTE. It read "What the directory and the ticker
                     tape will call this," which is a sentence spent restating
@@ -1104,13 +1104,13 @@ export default function GenesisConsole() {
 
                 <div className="grid grid-cols-1 gap-gap sm:grid-cols-2">
                   <Field
-                    label="Name"
+                    label={t.name}
                     value={name}
                     onValueChange={setName}
                     placeholder="QuantMind"
                   />
                   <Field
-                    label="Ticker"
+                    label={t.ticker}
                     value={symbol}
                     onValueChange={setSymbol}
                     placeholder="QMT"
@@ -1128,12 +1128,12 @@ export default function GenesisConsole() {
                     project page", which the preview beside this form
                     demonstrates live and captions in its own words. */}
                 <Field
-                  label="Description"
+                  label={t.description}
                   multiline
                   rows={3}
                   value={description}
                   onValueChange={setDescription}
-                  placeholder="What does this agent do on-chain?"
+                  placeholder={t.descriptionPlaceholder}
                 />
 
                 {/* Not in the mock at all, and it cannot be dropped to match:
@@ -1142,19 +1142,19 @@ export default function GenesisConsole() {
                     that hides it is a page that spends the creator's revenue
                     stream on a default they never saw. */}
                 <Field
-                  label="Project admin"
-                  hint="Receives 99% of shelf ladder earnings. Defaults to your wallet."
+                  label={t.admin}
+                  hint={t.adminHint}
                   value={projectAdmin}
                   onValueChange={v => {
                     setProjectAdmin(v)
                     clearSalt()
                   }}
                   placeholder="0x…"
-                  error={projectAdmin && !isAddress(projectAdmin) ? 'NOT A VALID ADDRESS' : null}
+                  error={projectAdmin && !isAddress(projectAdmin) ? t.invalidAddress : null}
                 />
                 {isAddress(projectAdmin) && address && projectAdmin.toLowerCase() !== address.toLowerCase() && (
                   <p className="text-note text-warning">
-                    Custom admin — this address, not yours, receives the 99% shelf cut.
+                    {t.customAdmin}
                   </p>
                 )}
               </div>
@@ -1165,23 +1165,23 @@ export default function GenesisConsole() {
                 skippable, which the pill says — but a creator who does want
                 them should not have to discover a `+` to find out they exist. */}
             <fieldset className={SECTION}>
-              <StepLegend n={2} optional>Links</StepLegend>
+              <StepLegend n={2} optional>{t.links}</StepLegend>
               <div className={SECTION_BODY}>
                 <Field
-                  label="Website"
+                  label={t.website}
                   value={website}
                   onValueChange={setWebsite}
                   placeholder="https://your-agent.xyz"
                 />
                 <div className="grid grid-cols-1 gap-gap sm:grid-cols-2">
                   <Field
-                    label="Twitter / X"
+                    label={t.twitter}
                     value={twitter}
                     onValueChange={setTwitter}
                     placeholder="@handle"
                   />
                   <Field
-                    label="Telegram"
+                    label={t.telegram}
                     value={telegram}
                     onValueChange={setTelegram}
                     placeholder="t.me/group"
@@ -1191,10 +1191,10 @@ export default function GenesisConsole() {
             </fieldset>
 
             <fieldset className={SECTION}>
-              <StepLegend n={3}>Genesis window</StepLegend>
+              <StepLegend n={3}>{t.window}</StepLegend>
               <div className={SECTION_BODY}>
                 <SectionNote>
-                  Immutable. The window runs to completion; time-up opens launch regardless of how much was raised.
+                  {t.windowNote}
                 </SectionNote>
 
                 {/* Three compact pills on one row, which is the redesign's
@@ -1206,17 +1206,17 @@ export default function GenesisConsole() {
                     the minimum-raise readout side by side is gone with the
                     readout — a flex row with one child is a row about nothing. */}
                 <div className="flex flex-col gap-gap-tight">
-                  <span className="font-mono text-label text-text-tertiary">Duration</span>
+                  <span className="font-mono text-label text-text-tertiary">{t.duration}</span>
                   <div
                     role="radiogroup"
-                    aria-label="Genesis window"
+                    aria-label={t.window}
                     className="flex flex-wrap gap-gap-tight"
                   >
                     {GENESIS_WINDOWS.map(w => {
                       const selected = w.seconds === activeWindow.seconds
                       return (
                         <button
-                          key={w.label}
+                          key={String(w.seconds)}
                           type="button"
                           role="radio"
                           aria-checked={selected}
@@ -1228,7 +1228,7 @@ export default function GenesisConsole() {
                               : 'border-border-subtle bg-surface-elevated text-text-tertiary hover:border-border-strong hover:bg-surface-hover hover:text-text-secondary')
                           }
                         >
-                          {w.label}
+                          {fill(t.windowHours, { hours: String(w.seconds / 3600n) })}
                         </button>
                       )
                     })}
@@ -1343,15 +1343,15 @@ export default function GenesisConsole() {
             {salt && (
               <div className="flex min-w-0 flex-col gap-gap-tight rounded-panel border border-border-subtle bg-surface-card p-card-lg shadow-panel">
                 <div className="flex flex-wrap items-center justify-between gap-gap-tight">
-                  <p className="font-mono text-label text-text-tertiary">Hook salt</p>
-                  <Badge tone="ok" size="sm" pip>salt held</Badge>
+                  <p className="font-mono text-label text-text-tertiary">{t.saltTitle}</p>
+                  <Badge tone="ok" size="sm" pip>{t.saltHeld}</Badge>
                 </div>
                 <p className="break-all font-mono text-note text-text-primary">{salt}</p>
 
                 {predictedHook && (
                   <>
                     <p className="mt-gap-tight font-mono text-label text-text-quiet">
-                      Your pool address
+                      {t.poolAddress}
                     </p>
                     <p className="break-all font-mono text-note text-brand">{predictedHook}</p>
                   </>
