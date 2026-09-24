@@ -657,6 +657,74 @@ export const EN = {
     featureWaiting: 'waiting on creator',
     featureRaised:  'raised at genesis *{quote}*',
   },
+
+  /**
+   * The landing page: hero, on-chain feed, teaser, and the five-step explainer.
+   */
+  home: {
+    settlesOn: 'Settles on {chain}',
+
+    // `|` is a line break at `sm` and up, where the headline is set in three
+    // hard lines; below `sm` the browser wraps it. `*…*` is the gradient run.
+    // Both are the translator's to place: the break points and which phrase
+    // carries the gradient depend on word order.
+    headline: 'Fair-launch|terminal for|*agent tokens.*',
+    lede: 'Fund a launch in {quote} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
+    ctaLaunch:    'Launch a token',
+    ctaDirectory: 'Agent directory',
+
+    feedTitle: 'On-chain feed',
+    feedLive:  'factory events',
+    feedEmpty: 'No launches yet. The first one appears here the moment its factory event lands.',
+
+    // Shorter than the card pills on purpose: a feed row also has to fit a
+    // sigil, a ticker, a name and a figure.
+    badgeLive:      'FUNDING',
+    badgeLaunching: 'AWAITING',
+    badgeCompleted: 'TRADING',
+    badgeArchived:  'REFUND',
+
+    // What the figure beside it is. Facts about the clock, never about a cap:
+    // nothing on chain has one to meet.
+    subLive:      'in progress',
+    subLaunching: 'window closed',
+    subCompleted: 'at genesis',
+    subArchived:  'refundable',
+
+    teaserKicker:     'Trending now',
+    teaserTitle:      'Active markets',
+    viewAll:          'View all',
+    teaserEmptyTitle: 'Nothing is trading or raising yet',
+    teaserEmptyBody:  'The first launch appears here the moment its factory event lands. Until then, {chain} has nothing open.',
+    teaserEmptyCta:   'Open the first launch',
+
+    howKicker: '// How it works',
+    howTitle:  'How a Tosh launch works.',
+    howLede:   'Five steps, all settled on chain. Nothing here is enforced by this interface — the contract is the source of truth.',
+
+    step1Tag:   'Quota',
+    step1Title: 'Gas history sets your limit',
+    step1Body:  'Tosh reads how much gas your wallet has genuinely burned and signs that into a deposit ceiling. A wallet minted this morning has no history to spend, so bot swarms have nothing to bring.',
+
+    // The launch fee is paid in the chain's native coin (NATIVE_SYMBOL), not
+    // the quote asset. `{native}` is filled with NATIVE_SYMBOL only; step 3
+    // beside it is the one that takes `{quote}`.
+    step2Tag:   'Launch',
+    step2Title: 'Anyone can open one',
+    step2Body:  'Pay the launch fee in {native} and the token deploys together with its own PancakeSwap Infinity pool. No pre-mine, no team allocation, no supply held back for insiders.',
+
+    step3Tag:   'Genesis',
+    step3Title: 'A window that cannot close early',
+    step3Body:  'Deposits run in {quote} for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. Every depositor takes back the full amount if the raise closes too small to open a pool, or if the creator never calls launch() inside the 7-day window after that.',
+
+    step4Tag:   'Ladder',
+    step4Title: 'Price climbs one shelf at a time',
+    step4Body:  'After genesis the remaining supply is released across 4,000 fixed shelves spanning 2,000x from the opening price. A ceiling blocks spikes, and 99% of what the shelves earn goes to the project itself.',
+
+    step5Tag:   'Hardened',
+    step5Title: 'The contract enforces it, not this page',
+    step5Body:  'Deposit accounting, the per-wallet deposit ceiling and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
+  },
 } as const
 
 /**

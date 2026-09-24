@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { useT, type Dictionary } from '@/i18n'
 import { fmtQuote, type DirectoryProject } from './useDirectoryProjects'
 
 /** How many launches the panel lists before it stops. */
@@ -18,11 +19,14 @@ const ROWS = 5
  * a figure. Sharing one table would mean either truncating on the card or
  * wrapping in the row; the labels are the same four states either way.
  */
-const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
-  live:      { label: 'FUNDING',  cls: 'text-brand bg-brand/10 border-brand/25' },
-  launching: { label: 'AWAITING', cls: 'text-text-tertiary bg-surface-elevated border-border-subtle' },
-  completed: { label: 'TRADING',  cls: 'text-success bg-success/10 border-success/25' },
-  archived:  { label: 'REFUND',   cls: 'text-danger bg-danger/10 border-danger/25' },
+const PHASE: Record<DirectoryProject['tab'], {
+  label: 'badgeLive' | 'badgeLaunching' | 'badgeCompleted' | 'badgeArchived'
+  cls: string
+}> = {
+  live:      { label: 'badgeLive',      cls: 'text-brand bg-brand/10 border-brand/25' },
+  launching: { label: 'badgeLaunching', cls: 'text-text-tertiary bg-surface-elevated border-border-subtle' },
+  completed: { label: 'badgeCompleted', cls: 'text-success bg-success/10 border-success/25' },
+  archived:  { label: 'badgeArchived',  cls: 'text-danger bg-danger/10 border-danger/25' },
 }
 
 /**
@@ -52,18 +56,19 @@ const PHASE: Record<DirectoryProject['tab'], { label: string; cls: string }> = {
  * deliberate: both are states nothing has gone wrong in, and the two are never
  * adjacent in a single tab's list.
  */
-function subFigure(p: DirectoryProject): { text: string; cls: string } {
+function subFigure(p: DirectoryProject, t: Dictionary['home']): { text: string; cls: string } {
   switch (p.tab) {
-    case 'live':      return { text: 'in progress',   cls: 'text-success' }
-    case 'launching': return { text: 'window closed', cls: 'text-text-tertiary' }
-    case 'completed': return { text: 'at genesis',    cls: 'text-success' }
-    case 'archived':  return { text: 'refundable',    cls: 'text-danger' }
+    case 'live':      return { text: t.subLive,      cls: 'text-success' }
+    case 'launching': return { text: t.subLaunching, cls: 'text-text-tertiary' }
+    case 'completed': return { text: t.subCompleted, cls: 'text-success' }
+    case 'archived':  return { text: t.subArchived,  cls: 'text-danger' }
   }
 }
 
 function Row({ project: p, index }: { project: DirectoryProject; index: number }) {
+  const t = useT().home
   const phase = PHASE[p.tab]
-  const sub = subFigure(p)
+  const sub = subFigure(p, t)
 
   return (
     <Link
@@ -82,7 +87,7 @@ function Row({ project: p, index }: { project: DirectoryProject; index: number }
             ${p.symbol}
           </span>
           <span className={`shrink-0 rounded border px-1.5 text-micro font-bold uppercase ${phase.cls}`}>
-            {phase.label}
+            {t[phase.label]}
           </span>
         </span>
         <span className="truncate text-micro text-text-tertiary">{p.name}</span>
@@ -132,6 +137,7 @@ export function HeroFeedPanel({
   // a sort. Ranking it by size would need a figure that is comparable across
   // phases, and `totalNative` is not one: a finished raise and an open one are
   // measuring different things.
+  const t = useT().home
   const rows = projects.slice(0, ROWS)
   const empty = !loading && rows.length === 0
 
@@ -143,7 +149,7 @@ export function HeroFeedPanel({
     // there is nothing behind the panel to blur on any other page.
     <div className="overflow-hidden rounded-panel border border-border-subtle bg-surface-card/70 shadow-lift backdrop-blur-sm">
       <div className="flex items-center justify-between border-b border-border-subtle px-card py-gap-tight">
-        <span className="font-mono text-micro uppercase text-text-tertiary">On-chain feed</span>
+        <span className="font-mono text-micro uppercase text-text-tertiary">{t.feedTitle}</span>
         {/* "factory events" with a live pip, restored to the reference's
             wording. This said "newest launches" to avoid colliding with the
             FACTORY EVENTS ticker strip that used to sit below the hero; that
@@ -151,7 +157,7 @@ export function HeroFeedPanel({
             these rows are factory events, newest first. */}
         <span className="flex items-center gap-1.5 font-mono text-micro text-success">
           <span className="dot-breathe h-1.5 w-1.5 rounded-pill bg-success text-success" />
-          factory events
+          {t.feedLive}
         </span>
       </div>
 
@@ -162,8 +168,7 @@ export function HeroFeedPanel({
 
         {empty && (
           <p className="px-card py-8 text-center text-note leading-relaxed text-text-tertiary">
-            No launches yet. The first one appears here the moment its factory
-            event lands.
+            {t.feedEmpty}
           </p>
         )}
       </div>

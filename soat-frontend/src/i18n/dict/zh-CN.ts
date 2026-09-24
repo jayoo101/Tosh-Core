@@ -106,6 +106,7 @@ export const ZH_CN: PartialDictionary = {
     bodyScanning:  '已连接 —— 正在查询这个地址在 {chains} 上的累计 gas。这一步不需要钱包签名。',
     bodyQualifies: '符合存款额度条件。激活一次（签名 + 链上登记）之后，存款就能正常使用，'
                  + '不用再单独点一次 gas 扫描。',
+    // Historical gas figure: ETH here is the PoG denomination, not the settlement coin.
     bodyBelowFloor: '历史 gas 为 {gas} ETH，门槛是 {floor} ETH。打开明细可以看各链的数字。',
     bodyNoPog: '此钱包从未登记 Proof-of-Gas，因此没有可用额度。连接钱包后会自动开始 gas 查询。',
 
@@ -128,6 +129,7 @@ export const ZH_CN: PartialDictionary = {
     pogRegisteringReason: '正在把存款额度写到链上。',
     pogActivateReason:    'gas 历史符合条件。点一下签名一次把额度登记上链，登记确认后存款即解锁。',
     pogRetryReason:       'gas 查询失败了。点一下可以重试。',
+    // Historical gas figure: ETH here is the PoG denomination, not the settlement coin.
     pogBelowFloorReason:  '此钱包的历史 gas 低于 {floor} ETH 的门槛，因此无法为它核定存款额度。',
     pogCheckReason:       'Proof-of-Gas 按你的累计 gas 支出来核定存款额度。点一下读取即可 —— '
                         + '只发一个请求，不签名也不花 gas。',
@@ -390,5 +392,64 @@ export const ZH_CN: PartialDictionary = {
 
     featureWaiting: '等待创建者',
     featureRaised:  'GENESIS 募集额 *{quote}*',
+  },
+
+  home: {
+    settlesOn: '结算于 {chain}',
+
+    // 三行硬换行，渐变落在最后一行。中文短语之间不加空格，组件只在拉丁字符
+    // 结尾的行后补空格。
+    headline: '智能体代币的|公平发射|*交易终端。*',
+    lede: '用 {quote} 参与项目募资，额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
+        + '每个项目都会部署自己专属的 PancakeSwap Infinity 池子。',
+    ctaLaunch:    '发射代币',
+    ctaDirectory: '智能体目录',
+
+    feedTitle: '链上动态',
+    feedLive:  '工厂合约事件',
+    feedEmpty: '还没有项目。工厂合约的创建事件一上链，第一个项目就会出现在这里。',
+
+    badgeLive:      '募资中',
+    badgeLaunching: '待上线',
+    badgeCompleted: '交易中',
+    badgeArchived:  '可退款',
+
+    subLive:      '进行中',
+    subLaunching: '窗口已关闭',
+    subCompleted: 'GENESIS 募集',
+    subArchived:  '可全额退款',
+
+    teaserKicker:     '正在热门',
+    teaserTitle:      '活跃市场',
+    viewAll:          '查看全部',
+    teaserEmptyTitle: '暂无正在交易或募资的项目',
+    teaserEmptyBody:  '工厂合约的创建事件一上链，第一个项目就会出现在这里。在那之前，{chain} 上没有开放中的项目。',
+    teaserEmptyCta:   '发起第一个项目',
+
+    howKicker: '// 运作方式',
+    howTitle:  'Tosh 项目是怎样发射的。',
+    howLede:   '五个步骤，全部在链上结算。这里没有任何规则由本界面执行 —— 合约才是唯一的依据。',
+
+    step1Tag:   '额度',
+    step1Title: 'Gas 历史决定你的额度',
+    step1Body:  'Tosh 读取你的钱包真实消耗过多少 Gas，并据此签发存款上限。今天早上刚生成的钱包没有历史可用，所以机器人批量钱包在这里一无所获。',
+
+    // 发射费用链上原生币({native})支付，不是报价资产 —— 与第 3 步的 {quote} 不同。
+    step2Tag:   '发射',
+    step2Title: '任何人都可以发起',
+    step2Body:  '用 {native} 支付发射费用，代币即与它专属的 PancakeSwap Infinity 池子一同部署。没有预挖，没有团队份额，也没有为内部人预留的供应。',
+
+    step3Tag:   'Genesis',
+    step3Title: '一个不能提前结束的窗口',
+    step3Body:  '存款以 {quote} 进行，时长为 3、24 或 72 小时 —— 创建者在发射时一次选定，之后无法缩短。'
+              + '如果募资规模太小、不足以开池，或者创建者在其后 7 天窗口内始终没有调用 launch()，每位存款人都能取回全部金额。',
+
+    step4Tag:   'Ladder',
+    step4Title: '价格一档一档往上走',
+    step4Body:  'GENESIS 结束后，剩余供应分布在 4,000 个固定的 shelf 上，价格区间从开盘价一路到 2,000 倍。上限机制挡住暴涨，shelf 收入的 99% 归项目本身。',
+
+    step5Tag:   '合约强制',
+    step5Title: '规则由合约执行，而不是这个页面',
+    step5Body:  '存款记账、每个钱包的存款上限和最小存款门槛，全部写在合约里。本界面只是如实显示，没有能力放宽它们。',
   },
 }

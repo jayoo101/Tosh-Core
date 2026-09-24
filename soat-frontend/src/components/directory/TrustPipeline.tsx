@@ -1,7 +1,10 @@
+'use client'
+
 import { BarChart3, Fuel, Lock, Rocket, Timer, type LucideIcon } from 'lucide-react'
 
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { NATIVE_SYMBOL } from '@/lib/chain'
+import { fill, useT, type Dictionary } from '@/i18n'
 
 /**
  * The five-step explainer under the directory.
@@ -54,19 +57,22 @@ import { NATIVE_SYMBOL } from '@/lib/chain'
  * second thing to keep true — and the one that goes stale is always the one
  * nobody remembers exists. If another surface needs them, export it again and
  * have that surface reformat this array rather than restate it.
+ *
+ * The sentences themselves live in the dictionary under `home.step*`; this
+ * builds the array from them.
  */
-const STEPS = [
+function steps(h: Dictionary['home']) {
+  return [
   {
     step: '01',
-    tag: 'Quota',
-    title: 'Gas history sets your limit',
-    description:
-      'Tosh reads how much gas your wallet has genuinely burned and signs that into a deposit ceiling. A wallet minted this morning has no history to spend, so bot swarms have nothing to bring.',
+    tag: h.step1Tag,
+    title: h.step1Title,
+    description: h.step1Body,
   },
   {
     step: '02',
-    tag: 'Launch',
-    title: 'Anyone can open one',
+    tag: h.step2Tag,
+    title: h.step2Title,
     description:
       // ⚠ THE FEE IS THE ONE AMOUNT ON THIS PAGE THAT IS NOT THE QUOTE ASSET,
       //   and this sentence said `${QUOTE_SYMBOL}` — so the first thing a
@@ -77,26 +83,24 @@ const STEPS = [
       //   way: the two are adjacent on screen, which is exactly why one symbol
       //   got pasted over both. Rule 5 in `checkChainCopy.mjs` now fails the
       //   build on it.
-      `Pay the launch fee in ${NATIVE_SYMBOL} and the token deploys together with its own PancakeSwap Infinity pool. No pre-mine, no team allocation, no supply held back for insiders.`,
+      fill(h.step2Body, { native: NATIVE_SYMBOL }),
   },
   {
     step: '03',
-    tag: 'Genesis',
-    title: 'A window that cannot close early',
-    description:
-      `Deposits run in ${QUOTE_SYMBOL} for 3, 24 or 72 hours — the creator chooses once, at launch, and cannot shorten it afterwards. Every depositor takes back the full amount if the raise closes too small to open a pool, or if the creator never calls launch() inside the 7-day window after that.`,
+    tag: h.step3Tag,
+    title: h.step3Title,
+    description: fill(h.step3Body, { quote: QUOTE_SYMBOL }),
   },
   {
     step: '04',
-    tag: 'Ladder',
-    title: 'Price climbs one shelf at a time',
-    description:
-      'After genesis the remaining supply is released across 4,000 fixed shelves spanning 2,000x from the opening price. A ceiling blocks spikes, and 99% of what the shelves earn goes to the project itself.',
+    tag: h.step4Tag,
+    title: h.step4Title,
+    description: h.step4Body,
   },
   {
     step: '05',
-    tag: 'Hardened',
-    title: 'The contract enforces it, not this page',
+    tag: h.step5Tag,
+    title: h.step5Title,
     description:
       // ⚠ "THE RAISE-TARGET DIAL" WAS STILL HERE, and there is no raise target
       //   to dial. It was the soft cap, which `launch()` does not read and which
@@ -105,9 +109,10 @@ const STEPS = [
       //   claimed on-chain authority for a number nothing on chain consults.
       //   What does gate a deposit is the per-wallet cap the PoG signature sets,
       //   which is the real dial and is genuinely enforced.
-      'Deposit accounting, the per-wallet deposit ceiling and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
+      h.step5Body,
   },
-] as const
+  ] as const
+}
 
 /**
  * Iconography, kept out of `STEPS` on purpose.
@@ -120,7 +125,7 @@ const STEPS = [
  * so that adding a sixth step is a type error here instead of an icon silently
  * falling off the end.
  */
-const ICONS: Record<(typeof STEPS)[number]['step'], LucideIcon> = {
+const ICONS: Record<ReturnType<typeof steps>[number]['step'], LucideIcon> = {
   '01': Fuel,
   '02': Rocket,
   '03': Timer,
@@ -129,6 +134,7 @@ const ICONS: Record<(typeof STEPS)[number]['step'], LucideIcon> = {
 }
 
 export function TrustPipeline() {
+  const h = useT().home
   return (
     <section id="how-it-works" className="border-t border-border-subtle">
       {/* The gutter is back. It was dropped because this section rendered
@@ -142,15 +148,14 @@ export function TrustPipeline() {
         <div className="flex flex-col gap-4 border-b border-border-subtle pb-section md:flex-row md:items-end md:justify-between">
           <div className="flex flex-col gap-gap">
             <span className="font-mono text-label uppercase text-brand">
-              {`// How it works`}
+              {h.howKicker}
             </span>
             <h2 className="text-balance font-mono text-section text-text-primary md:text-hero">
-              How a Tosh launch works.
+              {h.howTitle}
             </h2>
           </div>
           <p className="max-w-sm text-pretty text-body leading-relaxed text-text-secondary md:text-right">
-            Five steps, all settled on chain. Nothing here is enforced by this
-            interface — the contract is the source of truth.
+            {h.howLede}
           </p>
         </div>
 
@@ -165,7 +170,7 @@ export function TrustPipeline() {
             `mt-px` for the same reason: it lets the first row's seam sit
             against the header's `border-b` without the two stacking into 2px. */}
         <ol className="mt-px grid gap-px bg-border-subtle md:grid-cols-2 lg:grid-cols-5">
-          {STEPS.map(s => {
+          {steps(h).map(s => {
             const Icon = ICONS[s.step]
             return (
               <li key={s.step} className="group flex flex-col bg-bg-base p-card-lg">

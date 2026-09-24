@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { ArrowRight, Rocket } from 'lucide-react'
 
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useNowMs } from '@/components/ui'
+import { Emph, fill, useT } from '@/i18n'
 import { HeroFeedPanel } from './HeroFeedPanel'
 import { orderTeaser } from './teaserOrder'
 import {
@@ -41,7 +42,43 @@ import { useDirectoryProjects } from './useDirectoryProjects'
  */
 const PIN_EXPIRY_CADENCE_MS = 10_000
 
+/**
+ * The hero headline, from one dictionary string.
+ *
+ * HARD LINE BREAKS, as in the reference. At 72px this headline wraps to three
+ * lines in the 1.15fr column at every desktop width, and letting it wrap on its
+ * own moved the break by a word or two as the viewport changed — which moved
+ * the gradient with it. `|` in the string marks each break; `*…*` marks the
+ * gradient run, which in English is "agent tokens." alone on its own line.
+ *
+ * `text-balance` still applies below `sm:`, where the breaks are suppressed and
+ * the browser wraps. The space beside each break is for that arm: with the
+ * breaks hidden, words would otherwise run together. It is only inserted after
+ * a line ending in a Latin character — Chinese sets no space between phrases,
+ * and CSS trims it at a line edge on the arm that does break.
+ *
+ * `.tosh-gradient-text`, not `bg-gradient-to-r from-brand to-brand-violet`:
+ * same two stops, but the reference sweeps them at 100deg and `to-r` is 90deg.
+ * It is the same class the CTA and the progress bars use, so spelling it out
+ * per call site is how the four of them drift apart.
+ */
+function Headline({ text }: { text: string }) {
+  const lines = text.split('|')
+  return (
+    <>
+      {lines.map((line, i) => (
+        <Fragment key={i}>
+          {i > 0 && <br className="hidden sm:inline" />}
+          {i > 0 && /[\x21-\x7E]$/.test(lines[i - 1]) && ' '}
+          <Emph text={line} className="tosh-gradient-text" />
+        </Fragment>
+      ))}
+    </>
+  )
+}
+
 export default function AgentDirectoryHome() {
+  const t = useT().home
   const { projects, loading } = useDirectoryProjects()
 
   /**
@@ -122,42 +159,19 @@ export default function AgentDirectoryHome() {
                   the fold that says where Tosh settles. */}
               {!BADGE_NAMES_SETTLEMENT_CHAIN && (
                 <span className="font-mono text-micro uppercase text-text-tertiary">
-                  Settles on {MAINNET_CHAIN_LABEL}
+                  {fill(t.settlesOn, { chain: MAINNET_CHAIN_LABEL })}
                 </span>
               )}
             </div>
 
-            {/* HARD LINE BREAKS, as in the reference. At 72px this headline
-                wraps to three lines in the 1.15fr column at every desktop
-                width, and letting it wrap on its own moved the break between
-                "for" and "agent" by a word or two as the viewport changed —
-                which moved the gradient with it. The breaks are what put
-                "agent tokens." alone on its own line, and that line being the
-                gradient one is the design.
-
-                `text-balance` still applies below `sm:`, where the breaks are
-                suppressed and the browser wraps. The explicit `{' '}` are for
-                that arm: JSX drops the whitespace around a tag on its own
-                line, so with the breaks hidden the words would run together.
-                CSS trims leading and trailing spaces on a line, so they cost
-                nothing on the arm that does break. */}
+            {/* Hard line breaks and the gradient run: see `Headline`. */}
             <h1 className="text-balance font-mono text-hero text-text-primary sm:text-display">
-              Fair-launch
-              <br className="hidden sm:inline" />
-              {' '}terminal for{' '}
-              <br className="hidden sm:inline" />
-              {/* `.tosh-gradient-text`, not `bg-gradient-to-r from-brand
-                  to-brand-violet`: same two stops, but the reference sweeps
-                  them at 100deg and `to-r` is 90deg. On one short line that is
-                  a subtle difference; it is the same class the CTA and the
-                  progress bars use, so spelling it out per call site is how
-                  the four of them drift apart. */}
-              <span className="tosh-gradient-text">agent tokens.</span>
+              <Headline text={t.headline} />
             </h1>
 
             <p className="max-w-md text-lede text-text-secondary">
               {CHAIN_STAGING_NOTE && `${CHAIN_STAGING_NOTE} `}
-              Fund a launch in {QUOTE_SYMBOL} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.
+              {fill(t.lede, { quote: QUOTE_SYMBOL })}
             </p>
 
             {/* `min-h-11` is 44px, the touch floor. The base rule in globals.css
@@ -178,7 +192,7 @@ export default function AgentDirectoryHome() {
                 className="tosh-gradient-bg inline-flex min-h-11 items-center gap-2 rounded-input px-5 py-3 text-readout font-semibold text-bg-base shadow-lift transition-opacity hover:opacity-90"
               >
                 <Rocket size={16} />
-                Launch a token
+                {t.ctaLaunch}
               </Link>
               {/* A route now, not the `#directory` anchor into the section
                   below. The anchor was correct while this page was the only
@@ -190,7 +204,7 @@ export default function AgentDirectoryHome() {
                 href="/projects"
                 className="inline-flex min-h-11 items-center gap-2 rounded-input border border-border-subtle bg-surface-card px-5 py-3 text-readout font-semibold text-text-primary transition-colors hover:border-brand/50"
               >
-                Agent directory
+                {t.ctaDirectory}
                 <ArrowRight size={16} />
               </Link>
             </div>
@@ -220,14 +234,14 @@ export default function AgentDirectoryHome() {
         <section id="directory" className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
           <div className="mb-section flex items-end justify-between gap-gap">
             <div className="flex min-w-0 flex-col gap-1">
-              <span className="font-mono text-label uppercase text-brand">Trending now</span>
-              <h2 className="font-mono text-section text-text-primary">Active markets</h2>
+              <span className="font-mono text-label uppercase text-brand">{t.teaserKicker}</span>
+              <h2 className="font-mono text-section text-text-primary">{t.teaserTitle}</h2>
             </div>
             <Link
               href="/projects"
               className="inline-flex shrink-0 items-center gap-1.5 text-readout font-medium text-text-secondary transition-colors hover:text-brand"
             >
-              View all
+              {t.viewAll}
               <ArrowRight aria-hidden className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -246,16 +260,15 @@ export default function AgentDirectoryHome() {
             </div>
           ) : feature === undefined ? (
             <div className="flex flex-col items-center gap-gap rounded-panel border border-border-subtle bg-surface-card px-card py-24 text-center">
-              <h3 className="text-title text-text-primary">Nothing is trading or raising yet</h3>
+              <h3 className="text-title text-text-primary">{t.teaserEmptyTitle}</h3>
               <p className="max-w-sm text-body leading-relaxed text-text-secondary">
-                The first launch appears here the moment its factory event lands.
-                Until then, {ACTIVE_CHAIN_LABEL} has nothing open.
+                {fill(t.teaserEmptyBody, { chain: ACTIVE_CHAIN_LABEL })}
               </p>
               <Link
                 href="/launch"
                 className="mt-gap-tight inline-flex min-h-11 items-center rounded-input bg-brand px-card py-gap-tight text-note font-bold text-bg-base shadow-armed transition-colors hover:bg-brand-hover"
               >
-                Open the first launch
+                {t.teaserEmptyCta}
               </Link>
             </div>
           ) : (
