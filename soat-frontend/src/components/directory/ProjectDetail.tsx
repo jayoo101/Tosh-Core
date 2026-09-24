@@ -34,6 +34,7 @@ import { ProjectLogo } from '@/components/ProjectLogo'
 import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 
 function safeHref(url: string | null | undefined): string | null {
   if (!url) return null
@@ -46,6 +47,7 @@ const SOCIAL_CLS =
   'text-text-tertiary transition-colors hover:border-brand/40 hover:text-brand'
 
 export function ProjectDetail({ project: p }: { project: ProjectRow }) {
+  const t = useT().project
   const tw = safeHref(p.twitter)
   const tg = safeHref(p.telegram)
   const web = safeHref(p.website)
@@ -60,7 +62,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
    */
   const about = desc ? (
     <Card interactive={false}>
-      <h2 className="text-title text-text-primary">About</h2>
+      <h2 className="text-title text-text-primary">{t.about}</h2>
       <p className="text-readout leading-relaxed text-text-primary">{desc}</p>
     </Card>
   ) : undefined
@@ -89,7 +91,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
           className="inline-flex items-center gap-1.5 text-note text-text-secondary transition-colors hover:text-text-primary"
         >
           <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-          All projects
+          {t.backToAll}
         </Link>
 
         <div className="mt-5 flex flex-col gap-5 border-b border-border-subtle pb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -107,7 +109,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
                   ${p.symbol}
                 </h1>
                 {meta && (
-                  <Badge tone={meta.tone} pip live={meta.live} size="sm">{meta.label}</Badge>
+                  <Badge tone={meta.tone} pip live={meta.live} size="sm">{t[meta.label]}</Badge>
                 )}
               </div>
 
@@ -116,13 +118,13 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-note text-text-secondary">
                 {p.token_address && (
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-text-quiet">token</span>
+                    <span className="text-text-quiet">{t.tokenLabel}</span>
                     <AddressLink value={p.token_address} className="text-note text-text-primary" />
                   </span>
                 )}
                 {live?.creator && (
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-text-quiet">by</span>
+                    <span className="text-text-quiet">{t.creatorLabel}</span>
                     <AddressLink
                       value={live.creator}
                       copyable={false}
@@ -134,19 +136,19 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
                     this row rather than given one of their own. */}
                 {tw && (
                   <a href={tw} target="_blank" rel="noopener noreferrer"
-                     className={SOCIAL_CLS} aria-label="X / Twitter">
+                     className={SOCIAL_CLS} aria-label={t.socialX}>
                     <AtSign aria-hidden className="h-3.5 w-3.5" />
                   </a>
                 )}
                 {tg && (
                   <a href={tg} target="_blank" rel="noopener noreferrer"
-                     className={SOCIAL_CLS} aria-label="Telegram">
+                     className={SOCIAL_CLS} aria-label={t.socialTg}>
                     <Send aria-hidden className="h-3.5 w-3.5" />
                   </a>
                 )}
                 {web && (
                   <a href={web} target="_blank" rel="noopener noreferrer"
-                     className={SOCIAL_CLS} aria-label="Website">
+                     className={SOCIAL_CLS} aria-label={t.socialWeb}>
                     <Globe aria-hidden className="h-3.5 w-3.5" />
                   </a>
                 )}
@@ -159,7 +161,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
               <span className="font-mono text-section font-bold tabular-nums tracking-tight text-text-primary sm:text-hero">
                 {live.currentPrice > 0n ? fmtQuote(live.currentPrice) : '—'}
                 <span className="ml-1.5 text-readout font-normal text-text-secondary">
-                  {QUOTE_SYMBOL} · active shelf
+                  {fill(t.headerPriceUnit, { quote: QUOTE_SYMBOL })}
                 </span>
               </span>
               {/* WAS A PERMANENT "no price feed · 24h". The mock prints a 24h
@@ -173,7 +175,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
                   it sits tells you the same thing and more, because the rungs
                   above and below are known in advance. It is also real. */}
               <span className="font-mono text-micro uppercase text-text-tertiary tabular-nums">
-                shelf #{live.shelfIndex.toLocaleString()} / {TIER_COUNT.toLocaleString()}
+                {fill(t.shelfPosition, { n: live.shelfIndex.toLocaleString(), total: TIER_COUNT.toLocaleString() })}
               </span>
             </div>
           )}

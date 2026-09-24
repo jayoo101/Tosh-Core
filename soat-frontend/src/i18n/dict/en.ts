@@ -725,6 +725,66 @@ export const EN = {
     step5Title: 'The contract enforces it, not this page',
     step5Body:  'Deposit accounting, the per-wallet deposit ceiling and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
   },
+
+  /**
+   * The project page's rails: the four-figure header strip and the lifecycle
+   * tracker. Neither takes money; both are read before anything that does.
+   */
+  project: {
+    // One set for the header pill and the strip's badge, so they cannot disagree.
+    badgeGenesis:  'Genesis',
+    badgeAwaiting: 'Awaiting launch',
+    badgeLadder:   'Ladder',
+    badgeRefund:   'Refund open',
+
+    priceLabel:      'Price',
+    priceHintShelf:  'active shelf',
+    priceHintP0:     'genesis P₀',
+    priceHintClosed: 'opens at launch',
+    phaseLabel:      'Phase',
+    ladderLabel:     'Ladder',
+
+    // "Raised at genesis" once refunds open: the figure is a peak, not a balance.
+    raised:          'Raised',
+    raisedAtGenesis: 'Raised at genesis',
+
+    // `undefined` (still reading) and zero (all paid out) are different
+    // verdicts and must never share a string.
+    outstandingReading: '→ reading what is left…',
+    outstandingNone:    '→ every refund paid out · nothing left here',
+    outstandingSome:    '→ {amount} {quote} still waiting to be claimed',
+    windowCaption:      '{quote} · {hours}h window',
+
+    stakeLabel: 'Your stake',
+    // Zero means refunded, never deposited, or still reading, so the zero
+    // line claims no history.
+    stakeClaimable: 'claimable in full',
+    stakeNone:      'nothing to claim here',
+    stakeBonding:   'genesis allocation unlocked at launch',
+    stakeGenesis:   'in this raise',
+
+    lifecycleTitle:   'Launch lifecycle',
+    stepFunding:      'Funding',
+    stepFundingBody:  'Proof-of-Gas gated {quote} deposits',
+    // Not "deploying": `launch()` is creator-only and may never be called.
+    stepAwaiting:     'Awaiting launch',
+    stepAwaitingBody: 'Window closed · waiting on the creator',
+    stepTrading:      'Trading',
+    stepTradingBody:  '4,000-shelf ladder live on Infinity',
+    stepCurrent:      'current',
+    archivedBanner:   'Refundable in full — the creator did not open the pool inside the launch window. No penalty, no haircut.',
+
+    // The identity header above the terminal.
+    backToAll:     'All projects',
+    tokenLabel:    'token',
+    creatorLabel:  'by',
+    socialX:       'X / Twitter',
+    socialTg:      'Telegram',
+    socialWeb:     'Website',
+    headerPriceUnit: '{quote} · active shelf',
+    shelfPosition: 'shelf #{n} / {total}',
+    about:         'About',
+  },
 } as const
 
 /**

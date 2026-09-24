@@ -423,10 +423,16 @@ jobs:
       #
       #   • The GENESIS panel's gate ordering and the action gate's readouts,
       #     which the localised verdicts had to keep outranking correctly.
+      #
+      # 482 -> 508, the same work reaching the project page: +3 for the landing
+      # page, +17 in `projectRails.golden.test.tsx` — exhaustive over `Phase`
+      # because the header strip and the lifecycle rail are ternaries between
+      # near-neighbour strings, and a swap between two arms only shows when both
+      # render — and +6 for the identity header above the terminal.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=482
+          floor=508
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

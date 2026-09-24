@@ -452,4 +452,52 @@ export const ZH_CN: PartialDictionary = {
     step5Title: '规则由合约执行，而不是这个页面',
     step5Body:  '存款记账、每个钱包的存款上限和最小存款门槛，全部写在合约里。本界面只是如实显示，没有能力放宽它们。',
   },
+
+  project: {
+    badgeGenesis:  'Genesis',
+    badgeAwaiting: '待上线',
+    badgeLadder:   'Ladder',
+    badgeRefund:   '退款开放',
+
+    priceLabel:      '价格',
+    priceHintShelf:  '当前 shelf',
+    priceHintP0:     'GENESIS P₀',
+    priceHintClosed: '上线后开放',
+    phaseLabel:      '阶段',
+    ladderLabel:     'Ladder',
+
+    raised:          '已募集',
+    raisedAtGenesis: 'GENESIS 募集额',
+
+    outstandingReading: '→ 正在读取剩余金额…',
+    outstandingNone:    '→ 退款已全部发放 · 这里已无余额',
+    outstandingSome:    '→ 还有 {amount} {quote} 待领取',
+    windowCaption:      '{quote} · {hours} 小时窗口',
+
+    stakeLabel:     '你的存款',
+    stakeClaimable: '可全额取回',
+    stakeNone:      '这里没有可领取的',
+    stakeBonding:   'GENESIS 份额已在上线时解锁',
+    stakeGenesis:   '本轮募资中',
+
+    lifecycleTitle:   '发射进度',
+    stepFunding:      '募资',
+    stepFundingBody:  'Proof-of-Gas 准入的 {quote} 存款',
+    stepAwaiting:     '待上线',
+    stepAwaitingBody: '窗口已关闭 · 等待创建者',
+    stepTrading:      '交易',
+    stepTradingBody:  '4,000 档 ladder 已在 Infinity 上运行',
+    stepCurrent:      '当前',
+    archivedBanner:   '可全额退款 —— 创建者没有在发射窗口内开池。没有罚金，也不打折扣。',
+
+    backToAll:       '全部项目',
+    tokenLabel:      '代币',
+    creatorLabel:    '创建者',
+    socialX:         'X / Twitter',
+    socialTg:        'Telegram',
+    socialWeb:       '官网',
+    headerPriceUnit: '{quote} · 当前 shelf',
+    shelfPosition:   '第 {n} / {total} 档 shelf',
+    about:           '项目介绍',
+  },
 }

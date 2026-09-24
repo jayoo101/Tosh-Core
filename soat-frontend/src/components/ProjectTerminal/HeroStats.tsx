@@ -17,6 +17,7 @@ import {
   type Tone,
 } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT } from '@/i18n'
 import { fmt, fmtQuote } from './format'
 import type { Phase } from './phase'
 
@@ -26,11 +27,15 @@ import type { Phase } from './phase'
  * map, so the pill in the header and the pill in this card can never disagree
  * about what phase the page is in.
  */
-export const PHASE_BADGE: Record<Phase, { label: string; tone: Tone; live: boolean }> = {
-  genesis:         { label: 'Genesis',         tone: 'ok',     live: true  },
-  awaiting_launch: { label: 'Awaiting launch', tone: 'warn',   live: true  },
-  bonding:         { label: 'Ladder',          tone: 'info',   live: true  },
-  refund:          { label: 'Refund open',     tone: 'danger', live: false },
+export const PHASE_BADGE: Record<Phase, {
+  label: 'badgeGenesis' | 'badgeAwaiting' | 'badgeLadder' | 'badgeRefund'
+  tone: Tone
+  live: boolean
+}> = {
+  genesis:         { label: 'badgeGenesis',  tone: 'ok',     live: true  },
+  awaiting_launch: { label: 'badgeAwaiting', tone: 'warn',   live: true  },
+  bonding:         { label: 'badgeLadder',   tone: 'info',   live: true  },
+  refund:          { label: 'badgeRefund',   tone: 'danger', live: false },
 }
 
 export function HeroStats({
@@ -73,15 +78,16 @@ export function HeroStats({
    */
   genesisWindow?: { elapsedPct: number; label: string; hours: number }
 }) {
+  const t = useT().project
   const meta = PHASE_BADGE[phase]
   const price =
     phase === 'bonding' && currentPrice > 0n ? currentPrice
     : phase === 'bonding' && shelfP0 > 0n    ? shelfP0
     : p0
   const priceHint =
-    phase === 'bonding' ? 'active shelf'
-    : p0 > 0n           ? 'genesis P₀'
-    : 'opens at launch'
+    phase === 'bonding' ? t.priceHintShelf
+    : p0 > 0n           ? t.priceHintP0
+    : t.priceHintClosed
 
   /*
    * ⚠ A BAR NEEDS A DENOMINATOR THAT MEANS SOMETHING. That is the whole rule
@@ -130,9 +136,9 @@ export function HeroStats({
    */
   const stakeHint =
     phase === 'refund'
-      ? (userEthDeposited > 0n ? 'claimable in full' : 'nothing to claim here')
-    : phase === 'bonding' ? 'genesis allocation unlocked at launch'
-    : 'in this raise'
+      ? (userEthDeposited > 0n ? t.stakeClaimable : t.stakeNone)
+    : phase === 'bonding' ? t.stakeBonding
+    : t.stakeGenesis
 
   /*
    * The raise's figure is a PEAK once refunds open, so the label stops calling
@@ -142,11 +148,11 @@ export function HeroStats({
    * card, which has been wording it that way all along — this cell was the one
    * place still printing the high-water mark as though it were a balance.
    */
-  const raisedLabel = phase === 'refund' ? 'Raised at genesis' : 'Raised'
+  const raisedLabel = phase === 'refund' ? t.raisedAtGenesis : t.raised
   const outstandingTxt =
-    hookQuoteBalance === undefined ? '→ reading what is left…'
-    : hookQuoteBalance === 0n      ? '→ every refund paid out · nothing left here'
-    : `→ ${fmtQuote(hookQuoteBalance)} ${QUOTE_SYMBOL} still waiting to be claimed`
+    hookQuoteBalance === undefined ? t.outstandingReading
+    : hookQuoteBalance === 0n      ? t.outstandingNone
+    : fill(t.outstandingSome, { amount: fmtQuote(hookQuoteBalance), quote: QUOTE_SYMBOL })
 
   return (
     <div className="grid grid-cols-2 gap-card @lg:grid-cols-4">
@@ -157,14 +163,14 @@ export function HeroStats({
       <Readout
         layout="stack"
         size="figure"
-        label="Price"
+        label={t.priceLabel}
         value={price > 0n ? fmtQuote(price) : '—'}
         hint={price > 0n ? `${QUOTE_SYMBOL} · ${priceHint}` : priceHint}
         tone="ok"
       />
       <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-gap">
-        <span className="font-mono text-label text-text-quiet">Phase</span>
-        <Badge tone={meta.tone} pip live={meta.live}>{meta.label}</Badge>
+        <span className="font-mono text-label text-text-quiet">{t.phaseLabel}</span>
+        <Badge tone={meta.tone} pip live={meta.live}>{t[meta.label]}</Badge>
         {/* Nothing where the symbol used to be. This cell fell back to
             printing `{symbol}` under the badge whenever there was no
             countdown, and the symbol is the page's `$RHRSL` headline, the
@@ -182,7 +188,7 @@ export function HeroStats({
             pct={ladderPct}
             variant="bar"
             tone="ok"
-            label="Ladder"
+            label={t.ladderLabel}
             caption={`${fmt(phase2Minted)} / ${fmt(bondingMax)} ${symbol}`}
           />
         ) : (
@@ -217,7 +223,7 @@ export function HeroStats({
                 pct={genesisWindow.elapsedPct}
                 variant="bar"
                 burn
-                label={`${QUOTE_SYMBOL} · ${genesisWindow.hours}h window`}
+                label={fill(t.windowCaption, { quote: QUOTE_SYMBOL, hours: genesisWindow.hours })}
                 caption={genesisWindow.label}
               />
             )}
@@ -227,7 +233,7 @@ export function HeroStats({
       <Readout
         layout="stack"
         size="figure"
-        label="Your stake"
+        label={t.stakeLabel}
         value={`${fmtQuote(userEthDeposited)} ${QUOTE_SYMBOL}`}
         hint={stakeHint}
         tone={userEthDeposited > 0n ? 'ink' : 'mute'}

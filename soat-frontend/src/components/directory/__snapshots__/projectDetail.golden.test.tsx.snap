@@ -1,0 +1,150 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ProjectDetail · english copy golden master > awaiting_launch 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Awaiting launch",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "by",
+  "[title] 0x2869207e99DC19CB89A68196eFa82E52e493D814",
+  "0x2869…D814",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+  "About",
+  "An agent that trades its own ladder.",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > awaiting_launch 2`] = `"All projectsT$TOAwaiting launchToshtoken0x7074…8df2by0x2869…D814AboutAn agent that trades its own ladder."`;
+
+exports[`ProjectDetail · english copy golden master > before the chain state is printable 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+  "About",
+  "An agent that trades its own ladder.",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > before the chain state is printable 2`] = `"All projectsT$TOToshtoken0x7074…8df2AboutAn agent that trades its own ladder."`;
+
+exports[`ProjectDetail · english copy golden master > bonding, with the live shelf price 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Ladder",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "by",
+  "[title] 0x2869207e99DC19CB89A68196eFa82E52e493D814",
+  "0x2869…D814",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+  "0.0003",
+  "TQUOTE · active shelf",
+  "shelf #1,204 / 4,000",
+  "About",
+  "An agent that trades its own ladder.",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > bonding, with the live shelf price 2`] = `"All projectsT$TOLadderToshtoken0x7074…8df2by0x2869…D8140.0003TQUOTE · active shelfshelf #1,204 / 4,000AboutAn agent that trades its own ladder."`;
+
+exports[`ProjectDetail · english copy golden master > genesis 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Genesis",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "by",
+  "[title] 0x2869207e99DC19CB89A68196eFa82E52e493D814",
+  "0x2869…D814",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+  "About",
+  "An agent that trades its own ladder.",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > genesis 2`] = `"All projectsT$TOGenesisToshtoken0x7074…8df2by0x2869…D814AboutAn agent that trades its own ladder."`;
+
+exports[`ProjectDetail · english copy golden master > no description, so no About card 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > no description, so no About card 2`] = `"All projectsT$TOToshtoken0x7074…8df2"`;
+
+exports[`ProjectDetail · english copy golden master > refund 1`] = `
+[
+  "All projects",
+  "T",
+  "$",
+  "TO",
+  "Refund open",
+  "Tosh",
+  "token",
+  "[title] 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2",
+  "0x7074…8df2",
+  "[aria-label] copy address",
+  "[title] copy address",
+  "by",
+  "[title] 0x2869207e99DC19CB89A68196eFa82E52e493D814",
+  "0x2869…D814",
+  "[aria-label] X / Twitter",
+  "[aria-label] Telegram",
+  "[aria-label] Website",
+  "About",
+  "An agent that trades its own ladder.",
+]
+`;
+
+exports[`ProjectDetail · english copy golden master > refund 2`] = `"All projectsT$TORefund openToshtoken0x7074…8df2by0x2869…D814AboutAn agent that trades its own ladder."`;

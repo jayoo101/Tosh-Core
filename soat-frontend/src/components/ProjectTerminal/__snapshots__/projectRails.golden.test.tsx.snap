@@ -1,0 +1,308 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`HeroStats · english copy golden master > awaiting launch · with a status word instead of a clock 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Awaiting launch",
+  "time up",
+  "Raised",
+  "41.1588",
+  "TQUOTE",
+  "Your stake",
+  "2.5 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats · english copy golden master > awaiting launch · with a status word instead of a clock 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseAwaiting launchtime upRaised41.1588TQUOTEYour stake2.5 TQUOTEin this raise"`;
+
+exports[`HeroStats · english copy golden master > awaiting_launch 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Awaiting launch",
+  "Raised",
+  "41.1588",
+  "TQUOTE",
+  "Your stake",
+  "2.5 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats · english copy golden master > awaiting_launch 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseAwaiting launchRaised41.1588TQUOTEYour stake2.5 TQUOTEin this raise"`;
+
+exports[`HeroStats · english copy golden master > bonding 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · active shelf",
+  "Phase",
+  "Ladder",
+  "Ladder",
+  "0 / 4.00M QMT",
+  "Your stake",
+  "2.5 TQUOTE",
+  "genesis allocation unlocked at launch",
+]
+`;
+
+exports[`HeroStats · english copy golden master > bonding 2`] = `"Price0.0001TQUOTE · active shelfPhaseLadderLadder0 / 4.00M QMTYour stake2.5 TQUOTEgenesis allocation unlocked at launch"`;
+
+exports[`HeroStats · english copy golden master > bonding · a live shelf price 1`] = `
+[
+  "Price",
+  "0.0003",
+  "TQUOTE · active shelf",
+  "Phase",
+  "Ladder",
+  "Ladder",
+  "1.20K / 4.00M QMT",
+  "Your stake",
+  "2.5 TQUOTE",
+  "genesis allocation unlocked at launch",
+]
+`;
+
+exports[`HeroStats · english copy golden master > bonding · a live shelf price 2`] = `"Price0.0003TQUOTE · active shelfPhaseLadderLadder1.20K / 4.00M QMTYour stake2.5 TQUOTEgenesis allocation unlocked at launch"`;
+
+exports[`HeroStats · english copy golden master > bonding · no trade yet, so the shelf P₀ stands in 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · active shelf",
+  "Phase",
+  "Ladder",
+  "Ladder",
+  "0 / 4.00M QMT",
+  "Your stake",
+  "2.5 TQUOTE",
+  "genesis allocation unlocked at launch",
+]
+`;
+
+exports[`HeroStats · english copy golden master > bonding · no trade yet, so the shelf P₀ stands in 2`] = `"Price0.0001TQUOTE · active shelfPhaseLadderLadder0 / 4.00M QMTYour stake2.5 TQUOTEgenesis allocation unlocked at launch"`;
+
+exports[`HeroStats · english copy golden master > genesis 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Genesis",
+  "Raised",
+  "41.1588",
+  "TQUOTE",
+  "Your stake",
+  "2.5 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats · english copy golden master > genesis 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseGenesisRaised41.1588TQUOTEYour stake2.5 TQUOTEin this raise"`;
+
+exports[`HeroStats · english copy golden master > genesis · with the window countdown 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Genesis",
+  "Raised",
+  "41.1588",
+  "TQUOTE · 168h window",
+  "2d 14h left",
+  "Your stake",
+  "2.5 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats · english copy golden master > genesis · with the window countdown 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseGenesisRaised41.1588TQUOTE · 168h window2d 14h leftYour stake2.5 TQUOTEin this raise"`;
+
+exports[`HeroStats · english copy golden master > price not open yet 1`] = `
+[
+  "Price",
+  "—",
+  "opens at launch",
+  "Phase",
+  "Genesis",
+  "Raised",
+  "41.1588",
+  "TQUOTE",
+  "Your stake",
+  "2.5 TQUOTE",
+  "in this raise",
+]
+`;
+
+exports[`HeroStats · english copy golden master > price not open yet 2`] = `"Price—opens at launchPhaseGenesisRaised41.1588TQUOTEYour stake2.5 TQUOTEin this raise"`;
+
+exports[`HeroStats · english copy golden master > refund 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "41.1588",
+  "TQUOTE",
+  "→ reading what is left…",
+  "Your stake",
+  "2.5 TQUOTE",
+  "claimable in full",
+]
+`;
+
+exports[`HeroStats · english copy golden master > refund 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseRefund openRaised at genesis41.1588TQUOTE→ reading what is left…Your stake2.5 TQUOTEclaimable in full"`;
+
+exports[`HeroStats · english copy golden master > refund · everything paid out 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "41.1588",
+  "TQUOTE",
+  "→ every refund paid out · nothing left here",
+  "Your stake",
+  "2.5 TQUOTE",
+  "claimable in full",
+]
+`;
+
+exports[`HeroStats · english copy golden master > refund · everything paid out 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseRefund openRaised at genesis41.1588TQUOTE→ every refund paid out · nothing left hereYour stake2.5 TQUOTEclaimable in full"`;
+
+exports[`HeroStats · english copy golden master > refund · money still waiting 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "41.1588",
+  "TQUOTE",
+  "→ 12 TQUOTE still waiting to be claimed",
+  "Your stake",
+  "2.5 TQUOTE",
+  "claimable in full",
+]
+`;
+
+exports[`HeroStats · english copy golden master > refund · money still waiting 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseRefund openRaised at genesis41.1588TQUOTE→ 12 TQUOTE still waiting to be claimedYour stake2.5 TQUOTEclaimable in full"`;
+
+exports[`HeroStats · english copy golden master > refund · still reading what is left 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "41.1588",
+  "TQUOTE",
+  "→ reading what is left…",
+  "Your stake",
+  "2.5 TQUOTE",
+  "claimable in full",
+]
+`;
+
+exports[`HeroStats · english copy golden master > refund · still reading what is left 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseRefund openRaised at genesis41.1588TQUOTE→ reading what is left…Your stake2.5 TQUOTEclaimable in full"`;
+
+exports[`HeroStats · english copy golden master > refund · this wallet already took its money back 1`] = `
+[
+  "Price",
+  "0.0001",
+  "TQUOTE · genesis P₀",
+  "Phase",
+  "Refund open",
+  "Raised at genesis",
+  "41.1588",
+  "TQUOTE",
+  "→ 12 TQUOTE still waiting to be claimed",
+  "Your stake",
+  "0 TQUOTE",
+  "nothing to claim here",
+]
+`;
+
+exports[`HeroStats · english copy golden master > refund · this wallet already took its money back 2`] = `"Price0.0001TQUOTE · genesis P₀PhaseRefund openRaised at genesis41.1588TQUOTE→ 12 TQUOTE still waiting to be claimedYour stake0 TQUOTEnothing to claim here"`;
+
+exports[`LifecycleTracker · english copy golden master > awaiting_launch 1`] = `
+[
+  "Launch lifecycle",
+  "Funding",
+  "Proof-of-Gas gated TQUOTE deposits",
+  "2",
+  "Awaiting launch",
+  "current",
+  "Window closed · waiting on the creator",
+  "3",
+  "Trading",
+  "4,000-shelf ladder live on Infinity",
+]
+`;
+
+exports[`LifecycleTracker · english copy golden master > awaiting_launch 2`] = `"Launch lifecycleFundingProof-of-Gas gated TQUOTE deposits2Awaiting launchcurrentWindow closed · waiting on the creator3Trading4,000-shelf ladder live on Infinity"`;
+
+exports[`LifecycleTracker · english copy golden master > bonding 1`] = `
+[
+  "Launch lifecycle",
+  "Funding",
+  "Proof-of-Gas gated TQUOTE deposits",
+  "Awaiting launch",
+  "Window closed · waiting on the creator",
+  "3",
+  "Trading",
+  "current",
+  "4,000-shelf ladder live on Infinity",
+]
+`;
+
+exports[`LifecycleTracker · english copy golden master > bonding 2`] = `"Launch lifecycleFundingProof-of-Gas gated TQUOTE depositsAwaiting launchWindow closed · waiting on the creator3Tradingcurrent4,000-shelf ladder live on Infinity"`;
+
+exports[`LifecycleTracker · english copy golden master > genesis 1`] = `
+[
+  "Launch lifecycle",
+  "1",
+  "Funding",
+  "current",
+  "Proof-of-Gas gated TQUOTE deposits",
+  "2",
+  "Awaiting launch",
+  "Window closed · waiting on the creator",
+  "3",
+  "Trading",
+  "4,000-shelf ladder live on Infinity",
+]
+`;
+
+exports[`LifecycleTracker · english copy golden master > genesis 2`] = `"Launch lifecycle1FundingcurrentProof-of-Gas gated TQUOTE deposits2Awaiting launchWindow closed · waiting on the creator3Trading4,000-shelf ladder live on Infinity"`;
+
+exports[`LifecycleTracker · english copy golden master > refund 1`] = `
+[
+  "Launch lifecycle",
+  "1",
+  "Funding",
+  "Proof-of-Gas gated TQUOTE deposits",
+  "2",
+  "Awaiting launch",
+  "Window closed · waiting on the creator",
+  "3",
+  "Trading",
+  "4,000-shelf ladder live on Infinity",
+  "Refundable in full — the creator did not open the pool inside the launch window. No penalty, no haircut.",
+]
+`;
+
+exports[`LifecycleTracker · english copy golden master > refund 2`] = `"Launch lifecycle1FundingProof-of-Gas gated TQUOTE deposits2Awaiting launchWindow closed · waiting on the creator3Trading4,000-shelf ladder live on InfinityRefundable in full — the creator did not open the pool inside the launch window. No penalty, no haircut."`;

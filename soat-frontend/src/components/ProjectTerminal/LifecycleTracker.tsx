@@ -15,6 +15,7 @@
 import { Check } from 'lucide-react'
 import { Card, cn } from '@/components/ui'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { fill, useT, type Dictionary } from '@/i18n'
 import type { Phase } from './phase'
 
 /**
@@ -29,13 +30,17 @@ import type { Phase } from './phase'
  * difference between a progress bar and a promise. Same correction as the
  * directory card's `launching` body; see v0 audit §D2.
  */
-const LIFECYCLE: { key: Phase; label: string; body: string }[] = [
-  { key: 'genesis',         label: 'Funding',         body: `Proof-of-Gas gated ${QUOTE_SYMBOL} deposits` },
-  { key: 'awaiting_launch', label: 'Awaiting launch', body: 'Window closed · waiting on the creator' },
-  { key: 'bonding',         label: 'Trading',         body: '4,000-shelf ladder live on Infinity' },
-]
+function lifecycle(t: Dictionary['project']): { key: Phase; label: string; body: string }[] {
+  return [
+    { key: 'genesis',         label: t.stepFunding,  body: fill(t.stepFundingBody, { quote: QUOTE_SYMBOL }) },
+    { key: 'awaiting_launch', label: t.stepAwaiting, body: t.stepAwaitingBody },
+    { key: 'bonding',         label: t.stepTrading,  body: t.stepTradingBody },
+  ]
+}
 
 export function LifecycleTracker({ phase }: { phase: Phase }) {
+  const t = useT().project
+  const LIFECYCLE = lifecycle(t)
   // A failed raise is not "step 1 of 3 in progress". The mock parks `archived`
   // at index 0 with nothing active, which reads correctly: the rail greys out
   // and the banner below carries the outcome.
@@ -43,7 +48,7 @@ export function LifecycleTracker({ phase }: { phase: Phase }) {
   const activeIndex = archived ? 0 : LIFECYCLE.findIndex(s => s.key === phase)
 
   return (
-    <Card title="Launch lifecycle" interactive={false}>
+    <Card title={t.lifecycleTitle} interactive={false}>
       <ol className="mt-2 flex flex-col gap-0">
         {LIFECYCLE.map((step, i) => {
           const done = !archived && i < activeIndex
@@ -77,7 +82,7 @@ export function LifecycleTracker({ phase }: { phase: Phase }) {
                   )}
                 >
                   {step.label}
-                  {active && <span className="ml-2 font-normal text-note text-brand">current</span>}
+                  {active && <span className="ml-2 font-normal text-note text-brand">{t.stepCurrent}</span>}
                 </div>
                 <p className="mt-0.5 text-note text-text-secondary">{step.body}</p>
               </div>
@@ -89,8 +94,7 @@ export function LifecycleTracker({ phase }: { phase: Phase }) {
       {archived && (
         <div className="flex items-center gap-gap-tight rounded-input border border-danger/30 bg-danger/5 px-3 py-2.5 text-note text-danger">
           <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-pill bg-danger" />
-          Refundable in full — the creator did not open the pool inside the
-          launch window. No penalty, no haircut.
+          {t.archivedBanner}
         </div>
       )}
     </Card>
