@@ -36,6 +36,7 @@ import { ProjectLogo } from '@/components/ProjectLogo'
 import { Field } from '@/components/ui/Field'
 import { cn } from '@/components/ui/cn'
 import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
+import { fill, useT } from '@/i18n'
 
 export function LogoField({
   value,
@@ -50,6 +51,7 @@ export function LogoField({
   /** Letter fallback while there is no image. */
   name?: string
 }) {
+  const t = useT().logoField
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -70,23 +72,17 @@ export function LogoField({
     if (busy) return
 
     if (file.size === 0) {
-      refuse('That file is empty')
+      refuse(t.empty)
       return
     }
     if (file.size > LOGO_MAX_BYTES) {
-      refuse(
-        `That image is ${Math.ceil(file.size / 1024)} KB. The limit is ` +
-          `${LOGO_MAX_BYTES / 1024} KB.`,
-      )
+      refuse(fill(t.tooBig, { kb: Math.ceil(file.size / 1024), limit: LOGO_MAX_BYTES / 1024 }))
       return
     }
     const type = file.type.toLowerCase()
     const filename = file.name.toLowerCase()
     if (type === 'image/svg+xml' || type === 'image/svg' || filename.endsWith('.svg')) {
-      refuse(
-        'SVG is not accepted — it is a document rather than an image ' +
-          'and can carry script. Export it as PNG.',
-      )
+      refuse(t.svg)
       return
     }
 
@@ -103,7 +99,7 @@ export function LogoField({
           ? (json as { error: string }).error
           : null
       if (!res.ok) {
-        refuse(message ?? 'Could not store that image')
+        refuse(message ?? t.failed)
         return
       }
       const url =
@@ -112,12 +108,12 @@ export function LogoField({
           ? (json as { url: string }).url
           : ''
       if (!url) {
-        refuse('Could not store that image')
+        refuse(t.failed)
         return
       }
       onValueChange(url)
     } catch {
-      refuse('Could not store that image')
+      refuse(t.failed)
     } finally {
       setBusyBoth(false)
       if (inputRef.current) inputRef.current.value = ''
@@ -131,7 +127,7 @@ export function LogoField({
 
   return (
     <div className="flex flex-col gap-gap-tight">
-      <span className="font-mono text-label text-text-tertiary">Logo</span>
+      <span className="font-mono text-label text-text-tertiary">{t.label}</span>
 
       {/* THE REFERENCE'S SHAPE: an 80px preview square with the control and
           the format hint stacked beside it. This was one bordered label with
@@ -182,7 +178,7 @@ export function LogoField({
           {value && !busy ? (
             <button
               type="button"
-              aria-label="Remove image"
+              aria-label={t.remove}
               onClick={() => {
                 setError(null)
                 onValueChange('')
@@ -202,7 +198,7 @@ export function LogoField({
             className="inline-flex w-fit items-center gap-1.5 rounded-input border border-border-subtle bg-bg-base px-3 py-2 text-note font-medium text-text-primary transition-colors hover:border-brand/50 disabled:cursor-wait disabled:opacity-60"
           >
             <Upload aria-hidden className="h-3.5 w-3.5" />
-            {busy ? 'Uploading…' : value ? 'Replace token logo' : 'Upload token logo'}
+            {busy ? t.uploading : value ? t.replace : t.upload}
           </button>
 
           {error ? (
@@ -214,7 +210,7 @@ export function LogoField({
             // crops or checks the aspect ratio, so promising "square" would be
             // an instruction the server does not enforce.
             <span className="font-mono text-micro text-text-quiet">
-              PNG, JPEG, GIF or WebP · up to 1 MB
+              {t.hint}
             </span>
           )}
         </div>
@@ -226,13 +222,13 @@ export function LogoField({
           half of a two-part control. */}
       <details className="group mt-gap-tight">
         <summary className="cursor-pointer list-none font-mono text-label text-text-quiet hover:text-text-tertiary">
-          Or paste a URL
+          {t.pasteSummary}
           <span className="ml-2 group-open:hidden">+</span>
           <span className="ml-2 hidden group-open:inline">−</span>
         </summary>
         <div className="mt-gap-tight">
           <Field
-            label="Image URL"
+            label={t.urlLabel}
             value={value}
             onValueChange={(next) => {
               setError(null)

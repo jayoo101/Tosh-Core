@@ -1106,6 +1106,39 @@ export const EN = {
 
     footer: 'The signature proves you are this launch\'s creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.',
   },
+
+  /**
+   * The token-artwork field, on `/launch` and in the publish-listing panel.
+   * The URL placeholder stays in the JSX. `hint` names the size in MB while
+   * `tooBig` is in KB; that is how English has always read.
+   */
+  logoField: {
+    label:         'Logo',
+    remove:        'Remove image',
+    uploading:     'Uploading…',
+    replace:       'Replace token logo',
+    upload:        'Upload token logo',
+    empty:         'That file is empty',
+    tooBig:        'That image is {kb} KB. The limit is {limit} KB.',
+    svg:           'SVG is not accepted — it is a document rather than an image and can carry script. Export it as PNG.',
+    failed:        'Could not store that image',
+    hint:          'PNG, JPEG, GIF or WebP · up to 1 MB',
+    pasteSummary:  'Or paste a URL',
+    urlLabel:      'Image URL',
+  },
+
+  /** The listing mock-up beside the `/launch` form. */
+  launchPreview: {
+    eyebrow:                'Preview',
+    notDeployed:            'not yet deployed',
+    symbolPlaceholder:      'SYMBOL',
+    namePlaceholder:        'Agent name',
+    descriptionPlaceholder: 'Your description appears here as you type.',
+    window:                 'Window',
+    pool:                   'Pool address',
+    poolPending:            'ground at deploy',
+    footer:                 'This is how your launch appears in the directory once it confirms.',
+  },
 } as const
 
 /**

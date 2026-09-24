@@ -1,6 +1,7 @@
 'use client'
 
 import { ProjectLogo } from '@/components/ProjectLogo'
+import { useT } from '@/i18n'
 
 /**
  * The listing, as it will read once the launch confirms.
@@ -48,6 +49,7 @@ export function LaunchPreview({
   /** The mined CREATE2 hook address, empty until a deploy grinds one. */
   poolAddress: string
 }) {
+  const t = useT().launchPreview
   // ⚠ NO `Raise target` ROW. It carried the factory's `defaultSoftCap` under
   //   three labels over time — `Soft cap`, `Minimum raise`, `Raise target` —
   //   and none of them held: deposits pass it, a raise under it launches
@@ -55,12 +57,12 @@ export function LaunchPreview({
   //   listing a depositor will see, so a figure that implies a threshold is
   //   worse here than anywhere else on the page.
   const rows: { label: string; value: string; pending?: boolean }[] = [
-    { label: 'Window', value: windowLabel },
+    { label: t.window, value: windowLabel },
     {
-      label: 'Pool address',
+      label: t.pool,
       // Truncated in place rather than by the caller: the full value is 42
       // characters and this column is a third of a sidebar.
-      value: poolAddress ? `${poolAddress.slice(0, 6)}…${poolAddress.slice(-4)}` : 'ground at deploy',
+      value: poolAddress ? `${poolAddress.slice(0, 6)}…${poolAddress.slice(-4)}` : t.poolPending,
       pending: !poolAddress,
     },
   ]
@@ -74,8 +76,8 @@ export function LaunchPreview({
             panel with the reference's layout, and a mock-up of a token that
             does not exist yet should say so inside its own frame. */}
         <div className="flex items-center justify-between border-b border-border-subtle px-card py-gap">
-          <span className="font-mono text-micro uppercase text-text-tertiary">Preview</span>
-          <span className="font-mono text-micro text-text-quiet">not yet deployed</span>
+          <span className="font-mono text-micro uppercase text-text-tertiary">{t.eyebrow}</span>
+          <span className="font-mono text-micro text-text-quiet">{t.notDeployed}</span>
         </div>
 
         {/* `.tosh-glow` at 50%, which is the reference's overlay and its
@@ -96,10 +98,10 @@ export function LaunchPreview({
             />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-mono text-title font-bold text-text-primary">
-                ${symbol || 'SYMBOL'}
+                ${symbol || t.symbolPlaceholder}
               </span>
               <span className="truncate text-note text-text-tertiary">
-                {name || 'Agent name'}
+                {name || t.namePlaceholder}
               </span>
             </div>
           </div>
@@ -110,7 +112,7 @@ export function LaunchPreview({
           <p className="relative mt-gap line-clamp-3 min-h-[3.5rem] text-note leading-relaxed text-text-secondary">
             {description.trim() || (
               <span className="text-text-quiet">
-                Your description appears here as you type.
+                {t.descriptionPlaceholder}
               </span>
             )}
           </p>
@@ -133,7 +135,7 @@ export function LaunchPreview({
       </div>
 
       <p className="mt-gap px-1 text-micro leading-relaxed text-text-quiet">
-        This is how your launch appears in the directory once it confirms.
+        {t.footer}
       </p>
     </div>
   )

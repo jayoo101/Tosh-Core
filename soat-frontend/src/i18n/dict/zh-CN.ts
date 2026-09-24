@@ -764,4 +764,31 @@ export const ZH_CN: PartialDictionary = {
 
     footer: '这次签名只证明你是这个项目的创建者，别无他用 —— 它不发送交易，也不授予任何支出权限。只有创建这个项目的钱包才能发布它的资料。',
   },
+
+  logoField: {
+    label:         '图标',
+    remove:        '移除图片',
+    uploading:     '正在上传…',
+    replace:       '更换代币图标',
+    upload:        '上传代币图标',
+    empty:         '这个文件是空的',
+    tooBig:        '这张图片有 {kb} KB，上限是 {limit} KB。',
+    svg:           '不接受 SVG —— 它是一种文档而不是图片，可能携带脚本。请导出为 PNG。',
+    failed:        '无法保存这张图片',
+    hint:          'PNG、JPEG、GIF 或 WebP · 最大 1 MB',
+    pasteSummary:  '或者粘贴图片链接',
+    urlLabel:      '图片链接',
+  },
+
+  launchPreview: {
+    eyebrow:                '预览',
+    notDeployed:            '尚未部署',
+    symbolPlaceholder:      '代号',
+    namePlaceholder:        '智能体名称',
+    descriptionPlaceholder: '你输入的简介会显示在这里。',
+    window:                 '窗口',
+    pool:                   '池子地址',
+    poolPending:            '部署时生成',
+    footer:                 '发射确认后，你的项目在目录里就会是这个样子。',
+  },
 }

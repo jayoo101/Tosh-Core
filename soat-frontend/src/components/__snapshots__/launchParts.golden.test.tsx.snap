@@ -1,0 +1,182 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LaunchPreview · english copy golden master > filled in, pool address ground 1`] = `
+[
+  "Preview",
+  "not yet deployed",
+  "$",
+  "TEST",
+  "Test Agent",
+  "An agent that does things.",
+  "Window",
+  "72h",
+  "Pool address",
+  "0x0b95…1409",
+  "This is how your launch appears in the directory once it confirms.",
+]
+`;
+
+exports[`LaunchPreview · english copy golden master > filled in, pool address ground 2`] = `"Previewnot yet deployed$TESTTest AgentAn agent that does things.Window72hPool address0x0b95…1409This is how your launch appears in the directory once it confirms."`;
+
+exports[`LaunchPreview · english copy golden master > nothing typed yet 1`] = `
+[
+  "Preview",
+  "not yet deployed",
+  "?",
+  "$",
+  "SYMBOL",
+  "Agent name",
+  "Your description appears here as you type.",
+  "Window",
+  "24h",
+  "Pool address",
+  "ground at deploy",
+  "This is how your launch appears in the directory once it confirms.",
+]
+`;
+
+exports[`LaunchPreview · english copy golden master > nothing typed yet 2`] = `"Previewnot yet deployed?$SYMBOLAgent nameYour description appears here as you type.Window24hPool addressground at deployThis is how your launch appears in the directory once it confirms."`;
+
+exports[`LogoField · english copy golden master > empty 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "PNG, JPEG, GIF or WebP · up to 1 MB",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > empty 2`] = `"LogoAUpload token logoPNG, JPEG, GIF or WebP · up to 1 MBOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > empty file 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "That file is empty",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > empty file 2`] = `"LogoAUpload token logoThat file is emptyOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > network failure 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "Could not store that image",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > network failure 2`] = `"LogoAUpload token logoCould not store that imageOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > over the size limit 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "That image is 1025 KB. The limit is 1024 KB.",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > over the size limit 2`] = `"LogoAUpload token logoThat image is 1025 KB. The limit is 1024 KB.Or paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > route answered with no url 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "Could not store that image",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > route answered with no url 2`] = `"LogoAUpload token logoCould not store that imageOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > route refused with no message 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "Could not store that image",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > route refused with no message 2`] = `"LogoAUpload token logoCould not store that imageOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > svg 1`] = `
+[
+  "Logo",
+  "A",
+  "Upload token logo",
+  "SVG is not accepted — it is a document rather than an image and can carry script. Export it as PNG.",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > svg 2`] = `"LogoAUpload token logoSVG is not accepted — it is a document rather than an image and can carry script. Export it as PNG.Or paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > uploading 1`] = `
+[
+  "Logo",
+  "A",
+  "Uploading…",
+  "PNG, JPEG, GIF or WebP · up to 1 MB",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > uploading 2`] = `"LogoAUploading…PNG, JPEG, GIF or WebP · up to 1 MBOr paste a URL+−Image URL"`;
+
+exports[`LogoField · english copy golden master > with an image 1`] = `
+[
+  "Logo",
+  "[aria-label] Remove image",
+  "Replace token logo",
+  "PNG, JPEG, GIF or WebP · up to 1 MB",
+  "Or paste a URL",
+  "+",
+  "−",
+  "Image URL",
+  "[placeholder] https://…/logo.png",
+]
+`;
+
+exports[`LogoField · english copy golden master > with an image 2`] = `"LogoReplace token logoPNG, JPEG, GIF or WebP · up to 1 MBOr paste a URL+−Image URL"`;
