@@ -1,0 +1,140 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PublishListingPanel · english copy golden master > finding the launch 1`] = `
+[
+  "/// PUB",
+  "This project is not listed",
+  "Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas",
+  "Until this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.",
+  "This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.",
+  "logo-stub",
+  "Description",
+  "[placeholder] What this project is for.",
+  "Website",
+  "[placeholder] https://…",
+  "X / Twitter",
+  "[placeholder] https://x.com/…",
+  "Telegram",
+  "[placeholder] https://t.me/…",
+  "[title] Reading the transaction that created this launch off the chain.",
+  "Finding your launch",
+  "→ Reading the transaction that created this launch off the chain.",
+  "//",
+  "The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.",
+]
+`;
+
+exports[`PublishListingPanel · english copy golden master > finding the launch 2`] = `"/// PUBThis project is not listedIts launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gasUntil this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.logo-stubDescriptionWebsiteX / TwitterTelegramFinding your launch→ Reading the transaction that created this launch off the chain.// The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing."`;
+
+exports[`PublishListingPanel · english copy golden master > launch found, ready to publish 1`] = `
+[
+  "/// PUB",
+  "This project is not listed",
+  "Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas",
+  "Until this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.",
+  "This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.",
+  "logo-stub",
+  "Description",
+  "[placeholder] What this project is for.",
+  "Website",
+  "[placeholder] https://…",
+  "X / Twitter",
+  "[placeholder] https://x.com/…",
+  "Telegram",
+  "[placeholder] https://t.me/…",
+  "Publish listing",
+  "//",
+  "The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.",
+]
+`;
+
+exports[`PublishListingPanel · english copy golden master > launch found, ready to publish 2`] = `"/// PUBThis project is not listedIts launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gasUntil this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.logo-stubDescriptionWebsiteX / TwitterTelegramPublish listing// The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing."`;
+
+exports[`PublishListingPanel · english copy golden master > logo still uploading 1`] = `
+[
+  "/// PUB",
+  "This project is not listed",
+  "Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas",
+  "Until this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.",
+  "This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.",
+  "logo-stub",
+  "Description",
+  "[placeholder] What this project is for.",
+  "Website",
+  "[placeholder] https://…",
+  "X / Twitter",
+  "[placeholder] https://x.com/…",
+  "Telegram",
+  "[placeholder] https://t.me/…",
+  "[title] The upload has to finish first: the logo URL is inside what you sign.",
+  "Waiting for the image",
+  "→ The upload has to finish first: the logo URL is inside what you sign.",
+  "//",
+  "The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.",
+]
+`;
+
+exports[`PublishListingPanel · english copy golden master > logo still uploading 2`] = `"/// PUBThis project is not listedIts launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gasUntil this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.logo-stubDescriptionWebsiteX / TwitterTelegramWaiting for the image→ The upload has to finish first: the logo URL is inside what you sign.// The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing."`;
+
+exports[`PublishListingPanel · english copy golden master > lookup failed, hash pasted 1`] = `
+[
+  "/// PUB",
+  "This project is not listed",
+  "Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas",
+  "Until this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.",
+  "This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.",
+  "logo-stub",
+  "Description",
+  "[placeholder] What this project is for.",
+  "Website",
+  "[placeholder] https://…",
+  "X / Twitter",
+  "[placeholder] https://x.com/…",
+  "Telegram",
+  "[placeholder] https://t.me/…",
+  "Creating transaction",
+  "[placeholder] 0x…",
+  "We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.",
+  "Publish listing",
+  "//",
+  "The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.",
+]
+`;
+
+exports[`PublishListingPanel · english copy golden master > lookup failed, hash pasted 2`] = `"/// PUBThis project is not listedIts launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gasUntil this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.logo-stubDescriptionWebsiteX / TwitterTelegramCreating transactionWe could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.Publish listing// The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing."`;
+
+exports[`PublishListingPanel · english copy golden master > lookup failed, no hash pasted 1`] = `
+[
+  "/// PUB",
+  "This project is not listed",
+  "Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas",
+  "Until this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.",
+  "This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.",
+  "logo-stub",
+  "Description",
+  "[placeholder] What this project is for.",
+  "Website",
+  "[placeholder] https://…",
+  "X / Twitter",
+  "[placeholder] https://x.com/…",
+  "Telegram",
+  "[placeholder] https://t.me/…",
+  "Creating transaction",
+  "[placeholder] 0x…",
+  "We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.",
+  "[title] Paste the createLaunch transaction that brought this project on chain — the signature has to name it.",
+  "Creating transaction needed",
+  "→ Paste the createLaunch transaction that brought this project on chain — the signature has to name it.",
+  "//",
+  "The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.",
+]
+`;
+
+exports[`PublishListingPanel · english copy golden master > lookup failed, no hash pasted 2`] = `"/// PUBThis project is not listedIts launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gasUntil this is done, TEST appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.logo-stubDescriptionWebsiteX / TwitterTelegramCreating transactionWe could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.Creating transaction needed→ Paste the createLaunch transaction that brought this project on chain — the signature has to name it.// The signature proves you are this launch's creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing."`;
+
+exports[`PublishListingPanel · english copy golden master > what publishing says 1`] = `
+[
+  "success: Listing published",
+  "fromError: server says no",
+]
+`;

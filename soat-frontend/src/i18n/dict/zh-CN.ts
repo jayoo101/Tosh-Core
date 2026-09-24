@@ -737,4 +737,29 @@ export const ZH_CN: PartialDictionary = {
     earnedHint:  '已赚取 {amount} {quote} · launch() 后解锁',
     ledgerLink:  '所有项目的佣金',
   },
+
+  publish: {
+    action: '发布项目资料',
+    toast:  '项目资料已发布',
+
+    resolvingLabel:  '正在查找你的发射交易',
+    resolvingReason: '正在从链上读取创建这个项目的交易。',
+    noHashLabel:     '需要填写创建交易',
+    noHashReason:    '请粘贴把这个项目带上链的 createLaunch 交易 —— 签名里必须写明它。',
+    logoLabel:       '正在等待图片上传',
+    logoReason:      '需要先等上传完成：你签名的内容里包含图标地址。',
+
+    title:    '这个项目还没有上架',
+    subtitle: '它的发射已经上链，但图标、链接和简介从未进入项目目录 —— 发布只需要一次签名，不花 gas',
+    body:     '在完成这一步之前，{symbol} 在目录里只会显示一个字母图标，没有简介，因为下面这些内容都存放在链下，而登记表里还没有它的记录。',
+    notAGate: '这只是目录里的展示资料，别无其他。存款、退款和触发上线都直接读取链上数据 —— 它们都不依赖这一步，即使你永远不发布，它们也不会有任何变化。',
+
+    description:            '简介',
+    descriptionPlaceholder: '这个项目是做什么的。',
+    website:                '网站',
+    hashLabel:              '创建交易',
+    hashHint:               '暂时没能查到 —— 刷新页面也许能找到。否则请从钱包历史或区块浏览器里复制 createLaunch 交易哈希，也就是把这个项目带上链的那一笔。',
+
+    footer: '这次签名只证明你是这个项目的创建者，别无他用 —— 它不发送交易，也不授予任何支出权限。只有创建这个项目的钱包才能发布它的资料。',
+  },
 }

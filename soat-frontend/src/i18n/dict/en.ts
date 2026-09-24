@@ -1074,6 +1074,36 @@ export const EN = {
     earnedHint:  '{amount} {quote} earned · unlocks at launch()',
     ledgerLink:  'Commission across every project',
   },
+
+  /**
+   * The creator's publish-listing panel, shown while a launched project has no
+   * registry row. "X / Twitter" and "Telegram" are names and stay in the JSX,
+   * as do the URL-shaped placeholders.
+   */
+  publish: {
+    action: 'Publish listing',
+    toast:  'Listing published',
+
+    resolvingLabel:  'Finding your launch',
+    resolvingReason: 'Reading the transaction that created this launch off the chain.',
+    noHashLabel:     'Creating transaction needed',
+    noHashReason:    'Paste the createLaunch transaction that brought this project on chain — the signature has to name it.',
+    logoLabel:       'Waiting for the image',
+    logoReason:      'The upload has to finish first: the logo URL is inside what you sign.',
+
+    title:    'This project is not listed',
+    subtitle: 'Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas',
+    body:     'Until this is done, {symbol} appears in the directory with a letter sigil and no description, because everything below is held off chain and the registry has no row for it yet.',
+    notAGate: 'This is a directory listing and nothing more. Deposits, refunds and triggering the launch all read the chain directly — none of them wait on this, and none of them change if you never publish it.',
+
+    description:            'Description',
+    descriptionPlaceholder: 'What this project is for.',
+    website:                'Website',
+    hashLabel:              'Creating transaction',
+    hashHint:               'We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.',
+
+    footer: 'The signature proves you are this launch\'s creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.',
+  },
 } as const
 
 /**

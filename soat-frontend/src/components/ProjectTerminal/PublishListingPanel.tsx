@@ -47,6 +47,7 @@ import { LogoField } from '@/components/LogoField'
 import {
   ActionButton, Card, Field, revertOrder, toshToast, useActionGate,
 } from '@/components/ui'
+import { fill, useT } from '@/i18n'
 
 /** Mirrors the launch form's own ceiling on the field it shares. */
 const DESCRIPTION_MAX = 500
@@ -64,6 +65,7 @@ export function PublishListingPanel({
   name:   string
   symbol: string
 }) {
+  const t = useT().publish
   const router = useRouter()
   const { signMessageAsync } = useSignMessage()
 
@@ -144,7 +146,7 @@ export function PublishListingPanel({
         throw new Error(json?.error ?? `HTTP ${res.status}`)
       }
 
-      toshToast.success('Listing published')
+      toshToast.success(t.toast)
       // The page is server-rendered from `getProject`, so the row it was built
       // from is stale the moment the insert lands. `refresh` re-runs that read
       // rather than patching a client cache the server render does not consult.
@@ -156,11 +158,11 @@ export function PublishListingPanel({
     }
   }, [
     hashUsable, txHash, logoUrl, website, twitter, telegram, description,
-    signMessageAsync, router,
+    signMessageAsync, router, t,
   ])
 
   const gate = useActionGate({
-    action: 'Publish listing',
+    action: t.action,
     onAct: () => { void publish() },
     // A signed API call, not a transaction: there is nothing to send, so the
     // wallet's current network does not decide whether this can succeed. The
@@ -171,8 +173,8 @@ export function PublishListingPanel({
       {
         id: 'resolving-tx',
         active: tx.status === 'resolving',
-        label: 'Finding your launch',
-        reason: 'Reading the transaction that created this launch off the chain.',
+        label: t.resolvingLabel,
+        reason: t.resolvingReason,
         tone: 'neutral',
       },
       {
@@ -183,15 +185,15 @@ export function PublishListingPanel({
         // — and a creator reading "launch transaction needed" next to a
         // "Trigger launch" button reads it as a precondition on that, which it
         // is not. The word has to name the transaction that ALREADY happened.
-        label: 'Creating transaction needed',
-        reason: 'Paste the createLaunch transaction that brought this project on chain — the signature has to name it.',
+        label: t.noHashLabel,
+        reason: t.noHashReason,
         tone: 'neutral',
       },
       {
         id: 'logo-uploading',
         active: logoUploading,
-        label: 'Waiting for the image',
-        reason: 'The upload has to finish first: the logo URL is inside what you sign.',
+        label: t.logoLabel,
+        reason: t.logoReason,
         tone: 'neutral',
       },
     ),
@@ -201,13 +203,11 @@ export function PublishListingPanel({
     <Card
       id="PUB"
       tone="warn"
-      title="This project is not listed"
-      subtitle="Its launch is on chain, but the logo, links and description never reached the directory — publishing costs one signature and no gas"
+      title={t.title}
+      subtitle={t.subtitle}
     >
       <p className="text-note leading-relaxed text-text-secondary">
-        Until this is done, {symbol} appears in the directory with a letter
-        sigil and no description, because everything below is held off chain and
-        the registry has no row for it yet.
+        {fill(t.body, { symbol })}
       </p>
 
       {/* This panel renders on any phase, including one where `launch()` is
@@ -217,9 +217,7 @@ export function PublishListingPanel({
           Nothing here gates anything on chain, and the only place to say so is
           next to the form itself. */}
       <p className="mt-gap-tight text-note leading-relaxed text-text-tertiary">
-        This is a directory listing and nothing more. Deposits, refunds and
-        triggering the launch all read the chain directly — none of them wait on
-        this, and none of them change if you never publish it.
+        {t.notAGate}
       </p>
 
       <div className="mt-gap flex flex-col gap-gap">
@@ -231,14 +229,14 @@ export function PublishListingPanel({
         />
 
         <Field
-          label="Description"
+          label={t.description}
           value={description}
           onValueChange={(next) => setDescription(next.slice(0, DESCRIPTION_MAX))}
-          placeholder="What this project is for."
+          placeholder={t.descriptionPlaceholder}
         />
 
         <div className="grid grid-cols-1 gap-gap sm:grid-cols-2">
-          <Field label="Website"  value={website}  onValueChange={setWebsite}  placeholder="https://…" />
+          <Field label={t.website} value={website}  onValueChange={setWebsite}  placeholder="https://…" />
           <Field label="X / Twitter" value={twitter} onValueChange={setTwitter} placeholder="https://x.com/…" />
           <Field label="Telegram" value={telegram} onValueChange={setTelegram} placeholder="https://t.me/…" />
         </div>
@@ -252,11 +250,11 @@ export function PublishListingPanel({
             explorer answers the same question regardless of which it was. */}
         {tx.status === 'manual' && (
           <Field
-            label="Creating transaction"
+            label={t.hashLabel}
             value={manualHash}
             onValueChange={setManualHash}
             placeholder="0x…"
-            hint="We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer."
+            hint={t.hashHint}
           />
         )}
       </div>
@@ -266,9 +264,7 @@ export function PublishListingPanel({
       </div>
 
       <p className="mt-gap-tight text-label leading-relaxed tracking-wider text-text-quiet">
-        {'// '}The signature proves you are this launch&apos;s creator and nothing
-        else — it sends no transaction and grants no spending permission. Only
-        the wallet that created this project can publish its listing.
+        {'// '}{t.footer}
       </p>
     </Card>
   )
