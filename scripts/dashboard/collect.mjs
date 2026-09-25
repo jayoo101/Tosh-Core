@@ -4,7 +4,7 @@
  * Each returns `{ ok, needs?, error?, ...data }` rather than throwing, because
  * the panels have different credential requirements and one missing key should
  * cost you one panel, not the page. A panel that cannot be filled says which
- * credential is missing 鈥?the failure mode to avoid is a panel of zeroes that
+ * credential is missing — the failure mode to avoid is a panel of zeroes that
  * looks like an answer.
  */
 
@@ -30,7 +30,7 @@ const coder = ethers.AbiCoder.defaultAbiCoder()
  * that succeed on the next attempt: TLS sockets closed before the handshake
  * completes, resets mid-response, and the `could not coalesce error` the
  * dataseed nodes produce for anything ethers cannot parse. These say nothing
- * about the chain, so retrying is correct 鈥?whereas retrying a missing getter
+ * about the chain, so retrying is correct — whereas retrying a missing getter
  * or a rejected API key just wastes time and quota.
  */
 const TRANSIENT = /socket disconnected|ECONNRESET|ECONNREFUSED|coalesce|timeout|ETIMEDOUT|EAI_AGAIN|failed to detect|503|502|429/i
@@ -50,7 +50,7 @@ function rotateProvider(ctx) {
  * Wrap a collector so one failure is contained and explained.
  *
  * Retries only transient network errors, and rotates the endpoint before each
- * retry. Without this a single dropped socket empties a whole panel 鈥?which is
+ * retry. Without this a single dropped socket empties a whole panel — which is
  * how the burn panel first came back blank while the money panel, reading the
  * same treasury over the same connection a second later, filled in fine.
  */
@@ -105,19 +105,19 @@ export async function collectLaunches(ctx) {
 }
 
 /**
- * PANEL 1 鈥?the funnel.
+ * PANEL 1 — the funnel.
  *
  * The question with no answer in production today. `/api/pog-scan` computes
  * eligibility and hands it to the browser; nothing aggregates it. So this
  * assembles the funnel from the three places that do remember something:
  *
- *   scans attempted   鈫?Upstash rate-limit counters (hourly windows)
- *   scans passed      鈫?Upstash scan jobs, last 48h, with the gas figures
- *   quota registered  鈫?on-chain PoGRegistered, complete history
- *   money deposited   鈫?on-chain GenesisDeposit, complete history
+ *   scans attempted   → Upstash rate-limit counters (hourly windows)
+ *   scans passed      → Upstash scan jobs, last 48h, with the gas figures
+ *   quota registered  → on-chain PoGRegistered, complete history
+ *   money deposited   → on-chain GenesisDeposit, complete history
  *
  * The last two are permanent and exact. The first two expire, so they describe
- * recent traffic rather than all of it 鈥?which is the right way round, because
+ * recent traffic rather than all of it — which is the right way round, because
  * the recent window is what a decision about the floor should be based on.
  */
 export async function collectFunnel(ctx) {
@@ -149,7 +149,7 @@ export async function collectFunnel(ctx) {
     let referredCount = 0
     for (const l of depositLogs) {
       const user = topicAddress(l.topics[1])
-      // data: amount, lifetimeReferrer 鈥?projectReferrer is topic[3].
+      // data: amount, lifetimeReferrer — projectReferrer is topic[3].
       const [amount] = coder.decode(['uint256', 'address'], l.data)
       depositByWallet.set(user, (depositByWallet.get(user) ?? 0n) + amount)
       depositTotal += amount
@@ -161,7 +161,7 @@ export async function collectFunnel(ctx) {
     const atCeiling = quotas.filter((q) => q >= ceiling).length
 
     // Recent scan outcomes, if the store is reachable. This is the only place
-    // the rejection side of the funnel is visible at all 鈥?a wallet that
+    // the rejection side of the funnel is visible at all — a wallet that
     // scanned, came back below the floor and left leaves no other trace.
     let recent = null
     if (redis.configured()) {
@@ -190,7 +190,7 @@ export async function collectFunnel(ctx) {
     }
 
     // Hourly scan-attempt counters. Only new upstream scans are charged, so
-    // cache hits and polls are invisible here 鈥?this is a floor on traffic.
+    // cache hits and polls are invisible here — this is a floor on traffic.
     let attempts = null
     if (redis.configured()) {
       try {
@@ -231,13 +231,14 @@ export async function collectFunnel(ctx) {
 }
 
 /**
- * PANEL 2 鈥?pool health, and why the candles look the way they do.
+ * PANEL 2 — pool health, and why the candles look the way they do.
  *
  * The impact curve is the point. A chart full of violent wicks is usually read
  * as "not enough volume", and on this pool it is the opposite: there is not
  * enough DEPTH, so ordinary-sized orders move the price several percent and
  * every one of them prints a wick. Showing impact at a ladder of sizes makes
- * that legible in a way a TVL number does not, and the remedy it implies 鈥? * add liquidity 鈥?is the one that also earns fees.
+ * that legible in a way a TVL number does not, and the remedy it implies —
+ * add liquidity — is the one that also earns fees.
  */
 export async function collectPools(ctx, launches) {
   const sizes = [5, 10, 25, 50, 100]
@@ -286,12 +287,12 @@ export async function collectPools(ctx, launches) {
 }
 
 /**
- * PANEL 3 鈥?burn attribution, and whether the buyback is actually firing.
+ * PANEL 3 — burn attribution, and whether the buyback is actually firing.
  *
  * Total burned is the easy half: it is the dead address's balance. The half
  * worth building is the split, because the two sources mean different things.
  * `BuybackBurned` is the treasury spending real BEM to buy tokens off the
- * market 鈥?demand. The remainder is sell tax, which burns supply without any
+ * market — demand. The remainder is sell tax, which burns supply without any
  * buying at all. Reporting one number hides which is happening.
  *
  * `BuybackSkipped` is the alarm. A treasury that is funded, armed and skipping
@@ -308,7 +309,7 @@ export async function collectBurn(ctx, launches) {
     /**
      * The event history is optional, and deliberately so.
      *
-     * The reads above 鈥?reservoir, armed count, next trigger 鈥?are the live
+     * The reads above — reservoir, armed count, next trigger — are the live
      * health of the buyback and they cost nothing but an RPC call. Letting one
      * throttled Etherscan request take them down with it would hide "the
      * treasury has zero tokens armed" behind "could not reach Etherscan",
@@ -398,7 +399,7 @@ export async function collectBurn(ctx, launches) {
 }
 
 /**
- * PANEL 4 鈥?where the money actually sits.
+ * PANEL 4 — where the money actually sits.
  *
  * Four destinations, and the reason to show them together is that they are easy
  * to confuse: the platform's maintenance fee and the launch fees go to the same
@@ -440,7 +441,7 @@ export async function collectMoney(ctx, launches) {
 }
 
 /**
- * PANEL 5 鈥?configuration, and whether it has drifted.
+ * PANEL 5 — configuration, and whether it has drifted.
  *
  * Values alone are not useful; what matters is whether each one is where it
  * should be. So ownership is checked for being a contract (the Safe) rather
@@ -507,7 +508,7 @@ export async function collectConfig(ctx) {
 }
 
 /**
- * PANEL 6 鈥?the infrastructure budget that has twice taken the raise down.
+ * PANEL 6 — the infrastructure budget that has twice taken the raise down.
  *
  * The credit gauge on its own is not the useful number; the useful number is
  * how long it lasts. Two outages came from a budget that looked fine until it

@@ -10,7 +10,7 @@ import { AwaitingLaunchPanel } from './AwaitingLaunchPanel'
 import { GenesisIneligible } from './GenesisIneligible'
 
 /**
- * ENGLISH GOLDEN MASTER · the three surfaces that hand money back, plus the one
+ * ENGLISH GOLDEN MASTER Â· the three surfaces that hand money back, plus the one
  * that refuses a wallet outright.
  *
  * Taken BEFORE any string here moves into a translation dictionary. Its only
@@ -118,7 +118,7 @@ function pin(ui: { strings(): string[]; prose(): string }) {
   expect.soft(ui.prose()).toMatchSnapshot()
 }
 
-describe('RefundPanel · english copy golden master', () => {
+describe('RefundPanel Â· english copy golden master', () => {
   /*
    * `ladderViable` picks between the two refund reasons, and the pair is the
    * reason this panel has a `refundReason` function at all: the subtitle used to
@@ -131,10 +131,10 @@ describe('RefundPanel · english copy golden master', () => {
    * to collect a failed round that they had nothing here.
    */
   for (const [name, props] of [
-    ['too small to open a pool · deposit in flight', { ladderViable: false, nativeDeposited: undefined }],
-    ['too small to open a pool · nothing deposited', { ladderViable: false, nativeDeposited: 0n }],
-    ['too small to open a pool · refund armed',      { ladderViable: false, nativeDeposited: 250_00000000n }],
-    ['launch window lapsed · refund armed',          { ladderViable: true,  nativeDeposited: 250_00000000n }],
+    ['too small to open a pool Â· deposit in flight', { ladderViable: false, nativeDeposited: undefined }],
+    ['too small to open a pool Â· nothing deposited', { ladderViable: false, nativeDeposited: 0n }],
+    ['too small to open a pool Â· refund armed',      { ladderViable: false, nativeDeposited: 250_00000000n }],
+    ['launch window lapsed Â· refund armed',          { ladderViable: true,  nativeDeposited: 250_00000000n }],
   ] as const) {
     it(name, () => {
       const ui = mount(
@@ -152,7 +152,7 @@ describe('RefundPanel · english copy golden master', () => {
   }
 })
 
-describe('GenesisClaimPanel · english copy golden master', () => {
+describe('GenesisClaimPanel Â· english copy golden master', () => {
   // `0n` unmounts the card entirely, which `refundReads.test.tsx` already pins
   // as a behaviour. There is no copy in that state, so it is not a golden case.
   for (const [name, nativeDeposited] of [
@@ -176,7 +176,7 @@ describe('GenesisClaimPanel · english copy golden master', () => {
   }
 })
 
-describe('AwaitingLaunchPanel · english copy golden master', () => {
+describe('AwaitingLaunchPanel Â· english copy golden master', () => {
   // The creator sees a button and an argument for pressing it; everyone else
   // sees the same wait with none of the agency. Both are user-facing.
   for (const [name, isCreator] of [
@@ -202,16 +202,16 @@ describe('AwaitingLaunchPanel · english copy golden master', () => {
   }
 })
 
-describe('GenesisIneligible · english copy golden master', () => {
+describe('GenesisIneligible Â· english copy golden master', () => {
   /*
    * The gap is rendered as a multiple, and the two branches of that formatting
-   * are separate states: under 100× keeps one decimal, at or above it rounds and
-   * groups. A translation that moves the `×` or the grouping would change a
+   * are separate states: under 100Ã— keeps one decimal, at or above it rounds and
+   * groups. A translation that moves the `Ã—` or the grouping would change a
    * figure whose whole purpose is to read as structural rather than near.
    */
   for (const [name, totalGasWei] of [
-    ['three thousand times under · the figure from the outage', '7620000000000'],
-    ['just under · one decimal survives',                       '500000000000000'],
+    ['three thousand times under Â· the figure from the outage', '7620000000000'],
+    ['just under Â· one decimal survives',                       '500000000000000'],
   ] as const) {
     it(name, () => {
       const ui = mount(
