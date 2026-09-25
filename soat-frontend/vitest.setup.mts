@@ -21,6 +21,11 @@
  * mainnet address in a fixture invites someone to treat a passing test as evidence
  * about a deployment. `npm run check:quote` is what makes that claim, against a live
  * chain.
+ *
+ * ASSIGNED, NOT DEFAULTED. The golden masters snapshot the ticker, so whatever
+ * the shell exports would be baked into them: `frontend.yml` sets `mBEM` at job
+ * level for the build, and with `||=` that leaked into `npm test` and failed 269
+ * snapshots recorded as `TQUOTE` on a machine that exports nothing.
  */
-process.env.NEXT_PUBLIC_QUOTE_ASSET ||= '0x2222222222222222222222222222222222222222'
-process.env.NEXT_PUBLIC_QUOTE_SYMBOL ||= 'TQUOTE'
+process.env.NEXT_PUBLIC_QUOTE_ASSET = '0x2222222222222222222222222222222222222222'
+process.env.NEXT_PUBLIC_QUOTE_SYMBOL = 'TQUOTE'
