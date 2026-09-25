@@ -206,9 +206,17 @@ export default async function RootLayout({
     ? ({ '--font-cjk': cjk.style.fontFamily } as React.CSSProperties)
     : undefined
 
+  /*
+   * `translate="no"` because browser page translation rewrites text nodes React
+   * still owns, and the next render that touches one throws `insertBefore` /
+   * `removeChild` on a node that is no longer there. It reached users as the
+   * root error boundary — itself machine-translated. The languages we serve
+   * come from the dictionary instead.
+   */
   return (
     <html
       lang={locale}
+      translate="no"
       className={`${jbm.variable} ${geist.variable}`}
       style={fontVars}
       suppressHydrationWarning
