@@ -143,7 +143,7 @@ export async function loadPool(hookAddress, prov = provider()) {
  */
 export async function verifyInfrastructure(prov = provider()) {
   const targets = {
-    UniversalRouter: UNIVERSAL_ROUTER,
+    'Universal Router': UNIVERSAL_ROUTER,
     Permit2: PERMIT2,
     CLPositionManager: CL_POSITION_MANAGER,
     CLPoolManager: CL_POOL_MANAGER,
