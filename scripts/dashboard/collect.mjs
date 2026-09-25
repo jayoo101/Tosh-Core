@@ -18,8 +18,8 @@ import {
   DEAD_ADDRESS, TRIGGER_STEP, FACTORY_ABI, TREASURY_ABI, HOOK_ABI, ERC20_ABI,
   TOPICS, REDIS_KEYS, POG_DEFAULTS, topicAddress,
 } from './config.mjs'
-import { loadPool } from '../mm/pool.mjs'
-import { quoteLeg, spotPrice, roundTripCost } from '../mm/quote.mjs'
+import { loadPool } from './pool.mjs'
+import { quoteLeg, spotPrice, roundTripCost } from './quote.mjs'
 
 const coder = ethers.AbiCoder.defaultAbiCoder()
 
@@ -251,7 +251,7 @@ export async function collectPools(ctx, launches) {
         const q = quoteLeg(pool, amountIn, 'buy')
         return { quote: whole, impact: q.impact, out: q.amountOut.toString() }
       })
-      // Virtual reserves of a full-range position: x = L/鈭歅, y = L路鈭歅. Exact
+      // Virtual reserves of a full-range position: x = L/√P, y = L·√P. Exact
       // here because every position in these pools spans the full range.
       const sqrtP = Number(pool.sqrtPriceX96) / 2 ** 96
       const depthQuote = Number(pool.liquidity) / sqrtP / 10 ** QUOTE_DECIMALS

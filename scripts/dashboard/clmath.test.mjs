@@ -9,7 +9,7 @@
  * output can be computed as `y - L²/(x + Δx)` — no sqrt prices anywhere. If the
  * Q96 integer path has a rounding bug or an inverted formula, the two disagree.
  *
- * Run: node --test scripts/mm/clmath.test.mjs
+ * Run: node --test scripts/dashboard/clmath.test.mjs
  */
 
 import test from 'node:test'

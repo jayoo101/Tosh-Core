@@ -12,10 +12,9 @@
  * that does not exhaust the pool, so the single-segment formulas below are the
  * exact answer rather than an approximation of one.
  *
- * That assumption is load-bearing, so `quote.mjs` does not rely on it alone —
- * it checks the quote against a simulation of the real router call before any
- * swap is signed. If someone ever mints a narrow position, the simulation and
- * this math will disagree and the tool refuses rather than trades.
+ * That assumption is load-bearing and nothing here checks it. If someone ever
+ * mints a narrow position, these quotes overstate the depth for any order large
+ * enough to cross its edge.
  *
  * Rounding follows Uniswap V3's `SqrtPriceMath`: against the trader on the
  * price, down on the output. Being a wei pessimistic is free; being a wei

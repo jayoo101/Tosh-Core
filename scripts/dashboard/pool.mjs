@@ -1,5 +1,5 @@
 /**
- * Reading pool state, and verifying the constants this tool is pinned to.
+ * Reading pool state for the pool-health panel.
  *
  * Infinity ships no `StateView` and no `Quoter` (docs/DEVELOPMENT.md §Pool
  * state), so there is no periphery reader to ask — everything here goes
@@ -9,39 +9,13 @@
 
 import { ethers } from 'ethers'
 import {
-  CHAIN_ID, CL_POOL_MANAGER, PERMIT2, CL_POSITION_MANAGER, UNIVERSAL_ROUTER,
-  QUOTE_ASSET, POOL_FEE, TICK_SPACING, rpcUrl,
+  CHAIN_ID, CL_POOL_MANAGER, QUOTE_ASSET, POOL_FEE, TICK_SPACING, HOOK_ABI,
 } from './config.mjs'
 
-export const HOOK_ABI = [
-  'function getPoolKey() view returns (tuple(address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters))',
-  'function getHooksRegistrationBitmap() view returns (uint16)',
-  'function projectToken() view returns (address)',
-  'function quoteAsset() view returns (address)',
-  'function tokenInitialized() view returns (bool)',
-]
-
-export const CL_POOL_ABI = [
+const CL_POOL_ABI = [
   'function getSlot0(bytes32 id) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
   'function getLiquidity(bytes32 id) view returns (uint128 liquidity)',
 ]
-
-export const ERC20_ABI = [
-  'function balanceOf(address) view returns (uint256)',
-  'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function approve(address spender, uint256 amount) returns (bool)',
-]
-
-export const PERMIT2_ABI = [
-  'function allowance(address owner, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)',
-  'function approve(address token, address spender, uint160 amount, uint48 expiration)',
-]
-
-export function provider() {
-  return new ethers.JsonRpcProvider(rpcUrl(), CHAIN_ID)
-}
 
 /**
  * The 6-field PoolKey hashed to a pool id.
@@ -63,16 +37,14 @@ export function poolIdOf(key) {
 /**
  * Load a pool, and refuse to return one that contradicts the pinned config.
  *
- * The checks are here rather than in a separate command because every caller
- * needs them and none of them would remember to ask. A router or Permit2
- * address that has drifted does not fail loudly at the RPC — it fails at
- * signing time with an allowance error naming a contract the operator never
- * typed, which is a far worse place to learn about it.
+ * Every mismatch below would otherwise surface as a well-formed pool id for a
+ * pool that does not exist, which reads as an empty pool rather than as an
+ * error — a health panel reporting zero depth for a pool that has plenty.
  */
-export async function loadPool(hookAddress, prov = provider()) {
+export async function loadPool(hookAddress, prov) {
   const net = await prov.getNetwork()
   if (Number(net.chainId) !== CHAIN_ID) {
-    throw new Error(`MM_RPC_URL points at chain ${net.chainId}, not ${CHAIN_ID}`)
+    throw new Error(`the RPC points at chain ${net.chainId}, not ${CHAIN_ID}`)
   }
 
   const hook = new ethers.Contract(hookAddress, HOOK_ABI, prov)
@@ -131,44 +103,5 @@ export async function loadPool(hookAddress, prov = provider()) {
     liquidity,
     token: key.currency1,
     quote: key.currency0,
-  }
-}
-
-/**
- * Confirm the pinned periphery addresses are contracts on this chain.
- *
- * Cheap, and it catches the one failure this tool cannot recover from: an
- * address that is an EOA or empty, where `approve` succeeds silently and the
- * swap fails later for a reason that points somewhere else entirely.
- */
-export async function verifyInfrastructure(prov = provider()) {
-  const targets = {
-    'Universal Router': UNIVERSAL_ROUTER,
-    Permit2: PERMIT2,
-    CLPositionManager: CL_POSITION_MANAGER,
-    CLPoolManager: CL_POOL_MANAGER,
-  }
-  const out = {}
-  for (const [name, addr] of Object.entries(targets)) {
-    const code = await prov.getCode(addr)
-    const bytes = (code.length - 2) / 2
-    if (bytes === 0) throw new Error(`${name} at ${addr} has no code on chain ${CHAIN_ID}`)
-    out[name] = { address: addr, bytes }
-  }
-  return out
-}
-
-/** Balances and symbols for both legs, for display and for the engine's inventory view. */
-export async function readBalances(pool, owner, prov = provider()) {
-  const quote = new ethers.Contract(pool.quote, ERC20_ABI, prov)
-  const token = new ethers.Contract(pool.token, ERC20_ABI, prov)
-  const [qBal, tBal, qSym, tSym, qDec, tDec] = await Promise.all([
-    quote.balanceOf(owner), token.balanceOf(owner),
-    quote.symbol(), token.symbol(),
-    quote.decimals(), token.decimals(),
-  ])
-  return {
-    quote: { balance: qBal, symbol: qSym, decimals: Number(qDec) },
-    token: { balance: tBal, symbol: tSym, decimals: Number(tDec) },
   }
 }

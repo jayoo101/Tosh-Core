@@ -30,6 +30,24 @@ export const TOKEN_DECIMALS = 18
 
 export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD'
 
+/** PancakeSwap Infinity's CL pool manager on 56. Provenance: test/ToshV5Fork.t.sol. */
+export const CL_POOL_MANAGER = '0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b'
+
+/** The pool shape every launch gets. `soat-frontend/src/lib/contracts.ts`. */
+export const POOL_FEE = 3000
+export const TICK_SPACING = 200
+
+/**
+ * The hook's cut of every swap INPUT, in basis points.
+ *
+ * Not a pool fee and not charged by the pool: `ToshLaunchpadHook.beforeSwap`
+ * skims it before the swap prices, so the amount that reaches the curve is
+ * `amountIn * (1 - TAX_BPS/1e4)`. A quote that forgets this overstates the
+ * output by a full percent.
+ */
+export const TAX_BPS = 100n
+export const BPS = 10_000n
+
 /** Where the buyback trigger sits, from ToshLadderTreasury.TRIGGER_STEP. */
 export const TRIGGER_STEP = 928n * 10n ** 7n // 92.8e8
 
