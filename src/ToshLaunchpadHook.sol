@@ -558,6 +558,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     uint8 internal constant ACTION_ADD_LIQUIDITY = 1;
+    uint8 internal constant ACTION_COLLECT_FEES = 2;
 
     /// @notice Mirror of `ToshLadderTreasury.TRIGGER_STEP`, the reservoir balance
     ///         that arms a piggyback buyback.
@@ -1111,6 +1112,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     error UnknownAction();
     error LaunchWindowExpired();
     error InvalidAdmin();
+    error ZeroAddress();
+    error WrongQuoteDecimals();
 
     /// @notice Something tried to execute this contract as itself rather than
     ///         through a project clone.
@@ -1245,17 +1248,18 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         address _platformFeeRecipient,
         address _quoteAsset
     ) {
-        require(_poolManager != address(0), "zero poolManager");
-        require(_vault != address(0), "zero vault");
-        require(_factory != address(0), "zero factory");
-        require(_ladderTreasury != address(0), "zero ladderTreasury");
-        require(_platformFeeRecipient != address(0), "zero platformFeeRecipient");
-        require(_quoteAsset != address(0), "zero quoteAsset");
+        // Custom errors rather than one revert string per argument: this
+        // constructor's bytecode is embedded in `HookDeployLib`, which sits at
+        // the EIP-170 limit, and six strings cost more than it has to spare.
+        if (
+            _poolManager == address(0) || _vault == address(0) || _factory == address(0)
+                || _ladderTreasury == address(0) || _platformFeeRecipient == address(0) || _quoteAsset == address(0)
+        ) revert ZeroAddress();
         // Asserted, not assumed: `MIN_SOFT_CAP_PROD` and the ladder's usable
         // range were both computed against 8 decimals. A quote asset with any
         // other precision silently moves where the shelf ladder degenerates,
         // and a deploy is the worst place to discover that.
-        require(IERC20Metadata(_quoteAsset).decimals() == QUOTE_DECIMALS, "quote decimals");
+        if (IERC20Metadata(_quoteAsset).decimals() != QUOTE_DECIMALS) revert WrongQuoteDecimals();
 
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
@@ -1892,6 +1896,31 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         emit ReferralClaimed(msg.sender, amount);
     }
 
+    /// @notice Sweep the pool fees the genesis position has earned.  Permissionless.
+    ///
+    /// @dev    The genesis position is owned by this hook and can never be
+    ///         withdrawn, so without this its 0.30 % pool fee would accrue in the
+    ///         Vault forever: fees are only paid out on a `modifyLiquidity` by the
+    ///         owner, and the hook used to have exactly one — the initial add.
+    ///
+    ///         The sweep is a zero-delta `modifyLiquidity` on the same position,
+    ///         which pays out the fees and moves no principal.  Liquidity cannot
+    ///         change: the delta is the literal `0`, not a parameter.  A zero
+    ///         delta takes Infinity's remove branch, and this hook registers no
+    ///         remove callbacks, so nothing of ours re-enters.
+    ///
+    ///         The destinations are fixed and the caller chooses nothing, which is
+    ///         why nobody needs to be trusted to call it: the quote leg goes to
+    ///         `ladderTreasury` as buyback ammunition, the token leg is burned.
+    ///         The treasury calls this before each `pokeBuyback`.
+    ///
+    ///         No `nonReentrant`: it writes no storage of ours, and the Vault
+    ///         refuses a second `lock` while this one is open.
+    function collectGenesisFees() external {
+        if (!launched) revert NotLaunched();
+        vault.lock(abi.encode(ACTION_COLLECT_FEES));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  PHASE 2 — DISCRETE TIER SHELVES
     // ══════════════════════════════════════════════════════════════════════════
@@ -2525,6 +2554,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             (, uint160 sqrtPriceX96, uint256 lpNative) = abi.decode(data, (uint8, uint160, uint256));
             return _addInitialLiquidity(sqrtPriceX96, lpNative);
         }
+        if (action == ACTION_COLLECT_FEES) {
+            _collectGenesisFees();
+            return "";
+        }
         revert UnknownAction();
     }
 
@@ -2673,6 +2706,30 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         }
 
         return abi.encode(liquidity);
+    }
+
+    /// @dev With a zero liquidity delta the returned delta is the fee delta
+    ///      alone, so both legs are credits (>= 0) and `take` is the whole
+    ///      settlement.
+    ///
+    ///      No event of its own: the two `take`s are Transfers out of the Vault
+    ///      to `ladderTreasury` and 0xdead, and the treasury emits
+    ///      `GenesisFeesCollected` for every sweep it drives.  The hook has no
+    ///      bytecode to spare — see the constructor.
+    function _collectGenesisFees() internal {
+        PoolKey memory key = _key();
+        (BalanceDelta delta,) = poolManager.modifyLiquidity(
+            key,
+            ICLPoolManager.ModifyLiquidityParams({
+                tickLower: TICK_LOWER, tickUpper: TICK_UPPER, liquidityDelta: 0, salt: bytes32(0)
+            }),
+            ""
+        );
+
+        uint256 quoteFees = uint256(uint128(delta.amount0()));
+        uint256 tokenFees = uint256(uint128(delta.amount1()));
+        if (quoteFees > 0) vault.take(key.currency0, ladderTreasury, quoteFees);
+        if (tokenFees > 0) vault.take(key.currency1, DEAD_ADDRESS, tokenFees);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

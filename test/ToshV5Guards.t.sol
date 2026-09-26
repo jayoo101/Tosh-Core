@@ -198,17 +198,17 @@ contract ToshV5GuardsTest is Test {
     // below.
 
     function test_hook_ctor_revertsOnZeroPoolManager() public {
-        vm.expectRevert(bytes("zero poolManager"));
+        vm.expectRevert(ToshLaunchpadHook.ZeroAddress.selector);
         new ToshLaunchpadHook(address(0), mockVault, address(factory), ladder, treasury, address(quote));
     }
 
     function test_hook_ctor_revertsOnZeroFactory() public {
-        vm.expectRevert(bytes("zero factory"));
+        vm.expectRevert(ToshLaunchpadHook.ZeroAddress.selector);
         new ToshLaunchpadHook(mockPoolManager, mockVault, address(0), ladder, treasury, address(quote));
     }
 
     function test_hook_ctor_revertsOnZeroLadderTreasury() public {
-        vm.expectRevert(bytes("zero ladderTreasury"));
+        vm.expectRevert(ToshLaunchpadHook.ZeroAddress.selector);
         new ToshLaunchpadHook(
             mockPoolManager, mockVault, address(factory), payable(address(0)), treasury, address(quote)
         );
@@ -220,7 +220,7 @@ contract ToshV5GuardsTest is Test {
     ///      controls on every single swap, so it is rejected at construction
     ///      exactly like `ladderTreasury`.
     function test_hook_ctor_revertsOnZeroPlatformFeeRecipient() public {
-        vm.expectRevert(bytes("zero platformFeeRecipient"));
+        vm.expectRevert(ToshLaunchpadHook.ZeroAddress.selector);
         new ToshLaunchpadHook(mockPoolManager, mockVault, address(factory), ladder, address(0), address(quote));
     }
 

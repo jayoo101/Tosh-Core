@@ -345,6 +345,15 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         a single broken pool must never brick platform-wide trading.
     event BuybackSkipped(address indexed token, uint256 nativeIn);
 
+    /// @notice Emitted per genesis fee sweep `pokeBuyback` drives, with the
+    ///         quote asset it added to the reservoir.  The token leg is burned
+    ///         by the hook and shows as a Transfer to 0xdead.
+    event GenesisFeesCollected(address indexed hook, uint256 quoteReceived);
+
+    /// @notice Emitted when a hook's genesis fee sweep reverted inside
+    ///         `pokeBuyback`.  The poke continues.
+    event GenesisFeesSkipped(address indexed hook);
+
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     /// @notice `renounceOwnership` is disabled — see the override for why.
@@ -708,13 +717,37 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         Reverts rather than returning quietly when unarmed, because
     ///         unlike the hook path this is nobody's hot path and a caller
     ///         deserves to know the call did nothing.
+    ///
+    ///         Sweeps the genesis pool fees of the tokens this cycle is about to
+    ///         buy first, while no lock is open (the sweep opens its own), so
+    ///         fees that arm the reservoir are spent in the same call.  A hook
+    ///         that cannot sweep is skipped, never fatal.
     function pokeBuyback() external {
         if (piggybackActive()) revert PiggybackInProgress();
+        _collectGenesisFees();
         if (_nextSpendAmount() == 0) revert NotArmed();
         if (ladderTokens.length == 0) revert NotArmed();
 
         // Opens our own frame, since there is no swap to borrow one from.
         vault.lock("");
+    }
+
+    /// @dev Same selection as the next `_runPiggyback`: `LEGS_PER_POKE` tokens
+    ///      from the cursor.  The cursor visits every listed token in turn, so
+    ///      each one's fees are swept eventually and none is lost by waiting.
+    function _collectGenesisFees() internal {
+        uint256 total = ladderTokens.length;
+        uint256 count = total < LEGS_PER_POKE ? total : LEGS_PER_POKE;
+        uint256 cursor = currentCursor;
+        for (uint256 i; i < count; ++i) {
+            address hook = address(_poolKeyOf[ladderTokens[(cursor + i) % total]].hooks);
+            uint256 before = quoteAsset.balanceOf(address(this));
+            try IToshHookGenesisFees(hook).collectGenesisFees() {
+                emit GenesisFeesCollected(hook, quoteAsset.balanceOf(address(this)) - before);
+            } catch {
+                emit GenesisFeesSkipped(hook);
+            }
+        }
     }
 
     /// @dev The Vault calls this back only on the address that called `lock`, so
@@ -1119,4 +1152,9 @@ interface IToshHookPoolKey {
 ///      buyback bounds itself against.
 interface IToshHookTwap {
     function twapSqrtPriceX96() external view returns (uint160);
+}
+
+/// @dev The hook's permissionless sweep of its genesis position's pool fees.
+interface IToshHookGenesisFees {
+    function collectGenesisFees() external;
 }

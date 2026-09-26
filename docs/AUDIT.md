@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 76 findings, 1H/29M/27L/19I | 98 findings, 16H/82L |
+| Current | 83 findings, 1H/31M/31L/20I | 99 findings, 16H/83L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 ## Why both
@@ -77,9 +77,32 @@ It prints one of three things, and they mean different things:
   Confirm the removal was deliberate (it often is, after a refactor) and
   `--update`.
 
+## Slither: the genesis fee sweep
+
+Seven instances arrived with `collectGenesisFees` on 2026-09-26, taking the
+baseline from 76 to 83. None is a defect.
+
+- **`unused-return`** — 2. `ToshLaunchpadHook._collectGenesisFees` drops the
+  second return of `modifyLiquidity`, the fee delta, which is already inside
+  the first (Infinity returns `delta + feeDelta` to the caller);
+  `_addInitialLiquidity` drops it for the same reason. `collectGenesisFees`
+  drops what `vault.lock` returns, which is the empty bytes its callback
+  returns.
+- **`calls-loop`** — 3, in `ToshLadderTreasury._collectGenesisFees`: the sweep
+  and the two `balanceOf` reads that measure it. The loop runs
+  `LEGS_PER_POKE` times (1), the hook comes from a listing that proved it is
+  this factory's, and the sweep is inside `try/catch`, so one hook that reverts
+  is skipped rather than stalling the poke — the same shape as the buyback
+  loop beside it.
+- **`reentrancy-events`** — 1, same function. `GenesisFeesCollected` is emitted
+  after the sweep because it reports what the sweep delivered.
+- **`missing-inheritance`** — 1. The hook matches the treasury's minimal
+  `IToshHookGenesisFees` without inheriting it, like the instance already in
+  the baseline; inheriting would import the treasury into the hook.
+
 ## Aderyn disposition record
 
-18 detectors, 98 instances, all triaged, nothing unresolved.
+18 detectors, 99 instances, all triaged, nothing unresolved.
 
 These counts are the baseline's, and they are worth re-reading against it when
 this file is touched. The prose below drifted from `aderyn-baseline.json` once
@@ -167,11 +190,12 @@ engages — and the answer here is no for all three. `whenNotPaused` reads
 `_paused`; `initialized` reads `tokenInitialized`. Both are plain storage
 reads with no call.
 
-**`unchecked-return`** — 6. Each is a return value nobody needs:
+**`unchecked-return`** — 7. Each is a return value nobody needs:
 `vault.lock("")` and `vault.settle()` return amounts already known to the
 caller, `poolManager.initialize()` returns the resulting tick, and
 `_grantRole()` returns whether the role was newly granted inside a
-run-once `initialize`.
+run-once `initialize`. The seventh, since 2026-09-26, is the `vault.lock` in
+`ToshLaunchpadHook.collectGenesisFees`, whose callback returns empty bytes.
 
 **`centralization-risk`** — 21. Accurate and by design. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`);

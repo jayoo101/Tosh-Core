@@ -4157,6 +4157,197 @@ contract ToshV5Test is Test {
         ladder.pokeBuyback();
     }
 
+    // ── Genesis fee sweep ─────────────────────────────────────────────────────
+
+    /// @dev One buy and one sell through the pool, so both legs accrue fees.
+    ///      Returns the quote the buy put in, which is what the quote-leg fee
+    ///      is a fraction of.
+    function _tradeBothWays(ToshToken token, ToshLaunchpadHook hook) internal returns (uint256 quoteIn) {
+        quoteIn = 10e8;
+        _swapBuy(hook, trader, quoteIn);
+        _nextBlock();
+        _swapSell(hook, trader, token.balanceOf(trader) / 2);
+        _nextBlock();
+    }
+
+    /// @dev The quote-leg pool fee on a buy of `quoteIn`, if one position held
+    ///      all the liquidity: `POOL_FEE` of what reaches the pool, which is the
+    ///      input net of the hook's `TAX_BPS` skim.
+    function _quoteFeeOn(ToshLaunchpadHook hook, uint256 quoteIn) internal view returns (uint256) {
+        uint256 net = quoteIn - (quoteIn * hook.TAX_BPS()) / 10_000;
+        return (net * hook.POOL_FEE()) / 1_000_000;
+    }
+
+    /// @notice The sweep pays the genesis position's fees out — quote to the
+    ///         reservoir, tokens to 0xdead — and moves no liquidity.
+    function test_collectGenesisFees_sweepsToReservoirAndBurnsWithoutMovingLiquidity() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Sweep", "SWP", alice, address(0));
+        uint256 quoteIn = _tradeBothWays(token, hook);
+
+        uint128 liqBefore = _genesisLiquidity(hook);
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 deadBefore = token.balanceOf(DEAD);
+        uint256 hookQuoteBefore = quote.balanceOf(address(hook));
+        uint256 hookTokenBefore = token.balanceOf(address(hook));
+
+        vm.prank(dave);
+        hook.collectGenesisFees();
+
+        uint256 toLadder = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 burned = token.balanceOf(DEAD) - deadBefore;
+
+        assertEq(_genesisLiquidity(hook), liqBefore, "the sweep moved genesis liquidity");
+        assertApproxEqRel(toLadder, _quoteFeeOn(hook, quoteIn), 0.005e18, "quote leg is not the pool fee");
+        assertGt(burned, 0, "token-leg fees were not burned");
+        assertEq(quote.balanceOf(address(hook)), hookQuoteBefore, "fees must not land in the hook");
+        assertEq(token.balanceOf(address(hook)), hookTokenBefore, "fees must not land in the hook");
+    }
+
+    /// @notice A second sweep with nothing accrued moves nothing and does not
+    ///         revert, so the treasury can call it on every poke.
+    function test_collectGenesisFees_isHarmlessToRepeat() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Sweep2", "SW2", alice, address(0));
+        _tradeBothWays(token, hook);
+
+        hook.collectGenesisFees();
+
+        uint128 liqBefore = _genesisLiquidity(hook);
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 deadBefore = token.balanceOf(DEAD);
+
+        hook.collectGenesisFees();
+
+        assertEq(_genesisLiquidity(hook), liqBefore);
+        assertEq(quote.balanceOf(address(ladder)), ladderBefore);
+        assertEq(token.balanceOf(DEAD), deadBefore);
+    }
+
+    /// @notice There is no position to sweep before the pool exists.
+    function test_collectGenesisFees_revertsBeforeLaunch() public {
+        (, ToshLaunchpadHook hook) = _createProject("Early", "ERL");
+
+        vm.expectRevert(ToshLaunchpadHook.NotLaunched.selector);
+        hook.collectGenesisFees();
+    }
+
+    /// @notice The sweep takes the genesis position's share of the fees and
+    ///         only that: a third-party LP in the same range still collects
+    ///         theirs afterwards.
+    function test_collectGenesisFees_leavesThirdPartyLpFeesAlone() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("SweepLp", "SLP", alice, address(0));
+
+        vm.prank(alice);
+        hook.claimGenesis();
+        vm.prank(alice);
+        token.transfer(bob, 100_000e18);
+        _endow(bob);
+
+        PoolKey memory key = hook.getPoolKey();
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
+        uint128 liq = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96,
+            TickMath.getSqrtRatioAtTick(TICK_LOWER),
+            TickMath.getSqrtRatioAtTick(TICK_UPPER),
+            50e8,
+            100_000e18
+        );
+        vm.startPrank(bob);
+        token.approve(address(router), type(uint256).max);
+        router.modifyPosition(
+            key,
+            ICLPoolManager.ModifyLiquidityParams({
+                tickLower: TICK_LOWER, tickUpper: TICK_UPPER, liquidityDelta: int256(uint256(liq)), salt: bytes32(0)
+            }),
+            ""
+        );
+        vm.stopPrank();
+
+        uint256 genesisLiq = _genesisLiquidity(hook);
+        uint256 retailLiq = _retailLiquidity(hook);
+        uint256 quoteIn = 10e8;
+        _swapBuy(hook, trader, quoteIn);
+        _nextBlock();
+        uint256 totalFee = _quoteFeeOn(hook, quoteIn);
+
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        hook.collectGenesisFees();
+        uint256 swept = quote.balanceOf(address(ladder)) - ladderBefore;
+
+        uint256 bobBefore = quote.balanceOf(bob);
+        vm.prank(bob);
+        router.modifyPosition(
+            key,
+            ICLPoolManager.ModifyLiquidityParams({
+                tickLower: TICK_LOWER, tickUpper: TICK_UPPER, liquidityDelta: 0, salt: bytes32(0)
+            }),
+            ""
+        );
+        uint256 bobFees = quote.balanceOf(bob) - bobBefore;
+
+        assertApproxEqRel(swept, totalFee * genesisLiq / (genesisLiq + retailLiq), 0.005e18, "genesis share");
+        assertApproxEqRel(bobFees, totalFee * retailLiq / (genesisLiq + retailLiq), 0.005e18, "retail share");
+        assertEq(_retailLiquidity(hook), retailLiq, "the sweep moved retail liquidity");
+    }
+
+    /// @notice `pokeBuyback` sweeps the token it is about to buy before it
+    ///         buys, and reports what the sweep added.
+    function test_pokeBuyback_sweepsGenesisFeesFirst() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("PokeSweep", "PSW", alice, address(0));
+        _tradeBothWays(token, hook);
+
+        _matureTwap();
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        _setQuote(address(ladder), 1000e8);
+
+        // What a sweep would pay right now, measured and rolled back.
+        uint256 snap = vm.snapshotState();
+        uint256 before = quote.balanceOf(address(ladder));
+        hook.collectGenesisFees();
+        uint256 expected = quote.balanceOf(address(ladder)) - before;
+        vm.revertToState(snap);
+        assertGt(expected, 0, "fixture: no fees accrued");
+
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        vm.expectEmit(true, false, false, true, address(ladder));
+        emit ToshLadderTreasury.GenesisFeesCollected(address(hook), expected);
+        vm.prank(dave);
+        ladder.pokeBuyback();
+        uint256 ladderAfter = quote.balanceOf(address(ladder));
+        uint256 spent = ladderBefore + expected - ladderAfter;
+        assertGt(spent, 0, "fixture: the buyback leg did not fill");
+
+        // The only fees left are the ones the buyback's own swap just paid —
+        // untaxed, since the treasury is exempt — which the next sweep returns.
+        hook.collectGenesisFees();
+        assertApproxEqRel(
+            quote.balanceOf(address(ladder)) - ladderAfter,
+            (spent * hook.POOL_FEE()) / 1_000_000,
+            0.005e18,
+            "poke left pre-existing genesis fees unswept"
+        );
+    }
+
+    /// @notice A hook whose sweep reverts — an older hook without it, say —
+    ///         is reported and skipped; the buyback still runs.
+    function test_pokeBuyback_survivesAHookThatCannotSweep() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("PokeNoSweep", "PNS", alice, address(0));
+
+        _matureTwap();
+        vm.prank(admin);
+        ladder.addLadderToken(address(token));
+        _setQuote(address(ladder), 1000e8);
+        vm.mockCallRevert(address(hook), abi.encodeWithSelector(hook.collectGenesisFees.selector), "");
+
+        uint256 deadBefore = token.balanceOf(DEAD);
+        vm.expectEmit(true, false, false, false, address(ladder));
+        emit ToshLadderTreasury.GenesisFeesSkipped(address(hook));
+        vm.prank(dave);
+        ladder.pokeBuyback();
+
+        assertGt(token.balanceOf(DEAD), deadBefore, "the buyback did not run");
+    }
+
     /// @notice `lockAcquired` is reachable only through the Vault.
     ///
     /// @dev    The Vault calls back only the address that called `lock`, so the

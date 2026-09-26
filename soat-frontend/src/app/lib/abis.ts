@@ -3248,6 +3248,13 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "collectGenesisFees",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "creator",
     "inputs": [],
     "outputs": [
@@ -4701,6 +4708,16 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "WrongQuoteDecimals",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAmount",
     "inputs": []
   }
@@ -5268,6 +5285,38 @@ export const TREASURY_ABI = [
     "inputs": [
       {
         "name": "factory",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "GenesisFeesCollected",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "quoteReceived",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "GenesisFeesSkipped",
+    "inputs": [
+      {
+        "name": "hook",
         "type": "address",
         "indexed": true,
         "internalType": "address"

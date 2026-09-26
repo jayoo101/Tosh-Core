@@ -725,6 +725,9 @@ contract ToshV5AttackTest is Test {
 
         vm.prank(admin);
         ladder.addLadderToken(address(token));
+        // Swept here so the poke's own sweep finds nothing: its token leg would
+        // otherwise land in `burned` and skew the burn rate the arms compare.
+        hook.collectGenesisFees();
         _setQuote(address(ladder), 10_000e8);
 
         uint256 offer = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
@@ -899,6 +902,10 @@ contract ToshV5AttackTest is Test {
         }
         vm.stopPrank();
 
+        // The walk's sells accrued large genesis fees. Swept now, so the poke's
+        // own sweep adds nothing and `spentAtRim` below is the leg alone.
+        hook.collectGenesisFees();
+
         (uint160 rimSqrt, int24 rimTick,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
         console2.log("rim sqrtPriceX96      ", rimSqrt);
         console2.log("rim tick              ");
@@ -968,13 +975,17 @@ contract ToshV5AttackTest is Test {
         // is still there, just all on one side, so a trade in the other direction
         // walks the price back into the position and re-arms the buyback.
         //
-        // ⚠ 10 BEM AND NOT 500, FOR A REASON THAT IS ITS OWN SMALL FINDING. With the
-        //   quote side drained the vault holds 0.348 BEM of it, and the hook's 70 bps
+        // ⚠ 1 BEM AND NOT 500, FOR A REASON THAT IS ITS OWN SMALL FINDING. With the
+        //   quote side drained the vault holds 0.04 BEM of it, and the hook's 70 bps
         //   reservoir share is `take`n during the swap — before the router settles the
         //   buyer's input. A 500 BEM buy therefore asks the vault to hand over 3.5 BEM
         //   it does not have and reverts `ERC20InsufficientBalance` inside
         //   `HookCallFailed`, so the first recovery buy has to be small enough that
         //   its own skim fits in the residue.
+        //
+        //   The residue used to be 0.348 BEM and this buy 10 BEM. Most of that was
+        //   the genesis position's uncollected quote fees, which the sweep above now
+        //   pays to the reservoir — so they no longer sit in the vault as float.
         //
         //   This is mostly an artefact of a single-pool fixture: in production the
         //   Infinity vault is shared across every pool using this quote asset, so its
@@ -983,7 +994,7 @@ contract ToshV5AttackTest is Test {
         //   buyer's settled input — and the size that unsticks a fully drained pool
         //   scales with what the vault happens to be holding, not with the trade.
         _nextBlock();
-        _buy(hook, alice, 10e8);
+        _buy(hook, alice, 1e8);
         (, int24 backTick,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
         console2.log("tick after recovery   ");
         console2.logInt(backTick);
@@ -1255,9 +1266,14 @@ contract ToshV5AttackTest is Test {
     ///      price under test on the way in.  A leg the floor rejects reverts
     ///      into `BuybackSkipped` instead of bubbling up, so the poke succeeds
     ///      either way and the burn is the only signal worth reading.
+    ///
+    ///      The genesis fees the park's pump accrued are swept first, so the
+    ///      poke's own sweep adds nothing to the reservoir or to 0xdead and the
+    ///      figures stay the leg's alone.
     function _armAndPoke(ToshToken token) internal returns (uint256) {
         vm.prank(admin);
         ladder.addLadderToken(address(token));
+        ToshLaunchpadHook(factory.tokenToHook(address(token))).collectGenesisFees();
         _setQuote(address(ladder), 10_000e8);
 
         uint256 before = token.balanceOf(DEAD);
