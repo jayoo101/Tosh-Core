@@ -1017,7 +1017,7 @@ export const ZH_CN: PartialDictionary = {
   },
 
   meta: {
-    siteDescription:      'TapeOut 生态的公平发射台：以 {quote} 募资，Proof-of-Gas 决定额度，4,000 档 shelf ladder 交易，基于 PancakeSwap Infinity hooks 构建。',
+    siteDescription:      'TapeOut 生态的公平发射台：Proof-of-Gas 决定额度，4,000 档 shelf ladder 交易，基于 PancakeSwap Infinity hooks 构建。',
     cardTitle:            'ToshX —— {quote} 生态的公平发射台',
     projectsTitle:        '项目目录 // ToshX',
     projectsDescription:  'Tosh Protocol 上的每一个项目 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上以 {quote} 实时进行的 shelf-ladder 交易。',

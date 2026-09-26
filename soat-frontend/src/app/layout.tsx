@@ -103,7 +103,6 @@ const OG_LOCALE: Partial<Record<Locale, string>> = { 'en': 'en_US', 'zh-CN': 'zh
 export async function generateMetadata(): Promise<Metadata> {
   const { locale, dict } = await requestDictionary()
   const t = dict.meta
-  const siteDescription = fill(t.siteDescription, { quote: QUOTE_SYMBOL })
   const cardTitle = fill(t.cardTitle, { quote: QUOTE_SYMBOL })
 
   /*
@@ -120,8 +119,8 @@ export async function generateMetadata(): Promise<Metadata> {
    *   sentence would ship a description in two languages.
    */
   const description = locale === DEFAULT_LOCALE
-    ? `${siteDescription} ${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
-    : siteDescription
+    ? `${t.siteDescription} ${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
+    : t.siteDescription
 
   return {
     metadataBase: SITE_URL,
