@@ -40,7 +40,7 @@ const VIOLET = '#9D5BF4'
 const TEXT = '#F8F3F8'
 const MUTED = '#6E6478'
 
-export const alt = 'ToshX — fair-launch terminal for agent tokens'
+export const alt = `ToshX — the fair-launch terminal of the ${QUOTE_SYMBOL} ecosystem`
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -125,13 +125,13 @@ export default function Image() {
                 collapsed away — it rendered "foragent tokens." An explicit gap
                 is the only version that cannot be silently dropped. */}
             <div style={{ display: 'flex', gap: 20 }}>
-              <span>for</span>
-              <span style={{ color: BRAND }}>agent tokens.</span>
+              <span>of the</span>
+              <span style={{ color: BRAND }}>{QUOTE_SYMBOL} ecosystem.</span>
             </div>
           </div>
 
           <div style={{ display: 'flex', fontSize: 26, color: MUTED }}>
-            Proof-of-Gas gated genesis · 4,000-rung shelf ladder · a pool per launch
+            The TapeOut ecosystem&apos;s launch venue · Proof-of-Gas genesis · 4,000-rung ladder
           </div>
         </div>
 

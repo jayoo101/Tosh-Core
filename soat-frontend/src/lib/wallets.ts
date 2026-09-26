@@ -93,7 +93,7 @@ export function makeConnectors(siteUrl: string, siteIcon: string): CreateConnect
       showQrModal: true,
       metadata: {
         name:        'ToshX',
-        description: 'Fair-launch terminal for agent tokens',
+        description: 'The fair-launch terminal of the TapeOut ecosystem',
         url:         siteUrl,
         icons:       [siteIcon],
       },

@@ -50,7 +50,7 @@ const PIN_EXPIRY_CADENCE_MS = 10_000
  * lines in the 1.15fr column at every desktop width, and letting it wrap on its
  * own moved the break by a word or two as the viewport changed — which moved
  * the gradient with it. `|` in the string marks each break; `*…*` marks the
- * gradient run, which in English is "agent tokens." alone on its own line.
+ * gradient run, which in English is "BEM ecosystem." alone on its own line.
  *
  * `text-balance` still applies below `sm:`, where the breaks are suppressed and
  * the browser wraps. The space beside each break is for that arm: with the
