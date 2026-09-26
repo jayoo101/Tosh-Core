@@ -417,6 +417,16 @@
       "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating BEM it can no longer spend, which is the one-way valve failing closed rather than open."
     },
     {
+      "id": "SILENT-03",
+      "contract": "ToshLadderTreasury",
+      "event": "GenesisFeesSkipped(address)",
+      "topic0": "0x278d682a7350ba0057cf7a6db8a885663c9e6d512aa539db82a89f5fcd1660a5",
+      "severity": "P2",
+      "page": false,
+      "playbook": null,
+      "why": "pokeBuyback sweeps the leg's genesis-position fees before buying, inside a try so a hook that cannot sweep never blocks the buyback. That makes a failing sweep invisible, and it should not happen at all: addLadderToken only accepts launched pools, and every hook this treasury's factory deploys carries collectGenesisFees(). Any occurrence means that hook's LP fees are piling up in the Vault instead of reaching the reservoir. Nothing is lost while it lasts -- the fees stay collectable -- so the action is to find out why the hook reverts, then call collectGenesisFees() on it directly."
+    },
+    {
       "id": "LIFE-01",
       "contract": "ToshLaunchpadHook",
       "event": "GenesisFailed(uint256)",
@@ -594,7 +604,8 @@
       "ToshLaunchpadHook.SellTaxBurned",
       "ToshLadderTreasury.TaxReceived",
       "ToshLadderTreasury.PiggybackExecuted",
-      "ToshLadderTreasury.BuybackBurned"
+      "ToshLadderTreasury.BuybackBurned",
+      "ToshLadderTreasury.GenesisFeesCollected"
     ]
   }
 }

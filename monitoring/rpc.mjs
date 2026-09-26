@@ -66,7 +66,7 @@
  *
  * That distinction matters because it rules out both known workarounds. Pacing
  * cannot help a method that is never served, and chunking cannot help when the
- * smallest possible chunk is refused. The 24 log-based alerts in `alerts.json`
+ * smallest possible chunk is refused. The 25 log-based alerts in `alerts.json`
  * cannot run on this endpoint at any interval or window size. `eth_call` is
  * served normally, so the STATE-* checks and the `owner()`/`pogSigner()` reads
  * do work — the monitor is partially functional here rather than blind, and
