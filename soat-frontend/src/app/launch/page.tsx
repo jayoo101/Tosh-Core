@@ -91,6 +91,8 @@ import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
 import { rememberProject } from '@/lib/projectCache'
 import { LogoField } from '@/components/LogoField'
 import { LaunchPreview } from '@/components/LaunchPreview'
+import { LaunchesPaused } from '@/components/LaunchesPaused'
+import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import {
   AddressLink, Badge, Card, Field,
@@ -267,7 +269,11 @@ function SectionNote({ children }: { children: ReactNode }) {
   return <p className="text-note leading-relaxed text-text-tertiary">{children}</p>
 }
 
-export default function GenesisConsole() {
+export default function LaunchRoute() {
+  return LAUNCHES_PAUSED ? <LaunchesPaused /> : <GenesisConsole />
+}
+
+function GenesisConsole() {
   const { address, isConnected } = useAccount()
   const chainId = useWalletChainId()
   const { switchChainAsync } = useSwitchChain()

@@ -1249,6 +1249,12 @@ export const EN = {
     dialFee:       'Launch fee',
     dialCap:       'Per-wallet cap',
     dialNetwork:   'Network',
+
+    // Shown in place of the form while `LAUNCHES_PAUSED` is set.
+    pausedEyebrow: 'LAUNCHES PAUSED',
+    pausedTitle:   'New launches are paused.',
+    pausedBody:    'The launch factory is being upgraded, and new launches reopen once the new version is live. Projects that have already launched or are raising now are unaffected — deposits, refunds, claims and trading work as before.',
+    pausedBrowse:  'Browse the agent directory',
   },
 
   /**

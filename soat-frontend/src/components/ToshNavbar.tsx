@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 import { CHAIN_BYLINE } from '@/lib/contracts'
+import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 import { useT, type Dictionary } from '@/i18n'
 import { LocalePicker } from './LocalePicker'
 
@@ -52,7 +53,9 @@ const WalletPip = dynamic(
 function navItems(t: Dictionary) {
   return [
     { href: '/projects',  label: t.site.navDirectory, full: t.site.navDirectoryFull, exact: false },
-    { href: '/launch',    label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false },
+    ...(LAUNCHES_PAUSED ? [] : [
+      { href: '/launch',  label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false },
+    ]),
     { href: '/referrals', label: t.site.navReferrals, full: t.site.navReferrals,     exact: false },
   ] as const
 }

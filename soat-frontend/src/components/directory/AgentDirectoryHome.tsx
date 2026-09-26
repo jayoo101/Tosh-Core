@@ -12,6 +12,7 @@ import {
   CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 import { useNowMs } from '@/components/ui'
 import { Emph, fill, useT } from '@/i18n'
 import { HeroFeedPanel } from './HeroFeedPanel'
@@ -187,13 +188,15 @@ export default function AgentDirectoryHome() {
                 case at `text-sm font-semibold`. The signature stays on the
                 labels and status pills, which is where it does its work. */}
             <div className="flex flex-wrap items-center gap-gap pt-1">
-              <Link
-                href="/launch"
-                className="tosh-gradient-bg inline-flex min-h-11 items-center gap-2 rounded-input px-5 py-3 text-readout font-semibold text-bg-base shadow-lift transition-opacity hover:opacity-90"
-              >
-                <Rocket size={16} />
-                {t.ctaLaunch}
-              </Link>
+              {!LAUNCHES_PAUSED && (
+                <Link
+                  href="/launch"
+                  className="tosh-gradient-bg inline-flex min-h-11 items-center gap-2 rounded-input px-5 py-3 text-readout font-semibold text-bg-base shadow-lift transition-opacity hover:opacity-90"
+                >
+                  <Rocket size={16} />
+                  {t.ctaLaunch}
+                </Link>
+              )}
               {/* A route now, not the `#directory` anchor into the section
                   below. The anchor was correct while this page was the only
                   directory; `/projects` is where the filtering, search and
@@ -264,12 +267,14 @@ export default function AgentDirectoryHome() {
               <p className="max-w-sm text-body leading-relaxed text-text-secondary">
                 {fill(t.teaserEmptyBody, { chain: ACTIVE_CHAIN_LABEL })}
               </p>
-              <Link
-                href="/launch"
-                className="mt-gap-tight inline-flex min-h-11 items-center rounded-input bg-brand px-card py-gap-tight text-note font-bold text-bg-base shadow-armed transition-colors hover:bg-brand-hover"
-              >
-                {t.teaserEmptyCta}
-              </Link>
+              {!LAUNCHES_PAUSED && (
+                <Link
+                  href="/launch"
+                  className="mt-gap-tight inline-flex min-h-11 items-center rounded-input bg-brand px-card py-gap-tight text-note font-bold text-bg-base shadow-armed transition-colors hover:bg-brand-hover"
+                >
+                  {t.teaserEmptyCta}
+                </Link>
+              )}
             </div>
           ) : (
             <div className="grid gap-card lg:grid-cols-2">

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 
 import { useT } from '@/i18n'
+import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 
 /** The 404 page's content. See `app/not-found.tsx`. */
 export function NotFoundBody() {
@@ -50,17 +51,19 @@ export function NotFoundBody() {
         >
           → {t.notFoundProjects}
         </Link>
-        <Link
-          href="/launch"
-          className="border border-border-strong bg-bg-base px-4 py-4 text-body
-                     uppercase tracking-[0.3em] text-text-secondary
-                     hover:border-border-strong hover:text-text-primary
-                     focus:outline-none focus:ring-2 focus:ring-border-strong
-                     focus:ring-offset-2 focus:ring-offset-black
-                     transition-colors"
-        >
-          → {t.notFoundLaunch}
-        </Link>
+        {!LAUNCHES_PAUSED && (
+          <Link
+            href="/launch"
+            className="border border-border-strong bg-bg-base px-4 py-4 text-body
+                       uppercase tracking-[0.3em] text-text-secondary
+                       hover:border-border-strong hover:text-text-primary
+                       focus:outline-none focus:ring-2 focus:ring-border-strong
+                       focus:ring-offset-2 focus:ring-offset-black
+                       transition-colors"
+          >
+            → {t.notFoundLaunch}
+          </Link>
+        )}
         <Link
           href="/admin"
           className="border border-border-strong bg-bg-base px-4 py-4 text-body

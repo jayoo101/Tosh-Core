@@ -897,6 +897,11 @@ export const ZH_CN: PartialDictionary = {
     dialFee:       '发射费',
     dialCap:       '单钱包上限',
     dialNetwork:   '网络',
+
+    pausedEyebrow: '发射已暂停',
+    pausedTitle:   '新项目发射暂停中。',
+    pausedBody:    '发射工厂合约正在升级，新版本上线后将重新开放发射。已上线和正在募资的项目不受影响，存款、退款、领取和交易照常进行。',
+    pausedBrowse:  '浏览智能体目录',
   },
 
   referralLedger: {

@@ -31,6 +31,7 @@ import { Search } from 'lucide-react'
 
 import { ACTIVE_CHAIN_LABEL, MAINNET_CHAIN_LABEL } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 import { CLOCK_UNSYNCED, useNowSec } from '@/components/ui'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import { ProjectCard, SkeletonCard } from './ProjectCard'
@@ -314,10 +315,14 @@ export default function AgentDirectoryPage() {
 
             <p className="mt-card-lg text-micro text-text-quiet">
               {nowSec === CLOCK_UNSYNCED ? ' ' : d.clockNote}
-              {' '}
-              <Link href="/launch" className="text-brand hover:underline">
-                {d.launchCta}
-              </Link>
+              {!LAUNCHES_PAUSED && (
+                <>
+                  {' '}
+                  <Link href="/launch" className="text-brand hover:underline">
+                    {d.launchCta}
+                  </Link>
+                </>
+              )}
             </p>
           </div>
         </div>
