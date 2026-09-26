@@ -2,14 +2,14 @@
 
 exports[`AgentDirectoryPage · english copy golden master > no launches yet 1`] = `
 [
-  "Agent Directory",
-  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "Project Directory",
+  "Every launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.",
   "[placeholder] Search…",
   "[aria-label] Search launches by name, ticker or address",
   "Phase",
   "All launches",
   "0",
-  "Every agent on the protocol",
+  "Every project on the protocol",
   "Funding",
   "0",
   "Proof-of-Gas TQUOTE deposits open",
@@ -32,22 +32,22 @@ exports[`AgentDirectoryPage · english copy golden master > no launches yet 1`] 
   "No launches yet",
   "The first one appears here the moment its factory event lands.",
   "Countdowns update every second; phases re-bucket every ten.",
-  "Launch an agent →",
+  "Launch a project →",
 ]
 `;
 
-exports[`AgentDirectoryPage · english copy golden master > no launches yet 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches0Every agent on the protocolFunding0Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable0 launches on the factory · BNB Smart Chain Testnet0 launchesNewestMost raisedClosing soonOldestNo launches yetThe first one appears here the moment its factory event lands.Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+exports[`AgentDirectoryPage · english copy golden master > no launches yet 2`] = `"Project DirectoryEvery launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.PhaseAll launches0Every project on the protocolFunding0Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable0 launches on the factory · BNB Smart Chain Testnet0 launchesNewestMost raisedClosing soonOldestNo launches yetThe first one appears here the moment its factory event lands.Countdowns update every second; phases re-bucket every ten. Launch a project →"`;
 
 exports[`AgentDirectoryPage · english copy golden master > one launch on the factory 1`] = `
 [
-  "Agent Directory",
-  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "Project Directory",
+  "Every launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.",
   "[placeholder] Search…",
   "[aria-label] Search launches by name, ticker or address",
   "Phase",
   "All launches",
   "1",
-  "Every agent on the protocol",
+  "Every project on the protocol",
   "Funding",
   "1",
   "Proof-of-Gas TQUOTE deposits open",
@@ -80,24 +80,24 @@ exports[`AgentDirectoryPage · english copy golden master > one launch on the fa
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
   "Countdowns update every second; phases re-bucket every ten.",
-  "Launch an agent →",
+  "Launch a project →",
 ]
 `;
 
-exports[`AgentDirectoryPage · english copy golden master > one launch on the factory 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches1Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet1 launchNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+exports[`AgentDirectoryPage · english copy golden master > one launch on the factory 2`] = `"Project DirectoryEvery launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.PhaseAll launches1Every project on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet1 launchNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View project →Countdowns update every second; phases re-bucket every ten. Launch a project →"`;
 
 exports[`AgentDirectoryPage · english copy golden master > phase with nothing in it 1`] = `
 [
-  "Agent Directory",
-  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "Project Directory",
+  "Every launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.",
   "[placeholder] Search…",
   "[aria-label] Search launches by name, ticker or address",
   "Phase",
   "All launches",
   "1",
-  "Every agent on the protocol",
+  "Every project on the protocol",
   "Funding",
   "1",
   "Proof-of-Gas TQUOTE deposits open",
@@ -121,22 +121,22 @@ exports[`AgentDirectoryPage · english copy golden master > phase with nothing i
   "Try a different phase or search term.",
   "Clear filters",
   "Countdowns update every second; phases re-bucket every ten.",
-  "Launch an agent →",
+  "Launch a project →",
 ]
 `;
 
-exports[`AgentDirectoryPage · english copy golden master > phase with nothing in it 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches1Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNo launches in this phaseTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+exports[`AgentDirectoryPage · english copy golden master > phase with nothing in it 2`] = `"Project DirectoryEvery launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.PhaseAll launches1Every project on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch0Window closed · waiting on creatorTrading0Live on the 4,000-shelf ladderArchived0Refunds open · full deposit reclaimable1 launch on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNo launches in this phaseTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch a project →"`;
 
 exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
 [
-  "Agent Directory",
-  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "Project Directory",
+  "Every launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.",
   "[placeholder] Search…",
   "[aria-label] Search launches by name, ticker or address",
   "Phase",
   "All launches",
   "4",
-  "Every agent on the protocol",
+  "Every project on the protocol",
   "Funding",
   "1",
   "Proof-of-Gas TQUOTE deposits open",
@@ -169,7 +169,7 @@ exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
   "Q",
   "$",
   "QMT",
@@ -180,7 +180,7 @@ exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
   "B",
   "$",
   "BEMCAT",
@@ -194,7 +194,7 @@ exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
   "T",
   "$",
   "TAP",
@@ -205,24 +205,24 @@ exports[`AgentDirectoryPage · english copy golden master > populated 1`] = `
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
   "Countdowns update every second; phases re-bucket every ten.",
-  "Launch an agent →",
+  "Launch a project →",
 ]
 `;
 
-exports[`AgentDirectoryPage · english copy golden master > populated 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches4Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet4 launchesNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View agent →B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View agent →T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View agent →Countdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+exports[`AgentDirectoryPage · english copy golden master > populated 2`] = `"Project DirectoryEvery launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.PhaseAll launches4Every project on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet4 launchesNewestMost raisedClosing soonOldestT$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View project →Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View project →B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View project →T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View project →Countdowns update every second; phases re-bucket every ten. Launch a project →"`;
 
 exports[`AgentDirectoryPage · english copy golden master > search matches nothing 1`] = `
 [
-  "Agent Directory",
-  "Every agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.",
+  "Project Directory",
+  "Every launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.",
   "[placeholder] Search…",
   "[aria-label] Search launches by name, ticker or address",
   "Phase",
   "All launches",
   "4",
-  "Every agent on the protocol",
+  "Every project on the protocol",
   "Funding",
   "1",
   "Proof-of-Gas TQUOTE deposits open",
@@ -247,11 +247,11 @@ exports[`AgentDirectoryPage · english copy golden master > search matches nothi
   "Try a different phase or search term.",
   "Clear filters",
   "Countdowns update every second; phases re-bucket every ten.",
-  "Launch an agent →",
+  "Launch a project →",
 ]
 `;
 
-exports[`AgentDirectoryPage · english copy golden master > search matches nothing 2`] = `"Agent DirectoryEvery agent token on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled on BNB Smart Chain.PhaseAll launches4Every agent on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNothing matches zzzTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch an agent →"`;
+exports[`AgentDirectoryPage · english copy golden master > search matches nothing 2`] = `"Project DirectoryEvery launch on Tosh Protocol — from open funding windows to shelf-ladder trading, all settled in TQUOTE from the TapeOut ecosystem, on BNB Smart Chain.PhaseAll launches4Every project on the protocolFunding1Proof-of-Gas TQUOTE deposits openAwaiting launch1Window closed · waiting on creatorTrading1Live on the 4,000-shelf ladderArchived1Refunds open · full deposit reclaimable4 launches on the factory · BNB Smart Chain Testnet0 launches shownNewestMost raisedClosing soonOldestNothing matches zzzTry a different phase or search term.Clear filtersCountdowns update every second; phases re-bucket every ten. Launch a project →"`;
 
 exports[`ProjectCard · english copy golden master > feature card · completed 1`] = `
 [
@@ -312,11 +312,11 @@ exports[`ProjectCard · english copy golden master > grid card · archived 1`] =
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
 ]
 `;
 
-exports[`ProjectCard · english copy golden master > grid card · archived 2`] = `"T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View agent →"`;
+exports[`ProjectCard · english copy golden master > grid card · archived 2`] = `"T$TAPTapARCHIVEDAn agent that trades its own ladder.Refunds open · full deposit reclaimable0x7074…8df2View project →"`;
 
 exports[`ProjectCard · english copy golden master > grid card · completed 1`] = `
 [
@@ -333,11 +333,11 @@ exports[`ProjectCard · english copy golden master > grid card · completed 1`] 
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
 ]
 `;
 
-exports[`ProjectCard · english copy golden master > grid card · completed 2`] = `"B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View agent →"`;
+exports[`ProjectCard · english copy golden master > grid card · completed 2`] = `"B$BEMCATBem CatTRADINGNo description provided.Raised at genesis1,862.4523 TQUOTEno price feed0x7074…8df2View project →"`;
 
 exports[`ProjectCard · english copy golden master > grid card · launching 1`] = `
 [
@@ -351,11 +351,11 @@ exports[`ProjectCard · english copy golden master > grid card · launching 1`] 
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
 ]
 `;
 
-exports[`ProjectCard · english copy golden master > grid card · launching 2`] = `"Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View agent →"`;
+exports[`ProjectCard · english copy golden master > grid card · launching 2`] = `"Q$QMTQuantAWAITING LAUNCHAn agent that trades its own ladder.Waiting on creator0x7074…8df2View project →"`;
 
 exports[`ProjectCard · english copy golden master > grid card · live 1`] = `
 [
@@ -372,11 +372,11 @@ exports[`ProjectCard · english copy golden master > grid card · live 1`] = `
   "0x7074",
   "…",
   "8df2",
-  "View agent →",
+  "View project →",
 ]
 `;
 
-exports[`ProjectCard · english copy golden master > grid card · live 2`] = `"T$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View agent →"`;
+exports[`ProjectCard · english copy golden master > grid card · live 2`] = `"T$TOToshFUNDINGAn agent that trades its own ladder.Raisedends in 9h 0m1,862.4523 TQUOTE0x7074…8df2View project →"`;
 
 exports[`site chrome · english copy golden master > footer 1`] = `
 [
@@ -400,10 +400,10 @@ exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
   "X",
   "BNB Smart Chain · testnet",
   "Directory",
-  "Agent Directory",
+  "Project Directory",
   "Launch",
   "Referrals",
 ]
 `;
 
-exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryAgent DirectoryLaunchReferrals"`;
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchReferrals"`;

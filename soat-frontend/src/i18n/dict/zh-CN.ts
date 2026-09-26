@@ -337,22 +337,22 @@ export const ZH_CN: PartialDictionary = {
   site: {
     // 中文「目录」本身够短，窄屏不需要再缩；两个键仍分开，便于日后改全称。
     navDirectory:     '目录',
-    navDirectoryFull: '智能体目录',
+    navDirectoryFull: '项目目录',
     navLaunch:        '发射',
     navReferrals:     '推荐',
     footerSecurity:   '安全',
   },
 
   directory: {
-    title: '智能体目录',
-    lede:  'Tosh Protocol 上的每一个智能体代币 —— 从开放中的募资窗口到 shelf-ladder 交易，全部在 {chain} 上结算。',
+    title: '项目目录',
+    lede:  'Tosh Protocol 上的每一个项目 —— 从开放中的募资窗口到 shelf-ladder 交易，全部以 TapeOut 生态的 {quote} 在 {chain} 上结算。',
 
     searchPlaceholder: '搜索…',
     searchLabel:       '按名称、代号或地址搜索项目',
 
     phaseHeading:        '阶段',
     phaseAll:            '全部项目',
-    phaseAllBlurb:       '协议上的所有智能体',
+    phaseAllBlurb:       '协议上的所有项目',
     phaseLive:           '募资中',
     phaseLiveBlurb:      'Proof-of-Gas {quote} 存款开放中',
     // 与英文同样的约束:不能说「即将部署」—— launch() 只有创建者能调用。
@@ -386,7 +386,7 @@ export const ZH_CN: PartialDictionary = {
     emptyPhaseBody:  '换个阶段或搜索词试试。',
     clearFilters:    '清除筛选',
     clockNote:       '倒计时每秒更新，阶段每 10 秒重新归类。',
-    launchCta:       '发射一个智能体 →',
+    launchCta:       '发射一个项目 →',
 
     pillLive:      '募资中',
     pillLaunching: '待上线',
@@ -405,7 +405,7 @@ export const ZH_CN: PartialDictionary = {
     noPriceFeed:      '暂无价格源',
     waitingOnCreator: '等待创建者',
     refundsOpen:      '退款已开放 · 可全额取回存款',
-    viewAgent:        '查看智能体 →',
+    viewAgent:        '查看项目 →',
 
     featureWaiting: '等待创建者',
     featureRaised:  'GENESIS 募集额 *{quote}*',
@@ -416,11 +416,11 @@ export const ZH_CN: PartialDictionary = {
 
     // 三行硬换行，渐变落在最后一行。中文短语之间不加空格，组件只在拉丁字符
     // 结尾的行后补空格。
-    headline: '智能体代币的|公平发射|*交易终端。*',
-    lede: '用 {quote} 参与项目募资，额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
+    headline: '{quote} 生态的|公平发射|*交易终端。*',
+    lede: '用 {quote} 参与项目募资（TapeOut 生态里电路挖矿产出的就是这枚币），额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
         + '每个项目都会部署自己专属的 PancakeSwap Infinity 池子。',
     ctaLaunch:    '发射代币',
-    ctaDirectory: '智能体目录',
+    ctaDirectory: '项目目录',
 
     feedTitle: '链上动态',
     feedLive:  '工厂合约事件',
@@ -449,7 +449,7 @@ export const ZH_CN: PartialDictionary = {
 
     step1Tag:   '额度',
     step1Title: 'Gas 历史决定你的额度',
-    step1Body:  'Tosh 读取你的钱包真实消耗过多少 Gas，并据此签发存款上限。今天早上刚生成的钱包没有历史可用，所以机器人批量钱包在这里一无所获。',
+    step1Body:  'Gas 是链上造不出来的东西：就像流片时烧掉的晶体管，花出去就回不来。Tosh 按你钱包真实烧过的 Gas 签发存款上限；今天早上刚生成的钱包没有历史可用，所以机器人批量钱包在这里一无所获。',
 
     // 发射费用链上原生币({native})支付，不是报价资产 —— 与第 3 步的 {quote} 不同。
     step2Tag:   '发射',
@@ -463,11 +463,11 @@ export const ZH_CN: PartialDictionary = {
 
     step4Tag:   'Ladder',
     step4Title: '价格一档一档往上走',
-    step4Body:  'GENESIS 结束后，剩余供应分布在 4,000 个固定的 shelf 上，价格区间从开盘价一路到 2,000 倍。上限机制挡住暴涨，shelf 收入的 99% 归项目本身。',
+    step4Body:  'GENESIS 结束后，剩余供应分布在 4,000 个固定的 shelf 上，价格区间从开盘价一路到 2,000 倍。上限机制挡住暴涨，shelf 收入的 99% 打给项目方指定的收款地址，1% 进入回购销毁。',
 
     step5Tag:   '合约强制',
-    step5Title: '规则由合约执行，而不是这个页面',
-    step5Body:  '存款记账、每个钱包的存款上限和最小存款门槛，全部写在合约里。本界面只是如实显示，没有能力放宽它们。',
+    step5Title: '规则写在合约里，这个页面只是一扇窗',
+    step5Body:  '存款记账、每个钱包的存款上限和最小存款门槛，全部写在合约里。本界面只能如实显示，没有能力放宽它们。',
   },
 
   project: {
@@ -784,7 +784,7 @@ export const ZH_CN: PartialDictionary = {
     eyebrow:                '预览',
     notDeployed:            '尚未部署',
     symbolPlaceholder:      '代号',
-    namePlaceholder:        '智能体名称',
+    namePlaceholder:        '项目名称',
     descriptionPlaceholder: '你输入的简介会显示在这里。',
     window:                 '窗口',
     pool:                   '池子地址',
@@ -833,14 +833,14 @@ export const ZH_CN: PartialDictionary = {
     confirmedReason:   '你的代币已经上链。登记到项目目录会在后台完成。',
 
     settlesOn:              '在 {chain} 上结算',
-    title:                  '发射一个智能体',
+    title:                  '发射一个项目',
     lede:                   '一次签名即可部署你的代币和它专属的 PancakeSwap Infinity 池子，并开启一轮以 gas 为门槛、不能提前结束的募资。',
     optional:               '选填',
     identity:               '基本信息',
     name:                   '名称',
     ticker:                 '代号',
     description:            '简介',
-    descriptionPlaceholder: '这个智能体在链上做什么？',
+    descriptionPlaceholder: '这个项目在链上做什么？',
     admin:                  '项目管理员',
     adminHint:              '领取 shelf ladder 收益的 99%。默认是你的钱包。',
     invalidAddress:         '地址无效',
@@ -901,7 +901,7 @@ export const ZH_CN: PartialDictionary = {
     pausedEyebrow: '发射已暂停',
     pausedTitle:   '新项目发射暂停中。',
     pausedBody:    '发射工厂合约正在升级，新版本上线后将重新开放发射。已上线和正在募资的项目不受影响，存款、退款、领取和交易照常进行。',
-    pausedBrowse:  '浏览智能体目录',
+    pausedBrowse:  '浏览项目目录',
   },
 
   referralLedger: {
@@ -1017,10 +1017,10 @@ export const ZH_CN: PartialDictionary = {
   },
 
   meta: {
-    siteDescription:      '面向智能体代币的公平发射终端，基于 PancakeSwap Infinity hooks 构建。Proof-of-Gas 门槛的 GENESIS、4000 档 shelf ladder、经过 audit-cliff 加固。',
-    cardTitle:            'ToshX —— 面向智能体代币的公平发射终端',
-    projectsTitle:        '智能体目录 // ToshX',
-    projectsDescription:  'Tosh Protocol 上的每一个智能体代币 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上实时进行的 shelf-ladder 交易。',
+    siteDescription:      'TapeOut 生态的公平发射台：以 {quote} 募资，Proof-of-Gas 决定额度，4,000 档 shelf ladder 交易，基于 PancakeSwap Infinity hooks 构建。',
+    cardTitle:            'ToshX —— {quote} 生态的公平发射台',
+    projectsTitle:        '项目目录 // ToshX',
+    projectsDescription:  'Tosh Protocol 上的每一个项目 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上以 {quote} 实时进行的 shelf-ladder 交易。',
     referralsTitle:       '推荐台账 // ToshX',
     referralsDescription: '在 Tosh Protocol 所有项目上赚取的佣金 —— 可领取的余额、上线前仍锁定的金额，以及在 {chain} 上绑定给你的钱包。',
   },

@@ -25,7 +25,7 @@ exports[`LaunchPreview · english copy golden master > nothing typed yet 1`] = `
   "?",
   "$",
   "SYMBOL",
-  "Agent name",
+  "Project name",
   "Your description appears here as you type.",
   "Window",
   "24h",
@@ -35,7 +35,7 @@ exports[`LaunchPreview · english copy golden master > nothing typed yet 1`] = `
 ]
 `;
 
-exports[`LaunchPreview · english copy golden master > nothing typed yet 2`] = `"Previewnot yet deployed?$SYMBOLAgent nameYour description appears here as you type.Window24hPool addressground at deployThis is how your launch appears in the directory once it confirms."`;
+exports[`LaunchPreview · english copy golden master > nothing typed yet 2`] = `"Previewnot yet deployed?$SYMBOLProject nameYour description appears here as you type.Window24hPool addressground at deployThis is how your launch appears in the directory once it confirms."`;
 
 exports[`LogoField · english copy golden master > empty 1`] = `
 [

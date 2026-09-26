@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 import AgentDirectoryPage from '@/components/directory/AgentDirectoryPage'
-import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
+import { MAINNET_CHAIN_LABEL, QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
 
@@ -21,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const t = (await requestDictionary()).dict.meta
   return {
     title:       t.projectsTitle,
-    description: fill(t.projectsDescription, { chain: MAINNET_CHAIN_LABEL }),
+    description: fill(t.projectsDescription, { chain: MAINNET_CHAIN_LABEL, quote: QUOTE_SYMBOL }),
   }
 }
 

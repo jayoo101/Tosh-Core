@@ -10,8 +10,8 @@ import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { CHAIN_POSITIONING } from '@/lib/chain'
-import { QUOTE_POSITIONING } from '@/lib/contracts'
-import { I18nProvider, LOCALES_ENABLED, DEFAULT_LOCALE, type Locale } from '@/i18n'
+import { QUOTE_POSITIONING, QUOTE_SYMBOL } from '@/lib/contracts'
+import { I18nProvider, LOCALES_ENABLED, DEFAULT_LOCALE, fill, type Locale } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
 
 // JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
@@ -103,6 +103,8 @@ const OG_LOCALE: Partial<Record<Locale, string>> = { 'en': 'en_US', 'zh-CN': 'zh
 export async function generateMetadata(): Promise<Metadata> {
   const { locale, dict } = await requestDictionary()
   const t = dict.meta
+  const siteDescription = fill(t.siteDescription, { quote: QUOTE_SYMBOL })
+  const cardTitle = fill(t.cardTitle, { quote: QUOTE_SYMBOL })
 
   /*
    * One description, used three times.
@@ -118,8 +120,8 @@ export async function generateMetadata(): Promise<Metadata> {
    *   sentence would ship a description in two languages.
    */
   const description = locale === DEFAULT_LOCALE
-    ? `${t.siteDescription} ${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
-    : t.siteDescription
+    ? `${siteDescription} ${QUOTE_POSITIONING} ${CHAIN_POSITIONING}`
+    : siteDescription
 
   return {
     metadataBase: SITE_URL,
@@ -140,7 +142,7 @@ export async function generateMetadata(): Promise<Metadata> {
       type:        'website',
       url:         SITE_URL,
       siteName:    'ToshX',
-      title:       t.cardTitle,
+      title:       cardTitle,
       description,
       locale:      OG_LOCALE[locale] ?? 'en_US',
     },
@@ -149,7 +151,7 @@ export async function generateMetadata(): Promise<Metadata> {
       // thumbnail, and a 1200x630 image with a headline in it becomes unreadable
       // at that aspect. The card is only worth having at the size it was drawn.
       card:        'summary_large_image',
-      title:       t.cardTitle,
+      title:       cardTitle,
       description,
     },
   }

@@ -2,8 +2,8 @@
 
 exports[`page metadata · english golden master > /projects 1`] = `
 {
-  "description": "Every agent token on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading on BNB Smart Chain.",
-  "title": "Agent Directory // ToshX",
+  "description": "Every launch on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading in TQUOTE on BNB Smart Chain.",
+  "title": "Project Directory // ToshX",
 }
 `;
 
@@ -22,21 +22,21 @@ exports[`page metadata · english golden master > 404 1`] = `
 
 exports[`page metadata · english golden master > root layout 1`] = `
 {
-  "description": "Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+  "description": "The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
   "metadataBase": "https://toshx.xyz/",
   "openGraph": {
-    "description": "Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+    "description": "The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
     "locale": "en_US",
     "siteName": "ToshX",
-    "title": "ToshX — fair-launch terminal for agent tokens",
+    "title": "ToshX — the fair-launch terminal of the TQUOTE ecosystem",
     "type": "website",
     "url": "https://toshx.xyz/",
   },
   "title": "ToshX",
   "twitter": {
     "card": "summary_large_image",
-    "description": "Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
-    "title": "ToshX — fair-launch terminal for agent tokens",
+    "description": "The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+    "title": "ToshX — the fair-launch terminal of the TQUOTE ecosystem",
   },
 }
 `;

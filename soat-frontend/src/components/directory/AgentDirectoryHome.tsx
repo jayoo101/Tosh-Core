@@ -167,7 +167,7 @@ export default function AgentDirectoryHome() {
 
             {/* Hard line breaks and the gradient run: see `Headline`. */}
             <h1 className="text-balance font-mono text-hero text-text-primary sm:text-display">
-              <Headline text={t.headline} />
+              <Headline text={fill(t.headline, { quote: QUOTE_SYMBOL })} />
             </h1>
 
             <p className="max-w-md text-lede text-text-secondary">

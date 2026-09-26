@@ -584,7 +584,7 @@ export const EN = {
    */
   site: {
     navDirectory:     'Directory',
-    navDirectoryFull: 'Agent Directory',
+    navDirectoryFull: 'Project Directory',
     navLaunch:        'Launch',
     navReferrals:     'Referrals',
     footerSecurity:   'Security',
@@ -611,16 +611,16 @@ export const EN = {
    * `Emph` with the query passed as `vars` so a typed `*` cannot re-cut it.
    */
   directory: {
-    title: 'Agent Directory',
-    lede:  'Every agent token on Tosh Protocol — from open funding windows to '
-         + 'shelf-ladder trading, all settled on {chain}.',
+    title: 'Project Directory',
+    lede:  'Every launch on Tosh Protocol — from open funding windows to '
+         + 'shelf-ladder trading, all settled in {quote} from the TapeOut ecosystem, on {chain}.',
 
     searchPlaceholder: 'Search…',
     searchLabel:       'Search launches by name, ticker or address',
 
     phaseHeading:        'Phase',
     phaseAll:            'All launches',
-    phaseAllBlurb:       'Every agent on the protocol',
+    phaseAllBlurb:       'Every project on the protocol',
     phaseLive:           'Funding',
     phaseLiveBlurb:      'Proof-of-Gas {quote} deposits open',
     phaseLaunching:      'Awaiting launch',
@@ -651,7 +651,7 @@ export const EN = {
     clearFilters:    'Clear filters',
 
     clockNote:   'Countdowns update every second; phases re-bucket every ten.',
-    launchCta:   'Launch an agent →',
+    launchCta:   'Launch a project →',
 
     // The card's phase pill. Uppercase in the source because the pill is.
     pillLive:      'FUNDING',
@@ -675,7 +675,7 @@ export const EN = {
     noPriceFeed:     'no price feed',
     waitingOnCreator: 'Waiting on creator',
     refundsOpen:     'Refunds open · full deposit reclaimable',
-    viewAgent:       'View agent →',
+    viewAgent:       'View project →',
 
     // The feature card writes these lowercase and lets CSS uppercase them; the
     // ticker is `*{quote}*` so it can be exempted from that — `mBEM` is not `MBEM`.
@@ -693,10 +693,10 @@ export const EN = {
     // hard lines; below `sm` the browser wraps it. `*…*` is the gradient run.
     // Both are the translator's to place: the break points and which phrase
     // carries the gradient depend on word order.
-    headline: 'Fair-launch|terminal for|*agent tokens.*',
-    lede: 'Fund a launch in {quote} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
+    headline: 'The fair-launch|terminal of the|*{quote} ecosystem.*',
+    lede: 'Fund a launch in {quote} — the same coin TapeOut circuits mine — through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
     ctaLaunch:    'Launch a token',
-    ctaDirectory: 'Agent directory',
+    ctaDirectory: 'Project directory',
 
     feedTitle: 'On-chain feed',
     feedLive:  'factory events',
@@ -729,7 +729,7 @@ export const EN = {
 
     step1Tag:   'Quota',
     step1Title: 'Gas history sets your limit',
-    step1Body:  'Tosh reads how much gas your wallet has genuinely burned and signs that into a deposit ceiling. A wallet minted this morning has no history to spend, so bot swarms have nothing to bring.',
+    step1Body:  'Gas is the one thing on chain nobody can manufacture: like the transistors burned at tape-out, once spent it never comes back. Tosh reads how much gas your wallet has genuinely burned and signs that into a deposit ceiling. A wallet minted this morning has no history to spend, so bot swarms have nothing to bring.',
 
     // The launch fee is paid in the chain's native coin (NATIVE_SYMBOL), not
     // the quote asset. `{native}` is filled with NATIVE_SYMBOL only; step 3
@@ -744,10 +744,10 @@ export const EN = {
 
     step4Tag:   'Ladder',
     step4Title: 'Price climbs one shelf at a time',
-    step4Body:  'After genesis the remaining supply is released across 4,000 fixed shelves spanning 2,000x from the opening price. A ceiling blocks spikes, and 99% of what the shelves earn goes to the project itself.',
+    step4Body:  'After genesis the remaining supply is released across 4,000 fixed shelves spanning 2,000x from the opening price. A ceiling blocks spikes; 99% of what the shelves earn goes to the payout address the project names, and 1% to buy-and-burn.',
 
     step5Tag:   'Hardened',
-    step5Title: 'The contract enforces it, not this page',
+    step5Title: 'The rules live in the contract; this page is a window',
     step5Body:  'Deposit accounting, the per-wallet deposit ceiling and the dust-deposit floor all live in the contract. This interface only mirrors them, so it cannot loosen them.',
   },
 
@@ -1132,7 +1132,7 @@ export const EN = {
     eyebrow:                'Preview',
     notDeployed:            'not yet deployed',
     symbolPlaceholder:      'SYMBOL',
-    namePlaceholder:        'Agent name',
+    namePlaceholder:        'Project name',
     descriptionPlaceholder: 'Your description appears here as you type.',
     window:                 'Window',
     pool:                   'Pool address',
@@ -1185,14 +1185,14 @@ export const EN = {
     confirmedReason:   'Your token is on chain. Listing it in the directory runs in the background.',
 
     settlesOn:              'Settles on {chain}',
-    title:                  'Launch an agent',
+    title:                  'Launch a project',
     lede:                   'One signature deploys your token with its own PancakeSwap Infinity pool and opens a gas-gated funding round that cannot close early.',
     optional:               'optional',
     identity:               'Identity',
     name:                   'Name',
     ticker:                 'Ticker',
     description:            'Description',
-    descriptionPlaceholder: 'What does this agent do on-chain?',
+    descriptionPlaceholder: 'What does this project do on-chain?',
     admin:                  'Project admin',
     adminHint:              'Receives 99% of shelf ladder earnings. Defaults to your wallet.',
     invalidAddress:         'NOT A VALID ADDRESS',
@@ -1254,7 +1254,7 @@ export const EN = {
     pausedEyebrow: 'LAUNCHES PAUSED',
     pausedTitle:   'New launches are paused.',
     pausedBody:    'The launch factory is being upgraded, and new launches reopen once the new version is live. Projects that have already launched or are raising now are unaffected — deposits, refunds, claims and trading work as before.',
-    pausedBrowse:  'Browse the agent directory',
+    pausedBrowse:  'Browse the project directory',
   },
 
   /**
@@ -1390,10 +1390,10 @@ export const EN = {
    * build only — see `generateMetadata` in `app/layout.tsx`.
    */
   meta: {
-    siteDescription:      'Fair-launch terminal for agent tokens, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
-    cardTitle:            'ToshX — fair-launch terminal for agent tokens',
-    projectsTitle:        'Agent Directory // ToshX',
-    projectsDescription:  'Every agent token on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading on {chain}.',
+    siteDescription:      'The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
+    cardTitle:            'ToshX — the fair-launch terminal of the {quote} ecosystem',
+    projectsTitle:        'Project Directory // ToshX',
+    projectsDescription:  'Every launch on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading in {quote} on {chain}.',
     referralsTitle:       'Referral Ledger // ToshX',
     referralsDescription: 'Commission earned across every Tosh Protocol launch — claimable balances, amounts still locked until launch, and wallets bound to you on {chain}.',
   },

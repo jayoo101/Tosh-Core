@@ -168,7 +168,7 @@ export default function AgentDirectoryPage() {
         <div className="flex flex-col gap-gap-tight border-b border-border-subtle pb-section">
           <h1 className="font-mono text-hero text-text-primary">{d.title}</h1>
           <p className="max-w-xl text-readout text-text-secondary">
-            {fill(d.lede, { chain: MAINNET_CHAIN_LABEL })}
+            {fill(d.lede, { chain: MAINNET_CHAIN_LABEL, quote: QUOTE_SYMBOL })}
           </p>
         </div>
 

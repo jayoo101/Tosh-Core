@@ -1,6 +1,6 @@
 # Tosh Protocol
 
-**A Phase-1.5 fair-launch protocol built on Proof-of-Gas and a PancakeSwap Infinity hook.**
+**A Phase-1.5 fair-launch protocol built on Proof-of-Gas and a PancakeSwap Infinity hook — the launch venue of the TapeOut ecosystem, raising and trading in BEM, the coin TapeOut circuits mine.**
 
 [![tests](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml/badge.svg)](https://github.com/jayoo101/Tosh-Core/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
