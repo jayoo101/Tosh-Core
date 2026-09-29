@@ -2,16 +2,16 @@
 /*
  * watchAndLaunch.mjs
  * ──────────────────
- * Watch one hook's genesis deadline and call `launch()` the moment it is both
- * due and eligible, from the creator wallet.
+ * Watch one hook's genesis deadline and call `factory.launch(hook)` the moment
+ * it is both due and eligible, from the factory owner's wallet.
  *
  *   node scripts/watchAndLaunch.mjs --hook 0x… [--interval 30] [--dry-run]
  *
  * ── Why this needs a script at all ──────────────────────────────────────────
  *
- * `launch()` is gated by `OnlyCreator` on an address baked into the clone's
- * immutable args, so there is exactly one wallet in the world that can ever
- * call it, and a 7-day `LAUNCH_WINDOW` after the deadline in which to do so.
+ * The hook's `launch()` admits only its factory, and `factory.launch(hook)`
+ * admits only the factory's current owner. There is one wallet that can call
+ * it at any moment, and a 7-day `LAUNCH_WINDOW` after the deadline in which to do so.
  * Miss the window and the raise cannot be launched at all — it falls to the
  * refund path, permanently. That is a deadline enforced by a contract against a
  * human remembering, which is the shape of problem a watcher is for.
@@ -22,7 +22,7 @@
  * the transaction would burn gas on a revert that no amount of waiting fixes:
  *
  *   - already launched
- *   - the caller is not `creator()`
+ *   - the caller is not the factory's `owner()`
  *   - the raise cannot carry a monotone ladder (`RaiseTooSmallForLadder`)
  *   - the launch window has closed
  *
@@ -80,12 +80,16 @@ function arg(name, fallback) {
 const flag = (name) => process.argv.includes('--' + name)
 
 const HOOK_ABI = parseAbi([
-  'function creator() view returns (address)',
+  'function factory() view returns (address)',
   'function launched() view returns (bool)',
   'function genesisDeadline() view returns (uint256)',
   'function totalNativeDeposited() view returns (uint256)',
   'function LAUNCH_WINDOW() view returns (uint256)',
-  'function launch()',
+])
+
+const FACTORY_ABI = parseAbi([
+  'function owner() view returns (address)',
+  'function launch(address hook)',
 ])
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -124,7 +128,7 @@ async function main() {
   if (!pk) {
     return fail(
       '✗ LAUNCH_CREATOR_PRIVATE_KEY is unset in the environment, .env.production and .env.',
-      '  This must be the key for the wallet that called createLaunch: OnlyCreator admits no other.',
+      '  This must be the key for the factory owner: factory.launch admits no other.',
     ) + 1
   }
 
@@ -153,15 +157,18 @@ async function main() {
     return fail(`✗ no contract at ${hook}.`)
   }
 
-  const creator = await read('creator')
-  if (getAddress(creator) !== getAddress(account.address)) {
+  const factory = getAddress(await read('factory'))
+  const owner = await pub.readContract({ address: factory, abi: FACTORY_ABI, functionName: 'owner' })
+  if (getAddress(owner) !== getAddress(account.address)) {
     return fail(
-      '✗ this wallet cannot ever launch this hook.',
-      `    creator()  ${creator}`,
+      '✗ this wallet is not the factory owner, so it cannot launch this hook.',
+      `    factory    ${factory}`,
+      `    owner()    ${owner}`,
       `    caller     ${account.address}`,
-      '  `creator` is an immutable clone argument. No key rotation or admin call changes it.',
+      '  If ownership was just transferred, the new owner must acceptOwnership() first.',
     )
   }
+  const launchCall = { address: factory, abi: FACTORY_ABI, functionName: 'launch', args: [hook] }
 
   // No `softCap` read. It was printed at startup and used as the denominator
   // of the progress line below, which framed it as a target the raise had to
@@ -222,7 +229,7 @@ async function main() {
     // `RaiseTooSmallForLadder`.
     console.log(`  due · raised ${formatUnits(raised, 8)} quote · simulating…`)
     try {
-      await pub.simulateContract({ address: hook, abi: HOOK_ABI, functionName: 'launch', account })
+      await pub.simulateContract({ ...launchCall, account })
     } catch (e) {
       return fail(
         '✗ simulation reverted; not sending:',
@@ -236,7 +243,7 @@ async function main() {
       return 0
     }
 
-    const hash = await wallet.writeContract({ address: hook, abi: HOOK_ABI, functionName: 'launch', chain: null })
+    const hash = await wallet.writeContract({ ...launchCall, chain: null })
     console.log(`  sent ${hash}, waiting for the receipt…`)
     const receipt = await pub.waitForTransactionReceipt({ hash })
 

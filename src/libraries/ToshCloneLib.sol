@@ -56,7 +56,7 @@ pragma solidity ^0.8.26;
 ///                        execution never reaches the args below
 ///     [45 .. 64 ]  20 B  creator
 ///     [65 .. 84 ]  20 B  projectTreasury
-///     [85 .. 100]  16 B  softCap        (uint128)
+///     [85 .. 100]  16 B  hardCap        (uint128)
 ///     [101..116 ]  16 B  perWalletCap   (uint128)
 ///     [117..120 ]   4 B  genesisDuration (uint32)
 ///
@@ -76,9 +76,9 @@ pragma solidity ^0.8.26;
 ///
 /// ── Packing safety ──────────────────────────────────────────────────────────
 ///
-///   `softCap` and `perWalletCap` narrow from uint256 to uint128. uint128 holds
+///   `hardCap` and `perWalletCap` narrow from uint256 to uint128. uint128 holds
 ///   3.4e20 ETH against a total supply near 1.2e8, so the bound is not a real
-///   constraint — but a silent truncation here would hand a project a soft cap
+///   constraint — but a silent truncation here would hand a project a hard cap
 ///   of nearly zero, so `deployHook` reverts rather than trusting the margin.
 library ToshCloneLib {
     // ─── Runtime layout ───────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ library ToshCloneLib {
 
     uint256 internal constant OFF_CREATOR = PROXY_LEN; // 45
     uint256 internal constant OFF_PROJECT_TREASURY = 65;
-    uint256 internal constant OFF_SOFT_CAP = 85;
+    uint256 internal constant OFF_HARD_CAP = 85;
     uint256 internal constant OFF_PER_WALLET_CAP = 101;
     uint256 internal constant OFF_GENESIS_DURATION = 117;
 
@@ -258,6 +258,80 @@ library ToshCloneLib {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    //  Vault clones — one immutable arg (used for the Circuit revenue vault)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // A vault's only per-project fact is which Circuit NFT controls it. The NFT
+    // contract is platform-global and lives as an immutable on the
+    // implementation, so the clone carries just the tokenId:
+    //
+    //   runtime = 77 bytes (0x4d)
+    //     [0  .. 44]  45 B  proxy logic
+    //     [45 .. 76]  32 B  tokenId (uint256)
+
+    uint256 internal constant OFF_VAULT_TOKEN_ID = PROXY_LEN; // 45
+    uint256 internal constant VAULT_RUNTIME_LEN = PROXY_LEN + 32; // 77 = 0x4d
+
+    function vaultCloneInitcode(address implementation, uint256 tokenId) internal pure returns (bytes memory) {
+        return abi.encodePacked(
+            //   3d      RETURNDATASIZE      0
+            //   604d    PUSH1 0x4d          77 (runtime length)
+            //   80      DUP1
+            //   600a    PUSH1 0x0a          10 (offset of runtime in this code)
+            //   3d      RETURNDATASIZE      0
+            //   39      CODECOPY            mem[0:77] = code[10:87]
+            //   81      DUP2                0
+            //   f3      RETURN              return mem[0:77]
+            hex"3d604d80600a3d3981f3",
+            hex"363d3d373d3d3d363d73",
+            implementation,
+            hex"5af43d82803e903d91602b57fd5bf3",
+            tokenId
+        );
+    }
+
+    /// @notice CREATE2-deploy the vault for `tokenId`, salted by the tokenId
+    ///         itself so each NFT has exactly one vault address per deployer.
+    function deployVaultClone(address implementation, uint256 tokenId) internal returns (address deployed) {
+        bytes memory initcode = vaultCloneInitcode(implementation, tokenId);
+        assembly ("memory-safe") {
+            deployed := create2(0, add(initcode, 0x20), mload(initcode), tokenId)
+        }
+        if (deployed == address(0)) revert CloneDeployFailed();
+    }
+
+    function predictVaultClone(address deployer, address implementation, uint256 tokenId)
+        internal
+        pure
+        returns (address)
+    {
+        return address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            deployer,
+                            bytes32(tokenId),
+                            keccak256(vaultCloneInitcode(implementation, tokenId))
+                        )
+                    )
+                )
+            )
+        );
+    }
+
+    /// @dev Same caveat as the hook readers below: on the bare implementation
+    ///      this reads the implementation's own code and returns garbage, so the
+    ///      vault must refuse to run outside a clone.
+    function argVaultTokenId() internal view returns (uint256 v) {
+        assembly ("memory-safe") {
+            extcodecopy(address(), 0x00, OFF_VAULT_TOKEN_ID, 32)
+            v := mload(0x00)
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  Hook clones — five immutable args
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -279,11 +353,11 @@ library ToshCloneLib {
         address implementation,
         address creator,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) internal pure returns (bytes memory) {
-        if (softCap > type(uint128).max || perWalletCap > type(uint128).max) {
+        if (hardCap > type(uint128).max || perWalletCap > type(uint128).max) {
             revert CapTooLargeToPack();
         }
         // The two caps were checked and the duration was not, so it was packed
@@ -316,7 +390,7 @@ library ToshCloneLib {
             // ── immutable args (76 B) ─────────────────────────────────────────
             creator,
             projectTreasury,
-            uint128(softCap),
+            uint128(hardCap),
             uint128(perWalletCap),
             uint32(genesisDuration)
         );
@@ -327,12 +401,12 @@ library ToshCloneLib {
         address implementation,
         address creator,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) internal pure returns (bytes32) {
         return keccak256(
-            cloneInitcode(implementation, creator, projectTreasury, softCap, perWalletCap, genesisDuration)
+            cloneInitcode(implementation, creator, projectTreasury, hardCap, perWalletCap, genesisDuration)
         );
     }
 
@@ -346,12 +420,12 @@ library ToshCloneLib {
         address implementation,
         address creator,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) internal returns (address deployed) {
         bytes memory initcode = cloneInitcode(
-            implementation, creator, projectTreasury, softCap, perWalletCap, genesisDuration
+            implementation, creator, projectTreasury, hardCap, perWalletCap, genesisDuration
         );
 
         assembly ("memory-safe") {
@@ -376,7 +450,7 @@ library ToshCloneLib {
     //
     //   The offsets land inside the implementation's *own* runtime bytecode,
     //   which is ~19 KB of real code, so nothing is out of bounds and nothing is
-    //   zero-filled. `argSoftCap()` on the bare implementation measured
+    //   zero-filled. `argHardCap()` on the bare implementation measured
     //   108121801507535557083176453790012302178 — a nonsense value that is very
     //   much not zero, and therefore not one that a `> 0` check would reject.
     //
@@ -401,9 +475,9 @@ library ToshCloneLib {
         }
     }
 
-    function argSoftCap() internal view returns (uint256 v) {
+    function argHardCap() internal view returns (uint256 v) {
         assembly ("memory-safe") {
-            extcodecopy(address(), 0x00, OFF_SOFT_CAP, 32)
+            extcodecopy(address(), 0x00, OFF_HARD_CAP, 32)
             v := shr(128, mload(0x00))
         }
     }

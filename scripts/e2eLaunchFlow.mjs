@@ -34,9 +34,12 @@
  *
  *   node scripts/e2eLaunchFlow.mjs --factory 0x...
  *   node scripts/e2eLaunchFlow.mjs --factory 0x... --rpc <url> --duration 10800
+ *     [--developer 0x...] [--hard-cap 1000] [--wallet-cap 46.4]
  *
- * Defaults target a local anvil with account #0. It broadcasts a transaction
- * and costs the launch fee, so point it at a devnet or a testnet you own.
+ * Defaults target a local anvil with account #0. `createLaunch` is owner-only,
+ * so the key must be the factory owner's; point it at a devnet or a testnet
+ * you own. Caps are in whole BEM; the wallet cap defaults to the factory's
+ * `maxPogAllocationLimit`, the developer to the signing wallet.
  *
  * ── The key never comes from argv ───────────────────────────────────────────
  *
@@ -57,7 +60,7 @@
 
 import {
   createPublicClient, createWalletClient, http, parseAbi,
-  parseEventLogs, formatUnits, formatEther, getAddress,
+  parseEventLogs, formatUnits, parseUnits, getAddress,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -76,14 +79,14 @@ const ANVIL_PK = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2
 
 const FACTORY_ABI = parseAbi([
   'function hookImplementation() view returns (address)',
-  'function defaultSoftCap() view returns (uint256)',
+  'function owner() view returns (address)',
   'function maxPogAllocationLimit() view returns (uint256)',
-  'function launchFee() view returns (uint256)',
-  'function hookInitcodeHash(address projectTreasury, address creator, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
-  'function verifyHookDeployment(address hook, address creator, address projectTreasury, uint256 softCap, uint256 perWalletCap, uint256 genesisDuration, bytes32 rawSalt) view returns (bool)',
+  'function hookInitcodeHash(address projectTreasury, address creator, uint256 hardCap, uint256 perWalletCap, uint256 genesisDuration) view returns (bytes32)',
+  'function verifyHookDeployment(address hook, address creator, address projectTreasury, uint256 hardCap, uint256 perWalletCap, uint256 genesisDuration, bytes32 rawSalt) view returns (bool)',
   'function registeredHooks(address) view returns (bool)',
   'function quoteAsset() view returns (address)',
-  'function createLaunch(string name, string symbol, address projectTreasury, address projectAdmin, bytes32 hookSalt, uint256 expectedFee, uint256 expectedSoftCap, uint256 expectedWalletCap, uint256 genesisDuration) returns (address token, address hook)',
+  'function circuitOf(address hook) view returns (uint256)',
+  'function createLaunch(string name, string symbol, address developer, bytes32 hookSalt, uint256 hardCap, uint256 walletCap, uint256 genesisDuration) returns (address token, address hook)',
   'event LaunchCreated(uint256 indexed launchId, address indexed token, address indexed hook, address creator, string name, string symbol)',
 ]);
 
@@ -97,11 +100,6 @@ const ERC20_ABI = parseAbi([
 /**
  * Quote-asset amounts are 8-decimal. `formatEther` here would print a 46.4
  * wallet cap as 4.64e-11.
- *
- * ⚠ NOT FOR THE LAUNCH FEE. That one is native BNB at 18 decimals and is the
- *   only factory figure that is — passing it through here printed 0.005 BNB
- *   as "50000000 mBEM", which is both the wrong magnitude and the wrong
- *   asset. Use `formatEther` for it; the caps and the raise stay here.
  */
 const quoteAmt = (units) => formatUnits(units, 8);
 
@@ -124,6 +122,7 @@ async function main() {
 
   if (!factoryArg) {
     console.error('usage: node scripts/e2eLaunchFlow.mjs --factory 0x... [--rpc url] [--name N --symbol S] [--duration 10800|86400|259200]');
+    console.error('       [--developer 0x...] [--hard-cap BEM] [--wallet-cap BEM]');
     console.error('       signing key: LAUNCH_CREATOR_PRIVATE_KEY, else PRIVATE_KEY (never on the command line)');
     process.exit(2);
   }
@@ -143,7 +142,7 @@ async function main() {
 
   if (!pk) {
     console.error(`✗ no signing key, and ${rpc} is not a local endpoint where anvil's published key would do.`);
-    console.error('  Set LAUNCH_CREATOR_PRIVATE_KEY or PRIVATE_KEY. This script broadcasts and spends the launch fee.');
+    console.error('  Set LAUNCH_CREATOR_PRIVATE_KEY or PRIVATE_KEY (the factory owner). This script broadcasts.');
     process.exit(2);
   }
   const factory = getAddress(factoryArg);
@@ -160,11 +159,10 @@ async function main() {
   const chainId = await pub.getChainId();
 
   const creator = account.address;
-  // Mirrors the launch UI, which passes the connected wallet as both the
-  // project treasury and the creator.
-  const projectTreasury = creator;
+  // `createLaunch` bakes the developer in as the hook's `projectTreasury`.
+  const projectTreasury = getAddress(arg('developer', creator));
 
-  console.log(`chain ${chainId} · factory ${factory} · creator ${creator}\n`);
+  console.log(`chain ${chainId} · factory ${factory} · creator ${creator} · developer ${projectTreasury}\n`);
 
   const read = (functionName, args = []) =>
     pub.readContract({ address: factory, abi: FACTORY_ABI, functionName, args });
@@ -184,9 +182,19 @@ async function main() {
     process.exit(1);
   }
 
-  const [softCap, perWalletCap, launchFee, quote] = await Promise.all([
-    read('defaultSoftCap'), read('maxPogAllocationLimit'), read('launchFee'), read('quoteAsset'),
+  const [owner, maxPogAlloc, quote] = await Promise.all([
+    read('owner'), read('maxPogAllocationLimit'), read('quoteAsset'),
   ]);
+  check('signing wallet is the factory owner (createLaunch is owner-only)',
+    getAddress(owner) === getAddress(creator), `owner ${owner}`);
+  if (getAddress(owner) !== getAddress(creator)) process.exit(1);
+
+  const hardCap = parseUnits(arg('hard-cap', '1000'), 8);
+  const perWalletCap = arg('wallet-cap') ? parseUnits(arg('wallet-cap'), 8) : maxPogAlloc;
+  if (perWalletCap === 0n || perWalletCap > hardCap) {
+    console.error(`--wallet-cap must be non-zero and at most --hard-cap (got ${quoteAmt(perWalletCap)} vs ${quoteAmt(hardCap)})`);
+    process.exit(2);
+  }
   const [quoteDecimals, quoteSymbol] = await Promise.all([
     pub.readContract({ address: quote, abi: ERC20_ABI, functionName: 'decimals' }),
     pub.readContract({ address: quote, abi: ERC20_ABI, functionName: 'symbol' }),
@@ -195,11 +203,11 @@ async function main() {
     `${quote} · ${quoteSymbol} · ${quoteDecimals} decimals`);
   if (quoteDecimals !== 8) process.exit(1);
   console.log(`      quote ${quoteSymbol} ${quote}`);
-  console.log(`      softCap ${quoteAmt(softCap)} ${quoteSymbol} · perWalletCap ${quoteAmt(perWalletCap)} ${quoteSymbol} · fee ${formatEther(launchFee)} BNB\n`);
+  console.log(`      hardCap ${quoteAmt(hardCap)} ${quoteSymbol} · walletCap ${quoteAmt(perWalletCap)} ${quoteSymbol}\n`);
 
   // ── 2. TS prediction vs the live factory ──────────────────────────────────
-  const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, softCap, perWalletCap, duration]);
-  const localHash = computeHookInitcodeHash(implementation, creator, projectTreasury, softCap, perWalletCap, duration);
+  const chainHash = await read('hookInitcodeHash', [projectTreasury, creator, hardCap, perWalletCap, duration]);
+  const localHash = computeHookInitcodeHash(implementation, creator, projectTreasury, hardCap, perWalletCap, duration);
   check('hookAddress.ts initcode hash matches the deployed factory', chainHash === localHash,
     chainHash === localHash ? chainHash : `chain ${chainHash} vs local ${localHash}`);
   if (chainHash !== localHash) {
@@ -229,38 +237,17 @@ async function main() {
   const name = arg('name', `E2E Clone ${stamp}`);
   const symbol = arg('symbol', `E2E${stamp.slice(-3)}`);
 
-  // ⚠ THE FEE IS SENT, NOT PULLED, AND THE COMMENT HERE SAID THE OPPOSITE.
-  //   It read "the fee is PULLED; sending `value: launchFee` donates native
-  //   coin to a function that does not read `msg.value`", which was true for
-  //   as long as the fee was charged in the quote asset. `createLaunch` is
-  //   `payable` again and the fee is native BNB, so this script was doing
-  //   both halves wrong: approving mBEM the factory will never pull, then
-  //   calling with no value and reverting `InsufficientLaunchFee`.
-  //
-  //   The approval step is gone rather than made conditional. There is no
-  //   allowance to check: the factory no longer touches the quote asset in
-  //   `createLaunch` at all.
-  //
-  //   Note the units. `launchFee` is 18-decimal native now, and the run that
-  //   caught this printed it through `quoteAmt` — the 8-decimal formatter —
-  //   as "fee 50000000 mBEM" for what is 0.005 BNB. Nine orders of magnitude
-  //   and the wrong ticker, on the line a reader uses to sanity-check the
-  //   number before signing. Native amounts go through `formatEther`.
-  const feeLabel = `${formatEther(launchFee)} BNB`;
-  const nativeBal = await pub.getBalance({ address: creator });
-  check('creator can cover the native launch fee', nativeBal >= launchFee,
-    `have ${formatEther(nativeBal)} BNB · fee ${feeLabel}`);
-  if (nativeBal < launchFee) process.exit(1);
+  // No launch fee and no value: `createLaunch` is not payable any more.
+  const launchArgs = [name, symbol, projectTreasury, rawSalt, hardCap, perWalletCap, duration];
 
   let gasEstimate;
   try {
     gasEstimate = await pub.estimateContractGas({
       address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
-      args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-      account, value: launchFee,
+      args: launchArgs, account,
     });
     check('createLaunch estimates (salt accepted by the live factory)', true,
-      `${gasEstimate.toLocaleString()} gas · ${feeLabel} attached`);
+      `${gasEstimate.toLocaleString()} gas`);
   } catch (e) {
     check('createLaunch estimates (salt accepted by the live factory)', false,
       (e.shortMessage ?? e.message ?? '').split('\n')[0]);
@@ -269,8 +256,8 @@ async function main() {
 
   const hash = await wallet.writeContract({
     address: factory, abi: FACTORY_ABI, functionName: 'createLaunch',
-    args: [name, symbol, projectTreasury, creator, rawSalt, launchFee, softCap, perWalletCap, duration],
-    chain: null, gas: (gasEstimate * 12n) / 10n, value: launchFee,
+    args: launchArgs,
+    chain: null, gas: (gasEstimate * 12n) / 10n,
   });
   const receipt = await pub.waitForTransactionReceipt({ hash });
   check('createLaunch confirmed', receipt.status === 'success', `${receipt.gasUsed.toLocaleString()} gas · ${hash}`);
@@ -291,12 +278,14 @@ async function main() {
   check('hook runtime is a 121-byte clone', code !== undefined && (code.length - 2) / 2 === 121,
     `${code ? (code.length - 2) / 2 : 0} bytes`);
 
-  const [registered, verified] = await Promise.all([
+  const [registered, verified, circuitId] = await Promise.all([
     read('registeredHooks', [deployed]),
-    read('verifyHookDeployment', [deployed, creator, projectTreasury, softCap, perWalletCap, duration, rawSalt]),
+    read('verifyHookDeployment', [deployed, creator, projectTreasury, hardCap, perWalletCap, duration, rawSalt]),
+    read('circuitOf', [deployed]),
   ]);
   check('factory registered the hook', registered === true);
   check('verifyHookDeployment agrees', verified === true);
+  check('a Circuit NFT was issued for the hook', circuitId > 0n, `tokenId ${circuitId}`);
 
   console.log(`\ntoken ${event.args.token}\nhook  ${deployed}`);
   console.log(failed === 0

@@ -230,7 +230,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         the depositors' 10 % opening premium.  Writing `R` for the raise
     ///         and noting that `REFERRAL_BPS` carves a flat 10 % off every
     ///         deposit — commission when a referrer exists, orphan sweep to the
-    ///         treasury when one does not — the pool is always seeded with
+    ///         platform when one does not — the pool is always seeded with
     ///         `lpNative = 0.9 · R`.  So:
     ///
     ///             depositor cost   P_raise = R / 4_620_000
@@ -429,12 +429,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         all of it is committed to buyback-and-burn, documented as such
     ///         in `PRD-v5.0.md` §2 rather than being quietly true.
     ///
-    ///         It is now one of TWO such places. Launch fees went the same way
-    ///         when they became native BNB — the reservoir settles in
-    ///         `quoteAsset` and cannot receive BNB — so they are collected at
-    ///         `platformTreasury` alongside this cut. Two pipes still route to
-    ///         the reservoir in full: the shelf cut and orphaned referral
-    ///         commission.
+    ///         It is one of TWO such places: orphaned referral commission is
+    ///         flushed to the same address at `launch`.  The shelf cut still
+    ///         routes to the reservoir in full.
     uint256 public constant PLATFORM_SWAP_FEE_BPS = 30;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
@@ -571,7 +568,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
     ///         equal.  Reading it from the treasury instead would cost the very
     ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 92.8e8;
+    uint256 public constant PIGGYBACK_TRIGGER_STEP = 10e8;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.
@@ -740,8 +737,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     uint8 internal constant QUOTE_DECIMALS = 8;
 
     /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
-    ///         share of the buy-side dark tax and any orphaned referral
-    ///         commission.
+    ///         share of the buy-side dark tax and the shelf cut.
     address payable public immutable ladderTreasury;
 
     /// @notice Receives `PLATFORM_SWAP_FEE_BPS` (30 bps) of every buy's ETH
@@ -807,17 +803,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return ToshCloneLib.argCreator();
     }
 
-    /// @notice The project's declared multisig, recorded at launch.
+    /// @notice The developer the platform listed this project for, recorded at
+    ///         launch. The same address first received the project's Circuit NFT.
     ///
     /// @dev    ⚠ THIS ADDRESS NEVER RECEIVES FUNDS.  Nothing in this contract,
     ///         the factory, or the treasury transfers to it.  Project revenue —
-    ///         99 % of every shelf sale — is paid to `projectAdmin`, which is a
-    ///         separate, rotatable address.
+    ///         99 % of every shelf sale — is paid to `projectAdmin`, the Circuit
+    ///         revenue vault, which follows the NFT rather than this address.
     ///
     ///         It survives because it is part of the clone's immutable args and
-    ///         therefore of the hook's mined address: on-chain, unalterable,
-    ///         human-readable evidence of which multisig a project claimed at
-    ///         launch.
+    ///         therefore of the hook's address: on-chain, unalterable evidence
+    ///         of who the project was originally listed for.
     ///
     ///         If you are looking for where the money goes, see `projectAdmin`
     ///         and `ladderTreasury`.
@@ -825,25 +821,21 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return ToshCloneLib.argProjectTreasury();
     }
 
-    /// @notice ⚠ READ BY NOTHING. Snapshotted from `ToshFactory.defaultSoftCap`
-    ///         at deploy time and kept only because it is a clone immutable,
-    ///         so it feeds the CREATE2 address.
+    /// @notice Most quote asset this project's genesis round may take in total.
+    ///         `deposit` refuses any deposit that would carry
+    ///         `totalNativeDeposited` past it.
     ///
-    /// @dev    THIS DOCSTRING SAID "minimum ETH that must be raised by
-    ///         `genesisDeadline`", which was the last place in the contract
-    ///         still asserting it. No raise has to clear it: `deposit` does not
-    ///         stop at it, `launch()` does not check it, and `canRefund()` does
-    ///         not read it. A round far below it launches normally, and that is
-    ///         the ordinary case rather than an edge one.
+    /// @dev    A CEILING, NOT A FLOOR. The clone slot it reads used to hold a
+    ///         "soft cap" that nothing enforced; the slot was repurposed rather
+    ///         than a new one added, so the clone layout did not move.
     ///
-    ///         The only floor that exists is `ladderViable()`, which is a
-    ///         property of the shelf arithmetic and not a dial anybody sets.
-    ///         Do not reach for this value to approximate it — they are
-    ///         unrelated numbers that were briefly confused for each other, and
-    ///         `MIN_SOFT_CAP_PROD` was documented as a defence it could not
-    ///         provide precisely because of that confusion.
-    function softCap() public view returns (uint256) {
-        return ToshCloneLib.argSoftCap();
+    ///         The only floor is still `ladderViable()`, which is a property of
+    ///         the shelf arithmetic. A round can stop anywhere below this value
+    ///         and launch, provided the ladder it would seed is viable.
+    ///         `ToshFactory.MIN_HARD_CAP` keeps the ceiling far enough above
+    ///         that floor that a launchable round is not a near-full one.
+    function hardCap() public view returns (uint256) {
+        return ToshCloneLib.argHardCap();
     }
 
     /// @notice Maximum ETH any single wallet may put into THIS project.
@@ -863,7 +855,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     //  Mutable state
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Receives the 99 % Phase-2 cut and may rotate itself.
+    /// @notice Receives the 99 % Phase-2 cut: the project's Circuit revenue
+    ///         vault, written once by `initializeToken` and never again.
+    ///
+    /// @dev    There is deliberately no setter. The revenue right travels with
+    ///         the Circuit NFT that controls the vault, so a rotatable payee
+    ///         would let a holder redirect future proceeds and then sell an
+    ///         NFT whose vault no longer receives anything.
     address public projectAdmin;
 
     ToshToken public projectToken;
@@ -1053,8 +1051,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
     event ReferralClaimed(address indexed referrer, uint256 amount);
     event OrphanReferralForwarded(uint256 amount);
-    event ProjectAdminChanged(address indexed previousAdmin, address indexed newAdmin);
-
     /// @notice Emitted per shelf purchase.
     event TierMinted(
         address indexed buyer, uint256 indexed tierIndex, uint256 tierPrice, uint256 tokensOut, uint256 nativeIn
@@ -1127,7 +1123,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice The genesis window is not one of `DURATION_FAST` /
     ///         `DURATION_STANDARD` / `DURATION_SLOW`.
     error InvalidDuration();
-    error Unauthorized();
     /// @dev Unreachable and retained as documentation. `_payQuote` moves the
     ///      quote asset with `SafeERC20.safeTransfer`, which bubbles the token's
     ///      own revert rather than a flag, so nothing raises this any more. The
@@ -1222,6 +1217,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice This wallet's total stake in this project would exceed the
     ///         per-wallet cap snapshotted when the project was created.
     error PerWalletCapExceeded();
+
+    /// @notice The deposit would carry the round's total past `hardCap()`.
+    ///         Reduce the amount to at most `hardCap() - totalNativeDeposited`.
+    error HardCapExceeded();
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Constructor
@@ -1371,7 +1370,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      This is mandatory, not belt-and-braces. The clone args sit at fixed
     ///      offsets into the *caller's* code, and on the implementation those
     ///      offsets land inside its own ~19 KB of real bytecode — not out of
-    ///      bounds, so EXTCODECOPY does not zero-fill. `softCap()` called on the
+    ///      bounds, so EXTCODECOPY does not zero-fill. `hardCap()` called on the
     ///      bare implementation returns a garbage value in the 1e38 range: not a
     ///      real config, but emphatically not zero either, so a `> 0` check
     ///      would wave it straight through.
@@ -1391,7 +1390,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  Factory initialisation & admin rotation
+    //  Factory initialisation
     // ══════════════════════════════════════════════════════════════════════════
 
     /// @notice One-shot initialiser, called by the factory inside `createLaunch`.
@@ -1404,16 +1403,12 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///                                knowable while the salt is being mined).
     ///           • `genesisDeadline` — `block.timestamp + genesisDuration()`, and
     ///                                the creator cannot predict the mining block.
-    ///           • `projectAdmin`   — rotatable by design, see below.
+    ///           • `projectAdmin`   — the project's Circuit revenue vault, which
+    ///                                the factory deploys in the same call.
     ///
-    ///         `projectAdmin` was a constructor argument before and so was
-    ///         committed to by the hook's mined address. It no longer is, and
-    ///         nothing is lost: `changeProjectAdmin` always let the holder rotate
-    ///         it, so the address only ever pinned the *initial* value. The
-    ///         creator still chooses it — it is the argument they passed to
-    ///         `createLaunch`, applied in the same transaction. The value that
-    ///         genuinely must be tamper-evident, `projectTreasury`, stays an
-    ///         immutable arg and stays in the address.
+    ///         `projectAdmin` is not committed to by the hook's address, and it
+    ///         does not need to be: this is its only writer, and the only caller
+    ///         is the factory, in the transaction that creates the vault.
     ///
     ///         `onlyClone` is load-bearing, not belt-and-braces. This is the only
     ///         writer of `tokenInitialized`, and every value-bearing path is
@@ -1422,7 +1417,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `test_implementationIsInertAsItself`.
     ///
     /// @param token_        The project's ERC-20, already pointed at this hook.
-    /// @param projectAdmin_ Initial recipient of the 99 % Phase-2 cut.
+    /// @param projectAdmin_ Permanent recipient of the 99 % Phase-2 cut.
     function initializeToken(address token_, address projectAdmin_) external onlyClone {
         if (msg.sender != factory) revert OnlyFactory();
         if (tokenInitialized) revert AlreadyInitialized();
@@ -1449,7 +1444,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // where they are read rather than where they were written.
         require(ToshCloneLib.argCreator() != address(0), "zero creator");
         require(ToshCloneLib.argProjectTreasury() != address(0), "zero treasury");
-        require(ToshCloneLib.argSoftCap() != 0, "zero softCap");
+        require(ToshCloneLib.argHardCap() != 0, "zero hardCap");
         require(ToshCloneLib.argPerWalletCap() != 0, "zero perWalletCap");
 
         projectToken = ToshToken(token_);
@@ -1458,16 +1453,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         tokenInitialized = true;
 
         emit TokenInitialized(token_);
-    }
-
-    /// @notice Hand the `projectAdmin` role to a new wallet / multisig.
-    function changeProjectAdmin(address newAdmin) external {
-        if (msg.sender != projectAdmin) revert Unauthorized();
-        if (newAdmin == address(0)) revert InvalidAdmin();
-
-        address oldAdmin = projectAdmin;
-        projectAdmin = newAdmin;
-        emit ProjectAdminChanged(oldAdmin, newAdmin);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1523,13 +1508,14 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // leave this contract holding MORE than it owes, and refusing that would
         // let anyone brick a genesis round by sending it one unit of BEM.
         //
-        // WHERE A SURPLUS ACTUALLY GOES: nowhere. It is credited to no
-        // depositor, and it does NOT join the LP — `launch()` seeds the pool
-        // with `lpNative`, derived from `totalNativeDeposited`, and no path in
-        // this contract reads `balanceOf` for an amount to pay out. There is no
-        // sweep. Donated quote is locked in the hook permanently. That is
-        // acceptable (nobody is entitled to a gift nobody asked for) but it was
-        // documented here as joining the LP, which it never did.
+        // WHERE A SURPLUS GOES: to the platform at `launch()`, alongside the
+        // orphaned commission. It is credited to no depositor and does NOT
+        // join the LP — the pool is seeded with `lpNative`, derived from
+        // `totalNativeDeposited`. Quote donated after launch, or to a round
+        // that ends in refunds, is still locked here permanently.
+        //
+        // This check is also what makes that sweep's subtraction safe: the
+        // balance never falls below `totalNativeDeposited` before launch.
         //
         // ⚠ AND IT WEAKENS THIS CHECK BY ITS OWN SIZE. The comparison is
         //   defence-in-depth against the factory crediting an `amount` it did
@@ -1542,6 +1528,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // a later platform-wide retune cannot move the goalposts on a round
         // that is already open.
         if (nativeDeposited[user] + amount > perWalletCap()) revert PerWalletCapExceeded();
+        if (totalNativeDeposited + amount > hardCap()) revert HardCapExceeded();
 
         nativeDeposited[user] += amount;
         totalNativeDeposited += amount;
@@ -1678,10 +1665,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         only realised at `launch()`, so a failed genesis owes nothing to
     ///         referrers and `referralAccrued` is simply never claimable.
     function refund() external nonReentrant {
-        require(!launched, "Already launched");
-        require(block.timestamp > genesisDeadline, "Genesis not ended yet");
-
-        // `canRefund()` is the authority, not a second copy of its clauses.
+        // `canRefund()` is the authority, not a second copy of its clauses —
+        // it already refuses a launched round and an open window.
         // This used to inline the 7-day comparison, which was the whole gate
         // when the window was the only way in; there are two ways in now.
         require(canRefund(), "Refund not available");
@@ -1723,18 +1708,26 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      raise that can carry a ladder may open the pool, however far below
     ///      the soft cap it lands.
     ///   2. Split the raise: 90 % → LP, 10 % → referral commission pool.
-    ///   3. Forward orphaned commission to the ladder treasury.
+    ///   3. Forward orphaned commission to the platform.
     ///   4. Mint 8.4 M tokens; 3.78 M into the LP, 4.62 M held for claims.
     ///   5. P0 = lpNative / GENESIS_LP_SUPPLY, which is the pool's opening
     ///      price and tier 0's shelf price — genesis buyers pay no premium.
     function launch() external initialized nonReentrant {
-        if (msg.sender != creator()) revert OnlyCreator();
+        // Reached through `ToshFactory.launch`, which is `onlyOwner`: the
+        // factory's CURRENT owner, not the `creator` baked in at deployment,
+        // so rotating the Safe does not orphan open rounds.
+        if (msg.sender != factory) revert OnlyFactory();
         if (block.timestamp < genesisDeadline) revert GenesisActive();
         if (launched) revert AlreadyLaunched();
         if (totalNativeDeposited == 0) revert ZeroAmount();
         if (block.timestamp > genesisDeadline + LAUNCH_WINDOW) revert LaunchWindowExpired();
 
         launched = true;
+
+        // Quote sent here directly is owed to nobody: before launch every
+        // obligation is inside `totalNativeDeposited`, and no refund can have
+        // run while `launch` is still reachable.
+        uint256 surplus = quoteAsset.balanceOf(address(this)) - totalNativeDeposited;
 
         // v4.x snapshotted `platformTreasury` here so a later factory-owner
         // change could not retarget Phase-2 fee routing mid-launch (the M-2
@@ -1761,12 +1754,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // letting a buyer take 69,300 tokens at shelf 0's price; a 0.042-unit
         // raise flattens 365 and sells 1,149,750 that way.
         //
-        // `MIN_SOFT_CAP_PROD` was documented as "the entire defence" against
-        // this, and it is not one. It floors `setDefaultSoftCap`, i.e. the CAP,
-        // and no code path reads the cap: deposits do not stop at it, `launch()`
-        // does not check it, `canRefund()` does not either. A raise far below its
-        // cap is the ordinary case, so the floor was only ever protecting a
-        // quantity nobody was checking.
+        // A floor on the CAP is not a defence against this either.
+        // `ToshFactory.MIN_HARD_CAP` floors the ceiling a round may reach, and a
+        // round can close anywhere below its ceiling, so only a check on the
+        // raise itself can refuse a dust round.
         //
         // It went unnoticed because an 18-decimal quote asset made the window
         // unreachable: any BNB raise worth opening a pool for produced `p0` in
@@ -1847,11 +1838,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // algebra (which correctly says shelf i unlocks at REF >= p0 * STEP^i).
         _lastSwapBlock = uint48(_blockNumber());
 
-        // ── 6. Flush orphaned commission to the buyback reservoir ─────────────
-        if (orphanReferral > 0) {
-            uint256 orphan = orphanReferral;
+        // ── 6. Flush orphaned commission and any surplus to the platform ──────
+        uint256 orphan = orphanReferral + surplus;
+        if (orphan > 0) {
             orphanReferral = 0;
-            _payQuote(ladderTreasury, orphan);
+            _payQuote(platformFeeRecipient, orphan);
             emit OrphanReferralForwarded(orphan);
         }
 
@@ -1911,8 +1902,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     ///         The destinations are fixed and the caller chooses nothing, which is
     ///         why nobody needs to be trusted to call it: the quote leg goes to
-    ///         `ladderTreasury` as buyback ammunition, the token leg is burned.
-    ///         The treasury calls this before each `pokeBuyback`.
+    ///         `projectAdmin` (the Circuit vault) beside the shelf revenue, the
+    ///         token leg is burned.  `CircuitNFT` calls it (try/catch) on every
+    ///         transfer, so fees earned up to a sale land in the seller's vault
+    ///         rather than the buyer's; between transfers anyone may call it.
     ///
     ///         No `nonReentrant`: it writes no storage of ours, and the Vault
     ///         refuses a second `lock` while this one is open.
@@ -2713,9 +2706,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      settlement.
     ///
     ///      No event of its own: the two `take`s are Transfers out of the Vault
-    ///      to `ladderTreasury` and 0xdead, and the treasury emits
-    ///      `GenesisFeesCollected` for every sweep it drives.  The hook has no
-    ///      bytecode to spare — see the constructor.
+    ///      to `projectAdmin` and 0xdead.  The hook has no bytecode to spare —
+    ///      see the constructor.
     function _collectGenesisFees() internal {
         PoolKey memory key = _key();
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
@@ -2728,7 +2720,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         uint256 quoteFees = uint256(uint128(delta.amount0()));
         uint256 tokenFees = uint256(uint128(delta.amount1()));
-        if (quoteFees > 0) vault.take(key.currency0, ladderTreasury, quoteFees);
+        if (quoteFees > 0) vault.take(key.currency0, projectAdmin, quoteFees);
         if (tokenFees > 0) vault.take(key.currency1, DEAD_ADDRESS, tokenFees);
     }
 

@@ -31,8 +31,8 @@ contract MockCloneImpl {
         _;
     }
 
-    function guardedSoftCap() external view onlyClone returns (uint256) {
-        return ToshCloneLib.argSoftCap();
+    function guardedHardCap() external view onlyClone returns (uint256) {
+        return ToshCloneLib.argHardCap();
     }
 
     function creator() external view returns (address) {
@@ -43,8 +43,8 @@ contract MockCloneImpl {
         return ToshCloneLib.argProjectTreasury();
     }
 
-    function softCap() external view returns (uint256) {
-        return ToshCloneLib.argSoftCap();
+    function hardCap() external view returns (uint256) {
+        return ToshCloneLib.argHardCap();
     }
 
     function perWalletCap() external view returns (uint256) {
@@ -80,11 +80,11 @@ contract CloneDeployer {
         address impl,
         address creator,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) external returns (address) {
-        return ToshCloneLib.deployHook(salt, impl, creator, projectTreasury, softCap, perWalletCap, genesisDuration);
+        return ToshCloneLib.deployHook(salt, impl, creator, projectTreasury, hardCap, perWalletCap, genesisDuration);
     }
 
     function deployMeasured(
@@ -92,12 +92,12 @@ contract CloneDeployer {
         address impl,
         address creator,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) external returns (address addr, uint256 gasUsed) {
         uint256 before = gasleft();
-        addr = ToshCloneLib.deployHook(salt, impl, creator, projectTreasury, softCap, perWalletCap, genesisDuration);
+        addr = ToshCloneLib.deployHook(salt, impl, creator, projectTreasury, hardCap, perWalletCap, genesisDuration);
         gasUsed = before - gasleft();
     }
 
@@ -180,7 +180,7 @@ contract ToshHookCloneTest is Test {
     // back by `MockCloneImpl`, so the magnitudes do not gate anything -- they are
     // rescaled so the fixture does not read as an 18-decimal cap sitting in a
     // suite that measures the BEM-era clone.
-    uint256 constant SOFT_CAP = 500e8;
+    uint256 constant HARD_CAP = 500e8;
     uint256 constant WALLET_CAP = 200e8;
     uint256 constant DURATION = 24 hours;
 
@@ -205,7 +205,7 @@ contract ToshHookCloneTest is Test {
     function _deploy(bytes32 salt) internal returns (MockCloneImpl) {
         return
             MockCloneImpl(
-                payable(deployer.deploy(salt, address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION))
+                payable(deployer.deploy(salt, address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION))
             );
     }
 
@@ -218,7 +218,7 @@ contract ToshHookCloneTest is Test {
     ///      catches the stub going stale.
     function test_initcodeAndRuntimeSizesAreExact() public {
         bytes memory initcode =
-            ToshCloneLib.cloneInitcode(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
+            ToshCloneLib.cloneInitcode(address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION);
 
         assertEq(initcode.length, 131, "initcode length");
         assertEq(ToshCloneLib.RUNTIME_LEN, 121, "runtime constant");
@@ -258,7 +258,7 @@ contract ToshHookCloneTest is Test {
 
         assertEq(clone.creator(), CREATOR, "creator");
         assertEq(clone.projectTreasury(), TREASURY, "projectTreasury");
-        assertEq(clone.softCap(), SOFT_CAP, "softCap");
+        assertEq(clone.hardCap(), HARD_CAP, "hardCap");
         assertEq(clone.perWalletCap(), WALLET_CAP, "perWalletCap");
         assertEq(clone.genesisDuration(), DURATION, "genesisDuration");
     }
@@ -270,17 +270,17 @@ contract ToshHookCloneTest is Test {
     function testFuzz_argsRoundTrip(
         address creator_,
         address treasury_,
-        uint128 softCap_,
+        uint128 hardCap_,
         uint128 walletCap_,
         uint32 duration_,
         bytes32 salt_
     ) public {
-        address addr = deployer.deploy(salt_, address(impl), creator_, treasury_, softCap_, walletCap_, duration_);
+        address addr = deployer.deploy(salt_, address(impl), creator_, treasury_, hardCap_, walletCap_, duration_);
         MockCloneImpl clone = MockCloneImpl(payable(addr));
 
         assertEq(clone.creator(), creator_, "creator");
         assertEq(clone.projectTreasury(), treasury_, "projectTreasury");
-        assertEq(clone.softCap(), softCap_, "softCap");
+        assertEq(clone.hardCap(), hardCap_, "hardCap");
         assertEq(clone.perWalletCap(), walletCap_, "perWalletCap");
         assertEq(clone.genesisDuration(), duration_, "genesisDuration");
     }
@@ -301,7 +301,7 @@ contract ToshHookCloneTest is Test {
 
         assertEq(clone.creator(), address(type(uint160).max));
         assertEq(clone.projectTreasury(), address(type(uint160).max));
-        assertEq(clone.softCap(), type(uint128).max);
+        assertEq(clone.hardCap(), type(uint128).max);
         assertEq(clone.perWalletCap(), type(uint128).max);
         assertEq(clone.genesisDuration(), type(uint32).max);
     }
@@ -323,7 +323,7 @@ contract ToshHookCloneTest is Test {
 
         vm.expectRevert(ToshCloneLib.CapTooLargeToPack.selector);
         deployer.deploy(
-            bytes32(uint256(14)), address(impl), CREATOR, TREASURY, SOFT_CAP, uint256(type(uint128).max) + 1, DURATION
+            bytes32(uint256(14)), address(impl), CREATOR, TREASURY, HARD_CAP, uint256(type(uint128).max) + 1, DURATION
         );
     }
 
@@ -341,36 +341,36 @@ contract ToshHookCloneTest is Test {
         uint256 tooLong = uint256(type(uint32).max) + 1;
 
         vm.expectRevert(ToshCloneLib.DurationTooLargeToPack.selector);
-        deployer.deploy(bytes32(uint256(15)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, tooLong);
+        deployer.deploy(bytes32(uint256(15)), address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, tooLong);
 
         // The hash path is the one that would mislead a salt miner, so pin it
         // separately rather than trusting that it shares the guard.
         vm.expectRevert(ToshCloneLib.DurationTooLargeToPack.selector);
-        this.initcodeHashExternal(SOFT_CAP, WALLET_CAP, tooLong);
+        this.initcodeHashExternal(HARD_CAP, WALLET_CAP, tooLong);
     }
 
     /// @dev `expectRevert` needs an external call boundary to catch a revert
     ///      raised by an internal library function.
-    function initcodeHashExternal(uint256 softCap, uint256 walletCap, uint256 duration)
+    function initcodeHashExternal(uint256 hardCap, uint256 walletCap, uint256 duration)
         external
         view
         returns (bytes32)
     {
-        return ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, softCap, walletCap, duration);
+        return ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, hardCap, walletCap, duration);
     }
 
     /// @dev The arg offsets land inside the implementation's own ~19 KB of
     ///      runtime code, so reading them on the bare implementation is not out
     ///      of bounds and does NOT zero-fill — it returns live bytecode
     ///      reinterpreted as a config. Nothing about that value is safe, and
-    ///      crucially it is not zero, so a `require(softCap > 0)` would pass it.
+    ///      crucially it is not zero, so a `require(hardCap > 0)` would pass it.
     ///
     ///      This is the one new attack surface the clone design introduces: the
     ///      implementation is otherwise a complete, callable hook. The test
     ///      documents the hazard so nobody later "simplifies" the guard away.
     function test_implementationReadsGarbageNotZero() public view {
-        assertTrue(impl.softCap() != 0, "impl reads its own code, not zeros");
-        assertTrue(impl.softCap() != SOFT_CAP, "and certainly not a real config");
+        assertTrue(impl.hardCap() != 0, "impl reads its own code, not zeros");
+        assertTrue(impl.hardCap() != HARD_CAP, "and certainly not a real config");
     }
 
     /// @dev Therefore the implementation must be unusable as itself. The guard
@@ -378,10 +378,10 @@ contract ToshHookCloneTest is Test {
     ///      construction: equal means nobody delegatecalled us.
     function test_implementationCannotBeUsedDirectly() public {
         vm.expectRevert(MockCloneImpl.OnlyClone.selector);
-        impl.guardedSoftCap();
+        impl.guardedHardCap();
 
         MockCloneImpl clone = _deploy(bytes32(uint256(15)));
-        assertEq(clone.guardedSoftCap(), SOFT_CAP, "same call through a clone works");
+        assertEq(clone.guardedHardCap(), HARD_CAP, "same call through a clone works");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -458,14 +458,14 @@ contract ToshHookCloneTest is Test {
     ///      What survives the deletion is below, and it is the half that was
     ///      always load-bearing.
     function test_predictedSaltMatchesTheDeployedAddress() public {
-        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
+        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION);
 
         // Any salt will do now, which is the point — this used to be the output
         // of a 20k-iteration search.
         bytes32 salt = bytes32(uint256(42));
         address predicted = HookAddress.computeAddress(address(deployer), salt, hash);
 
-        address actual = deployer.deploy(salt, address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
+        address actual = deployer.deploy(salt, address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION);
         assertEq(actual, predicted, "CREATE2 prediction matches deployment");
     }
 
@@ -475,9 +475,9 @@ contract ToshHookCloneTest is Test {
     ///      address.
     function test_predictionTracksTheInitcode() public view {
         bytes32 salt = bytes32(uint256(42));
-        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION);
+        bytes32 hash = ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION);
         bytes32 otherCap =
-            ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, SOFT_CAP + 1, WALLET_CAP, DURATION);
+            ToshCloneLib.initcodeHash(address(impl), CREATOR, TREASURY, HARD_CAP + 1, WALLET_CAP, DURATION);
 
         assertTrue(
             HookAddress.computeAddress(address(deployer), salt, hash)
@@ -492,7 +492,7 @@ contract ToshHookCloneTest is Test {
 
     function test_gasCloneVersusFullHook() public {
         (, uint256 cloneGas) = deployer.deployMeasured(
-            bytes32(uint256(100)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
+            bytes32(uint256(100)), address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION
         );
 
         (address fullHook, uint256 fullGas) = deployer.deployFullHookMeasured(
@@ -550,7 +550,7 @@ contract ToshHookCloneTest is Test {
             address(quoteAsset)
         );
         (, uint256 hookClone) = deployer.deployMeasured(
-            bytes32(uint256(201)), address(impl), CREATOR, TREASURY, SOFT_CAP, WALLET_CAP, DURATION
+            bytes32(uint256(201)), address(impl), CREATOR, TREASURY, HARD_CAP, WALLET_CAP, DURATION
         );
 
         (, uint256 tokenFull) = deployer.deployFullTokenMeasured();

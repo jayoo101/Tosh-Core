@@ -194,7 +194,8 @@ contract ToshV5ForkTest is Test {
     // ─── Fixture ──────────────────────────────────────────────────────────────
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev `createLaunch` is `onlyOwner`; the round's creator is the owner.
+    address internal creator = admin;
     address internal funder = makeAddr("funder");
     address internal trader = makeAddr("trader");
     address internal platformTreasury = makeAddr("platformTreasury");
@@ -211,6 +212,8 @@ contract ToshV5ForkTest is Test {
     IERC20 internal quote;
 
     uint256 internal constant SOFT_CAP = 100e8;
+    /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
+    uint256 internal constant HARD_CAP = 20_000e8;
     uint256 internal constant POG_CAP = 1000e8;
 
     int24 internal constant TICK_LOWER = -887200;
@@ -245,7 +248,6 @@ contract ToshV5ForkTest is Test {
         factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder), BEM);
         ladder.setFactory(address(factory));
 
-        factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
         factory.setCooldownDuration(0);
         factory.setQuotaWindowDuration(0);
@@ -301,9 +303,8 @@ contract ToshV5ForkTest is Test {
     // ══════════════════════════════════════════════════════════════════════════
 
     function _pickSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initcodeHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
+        bytes32 initcodeHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), 24 hours);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
@@ -325,13 +326,10 @@ contract ToshV5ForkTest is Test {
 
     function _createProject() internal returns (ToshToken token, ToshLaunchpadHook hook) {
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
-            "ForkTest", "FRK", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (address t, address h) =
+            factory.createLaunch("ForkTest", "FRK", projTreasury, salt, HARD_CAP, agreedWalletCap, 24 hours);
         return (ToshToken(t), ToshLaunchpadHook(payable(h)));
     }
 
@@ -346,7 +344,7 @@ contract ToshV5ForkTest is Test {
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

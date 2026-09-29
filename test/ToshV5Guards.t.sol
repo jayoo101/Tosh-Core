@@ -32,7 +32,8 @@ contract ToshV5GuardsTest is Test {
     using MessageHashUtils for bytes32;
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev `createLaunch` is `onlyOwner`; the round's creator is the owner.
+    address internal creator = admin;
     address internal user1 = makeAddr("user1");
     address internal treasury = makeAddr("treasury");
     address internal projTreasury = makeAddr("projTreasury");
@@ -64,6 +65,9 @@ contract ToshV5GuardsTest is Test {
 
     /// @dev Bumped per clone so CREATE2 never collides.
     uint256 internal cloneNonce;
+
+    /// @dev Per-launch hard cap of the fixture round; the factory ceiling.
+    uint256 internal constant HARD_CAP = 20_000e8;
 
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
@@ -139,9 +143,8 @@ contract ToshV5GuardsTest is Test {
     }
 
     function _pickSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
+        bytes32 initHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), 24 hours);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
@@ -153,13 +156,9 @@ contract ToshV5GuardsTest is Test {
 
     function _createLaunch(string memory n, string memory s) internal returns (address t, address h) {
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (t, h) = factory.createLaunch{value: fee}(
-            n, s, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (t, h) = factory.createLaunch(n, s, projTreasury, salt, HARD_CAP, agreedWalletCap, 24 hours);
     }
 
     function _emptyKey() internal view returns (PoolKey memory) {
@@ -177,10 +176,10 @@ contract ToshV5GuardsTest is Test {
     /// @dev A project hook, uninitialised: a clone of `implAsSelf` carrying the
     ///      given immutable args.  `implAsSelf.factory()` is this test contract,
     ///      so the caller can then drive `initializeToken` itself.
-    function _freshClone(uint256 softCap_, uint256 walletCap_, uint256 duration_) internal returns (ToshLaunchpadHook) {
+    function _freshClone(uint256 hardCap_, uint256 walletCap_, uint256 duration_) internal returns (ToshLaunchpadHook) {
         return ToshLaunchpadHook(
             payable(ToshCloneLib.deployHook(
-                    bytes32(++cloneNonce), address(implAsSelf), creator, projTreasury, softCap_, walletCap_, duration_
+                    bytes32(++cloneNonce), address(implAsSelf), creator, projTreasury, hardCap_, walletCap_, duration_
                 ))
         );
     }
@@ -245,12 +244,12 @@ contract ToshV5GuardsTest is Test {
         // Baked into this clone's code.
         assertEq(hook.projectTreasury(), projTreasury);
         assertEq(hook.creator(), creator);
-        assertEq(hook.softCap(), factory.defaultSoftCap());
+        assertEq(hook.hardCap(), HARD_CAP);
         assertEq(hook.perWalletCap(), factory.maxPogAllocationLimit());
         assertEq(hook.genesisDuration(), 24 hours);
 
-        // Storage, written by `initializeToken`.
-        assertEq(hook.projectAdmin(), projTreasury);
+        // Storage, written by `initializeToken`: the Circuit revenue vault.
+        assertEq(hook.projectAdmin(), factory.predictVaultAddress(factory.circuitOf(address(hook))));
         assertEq(hook.genesisDeadline(), block.timestamp + 24 hours);
 
         assertEq(hook.POOL_FEE(), 3000);
@@ -349,9 +348,9 @@ contract ToshV5GuardsTest is Test {
         fresh.initializeToken(makeAddr("tok"), address(0));
     }
 
-    function test_initializeToken_rejectsZeroSoftCap() public {
+    function test_initializeToken_rejectsZeroHardCap() public {
         ToshLaunchpadHook fresh = _freshClone(0, 100e8, 24 hours);
-        vm.expectRevert(bytes("zero softCap"));
+        vm.expectRevert(bytes("zero hardCap"));
         fresh.initializeToken(makeAddr("tok"), projTreasury);
     }
 
@@ -404,7 +403,7 @@ contract ToshV5GuardsTest is Test {
     function test_implementationIsInertAsItself() public {
         address impl = factory.hookImplementation();
 
-        assertTrue(ToshLaunchpadHook(payable(impl)).softCap() != 0, "reads its own code, not zeros");
+        assertTrue(ToshLaunchpadHook(payable(impl)).hardCap() != 0, "reads its own code, not zeros");
 
         vm.prank(address(factory));
         vm.expectRevert(ToshLaunchpadHook.NotAClone.selector);
@@ -441,27 +440,15 @@ contract ToshV5GuardsTest is Test {
         factory.deposit(address(hook), address(0), 1e8);
     }
 
-    // ── Admin rotation ────────────────────────────────────────────────────────
+    // ── Revenue recipient is fixed ────────────────────────────────────────────
 
-    function test_changeProjectAdmin_rotates() public {
-        address neu = makeAddr("newAdmin");
-        vm.prank(projTreasury);
-        hook.changeProjectAdmin(neu);
-        assertEq(hook.projectAdmin(), neu);
+    /// @dev `changeProjectAdmin` is gone: the revenue recipient is the Circuit
+    ///      vault, written once. Control moves by transferring the Circuit NFT.
+    function test_projectAdmin_hasNoSetter() public {
+        (bool ok,) = address(hook).call(abi.encodeWithSignature("changeProjectAdmin(address)", user1));
+        assertFalse(ok, "no rotation entry point");
+        assertEq(hook.projectAdmin(), factory.predictVaultAddress(factory.circuitOf(address(hook))));
     }
-
-    function test_changeProjectAdmin_rejectsNonAdmin() public {
-        vm.prank(user1);
-        vm.expectRevert(ToshLaunchpadHook.Unauthorized.selector);
-        hook.changeProjectAdmin(user1);
-    }
-
-    function test_changeProjectAdmin_rejectsZero() public {
-        vm.prank(projTreasury);
-        vm.expectRevert(ToshLaunchpadHook.InvalidAdmin.selector);
-        hook.changeProjectAdmin(address(0));
-    }
-
     // ── Refund / launch gates (no V4) ─────────────────────────────────────────
     //
     // ⚠ FOUR OF THESE WERE NAMED `...WhenSoftCapMet`, WHICH ATTRIBUTES THE
@@ -523,7 +510,7 @@ contract ToshV5GuardsTest is Test {
         vm.prank(user1);
         factory.deposit(address(hook), address(0), 1e8);
         vm.prank(user1);
-        vm.expectRevert(bytes("Genesis not ended yet"));
+        vm.expectRevert(bytes("Refund not available"));
         hook.refund();
     }
 
@@ -582,7 +569,7 @@ contract ToshV5GuardsTest is Test {
         // The other half of the claim: the door it skips is genuinely shut.
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.RaiseTooSmallForLadder.selector);
-        hook.launch();
+        factory.launch(address(hook));
 
         uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
@@ -646,7 +633,7 @@ contract ToshV5GuardsTest is Test {
             // One error for every raise below the floor, dust included.
             vm.prank(creator);
             vm.expectRevert(ToshLaunchpadHook.RaiseTooSmallForLadder.selector);
-            hook.launch();
+            factory.launch(address(hook));
         }
     }
 
@@ -657,24 +644,51 @@ contract ToshV5GuardsTest is Test {
         hook.refund();
     }
 
-    function test_launch_revertsNonCreator() public {
+    /// @notice Launch goes through the factory, and only its owner may use it.
+    function test_launch_revertsForNonOwnerAndForDirectCalls() public {
         vm.warp(hook.genesisDeadline() + 1);
+
         vm.prank(user1);
-        vm.expectRevert(ToshLaunchpadHook.OnlyCreator.selector);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", user1));
+        factory.launch(address(hook));
+
+        // Not even the owner may skip the factory.
+        vm.prank(creator);
+        vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
         hook.launch();
+    }
+
+    /// @notice A Safe rotated after `createLaunch` can still open the rounds
+    ///         created before it; the old one no longer can.
+    /// @dev No live pool in this suite: the new owner's call reaching the hook's
+    ///      own `GenesisActive` check is what shows authorisation passed.
+    function test_launch_followsTheCurrentOwner() public {
+        address newSafe = makeAddr("newSafe");
+        vm.prank(creator);
+        factory.transferOwnership(newSafe);
+        vm.prank(newSafe);
+        factory.acceptOwnership();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", creator));
+        factory.launch(address(hook));
+
+        vm.prank(newSafe);
+        vm.expectRevert(ToshLaunchpadHook.GenesisActive.selector);
+        factory.launch(address(hook));
     }
 
     function test_launch_revertsBeforeDeadline() public {
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.GenesisActive.selector);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     function test_launch_revertsIfNothingRaised() public {
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.ZeroAmount.selector);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     function test_launch_revertsAfterLaunchWindowExpired() public {
@@ -684,7 +698,7 @@ contract ToshV5GuardsTest is Test {
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.LaunchWindowExpired.selector);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     function test_claimGenesis_revertsBeforeLaunch() public {

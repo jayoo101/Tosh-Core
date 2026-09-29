@@ -6,10 +6,15 @@
  *   both directions, so this script separates them by destination:
  *
  *     0.30 % of every buy's BEM input  -> platformTreasury   INCOME
- *     launchFee, 0.005 BNB per launch  -> platformTreasury   INCOME
+ *     orphan referral commission       -> platformTreasury   INCOME, once, at launch
+ *     launchFee (old factory only)     -> platformTreasury   INCOME, in BNB
  *     0.70 % of every buy's BEM input  -> ladderTreasury     buyback fuel, spent
  *     1.00 % of every sell, in token   -> 0x…dEaD            burned, gone
- *     Phase-2 shelf cut, orphan refs   -> ladderTreasury     buyback fuel, spent
+ *     1 % shelf cut                    -> ladderTreasury     buyback fuel, spent
+ *
+ *   Orphan commission went to ladderTreasury on factories before the GrantPad
+ *   redeploy; `OrphanReferralForwarded` is only summed as income on hooks
+ *   whose `platformFeeRecipient` is this platformTreasury.
  *
  *   `ToshLaunchpadHook._skimInputTax` is the authority for the first four:
  *   `TAX_BPS` is 100 and `PLATFORM_SWAP_FEE_BPS` is 30 CARVED OUT OF IT, not
@@ -79,6 +84,7 @@ const PLATFORM_SWAP_FEE_BPS = 30n
 const TOPICS = {
   PlatformSwapFeePaid: ethers.id('PlatformSwapFeePaid(address,uint256)'),
   LaunchFeeForwarded: ethers.id('LaunchFeeForwarded(uint256)'),
+  OrphanReferralForwarded: ethers.id('OrphanReferralForwarded(uint256)'),
   LaunchCreated: ethers.id('LaunchCreated(uint256,address,address,address,string,string)'),
 }
 
@@ -91,15 +97,17 @@ async function main() {
 
   const factory = new ethers.Contract(FACTORY, FACTORY_ABI, provider)
 
+  // `launchFee` was removed from the factory; only older deployments answer.
   const [treasury, launchFee] = await Promise.all([
     factory.platformTreasury(),
-    factory.launchFee(),
+    new ethers.Contract(FACTORY, ['function launchFee() view returns (uint256)'], provider)
+      .launchFee().catch(() => null),
   ])
 
   console.log('── FEE ADDRESS ' + '─'.repeat(48))
   console.log(`  platformTreasury   ${treasury}`)
   console.log(`  ladderTreasury     ${LADDER_TREASURY}   (buyback fuel, NOT income)`)
-  console.log(`  launchFee now      ${bnb(launchFee)} per launch`)
+  console.log(`  launchFee now      ${launchFee === null ? 'none (this factory has no launch fee)' : `${bnb(launchFee)} per launch`}`)
 
   // Is it an EOA or a contract? Decides whether "withdraw" even means anything,
   // and whether a balance here is spendable by a key or by code.
@@ -113,8 +121,8 @@ async function main() {
     withFallback((p) => p.getBalance(treasury)),
     withFallback((p) => new ethers.Contract(QUOTE_ASSET, ERC20_ABI, p).balanceOf(treasury)),
   ])
-  console.log(`  BNB   ${bnb(nativeBal)}   <- launch fees`)
-  console.log(`  BEM   ${bem(quoteBal)}   <- 0.30% of buy volume`)
+  console.log(`  BNB   ${bnb(nativeBal)}   <- launch fees (old factory only)`)
+  console.log(`  BEM   ${bem(quoteBal)}   <- 0.30% of buy volume + orphan commission`)
 
   // Context, so the two numbers above can be read against the pot they were
   // carved from rather than in isolation.
@@ -125,7 +133,7 @@ async function main() {
   console.log('  and it SPENDS that on buyback+burn rather than banking it.')
 
   await stranded()
-  await cumulative(blockNumber, quoteBal, nativeBal)
+  await cumulative(blockNumber, quoteBal, nativeBal, treasury)
 }
 
 /**
@@ -256,7 +264,7 @@ async function describeSafe(address, code) {
  * way to separate "never earned" from "earned and moved". The two are the same
  * balance and a very different business.
  */
-async function cumulative(toBlock, quoteBal, nativeBal) {
+async function cumulative(toBlock, quoteBal, nativeBal, platformTreasury) {
   console.log('\n── LIFETIME INCOME ' + '─'.repeat(44))
 
   // Checked before the broadcast file is read, not after. `fetchLogs` would
@@ -292,7 +300,9 @@ async function cumulative(toBlock, quoteBal, nativeBal) {
 
     let swapTotal = 0n
     let swapCount = 0
+    let orphanTotal = 0n
     const perHook = []
+    const recipientAbi = ['function platformFeeRecipient() view returns (address)']
     for (const hook of hooks) {
       const logs = await fetchLogs({
         apiKey, address: hook, topic0: TOPICS.PlatformSwapFeePaid, fromBlock, toBlock,
@@ -301,6 +311,15 @@ async function cumulative(toBlock, quoteBal, nativeBal) {
       swapTotal += total
       swapCount += logs.length
       perHook.push({ hook, total, count: logs.length })
+
+      const recipient = await withFallback((p) =>
+        new ethers.Contract(hook, recipientAbi, p).platformFeeRecipient())
+      if (ethers.getAddress(recipient) === ethers.getAddress(platformTreasury)) {
+        const orphans = await fetchLogs({
+          apiKey, address: hook, topic0: TOPICS.OrphanReferralForwarded, fromBlock, toBlock,
+        })
+        orphanTotal += orphans.reduce((a, l) => a + BigInt(l.data), 0n)
+      }
     }
 
     // `amount`/`nativeAmount` is the sole unindexed field on both events, so
@@ -308,6 +327,7 @@ async function cumulative(toBlock, quoteBal, nativeBal) {
     const launchTotal = launchFees.reduce((a, l) => a + BigInt(l.data), 0n)
 
     console.log(`  BEM from swaps    ${bem(swapTotal)}   over ${swapCount} taxed buys`)
+    console.log(`  BEM from orphans  ${bem(orphanTotal)}   referral commission with no referrer, paid at launch`)
     console.log(`  BNB from launches ${bnb(launchTotal)}   over ${launches.length} launches`)
 
     if (perHook.length > 1) {
@@ -328,7 +348,7 @@ async function cumulative(toBlock, quoteBal, nativeBal) {
     }
 
     console.log('\n── EARNED vs STILL HELD ' + '─'.repeat(39))
-    report('BEM', swapTotal, quoteBal, bem)
+    report('BEM', swapTotal + orphanTotal, quoteBal, bem)
     report('BNB', launchTotal, nativeBal, bnb)
   } catch (e) {
     if (e instanceof LogSourceUnavailable) {
@@ -363,7 +383,7 @@ function report(label, earned, held, format) {
   // not model — a direct transfer, or a fee pipe added since it was written.
   if (held > earned) {
     console.log(`        ⚠ holds MORE than the events account for: ${format(held - earned)}`)
-    console.log('          something funds this address outside the two known pipes.')
+      console.log('          something funds this address outside the known pipes.')
   }
 }
 

@@ -262,7 +262,7 @@ contract DeployMainnetScript is Script {
         //
         //   1. IT MUST HAVE 8 DECIMALS. The hook's constructor asserts this, so a
         //      wrong token fails the broadcast rather than shipping. It is
-        //      asserted rather than assumed because `MIN_SOFT_CAP_PROD` and the
+        //      asserted rather than assumed because `MIN_HARD_CAP` and the
         //      shelf ladder's usable range were computed against 8, and at 18 the
         //      ladder's flattening cliff moves somewhere nobody has checked.
         //
@@ -352,14 +352,8 @@ contract DeployMainnetScript is Script {
         console2.log("FACTORY_ADDRESS          =", address(factory));
         console2.log("TREASURY_ADDRESS         =", address(treasury));
         console2.log("HOOK_CREATION_CODEHASH   =", vm.toString(factory.HOOK_CREATION_CODEHASH()));
-        // Reference only.  This hash is built from SENTINEL addresses and the
-        // 24h window, so a salt mined against it reverts with InvalidHookSalt
-        // for every real launch.  Mine against factory.hookInitcodeHash(...)
-        // with the creator's actual addresses and their chosen duration.
-        console2.log("SENTINEL_24H_HASH (ref)  =", vm.toString(factory.getLiveHookInitcodeHash()));
-        console2.log("DEFAULT_SOFT_CAP_WEI     =", factory.defaultSoftCap());
+        console2.log("CIRCUIT_NFT              =", factory.circuitNFT());
         console2.log("MAX_POG_ALLOC_WEI        =", factory.maxPogAllocationLimit());
-        console2.log("LAUNCH_FEE_WEI           =", factory.launchFee());
         console2.log("============================================================");
         console2.log("");
         console2.log("CRITICAL NEXT STEPS:");

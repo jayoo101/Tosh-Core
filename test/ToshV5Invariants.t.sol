@@ -239,11 +239,11 @@ contract ToshInvariantHandler is Test {
     mapping(address => bool) public ghostWasRefundable;
 
     /// @dev The caps each hook snapshotted at creation. Recorded per hook rather
-    ///      than asserted against one constant, because the fuzzer moves
-    ///      `defaultSoftCap` and `maxPogAllocationLimit` between creations — and
-    ///      the property under test is that a retune cannot reach back into a
-    ///      round that is already open.
-    mapping(address => uint256) public ghostSoftCap;
+    ///      than asserted against one constant, because the fuzzer opens rounds
+    ///      with different hard caps and moves `maxPogAllocationLimit` between
+    ///      creations — and the property under test is that a retune cannot
+    ///      reach back into a round that is already open.
+    mapping(address => uint256) public ghostHardCap;
     mapping(address => uint256) public ghostPerWalletCap;
 
     /// @dev The genesis duration was not frozen anywhere, though it is agreed at
@@ -297,6 +297,7 @@ contract ToshInvariantHandler is Test {
         address _creator,
         address _projTreasury,
         uint256 _pogSignerPk,
+        uint256 _setupHardCap,
         ToshLaunchpadHook[] memory _hooks,
         address[] memory _actors
     ) {
@@ -317,7 +318,7 @@ contract ToshInvariantHandler is Test {
             // the invariant would still pass. `setUp` creates these hooks with
             // exactly these two factory values and no retune can have happened
             // yet, so at construction time this is the submitted figure.
-            ghostSoftCap[address(_hooks[i])] = _factory.defaultSoftCap();
+            ghostHardCap[address(_hooks[i])] = _setupHardCap;
             ghostPerWalletCap[address(_hooks[i])] = _factory.maxPogAllocationLimit();
         }
         for (uint256 i; i < _actors.length; ++i) {
@@ -625,15 +626,18 @@ contract ToshInvariantHandler is Test {
     ///         confirming it. A fresh project's deadline is relative to *now*,
     ///         so with this entry point there is a live genesis window at any
     ///         point on the timeline.
-    function createProject(uint256 durationSeed, uint256 feeSlack) external {
+    function createProject(uint256 durationSeed, uint256 capSeed) external {
         if (hooks.length >= MAX_HOOKS) return;
 
         uint256[3] memory durs = [uint256(3 hours), 24 hours, 72 hours];
         uint256 dur = durs[durationSeed % 3];
 
-        uint256 softCap = factory.defaultSoftCap();
+        // Kept within what four actors can fund, so fuzzed rounds can still
+        // fill and launch; some land small enough that `HardCapExceeded` bites.
+        uint256 hardCap = bound(capSeed, factory.MIN_HARD_CAP(), 5000e8);
         uint256 pogLimit = factory.maxPogAllocationLimit();
-        bytes32 initcodeHash = factory.hookInitcodeHash(projTreasury, creator, softCap, pogLimit, dur);
+        uint256 walletCap = pogLimit < hardCap ? pogLimit : hardCap;
+        bytes32 initcodeHash = factory.hookInitcodeHash(projTreasury, creator, hardCap, walletCap, dur);
 
         // Bounded much tighter than the 500k the unit tests allow. This runs
         // inside a fuzz sequence, not once per test, and a miss is free: the
@@ -641,7 +645,7 @@ contract ToshInvariantHandler is Test {
         bytes32 rawSalt;
         bool found;
         for (uint256 i; i < 20_000; ++i) {
-            rawSalt = bytes32(i + feeSlack % 977);
+            rawSalt = bytes32(i + capSeed % 977);
             address predicted =
                 HookAddress.computeAddress(address(factory), keccak256(abi.encode(creator, rawSalt)), initcodeHash);
             if (predicted.code.length == 0) {
@@ -651,17 +655,10 @@ contract ToshInvariantHandler is Test {
         }
         if (!found) return;
 
-        uint256 fee = factory.launchFee();
-        if (quote.balanceOf(creator) < fee) return;
-
         string memory name = string(abi.encodePacked("INV", vm.toString(nameNonce++)));
 
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        try factory.createLaunch{value: fee}(
-            name, name, projTreasury, projTreasury, rawSalt, fee, agreedSoftCap, agreedWalletCap, dur
-        ) returns (
+        try factory.createLaunch(name, name, projTreasury, rawSalt, hardCap, walletCap, dur) returns (
             address, address h
         ) {
             ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
@@ -669,10 +666,10 @@ contract ToshInvariantHandler is Test {
             // Snapshot what was SUBMITTED, not what the clone reports back. The
             // two differ precisely in the case worth catching: a clone seeded
             // with something other than the caps its creator agreed to. Reading
-            // `hook.softCap()` here made the freeze invariant a tautology about
+            // `hook.hardCap()` here made the freeze invariant a tautology about
             // its own getter.
-            ghostSoftCap[h] = agreedSoftCap;
-            ghostPerWalletCap[h] = agreedWalletCap;
+            ghostHardCap[h] = hardCap;
+            ghostPerWalletCap[h] = walletCap;
             ghostGenesisDuration[h] = dur;
             ++okCreate;
         } catch {}
@@ -740,7 +737,7 @@ contract ToshInvariantHandler is Test {
         ToshLaunchpadHook hook = _hookInPhase(hookSeed, 2);
 
         vm.prank(creator);
-        try hook.launch() {
+        try factory.launch(address(hook)) {
             ++okLaunch;
         } catch {}
 
@@ -1155,43 +1152,6 @@ contract ToshInvariantHandler is Test {
         _sync();
     }
 
-    function ownerSetLaunchFee(uint256 fee) external {
-        // Kept well under `MAX_LAUNCH_FEE` so the creator can keep affording to
-        // open rounds; a fee near the ceiling bankrupts them in a few calls and
-        // shuts off the one action the rest of the sequence depends on.
-        //
-        // ⚠ THE UNIT CHANGED HERE AND THE BOUND HAD TO MOVE WITH IT. This read
-        //   `bound(fee, 0, 100e8)` — 100 BEM, when the fee was quote-asset base
-        //   units. Against a native fee, 100e8 is 1e-8 BNB: the dial would have
-        //   been fuzzed across a range entirely below the default, so every
-        //   creator could always afford it and the affordability pressure this
-        //   bound exists to apply would have quietly stopped existing. The
-        //   tests would all still pass.
-        fee = bound(fee, 0, 0.05 ether);
-        vm.prank(admin);
-        try factory.setLaunchFee(fee) {
-            ++okOwnerAction;
-        } catch {}
-        _sync();
-    }
-
-    function ownerSetDefaultSoftCap(uint256 cap) external {
-        // Ceiling is 6 ETH, not the 1000 the setter allows, and the reason is
-        // reachability rather than realism. Four actors on a 20-ETH rolling PoG
-        // quota cannot fund a 1000-ETH round, so a retune that high permanently
-        // sterilises every project created after it — and with `MAX_HOOKS` at
-        // ten, a handful of those fill the whole slate with rounds that can
-        // never launch, starving the post-launch invariants of subjects. The
-        // property under test is that a retune cannot reach into a round that
-        // is already open, and any moving value exercises that.
-        cap = bound(cap, 1e8, 600e8);
-        vm.prank(admin);
-        try factory.setDefaultSoftCap(cap) {
-            ++okOwnerAction;
-        } catch {}
-        _sync();
-    }
-
     /// @notice Retune the quota window, including switching it off entirely.
     ///
     /// @dev    Zero is deliberately in range, and is the reason this action
@@ -1317,7 +1277,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     using MessageHashUtils for bytes32;
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev `createLaunch` is `onlyOwner`; the round's creator is the owner.
+    address internal creator = admin;
     address internal platformTreasury = makeAddr("platformTreasury");
     address internal projTreasury = makeAddr("projTreasury");
 
@@ -1346,6 +1307,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///      exercised at all rather than sitting behind a zero-raise
     ///      `ZeroAmount` revert.
     uint256 internal constant SOFT_CAP = 200e8;
+    /// @dev Hard cap of the rounds `setUp` opens.
+    uint256 internal constant HARD_CAP = 5000e8;
     uint256 internal constant POG_CAP = 2000e8;
     uint256 internal constant ACTOR_FUNDING = 10_000e8;
 
@@ -1376,7 +1339,6 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         );
         ladder.setFactory(address(factory));
 
-        factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
         // Cooldown off: it is a per-(wallet, hook) timer orthogonal to
         // everything here, and leaving it on just bounces calls off a clock.
@@ -1421,21 +1383,17 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
             // it does on a live platform.
             _registerPoG(actors[i], POG_CAP);
         }
-        // The creator keeps opening rounds throughout the run, each costing a
-        // launch fee the fuzzer can raise to 100 BEM, so this is sized for the
-        // whole sequence rather than the three projects seeded below.
-        quote.mint(creator, 100_000e8);
-        vm.prank(creator);
-        quote.approve(address(factory), type(uint256).max);
-        vm.deal(creator, 1000 ether);
+        // The creator is the owner and opening a round is free, so it is funded
+        // with nothing — which `invariant_ownerNeverHoldsValue` depends on.
 
         uint256[3] memory durs = _durations();
         for (uint256 i; i < durs.length; ++i) {
             hooks.push(_createProject(durs[i]));
         }
 
-        handler =
-            new ToshInvariantHandler(factory, ladder, router, admin, creator, projTreasury, pogSignerPk, hooks, actors);
+        handler = new ToshInvariantHandler(
+            factory, ladder, router, admin, creator, projTreasury, pogSignerPk, HARD_CAP, hooks, actors
+        );
 
         // Restrict the fuzzer to the handler, then to the handler's action
         // surface. Without the selector list it also burns calls on the ghost
@@ -1450,7 +1408,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // numbered version invited exactly one mistake — reusing an index and
         // silently deleting whatever action was there — and made every weight
         // change a renumbering exercise.
-        bytes4[] memory selectors = new bytes4[](40);
+        bytes4[] memory selectors = new bytes4[](38);
         uint256 n;
 
         // Genesis phase. Everything else in the state machine is downstream of
@@ -1482,9 +1440,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         selectors[n++] = ToshInvariantHandler.ownerResumeLadder.selector;
         selectors[n++] = ToshInvariantHandler.ownerBlacklist.selector;
         selectors[n++] = ToshInvariantHandler.ownerLiftBlacklist.selector;
-        selectors[n++] = ToshInvariantHandler.ownerSetDefaultSoftCap.selector;
         selectors[n++] = ToshInvariantHandler.ownerSetPogSigner.selector;
-        selectors[n++] = ToshInvariantHandler.ownerSetLaunchFee.selector;
         selectors[n++] = ToshInvariantHandler.ownerSetMaxPogAllocationLimit.selector;
         selectors[n++] = ToshInvariantHandler.ownerSetQuotaWindowDuration.selector;
 
@@ -1549,9 +1505,8 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///      `keccak256(abi.encode(msg.sender, hookSalt))`, and the initcode hash
     ///      is read back off the factory so the immutable-arg tuple cannot drift.
     function _createProject(uint256 genesisDuration) internal returns (ToshLaunchpadHook hook) {
-        bytes32 initcodeHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), genesisDuration
-        );
+        bytes32 initcodeHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), genesisDuration);
 
         bytes32 rawSalt;
         bool found;
@@ -1566,18 +1521,14 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         }
         require(found, "_createProject: no valid salt");
 
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}(
+        (, address h) = factory.createLaunch(
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
             string(abi.encodePacked("P", vm.toString(genesisDuration))),
-            projTreasury,
             projTreasury,
             rawSalt,
-            fee,
-            agreedSoftCap,
+            HARD_CAP,
             agreedWalletCap,
             genesisDuration
         );
@@ -1637,6 +1588,15 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         }
     }
 
+    /// @notice No round ever takes in more than its hard cap.
+    function invariant_raiseNeverExceedsHardCap() public view {
+        uint256 n = handler.hookCount();
+        for (uint256 i; i < n; ++i) {
+            ToshLaunchpadHook hook = handler.hooks(i);
+            assertLe(hook.totalNativeDeposited(), hook.hardCap(), "raise exceeded the hard cap");
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  §2.2-1  The owner cannot reach depositor money
     // ══════════════════════════════════════════════════════════════════════════
@@ -1645,7 +1605,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         which only user deposits and user refunds ever write.
     ///
     /// @dev    The fuzzer has `pause`, `haltLadderMinting`, `setBlacklist`,
-    ///         `setPogSigner`, `setLaunchFee`, `setDefaultSoftCap` and
+    ///         `setPogSigner` and
     ///         `setMaxPogAllocationLimit` in reach. If any of them could move,
     ///         zero or redirect a depositor's balance, the two would diverge.
     function invariant_ownerCannotMoveTheDepositLedger() public view {
@@ -1664,20 +1624,20 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         }
     }
 
-    /// @notice `softCap` and `perWalletCap` are snapshotted per hook at creation
+    /// @notice `hardCap` and `perWalletCap` are snapshotted per hook at creation
     ///         and immutable after, so an owner retune can never move the
     ///         goalposts on a round that is already open.
     ///
     /// @dev    Checked against the value recorded when each round was opened,
-    ///         not against one global constant: the fuzzer moves
-    ///         `defaultSoftCap` and `maxPogAllocationLimit` between creations,
+    ///         not against one global constant: the fuzzer opens rounds with
+    ///         different hard caps and moves `maxPogAllocationLimit` between creations,
     ///         so rounds legitimately differ from each other. What must never
     ///         happen is a round's own caps changing under it.
     function invariant_perHookCapsAreFrozen() public view {
         uint256 n = handler.hookCount();
         for (uint256 i; i < n; ++i) {
             ToshLaunchpadHook hook = handler.hooks(i);
-            assertEq(hook.softCap(), handler.ghostSoftCap(address(hook)), "softCap moved after the round opened");
+            assertEq(hook.hardCap(), handler.ghostHardCap(address(hook)), "hardCap moved after the round opened");
             assertEq(
                 hook.perWalletCap(),
                 handler.ghostPerWalletCap(address(hook)),
@@ -2034,9 +1994,10 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///
     /// @dev    `admin` owns the factory and the treasury and holds every switch
     ///         the fuzzer flips, including ladder curation. It is funded with
-    ///         nothing in `setUp` and has no legitimate income: launch fees go
-    ///         to the reservoir, the Phase-2 platform cut goes to the reservoir,
-    ///         and the project cut goes to `projectAdmin`. So its balance must
+    ///         nothing in `setUp` and has no legitimate income: there is no
+    ///         launch fee, the Phase-2 platform cut goes to the reservoir, and the
+    ///         project cut goes to the Circuit revenue vault. It is also every
+    ///         round's creator, which grants `launch()` and nothing that pays. So its balance must
     ///         still be zero after any sequence, and it must never come to hold
     ///         a project token.
     ///
@@ -2301,6 +2262,14 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         assertGt(handler.ghostTreasuryFloor(), floorBefore, "the shelf mint's platform cut never raised the floor");
     }
 
+    /// @dev BEM still needed to arm the reservoir; zero once the buy tax the
+    ///      fixture already paid has carried it past `TRIGGER_STEP`.
+    function _armShortfall() internal view returns (uint256) {
+        uint256 bal = quote.balanceOf(address(ladder));
+        uint256 step = ladder.TRIGGER_STEP();
+        return bal >= step ? 0 : step - bal;
+    }
+
     /// @notice The buyback really does fire, spend treasury ETH, and burn — so
     ///         `invariant_treasuryOutflowAlwaysBurns` is checking a path the
     ///         fuzzer can reach rather than a vacuous truth.
@@ -2348,7 +2317,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         //   holds, and donations sit alongside the buy tax and orphaned
         //   commission in the reservoir's own list of revenue pipes. The pot is
         //   real and the accounting still adds up.
-        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        uint256 shortfall = _armShortfall();
         vm.prank(handler.actors(0));
         quote.transfer(address(ladder), shortfall);
         assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "could not arm the buyback");
@@ -2473,7 +2442,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
 
         // Armed by an ordinary transfer of BEM an actor already holds, not
         // `vm.deal` — same reasoning as the buyback reachability test.
-        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        uint256 shortfall = _armShortfall();
         vm.prank(handler.actors(1));
         quote.transfer(address(ladder), shortfall);
         assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "precondition: the buyback must be armed");
@@ -2552,7 +2521,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // balance. Still not `vm.deal` — BEM an actor already holds, moved by
         // an ordinary transfer, through one of the reservoir's documented
         // revenue pipes.
-        uint256 shortfall = ladder.TRIGGER_STEP() - quote.balanceOf(address(ladder));
+        uint256 shortfall = _armShortfall();
         vm.prank(handler.actors(1));
         quote.transfer(address(ladder), shortfall);
         assertGe(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP(), "precondition: the reservoir must be armed");

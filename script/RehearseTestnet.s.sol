@@ -146,13 +146,16 @@ abstract contract RehearsalBase is Script {
     ///   of allowance for the cap and 100 BEM actually deposited, where the BNB
     ///   version cost 0.035. Dropping the raise to make it cheaper does not widen
     ///   the shortfall, it flattens the ladder, which is the thing under test.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 500e8;
+    ///
+    ///   Since GrantPad the cap is a per-launch HARD cap passed to `createLaunch`,
+    ///   so the round launches with the cap unmet rather than with a soft target
+    ///   unmet. The ladder floor is enforced by `launch()` itself.
+    uint256 internal constant REHEARSAL_HARD_CAP = 500e8;
     uint256 internal constant REHEARSAL_WALLET_CAP = 100e8;
-    uint256 internal constant REHEARSAL_LAUNCH_FEE = 10e8;
 
     /// What one wallet actually deposits: 20 % of the cap.
     ///
-    /// Equal to `ToshFactory.MIN_SOFT_CAP_PROD`, and asserted against the
+    /// Formerly equal to the factory's soft-cap floor, and asserted against the
     /// contract in `_scaleParameters` rather than trusted — which is what caught
     /// the missed rescaling above. The floor binds the RAISE, not the cap: below
     /// it the ladder flattens before `p0` ever truncates. Going lower to widen
@@ -225,8 +228,8 @@ abstract contract RehearsalBase is Script {
         //   float of 1,959 tokens in its only real pool, and a mint authority
         //   behind an upgradeable proxy. See docs/BEM_QUOTE_ASSET.md §3.
         require(
-            quoteAsset.balanceOf(deployer) >= REHEARSAL_LAUNCH_FEE + REHEARSAL_RAISE,
-            "deployer holds too little quote asset for the fee plus the raise -- mint or acquire some first"
+            quoteAsset.balanceOf(deployer) >= REHEARSAL_RAISE,
+            "deployer holds too little quote asset for the raise -- mint or acquire some first"
         );
 
         // Nothing to install. On Robinhood this is where `_installArbSys()`
@@ -359,32 +362,11 @@ contract Phase1Genesis is RehearsalBase {
         bytes32 salt = _pickSalt();
         _registerPoG(REHEARSAL_WALLET_CAP);
 
-        // Two approvals, not a `{value:}`. The factory pulls the launch fee and
-        // the genesis deposit with `transferFrom`, so the rehearsal has to grant
-        // an allowance first — which is itself part of what is being rehearsed,
-        // since it is the extra transaction every real creator and depositor now
-        // pays for.
-        //
-        // Approved exactly, and separately, rather than once for the sum. An
-        // allowance sized to cover both would let a bug in either pull draw on
-        // the other's budget and still succeed, which is the failure this
-        // rehearsal exists to catch.
-        quoteAsset.approve(address(factory), REHEARSAL_LAUNCH_FEE);
-
+        // `createLaunch` is owner-only, so the deployer must still own the
+        // factory on 97. The deployer is also the developer, so it receives the
+        // rehearsal's Circuit NFT.
         (address token, address hook) = factory.createLaunch(
-            "Tosh Rehearsal",
-            "RHRSL",
-            deployer, // projectTreasury
-            deployer, // projectAdmin
-            salt,
-            REHEARSAL_LAUNCH_FEE,
-            // Read live, in the same transaction that spends them. A rehearsal
-            // is exactly the situation these two guard against: the Safe has
-            // been moving dials in the phases above, so passing a value written
-            // down earlier in the script would be the mistake being rehearsed.
-            factory.defaultSoftCap(),
-            factory.maxPogAllocationLimit(),
-            GENESIS_WINDOW
+            "Tosh Rehearsal", "RHRSL", deployer, salt, REHEARSAL_HARD_CAP, REHEARSAL_WALLET_CAP, GENESIS_WINDOW
         );
 
         // One wallet, one fifth of the cap. The shortfall is the point.
@@ -396,24 +378,13 @@ contract Phase1Genesis is RehearsalBase {
         _report(token, hook);
     }
 
-    /// @dev Order still matters, though less violently than it used to.
-    ///      `createLaunch` snapshots `defaultSoftCap` and
-    ///      `maxPogAllocationLimit` into the clone's immutable args, so they are
-    ///      part of the initcode and therefore of the predicted address. Calling
-    ///      these setters after `_pickSalt` would move the address out from
-    ///      under the occupancy check — a stale prediction no longer gets
-    ///      refused outright now that the address-bit gate is gone, so the
-    ///      failure would surface later and less clearly.
+    /// @dev The PoG ceiling must admit the attestation `_registerPoG` asks for.
     function _scaleParameters() internal {
-        require(REHEARSAL_RAISE >= factory.MIN_SOFT_CAP_PROD(), "REHEARSAL_RAISE is below the contract's own floor");
-        require(REHEARSAL_SOFT_CAP > REHEARSAL_RAISE, "rehearsal must launch with the soft cap unmet");
+        require(REHEARSAL_HARD_CAP >= factory.MIN_HARD_CAP(), "REHEARSAL_HARD_CAP is below the contract's own floor");
+        require(REHEARSAL_HARD_CAP > REHEARSAL_RAISE, "rehearsal must launch with the hard cap unmet");
 
-        factory.setLaunchFee(REHEARSAL_LAUNCH_FEE);
-        factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP);
         factory.setMaxPogAllocationLimit(REHEARSAL_WALLET_CAP);
 
-        console2.log("launchFee            :", factory.launchFee());
-        console2.log("defaultSoftCap       :", factory.defaultSoftCap());
         console2.log("maxPogAllocationLimit:", factory.maxPogAllocationLimit());
     }
 
@@ -432,7 +403,7 @@ contract Phase1Genesis is RehearsalBase {
     ///      the address is empty is what makes the rehearsal repeatable.
     function _pickSalt() internal view returns (bytes32 rawSalt) {
         bytes32 initcodeHash =
-            factory.hookInitcodeHash(deployer, deployer, REHEARSAL_SOFT_CAP, REHEARSAL_WALLET_CAP, GENESIS_WINDOW);
+            factory.hookInitcodeHash(deployer, deployer, REHEARSAL_HARD_CAP, REHEARSAL_WALLET_CAP, GENESIS_WINDOW);
 
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
@@ -451,7 +422,7 @@ contract Phase1Genesis is RehearsalBase {
         console2.log("============================================================");
         console2.log("hook            :", hook);
         console2.log("token           :", token);
-        console2.log("softCap         :", h.softCap());
+        console2.log("hardCap         :", h.hardCap());
         console2.log("totalNativeDeposited:", h.totalNativeDeposited());
         console2.log("genesisDeadline :", deadline);
         console2.log("seconds to wait :", deadline > block.timestamp ? deadline - block.timestamp : 0);
@@ -493,7 +464,7 @@ contract Phase2Launch is RehearsalBase {
         require(hook.totalNativeDeposited() > 0, "nothing was raised");
         require(block.timestamp <= deadline + hook.LAUNCH_WINDOW(), "launch window expired -- refunds are open");
 
-        console2.log("raised / soft cap:", hook.totalNativeDeposited(), "/", hook.softCap());
+        console2.log("raised / hard cap:", hook.totalNativeDeposited(), "/", hook.hardCap());
         console2.log("  launching with the cap UNMET is the behaviour under test.");
 
         // Launch alone. Listing the token on the ladder used to ride along here
@@ -506,7 +477,7 @@ contract Phase2Launch is RehearsalBase {
         // caught the same way, by a phase boundary. Listing is Phase2bList,
         // TWAP_WINDOW (1800 s) after this.
         vm.startBroadcast(deployerPk);
-        hook.launch();
+        factory.launch(address(hook));
         vm.stopBroadcast();
 
         _report(hook, token);

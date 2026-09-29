@@ -49,7 +49,8 @@ contract ToshV5AttackTest is Test {
     }
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev `createLaunch` is `onlyOwner`; the round's creator is the owner.
+    address internal creator = admin;
     address internal alice = makeAddr("alice");
     address internal attacker = makeAddr("attacker");
     address internal platformTreasury = makeAddr("platformTreasury");
@@ -69,6 +70,8 @@ contract ToshV5AttackTest is Test {
     MockQuoteAsset internal quote;
 
     uint256 internal constant SOFT_CAP = 100e8;
+    /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
+    uint256 internal constant HARD_CAP = 20_000e8;
     uint256 internal constant POG_CAP = 10_000e8;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -95,7 +98,6 @@ contract ToshV5AttackTest is Test {
             address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
         );
         ladder.setFactory(address(factory));
-        factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
         factory.setCooldownDuration(0);
         factory.setQuotaWindowDuration(0);
@@ -157,9 +159,8 @@ contract ToshV5AttackTest is Test {
     // ─── Harness ──────────────────────────────────────────────────────────────
 
     function _pickSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initcodeHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
+        bytes32 initcodeHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), 24 hours);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
@@ -183,13 +184,10 @@ contract ToshV5AttackTest is Test {
     ///      probes can inspect the state of the very block the pool opens in.
     function _launchProject(uint256 raise) internal returns (ToshToken token, ToshLaunchpadHook hook) {
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
-            "Probe", "PRB", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (address t, address h) =
+            factory.createLaunch("Probe", "PRB", projTreasury, salt, HARD_CAP, agreedWalletCap, 24 hours);
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
         _approveHook(hook);
@@ -200,7 +198,7 @@ contract ToshV5AttackTest is Test {
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     function _nextBlock() internal {
@@ -237,6 +235,45 @@ contract ToshV5AttackTest is Test {
     //
     // FIX.  `launch()` now stamps `lastSwapBlock`, closing the launch block
     // outright regardless of which side of `p0` the truncated spot lands on.
+    /// @dev An uncapped round is bounded only by who deposits. The capped
+    ///      ceiling was 20,000 BEM; this raises 190,000 — nearly BEM's whole
+    ///      191,739 supply — and the pool must still open and trade. Nothing
+    ///      else in the suite reaches a genesis this large.
+    function test_uncappedRound_launchesARaiseNearTheWholeQuoteSupply() public {
+        vm.prank(admin);
+        factory.setMaxPogAllocationLimit(20_000e8);
+
+        bytes32 initcodeHash = factory.hookInitcodeHash(projTreasury, creator, 0, 20_000e8, 24 hours);
+        bytes32 salt;
+        for (uint256 i; i < 1000; ++i) {
+            salt = bytes32(i);
+            if (factory.predictHookAddress(creator, salt, initcodeHash).code.length == 0) break;
+        }
+        vm.prank(creator);
+        (, address h) = factory.createLaunch("Open", "OPN", projTreasury, salt, 0, 20_000e8, 24 hours);
+        ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
+        assertEq(hook.hardCap(), factory.UNCAPPED());
+
+        for (uint256 i; i < 10; ++i) {
+            address d = makeAddr(string.concat("depositor", vm.toString(i)));
+            _endow(d);
+            _registerPoG(d, 19_000e8);
+            vm.prank(d);
+            factory.deposit(address(hook), address(0), 19_000e8);
+        }
+        assertEq(hook.totalNativeDeposited(), 190_000e8);
+
+        vm.warp(hook.genesisDeadline() + 1);
+        vm.prank(creator);
+        factory.launch(address(hook));
+        assertTrue(hook.launched(), "a raise this size still opens its pool");
+        assertGt(poolManager.getLiquidity(PoolIdLibrary.toId(hook.getPoolKey())), 0, "with liquidity in range");
+
+        _approveHook(hook);
+        _nextBlock();
+        _buy(hook, alice, 100e8);
+    }
+
     function test_probeA_shelfZeroInLaunchBlock() public {
         (, ToshLaunchpadHook hook) = _launchProject(1000e8);
 
@@ -725,9 +762,6 @@ contract ToshV5AttackTest is Test {
 
         vm.prank(admin);
         ladder.addLadderToken(address(token));
-        // Swept here so the poke's own sweep finds nothing: its token leg would
-        // otherwise land in `burned` and skew the burn rate the arms compare.
-        hook.collectGenesisFees();
         _setQuote(address(ladder), 10_000e8);
 
         uint256 offer = ladder.nextSpendAmount() / ladder.BATCH_SIZE();
@@ -901,10 +935,6 @@ contract ToshV5AttackTest is Test {
             }
         }
         vm.stopPrank();
-
-        // The walk's sells accrued large genesis fees. Swept now, so the poke's
-        // own sweep adds nothing and `spentAtRim` below is the leg alone.
-        hook.collectGenesisFees();
 
         (uint160 rimSqrt, int24 rimTick,,) = poolManager.getSlot0(PoolIdLibrary.toId(key));
         console2.log("rim sqrtPriceX96      ", rimSqrt);
@@ -1266,14 +1296,9 @@ contract ToshV5AttackTest is Test {
     ///      price under test on the way in.  A leg the floor rejects reverts
     ///      into `BuybackSkipped` instead of bubbling up, so the poke succeeds
     ///      either way and the burn is the only signal worth reading.
-    ///
-    ///      The genesis fees the park's pump accrued are swept first, so the
-    ///      poke's own sweep adds nothing to the reservoir or to 0xdead and the
-    ///      figures stay the leg's alone.
     function _armAndPoke(ToshToken token) internal returns (uint256) {
         vm.prank(admin);
         ladder.addLadderToken(address(token));
-        ToshLaunchpadHook(factory.tokenToHook(address(token))).collectGenesisFees();
         _setQuote(address(ladder), 10_000e8);
 
         uint256 before = token.balanceOf(DEAD);
@@ -1639,13 +1664,9 @@ contract ToshV5AttackTest is Test {
         address sybil = makeAddr("sybil"); // attacker's own second EOA, never attested
 
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h) = factory.createLaunch{value: fee}(
-            "Farm", "FRM", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (, address h) = factory.createLaunch("Farm", "FRM", projTreasury, salt, HARD_CAP, agreedWalletCap, 24 hours);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(h));
 
         _registerPoG(attacker, POG_CAP);
@@ -1660,7 +1681,7 @@ contract ToshV5AttackTest is Test {
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
 
         vm.prank(sybil);
         vm.expectRevert(ToshLaunchpadHook.NoReferralReward.selector);
@@ -1672,12 +1693,9 @@ contract ToshV5AttackTest is Test {
         _registerPoG(alice, POG_CAP);
 
         bytes32 salt2 = _pickSalt();
-        agreedSoftCap = factory.defaultSoftCap();
         agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (, address h2) = factory.createLaunch{value: fee}(
-            "Farm2", "FR2", projTreasury, projTreasury, salt2, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (, address h2) = factory.createLaunch("Farm2", "FR2", projTreasury, salt2, HARD_CAP, agreedWalletCap, 24 hours);
         ToshLaunchpadHook hook2 = ToshLaunchpadHook(payable(h2));
 
         vm.prank(alice);

@@ -8,6 +8,8 @@ import {IERC20Metadata} from "../lib/openzeppelin-contracts/contracts/token/ERC2
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
+import {CircuitNFT} from "../src/CircuitNFT.sol";
+import {CircuitRevenueVault} from "../src/CircuitRevenueVault.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
 //  VerifyDeployment.s.sol  —  Post-deploy invariant smoke test
@@ -16,13 +18,13 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 //  invariant that a mainnet operator would otherwise have to eyeball:
 //
 //    1. Constructor wires every immutable to a non-zero address.
-//    2. `defaultSoftCap`, `maxPogAllocationLimit`, `launchFee` are non-zero.
+//    2. `maxPogAllocationLimit` is non-zero.
 //    3. Pause is in the state EXPECTED_PAUSED declares (default: off). During
 //       the post-broadcast pause window, that means EXPECTED_PAUSED=true.
 //    4. The owner is the EOA deployer  OR  the Safe (post-acceptOwnership).
 //    5. The factory's PoG signer is the address you passed in env.
-//    6. `getLiveHookInitcodeHash()` is deterministic and stable
-//       (re-reads in a single block return the same hash).
+//    6. The Circuit NFT is minted only by this factory, and the vault
+//       implementation checks ownership against that same NFT.
 //    7. `factory.platformTreasury()` equals the hook implementation's
 //       `platformFeeRecipient` — the address that is actually paid 0.30 % of
 //       every buy. Both are immutable, so divergence is unfixable and silent.
@@ -100,10 +102,8 @@ contract VerifyDeploymentScript is Script {
         if (boundFactory != factoryAddr) revert UnexpectedAddress("treasury.factory", factoryAddr, boundFactory);
 
         // ── 2. Non-zero numeric defaults ────────────────────────────────────
-        if (factory.defaultSoftCap() == 0) revert MissingField("defaultSoftCap");
         if (factory.maxPogAllocationLimit() == 0) revert MissingField("maxPogAllocationLimit");
 
-        // launchFee CAN be zero (free launches) — but we still log it.
         // ── 3. Pause must be the state the operator is expecting ────────────
         // A deployment that is open for business is unpaused, so that stays the
         // default. But this script is meant to run BEFORE the deployment opens,
@@ -149,10 +149,23 @@ contract VerifyDeploymentScript is Script {
             if (expectedT != pt) revert UnexpectedAddress("platformTreasury", expectedT, pt);
         } catch {}
 
-        // ── 5. Initcode hash determinism (same-block re-read) ──────────────
-        bytes32 h1 = factory.getLiveHookInitcodeHash();
-        bytes32 h2 = factory.getLiveHookInitcodeHash();
-        if (h1 != h2) revert UnexpectedValue("initcodeHash.determinism", uint256(h1), uint256(h2));
+        // ── 5. Circuit wiring ───────────────────────────────────────────────
+        address circuit = factory.circuitNFT();
+        if (circuit == address(0)) revert MissingField("circuitNFT");
+        address minter = CircuitNFT(circuit).factory();
+        if (minter != factoryAddr) revert UnexpectedAddress("circuitNFT.factory", factoryAddr, minter);
+        address vaultImpl = factory.vaultImplementation();
+        if (vaultImpl == address(0)) revert MissingField("vaultImplementation");
+        address vaultCircuit = address(CircuitRevenueVault(vaultImpl).circuit());
+        if (vaultCircuit != circuit) revert UnexpectedAddress("vaultImplementation.circuit", circuit, vaultCircuit);
+        address nftVaultImpl = CircuitNFT(circuit).vaultImplementation();
+        if (nftVaultImpl != vaultImpl) {
+            revert UnexpectedAddress("circuitNFT.vaultImplementation", vaultImpl, nftVaultImpl);
+        }
+        address vaultQuote = address(CircuitRevenueVault(vaultImpl).quoteAsset());
+        if (vaultQuote != address(factory.quoteAsset())) {
+            revert UnexpectedAddress("vaultImplementation.quoteAsset", address(factory.quoteAsset()), vaultQuote);
+        }
 
         // ── Summary ─────────────────────────────────────────────────────────
         console2.log("============================================================");
@@ -167,8 +180,8 @@ contract VerifyDeploymentScript is Script {
         console2.log("  (== hook.platformFeeRecipient, takes 0.30% of every buy)");
         console2.log("Hook implementation     :", impl);
         console2.log("Ladder Treasury         :", lt);
-        console2.log("Launch fee (wei)        :", factory.launchFee());
-        console2.log("Default soft cap (wei)  :", factory.defaultSoftCap());
+        console2.log("Circuit NFT             :", circuit);
+        console2.log("Vault implementation    :", vaultImpl);
         console2.log("Max PoG alloc (wei)     :", factory.maxPogAllocationLimit());
         console2.log("Cooldown duration (sec) :", factory.cooldownDuration());
         // Read, not asserted. This line used to be the literal "false", which
@@ -177,17 +190,9 @@ contract VerifyDeploymentScript is Script {
         // and a summary claiming the brake is off while it is on is the exact
         // misreading that gets step 10 skipped.
         console2.log("Paused?                 :", factory.paused());
-        // Adjacent on purpose, and they are not supposed to match.
-        // `getLiveHookInitcodeHash()` is the clone initcode hash built from
-        // sentinel values; `HOOK_CREATION_CODEHASH` is the implementation's
-        // creation-code fingerprint. An operator who treats the two as a
-        // pair will conclude the deployment is broken. The script does not
-        // compare them. The on-chain CODEHASH vs local-build comparison is
-        // `script/RecomputeInitcodeHash.s.sol`, which asserts like-with-like
-        // and is on-demand against a live RPC, not a CI gate.
-        console2.log("initcodeHash (live)     :", vm.toString(h1));
+        // The on-chain CODEHASH vs local-build comparison is
+        // `script/RecomputeInitcodeHash.s.sol`, on demand against a live RPC.
         console2.log("HOOK_CREATION_CODEHASH  :", vm.toString(factory.HOOK_CREATION_CODEHASH()));
-        console2.log("  (not comparable: live = clone initcode, CODEHASH = implementation)");
         console2.log("------------------------------------------------------------");
         console2.log("Recommended next steps:");
         console2.log("  1. If owner is the deployer EOA, call transferOwnership(safe)");

@@ -169,6 +169,10 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///        docs/BEM_QUOTE_ASSET.md §2.1.
     uint256 internal constant REHEARSAL_SOFT_CAP = 100e8;
 
+    /// @dev The round is opened with its hard cap equal to the raise, so one
+    ///      deposit fills it exactly.
+    uint256 internal constant HARD_CAP = REHEARSAL_SOFT_CAP;
+
     /// @dev Enforced on chain by `ToshLaunchpadHook.initializeToken`, which
     ///      rejects anything but the three rungs with `InvalidDuration`. 3 h is
     ///      the shortest genesis that exists; there is no faster option to buy.
@@ -182,7 +186,13 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     uint256 internal rehearsalSignerPk = 0xA11CE_5EED;
     address internal rehearsalSigner;
 
-    address internal creator = makeAddr("rehearsalCreator");
+    /// @dev The owner Safe, set in `setUp`: `createLaunch` is `onlyOwner` and the
+    ///      hook records its caller as the creator.
+    address internal creator;
+
+    /// @dev Funds the round. Separate from `creator` now that the creator is
+    ///      the platform Safe rather than a project wallet.
+    address internal depositor = makeAddr("rehearsalDepositor");
     address internal projTreasury = makeAddr("rehearsalProjTreasury");
 
     /// @dev The fork exists whenever `BSC_RPC` does.
@@ -254,11 +264,13 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         // Read rather than pinned — the Safe for this deployment is whatever
         // `DeployMainnet` handed ownership to, and this file predates it.
         ownerSafe = factory.owner();
+        creator = ownerSafe;
 
         // Native coin for gas, and that is now ALL it is for. Before the BEM
         // move this line funded the launch fee and the raise as well, which is
         // why nothing here acquired a token balance.
         vm.deal(creator, 1 ether);
+        vm.deal(depositor, 1 ether);
 
         // The fee and the raise are both pulled with `transferFrom` now, so the
         // creator needs a balance and an allowance or `createLaunch` reverts
@@ -272,8 +284,8 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         // The spender is the FACTORY for both the fee and the deposit. The hook
         // is the spender only for `mintBondingCurve`, which this rehearsal does
         // not reach.
-        deal(BEM, creator, 10_000e8);
-        vm.prank(creator);
+        deal(BEM, depositor, 10_000e8);
+        vm.prank(depositor);
         quote.approve(factoryAddr, type(uint256).max);
     }
 
@@ -291,7 +303,6 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///      Repoints the signer in the same breath — see the contract docstring.
     function _applySafeStep() internal {
         vm.startPrank(ownerSafe);
-        factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP);
         factory.setPogSigner(rehearsalSigner);
 
         // ⚠ THE PER-WALLET DIAL HAS TO MOVE TOO, and this line is missing from no
@@ -305,7 +316,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         //   two tests below — one of which is *about* a lone depositor taking the
         //   whole tranche — cannot reach the cap without this.
         //
-        //   Not a protocol defect: the cap gates nothing (see `softCap()`), and a
+        //   Not a protocol defect: the cap gates nothing (see `hardCap()`), and a
         //   real round is expected to fill from several wallets. It is a defect in
         //   a rehearsal that claims to model the operator's Safe step, because an
         //   operator who wants one wallet to fund the cap has to turn this dial as
@@ -318,9 +329,8 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///      dials live, which is what makes this sensitive to the ordering the
     ///      plan has to respect: mine after the dial lands, never before.
     function _pickSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initcodeHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), GENESIS
-        );
+        bytes32 initcodeHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), GENESIS);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             address predicted =
@@ -410,7 +420,8 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertEq(address(factory.quoteAsset()), BEM, "the live factory is denominated in something else: ABORT");
         assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM is not 8 decimals; every figure in this file is rescaled");
 
-        assertEq(factory.MIN_SOFT_CAP_PROD(), REHEARSAL_SOFT_CAP, "the floor moved");
+        assertEq(factory.MIN_HARD_CAP(), 30e8, "the hard-cap floor moved");
+        assertTrue(factory.circuitNFT() != address(0), "the live factory predates GrantPad: ABORT");
         // 46.4e8, not `1.75 ether`. This assertion carried the pre-quote-asset value
         // and nothing caught it, because the whole test sits behind `_requireFork()`
         // and skips without a mainnet fork — so it is one of the handful that the
@@ -431,7 +442,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///         been executed at a 100 BEM raise. The assertions worth reading
     ///         are the two exact ones:
     ///
-    ///           - `totalNativeDeposited == softCap()` exactly. The storage field
+    ///           - `totalNativeDeposited == hardCap()` exactly. The storage field
     ///             is still named `totalNativeDeposited` and now counts BEM;
     ///             `deposit` pulls the amount rather than reading `msg.value`, so
     ///             the exactness this asserts is a property of the transfer, not
@@ -467,50 +478,50 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
 
         // ── Step 1: the Safe lowers the dial ─────────────────────────────────
         _applySafeStep();
-        assertEq(factory.defaultSoftCap(), REHEARSAL_SOFT_CAP, "the dial did not take");
 
         // ── Step 3: the test wallet creates the launch ───────────────────────
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
 
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
-            "Rehearsal", "RHS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
-        );
+        (address tokenAddr, address hookAddr) =
+            factory.createLaunch("Rehearsal", "RHS", projTreasury, salt, HARD_CAP, agreedWalletCap, GENESIS);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(hookAddr));
 
         // ── Step 4: read the frozen dials back, first thing ──────────────────
         // The plan's abort condition. If `createLaunch` raced a dial change it
         // would have frozen the OLD 928.4 BEM default into this clone
         // permanently, and this is where that is caught.
-        assertEq(hook.softCap(), REHEARSAL_SOFT_CAP, "clone froze the wrong soft cap: ABORT");
+        assertEq(hook.hardCap(), HARD_CAP, "clone froze the wrong hard cap: ABORT");
         assertEq(hook.perWalletCap(), factory.maxPogAllocationLimit(), "clone froze the wrong per-wallet cap");
         assertEq(hook.genesisDuration(), GENESIS, "clone froze the wrong genesis duration");
-        assertEq(hook.creator(), creator, "creator is not the test wallet: launch() would be unreachable");
+        assertEq(hook.creator(), creator, "creator is not the owner Safe: launch() would be unreachable");
 
         // ── Step 5: attest, then fund to exactly the cap ─────────────────────
-        _registerPoG(creator, REHEARSAL_SOFT_CAP);
+        _registerPoG(depositor, REHEARSAL_SOFT_CAP);
 
-        vm.prank(creator);
+        vm.prank(depositor);
         factory.deposit(hookAddr, address(0), REHEARSAL_SOFT_CAP);
 
         assertEq(
-            hook.totalNativeDeposited(), hook.softCap(), "a deposit of exactly the cap must register as exactly the cap"
+            hook.totalNativeDeposited(), hook.hardCap(), "a deposit of exactly the cap must register as exactly the cap"
         );
 
-        // ── Step 6: the creator, and only the creator, launches ──────────────
+        // ── Step 6: the owner Safe, and only it, launches ─────────────────────
         vm.warp(hook.genesisDeadline() + 1);
 
-        // The `OnlyCreator` constraint, exercised rather than read. `creator` is
-        // an immutable clone arg, so this is permanent for the life of the hook.
-        vm.prank(makeAddr("notTheCreator"));
-        vm.expectRevert(ToshLaunchpadHook.OnlyCreator.selector);
+        // Exercised rather than read: the hook takes `launch` from the factory
+        // only, and the factory from its current owner only.
+        address outsider = makeAddr("notTheOwner");
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", outsider));
+        factory.launch(address(hook));
+        vm.prank(creator);
+        vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
         hook.launch();
 
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
         assertTrue(hook.launched(), "hook does not consider itself launched");
 
         // ── The pool is real, in the singleton that is really there ──────────
@@ -563,49 +574,17 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     //  The two facts the plan has to be built around
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice A dial change landing between quote and execution is rejected, and
-    ///         now it is rejected on purpose.
-    ///
-    /// @dev    The plan this file was written for quantified the race and
-    ///         accepted a residual: a salt ground against stale dials produced an
-    ///         address that failed Uniswap V4's flag check with probability
-    ///         503/512, so 98.2% of in-flight rotations reverted loudly and the
-    ///         remaining ~1.8% — address still valid, clone freezing dials the
-    ///         creator never agreed to — was called the case that could not be
-    ///         caught in code. The mitigation was operational: never let a dial
-    ///         change be in flight during `createLaunch`.
-    ///
-    ///         The PancakeSwap Infinity port briefly made that 1.8% into 100%,
-    ///         because permissions moved to the hook's registration bitmap and
-    ///         the address gate — along with `InvalidHookSalt` — went away.
-    ///         `CapsChanged` replaces it deliberately, and the residual is now
-    ///         zero rather than 1.8%: the check is an equality on values the
-    ///         caller supplies, so nothing about it is probabilistic.
-    ///
-    ///         The operational rule is a belt-and-braces measure again rather
-    ///         than the only control. See docs/PANCAKESWAP_INFINITY.md §11.3.
-    function test_rehearsal_aDialChangeInFlightIsRefused() public {
+    /// @notice Only the owner Safe can open a round on the live factory.
+    function test_rehearsal_onlyTheOwnerCanCreateALaunch() public {
         _requireFork();
 
         _applySafeStep();
         bytes32 salt = _pickSalt();
+        uint256 walletCap = factory.maxPogAllocationLimit();
 
-        // What the creator read, and what their transaction will carry.
-        uint256 agreedCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
-
-        // The Safe moves the dial again, after the quote. Twice the floor, as
-        // before — it has to clear `MIN_SOFT_CAP_PROD` or the setter reverts and
-        // the test would pass for the wrong reason.
-        vm.prank(ownerSafe);
-        factory.setDefaultSoftCap(REHEARSAL_SOFT_CAP * 2);
-
-        uint256 fee = factory.launchFee();
-        vm.prank(creator);
-        vm.expectRevert(ToshFactory.CapsChanged.selector);
-        factory.createLaunch{value: fee}(
-            "Stale", "STL", projTreasury, projTreasury, salt, fee, agreedCap, agreedWalletCap, GENESIS
-        );
+        vm.prank(depositor);
+        vm.expectRevert();
+        factory.createLaunch("Stale", "STL", projTreasury, salt, HARD_CAP, walletCap, GENESIS);
     }
 
     /// @notice A lone depositor meeting the whole floor takes the entire genesis
@@ -626,33 +605,30 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         _applySafeStep();
 
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address tokenAddr, address hookAddr) = factory.createLaunch{value: fee}(
-            "Concentration", "CNC", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, GENESIS
-        );
+        (address tokenAddr, address hookAddr) =
+            factory.createLaunch("Concentration", "CNC", projTreasury, salt, HARD_CAP, agreedWalletCap, GENESIS);
         ToshToken token = ToshToken(tokenAddr);
         ToshLaunchpadHook hook = ToshLaunchpadHook(payable(hookAddr));
 
-        _registerPoG(creator, REHEARSAL_SOFT_CAP);
-        vm.prank(creator);
+        _registerPoG(depositor, REHEARSAL_SOFT_CAP);
+        vm.prank(depositor);
         factory.deposit(hookAddr, address(0), REHEARSAL_SOFT_CAP);
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
 
-        vm.prank(creator);
+        vm.prank(depositor);
         hook.claimGenesis();
 
         assertEq(
-            token.balanceOf(creator),
+            token.balanceOf(depositor),
             hook.GENESIS_CLAIM_SUPPLY(),
             "a lone depositor must receive the entire genesis claim supply"
         );
         assertEq(hook.GENESIS_CLAIM_SUPPLY(), 4_620_000e18, "genesis tranche moved");
-        assertEq(token.balanceOf(creator) * 100 / token.MAX_SUPPLY(), 22, "the tranche is 22% of max supply");
+        assertEq(token.balanceOf(depositor) * 100 / token.MAX_SUPPLY(), 22, "the tranche is 22% of max supply");
     }
 }

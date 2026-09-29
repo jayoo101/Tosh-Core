@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test, Vm, console2} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {Vault} from "infinity-core/src/Vault.sol";
 import {IVault} from "infinity-core/src/interfaces/IVault.sol";
@@ -21,6 +22,8 @@ import {ToshLaunchpadHook} from "../src/ToshLaunchpadHook.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../src/ToshToken.sol";
 import {HookAddress} from "../src/libraries/HookAddress.sol";
+import {CircuitNFT} from "../src/CircuitNFT.sol";
+import {CircuitRevenueVault} from "../src/CircuitRevenueVault.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
@@ -51,7 +54,11 @@ contract ToshV5Test is Test {
     // ─── Actors ───────────────────────────────────────────────────────────────
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev The factory owner. `createLaunch` is `onlyOwner` and the hook records
+    ///      its caller as `creator`, so the only address that can open a round —
+    ///      and later call `launch()` on it — is the owner. Aliased rather than
+    ///      replaced so the ~40 call sites keep reading as what they mean.
+    address internal creator = admin;
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
@@ -102,18 +109,16 @@ contract ToshV5Test is Test {
     ///      Solidity has no user-defined denominations, and `1 bem` would have
     ///      had to be a constant that reads like a keyword without being one.
 
-    /// @dev Small enough that a single wallet can fill a genesis round, which
+    /// @dev What the fixtures raise before `launch()`. One wallet funds it, which
     ///      keeps multi-project tests (the piggyback ladder needs four launches)
-    ///      from degenerating into twenty-wallet deposit loops.
-    ///
-    ///      NO LONGER FREE TO BE SMALL, and that is the constraint that set this
-    ///      number. `setDefaultSoftCap` floors at `MIN_SOFT_CAP_PROD` = 100e8,
-    ///      because below roughly that the shelf ladder's `p0` truncates to a
-    ///      value where adjacent shelves round onto the same price. The old
-    ///      fixture raised one unit; the smallest legal raise is now a hundred,
-    ///      so this sits just above the floor rather than anywhere convenient.
+    ///      from degenerating into twenty-wallet deposit loops. Comfortably above
+    ///      the ~21.04 BEM the shelf ladder needs to stay monotone.
     uint256 internal constant SOFT_CAP = 100e8;
 
+    /// @dev The per-launch HARD cap every fixture round is created with. Set at
+    ///      the factory ceiling so it never becomes the thing under test by
+    ///      accident; the cap has its own dedicated tests.
+    uint256 internal constant HARD_CAP = 20_000e8;
     /// @dev Doubles as the PoG quota ceiling AND the per-project per-wallet cap
     ///      snapshotted into each hook.  Set well above `SOFT_CAP` so one wallet
     ///      can fund several projects without the cap becoming the thing under
@@ -164,7 +169,6 @@ contract ToshV5Test is Test {
         );
         ladder.setFactory(address(factory));
 
-        factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
         // Per-(wallet, hook) cooldown is orthogonal to everything under test and
         // would otherwise force a `vm.warp` past the 24h genesis window.  The
@@ -295,9 +299,8 @@ contract ToshV5Test is Test {
     ///      reconstructed here, so the clone's immutable-arg tuple cannot drift
     ///      out of sync with the test.
     function _pickSalt(address _projTreasury, address _creator) internal view returns (bytes32 rawSalt) {
-        bytes32 initcodeHash = factory.hookInitcodeHash(
-            _projTreasury, _creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
+        bytes32 initcodeHash =
+            factory.hookInitcodeHash(_projTreasury, _creator, HARD_CAP, factory.maxPogAllocationLimit(), 24 hours);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(_creator, rawSalt));
@@ -311,18 +314,9 @@ contract ToshV5Test is Test {
         returns (ToshToken token, ToshLaunchpadHook hook)
     {
         bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 fee = factory.launchFee();
-
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
+        uint256 walletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        // No `{value: fee}`: the fee is pulled from the creator's quote balance
-        // against the allowance `_endow` granted. `expectedFee` still travels as
-        // an argument — it is the creator's slippage cap on `launchFee`, which is
-        // a separate concern from how the money moves.
-        (address t, address h) = factory.createLaunch{value: fee}(
-            name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (address t, address h) = factory.createLaunch(name, symbol, projTreasury, salt, HARD_CAP, walletCap, 24 hours);
 
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
@@ -372,7 +366,7 @@ contract ToshV5Test is Test {
     function _launch(ToshLaunchpadHook hook) internal {
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     /// @dev One second past `ToshLaunchpadHook.TWAP_WINDOW` (1800 s).
@@ -557,137 +551,68 @@ contract ToshV5Test is Test {
     //  1. Quote-asset factory plumbing
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice The launch fee is native BNB and it lands in the platform
-    ///         treasury, not in the buyback reservoir.
-    ///
-    /// @dev    ⚠ BOTH HALVES OF THIS CHANGED AT ONCE, AND THE SECOND HALF WAS
-    ///           FORCED BY THE FIRST. The fee was 9.28 BEM pulled to `ladder`;
-    ///           it is now 0.005 BNB sent to `platformTreasury`.
-    ///
-    ///         The reservoir could not keep it. `ToshLadderTreasury` settles
-    ///         `quoteAsset`, sizes every cycle from `quoteAsset.balanceOf`, and
-    ///         has had no `receive()` since native settlement was dropped — so
-    ///         a BNB send there reverts, and a `receive()` added to accept it
-    ///         would only let the coin arrive where nothing can spend it.
-    ///
-    ///         The cost is that launch fees stop being buy-and-burn ammunition,
-    ///         and the arithmetic is why that was affordable: against a
-    ///         `TRIGGER_STEP` of 92.8 BEM (~3.5 BNB), 0.005 BNB is 1/700th of a
-    ///         cycle where 9.28 BEM was a tenth of one. The price cut had
-    ///         already ended the fee's career as fuel before the denomination
-    ///         moved.
-    ///
-    ///         All four balances are asserted, not just the one that grew. A
-    ///         fee pipe that changed BOTH asset and destination can regress in
-    ///         two independent directions, and either alone would leave one of
-    ///         these four still correct.
-    function test_createLaunch_chargesNativeFeeAndFundsPlatformTreasury() public {
-        uint256 fee = factory.launchFee();
-        assertEq(fee, 0.005 ether, "default launch fee should be 0.005 BNB");
-
+    /// @notice Opening a round is free and custodies nothing: no fee reaches the
+    ///         platform treasury, the reservoir, or the factory.
+    function test_createLaunch_chargesNoFee() public {
         uint256 platformBefore = platformTreasury.balance;
+        uint256 platformQuoteBefore = quote.balanceOf(platformTreasury);
         uint256 ladderQuoteBefore = quote.balanceOf(address(ladder));
         (, ToshLaunchpadHook hook) = _createProject("Matrix", "MTRX");
 
         assertTrue(factory.registeredHooks(address(hook)));
-        assertEq(platformTreasury.balance - platformBefore, fee, "the fee must land in the platform treasury");
-        assertEq(quote.balanceOf(address(ladder)), ladderQuoteBefore, "the reservoir must not be credited in BEM");
-        assertEq(address(ladder).balance, 0, "and no native value may reach the reservoir either");
+        assertEq(platformTreasury.balance, platformBefore, "no native fee");
+        assertEq(quote.balanceOf(platformTreasury), platformQuoteBefore, "no quote fee");
+        assertEq(quote.balanceOf(address(ladder)), ladderQuoteBefore, "the reservoir is not credited");
         assertEq(address(factory).balance, 0, "the factory must custody nothing");
     }
 
-    /// @notice A creator who overpays gets the change back in the same
-    ///         transaction, and the treasury still receives exactly the fee.
-    ///
-    /// @dev    ⚠ THIS TEST HAS BEEN DELETED AND RESTORED, WHICH IS WORTH A LINE
-    ///           BECAUSE THE DELETION WAS CORRECT AT THE TIME. Under the BEM
-    ///           pull there was genuinely no such thing as overpaying: the
-    ///           factory moved the computed amount and an allowance above the
-    ///           fee was headroom, not money sent. Native value arrives before
-    ///           the callee runs, so the excess is real again and has to go
-    ///           somewhere.
-    ///
-    ///         Keeping it would have been the alternative, and it is the worse
-    ///         one. `expectedFee` is a CEILING, not an equality, so a fee the
-    ///         owner LOWERS between the caller reading it and the transaction
-    ///         landing is explicitly allowed — and that caller, having funded
-    ///         the old figure, would silently forfeit the difference to the
-    ///         platform. The refund exists for the honest case, not the
-    ///         careless one.
-    ///
-    ///         3 ether of excess rather than a few wei: a rounding-shaped
-    ///         overpayment could be absorbed by a mistake in either direction
-    ///         and still look plausible.
-    function test_createLaunch_refundsOverpayment() public {
-        bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 fee = factory.launchFee();
-        uint256 excess = 3 ether;
+    /// @notice End to end: a real shelf sale fills the Circuit vault, the
+    ///         developer withdraws part of it, and selling the Circuit pays the
+    ///         developer the rest.
+    function test_shelfRevenue_reachesTheCircuitHolder() public {
+        (, ToshLaunchpadHook hook) = _launchProject("Grant", "GRT", alice, address(0));
+        CircuitRevenueVault revenueVault = CircuitRevenueVault(hook.projectAdmin());
+        assertEq(revenueVault.holder(), projTreasury, "the developer holds the Circuit");
 
-        vm.deal(creator, fee + excess);
-        uint256 platformBefore = platformTreasury.balance;
+        _openLadder(hook, 1e8);
+        uint256 want = 1_000e18;
+        uint256 cost = hook.quoteMint(want);
+        _topUpQuote(bob, cost);
+        vm.prank(bob);
+        hook.mintBondingCurve(want, cost);
 
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
-        vm.prank(creator);
-        factory.createLaunch{value: fee + excess}(
-            "Over", "OVR", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
+        uint256 revenue = quote.balanceOf(address(revenueVault));
+        assertEq(revenue, cost - (cost * hook.PLATFORM_TAX_BPS()) / 10_000, "99 % of the sale is in the vault");
+
+        uint256 before = quote.balanceOf(projTreasury);
+        uint256 half = revenue / 2;
+        vm.prank(projTreasury);
+        revenueVault.withdraw(address(quote), projTreasury, half);
+        assertEq(quote.balanceOf(projTreasury) - before, half, "withdrawn immediately");
+
+        // The ladder-opening swaps earned genesis fees; the transfer sweeps them too.
+        uint256 snap = vm.snapshotState();
+        hook.collectGenesisFees();
+        uint256 genesisFees = quote.balanceOf(address(revenueVault)) - (revenue - half);
+        vm.revertToState(snap);
+
+        CircuitNFT circuit = CircuitNFT(factory.circuitNFT());
+        uint256 id = factory.circuitOf(address(hook));
+        vm.prank(projTreasury);
+        circuit.transferFrom(projTreasury, carol, id);
+        assertEq(
+            quote.balanceOf(projTreasury) - before, revenue + genesisFees, "the sale settled the rest to the seller"
         );
-
-        assertEq(creator.balance, excess, "the excess must come back");
-        assertEq(platformTreasury.balance - platformBefore, fee, "and the treasury takes the fee, not the send");
-        assertEq(address(factory).balance, 0, "with nothing left custodied in the factory");
+        assertEq(quote.balanceOf(address(revenueVault)), 0);
+        assertEq(revenueVault.holder(), carol);
     }
 
-    /// @notice A creator who sends less than the fee is told which fee, by the
-    ///         protocol rather than by a token.
-    ///
-    /// @dev    ⚠ DELETED AND RESTORED ALONGSIDE `InsufficientLaunchFee` ITSELF,
-    ///           for the same reason as the refund above.
-    ///
-    ///         Under the pull this was
-    ///         `test_createLaunch_revertsWithoutSufficientAllowance`, and its
-    ///         bare `expectRevert()` was right: the failure belonged to the
-    ///         ERC20, and pinning `ERC20InsufficientAllowance` would have tied
-    ///         this suite to OpenZeppelin's error set. With the fee native the
-    ///         shortfall is the factory's own fact again, so the selector is
-    ///         pinned — and the creator reads a message about a launch fee
-    ///         rather than one about an allowance they never knowingly set.
-    function test_createLaunch_revertsWhenValueIsBelowTheFee() public {
-        bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 fee = factory.launchFee();
-
-        // One wei short. Not zero: sending nothing would fail a payable path
-        // for any number of reasons, whereas `fee - 1` can only fail on the fee.
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
-        vm.prank(creator);
-        vm.expectRevert(ToshFactory.InsufficientLaunchFee.selector);
-        factory.createLaunch{value: fee - 1}(
-            "Under", "UND", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
-    }
-
-    /// @dev `expectedFee` is a slippage cap: an owner who raises the fee in the
-    ///      mempool cannot front-run a creator into paying more than they agreed.
-    function test_createLaunch_revertsWhenOwnerFrontRunsFeeIncrease() public {
-        bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 quotedFee = factory.launchFee();
-
-        vm.prank(admin);
-        factory.setLaunchFee(quotedFee + 0.001 ether);
-        uint256 raisedFee = factory.launchFee();
-
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
-        vm.prank(creator);
-        vm.expectRevert(ToshFactory.FeeChanged.selector);
-        // Sends the RAISED fee, not the quoted one, so `msg.value` is ample and
-        // `FeeChanged` is the only thing left that can revert. Paying the old
-        // figure would also be short, and `FeeChanged` is checked first, so the
-        // test would pass while proving the weaker claim.
-        factory.createLaunch{value: raisedFee}(
-            "Front", "FRT", projTreasury, projTreasury, salt, quotedFee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+    /// @notice Only the owner may open a round.
+    function test_createLaunch_revertsForNonOwner() public {
+        bytes32 salt = _pickSalt(projTreasury, alice);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        factory.createLaunch("Nope", "NOPE", projTreasury, salt, HARD_CAP, POG_CAP, 24 hours);
     }
 
     /// @notice The live pool key claims exactly the permissions the hook admits
@@ -920,16 +845,16 @@ contract ToshV5Test is Test {
         assertEq(hook.nativeDeposited(alice), 0);
     }
 
-    function test_launch_succeedsBelowSoftCap() public {
+    function test_launch_succeedsBelowHardCap() public {
         (, ToshLaunchpadHook hook) = _createProject("Thin", "THN");
         _registerPoG(alice, POG_CAP);
         _deposit(alice, hook, 30e8, address(0));
-        assertLt(hook.totalNativeDeposited(), hook.softCap(), "fixture must sit under the progress target");
+        assertLt(hook.totalNativeDeposited(), hook.hardCap(), "fixture must sit under the cap");
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
-        assertTrue(hook.launched(), "time-up launch does not require the soft cap");
+        factory.launch(address(hook));
+        assertTrue(hook.launched(), "time-up launch does not require the cap to fill");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -995,22 +920,125 @@ contract ToshV5Test is Test {
 
         assertEq(factory.globalReferrers(alice), address(0), "self-referral must not bind");
         assertEq(hook.referralAccrued(alice), 0, "nobody may farm their own commission");
-        assertEq(hook.orphanReferral(), 5e8, "unclaimed commission becomes buyback fuel");
+        assertEq(hook.orphanReferral(), 5e8, "unclaimed commission goes to the platform at launch");
     }
 
-    /// @dev Deposits with no referrer still cut 10% —it just becomes buyback
-    ///      ammunition instead of stuck ETH.
-    function test_orphanReferralIsForwardedToLadderTreasuryAtLaunch() public {
+    /// @dev Deposits with no referrer still cut 10% — it goes to the platform
+    ///      instead of sitting stuck in the hook.
+    function test_orphanReferralIsForwardedToPlatformAtLaunch() public {
         (, ToshLaunchpadHook hook) = _createProject("Orphan", "ORP");
         _registerPoG(alice, POG_CAP);
         _deposit(alice, hook, SOFT_CAP, address(0));
 
         assertEq(hook.orphanReferral(), 10e8);
 
-        uint256 before = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
+        uint256 ladderBefore = quote.balanceOf(address(ladder));
         _launch(hook);
-        assertEq(quote.balanceOf(address(ladder)) - before, 10e8, "orphan commission funds the buyback reservoir");
+        assertEq(quote.balanceOf(platformTreasury) - platformBefore, 10e8, "orphan commission goes to the platform");
+        assertEq(quote.balanceOf(address(ladder)), ladderBefore, "the reservoir takes no orphan commission");
         assertEq(hook.orphanReferral(), 0, "orphan pot must be drained at launch");
+    }
+
+    /// @notice Quote sent straight to the hook before launch is owed to nobody
+    ///         and leaves with the orphaned commission, not into the LP.
+    function test_launch_sweepsDonatedSurplusToPlatform() public {
+        (, ToshLaunchpadHook hook) = _createProject("Donated", "DON");
+        _registerPoG(alice, POG_CAP);
+        _deposit(alice, hook, SOFT_CAP, address(0));
+        _topUpQuote(bob, 3e8);
+        vm.prank(bob);
+        quote.transfer(address(hook), 3e8);
+
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
+        _launch(hook);
+        assertEq(quote.balanceOf(platformTreasury) - platformBefore, 10e8 + 3e8, "orphan commission plus the donation");
+        assertEq(hook.p0(), ((SOFT_CAP * 9) / 10 * 1e18) / hook.GENESIS_LP_SUPPLY(), "the donation joined the LP");
+    }
+
+    /// @notice The deposit freeze stops new deposits, globally or per project,
+    ///         and leaves refunds open.
+    function test_depositsPaused_blocksDepositsButNotRefunds() public {
+        (, ToshLaunchpadHook hook) = _createProject("Frozen", "FRZ");
+        _registerPoG(alice, POG_CAP);
+        _registerPoG(bob, POG_CAP);
+        _deposit(alice, hook, 5e8, address(0));
+
+        vm.prank(admin);
+        factory.setDepositsPaused(address(hook), true);
+        (bool eligible,,) = factory.eligibility(bob, address(hook));
+        assertFalse(eligible, "eligibility must reflect the freeze");
+        vm.prank(bob);
+        vm.expectRevert(ToshFactory.DepositsPaused.selector);
+        factory.deposit(address(hook), address(0), 1e8);
+
+        vm.startPrank(admin);
+        factory.setDepositsPaused(address(hook), false);
+        factory.setDepositsPaused(address(0), true);
+        vm.stopPrank();
+        vm.prank(bob);
+        vm.expectRevert(ToshFactory.DepositsPaused.selector);
+        factory.deposit(address(hook), address(0), 1e8);
+
+        // 5 BEM is below the ladder floor, so refunds open at the deadline.
+        vm.warp(hook.genesisDeadline() + 1);
+        uint256 before = quote.balanceOf(alice);
+        vm.prank(alice);
+        hook.refund();
+        assertEq(quote.balanceOf(alice) - before, 5e8, "a frozen round still refunds");
+    }
+
+    function test_setDepositsPaused_isOwnerOnly() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        factory.setDepositsPaused(address(0), true);
+    }
+
+    /// @notice The owner can cut quota, and a signature issued before the cut
+    ///         cannot restore it.
+    function test_setPogQuota_lowersQuotaAndVoidsOutstandingSignatures() public {
+        (, ToshLaunchpadHook hook) = _createProject("Cut", "CUT");
+        _registerPoG(alice, POG_CAP);
+
+        // Issued, not yet submitted.
+        uint256 nonce = factory.pogNonces(alice);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = keccak256(abi.encode(alice, POG_CAP, nonce, deadline, address(factory), block.chainid))
+            .toEthSignedMessageHash();
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pogSignerPk, digest);
+
+        address[] memory users = new address[](1);
+        users[0] = alice;
+        vm.prank(admin);
+        factory.setPogQuota(users, 2e8);
+        assertEq(factory.pogQuota(alice), 2e8);
+
+        vm.prank(alice);
+        vm.expectRevert(ToshFactory.QuotaExceeded.selector);
+        factory.deposit(address(hook), address(0), 3e8);
+
+        vm.prank(alice);
+        vm.expectRevert(ToshFactory.NonceConflict.selector);
+        factory.registerPoG(POG_CAP, deadline, nonce, abi.encodePacked(r, s, v));
+
+        vm.prank(admin);
+        factory.setPogQuota(users, 0);
+        vm.prank(alice);
+        vm.expectRevert(ToshFactory.NoPogQuota.selector);
+        factory.deposit(address(hook), address(0), 1e8);
+    }
+
+    function test_setPogQuota_isOwnerOnlyAndCapped() public {
+        address[] memory users = new address[](1);
+        users[0] = alice;
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        factory.setPogQuota(users, 1e8);
+
+        uint256 limit = factory.maxPogAllocationLimit();
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.ExceedsGlobalPogLimit.selector);
+        factory.setPogQuota(users, limit + 1);
     }
 
     /// @notice The project leg is 8 of the 10 points, and it goes to whoever
@@ -1810,7 +1838,7 @@ contract ToshV5Test is Test {
     function test_ladderHalt_cannotHoldAnUnderCapGenesisHostage() public {
         (, ToshLaunchpadHook hook) = _createProject("Strand", "STR");
         _deposit(alice, hook, 30e8, address(0));
-        assertLt(hook.totalNativeDeposited(), hook.softCap());
+        assertLt(hook.totalNativeDeposited(), hook.hardCap());
 
         uint256 maxHalt = factory.MAX_HALT_DURATION();
         vm.prank(admin);
@@ -1821,7 +1849,7 @@ contract ToshV5Test is Test {
         assertTrue(factory.ladderMintingHalted(address(hook)), "and the halt outlives the genesis window");
 
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
         assertTrue(hook.launched(), "an under-cap raise still opens while halted");
     }
 
@@ -2220,14 +2248,7 @@ contract ToshV5Test is Test {
     ///         a pool key perfectly happily, and report "next call did not revert"
     ///         — a failure that looks exactly like the protocol being fine. The
     ///         key is read up front so the next call really is the swap.
-    ///         ⚠ THE ETCH MOVED BELOW THE LAUNCH WHEN THE FEE WENT BACK TO BNB,
-    ///           and the reason is the subject of
-    ///           `test_createLaunch_bricksOnAPlatformTreasuryThatRefusesNative`.
-    ///           `createLaunch` sends its fee natively to this same address, so
-    ///           etching first killed the launch in the fixture and never
-    ///           reached the swap this test is about. Launching first keeps the
-    ///           claim intact and scoped to where it is true: the 0.3% cut on a
-    ///           BUY cannot be griefed. The toll on a LAUNCH can.
+
     function test_buyTax_revertingPlatformTreasuryNoLongerBricksBuys() public {
         (, ToshLaunchpadHook hook) = _launchProject("Brick", "BRK", alice, address(0));
         vm.etch(platformTreasury, address(new RevertingReceiver()).code);
@@ -2272,44 +2293,12 @@ contract ToshV5Test is Test {
         );
     }
 
-    /// @notice ⚑ A `platformTreasury` that refuses native value bricks EVERY
-    ///         LAUNCH, and this records that rather than leaving it implied by
-    ///         the test above going quiet about it.
-    ///
-    /// @dev    The griefing vector the test above celebrates closing is closed
-    ///         only for buys. Moving the launch fee from a BEM pull back to a
-    ///         native send reopened it for `createLaunch`, because a native
-    ///         send runs the recipient's code and an ERC-20 transfer does not.
-    ///         `platformTreasury` is `immutable`, so there is no recovery: a
-    ///         factory deployed against an address that reverts on receive can
-    ///         never take a launch, and the only fix is another factory.
-    ///
-    ///         Accepted rather than mitigated, and it is worth being explicit
-    ///         about why, because "we checked" is a weaker argument than "it
-    ///         cannot happen". The destination is a Gnosis Safe whose fallback
-    ///         accepts plain BNB; `verifyOwnerSafe.mjs` measures that before a
-    ///         deployment may name the address, and `preflightMainnet.mjs`
-    ///         re-runs it against the value actually written in
-    ///         `.env.production`. So the hazard is real, unrecoverable, and
-    ///         gated by a pre-broadcast check rather than by the contract.
-    ///
-    ///         The alternative was to swallow the failure — send and ignore the
-    ///         return — which would silently burn the fee into a contract that
-    ///         refused it. A launch that reverts tells the creator something
-    ///         true; a launch that succeeds having lost the fee does not.
-    function test_createLaunch_bricksOnAPlatformTreasuryThatRefusesNative() public {
+    /// @notice A `platformTreasury` that refuses native value cannot brick a
+    ///         launch, because `createLaunch` no longer sends it anything.
+    function test_createLaunch_survivesAPlatformTreasuryThatRefusesNative() public {
         vm.etch(platformTreasury, address(new RevertingReceiver()).code);
-
-        bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
-        uint256 agreedWalletCap = factory.maxPogAllocationLimit();
-
-        vm.prank(creator);
-        vm.expectRevert(ToshFactory.NativeTransferFailed.selector);
-        factory.createLaunch{value: fee}(
-            "Refuse", "RFS", projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (, ToshLaunchpadHook hook) = _createProject("Refuse", "RFS");
+        assertTrue(factory.registeredHooks(address(hook)));
     }
 
     /// @dev Sell leg: the FULL 1.0% of the INPUT TOKENS is burned in place, and
@@ -2556,20 +2545,14 @@ contract ToshV5Test is Test {
         // Volume to arm one buyback, rounded up, expressed as VOLUME rather than as
         // a count of buys.
         //
-        // The count is now 133 where it used to be 500, and that change is entirely
-        // about the fixture: this test's unit buy is 100 BEM where it was 1 BNB, and
-        // 100 BEM is about 3.8 BNB at the rate the constants were re-pegged at
-        // (`launchFee` 0.35 BNB → 9.28 BEM, so ~26.5 BEM/BNB). Asserting the count
-        // would have made a fixture detail look like an economic change.
-        //
-        // The volume is what the test is actually about, and it did not move:
-        // 13,300 BEM is ~501 BNB at that same rate, against the 500 BNB this
-        // measured before. `TRIGGER_STEP` and the 70 bps base were re-denominated
-        // consistently, and this is the assertion that says so.
+        // The volume is what the test is actually about. `TRIGGER_STEP` is
+        // 10 BEM, so at 70 bps of buy volume arming takes 15 buys of 100 BEM:
+        // 1,500 BEM. The platform's 30 bps never touches this balance, which is
+        // why the figure is the flat-0.7 % one.
         uint256 buysToArm = (ladder.TRIGGER_STEP() + inflowPerBuy - 1) / inflowPerBuy;
         assertEq(
             buysToArm * quoteIn,
-            13_300e8,
+            1_500e8,
             "arming still takes the same real volume it did at a flat 0.7 %, re-denominated"
         );
     }
@@ -2612,8 +2595,10 @@ contract ToshV5Test is Test {
         uint256 want = 1_000e18;
         uint256 cost = hook.quoteMint(want);
 
+        address revenueVault = hook.projectAdmin();
         uint256 ladderBefore = quote.balanceOf(address(ladder));
-        uint256 projectBefore = quote.balanceOf(projTreasury);
+        uint256 projectBefore = quote.balanceOf(revenueVault);
+        uint256 developerBefore = quote.balanceOf(projTreasury);
         uint256 platformBefore = quote.balanceOf(platformTreasury);
 
         _topUpQuote(bob, cost);
@@ -2622,7 +2607,10 @@ contract ToshV5Test is Test {
 
         uint256 shelfCut = quote.balanceOf(address(ladder)) - ladderBefore;
         assertEq(shelfCut, (cost * hook.PLATFORM_TAX_BPS()) / 10_000, "shelf cut is 1 % of the MINT COST");
-        assertEq(quote.balanceOf(projTreasury) - projectBefore, cost - shelfCut, "and the project takes the other 99 %");
+        assertEq(
+            quote.balanceOf(revenueVault) - projectBefore, cost - shelfCut, "and the revenue vault takes the other 99 %"
+        );
+        assertEq(quote.balanceOf(projTreasury), developerBefore, "the developer is paid only through the vault");
         assertEq(
             quote.balanceOf(platformTreasury), platformBefore, "a shelf mint pays the swap tax's recipient nothing"
         );
@@ -2634,7 +2622,7 @@ contract ToshV5Test is Test {
 
         uint256 nativeIn = 100e8;
         ladderBefore = quote.balanceOf(address(ladder));
-        projectBefore = quote.balanceOf(projTreasury);
+        projectBefore = quote.balanceOf(revenueVault);
         platformBefore = quote.balanceOf(platformTreasury);
 
         _topUpQuote(trader, nativeIn);
@@ -2644,7 +2632,7 @@ contract ToshV5Test is Test {
         uint256 platformCut = quote.balanceOf(platformTreasury) - platformBefore;
 
         assertEq(reservoirCut + platformCut, (nativeIn * hook.TAX_BPS()) / 10_000, "swap tax is 1 % of the SWAP INPUT");
-        assertEq(quote.balanceOf(projTreasury), projectBefore, "a swap pays the shelf cut's counterparty nothing");
+        assertEq(quote.balanceOf(revenueVault), projectBefore, "a swap pays the shelf cut's counterparty nothing");
 
         // The two bases are unrelated quantities: neither figure is derivable
         // from the other, which is the concrete sense in which they never apply
@@ -2768,14 +2756,15 @@ contract ToshV5Test is Test {
         ladder.pokeBuyback();
     }
 
-    /// @notice A full reservoir spends 10 % per cycle, not a 1 ETH drip.
+    /// @notice A full reservoir spends `SPEND_BPS` (50 %) per cycle, not a
+    ///         `TRIGGER_STEP` drip.
     ///
     /// @dev    A cycle is now three pokes rather than one, since legs run one at
     ///         a time — so the cycle is completed here with `pokeBuyback()`
     ///         rather than by hoping three legs ride a single trade.  The
     ///         property is unchanged and still measured on ETH that actually
     ///         left the reservoir.
-    function test_piggyback_spendsTenPercentOnceThePotIsFull() public {
+    function test_piggyback_spendsHalfOnceThePotIsFull() public {
         (, ToshLaunchpadHook trigger) = _launchProject("FullPot", "FPT", alice, address(0));
         (ToshToken tokenB,) = _launchProject("FullB", "FPB", alice, address(0));
         (ToshToken tokenC,) = _launchProject("FullC", "FPC", alice, address(0));
@@ -2789,7 +2778,7 @@ contract ToshV5Test is Test {
         vm.stopPrank();
 
         _setQuote(address(ladder), 5000e8);
-        assertEq(ladder.nextSpendAmount(), 500e8, "10% of 50 ETH");
+        assertEq(ladder.nextSpendAmount(), 2500e8, "50% of 5,000 BEM");
 
         uint256 before = quote.balanceOf(address(ladder));
 
@@ -2961,8 +2950,9 @@ contract ToshV5Test is Test {
         vm.prank(admin);
         ladder.addLadderToken(address(tokenB));
 
-        // Reservoir holds only launch fees + orphan referrals, well under the
-        // trigger.
+        // Pinned well under the trigger so the buy below, which adds only
+        // 0.07 BEM, cannot be what arms it.
+        _setQuote(address(ladder), ladder.TRIGGER_STEP() / 2);
         assertLt(quote.balanceOf(address(ladder)), ladder.TRIGGER_STEP());
         uint256 deadBefore = tokenB.balanceOf(DEAD);
 
@@ -3364,31 +3354,24 @@ contract ToshV5Test is Test {
     ///         value, and drifting past this budget means the quote is wrong,
     ///         not just that the code got heavier.
     ///
-    ///         Both clone deployments are inside this call — the hook proxy and
-    ///         the bare token proxy — which is why it dominates `launch()`
+    ///         Three clone deployments are inside this call — the hook proxy, the
+    ///         bare token proxy and the Circuit vault — plus the Circuit NFT mint,
+    ///         which is why it dominates `launch()`
     ///         despite doing no pool work.
     function test_gas_createLaunch() public {
         bytes32 salt = _pickSalt(projTreasury, creator);
-        uint256 fee = factory.launchFee();
-        // Hoisted out of the argument list, where they used to be. Arguments are
-        // evaluated before the call, so each of these external getters would eat
-        // the `vm.prank` below and `createLaunch` would run as the test contract —
-        // which under native settlement still worked, because the fee came from
-        // `msg.value` and the test contract had plenty. A pulled ERC-20 fee turns
-        // the same mistake into an allowance revert. Same trap as `_swapBuy`.
-        uint256 softCap = factory.defaultSoftCap();
+        // Hoisted out of the argument list: an external getter evaluated there
+        // would eat the `vm.prank` below. Same trap as `_swapBuy`.
         uint256 pogCap = factory.maxPogAllocationLimit();
 
         vm.prank(creator);
         uint256 before = gasleft();
-        factory.createLaunch{value: fee}(
-            "GasCreate", "GCR", projTreasury, projTreasury, salt, fee, softCap, pogCap, 24 hours
-        );
+        factory.createLaunch("GasCreate", "GCR", projTreasury, salt, HARD_CAP, pogCap, 24 hours);
         uint256 used = before - gasleft();
 
         emit log_named_uint("createLaunch", used);
         emit log_named_uint("was, before the EIP-1167 clone refactor", 5_016_031);
-        assertLt(used, 614_000, "createLaunch path regressed");
+        assertLt(used, 700_000, "createLaunch path regressed");
     }
 
     /// @notice The creator's second and final bill: seeding the pool once
@@ -3484,7 +3467,7 @@ contract ToshV5Test is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        hook.launch();
+        factory.launch(address(hook));
         uint256 used = before - gasleft();
 
         emit log_named_uint("launch, treasury empty", used);
@@ -3525,7 +3508,7 @@ contract ToshV5Test is Test {
 
         vm.prank(creator);
         uint256 before = gasleft();
-        hook.launch();
+        factory.launch(address(hook));
         uint256 used = before - gasleft();
 
         emit log_named_uint("launch, treasury already holds BEM", used);
@@ -4179,13 +4162,16 @@ contract ToshV5Test is Test {
     }
 
     /// @notice The sweep pays the genesis position's fees out — quote to the
-    ///         reservoir, tokens to 0xdead — and moves no liquidity.
-    function test_collectGenesisFees_sweepsToReservoirAndBurnsWithoutMovingLiquidity() public {
+    ///         Circuit vault, tokens to 0xdead — and moves no liquidity.
+    function test_collectGenesisFees_sweepsToCircuitVaultAndBurnsWithoutMovingLiquidity() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Sweep", "SWP", alice, address(0));
         uint256 quoteIn = _tradeBothWays(token, hook);
+        address revenueVault = hook.projectAdmin();
 
         uint128 liqBefore = _genesisLiquidity(hook);
+        uint256 vaultBefore = quote.balanceOf(revenueVault);
         uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 platformBefore = quote.balanceOf(platformTreasury);
         uint256 deadBefore = token.balanceOf(DEAD);
         uint256 hookQuoteBefore = quote.balanceOf(address(hook));
         uint256 hookTokenBefore = token.balanceOf(address(hook));
@@ -4193,32 +4179,35 @@ contract ToshV5Test is Test {
         vm.prank(dave);
         hook.collectGenesisFees();
 
-        uint256 toLadder = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 toVault = quote.balanceOf(revenueVault) - vaultBefore;
         uint256 burned = token.balanceOf(DEAD) - deadBefore;
 
         assertEq(_genesisLiquidity(hook), liqBefore, "the sweep moved genesis liquidity");
-        assertApproxEqRel(toLadder, _quoteFeeOn(hook, quoteIn), 0.005e18, "quote leg is not the pool fee");
+        assertApproxEqRel(toVault, _quoteFeeOn(hook, quoteIn), 0.005e18, "quote leg is not the pool fee");
+        assertEq(quote.balanceOf(address(ladder)), ladderBefore, "the reservoir takes no genesis fees");
+        assertEq(quote.balanceOf(platformTreasury), platformBefore, "the platform takes no genesis fees");
         assertGt(burned, 0, "token-leg fees were not burned");
         assertEq(quote.balanceOf(address(hook)), hookQuoteBefore, "fees must not land in the hook");
         assertEq(token.balanceOf(address(hook)), hookTokenBefore, "fees must not land in the hook");
     }
 
     /// @notice A second sweep with nothing accrued moves nothing and does not
-    ///         revert, so the treasury can call it on every poke.
+    ///         revert, so anyone can call it whenever.
     function test_collectGenesisFees_isHarmlessToRepeat() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("Sweep2", "SW2", alice, address(0));
         _tradeBothWays(token, hook);
+        address revenueVault = hook.projectAdmin();
 
         hook.collectGenesisFees();
 
         uint128 liqBefore = _genesisLiquidity(hook);
-        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        uint256 vaultBefore = quote.balanceOf(revenueVault);
         uint256 deadBefore = token.balanceOf(DEAD);
 
         hook.collectGenesisFees();
 
         assertEq(_genesisLiquidity(hook), liqBefore);
-        assertEq(quote.balanceOf(address(ladder)), ladderBefore);
+        assertEq(quote.balanceOf(revenueVault), vaultBefore);
         assertEq(token.balanceOf(DEAD), deadBefore);
     }
 
@@ -4269,9 +4258,10 @@ contract ToshV5Test is Test {
         _nextBlock();
         uint256 totalFee = _quoteFeeOn(hook, quoteIn);
 
-        uint256 ladderBefore = quote.balanceOf(address(ladder));
+        address revenueVault = hook.projectAdmin();
+        uint256 vaultBefore = quote.balanceOf(revenueVault);
         hook.collectGenesisFees();
-        uint256 swept = quote.balanceOf(address(ladder)) - ladderBefore;
+        uint256 swept = quote.balanceOf(revenueVault) - vaultBefore;
 
         uint256 bobBefore = quote.balanceOf(bob);
         vm.prank(bob);
@@ -4289,11 +4279,12 @@ contract ToshV5Test is Test {
         assertEq(_retailLiquidity(hook), retailLiq, "the sweep moved retail liquidity");
     }
 
-    /// @notice `pokeBuyback` sweeps the token it is about to buy before it
-    ///         buys, and reports what the sweep added.
-    function test_pokeBuyback_sweepsGenesisFeesFirst() public {
+    /// @notice The buyback no longer touches genesis fees: they stay in the
+    ///         pool until someone sweeps them to the Circuit vault.
+    function test_pokeBuyback_leavesGenesisFeesInThePool() public {
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject("PokeSweep", "PSW", alice, address(0));
         _tradeBothWays(token, hook);
+        address revenueVault = hook.projectAdmin();
 
         _matureTwap();
         vm.prank(admin);
@@ -4302,50 +4293,57 @@ contract ToshV5Test is Test {
 
         // What a sweep would pay right now, measured and rolled back.
         uint256 snap = vm.snapshotState();
-        uint256 before = quote.balanceOf(address(ladder));
+        uint256 before = quote.balanceOf(revenueVault);
         hook.collectGenesisFees();
-        uint256 expected = quote.balanceOf(address(ladder)) - before;
+        uint256 accrued = quote.balanceOf(revenueVault) - before;
         vm.revertToState(snap);
-        assertGt(expected, 0, "fixture: no fees accrued");
-
-        uint256 ladderBefore = quote.balanceOf(address(ladder));
-        vm.expectEmit(true, false, false, true, address(ladder));
-        emit ToshLadderTreasury.GenesisFeesCollected(address(hook), expected);
-        vm.prank(dave);
-        ladder.pokeBuyback();
-        uint256 ladderAfter = quote.balanceOf(address(ladder));
-        uint256 spent = ladderBefore + expected - ladderAfter;
-        assertGt(spent, 0, "fixture: the buyback leg did not fill");
-
-        // The only fees left are the ones the buyback's own swap just paid —
-        // untaxed, since the treasury is exempt — which the next sweep returns.
-        hook.collectGenesisFees();
-        assertApproxEqRel(
-            quote.balanceOf(address(ladder)) - ladderAfter,
-            (spent * hook.POOL_FEE()) / 1_000_000,
-            0.005e18,
-            "poke left pre-existing genesis fees unswept"
-        );
-    }
-
-    /// @notice A hook whose sweep reverts — an older hook without it, say —
-    ///         is reported and skipped; the buyback still runs.
-    function test_pokeBuyback_survivesAHookThatCannotSweep() public {
-        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("PokeNoSweep", "PNS", alice, address(0));
-
-        _matureTwap();
-        vm.prank(admin);
-        ladder.addLadderToken(address(token));
-        _setQuote(address(ladder), 1000e8);
-        vm.mockCallRevert(address(hook), abi.encodeWithSelector(hook.collectGenesisFees.selector), "");
+        assertGt(accrued, 0, "fixture: no fees accrued");
 
         uint256 deadBefore = token.balanceOf(DEAD);
-        vm.expectEmit(true, false, false, false, address(ladder));
-        emit ToshLadderTreasury.GenesisFeesSkipped(address(hook));
         vm.prank(dave);
         ladder.pokeBuyback();
+        assertGt(token.balanceOf(DEAD), deadBefore, "fixture: the buyback did not run");
+        assertEq(quote.balanceOf(revenueVault), before, "the poke paid the Circuit vault");
 
-        assertGt(token.balanceOf(DEAD), deadBefore, "the buyback did not run");
+        hook.collectGenesisFees();
+        assertGe(quote.balanceOf(revenueVault) - before, accrued, "the poke consumed genesis fees");
+    }
+
+    /// @notice Transferring the Circuit sweeps the genesis fees first, so the
+    ///         seller is paid them without having to sweep.
+    function test_circuitTransfer_sweepsGenesisFeesToTheSeller() public {
+        (ToshToken token, ToshLaunchpadHook hook) = _launchProject("SweepSell", "SWS", alice, address(0));
+        _tradeBothWays(token, hook);
+        CircuitRevenueVault revenueVault = CircuitRevenueVault(hook.projectAdmin());
+
+        // What a sweep would pay right now, measured and rolled back.
+        uint256 snap = vm.snapshotState();
+        hook.collectGenesisFees();
+        uint256 fees = quote.balanceOf(address(revenueVault));
+        vm.revertToState(snap);
+        assertGt(fees, 0, "fixture: no fees accrued");
+        assertEq(quote.balanceOf(address(revenueVault)), 0, "fixture: vault should start empty");
+
+        CircuitNFT circuit = CircuitNFT(factory.circuitNFT());
+        uint256 id = factory.circuitOf(address(hook));
+        uint256 before = quote.balanceOf(projTreasury);
+        vm.prank(projTreasury);
+        circuit.transferFrom(projTreasury, carol, id);
+
+        assertEq(quote.balanceOf(projTreasury) - before, fees, "the seller did not receive the fees");
+        assertEq(quote.balanceOf(address(revenueVault)), 0);
+    }
+
+    /// @notice Before launch the sweep reverts `NotLaunched`; the transfer
+    ///         must go through anyway.
+    function test_circuitTransfer_worksBeforeLaunch() public {
+        (, ToshLaunchpadHook hook) = _createProject("EarlySell", "ESL");
+        CircuitNFT circuit = CircuitNFT(factory.circuitNFT());
+        uint256 id = factory.circuitOf(address(hook));
+
+        vm.prank(projTreasury);
+        circuit.transferFrom(projTreasury, carol, id);
+        assertEq(circuit.ownerOf(id), carol);
     }
 
     /// @notice `lockAcquired` is reachable only through the Vault.

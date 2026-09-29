@@ -164,19 +164,13 @@ contract DeployScript is Script {
         vm.stopBroadcast();
 
         // ── 4. Print deployment manifest ──────────────────────────────────────
-        // Sentinel-address hash, 24h window.  Useful as a build fingerprint,
-        // useless for predicting a real launch: see step 3 below for the hash
-        // that actually matches the address `createLaunch` will deploy to.
-        bytes32 sentinelInitcodeHash = factory.getLiveHookInitcodeHash();
-
         console2.log("============================================================");
         console2.log("DEPLOYMENT COMPLETE -- copy these into your .env / frontend");
         console2.log("============================================================");
         console2.log("FACTORY_ADDRESS  =", address(factory));
         console2.log("TREASURY_ADDRESS =", address(treasury));
+        console2.log("CIRCUIT_NFT      =", factory.circuitNFT());
         console2.log("CHAIN_ID         = 97 (BSC testnet)");
-        console2.log("Sentinel 24h initcode hash (build fingerprint, NOT a launch's hash):");
-        console2.logBytes32(sentinelInitcodeHash);
         console2.log("============================================================");
         console2.log("");
         console2.log("NEXT STEPS:");
@@ -184,46 +178,15 @@ contract DeployScript is Script {
         console2.log("     NEXT_PUBLIC_FACTORY_ADDRESS, NEXT_PUBLIC_TREASURY_ADDRESS");
         console2.log("2. Regenerate soat-frontend/src/app/lib/abis.ts if any signature moved:");
         console2.log("     forge build && node scripts/extractAbis.js");
-        // ⚠ THIS STEP USED TO SAY "SALT MINING", and telling an operator to mine
-        //   would now send them looking for a rule that no longer exists.
-        //   Uniswap V4 read a hook's permissions from its address, so a salt had
-        //   to land on the 0x20CC mask.  Infinity asks the hook for
-        //   `getHooksRegistrationBitmap()`, and `ToshFactory` checks no address
-        //   bits at all -- any salt is admissible.
-        //
-        //   What replaced the search is a check the search used to imply: the
-        //   predicted address has to be UNOCCUPIED.  And what replaced the mask's
-        //   accidental protection against a stale quote is explicit --
-        //   `expectedSoftCap` / `expectedWalletCap`, which revert `CapsChanged`.
-        console2.log("3. Predicting a launch's hook address (NO MINING -- any salt lands):");
+        console2.log("3. Transfer factory ownership to the platform Safe. createLaunch is");
+        console2.log("     onlyOwner, and the owner becomes every hook's creator, i.e. the");
+        console2.log("     only address that can call launch() after genesis.");
+        console2.log("4. createLaunch(name, symbol, developer, hookSalt, hardCap, walletCap,");
+        console2.log("     duration) is NONPAYABLE; there is no launch fee. Predict the hook:");
         console2.log("     initcodeHash = factory.hookInitcodeHash(");
-        console2.log("                      projTreasury, creator, softCap, perWalletCap, duration)");
-        console2.log("     duration MUST be the creator's choice: 3h / 24h / 72h");
-        console2.log("     softCap and perWalletCap MUST be the factory's CURRENT values,");
-        console2.log("       and MUST be passed to createLaunch as expectedSoftCap /");
-        console2.log("       expectedWalletCap or it reverts CapsChanged");
-        console2.log("     finalSalt    = keccak256(abi.encode(creator, bytes32(s)))");
+        console2.log("                      developer, owner, hardCap, walletCap, duration)");
+        console2.log("     finalSalt    = keccak256(abi.encode(owner, bytes32(s)))");
         console2.log("     predicted    = HookAddress.computeAddress(factory, finalSalt, initcodeHash)");
-        console2.log("     the only test on `predicted` is that it holds no code yet");
-        // ⚠ THE PAYABILITY OF THESE TWO HAS NOW FLIPPED TWICE, IN OPPOSITE
-        //   DIRECTIONS, AND THEY NO LONGER AGREE WITH EACH OTHER.
-        //
-        //   Before the BEM move both took `msg.value`. The move made both
-        //   nonpayable, and the note that replaced this one called these "the
-        //   most expensive wrong lines in this file" because they had been
-        //   telling integrators to attach value to a function that would
-        //   revert on it. That was right, and it is now half wrong again:
-        //   `createLaunch` went back to native BNB and is `payable`, while
-        //   `deposit` stayed in BEM and did not.
-        //
-        //   So the failure mode this text guards against has inverted for line
-        //   4 and held for line 5. Anyone editing either must check
-        //   `ToshFactory` rather than pattern-match the other line — that is
-        //   precisely the assumption that made these wrong both times.
-        console2.log("4. createLaunch is PAYABLE -- send the fee as msg.value, in native BNB.");
-        console2.log("     No approval: the fee is no longer the quote asset. Overpayment is");
-        console2.log("     refunded in the same transaction; msg.value below launchFee reverts");
-        console2.log("     InsufficientLaunchFee.");
         console2.log("5. deposit(hook, referrer, amount) is NONPAYABLE -- approve the FACTORY");
         console2.log("     (not the hook) for `amount`, which is now an argument.");
         console2.log("     mintBondingCurve(tokenAmount, maxCost) approves the HOOK instead.");

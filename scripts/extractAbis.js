@@ -68,7 +68,7 @@ function assertMutability(abi, contractName, fname, want) {
     }
 }
 
-assertMutability(factoryAbi, 'ToshFactory', 'createLaunch', 'payable');
+assertMutability(factoryAbi, 'ToshFactory', 'createLaunch', 'nonpayable');
 assertMutability(factoryAbi, 'ToshFactory', 'deposit', 'nonpayable');
 assertMutability(hookAbi, 'ToshLaunchpadHook', 'mintBondingCurve', 'nonpayable');
 
@@ -86,17 +86,21 @@ const header = `// AUTO-GENERATED from Foundry artifacts — do not edit by hand
 //     platformTreasury, ladderTreasury, quoteAsset).  Infinity splits the AMM:
 //     the CL manager runs the pool, the Vault holds every balance. The quote
 //     asset is an implementation-level immutable — same token for every clone.
-//   • createLaunch is payable: the launch fee is native BNB as msg.value.
+//   • createLaunch is nonpayable and onlyOwner (the platform Safe): there is
+//     no launch fee. Its args are (name, symbol, developer, hookSalt, hardCap,
+//     walletCap, genesisDuration); the developer receives the Circuit NFT and
+//     the hook's projectAdmin is that Circuit's revenue vault.
 //     The quote asset is pulled only on deposit / shelf mint, not here.
 //   • deposit(hook, referrer, amount) is nonpayable: the amount is an argument
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —
 //     Infinity reads permissions from getHooksRegistrationBitmap(), not from
 //     the low bits of a CREATE2 address.
-//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, softCap,
+//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, hardCap,
 //     perWalletCap, genesisDuration).  projectAdmin was REMOVED by the EIP-1167
-//     clone refactor — it is mutable by design and set at initialisation, so it
-//     no longer moves the initcode hash.  This changed the selector
+//     clone refactor — it is set once at initialisation, so it no longer moves
+//     the initcode hash.  hardCap is a ceiling: deposits past it revert
+//     HardCapExceeded.  This changed the selector
 //     (0x53ced9da -> 0x42b973ff), so a factory deployed before that refactor
 //     answers the OLD signature and reverts on this one.  If the launch page
 //     reports 'hookInitcodeHash reverted', check hookImplementation() first:

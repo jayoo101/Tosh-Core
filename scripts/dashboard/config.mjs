@@ -49,22 +49,19 @@ export const TAX_BPS = 100n
 export const BPS = 10_000n
 
 /** Where the buyback trigger sits, from ToshLadderTreasury.TRIGGER_STEP. */
-export const TRIGGER_STEP = 928n * 10n ** 7n // 92.8e8
+export const TRIGGER_STEP = 10n * 10n ** 8n // 10e8
 
 export const FACTORY_ABI = [
   'function owner() view returns (address)',
   'function paused() view returns (bool)',
   'function pogSigner() view returns (address)',
   'function platformTreasury() view returns (address)',
-  'function launchFee() view returns (uint256)',
-  'function defaultSoftCap() view returns (uint256)',
   'function maxPogAllocationLimit() view returns (uint256)',
   'function cooldownDuration() view returns (uint256)',
   'function quotaWindowDuration() view returns (uint256)',
   'function globalLadderHaltedUntil() view returns (uint256)',
+  'function globalDepositsPaused() view returns (bool)',
   'function pogQuota(address) view returns (uint256)',
-  'function MAX_LAUNCH_FEE() view returns (uint256)',
-  'function MAX_DEFAULT_SOFT_CAP() view returns (uint256)',
   'function MAX_POG_ALLOCATION_LIMIT() view returns (uint256)',
 ]
 
@@ -85,7 +82,7 @@ export const HOOK_ABI = [
   'function creator() view returns (address)',
   'function ladderTreasury() view returns (address)',
   'function platformFeeRecipient() view returns (address)',
-  'function softCap() view returns (uint256)',
+  'function hardCap() view returns (uint256)',
   'function tokenInitialized() view returns (bool)',
   'function launched() view returns (bool)',
   'function refundAnnounced() view returns (bool)',
@@ -123,9 +120,8 @@ export const TOPICS = {
   BuybackSkipped: ethers.id('BuybackSkipped(address,uint256)'),
   TaxReceived: ethers.id('TaxReceived(address,uint256)'),
   LadderTokenAdded: ethers.id('LadderTokenAdded(address,uint256)'),
-  LaunchFeeUpdated: ethers.id('LaunchFeeUpdated(uint256)'),
   PogSignerUpdated: ethers.id('PogSignerUpdated(address)'),
-  DefaultSoftCapUpdated: ethers.id('DefaultSoftCapUpdated(uint256)'),
+  DepositsPausedSet: ethers.id('DepositsPausedSet(address,bool)'),
   MaxPogAllocationLimitUpdated: ethers.id('MaxPogAllocationLimitUpdated(uint256)'),
   Blacklisted: ethers.id('Blacklisted(address,uint256)'),
   LadderMintingHalted: ethers.id('LadderMintingHalted(address,uint256)'),

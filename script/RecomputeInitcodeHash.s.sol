@@ -92,24 +92,18 @@ contract RecomputeInitcodeHashScript is Script {
 
         // ── Read every value the published record needs ────────────────────
         bytes32 creationHash = factory.HOOK_CREATION_CODEHASH();
-        bytes32 liveHash = factory.getLiveHookInitcodeHash();
         address poolManager = factory.poolManager();
         address pogSigner = factory.pogSigner();
         address platformTreasury = factory.platformTreasury();
         address ladderTreasury = factory.ladderTreasury();
-        uint256 launchFee = factory.launchFee();
-        uint256 defaultSoftCap = factory.defaultSoftCap();
+        address circuitNFT = factory.circuitNFT();
         uint256 maxPogAlloc = factory.maxPogAllocationLimit();
 
         // Like-with-like only. `HOOK_CREATION_CODEHASH` is keccak256 of the
         // hook implementation's creation code (`HookDeployLib.creationCodeHash`,
         // which is `keccak256(type(ToshLaunchpadHook).creationCode)`). That is
         // the comparison §5.26 performed by hand against the artifact's
-        // `bytecode.object`. `getLiveHookInitcodeHash()` is a different
-        // measurement — the clone initcode hash built from sentinel constructor
-        // values — and is supposed to differ. Do not compare the two hashes
-        // to each other; an operator who treats them as a pair will conclude
-        // the deployment is broken. See VerifyDeployment.s.sol.
+        // `bytecode.object`.
         bytes32 localCreationHash = keccak256(type(ToshLaunchpadHook).creationCode);
         bool fingerprintMatches = localCreationHash == creationHash;
 
@@ -132,19 +126,14 @@ contract RecomputeInitcodeHashScript is Script {
             console2.log("  produce the deployed implementation.");
         }
         console2.log("------------------------------------------------------------");
-        console2.log("getLiveHookInitcodeHash :", vm.toString(liveHash));
-        console2.log("  clone initcode hash with sentinel constructor values.");
-        console2.log("  Different measurement from HOOK_CREATION_CODEHASH;");
-        console2.log("  they MUST differ. Not compared, not a mismatch.");
-        console2.log("------------------------------------------------------------");
+
         console2.log("Wired V4 PoolManager    :", poolManager);
         console2.log("Wired PoG signer        :", pogSigner);
         console2.log("Wired Platform Treasury :", platformTreasury);
         console2.log("  (immutable; takes 0.30% of every buy's ETH input)");
         console2.log("Wired Ladder Treasury   :", ladderTreasury);
-        console2.log("Launch Fee (wei)        :", launchFee);
-        console2.log("Default Soft Cap (wei)  :", defaultSoftCap);
-        console2.log("Per-wallet cap (wei)    :", maxPogAlloc);
+        console2.log("Circuit NFT             :", circuitNFT);
+        console2.log("Max PoG alloc (wei)     :", maxPogAlloc);
         console2.log("============================================================");
         console2.log("");
         console2.log("JSON drop-in (published record; there is no file to paste this into):");
@@ -156,22 +145,14 @@ contract RecomputeInitcodeHashScript is Script {
         console2.log('  "platformTreasury": "%s",', vm.toString(platformTreasury));
         console2.log('  "ladderTreasury": "%s",', vm.toString(ladderTreasury));
         console2.log('  "hookCreationCodehash": "%s",', vm.toString(creationHash));
-        console2.log('  "hookInitcodeHash": "%s",', vm.toString(liveHash));
-        console2.log('  "launchFeeWei": "%s",', vm.toString(launchFee));
-        console2.log('  "defaultSoftCapWei": "%s",', vm.toString(defaultSoftCap));
-        console2.log('  "perWalletCapWei": "%s"', vm.toString(maxPogAlloc));
+        console2.log('  "circuitNFT": "%s",', vm.toString(circuitNFT));
+        console2.log('  "maxPogAllocWei": "%s"', vm.toString(maxPogAlloc));
         console2.log("}");
         console2.log("");
-        console2.log("NOTE: `hookInitcodeHash` above is the 24h STANDARD window.");
-        console2.log("The genesis duration is part of the constructor tuple, so a");
-        console2.log("3h or 72h launch hashes differently and the miner must");
-        console2.log("rebuild the hash for whichever window the creator picked.");
-        console2.log("");
-        console2.log("The frontend needs no copy of this: the launch page reads");
-        console2.log("factory.hookInitcodeHash(...) from chain and mines against");
-        console2.log("that. This value is for publication and for checking a");
-        console2.log("deployment against its source -- so commit it, but never");
-        console2.log("hardcode it in tooling that could instead ask the factory.");
+        console2.log("A launch's hook address is predicted from");
+        console2.log("factory.hookInitcodeHash(developer, owner, hardCap, walletCap, duration),");
+        console2.log("read from chain. The creation-code hash above is for publication");
+        console2.log("and for checking a deployment against its source.");
 
         if (!fingerprintMatches) {
             revert HookCreationCodehashMismatch(localCreationHash, creationHash);

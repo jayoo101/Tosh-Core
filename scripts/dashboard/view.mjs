@@ -207,25 +207,22 @@ function burnPanel(b, QD, TD) {
 }
 
 function moneyPanel(m, QD) {
-  if (!m.ok) return panel('资金去向', '四个不同的目的地', unavailable(m))
-  return panel('资金去向', '四个不同的目的地', `
+  if (!m.ok) return panel('资金去向', '三个不同的目的地', unavailable(m))
+  return panel('资金去向', '三个不同的目的地', `
     <table>
       <tr><th>去处</th><th>余额</th><th>来源</th></tr>
       <tr><td><a href="${bscan(m.platformTreasury)}" target="_blank">平台 Safe</a> ${short(m.platformTreasury)}</td>
           <td class="num">${units(m.safeQuote, QD, 4)} BEM</td>
-          <td class="dim">买入额的 0.30% 平台维护费</td></tr>
-      <tr><td>同一个 Safe（原生币）</td>
-          <td class="num">${units(m.safeNative, 18, 4)} BNB</td>
-          <td class="dim">每次发射的 launchFee，当前 ${units(m.launchFee, 18, 4)} BNB</td></tr>
-      <tr><td><a href="${bscan('0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B')}" target="_blank">阶梯金库</a>（合约，非钱包）</td>
+          <td class="dim">买入额的 0.30% + 开盘时的孤儿佣金和误转入 Hook 的 BEM</td></tr>
+      <tr><td><a href="${bscan(m.ladderTreasury)}" target="_blank">阶梯金库</a>（合约，非钱包）</td>
           <td class="num">${units(m.treasuryQuote, QD, 4)} BEM</td>
-          <td class="dim">买入额的 0.70% + 货架 1% + 孤儿佣金 → 回购燃料</td></tr>
+          <td class="dim">买入额的 0.70% + 货架 1% → 回购燃料</td></tr>
       ${m.admins.map((a) => `<tr>
-        <td>${esc(a.symbol)} 项目方 <a href="${bscan(a.admin)}" target="_blank">${short(a.admin)}</a></td>
+        <td>${esc(a.symbol)} Circuit 金库 <a href="${bscan(a.admin)}" target="_blank">${short(a.admin)}</a></td>
         <td class="num">${units(a.balance, QD, 4)} BEM</td>
-        <td class="dim">二阶段货架铸币收入的 99%（EOA，平台不控制）</td></tr>`).join('')}
+        <td class="dim">货架收入 99% + 已领取的创世仓位手续费（归 NFT 持有人，平台不控制）</td></tr>`).join('')}
     </table>
-    <p class="note">卖出税的 1% 是直接销毁代币，不进任何地址。LP 手续费留在池子里。</p>
+    <p class="note">卖出税的 1% 是直接销毁代币，不进任何地址。创世仓位的 BEM 手续费要 collectGenesisFees() 或 NFT 转手时才进金库，之前留在池子里。</p>
   `)
 }
 
@@ -257,8 +254,9 @@ function configPanel(c) {
       <tr><td>阶梯熔断</td>
           <td class="num">${c.haltedUntil === 0 ? '未触发' : new Date(c.haltedUntil * 1000).toISOString().slice(0, 16)}</td>
           <td>${c.haltedUntil * 1000 > Date.now() ? flag('bad', '货架铸币被暂停') : flag('ok', '正常')}</td></tr>
-      ${dial('launchFee', c.launchFee, c.maxLaunchFee, 18, 'BNB')}
-      ${dial('defaultSoftCap', c.defaultSoftCap, c.maxSoftCap, 8, 'BEM')}
+      <tr><td>全局存款冻结</td><td class="num">${c.depositsPaused === null ? '—' : c.depositsPaused ? '已冻结' : '未冻结'}</td>
+          <td>${c.depositsPaused === null ? '<span class="dim">此工厂版本没有该功能</span>'
+            : c.depositsPaused ? flag('bad', '所有项目停收存款，不会自动解除') : flag('ok', '正常（单项目冻结看变更记录）')}</td></tr>
       ${dial('maxPogAllocationLimit', c.maxPogAlloc, c.maxPogLimit, 8, 'BEM')}
       <tr><td>发射冷却</td><td class="num">${c.cooldownHours} 小时</td><td class="dim"></td></tr>
       <tr><td>配额窗口</td><td class="num">${c.quotaWindowHours} 小时</td><td class="dim">配额是每窗口预算，不是终身</td></tr>

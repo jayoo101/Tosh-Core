@@ -44,10 +44,11 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///   with a fully on-chain, self-driving deflation engine:
 ///
 ///     1. The quote asset (BEM, an ERC20 with 8 decimals) flows in through
-///        THREE pipes:
+///        TWO pipes:
 ///          • the 0.7 % BUY-side in-flight tax from every Tosh pool,
-///          • orphaned referral commission (deposits with no referrer),
 ///          • the 1 % platform cut of every Phase-2 shelf mint.
+///        Orphaned referral commission used to be a third; it now goes to
+///        the platform at `launch`.
 ///        The SELL-side tax never arrives here by design — those tokens are
 ///        burned in place by the hook, needing no reservoir at all.
 ///
@@ -60,13 +61,13 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///        fees from the inflow; the claim that they are buyback fuel survived
 ///        in three docstrings after it stopped being true.
 ///     2. Every swap's `afterSwap` pokes `autoPiggybackBuyback()`.
-///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (92.8 BEM),
+///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (10 BEM),
 ///        the poking swap "gives a ride" (顺风车) to a buyback:
 ///        `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000)` is sized per pool
 ///        as `spend / BATCH_SIZE` and market-bought through PancakeSwap
 ///        Infinity in round-robin order, with the proceeds sent straight to
-///        `DEAD_ADDRESS`.  The 10 % proportional spend means a full reservoir
-///        does not sit idle waiting for dozens of 92.8-BEM drips; the floor
+///        `DEAD_ADDRESS`.  The 50 % proportional spend means a full reservoir
+///        does not sit idle waiting for dozens of 10-BEM drips; the floor
 ///        keeps a near-empty pot from wasting gas on dust legs.
 ///
 ///        ONE LEG RUNS PER POKE, not `BATCH_SIZE` of them. The divisor and the
@@ -150,9 +151,11 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev    Sized by intent rather than by a spot rate, because it is a
     ///         constant and a constant outlives the rate that set it.  The
     ///         question it answers is "how much ammunition is worth one shot,
-    ///         net of the gas to fire it", and 92.8 BEM sits where 3.5 BNB sat,
-    ///         which sat where 1 ETH sat when this was written.  A cheaper
-    ///         trigger spends the reservoir on fees; a dearer one lets it idle.
+    ///         net of the gas to fire it".  It was 92.8 BEM (where 3.5 BNB sat,
+    ///         which sat where 1 ETH sat when this was written) and was cut to
+    ///         10 BEM so small projects' buybacks fire at all: BSC gas makes a
+    ///         ~3.3 BEM leg worth firing.  A cheaper trigger spends the
+    ///         reservoir on fees; a dearer one lets it idle.
     ///
     ///         ⚠ MUST EQUAL `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP`. Both are
     ///           `constant` with no setter, in separately deployed contracts, so
@@ -161,11 +164,15 @@ contract ToshLadderTreasury is Ownable2Step {
     ///           contract would have acted on and the buyback simply goes quiet —
     ///           a skipped poke emits nothing by design, so the symptom is
     ///           silence. `ToshV5Guards.t.sol` pins the pair.
-    uint256 public constant TRIGGER_STEP = 92.8e8;
+    uint256 public constant TRIGGER_STEP = 10e8;
 
     /// @notice Fraction of the reservoir spent per piggyback cycle, in
-    ///         basis points.  1000 = 10 %.  Floored at `TRIGGER_STEP`.
-    uint256 public constant SPEND_BPS = 1000;
+    ///         basis points.  5000 = 50 %.  Floored at `TRIGGER_STEP`.
+    ///
+    /// @dev    Sizing only.  On any pool thin enough for it to matter the leg
+    ///         is clamped by `MAX_LEG_DEPTH_BPS` first, so raising this speeds
+    ///         up deep pools and leaves the sandwich margin where it was.
+    uint256 public constant SPEND_BPS = 5000;
 
     /// @notice How many ways a cycle's spend is split — the SIZING divisor, not
     ///         the number of legs run per poke.
@@ -267,8 +274,8 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         so 0.33 ETH — the figure this comment used to quote as the sum
     ///         being skimmed — is only its FLOOR, reached while the reservoir
     ///         sits between 1 and 10 ETH and the minimum is doing the sizing.
-    ///         Above that the leg is `balance / 30` and rises with the pot; a
-    ///         100 ETH reservoir offers 3.34 ETH.  The two sides of the trade
+    ///         Above that the leg is `balance / 6` and rises with the pot; a
+    ///         100 BEM reservoir offers 16.7 BEM, before the depth cap.  The two sides of the trade
     ///         also scale on different axes — evading the band costs in
     ///         proportion to POOL DEPTH, while the prize tracks the RESERVOIR —
     ///         so the margin is thinnest on a thin pool behind a full treasury.
@@ -344,15 +351,6 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @notice Emitted when one leg of a batch reverts.  The cycle continues —
     ///         a single broken pool must never brick platform-wide trading.
     event BuybackSkipped(address indexed token, uint256 nativeIn);
-
-    /// @notice Emitted per genesis fee sweep `pokeBuyback` drives, with the
-    ///         quote asset it added to the reservoir.  The token leg is burned
-    ///         by the hook and shows as a Transfer to 0xdead.
-    event GenesisFeesCollected(address indexed hook, uint256 quoteReceived);
-
-    /// @notice Emitted when a hook's genesis fee sweep reverted inside
-    ///         `pokeBuyback`.  The poke continues.
-    event GenesisFeesSkipped(address indexed hook);
 
     // ─── Errors ───────────────────────────────────────────────────────────────
 
@@ -717,37 +715,13 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         Reverts rather than returning quietly when unarmed, because
     ///         unlike the hook path this is nobody's hot path and a caller
     ///         deserves to know the call did nothing.
-    ///
-    ///         Sweeps the genesis pool fees of the tokens this cycle is about to
-    ///         buy first, while no lock is open (the sweep opens its own), so
-    ///         fees that arm the reservoir are spent in the same call.  A hook
-    ///         that cannot sweep is skipped, never fatal.
     function pokeBuyback() external {
         if (piggybackActive()) revert PiggybackInProgress();
-        _collectGenesisFees();
         if (_nextSpendAmount() == 0) revert NotArmed();
         if (ladderTokens.length == 0) revert NotArmed();
 
         // Opens our own frame, since there is no swap to borrow one from.
         vault.lock("");
-    }
-
-    /// @dev Same selection as the next `_runPiggyback`: `LEGS_PER_POKE` tokens
-    ///      from the cursor.  The cursor visits every listed token in turn, so
-    ///      each one's fees are swept eventually and none is lost by waiting.
-    function _collectGenesisFees() internal {
-        uint256 total = ladderTokens.length;
-        uint256 count = total < LEGS_PER_POKE ? total : LEGS_PER_POKE;
-        uint256 cursor = currentCursor;
-        for (uint256 i; i < count; ++i) {
-            address hook = address(_poolKeyOf[ladderTokens[(cursor + i) % total]].hooks);
-            uint256 before = quoteAsset.balanceOf(address(this));
-            try IToshHookGenesisFees(hook).collectGenesisFees() {
-                emit GenesisFeesCollected(hook, quoteAsset.balanceOf(address(this)) - before);
-            } catch {
-                emit GenesisFeesSkipped(hook);
-            }
-        }
     }
 
     /// @dev The Vault calls this back only on the address that called `lock`, so
@@ -1152,9 +1126,4 @@ interface IToshHookPoolKey {
 ///      buyback bounds itself against.
 interface IToshHookTwap {
     function twapSqrtPriceX96() external view returns (uint160);
-}
-
-/// @dev The hook's permissionless sweep of its genesis position's pool fees.
-interface IToshHookGenesisFees {
-    function collectGenesisFees() external;
 }

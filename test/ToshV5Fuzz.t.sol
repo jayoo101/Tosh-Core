@@ -25,7 +25,8 @@ contract ToshV5FuzzTest is Test {
     using MessageHashUtils for bytes32;
 
     address internal admin = makeAddr("admin");
-    address internal creator = makeAddr("creator");
+    /// @dev `createLaunch` is `onlyOwner`; the round's creator is the owner.
+    address internal creator = admin;
     address internal platformTreasury = makeAddr("platformTreasury");
     address internal projTreasury = makeAddr("projTreasury");
 
@@ -44,6 +45,8 @@ contract ToshV5FuzzTest is Test {
     address internal trader = makeAddr("trader");
 
     uint256 internal constant SOFT_CAP = 100e8;
+    /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
+    uint256 internal constant HARD_CAP = 20_000e8;
     uint256 internal constant POG_CAP = 1000e8;
 
     function setUp() public {
@@ -63,7 +66,6 @@ contract ToshV5FuzzTest is Test {
             address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
         );
         ladder.setFactory(address(factory));
-        factory.setDefaultSoftCap(SOFT_CAP);
         factory.setMaxPogAllocationLimit(POG_CAP);
         factory.setCooldownDuration(0);
         factory.setQuotaWindowDuration(0);
@@ -128,9 +130,8 @@ contract ToshV5FuzzTest is Test {
     }
 
     function _pickSalt() internal view returns (bytes32 rawSalt) {
-        bytes32 initHash = factory.hookInitcodeHash(
-            projTreasury, creator, factory.defaultSoftCap(), factory.maxPogAllocationLimit(), 24 hours
-        );
+        bytes32 initHash =
+            factory.hookInitcodeHash(projTreasury, creator, HARD_CAP, factory.maxPogAllocationLimit(), 24 hours);
         for (uint256 i; i < 1000; ++i) {
             rawSalt = bytes32(i);
             bytes32 finalSalt = keccak256(abi.encode(creator, rawSalt));
@@ -151,13 +152,10 @@ contract ToshV5FuzzTest is Test {
         returns (ToshToken token, ToshLaunchpadHook hook)
     {
         bytes32 salt = _pickSalt();
-        uint256 fee = factory.launchFee();
-        uint256 agreedSoftCap = factory.defaultSoftCap();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
         vm.prank(creator);
-        (address t, address h) = factory.createLaunch{value: fee}(
-            name, symbol, projTreasury, projTreasury, salt, fee, agreedSoftCap, agreedWalletCap, 24 hours
-        );
+        (address t, address h) =
+            factory.createLaunch(name, symbol, projTreasury, salt, HARD_CAP, agreedWalletCap, 24 hours);
         token = ToshToken(t);
         hook = ToshLaunchpadHook(payable(h));
     }
@@ -188,7 +186,7 @@ contract ToshV5FuzzTest is Test {
     function _launch(ToshLaunchpadHook hook) internal {
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
-        hook.launch();
+        factory.launch(address(hook));
     }
 
     /// @dev Shelf pricing reads `shelfP0`, not `p0`, so that is the slot the
@@ -246,7 +244,7 @@ contract ToshV5FuzzTest is Test {
     ///
     /// @dev    The fuzz above bounds the base at a hardcoded `1e6`, which is a
     ///         number about the fuzzer rather than about this system — nothing
-    ///         ties it to what the constants permit. `MIN_SOFT_CAP_PROD`,
+    ///         ties it to what the constants permit. `MIN_HARD_CAP`,
     ///         `GENESIS_LP_SUPPLY` and `SHELF_PREMIUM_BPS` between them fix the
     ///         smallest `shelfP0` a real launch can produce, and any of the three
     ///         can be retuned on its own. Two adjacent shelves sharing a price
@@ -273,50 +271,26 @@ contract ToshV5FuzzTest is Test {
         assertEq(_firstStepAt(h, 525), 0, "525 is below the break-even: shelves 0 and 1 share a price");
         assertEq(_firstStepAt(h, 526), 1, "526 is the break-even: the ladder steps by one wei");
 
-        // Smallest raise `launch()` accepts, and the least of it that can reach
-        // the LP — the referral carve takes at most `REFERRAL_BPS`.
-        uint256 minRaise = factory.MIN_SOFT_CAP_PROD();
+        // The smallest round the factory will open, filled to its cap, and the
+        // least of it that can reach the LP — the referral carve takes at most
+        // `REFERRAL_BPS`. Smaller raises inside a larger round are policed by
+        // `launch()`'s own `ladderViable()` gate, not by this floor.
+        uint256 minRaise = factory.MIN_HARD_CAP();
         uint256 minLpQuote = minRaise - (minRaise * h.REFERRAL_BPS()) / 10_000;
         uint256 minShelfP0 = (((minLpQuote * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
 
-        // 100 BEM raised → 90 BEM to the LP → p0 = 9e9 × 1e18 / 3.78e24 = 2380 →
-        // shelfP0 = 2380 × 1.05 = 2499. Both divisions floor, so the base lands a
-        // unit under `p0 × 1.05`: the arithmetic gives the remainder to the buyer.
-        assertEq(minShelfP0, 2499, "smallest reachable ladder base");
+        // 30 BEM raised → 27 BEM to the LP → p0 = 2.7e9 × 1e18 / 3.78e24 = 714 →
+        // shelfP0 = 714 × 1.05 = 749. Both divisions floor.
+        assertEq(minShelfP0, 749, "ladder base of a full minimum round");
 
-        // ⚠ THIS MARGIN COLLAPSED BY SIX ORDERS OF MAGNITUDE WHEN THE QUOTE ASSET
-        //   MOVED TO BEM, and it is the single most consequential number in that
-        //   decision.
-        //
-        //   The assertion here used to be `>= 4_000_000`. At 18 decimals the
-        //   smallest legal raise produced a shelf base sixteen million times the
-        //   break-even, so `MIN_SOFT_CAP_PROD` was a formality — no plausible
-        //   retune of the three constants could have brought the ladder near
-        //   degenerating. BEM has EIGHT decimals. The same chain now yields 2499
-        //   against a break-even of 526: a factor of 4.75.
-        //
-        //   What that changes: `MIN_SOFT_CAP_PROD` is now load-bearing. Below
-        //   roughly 21 BEM the base falls under 526 and two adjacent shelves round
-        //   onto one price, which lets a buyer clear the upper shelf at the lower
-        //   shelf's price. `docs/BEM_QUOTE_ASSET.md` §2.2 argued the 108x raise in
-        //   the floor; this is the assertion holding that argument to its
-        //   arithmetic, and `test_belowTheSoftCapFloor_theLadderStopsStepping`
-        //   below is the other half.
-        //
-        //   Written as a floor of 4 rather than `== 4` so a retune that WIDENS the
-        //   margin passes and only a narrowing one fails.
-        assertGe(minShelfP0 / 526, 4, "the reachable minimum must still clear the break-even with room");
-        assertLt(
-            minShelfP0 / 526,
-            100,
-            "if this ever passes 100 again the quote asset's decimals changed -- re-read the note above"
-        );
-
-        assertEq(_firstStepAt(h, minShelfP0), 4, "step at the reachable minimum");
+        // The floor sits above the ~21.04 BEM break-even with headroom, so a
+        // full minimum round clears 526 rather than landing on it.
+        assertGt(minShelfP0, 526, "a full minimum round must clear the break-even");
+        assertEq(_firstStepAt(h, minShelfP0), 1, "step at the minimum round's base");
     }
 
-    /// @notice Just below `MIN_SOFT_CAP_PROD` the ladder stops stepping, and the
-    ///         factory refuses to be configured there.
+    /// @notice Just below the ladder break-even the shelves stop stepping, and the
+    ///         factory refuses to open a round whose cap sits there.
     ///
     /// @dev    The test above measures the margin AT the floor. This measures what
     ///         is on the other side of it, which is what makes the floor a safety
@@ -324,12 +298,12 @@ contract ToshV5FuzzTest is Test {
     ///         at 18 decimals there was no reachable other side to measure.
     ///
     ///         The degenerate base is reached by deriving it the way `launch()`
-    ///         does and poking it into storage, since `setDefaultSoftCap` will not
+    ///         does and poking it into storage, since `createLaunch` will not
     ///         let a real launch get there. Both halves are asserted: that the
     ///         arithmetic really does degenerate, and that the factory really does
     ///         refuse. Either alone would be describing a hazard without its
     ///         guard, or a guard without its hazard.
-    function test_belowTheSoftCapFloor_theLadderStopsStepping() public {
+    function test_belowTheHardCapFloor_theLadderStopsStepping() public {
         ToshLaunchpadHook h = new ToshLaunchpadHook(
             address(poolManager),
             address(vault),
@@ -349,8 +323,8 @@ contract ToshV5FuzzTest is Test {
         assertEq(_firstStepAt(h, base), 0, "and at that base shelves 0 and 1 cost the same");
 
         vm.prank(admin);
-        vm.expectRevert(ToshFactory.InvalidSoftCap.selector);
-        factory.setDefaultSoftCap(degenerate);
+        vm.expectRevert(ToshFactory.HardCapTooLow.selector);
+        factory.createLaunch("Thin", "THN", projTreasury, bytes32(0), degenerate, degenerate, 24 hours);
     }
 
     /// @dev Pro-rata genesis claims never overshoot GENESIS_CLAIM_SUPPLY.

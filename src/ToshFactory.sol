@@ -15,6 +15,7 @@ import {ToshLaunchpadHook} from "./ToshLaunchpadHook.sol";
 import {HookAddress} from "./libraries/HookAddress.sol";
 import {HookDeployLib} from "./libraries/HookDeployLib.sol";
 import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
+import {CircuitNFT} from "./CircuitNFT.sol";
 
 /// @title  ToshFactory v5.0 — ETH-native launchpad with a global referral graph
 /// @notice Platform singleton: deploys launches, guards genesis eligibility, and
@@ -48,10 +49,12 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      later is silently ignored rather than reverting, so a stale referral
 ///      link in a shared URL can never brick a deposit.
 ///
-///   3. Launch fees are charged in native BNB and forwarded to
-///      `platformTreasury`.  They were buyback fuel until the quote asset moved
-///      to BEM: `ladderTreasury` settles in `quoteAsset` and has no `receive()`,
-///      so BNB cannot be sent there at all.  Collected inline in `createLaunch`.
+///   3. PERMISSIONED LAUNCHES (GrantPad).  Only the owner may call
+///      `createLaunch`, with a per-launch hard cap and per-wallet cap taken
+///      from the platform's review form. There is no launch fee. Every launch
+///      mints a Circuit NFT to the developer and deploys the vault it
+///      controls, and the hook pays its 99 % shelf share to that vault for
+///      the life of the project.
 contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
@@ -72,142 +75,42 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///      `928.4 * QUOTE_UNIT` makes the unit part of the expression.
     uint256 public constant QUOTE_UNIT = 1e8;
 
-    /// @notice Ceiling on `launchFee`, denominated in **native BNB wei**.
+    /// @notice Bounds on a launch's `hardCap`, in quote-asset base units.
     ///
-    /// @dev    `setLaunchFee` was the one setter on this contract with no
-    ///         validation of any kind — no floor, no ceiling, no zero-check —
-    ///         while both duration setters are capped at `MAX_COOLDOWN` and
-    ///         `setDefaultSoftCap` is floored at `MIN_SOFT_CAP_PROD`.
+    /// @dev    The floor is set by the ladder, not by policy. `launch()` refuses
+    ///         any raise below ~21.04 BEM (`RaiseTooSmallForLadder`), because
+    ///         under that the first shelf step truncates to zero. A round can
+    ///         close anywhere under its cap, so a cap close to 21.04 would mean
+    ///         only a nearly full round can launch at all. 30 BEM means a round
+    ///         launches once it reaches ~70 % of the smallest legal cap.
     ///
-    ///         The failure it admits is not an exploit, it is an accident with
-    ///         no undo short of a second owner transaction: the difference
-    ///         between `0.005 ether` and `5 ether` is one keystroke in a Safe
-    ///         transaction builder. Above the ceiling `createLaunch` becomes
-    ///         unaffordable for everyone, which is a platform-wide outage
-    ///         produced by a typo rather than by an attacker.
-    ///
-    ///         Deliberately generous — 100x the 0.005 BNB default — because this
-    ///         guards against an order-of-magnitude slip, not against pricing
-    ///         judgement.  Zero stays legal: a fee-free platform is a policy
-    ///         choice, and `test_setLaunchFee_allowsZero` pins it.
-    ///
-    ///         ⚠ THE UNIT-CONFUSION ARGUMENT NOW CUTS THE OTHER WAY, and that is
-    ///           why `ether` is spelled here while `QUOTE_UNIT` guards the dials
-    ///           below. The fee is the one figure on this contract denominated
-    ///           in the chain's own coin rather than in the quote asset, so
-    ///           `0.005 * QUOTE_UNIT` — the shape every neighbouring constant
-    ///           takes — would be the mistake here. The two unit systems now
-    ///           coexist on one contract deliberately: see `launchFee`.
-    uint256 public constant MAX_LAUNCH_FEE = 0.5 ether;
+    ///         The ceiling guards unit confusion (`20_000 ether` where
+    ///         `20_000e8` was meant is a factor of 1e10). 20,000 BEM is ~10.4 %
+    ///         of BEM's 191,739 supply, far above any raise this platform could
+    ///         fill.
+    uint256 public constant MIN_HARD_CAP = 30e8;
+    uint256 public constant MAX_HARD_CAP = 20_000e8;
 
-    /// @notice Ceilings on the two other quote-denominated dials, in base units.
+    /// @notice What a `hardCap` of 0 is stored as: no cap, the round runs to
+    ///         its deadline whatever it raises.
     ///
-    /// @dev    Same failure mode as `MAX_LAUNCH_FEE` — a base-unit field typed
-    ///         into a Safe transaction builder — and looser, because a raise or a
-    ///         wallet cap has no comfortable range the way a launch fee does.
-    ///         They guard **unit confusion**: `928.4 ether` where
-    ///         `928.4 * QUOTE_UNIT` was meant is a factor of 1e10.
-    ///
-    ///         THESE WERE CUT FROM 1,000,000 TO 20,000 AND THAT IS NOT A
-    ///         RESCALING. Under a native quote asset, 1 M units was chosen to be
-    ///         so far above any conceivable raise that it could only ever catch a
-    ///         typo — it was well under 1% of BNB's supply. BEM's entire supply is
-    ///         191,739.22 BEM (19,173,922,124,972 base units, measured on 56).
-    ///         A 1 M ceiling would therefore have sat five times ABOVE the total
-    ///         number of tokens in existence, which is not a loose bound, it is
-    ///         no bound: every value it admits includes values that cannot be
-    ///         raised because the units do not exist.
-    ///
-    ///         20,000 BEM is ~10.4% of supply — still far above any raise this
-    ///         platform could fill, still 1e10 clear of the `ether` slip, and now
-    ///         actually a statement about reachable amounts.
-    ///
-    ///         ⚠ NEITHER CEILING IS A LIQUIDITY CHECK, and with BEM the gap
-    ///           between "exists" and "obtainable" is where the real risk lives.
-    ///           BEM's only pool of consequence held 1,959 BEM when last
-    ///           measured, so even the 928.4 BEM DEFAULT soft cap asks for
-    ///           roughly half the float. A cap under this ceiling says nothing
-    ///           about whether depositors can buy the tokens to fill it. See
-    ///           docs/BEM_QUOTE_ASSET.md §1.2.
-    ///
-    ///         A `maxPogAllocationLimit` under this ceiling is likewise **not**
-    ///         evidence that PoG still limits whales: once the per-wallet cap
-    ///         reaches the soft cap a single wallet can fill an entire genesis
-    ///         round, and no constant can enforce that ratio, because
-    ///         `defaultSoftCap` moves independently and coupling the two would
-    ///         make the outcome depend on which setter the owner happened to call
-    ///         first.  That sizing is a policy judgement and stays one.
-    uint256 public constant MAX_DEFAULT_SOFT_CAP = 20_000e8;
+    /// @dev    A sentinel rather than a flag because the hook cannot grow (its
+    ///         deployer is within bytes of the size limit) and already refuses
+    ///         a zero cap. The widest value its uint128 arg holds is one no
+    ///         deposit sum can reach — BEM's whole supply is ~1.9e13 base units.
+    ///         `MIN_HARD_CAP`/`MAX_HARD_CAP` do not apply; the wallet cap is
+    ///         held to `MAX_HARD_CAP` instead, as the unit-slip guard.
+    uint256 public constant UNCAPPED = type(uint128).max;
 
-    /// @dev    See `MAX_DEFAULT_SOFT_CAP`; identical reasoning, kept as its own
-    ///         constant so the two can diverge without a migration.
+    /// @notice Ceiling on `maxPogAllocationLimit`, in base units.
+    ///
+    /// @dev    Guards the same unit slip as `MAX_HARD_CAP`.
+    ///
+    ///         A `maxPogAllocationLimit` under this ceiling is **not** evidence
+    ///         that PoG still limits whales: a per-launch wallet cap equal to
+    ///         the hard cap lets one wallet fill an entire round. That sizing is
+    ///         made per launch, on the review form.
     uint256 public constant MAX_POG_ALLOCATION_LIMIT = 20_000e8;
-
-    /// @notice Minimum acceptable `defaultSoftCap`, in quote-asset base units.
-    ///
-    /// @dev    Guards two cliffs, and the one this comment used to name alone is
-    ///         not the binding one.
-    ///
-    ///         The obvious cliff is `p0 = 0`.  The hook derives
-    ///         `p0 = (lpQuote * 1e18) / GENESIS_LP_SUPPLY` with
-    ///         `GENESIS_LP_SUPPLY = 3.78e24`, so `p0` truncates to zero once
-    ///         `lpQuote < 3_780_000` base units — which would collapse the entire
-    ///         tier ladder to a free-mint zone.  This cliff does have a backstop:
-    ///         the hook's `launch()` asserts `p0 > 0`.
-    ///
-    ///         The binding cliff is ladder *flattening*, and it sits far above
-    ///         the first.  Shelves are geometric —
-    ///         `price(i) = shelfP0 · 1.001902508^i` — so monotonicity needs the
-    ///         first step to survive truncation: `shelfP0 · 0.0019025 ≥ 1`, i.e.
-    ///         `shelfP0 ≥ 526`, which needs a raise of 21.042 quote units.
-    ///
-    ///         ⚠ THIS CONSTANT IS NOT WHAT DEFENDS THAT CLIFF, whatever this
-    ///           comment used to claim. It floors the CAP, and the cap gates
-    ///           nothing: neither `launch()` nor `canRefund()` reads it, so a
-    ///           raise far below its cap is the ordinary case rather than an
-    ///           error. A floor on the cap therefore says nothing about the
-    ///           quantity the cliff depends on.
-    ///
-    ///           The real guard is `ToshLaunchpadHook.launch()`, which now
-    ///           refuses a raise whose shelf 0 -> 1 step truncates to zero
-    ///           (`RaiseTooSmallForLadder`). Read that comment for the window
-    ///           this constant was believed to be covering and was not.
-    ///
-    ///         What this constant still does is worth keeping: it stops an owner
-    ///         advertising a cap so small that no raise under it could open a
-    ///         pool, which would be a launch that fails at `launch()` after
-    ///         taking deposits rather than at `createLaunch`.
-    ///
-    ///         ⚠ THE MARGIN OVER THAT CLIFF IS NOW 4.75x, DOWN FROM 16.6 MILLION,
-    ///           and that collapse is the whole reason this constant was retuned.
-    ///
-    ///           Both cliffs are pure base-unit arithmetic — they know nothing
-    ///           about what a unit is worth, only how many of them arrive. The
-    ///           native quote asset had 18 decimals, so a 35-unit soft cap
-    ///           delivered `lpQuote = 3.15e19` and `shelfP0 = 8,749,999,999`:
-    ///           16.6 million times the break-even, a margin so wide it could be
-    ///           treated as infinite. BEM has 8 decimals. The SAME NUMBER OF
-    ///           TOKENS now arrives as 1e10 fewer base units, so the entire
-    ///           margin has to be bought back out of the token count.
-    ///
-    ///           At this floor: `lpQuote = 9e9` (100 BEM less the 10% commission
-    ///           carve), `p0 = 2380`, `shelfP0 = 2499`, first step 4 units.
-    ///           2499 / 526 = 4.75.
-    ///
-    ///           What that costs in practice: raises below ~21 BEM cannot produce
-    ///           a monotone ladder AT ALL, so the floor is no longer a formality
-    ///           that only testnet dust could hit — it is close enough to the
-    ///           cliff that `testFuzz_tierPriceAt_strictlyMonotone` is now a
-    ///           load-bearing test rather than a sanity check, and lowering this
-    ///           value is a change to ladder correctness rather than to policy.
-    ///           Do not treat 100 as round-number caution.
-    ///
-    ///         `p0` scales linearly with the cap, so raising the floor only ever
-    ///         widens the margin. Pinned by
-    ///         `test_setDefaultSoftCap_rejectsBelowFloor` and
-    ///         `testFuzz_tierPriceAt_strictlyMonotone`; derived in
-    ///         `docs/SECURITY_AUDIT.md` §5.11 and docs/BEM_QUOTE_ASSET.md §2.1.
-    uint256 public constant MIN_SOFT_CAP_PROD = 100e8;
 
     // ─── Immutables ───────────────────────────────────────────────────────────
 
@@ -223,24 +126,20 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         hook implementation this factory deploys.
     address public immutable vault;
 
-    /// @notice Platform buyback reservoir.  Receives the shelf cut and orphaned
-    ///         referral commission from here, and the 70 bps buy-side tax share
-    ///         from the hooks.  NOT launch fees — those are BNB and go to
-    ///         `platformTreasury`; see the note there.
+    /// @notice Platform buyback reservoir.  Receives the shelf cut and the
+    ///         70 bps buy-side tax share from the hooks.
     address payable public immutable ladderTreasury;
 
     /// @notice The ERC20 genesis deposits are paid in, and `currency0` of every
-    ///         project pool.  Launch fees are NOT paid in it — they are native
-    ///         BNB.
+    ///         project pool.
     ///
     /// @dev    Same value the hook implementation holds, from the same
     ///         constructor argument — see the note in the constructor for why
     ///         the two cannot disagree and no cross-check is warranted.
     ///
     ///         Held here as well as on the hook because this contract is the
-    ///         one that pulls: `createLaunch` collects `launchFee` and
-    ///         `deposit` collects the depositor's stake, both by
-    ///         `transferFrom`, and both need the token without an extra hop.
+    ///         one that pulls: `deposit` collects the depositor's stake by
+    ///         `transferFrom` and needs the token without an extra hop.
     ///
     ///         ALSO THE FLOOR EVERY PROJECT TOKEN ADDRESS MUST CLEAR.
     ///         `currency0` is the lower of the two addresses, so keeping the
@@ -270,22 +169,28 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         for it — the hook's 19.5 KB is what needed isolating.
     address public immutable tokenImplementation;
 
+    /// @notice The Circuit NFT collection. One token per launch, minted to the
+    ///         developer; holding it controls that project's revenue vault.
+    ///
+    /// @dev    Deployed from this constructor, so its `factory` is this
+    ///         contract by construction and no one else can ever mint.
+    address public immutable circuitNFT;
+
+    /// @notice The shared `CircuitRevenueVault` implementation every project's
+    ///         vault clone delegates to. Deployed by `circuitNFT`'s constructor
+    ///         and copied here; no setter, for the same reason as
+    ///         `hookImplementation`.
+    address public immutable vaultImplementation;
+
     // ─── Owner-controlled state ───────────────────────────────────────────────
 
     address public pogSigner;
 
-    /// @notice Platform fee destination. Receives exactly two flows:
-    ///         the 0.30 % maintenance cut of every buy's quote input (BEM), and
-    ///         the native launch fee that `createLaunch` forwards as BNB.
+    /// @notice Platform fee destination. Receives two flows, both in BEM: the
+    ///         0.30 % maintenance cut of every buy's quote input, and orphaned
+    ///         referral commission flushed at each `launch`.
     ///
-    /// @dev    THE SUMMARY ABOVE USED TO READ "the 0.30 % cut of every buy's ETH
-    ///         input, and nothing else", and both halves of that were wrong once
-    ///         the launch fee moved back to native value: the swap cut is the
-    ///         8-decimal quote asset rather than ETH, and `createLaunch` forwards
-    ///         BNB here on every launch. "And nothing else" is the part that
-    ///         costs something -- explorers and generated docs publish the
-    ///         summary line, so an operator reconciling this address would watch
-    ///         only the BEM ledger and never see the BNB toll arrive.
+    /// @dev    There is no launch fee any more, so nothing native arrives here.
     ///
     /// @dev    ON A MONEY PATH AGAIN, AND IMMUTABLE BECAUSE OF IT.
     ///
@@ -296,8 +201,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         v5.0 moved 100 % of platform revenue to `ladderTreasury` to be
     ///         burned rather than banked, which closed M-2 by leaving this
     ///         address with no inflow at all; for a while it survived only as
-    ///         the sentinel filler in `getLiveHookInitcodeHash`, documented as
-    ///         metadata rather than a lever.
+    ///         a sentinel filler, documented as metadata rather than a lever.
     ///
     ///         It now carries `ToshLaunchpadHook.PLATFORM_SWAP_FEE_BPS`.  That
     ///         reopens exactly the surface M-2 described, so the mutability
@@ -312,13 +216,9 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         this one, read it back changed, and still be paying the old
     ///         address on every swap.  One address, set once, in both places.
     ///
-    ///         Launch fees arrive here too, and that is the newer half of this
-    ///         address's job: they are native BNB, which `ladderTreasury` can
-    ///         neither spend nor even receive.
-    ///
-    ///         What still routes to `ladderTreasury` is the Phase-2 shelf cut,
-    ///         orphaned referral commission, and the 70 bps reservoir share of
-    ///         the same buy-side tax — three pipes, not four.
+    ///         What still routes to `ladderTreasury` is the Phase-2 shelf cut
+    ///         and the 70 bps reservoir share of the same buy-side tax.  This
+    ///         address also receives orphaned referral commission at `launch`.
     address public immutable platformTreasury;
 
     /// @notice Per-(wallet, hook) re-deposit throttle.  Orthogonal to the
@@ -377,54 +277,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         without a cool-off) without that coupling.
     uint256 public quotaWindowDuration = 24 hours;
 
-    /// @notice Native BNB toll charged by `createLaunch`. Default: 0.005 BNB.
+    /// @notice Platform-wide ceiling on the PoG `maxAlloc` an oracle attestation
+    ///         may grant.
     ///
-    /// @dev    ⚠ THIS IS THE ONE DIAL ON THIS CONTRACT NOT DENOMINATED IN THE
-    ///           QUOTE ASSET. Everything else here — `defaultSoftCap`,
-    ///           `maxPogAllocationLimit` — is BEM at 8 decimals and is written
-    ///           `x * QUOTE_UNIT` so the unit cannot be misread. This is BNB at
-    ///           18, written with `ether`. Two unit systems on one contract is
-    ///           a hazard, and the spelling is the mitigation: if a literal here
-    ///           ever acquires a `QUOTE_UNIT` it is wrong by ten orders of
-    ///           magnitude, and if one below acquires an `ether` so is that.
-    ///
-    ///         It was 9.28 BEM before, and moving it back to the chain's own
-    ///         coin is not a reversal of the BEM migration but a recognition of
-    ///         what this particular payment is. The quote asset denominates
-    ///         everything a project RAISES, prices and settles in, so a fee paid
-    ///         in it made the creator acquire BEM before they could even deploy.
-    ///         A launch toll is not part of the raise; it is the cost of using
-    ///         the platform, and asking for it in the coin the creator already
-    ///         holds for gas removes an approval and an acquisition from the
-    ///         path to a first launch.
-    ///
-    ///         ⚠ IT ALSO STOPS BEING BUYBACK FUEL, AND THAT IS A REAL LOSS, JUST
-    ///           A SMALL ONE. The fee used to be pulled to `ladderTreasury`,
-    ///           whose whole outflow is buy-and-burn; it now goes to
-    ///           `platformTreasury`. The reservoir cannot spend BNB — it settles
-    ///           `quoteAsset` and `reservoir()` reads only that balance — so
-    ///           routing BNB there would strand it permanently, and the treasury
-    ///           has no `receive()` to accept it in the first place. What makes
-    ///           this affordable is the price rather than the plumbing: at 0.005
-    ///           BNB against a `TRIGGER_STEP` of 92.8 BEM (~3.5 BNB), roughly
-    ///           700 launches arm one buyback, where 9.28 BEM was a tenth of a
-    ///           step and ten launches did. The fee had already ceased to be
-    ///           meaningful ammunition before it changed denomination.
-    ///
-    ///         Not pegged to anything. 0.005 BNB is 0.005 BNB until an owner
-    ///         transaction says otherwise, which is the same property the BEM
-    ///         figure had — one asset closer to what the creator already holds.
-    uint256 public launchFee = 0.005 ether;
-
-    /// @notice Per-wallet quote-asset cap. Serves double duty: it ceilings the PoG
-    ///         `maxAlloc` an oracle attestation may grant, and it is
-    ///         snapshotted into every NEW hook as that project's per-wallet
-    ///         deposit limit.
-    ///
-    /// @dev    Only the snapshot is binding for a live round.  Retuning this
-    ///         value governs projects created afterwards; rounds already
-    ///         raising keep the cap they were deployed with, so the terms a
-    ///         depositor committed under cannot be rewritten under them.
+    /// @dev    No longer a per-project cap. Each launch takes its own per-wallet
+    ///         cap from `createLaunch`, frozen into its hook, so retuning this
+    ///         value never touches a round already open.
     ///
     ///         Kept in step with `DEFAULT_POG_MAX_ALLOC_WEI` in
     ///         `soat-frontend/src/app/lib/pogQuota.ts`, which seeds the
@@ -447,29 +305,6 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         hop; docs/BEM_QUOTE_ASSET.md §2.7 is where the second is the
     ///         open problem.
     uint256 public maxPogAllocationLimit = 46.4e8;
-
-    /// @notice Global default soft-cap baked into every NEW hook, in quote-asset
-    ///         base units. Default: 928.4 BEM.
-    ///
-    /// @dev    ⚠ THIS DEFAULT ASKS FOR MORE BEM THAN THE MARKET CAN SUPPLY, and it
-    ///           is left here as the arithmetic conversion of 35 BNB rather than
-    ///           as a defensible target.
-    ///
-    ///           928.4 BEM is 0.48% of BEM's 191,739-token supply and roughly
-    ///           HALF the 1,959 BEM sitting in its only pool of consequence. A
-    ///           round at this cap cannot be filled by depositors buying BEM on
-    ///           the open market; it can only be filled by holders who already
-    ///           have it. The soft cap is not a gate — neither `launch()` nor
-    ///           `canRefund()` reads it — so the consequence of setting it
-    ///           absurdly high is nothing at all, not a failed launch. The
-    ///           floor that does exist is `ladderViable()`, and it is derived
-    ///           from the ladder rather than from this dial.
-    ///
-    ///           It is a dial, not a constant, and lowering it is a single owner
-    ///           transaction floored at `MIN_SOFT_CAP_PROD` (100 BEM). Do that
-    ///           before the first mainnet launch rather than shipping a default
-    ///           that misrepresents every project using it.
-    uint256 public defaultSoftCap = 928.4e8;
 
     // ─── Eligibility maps ─────────────────────────────────────────────────────
 
@@ -549,6 +384,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         failed only because the factory was paused through its window.
     mapping(address => bytes32) public hookNameKey;
 
+    /// @notice The Circuit token issued for each launch, and its reverse. The
+    ///         vault it controls is the hook's `projectAdmin`.
+    mapping(address hook => uint256 tokenId) public circuitOf;
+    mapping(uint256 tokenId => address hook) public hookOfCircuit;
+
     // ─── Events ───────────────────────────────────────────────────────────────
 
     /// @dev `creator` is the one unindexed address here, and that is a choice
@@ -602,12 +442,13 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     event ReferralBound(address indexed user, address indexed referrer);
     event ProjectReferralBound(address indexed user, address indexed hook, address indexed referrer);
     event PogSignerUpdated(address indexed newSigner);
-    event LaunchFeeUpdated(uint256 fee);
-    event LaunchFeeForwarded(uint256 amount);
     event CooldownDurationUpdated(uint256 duration);
     event QuotaWindowDurationUpdated(uint256 duration);
-    event DefaultSoftCapUpdated(uint256 newSoftCap);
     event MaxPogAllocationLimitUpdated(uint256 newLimit);
+
+    /// @notice A launch's revenue right was issued: `developer` received Circuit
+    ///         `tokenId`, which controls `vault`, the hook's permanent payee.
+    event CircuitIssued(uint256 indexed tokenId, address indexed hook, address indexed developer, address vault);
 
     /// @notice A wallet's quota window lapsed and its budget was topped back up.
     event QuotaWindowReset(address indexed user, uint256 windowEnd);
@@ -631,15 +472,17 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error HookNotRegistered();
     error DeployFailed();
     error ZeroAmount();
-    error InvalidAdmin();
+    /// @notice `createLaunch` was given the zero address as the developer.
+    error InvalidDeveloper();
     error ExceedsGlobalPogLimit();
-    error InvalidSoftCap();
-    error LaunchFeeTooHigh();
-    /// @notice `defaultSoftCap` above `MAX_DEFAULT_SOFT_CAP` — see that constant.
-    error SoftCapTooHigh();
-    /// @notice `maxPogAllocationLimit` may not be set to zero — the hook
-    ///         constructor rejects a zero per-wallet cap, so it would brick
-    ///         `createLaunch` platform-wide.
+    /// @notice `hardCap` below `MIN_HARD_CAP`.
+    error HardCapTooLow();
+    /// @notice `hardCap` above `MAX_HARD_CAP`.
+    error HardCapTooHigh();
+    /// @notice The per-wallet cap is zero or exceeds the launch's hard cap.
+    error InvalidWalletCap();
+    /// @notice `maxPogAllocationLimit` may not be set to zero, since no
+    ///         attestation could then grant any quota.
     error InvalidPogLimit();
     /// @notice `maxPogAllocationLimit` above `MAX_POG_ALLOCATION_LIMIT`.
     error PogLimitTooHigh();
@@ -659,37 +502,6 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         at the call site costs a comparison and turns an offset bug in the
     ///         grind from a shipped project into a reverted transaction.
     error TokenBelowQuoteAsset();
-    /// @notice Owner raised `launchFee` above the caller's slippage cap.
-    error FeeChanged();
-    /// @notice `defaultSoftCap` or `maxPogAllocationLimit` moved between the
-    ///         caller reading them and this launch executing.
-    ///
-    /// @dev    Replaces what `InvalidHookSalt` used to catch by accident. See
-    ///         `createLaunch`'s `expectedSoftCap` parameter.
-    error CapsChanged();
-    /// @notice `createLaunch` was sent less than `launchFee`.
-    ///
-    /// @dev    Reachable again. It was removed when the fee became a BEM pull,
-    ///         because a pull has nothing in hand to be short of and the
-    ///         token's own allowance revert carried the two figures. The fee is
-    ///         native once more, so the shortfall is local and gets a local
-    ///         name rather than an ERC20 error the creator has to translate.
-    error InsufficientLaunchFee();
-    /// @notice A native-coin transfer to a treasury or refund recipient failed.
-    ///
-    /// @dev    Reachable again, and the history is the point. `_sendNative` was
-    ///         deleted when Slither called it dead code, which it was: every
-    ///         value path had become `SafeERC20.safeTransferFrom`, and this
-    ///         contract had no payable function to hold a native balance with.
-    ///         The error was kept anyway so the ABI would not lose a selector
-    ///         indexers might match on.
-    ///
-    ///         That turned out to be the right call for the wrong reason.
-    ///         "Unused" was a fact about one denomination, not about the
-    ///         design: `createLaunch` takes BNB again, `_sendNative` is back,
-    ///         and this reverts when `platformTreasury` or a creator taking
-    ///         change refuses the transfer.
-    error NativeTransferFailed();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -735,6 +547,10 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         hookImplementation =
             HookDeployLib.deployImplementation(_poolManager, _vault, _ladderTreasury, _platformTreasury, _quoteAsset);
         tokenImplementation = address(new ToshToken(address(this)));
+
+        CircuitNFT circuit = new CircuitNFT(address(this), _quoteAsset);
+        circuitNFT = address(circuit);
+        vaultImplementation = circuit.vaultImplementation();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -797,7 +613,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///           sets the owner to zero with no confirmation and no way back.
     ///
     ///         What that would cost here is not abstract. It is `pause`,
-    ///         `setBlacklist`, `haltLadder`, `setLaunchFee`, `setPogSigner` and
+    ///         `setBlacklist`, `haltLadder`, `setPogSigner` and
     ///         the rest of the owner-gated surface — the emergency stops, gone,
     ///         on a live launchpad holding user quote.
     ///
@@ -853,6 +669,25 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     event LadderMintingHalted(address indexed hook, uint256 until);
     event LadderMintingResumed(address indexed hook);
 
+    // ─── Deposit freeze ───────────────────────────────────────────────────────
+    //
+    // `pause()` deliberately leaves open rounds taking deposits. This is the
+    // brake for when they should not: scoped like the ladder halt, with
+    // `address(0)` meaning every project. It reaches `deposit` only — refund,
+    // claims and `launch` read nothing here, so committed quote is never
+    // trapped. It does not expire, because the worst it can do is let a round
+    // close small and fall through to refunds.
+
+    /// @notice Every project's deposits are frozen.
+    bool public globalDepositsPaused;
+
+    /// @notice Per-hook deposit freeze.
+    mapping(address hook => bool) public hookDepositsPaused;
+
+    event DepositsPausedSet(address indexed hook, bool paused);
+
+    error DepositsPaused();
+
     error HaltDurationTooLong();
 
     /// @notice Suspend shelf minting for `duration` seconds.
@@ -888,22 +723,52 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         return block.timestamp < globalLadderHaltedUntil || block.timestamp < hookLadderHaltedUntil[hook];
     }
 
+    /// @notice Open `hook`'s pool once its genesis window has closed.
+    ///
+    /// @dev    The hook accepts `launch` from this factory only, so the right to
+    ///         launch follows the factory's CURRENT owner. A Safe rotated after
+    ///         `createLaunch` can still open the rounds created before it.
+    function launch(address hook) external onlyOwner {
+        if (!registeredHooks[hook]) revert HookNotRegistered();
+        ToshLaunchpadHook(payable(hook)).launch();
+    }
+
+    /// @notice Freeze or unfreeze deposits into `hook`, or into every project
+    ///         when `hook == address(0)`.
+    function setDepositsPaused(address hook, bool paused_) external onlyOwner {
+        if (hook == address(0)) {
+            globalDepositsPaused = paused_;
+        } else {
+            hookDepositsPaused[hook] = paused_;
+        }
+        emit DepositsPausedSet(hook, paused_);
+    }
+
+    /// @notice Whether `hook` currently refuses deposits.
+    function depositsPaused(address hook) public view returns (bool) {
+        return globalDepositsPaused || hookDepositsPaused[hook];
+    }
+
+    /// @notice Set `users`' PoG quota outright — lower, revoke with 0, or raise.
+    ///
+    /// @dev    `registerPoG` only ever raises quota, so this is the only way
+    ///         down short of a blacklist. It also bumps each user's nonce:
+    ///         otherwise a signature issued before the cut but not yet
+    ///         submitted would restore the old figure.
+    function setPogQuota(address[] calldata users, uint256 quota) external onlyOwner {
+        require(users.length <= 200, "Batch too large");
+        if (quota > maxPogAllocationLimit) revert ExceedsGlobalPogLimit();
+        for (uint256 i; i < users.length; ++i) {
+            pogQuota[users[i]] = quota;
+            pogNonces[users[i]]++;
+            emit PoGRegistered(users[i], quota);
+        }
+    }
+
     function setPogSigner(address newSigner) external onlyOwner {
         require(newSigner != address(0), "zero signer");
         pogSigner = newSigner;
         emit PogSignerUpdated(newSigner);
-    }
-
-    /// @notice Set the native BNB toll charged by `createLaunch`, in wei
-    ///         (18 decimals, so 0.005 BNB is `5e15`).
-    /// @dev    Bounded above by `MAX_LAUNCH_FEE`; see that constant for why.
-    ///         Zero is legal.  Not retroactive in any sense — `createLaunch`
-    ///         reads it live and `expectedFee` protects the creator against a
-    ///         change that lands in the same block.
-    function setLaunchFee(uint256 fee) external onlyOwner {
-        if (fee > MAX_LAUNCH_FEE) revert LaunchFeeTooHigh();
-        launchFee = fee;
-        emit LaunchFeeUpdated(fee);
     }
 
     function setCooldownDuration(uint256 duration) external onlyOwner {
@@ -918,27 +783,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit QuotaWindowDurationUpdated(duration);
     }
 
-    /// @notice Owner-rotatable global default soft-cap, floored at
-    ///         `MIN_SOFT_CAP_PROD` to keep `p0` off the truncation cliff and
-    ///         capped at `MAX_DEFAULT_SOFT_CAP` to catch a wei/ether slip.
-    function setDefaultSoftCap(uint256 newSoftCap) external onlyOwner {
-        if (newSoftCap < MIN_SOFT_CAP_PROD) revert InvalidSoftCap();
-        if (newSoftCap > MAX_DEFAULT_SOFT_CAP) revert SoftCapTooHigh();
-        defaultSoftCap = newSoftCap;
-        emit DefaultSoftCapUpdated(newSoftCap);
-    }
-
-    /// @notice Retune the per-wallet ETH ceiling.
+    /// @notice Retune the platform-wide PoG attestation ceiling.
     ///
-    /// @dev    Floored at 1 wei rather than left open, because this value is
-    ///         snapshotted into every new hook's constructor tuple and that
-    ///         constructor does `require(_perWalletCap > 0)`.  At zero the
-    ///         CREATE2 construction reverts and `createLaunch` dies with
-    ///         `DeployFailed` for EVERY creator — a dial documented as
-    ///         governing "new projects only" would instead have taken the
-    ///         entire launch entrance offline, with nothing in the signature
-    ///         or the event to suggest it.  Pausing is the supported way to
-    ///         stop taking on projects; see `pause()`.
+    /// @dev    Floored at 1 base unit: at zero every attestation would revert
+    ///         `ExceedsGlobalPogLimit`, which closes the deposit entrance for
+    ///         new wallets with nothing in the event to suggest it. Pausing is
+    ///         the supported way to stop taking on wallets; see `pause()`.
     ///
     ///         Capped at `MAX_POG_ALLOCATION_LIMIT`, which catches a wei/ether
     ///         slip and nothing subtler — read that constant before treating the
@@ -1088,7 +938,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     ///         A project's earliest deposits CANNOT bind a project referrer,
     ///         because at that point nobody has a deposit here to qualify
-    ///         with.  Their 8 % orphans to the buyback reservoir.  The playbook
+    ///         with.  Their 8 % orphans to the platform.  The playbook
     ///         that follows is deliberate and has to be surfaced in the UI: to
     ///         earn on a project, deposit into it before sharing the link.
     ///
@@ -1116,110 +966,63 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     //  Launch Creation
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Deploy a new launch (Hook + ToshToken pair) under a creator-bound
-    ///         CREATE2 salt, paying `launchFee` in native BNB as `msg.value`.
-    ///         Anything above the fee is returned in the same transaction.
+    /// @notice Deploy a new launch: hook, token, Circuit NFT and revenue vault,
+    ///         with the parameters the platform approved on its review form.
     ///
-    /// @param  expectedFee Slippage cap on `launchFee`; pass the value read in
-    ///                     the same block to prevent an owner fee-bump front-run.
-    /// @param  expectedSoftCap Exact `defaultSoftCap` the caller agreed to.
-    /// @param  expectedWalletCap Exact `maxPogAllocationLimit` the caller agreed
-    ///                     to.
+    /// @dev    OWNER ONLY. The platform reviews every project off chain and is
+    ///         the only party that can list one, so the caller is always the
+    ///         owner Safe. That Safe is recorded as the hook's `creator`, but
+    ///         launching goes through `launch(hook)` and follows whoever owns
+    ///         the factory then. If nobody launches within `LAUNCH_WINDOW` the
+    ///         round opens for refunds.
     ///
-    ///                     ⚠ THESE TWO ARE EXACT, NOT CAPS, and unlike
-    ///                       `expectedFee` there is no direction in which a
-    ///                       mismatch is harmless. A fee that moved DOWN still
-    ///                       leaves the caller better off, so that one is a
-    ///                       bound. A soft cap that moved in either direction
-    ///                       changes the project's economics AND re-rolls the
-    ///                       CREATE2 address the caller predicted, so equality is
-    ///                       the only useful test.
+    ///         The developer receives the project's Circuit NFT. The vault it
+    ///         controls is the hook's `projectAdmin`, the permanent payee of 99 %
+    ///         of every shelf sale. The developer address is also baked into the
+    ///         hook as `projectTreasury`, an unalterable record of who the
+    ///         platform listed.
     ///
-    ///                     They exist because the PancakeSwap Infinity port
-    ///                     removed the thing that used to catch this by accident.
-    ///                     Uniswap V4 required a MINED salt, so a dial rotated
-    ///                     between quote and execution re-rolled the address into
-    ///                     one that failed the permission mask about 98% of the
-    ///                     time, and the launch reverted. Infinity takes
-    ///                     permissions from the hook's own bitmap, every salt is
-    ///                     valid, and the launch would otherwise succeed silently
-    ///                     at an unpredicted address with dials the caller never
-    ///                     agreed to. See docs/PANCAKESWAP_INFINITY.md §11.3.
-    /// @param  genesisDuration Genesis window length.  Must be one of the hook's
-    ///                     three allowed rungs (3 h / 24 h / 72 h) —
-    ///                     `initializeToken` rejects anything else, and because
-    ///                     the value is baked into the clone's bytecode and hence
-    ///                     the initcode hash, it also has to match whatever the
-    ///                     salt was mined against.
+    ///         `finalSalt` still binds the hook address to `msg.sender`. With a
+    ///         single permitted caller that no longer defends against a rival
+    ///         creator, but it keeps the address predictable from
+    ///         `hookInitcodeHash` and `predictHookAddress` unchanged.
+    ///
+    /// @param  developer       Receives the Circuit NFT.
+    /// @param  hardCap         Most the genesis round may raise in total, in
+    ///                         quote base units. `MIN_HARD_CAP`..`MAX_HARD_CAP`,
+    ///                         or 0 for no cap (stored as `UNCAPPED`).
+    /// @param  walletCap       Most one wallet may deposit into this round.
+    ///                         Non-zero and at most `hardCap`; at most
+    ///                         `MAX_HARD_CAP` when uncapped.
+    /// @param  genesisDuration One of the hook's three rungs (3 h / 24 h / 72 h);
+    ///                         `initializeToken` rejects anything else.
     function createLaunch(
         string calldata name,
         string calldata symbol,
-        address projectTreasury,
-        address projectAdmin,
+        address developer,
         bytes32 hookSalt,
-        uint256 expectedFee,
-        uint256 expectedSoftCap,
-        uint256 expectedWalletCap,
+        uint256 hardCap,
+        uint256 walletCap,
         uint256 genesisDuration
-    ) external payable whenNotPaused nonReentrant returns (address token, address hook) {
-        require(projectTreasury != address(0), "zero treasury");
-        if (projectAdmin == address(0)) revert InvalidAdmin();
+    ) external onlyOwner whenNotPaused nonReentrant returns (address token, address hook) {
+        if (developer == address(0)) revert InvalidDeveloper();
+        if (hardCap == 0) {
+            if (walletCap == 0 || walletCap > MAX_HARD_CAP) revert InvalidWalletCap();
+            hardCap = UNCAPPED;
+        } else {
+            if (hardCap < MIN_HARD_CAP) revert HardCapTooLow();
+            if (hardCap > MAX_HARD_CAP) revert HardCapTooHigh();
+            if (walletCap == 0 || walletCap > hardCap) revert InvalidWalletCap();
+        }
 
-        uint256 fee = launchFee;
-        if (fee > expectedFee) revert FeeChanged();
-        // The fee is native again, so it is already in hand when this runs and
-        // the only question is whether it is enough. That is a local check with
-        // a local name, unlike the pull it replaces — a `transferFrom` reverts
-        // from inside the token, and the creator has to work out that an
-        // ERC20 allowance error was about a platform fee.
-        if (msg.value < fee) revert InsufficientLaunchFee();
-
-        // ── Squat / front-run defence ─────────────────────────────────────────
+        // ── Squat defence ─────────────────────────────────────────────────────
         if (bytes(name).length == 0 || bytes(symbol).length == 0) revert EmptyName();
         bytes32 nameKey = keccak256(abi.encode(name, symbol));
         if (nameTaken[nameKey]) revert NameTaken();
 
         bytes32 finalSalt = keccak256(abi.encode(msg.sender, hookSalt));
-
-        // Freeze both dials into the hook's initcode. From here the project's
-        // economics are fixed even if the platform owner retunes the globals.
-        uint256 launchSoftCap = defaultSoftCap;
-        uint256 launchWalletCap = maxPogAllocationLimit;
-
-        // Read and compared in the same breath as the freeze, deliberately: the
-        // window this closes is between the caller reading the dials and this
-        // line running, so the comparison has to be against the values actually
-        // about to be baked in, not a re-read.
-        if (launchSoftCap != expectedSoftCap || launchWalletCap != expectedWalletCap) revert CapsChanged();
-
-        // NO ADDRESS-BIT GATE, and its absence is the PancakeSwap Infinity port
-        // rather than an omission.
-        //
-        // Uniswap V4 read a hook's permissions out of the low bits of its own
-        // address, so this line used to be a real check: `isValidHookAddress`
-        // refused any salt whose CREATE2 address did not carry the 0x20CC mask,
-        // and a launch therefore had to arrive with a MINED salt. Infinity reads
-        // permissions from `ToshLaunchpadHook.getHooksRegistrationBitmap()` and
-        // makes `CLPoolManager.initialize` refuse a pool whose
-        // `PoolKey.parameters` disagrees with it. The permission set is still
-        // pinned to the key — by equality now, rather than by address
-        // arithmetic — so there is nothing left for an address to encode and
-        // nothing left to mine.
-        //
-        // `finalSalt` stays, and it is not vestigial: it keeps the deployment
-        // address deterministic and binds it to `msg.sender`, which is what
-        // stops one creator front-running another's predicted address. It is
-        // simply a free choice now instead of a mining target, so `hookSalt`
-        // can be any value the caller likes.
-        //
-        // The local initcode hash went with the gate. It existed only to be
-        // checked here; `hookInitcodeHash` and `verifyHookDeployment` below
-        // recompute their own from the caller's arguments, so off-chain tooling
-        // can still predict and verify an address — it just no longer has to
-        // grind for one.
-
         hook = ToshCloneLib.deployHook(
-            finalSalt, hookImplementation, msg.sender, projectTreasury, launchSoftCap, launchWalletCap, genesisDuration
+            finalSalt, hookImplementation, msg.sender, developer, hardCap, walletCap, genesisDuration
         );
         if (hook == address(0)) revert DeployFailed();
 
@@ -1227,89 +1030,36 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // the quote side as `currency0` in this project's pool. `nameKey` seeds
         // the grind because it is already unique per factory, and because it
         // makes the resulting address predictable from the name alone. See
-        // `ToshCloneLib.deployBareCloneAbove`.
-        //
-        // THE DISCARDED SECOND RETURN IS THE WINNING SALT, and dropping it is
-        // deliberate — Slither reports it as `unused-return` at Medium, so the
-        // reasoning is written here rather than left in a baseline file that
-        // records only which line was triaged.
-        //
-        // Nothing on chain needs it: the address is the whole product of the
-        // grind, and the line below re-checks the one property the salt was
-        // ground for instead of trusting that the loop delivered it. Nothing
-        // off chain needs it either, because the loop is deterministic given
-        // `nameKey` — `ToshCloneLib.predictBareClone` is the shared derivation
-        // both the grind and the frontend run, so a caller reproduces the
-        // sequence from the project's name alone. Storing or emitting the salt
-        // would add a word of state per launch to carry a value that is already
-        // recomputable from one that is stored.
+        // `ToshCloneLib.deployBareCloneAbove`. The winning salt is dropped
+        // because `predictBareClone` reproduces it from `nameKey`.
         (token,) = ToshCloneLib.deployBareCloneAbove(tokenImplementation, address(quoteAsset), nameKey);
-        // Belt to the grind's braces. `deployBareCloneAbove` reverts
-        // `NoSaltAboveFloor` rather than returning a low address, so this is
-        // unreachable — and it is the invariant 91 sites in the hook depend on,
-        // which is the kind that gets asserted rather than argued.
+        // Belt to the grind's braces: the invariant 91 sites in the hook depend
+        // on is asserted rather than argued.
         if (token <= address(quoteAsset)) revert TokenBelowQuoteAsset();
         ToshToken(token).initialize(hook, name, symbol);
-        ToshLaunchpadHook(payable(hook)).initializeToken(token, projectAdmin);
+
+        uint256 tokenId = CircuitNFT(circuitNFT).mint(developer);
+        address revenueVault = ToshCloneLib.deployVaultClone(vaultImplementation, tokenId);
+        ToshLaunchpadHook(payable(hook)).initializeToken(token, revenueVault);
 
         registeredHooks[hook] = true;
         tokenToHook[token] = hook;
         nameTaken[nameKey] = true;
         hookNameKey[hook] = nameKey;
+        circuitOf[hook] = tokenId;
+        hookOfCircuit[tokenId] = hook;
 
         uint256 launchId = launches.length;
         launches.push(LaunchInfo(token, hook, msg.sender, block.timestamp));
 
         emit LaunchCreated(launchId, token, hook, msg.sender, name, symbol);
-
-        // ── Forward the fee, and give back the change ─────────────────────────
-        //
-        // ⚠ THE DESTINATION MOVED WITH THE DENOMINATION, AND IT HAD TO. This
-        //   used to pull BEM to `ladderTreasury`, the buy-and-burn reservoir.
-        //   That contract settles `quoteAsset`, sizes itself from
-        //   `quoteAsset.balanceOf`, and — since native settlement was dropped —
-        //   has no `receive()` at all, so a BNB send there would revert every
-        //   launch, and a `receive()` bolted on would only let the coin arrive
-        //   somewhere nothing can ever spend it. See `launchFee` for why losing
-        //   the fee as ammunition costs little at this price.
-        //
-        // `platformTreasury` is `immutable`, so this destination is fixed at
-        // deployment and no owner transaction can redirect the toll.
-        //
-        // THE OVERPAYMENT REFUND IS BACK, because native value makes
-        // overpayment possible again. `expectedFee` is a ceiling rather than an
-        // equality, so a fee the owner LOWERS between the caller reading it and
-        // this executing is explicitly allowed — and a caller who sent the old
-        // figure would otherwise have the difference quietly kept. Requiring
-        // `msg.value == fee` would instead revert that caller for being early
-        // to good news.
-        if (fee > 0) {
-            _sendNative(platformTreasury, fee);
-            emit LaunchFeeForwarded(fee);
-        }
-        uint256 change = msg.value - fee;
-        if (change > 0) _sendNative(msg.sender, change);
+        emit CircuitIssued(tokenId, hook, developer, revenueVault);
     }
 
-    /// @dev Native transfer that does not swallow failure, and forwards more
-    ///      than the 2300 gas stipend.
-    ///
-    ///      ⚠ THIS WAS DELETED AS DEAD CODE DURING THE BEM MIGRATION, ON A
-    ///        SLITHER FINDING, AND IT WAS DEAD — every value path had become an
-    ///        ERC20 transfer. It is back because the launch fee is native
-    ///        again, which is the thing to notice: "unused" was a fact about
-    ///        one denomination, not about the design.
-    ///
-    ///      `call` rather than `transfer` because both recipients are contracts
-    ///      in the expected case. `platformTreasury` is a Gnosis Safe, whose
-    ///      receive costs ~27k gas and would fail outright on a 2300 stipend;
-    ///      `msg.sender` taking change may be a Safe or a smart account too.
-    ///      `verifyOwnerSafe.mjs` checks the Safe accepts plain BNB before a
-    ///      deployment names it, because a treasury that reverts on receive
-    ///      bricks `createLaunch` for the whole platform.
-    function _sendNative(address to, uint256 amount) private {
-        (bool ok,) = to.call{value: amount}("");
-        if (!ok) revert NativeTransferFailed();
+    /// @notice The revenue vault a Circuit token would control, for tooling that
+    ///         wants the address before or without reading the hook.
+    function predictVaultAddress(uint256 tokenId) external view returns (address) {
+        return ToshCloneLib.predictVaultClone(address(this), vaultImplementation, tokenId);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1347,6 +1097,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     function deposit(address hook, address referrer, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (!registeredHooks[hook]) revert HookNotRegistered();
+        if (depositsPaused(hook)) revert DepositsPaused();
         if (block.timestamp < blacklistedUntil[msg.sender]) revert IsBlacklisted();
         if (pogQuota[msg.sender] == 0) revert NoPogQuota();
         if (block.timestamp < userLaunchCooldownEnd[msg.sender][hook]) revert CooldownActive();
@@ -1426,7 +1177,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         view
         returns (bool eligible, uint256 remainingQuota, uint256 cooldownRemaining)
     {
-        if (block.timestamp < blacklistedUntil[user] || pogQuota[user] == 0) {
+        if (block.timestamp < blacklistedUntil[user] || pogQuota[user] == 0 || depositsPaused(hook)) {
             return (false, 0, 0);
         }
         uint256 cd = userLaunchCooldownEnd[user][hook];
@@ -1483,46 +1234,19 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         produce, which the launch UI shows before the transaction and
     ///         `verifyHookDeployment` checks after it.
     ///
-    /// @dev    ⚠ `projectAdmin` USED TO BE AN ARGUMENT HERE AND NO LONGER IS.
-    ///         It was a hook constructor argument and therefore part of the
-    ///         initcode; it is now set by `initializeToken` and is not committed
-    ///         to by the hook's address.  Nothing was lost — `changeProjectAdmin`
-    ///         always let it rotate, so the address only ever pinned its initial
-    ///         value — but a caller still passing six arguments will silently
-    ///         hash the wrong tuple and predict an address the launch will not
-    ///         deploy to.
+    /// @dev    `projectAdmin` is not an argument: it is set by
+    ///         `initializeToken` and is not committed to by the hook's address.
+    ///         `projectTreasury` is the launch's developer address. `hardCap`
+    ///         is taken as `createLaunch` takes it, so 0 predicts `UNCAPPED`.
     function hookInitcodeHash(
         address projectTreasury,
         address creator_,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration
     ) external view returns (bytes32) {
         return ToshCloneLib.initcodeHash(
-            hookImplementation, creator_, projectTreasury, softCap, perWalletCap, genesisDuration
-        );
-    }
-
-    /// @dev Reports the STANDARD-window hash.  The duration is now a per-launch
-    ///      choice, so there is no single "live" initcode hash any more; this
-    ///      keeps the 24 h default answerable for existing tooling.
-    ///
-    ///      ⚠ NOT AN ADDRESS-PREDICTION INPUT.  `platformTreasury` stands in
-    ///      for both `projectTreasury` and `creator`, neither of which a real
-    ///      launch shares, so an address predicted from this value is never the
-    ///      address a launch deploys to.  Use `hookInitcodeHash` for that.
-    ///      Its value is as a build fingerprint: it changes iff the
-    ///      implementation address or the platform's soft-cap / wallet-cap dials
-    ///      changed.
-    ///
-    ///      The 24 h literal has to track `ToshLaunchpadHook.DURATION_STANDARD`;
-    ///      Solidity will not let us read that constant off the contract type,
-    ///      so `test_factory_liveInitcodeHash_tracksStandardDuration` pins the
-    ///      two together instead.
-    function getLiveHookInitcodeHash() external view returns (bytes32 hashSnapshot) {
-        address sentinel = platformTreasury;
-        return ToshCloneLib.initcodeHash(
-            hookImplementation, sentinel, sentinel, defaultSoftCap, maxPogAllocationLimit, 24 hours
+            hookImplementation, creator_, projectTreasury, _storedHardCap(hardCap), perWalletCap, genesisDuration
         );
     }
 
@@ -1540,20 +1264,24 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         address hook,
         address creator_,
         address projectTreasury,
-        uint256 softCap,
+        uint256 hardCap,
         uint256 perWalletCap,
         uint256 genesisDuration,
         bytes32 rawSalt
     ) external view returns (bool) {
         if (!registeredHooks[hook]) return false;
         bytes32 initcodeHash_ = ToshCloneLib.initcodeHash(
-            hookImplementation, creator_, projectTreasury, softCap, perWalletCap, genesisDuration
+            hookImplementation, creator_, projectTreasury, _storedHardCap(hardCap), perWalletCap, genesisDuration
         );
         bytes32 finalSalt = keccak256(abi.encode(creator_, rawSalt));
         return HookAddress.computeAddress(address(this), finalSalt, initcodeHash_) == hook;
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────
+
+    function _storedHardCap(uint256 hardCap) internal pure returns (uint256) {
+        return hardCap == 0 ? UNCAPPED : hardCap;
+    }
 
     /// @dev Lapse `user`'s quota window if it has expired and open a fresh one.
     ///

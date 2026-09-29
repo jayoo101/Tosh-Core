@@ -23,7 +23,8 @@ interface IFactoryImpl {
 ///
 ///         What that proves: the zero-delta `modifyLiquidity` settles on
 ///         Infinity as deployed, moves no liquidity, pays the quote leg to the
-///         treasury and burns the token leg — and how much is stranded today.
+///         project's `projectAdmin` and burns the token leg — and how much is
+///         stranded today.
 ///
 ///         The etch is only sound if the storage layout did not move between
 ///         the deployed source and this one, so each project's storage is read
@@ -109,7 +110,6 @@ contract ToshV5ForkGenesisFeesTest is Test {
 
         ToshLaunchpadHook any = ToshLaunchpadHook(HOOKS[0]);
         IERC20 quote = any.quoteAsset();
-        address treasury = any.ladderTreasury();
         ICLPoolManager pm = any.poolManager();
         uint256 totalQuote;
         uint256 swept;
@@ -130,8 +130,9 @@ contract ToshV5ForkGenesisFeesTest is Test {
             }
 
             IERC20 token = IERC20(s.token);
+            address recipient = h.projectAdmin();
             uint128 liq = pm.getLiquidity(h.getPoolKey().toId(), address(h), TICK_LOWER, TICK_UPPER, bytes32(0));
-            uint256 tBefore = quote.balanceOf(treasury);
+            uint256 tBefore = quote.balanceOf(recipient);
             uint256 dBefore = token.balanceOf(DEAD);
             uint256 hq = quote.balanceOf(address(h));
             uint256 ht = token.balanceOf(address(h));
@@ -139,7 +140,7 @@ contract ToshV5ForkGenesisFeesTest is Test {
             vm.prank(makeAddr("anyone"));
             h.collectGenesisFees();
 
-            uint256 q = quote.balanceOf(treasury) - tBefore;
+            uint256 q = quote.balanceOf(recipient) - tBefore;
             uint256 t = token.balanceOf(DEAD) - dBefore;
             assertEq(
                 pm.getLiquidity(h.getPoolKey().toId(), address(h), TICK_LOWER, TICK_UPPER, bytes32(0)),
@@ -151,17 +152,17 @@ contract ToshV5ForkGenesisFeesTest is Test {
 
             // Repeat: nothing left.
             h.collectGenesisFees();
-            assertEq(quote.balanceOf(treasury) - tBefore, q, "second sweep paid again");
+            assertEq(quote.balanceOf(recipient) - tBefore, q, "second sweep paid again");
 
             console2.log("hook", address(h));
-            console2.log("  quote to treasury (8 dp)", q);
+            console2.log("  quote to projectAdmin (8 dp)", q);
             console2.log("  tokens burned (18 dp)   ", t);
             totalQuote += q;
             ++swept;
         }
 
         console2.log("launched positions swept", swept);
-        console2.log("total quote to treasury (8 dp)", totalQuote);
+        console2.log("total quote to projectAdmins (8 dp)", totalQuote);
         assertGt(swept, 0, "fixture: no launched project on the live factory");
     }
 }

@@ -401,23 +401,19 @@ export async function collectBurn(ctx, launches) {
 /**
  * PANEL 4 — where the money actually sits.
  *
- * Four destinations, and the reason to show them together is that they are easy
- * to confuse: the platform's maintenance fee and the launch fees go to the same
- * Safe but in different assets (BEM and BNB), the buyback fuel goes to a
- * contract rather than a wallet, and each project's own shelf income goes to an
- * EOA the platform does not control.
+ * Three destinations, and the reason to show them together is that they are
+ * easy to confuse: the platform's cut goes to a Safe, the buyback fuel goes to
+ * a contract rather than a wallet, and each project's own income goes to its
+ * Circuit vault, which the platform does not control.
  */
 export async function collectMoney(ctx, launches) {
   return attempt(ctx, async () => {
     const factory = new ethers.Contract(FACTORY, FACTORY_ABI, ctx.provider)
     const quote = new ethers.Contract(QUOTE_ASSET, ERC20_ABI, ctx.provider)
-    const [platformTreasury, launchFee] = await Promise.all([
-      factory.platformTreasury(), factory.launchFee(),
-    ])
+    const platformTreasury = await factory.platformTreasury()
 
-    const [safeQuote, safeNative, treasuryQuote] = await Promise.all([
+    const [safeQuote, treasuryQuote] = await Promise.all([
       quote.balanceOf(platformTreasury),
-      ctx.provider.getBalance(platformTreasury),
       quote.balanceOf(LADDER_TREASURY),
     ])
 
@@ -432,9 +428,8 @@ export async function collectMoney(ctx, launches) {
     return {
       platformTreasury,
       safeQuote: safeQuote.toString(),
-      safeNative: safeNative.toString(),
+      ladderTreasury: LADDER_TREASURY,
       treasuryQuote: treasuryQuote.toString(),
-      launchFee: launchFee.toString(),
       admins,
     }
   })
@@ -454,14 +449,16 @@ export async function collectConfig(ctx) {
     const treasury = new ethers.Contract(LADDER_TREASURY, TREASURY_ABI, ctx.provider)
 
     const [
-      owner, paused, pogSigner, platformTreasury, launchFee, defaultSoftCap,
-      maxPogAlloc, cooldown, quotaWindow, haltedUntil,
-      maxLaunchFee, maxSoftCap, maxPogLimit, treasuryOwner,
+      owner, paused, pogSigner, platformTreasury,
+      maxPogAlloc, cooldown, quotaWindow, haltedUntil, depositsPaused,
+      maxPogLimit, treasuryOwner,
     ] = await Promise.all([
       factory.owner(), factory.paused(), factory.pogSigner(), factory.platformTreasury(),
-      factory.launchFee(), factory.defaultSoftCap(), factory.maxPogAllocationLimit(),
+      factory.maxPogAllocationLimit(),
       factory.cooldownDuration(), factory.quotaWindowDuration(), factory.globalLadderHaltedUntil(),
-      factory.MAX_LAUNCH_FEE(), factory.MAX_DEFAULT_SOFT_CAP(), factory.MAX_POG_ALLOCATION_LIMIT(),
+      // Absent on factories deployed before the deposit freeze existed.
+      factory.globalDepositsPaused().catch(() => null),
+      factory.MAX_POG_ALLOCATION_LIMIT(),
       treasury.owner(),
     ])
 
@@ -478,7 +475,7 @@ export async function collectConfig(ctx) {
     const changes = {}
     let logsError = null
     try {
-      for (const name of ['LaunchFeeUpdated', 'PogSignerUpdated', 'DefaultSoftCapUpdated', 'MaxPogAllocationLimitUpdated', 'Blacklisted', 'LadderMintingHalted']) {
+      for (const name of ['PogSignerUpdated', 'MaxPogAllocationLimitUpdated', 'Blacklisted', 'LadderMintingHalted', 'DepositsPausedSet']) {
         const logs = await fetchLogs({
           apiKey: ctx.apiKey, address: FACTORY, topic0: TOPICS[name],
           fromBlock: ctx.fromBlock, toBlock: ctx.head,
@@ -496,8 +493,7 @@ export async function collectConfig(ctx) {
       paused,
       pogSigner, signerIsContract: signerCode !== '0x',
       platformTreasury,
-      launchFee: launchFee.toString(), maxLaunchFee: maxLaunchFee.toString(),
-      defaultSoftCap: defaultSoftCap.toString(), maxSoftCap: maxSoftCap.toString(),
+      depositsPaused,
       maxPogAlloc: maxPogAlloc.toString(), maxPogLimit: maxPogLimit.toString(),
       cooldownHours: Number(cooldown) / 3600,
       quotaWindowHours: Number(quotaWindow) / 3600,
