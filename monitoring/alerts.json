@@ -312,6 +312,16 @@
       "why": "Closes the loop on SWITCH-03. Absence is also meaningful: a halt lapses on its own after at most 7 days, so a resume that never arrives is expected, not a fault."
     },
     {
+      "id": "SWITCH-06",
+      "contract": "ToshFactory",
+      "event": "DepositsPausedSet(address,bool)",
+      "topic0": "0xeb42619f0dc209ac4a718f07efe6bc4199f0782ce8557866622b51a3c2ac725a",
+      "severity": "P1",
+      "page": false,
+      "playbook": "deposit freeze: a zero `hook` argument is platform-wide and is a P0. Confirm it was intended and announce within 15 minutes. Unlike SWITCH-03 it does NOT lapse on its own — a `paused=true` with no later `paused=false` stays frozen, so track it until resumed. Refunds are unaffected.",
+      "why": "Blocks new genesis deposits only; refunds and launch keep working, so no funds are trapped. But it has no expiry, so a forgotten freeze silently starves a round of its soft cap and pushes it into refund."
+    },
+    {
       "id": "SWITCH-05",
       "contract": "ToshFactory",
       "event": "Blacklisted(address,uint256)",
@@ -331,26 +341,6 @@
       "page": false,
       "playbook": "PoG cap: this is what bounds a compromised signer. Correlate against the Safe transaction history. Lowering it does not retroactively tighten hooks already deployed, because each snapshots its own perWalletCap at creation.",
       "why": "This is the cap that bounds a compromised PoG signer. Raising it widens the blast radius of GOV-04; lowering it does NOT retroactively tighten hooks already deployed, because each snapshots its own perWalletCap at creation."
-    },
-    {
-      "id": "PARAM-02",
-      "contract": "ToshFactory",
-      "event": "DefaultSoftCapUpdated(uint256)",
-      "topic0": "0xc9510d3077e1c15f73dc22ce912275a8d16cc5660bf537efaebaeec46cfbd9d6",
-      "severity": "P2",
-      "page": false,
-      "playbook": null,
-      "why": "Affects rounds created after it, never rounds already open. Worth a ticket so the number in the docs and the number on chain do not drift."
-    },
-    {
-      "id": "PARAM-03",
-      "contract": "ToshFactory",
-      "event": "LaunchFeeUpdated(uint256)",
-      "topic0": "0xc799be5eb19a1a6d6ba7368d21e2bc367c8a335e4a07cd3d954482e6f714d3c5",
-      "severity": "P2",
-      "page": false,
-      "playbook": null,
-      "why": "Pricing change. Alerting is for the audit trail, not for response."
     },
     {
       "id": "PARAM-04",
@@ -417,16 +407,6 @@
       "why": "Same shape as SILENT-01, one layer down: a single broken pool is skipped so it cannot stall the batch. One skip is routine. Every token skipping means the treasury is accumulating BEM it can no longer spend, which is the one-way valve failing closed rather than open."
     },
     {
-      "id": "SILENT-03",
-      "contract": "ToshLadderTreasury",
-      "event": "GenesisFeesSkipped(address)",
-      "topic0": "0x278d682a7350ba0057cf7a6db8a885663c9e6d512aa539db82a89f5fcd1660a5",
-      "severity": "P2",
-      "page": false,
-      "playbook": null,
-      "why": "pokeBuyback sweeps the leg's genesis-position fees before buying, inside a try so a hook that cannot sweep never blocks the buyback. That makes a failing sweep invisible, and it should not happen at all: addLadderToken only accepts launched pools, and every hook this treasury's factory deploys carries collectGenesisFees(). Any occurrence means that hook's LP fees are piling up in the Vault instead of reaching the reservoir. Nothing is lost while it lasts -- the fees stay collectable -- so the action is to find out why the hook reverts, then call collectGenesisFees() on it directly."
-    },
-    {
       "id": "LIFE-01",
       "contract": "ToshLaunchpadHook",
       "event": "GenesisFailed(uint256)",
@@ -457,6 +437,16 @@
       "page": false,
       "playbook": null,
       "why": "Informational for humans, LOAD-BEARING for the monitor: the `hook` field is how the watch list stays current. Any monitor that scopes hook events by address must consume this and self-register. See addresses.$comment."
+    },
+    {
+      "id": "LIFE-05",
+      "contract": "ToshFactory",
+      "event": "CircuitIssued(uint256,address,address,address)",
+      "topic0": "0x377144e40e03cd14cae68e23660aa38db8ebbd82b5b16ca240869d6004249bf8",
+      "severity": "P3",
+      "page": false,
+      "playbook": null,
+      "why": "Emitted with every LaunchCreated. Records which developer holds the project's revenue right and which vault is the hook's permanent payee — the `vault` field is the address to watch for shelf revenue and genesis fees. The payee cannot be retargeted afterwards; only the Circuit NFT can change hands."
     },
     {
       "id": "LIFE-04",
@@ -521,7 +511,7 @@
       "id": "STATE-06",
       "severity": "P2",
       "cadence": "hourly",
-      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury) -- has been >= TRIGGER_STEP (92.8 BEM, i.e. 92.8e8 base units) continuously for 24h with no PiggybackExecuted in that window",
+      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury) -- has been >= TRIGGER_STEP (10 BEM, i.e. 10e8 base units) continuously for 24h with no PiggybackExecuted in that window",
       "why": "The gas gate in ToshLaunchpadHook.afterSwap skips the buyback when the triggering trade cannot afford it, which is what stops that trade from reverting. The cost is that the reservoir no longer deploys itself from trading alone: a market where wallets attach tight gas limits leaves it armed and idle, emitting NOTHING. There is deliberately no event for a skipped poke — skipping is the common case, and logging it would bill every trader for the privilege. So this has to be a balance-and-silence poll; it is the only signal that the reservoir has stopped deploying.",
       "action": "Call pokeBuyback() on the treasury. Permissionless — no role, no Safe transaction, any address can clear it."
     },
@@ -604,8 +594,7 @@
       "ToshLaunchpadHook.SellTaxBurned",
       "ToshLadderTreasury.TaxReceived",
       "ToshLadderTreasury.PiggybackExecuted",
-      "ToshLadderTreasury.BuybackBurned",
-      "ToshLadderTreasury.GenesisFeesCollected"
+      "ToshLadderTreasury.BuybackBurned"
     ]
   }
 }

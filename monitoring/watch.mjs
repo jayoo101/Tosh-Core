@@ -37,6 +37,27 @@
  *   node monitoring/watch.mjs                 one pass against the configured chain
  *   node monitoring/watch.mjs --since 5000    rescan the last N blocks, ignore state
  *   node monitoring/watch.mjs --dry           scan and report, do not persist state
+ *   node monitoring/watch.mjs --legacy --state monitoring/.watch-state-legacy.json
+ *                                             watch a RETIRED factory/treasury pair
+ *
+ * ── Legacy mode ─────────────────────────────────────────────────────────────
+ *
+ * A redeploy does not retire the old pair's obligations. Its hooks are bound
+ * to it for life: refunds, genesis claims, referral commission and shelf mints
+ * all still run against the old factory and the old treasury. So after a
+ * redeploy the workflow runs this file twice — once per pair, each with its own
+ * state file — and `--legacy` is the second run. It differs in four ways:
+ *
+ *   - Every finding's message is prefixed `[legacy <factory>]`. report.mjs keys
+ *     state findings on the first address in the message, so without it the two
+ *     passes' STATE-02 (no address in the text) would share one issue.
+ *   - The address-less hook-event query is skipped. It matches every hook on
+ *     the chain whichever factory made it, so the current pass already sees the
+ *     old hooks' events; a second copy would only double the pages.
+ *   - WATCHER-07/08/09 are skipped: they are about the endpoint and the
+ *     catalogue, which both passes share, and the current pass reports them.
+ *   - STATE-04, -05 and -08 are skipped. They guard NEW deposits (PoG signer,
+ *     keeper gas, the one-deposit dial), and a retired factory takes none.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -75,6 +96,7 @@ const RPC = opt('--rpc', process.env.MONITOR_RPC
 const STATE_PATH = opt('--state', join(HERE, '.watch-state.json'))
 const SINCE = opt('--since', null)
 const DRY = flag('--dry')
+const LEGACY = flag('--legacy')
 
 const FACTORY = (process.env.MONITOR_FACTORY || process.env.NEXT_PUBLIC_FACTORY_ADDRESS || '').toLowerCase()
 const TREASURY = (process.env.MONITOR_TREASURY || process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '').toLowerCase()
@@ -182,7 +204,9 @@ if (existsSync(STATE_PATH)) {
 
 const findings = []
 const record = (id, severity, page, message, extra = {}) =>
-  findings.push({ id, severity, page, message, ...extra })
+  findings.push(LEGACY
+    ? { id, severity, page, message: `[legacy ${FACTORY}] ${message}`, group: 'legacy', ...extra }
+    : { id, severity, page, message, ...extra })
 
 /**
  * A finding says something happened on chain. A gap says a check ran but could
@@ -247,7 +271,7 @@ const chainId = Number(await rpc('eth_chainId'))
  * would reach a red Actions run and no pager — and at ~6.5 passes a day nobody
  * is watching the Actions tab. Paging is the point.
  */
-if (CONFIG.chainId != null && CONFIG.chainId !== chainId) {
+if (!LEGACY && CONFIG.chainId != null && CONFIG.chainId !== chainId) {
   record('WATCHER-07', 'P1', true,
     `alerts.json declares chain ${CONFIG.chainId} and this endpoint is chain ${chainId}. Every ` +
     `alert and address in the catalogue is about the other chain, so nothing below is a ` +
@@ -286,7 +310,7 @@ if (CONFIG.chainId != null && CONFIG.chainId !== chainId) {
  * would still be wrong. The catalogue is the thing that has to move.
  */
 const retiredTarget = retiredChain(CONFIG.chainId ?? chainId)
-if (retiredTarget) {
+if (!LEGACY && retiredTarget) {
   record('WATCHER-08', 'P1', true,
     `alerts.json targets chain ${CONFIG.chainId ?? chainId}, ${retiredTarget.name} — a chain this ` +
     `protocol has left. ${retiredTarget.left} Every address, topic and threshold below is about ` +
@@ -317,7 +341,7 @@ if (retiredTarget) {
  * more specific reason rather than twice.
  */
 const catalogueTarget = CONFIG.chainId ?? chainId
-if (!retiredTarget && BigInt(catalogueTarget) !== BigInt(STANDING_CHAIN_ID)) {
+if (!LEGACY && !retiredTarget && BigInt(catalogueTarget) !== BigInt(STANDING_CHAIN_ID)) {
   record('WATCHER-09', 'P1', true,
     `alerts.json targets chain ${catalogueTarget}, but the protocol's standing deployment is ` +
     `chain ${STANDING_CHAIN_ID}. Chain ${catalogueTarget} is live, so every consistency check in ` +
@@ -346,6 +370,7 @@ if (staleChain || impossible) {
     `lands and check that the next run resumes normally.`)
   state.lastBlock = null
   state.hooks = []
+  delete state.hookScanIndex
   state.armedSince = null
   state.lastPiggybackBlock = null
   delete state.treasuryBalance
@@ -478,6 +503,7 @@ if (watchedPairChanged) {
     { previousFactory: prevFactory, previousTreasury: prevTreasury })
   state.lastBlock = null
   state.hooks = []
+  delete state.hookScanIndex
   state.armedSince = null
   state.lastPiggybackBlock = null
   delete state.treasuryBalance
@@ -540,6 +566,7 @@ const addressFor = { ToshFactory: FACTORY, ToshLadderTreasury: TREASURY }
 // topic0s under an address filter is what the node already accepts as a
 // single wide window. See monitoring/logQueries.mjs.
 const logQueries = buildLogQueries(CONFIG.alerts, addressFor)
+  .filter(q => !(LEGACY && q.address == null))
 const LAUNCH_CREATED = CONFIG.alerts.find(a => a.event.startsWith('LaunchCreated'))
 
 let logsSeen = 0
@@ -577,7 +604,7 @@ for (const query of logQueries) {
      *   - If the skipped query's alerts include any P0, this pages. An
      *     unchecked P0 is an outage of the monitor, not a gap to print.
      *   - P1/P2-only queries that fail still record WATCHER-02, still do
-     *     not page. A PARAM-02 miss every cycle would spend the budget
+     *     not page. A PARAM-06 miss every cycle would spend the budget
      *     that exists to keep the P0s unmuted.
      *   - A pass that completed zero log queries is WATCHER-04 below,
      *     which always pages: zero logs after a total skip is a blind
@@ -621,6 +648,23 @@ for (const query of logQueries) {
       if (isHookAddress(hook) && !state.hooks.includes(hook)) state.hooks.push(hook)
     }
   }
+}
+
+/* The same harvest by enumeration, because LaunchCreated only reaches hooks
+ * made inside a scanned window. A legacy pair's launches all predate its
+ * first pass, and so does anything launched before a checkpoint reset —
+ * STATE-01 would poll none of them. `launches(i)` is (token, hook, creator,
+ * createdAt), all static, so the hook is word 1. Ids run 0..launchCount-1,
+ * and only the ones not yet walked are read. */
+try {
+  const count = Number(BigInt(await call(FACTORY, 'launchCount()')))
+  for (let i = Math.min(state.hookScanIndex ?? 0, count); i < count; i++) {
+    const hook = asAddress((await call(FACTORY, 'launches(uint256)', word(i))).slice(2 + 64, 2 + 128))
+    if (isHookAddress(hook) && !state.hooks.includes(hook)) state.hooks.push(hook)
+  }
+  state.hookScanIndex = count
+} catch (err) {
+  gap('STATE-01', `launch enumeration failed (${err.message}); polling only hooks seen in LaunchCreated`)
 }
 
 state.hooks = state.hooks.filter(isHookAddress)
@@ -695,7 +739,7 @@ try {
 }
 
 // STATE-04 — the PoG signer, same reasoning as STATE-03 applied to GOV-04.
-try {
+if (!LEGACY) try {
   const signer = asAddress(await call(FACTORY, 'pogSigner()'))
   if (EXPECTED_SIGNER && signer !== EXPECTED_SIGNER) {
     record('STATE-04', sev('STATE-04'), pages('STATE-04'),
@@ -743,7 +787,7 @@ try {
  * implementation is deployed in the factory's constructor and is `immutable`, so
  * it answers on every chain whether or not any launch has happened.
  */
-try {
+if (!LEGACY) try {
   const cooldown = BigInt(await call(FACTORY, 'cooldownDuration()'))
   const impl = asAddress(await call(FACTORY, 'hookImplementation()'))
   const slow = BigInt(await call(impl, 'DURATION_SLOW()'))
@@ -777,7 +821,7 @@ try {
  * it; automate that and the protocol acquires its first wallet that really
  * does need gas, one that would fail silently on running dry.
  */
-if (KEEPER_ADDRESS) {
+if (!LEGACY && KEEPER_ADDRESS) {
   try {
     const bal = BigInt(await rpc('eth_getBalance', [KEEPER_ADDRESS, 'latest']))
     if (bal < GAS_FLOOR_WEI) {
@@ -813,8 +857,9 @@ let treasuryBalance = null
 // is how a reading stops being checkable.
 let quoteDecimals = 8
 let quoteUnit = 1e8
+let quoteAsset = null
 try {
-  const quoteAsset = '0x' + (await call(TREASURY, 'quoteAsset()')).slice(-40)
+  quoteAsset = '0x' + (await call(TREASURY, 'quoteAsset()')).slice(-40)
   treasuryBalance = BigInt(await call(quoteAsset, 'balanceOf(address)', word(BigInt(TREASURY))))
   quoteDecimals = Number(BigInt(await call(quoteAsset, 'decimals()')))
   quoteUnit = 10 ** quoteDecimals
@@ -1016,9 +1061,20 @@ for (const hook of state.hooks) {
       gap('STATE-01', `${hook} is refundable but raised nothing, so no depositor is owed an announcement`)
       continue
     }
+    /* `totalNativeDeposited` is cumulative and never falls on refund, so on its
+     * own it pages for a hook every depositor has already left — forever, since
+     * `canRefund()` stays true. What is still owed is what the hook still
+     * holds. Unknown (treasury read failed) falls back to paging. */
+    let held = null
+    if (quoteAsset) held = BigInt(await call(quoteAsset, 'balanceOf(address)', word(BigInt(hook))))
+    if (held === 0n) {
+      gap('STATE-01', `${hook} is refundable and every deposit has been refunded`)
+      continue
+    }
 
     record('STATE-01', sev('STATE-01'), pages('STATE-01'),
-      `Hook ${hook} reports canRefund() == true with ${deposited} wei deposited. Depositors are ` +
+      `Hook ${hook} reports canRefund() == true with ${deposited} base units deposited` +
+      (held != null ? ` and ${held} still unrefunded` : '') + `. Depositors are ` +
       `owed the news that their exit is open; nothing on chain announces this.`,
       { playbook: 'tosh-status/MANUAL_INTERACTION.md §4' })
   } catch (err) {
@@ -1038,7 +1094,7 @@ for (const hook of state.hooks) {
  * Duplicate findings on a retry are the same trade WATCHER-03 already
  * accepted: a duplicate is dismissed in seconds, a skipped window is not
  * read at all. P1/P2-only skips still advance: stalling the checkpoint on
- * PARAM-02 would spend the noise budget the other way, by re-firing every
+ * PARAM-06 would spend the noise budget the other way, by re-firing every
  * healthy event forever. */
 const fullyBlind = logQueriesAttempted > 0 && logQueriesSucceeded === 0
 const blindedP0 = findings.some(f => f.id === 'WATCHER-02' && f.page)
@@ -1063,7 +1119,7 @@ for (const f of findings) console.log(JSON.stringify(f))
 
 const paging = findings.filter(f => f.page)
 console.error(
-  `\n[watch] chain ${chainId} · blocks ${from.toLocaleString()}-${head.toLocaleString()} · ` +
+  `\n[watch${LEGACY ? ' · legacy ' + FACTORY : ''}] chain ${chainId} · blocks ${from.toLocaleString()}-${head.toLocaleString()} · ` +
   `${logsSeen} log(s) in ${logQueriesSucceeded}/${logQueriesAttempted} getLogs · ` +
   `${state.hooks.length} hook(s) known · ` +
   `${findings.length} finding(s), ${paging.length} paging`

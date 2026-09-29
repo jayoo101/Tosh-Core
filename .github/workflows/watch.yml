@@ -139,7 +139,15 @@ jobs:
                "$STATE_DIR" 2>/dev/null; then
             cp "$STATE_DIR/.watch-state.json" monitoring/.watch-state.json
             echo "resumed from block $(node -p "require('$STATE_DIR/.watch-state.json').lastBlock")"
+            # The legacy pair's checkpoint is its own file and appears only once
+            # a legacy pass has run. Missing is a cold start for that pass alone.
+            if [ -f "$STATE_DIR/.watch-state-legacy.json" ]; then
+              cp "$STATE_DIR/.watch-state-legacy.json" monitoring/.watch-state-legacy.json
+            else
+              echo "legacy_cold=$COLD_START_BLOCKS" >> "$GITHUB_OUTPUT"
+            fi
           else
+            echo "legacy_cold=$COLD_START_BLOCKS" >> "$GITHUB_OUTPUT"
             echo "cold=$COLD_START_BLOCKS" >> "$GITHUB_OUTPUT"
             echo "::notice::No '$STATE_BRANCH' branch yet, so there is no checkpoint. Starting cold, bounded to the last $COLD_START_BLOCKS blocks. Anything older than that is NOT scanned by this pass and never will be — run the workflow manually with a larger 'since' if you need to sweep it."
           fi
@@ -210,6 +218,17 @@ jobs:
           # produce. Set to 60 on 2026-09-14, once the external pinger had been
           # measured holding 15 min; see the WATCHER-05 block in watch.mjs.
           MONITOR_MAX_RUN_GAP_MIN: ${{ vars.MONITOR_MAX_RUN_GAP_MIN }}
+          # The RETIRED pair, watched by a second `--legacy` pass after a
+          # redeploy. Its hooks stay bound to it for life — refunds, claims,
+          # commission and shelf mints all still settle against these two — so
+          # retiring it from the site does not retire it from monitoring.
+          # Unset MONITOR_LEGACY_FACTORY skips the pass entirely. Owner is its
+          # own variable because the old pair need not share the new owner.
+          LEGACY_FACTORY: ${{ vars.MONITOR_LEGACY_FACTORY }}
+          LEGACY_TREASURY: ${{ vars.MONITOR_LEGACY_TREASURY }}
+          LEGACY_EXPECTED_OWNER: ${{ vars.MONITOR_LEGACY_EXPECTED_OWNER }}
+          LEGACY_DEPLOY_BLOCK: ${{ vars.MONITOR_LEGACY_DEPLOY_BLOCK }}
+          LEGACY_COLD: ${{ steps.state.outputs.legacy_cold }}
           # Through the environment, never interpolated into the script body.
           # `${{ inputs.since }}` expanded inline is a shell injection from a
           # field anyone with write access can type into.
@@ -241,6 +260,29 @@ jobs:
           set +e
           node monitoring/watch.mjs "${args[@]}" > "$RUNNER_TEMP/findings.jsonl"
           code=$?
+
+          # Second pass over the retired pair, into the same findings file.
+          # Its window comes from its own checkpoint, so `since` applies only if
+          # a human asked for it; otherwise a missing legacy checkpoint is
+          # bounded the same way a cold main pass is.
+          if [ -n "${LEGACY_FACTORY:-}" ]; then
+            legacy_window="${SINCE:-${LEGACY_COLD:-}}"
+            largs=(--legacy --state monitoring/.watch-state-legacy.json)
+            if [ -n "$legacy_window" ]; then largs+=(--since "$legacy_window"); fi
+            if [ "${DRY:-false}" = "true" ]; then largs+=(--dry); fi
+            MONITOR_FACTORY="$LEGACY_FACTORY" \
+            MONITOR_TREASURY="$LEGACY_TREASURY" \
+            MONITOR_EXPECTED_OWNER="$LEGACY_EXPECTED_OWNER" \
+            MONITOR_DEPLOY_BLOCK="$LEGACY_DEPLOY_BLOCK" \
+              node monitoring/watch.mjs "${largs[@]}" >> "$RUNNER_TEMP/findings.jsonl"
+            lcode=$?
+            echo "legacy watcher exited $lcode"
+            # A legacy pass that could not start is as blind as a main one.
+            # 1 from either pass means something paged; the worse code wins.
+            if [ "$lcode" -eq 2 ]; then code=2
+            elif [ "$lcode" -eq 1 ] && [ "$code" -eq 0 ]; then code=1
+            fi
+          fi
           set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
@@ -389,6 +431,9 @@ jobs:
               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           fi
           cp monitoring/.watch-state.json "$STATE_DIR/.watch-state.json"
+          if [ -f monitoring/.watch-state-legacy.json ]; then
+            cp monitoring/.watch-state-legacy.json "$STATE_DIR/.watch-state-legacy.json"
+          fi
 
           # Every checkpoint push made Vercel attempt a Preview build of this
           # branch, and every one of them failed: the branch holds a state file
@@ -410,6 +455,9 @@ jobs:
           git -C "$STATE_DIR" config user.name  'tosh-watcher'
           git -C "$STATE_DIR" config user.email 'watcher@users.noreply.github.com'
           git -C "$STATE_DIR" add .watch-state.json vercel.json soat-frontend/vercel.json
+          if [ -f "$STATE_DIR/.watch-state-legacy.json" ]; then
+            git -C "$STATE_DIR" add .watch-state-legacy.json
+          fi
           if git -C "$STATE_DIR" diff --cached --quiet; then
             echo 'checkpoint unchanged'
             exit 0
