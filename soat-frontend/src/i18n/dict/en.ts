@@ -1239,6 +1239,7 @@ export const EN = {
     developerReason:   'The developer receives the Circuit NFT, and it is fixed into the hook the moment it deploys.',
     capsLabel:         'Check the caps',
     capsReason:        'The hard cap must be {min}–{max} {quote}, and the per-wallet cap above zero and no more than the hard cap.',
+    capsReasonUncapped: 'With no hard cap, the per-wallet cap must be above zero and at most {max} {quote}.',
     identityLabel:     'Name the token',
     identityReason:    'The name and ticker are fixed into the token the moment it deploys, so they have to be settled before signing.',
     logoLabel:         'Uploading logo…',

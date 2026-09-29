@@ -65,7 +65,7 @@ Circuit NFT〕→ `setFactory` → 把所有权转给 Safe），不依赖旧合�
 - 旧版 `createLaunch`（9 个参数、payable、任何人交发射费即可调）暂停后回退 `EnforcedPause()`，
   所以暂停确实能挡住旧工厂上的新发射。
 
-## 3. 前端（已改好，未提交）
+## 3. 前端（已完成）
 
 新增变量 `NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES`（逗号分隔的旧工厂地址，格式不对会直接报错，
 不会悄悄漏掉）。不设时行为和现在完全一样；切换当天再设。
@@ -87,7 +87,7 @@ Circuit NFT〕→ `setFactory` → 把所有权转给 Safe），不依赖旧合�
 
 变量已登记到 `.env.production.example`、`checkSecretStore.mjs`（config 级），`checkPublicEnv` 通过。
 
-## 4. 监控（已改好，未提交）
+## 4. 监控（已完成）
 
 `monitoring/watch.mjs` 新增 `--legacy` 模式，`.github/workflows/watch.yml` 在设了
 `MONITOR_LEGACY_FACTORY` 时，每轮先跑新的一组、再用独立的状态文件
@@ -119,7 +119,7 @@ STATE-01（可退款但无人通知）改为看**钩子里还剩多少 BEM**，�
 `MONITOR_FACTORY` / `MONITOR_TREASURY` / `MONITOR_DEPLOY_BLOCK` 改成新的一组。
 新的一组首轮会报一次 WATCHER-06（「盯的工厂换了」），这是预期的。
 
-## 5. 硬顶可选（已改好，未提交）
+## 5. 硬顶可选（已完成）
 
 - 合约：`createLaunch` 传 `hardCap = 0` 即不设硬顶，钩子里存成 `UNCAPPED = type(uint128).max`，
   存款判断 `total + amount > hardCap()` 永远不会触发，募资只在截止时间到才结束。
@@ -185,6 +185,5 @@ STATE-01（可退款但无人通知）改为看**钩子里还剩多少 BEM**，�
 - **Vault 余量的耦合**：买入税在买家付款前就从 Vault 转出，依赖 Vault 里有余量。
   主网 Vault 是所有 BEM 池共用的，不构成实际问题；只在单池、被抽干的测试环境里可见
   （`test_probeN_priceDrivenOntoTheRim` 注释里有记录）。
-- `/launch` 的英文快照测试（`launch.golden.test.tsx`）在这次改动之前就已经和未提交的 `/launch`
-  改版对不上（25 条失败），需要你确认新文案后重拍；「不设硬顶」开关因此没有加 UI 测试，
-  合约和脚本侧有测试。
+- `/launch` 的英文快照测试（`launch.golden.test.tsx`）已按「仅 owner、无发射费」的新页面重写：
+  覆盖非 owner、owner 是 Safe、工厂暂停、硬顶越界、「不设硬顶」开关及其单地址上限、各个预检回滚。

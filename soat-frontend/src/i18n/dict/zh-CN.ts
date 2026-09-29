@@ -877,6 +877,7 @@ export const ZH_CN: PartialDictionary = {
     developerReason:   'Circuit NFT 会铸给开发者，部署那一刻就写进 hook，不可更改。',
     capsLabel:         '检查上限',
     capsReason:        '硬顶必须在 {min}–{max} {quote} 之间；单地址上限必须大于 0 且不超过硬顶。',
+    capsReasonUncapped: '不设硬顶时，单地址上限必须大于 0 且不超过 {max} {quote}。',
     identityLabel:     '先给代币命名',
     identityReason:    '名称和代号会在部署那一刻写进代币，所以签名之前必须定好。',
     logoLabel:         '正在上传图标…',

@@ -135,7 +135,9 @@ async function get(hook: string | null) {
   }))
 }
 
-describe('GET /api/projects/launch-tx', () => {
+// Every test re-imports the route after `vi.resetModules()`, and that cold
+// import (viem, next/server) alone can pass the 5 s default under a full run.
+describe('GET /api/projects/launch-tx', { timeout: 20_000 }, () => {
   it('answers the creating transaction and the creator, from one whole-chain scan', async () => {
     const res = await get(HOOK)
     expect(res.status).toBe(200)

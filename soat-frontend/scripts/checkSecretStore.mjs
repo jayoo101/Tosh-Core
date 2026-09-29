@@ -214,6 +214,9 @@ const INVENTORY = {
   NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES: { tier: 'config', why: 'Retired factory addresses whose launches stay listed; public, shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
+  NEXT_PUBLIC_LAUNCHES_PAUSED:       { tier: 'config', why: 'launchGate.ts: "1" closes /launch in the UI. The contract, not this flag, is what enforces who can launch.' },
+  NEXT_PUBLIC_LOCALES:               { tier: 'config', why: 'locales.ts: which non-English dictionaries are served. Public, inlined at build time.' },
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: { tier: 'config', why: 'wallets.ts: WalletConnect Cloud project id. Public by design; it ships in every client bundle and is scoped by the allowed-origins list in the WalletConnect dashboard.' },
   NEXT_PUBLIC_QUOTE_ASSET: {
     tier: 'config',
     why: 'The token `factory.quoteAsset()` returns — a public contract address, shipped in the '

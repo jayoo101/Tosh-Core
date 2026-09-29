@@ -14,32 +14,35 @@ vi.hoisted(() => {
 /**
  * ENGLISH GOLDEN MASTER · /launch.
  *
- * Taken before the page's copy moves into the dictionary. The page spends the
- * creator's money through a real factory, so every blocker on the deploy
- * button, every revert sentence and every post-confirm outcome is rendered on
- * its own. The salt is made deterministic so the held-salt panel can be pinned.
+ * The page is the factory owner's `createLaunch` form. Every blocker on the
+ * deploy button, every revert sentence and every post-confirm outcome is
+ * rendered on its own. The salt is made deterministic so the held-salt panel
+ * can be pinned.
  */
 
 const USER  = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
 const OTHER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'
+const SAFE  = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'
 const HOOK  = '0x0b959B545Da0Bdb4AedA4Ac61C14F280206F1409'
 const SALT  = `0x${'5a'.repeat(32)}`
 const HASH  = `0x${'ab'.repeat(32)}`
 const E18   = 10n ** 18n
-const FEE   = 5n * 10n ** 15n
-const SOFT  = 10_000_00000000n
-const CAP   = 500_00000000n
+const Q     = 10n ** 8n
+const MIN_CAP = 30n * Q
+const MAX_CAP = 20_000n * Q
+const POG     = 500n * Q
 
 interface State {
-  dials:    'loading' | 'failed' | 'ready'
-  balance:  bigint
-  liveFee:  bigint
-  revert:   string | null
-  tosh:     { hash?: string; receipt?: { logs: [] }; isConfirmed: boolean }
-  sign:     'ok' | 'hang'
-  publish:  'ok' | 'fail'
-  softCap:  bigint
-  logoBusy: boolean
+  dials:       'loading' | 'failed' | 'ready'
+  owner:       string
+  ownerIsSafe: boolean
+  paused:      boolean
+  balance:     bigint
+  revert:      string | null
+  tosh:        { hash?: string; receipt?: { logs: [] }; isConfirmed: boolean }
+  sign:        'ok' | 'hang'
+  publish:     'ok' | 'fail'
+  logoBusy:    boolean
 }
 
 let s: State
@@ -47,30 +50,30 @@ const said: string[] = []
 const refetch = vi.fn()
 
 function reverted(errorName: string) {
+  const args = errorName === 'OwnableUnauthorizedAccount' ? [USER] : undefined
   return new ContractFunctionRevertedError({
     abi: FACTORY_ABI,
     functionName: 'createLaunch',
-    data: encodeErrorResult({ abi: FACTORY_ABI, errorName } as never),
+    data: encodeErrorResult({ abi: FACTORY_ABI, errorName, args } as never),
   })
 }
 
 const client = {
   readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
     switch (functionName) {
-      case 'defaultSoftCap':        return SOFT
-      case 'maxPogAllocationLimit': return CAP
-      case 'hookInitcodeHash':      return `0x${'11'.repeat(32)}`
-      case 'launchFee':             return s.liveFee
-      case 'launchCount':           return 0n
+      case 'hookInitcodeHash': return `0x${'11'.repeat(32)}`
+      case 'launchCount':      return 0n
       default: throw new Error(`unexpected read ${functionName}`)
     }
   }),
-  getBytecode: vi.fn(async () => undefined),
+  getBytecode: vi.fn(async ({ address }: { address: string }) =>
+    (address === s.owner && s.ownerIsSafe ? '0x60' : undefined) as never),
   simulateContract: vi.fn(async () => {
     if (s.revert) throw reverted(s.revert)
     return {}
   }),
 }
+const noOccupant = client.getBytecode.getMockImplementation()!
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: USER, isConnected: true, chainId: 97 }),
@@ -78,7 +81,10 @@ vi.mock('wagmi', () => ({
   useSwitchChain: () => ({ switchChainAsync: vi.fn(), isPending: false }),
   useBalance: () => ({ data: { value: s.balance } }),
   useReadContracts: () => (s.dials === 'ready'
-    ? { data: [FEE, s.softCap, CAP].map(result => ({ status: 'success', result })), isError: false, refetch }
+    ? {
+        data: [s.owner, MIN_CAP, MAX_CAP, POG, s.paused].map(result => ({ status: 'success', result })),
+        isError: false, refetch,
+      }
     : { data: undefined, isError: s.dials === 'failed', refetch }),
   usePublicClient: () => client,
   useEstimateFeesPerGas: () => ({ data: { maxFeePerGas: 1_000_000_000n } }),
@@ -122,12 +128,14 @@ import GenesisConsole from './page'
 
 beforeEach(() => {
   s = {
-    dials: 'ready', balance: E18, liveFee: FEE, revert: null,
+    dials: 'ready', owner: USER, ownerIsSafe: false, paused: false,
+    balance: E18, revert: null,
     tosh: { isConfirmed: false }, sign: 'ok', publish: 'ok',
-    softCap: SOFT, logoBusy: false,
+    logoBusy: false,
   }
   said.length = 0
   sessionStorage.clear()
+  client.getBytecode.mockImplementation(noOccupant)
   vi.spyOn(toshToast, 'error').mockImplementation((m) => { said.push(`error: ${String(m)}`); return 'id' })
   vi.spyOn(toshToast, 'success').mockImplementation((m) => { said.push(`success: ${String(m)}`); return 'id' })
   vi.stubGlobal('fetch', vi.fn(async () => (s.publish === 'ok'
@@ -156,14 +164,41 @@ function named(ui: UI) {
   typeInto(ui, 'input[placeholder="QMT"]', 'test')
 }
 
+function developer(ui: UI, value: string = OTHER) {
+  typeInto(ui, 'input[placeholder="0x…"]', value)
+}
+
+/** Name, ticker and developer: everything the terms need but the tick. */
+function filled(ui: UI) {
+  named(ui)
+  developer(ui)
+}
+
+function hardCap(ui: UI, value: string) {
+  typeInto(ui, 'input[placeholder="1000"]', value)
+}
+
+function walletCap(ui: UI, value: string) {
+  typeInto(ui, 'input[placeholder="500"]', value)
+}
+
+function checkboxes(ui: UI): HTMLInputElement[] {
+  return [...ui.container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
+}
+
+/** The "no hard cap" toggle, the first checkbox on the page. */
+function uncap(ui: UI) {
+  act(() => { checkboxes(ui)[0].click() })
+}
+
+/** The terms tick, the last checkbox on the page. */
 function tick(ui: UI) {
-  const box = ui.container.querySelector('input[type="checkbox"]') as HTMLInputElement
-  act(() => { box.click() })
+  act(() => { checkboxes(ui).at(-1)!.click() })
 }
 
 function deployButton(ui: UI): HTMLButtonElement {
-  const b = ui.buttons().find(x => (x.textContent ?? '').trim().startsWith('Deploy'))
-  if (!b) throw new Error(`no deploy button: ${JSON.stringify(ui.buttons().map(x => x.textContent))}`)
+  const b = ui.buttons().find(x => (x.textContent ?? '').trim().startsWith('Create launch'))
+  if (!b) throw new Error(`no create-launch button: ${JSON.stringify(ui.buttons().map(x => x.textContent))}`)
   return b
 }
 
@@ -194,40 +229,13 @@ describe('/launch · english copy golden master', () => {
   it('named while the dials are still loading', async () => {
     s.dials = 'loading'
     const ui = await render()
-    try { named(ui); pin(ui) } finally { ui.unmount() }
-  })
-
-  it('logo still uploading', async () => {
-    s.logoBusy = true
-    const ui = await render()
-    try { named(ui); pin(ui) } finally { ui.unmount() }
-  })
-
-  it('reserving the pool address', async () => {
-    client.getBytecode.mockImplementation(() => new Promise(() => {}) as never)
-    const ui = await render()
-    try { named(ui); tick(ui); await deploy(ui); pin(ui) } finally {
-      ui.unmount()
-      client.getBytecode.mockImplementation(async () => undefined)
-    }
-  })
-
-  it('the caps moved while a salt was held', async () => {
-    s.revert = 'NameTaken'
-    const ui = await render()
-    try {
-      named(ui); tick(ui); await deploy(ui)
-      s.softCap = SOFT * 2n
-      typeInto(ui, 'textarea', 'x')
-      await flush()
-      pin(ui)
-    } finally { ui.unmount() }
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
   })
 
   it('factory unreachable', async () => {
     s.dials = 'failed'
     const ui = await render()
-    try { named(ui); pin(ui) } finally { ui.unmount() }
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
   })
 
   it('empty form', async () => {
@@ -235,31 +243,71 @@ describe('/launch · english copy golden master', () => {
     try { pin(ui) } finally { ui.unmount() }
   })
 
-  it('named, pact not ticked', async () => {
+  it('named, no developer yet', async () => {
     const ui = await render()
     try { named(ui); pin(ui) } finally { ui.unmount() }
   })
 
-  it('custom admin', async () => {
+  it('invalid developer', async () => {
     const ui = await render()
-    try { named(ui); typeInto(ui, 'input[placeholder="0x…"]', OTHER); pin(ui) } finally { ui.unmount() }
+    try { named(ui); developer(ui, '0x123'); pin(ui) } finally { ui.unmount() }
   })
 
-  it('invalid admin', async () => {
+  it('developer is the owner', async () => {
     const ui = await render()
-    try { named(ui); typeInto(ui, 'input[placeholder="0x…"]', '0x123'); pin(ui) } finally { ui.unmount() }
+    try { named(ui); developer(ui, USER); pin(ui) } finally { ui.unmount() }
   })
 
-  it('ticked, not enough to cover fee and gas', async () => {
+  it('connected wallet is not the owner', async () => {
+    s.owner = SAFE
+    const ui = await render()
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('owner is a Safe', async () => {
+    s.owner = SAFE
+    s.ownerIsSafe = true
+    const ui = await render()
+    try { await flush(); filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('factory paused', async () => {
+    s.paused = true
+    const ui = await render()
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('logo still uploading', async () => {
+    s.logoBusy = true
+    const ui = await render()
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('hard cap below the factory minimum', async () => {
+    const ui = await render()
+    try { filled(ui); hardCap(ui, '10'); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('wallet cap above the hard cap', async () => {
+    const ui = await render()
+    try { filled(ui); walletCap(ui, '2000'); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('no hard cap, wallet cap above the ceiling', async () => {
+    const ui = await render()
+    try { filled(ui); uncap(ui); walletCap(ui, '30000'); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('ticked, not enough to cover gas', async () => {
     s.balance = 1n
     const ui = await render()
-    try { named(ui); tick(ui); pin(ui) } finally { ui.unmount() }
+    try { filled(ui); tick(ui); pin(ui) } finally { ui.unmount() }
   })
 
   it('ticked, ready to deploy, 72-hour window', async () => {
     const ui = await render()
     try {
-      named(ui)
+      filled(ui)
       typeInto(ui, 'textarea', 'An agent that does things.')
       act(() => { ui.button('72 hours').click() })
       tick(ui)
@@ -267,30 +315,43 @@ describe('/launch · english copy golden master', () => {
     } finally { ui.unmount() }
   })
 
+  it('ticked, ready to deploy, no hard cap', async () => {
+    const ui = await render()
+    try { filled(ui); uncap(ui); tick(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('reserving the pool address', async () => {
+    client.getBytecode.mockImplementation(() => new Promise(() => {}) as never)
+    const ui = await render()
+    try { filled(ui); tick(ui); await deploy(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('the caps moved while a salt was held', async () => {
+    s.revert = 'NameTaken'
+    const ui = await render()
+    try {
+      filled(ui); tick(ui); await deploy(ui)
+      hardCap(ui, '2000')
+      await flush()
+      pin(ui)
+    } finally { ui.unmount() }
+  })
+
   for (const errorName of [
-    'FeeChanged', 'NameTaken', 'CapsChanged', 'InsufficientLaunchFee',
-    'InvalidAdmin', 'DeployFailed', 'EnforcedPause', 'CloneDeployFailed',
+    'NameTaken', 'InvalidDeveloper', 'HardCapTooLow', 'HardCapTooHigh', 'InvalidWalletCap',
+    'OwnableUnauthorizedAccount', 'DeployFailed', 'EnforcedPause', 'CloneDeployFailed',
   ]) {
     it(`pre-flight revert · ${errorName}`, async () => {
       s.revert = errorName
       const ui = await render()
-      try { named(ui); tick(ui); await deploy(ui); pin(ui) } finally { ui.unmount() }
+      try { filled(ui); tick(ui); await deploy(ui); pin(ui) } finally { ui.unmount() }
     })
   }
-
-  it('the fee moved before signing', async () => {
-    s.liveFee = FEE * 2n
-    const ui = await render()
-    try { named(ui); tick(ui); await deploy(ui); pin(ui) } finally { ui.unmount() }
-  })
 
   it('no free hook address', async () => {
     client.getBytecode.mockImplementation(async () => '0x60' as never)
     const ui = await render()
-    try { named(ui); tick(ui); await deploy(ui); pin(ui) } finally {
-      ui.unmount()
-      client.getBytecode.mockImplementation(async () => undefined)
-    }
+    try { filled(ui); tick(ui); await deploy(ui); pin(ui) } finally { ui.unmount() }
   })
 
   for (const [name, sign, publish] of [
@@ -303,7 +364,7 @@ describe('/launch · english copy golden master', () => {
       s.publish = publish
       const ui = await render()
       try {
-        named(ui); tick(ui); await deploy(ui)
+        filled(ui); tick(ui); await deploy(ui)
         s.tosh = { hash: HASH, receipt: { logs: [] }, isConfirmed: true }
         typeInto(ui, 'textarea', 'x')
         await flush()

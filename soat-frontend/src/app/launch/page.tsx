@@ -637,7 +637,7 @@ function GenesisConsole() {
         id: 'caps',
         active: dialsReady && !capsValid,
         label: t.capsLabel,
-        reason: fill(t.capsReason, capRange),
+        reason: fill(uncapped ? t.capsReasonUncapped : t.capsReason, capRange),
         tone: 'neutral',
       },
       {
