@@ -37,7 +37,7 @@
  * Read pipeline (4 RPC stages, each gated on `open` to spare bandwidth when
  * the drawer is collapsed):
  *
- *     A. factory.launchCount                          (1 call)
+ *     A. factory.launchCount, per listed factory      (1 call each)
  *     B. factory.launches(i)                          (N calls)
  *     C. hook.nativeDeposited(user)                      (N calls, filter > 0)
  *     D. (cooldown + phase + total + hasClaimed + claimSupply +
@@ -50,7 +50,6 @@ import { ChevronRight } from 'lucide-react'
 import {
   useAccount,
   useDisconnect,
-  useReadContract,
   useReadContracts,
 } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
@@ -59,6 +58,7 @@ import {
   ERC20_ABI,
   FACTORY_ABI,
   FACTORY_ADDRESS,
+  LISTED_FACTORIES,
   HOOK_ABI,
   CHAIN_BYLINE,
   ZERO_ADDRESS,
@@ -156,6 +156,8 @@ interface LaunchRow {
   hook:      Address
   creator:   Address
   createdAt: bigint
+  /** The factory that created it; a retired factory's hooks still pay out. */
+  factory:   Address
 }
 
 interface ParticipatedRow extends LaunchRow {
@@ -226,14 +228,21 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       : undefined
 
   // ── Stage A: how many hooks live on-chain? ─────────────────────────────
-  const launchCountQuery = useReadContract({
-    address:      FACTORY_ADDRESS,
-    abi:          FACTORY_ABI,
-    functionName: 'launchCount',
-    query:        { enabled: open },
+  // Every listed factory: a position on a retired one is still this wallet's
+  // to refund or claim, and the hook serves both without its factory.
+  const launchCountQuery = useReadContracts({
+    contracts: LISTED_FACTORIES.map(f => ({
+      address: f, abi: FACTORY_ABI, functionName: 'launchCount' as const,
+    })),
+    query: { enabled: open },
   })
-  const launchCount =
-    launchCountQuery.data !== undefined ? Number(launchCountQuery.data as bigint) : 0
+  const countsKey = LISTED_FACTORIES
+    .map((_, i) => {
+      const r = launchCountQuery.data?.[i]
+      return r?.status === 'success' ? Number(r.result as bigint) : 0
+    })
+    .join(',')
+  const launchCount = countsKey.split(',').reduce((a, n) => a + Number(n), 0)
 
   // ── Stage B: pull each LaunchRow ────────────────────────────────────────
   // Bounded, unlike the raw `launchCount`. This drawer lists the wallet's own
@@ -242,31 +251,36 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // from their own ledger. The ceiling is what keeps `Array.from` from being
   // handed an unbounded length, and keeps one drawer open from turning into
   // `launchCount * 6` multicall entries.
-  const scanDepth = Math.min(launchCount, DRAWER_SCAN_DEPTH)
-  const launchIds = useMemo(
-    () => Array.from({ length: scanDepth }, (_, i) => BigInt(launchCount - scanDepth + i)),
-    [launchCount, scanDepth],
-  )
+  // The ceiling applies per factory, so a busy new factory cannot push a
+  // retired one's positions out of the window.
+  const launchRefs = useMemo(() => {
+    const counts = countsKey.split(',').map(Number)
+    return LISTED_FACTORIES.flatMap((factory, f) => {
+      const n = counts[f] ?? 0
+      const depth = Math.min(n, DRAWER_SCAN_DEPTH)
+      return Array.from({ length: depth }, (_, i) => ({ factory, id: BigInt(n - depth + i) }))
+    })
+  }, [countsKey])
   const launchesQuery = useReadContracts({
-    contracts: launchIds.map(id => ({
-      address:      FACTORY_ADDRESS,
+    contracts: launchRefs.map(({ factory, id }) => ({
+      address:      factory,
       abi:          FACTORY_ABI,
       functionName: 'launches' as const,
       args:         [id] as const,
     })),
-    query: { enabled: open && launchCount > 0 },
+    query: { enabled: open && launchRefs.length > 0 },
   })
 
   const launches: LaunchRow[] = useMemo(() => {
     if (!launchesQuery.data) return []
     const out: LaunchRow[] = []
-    for (const r of launchesQuery.data) {
-      if (r.status !== 'success') continue
+    launchesQuery.data.forEach((r, i) => {
+      if (r.status !== 'success') return
       const t = r.result as readonly [Address, Address, Address, bigint]
-      out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3] })
-    }
+      out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3], factory: launchRefs[i].factory })
+    })
     return out
-  }, [launchesQuery.data])
+  }, [launchesQuery.data, launchRefs])
 
   // ── Stage C: filter to hooks where the user has a non-zero deposit ──────
   const ethDepositedQuery = useReadContracts({
@@ -294,7 +308,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
   // ── Stage D: full per-hook snapshot (7 reads × M participated) ──────────
   const fullDataQuery = useReadContracts({
     contracts: address ? participated.flatMap(p => [
-      { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd' as const, args: [address, p.hook] as const },
+      { address: p.factory,       abi: FACTORY_ABI, functionName: 'userLaunchCooldownEnd' as const, args: [address, p.hook] as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'launched'              as const },
       { address: p.hook,          abi: HOOK_ABI,    functionName: 'totalNativeDeposited'     as const },
       // No `softCap` leg. It was fetched into the row, carried through the

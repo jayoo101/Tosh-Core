@@ -1,7 +1,7 @@
 import { zeroAddress } from 'viem'
 import type { Address } from 'viem'
 
-import { FACTORY_ADDRESS, FACTORY_ABI, HOOK_ABI, ERC20_ABI } from '@/lib/contracts'
+import { LISTED_FACTORIES, FACTORY_ABI, HOOK_ABI, ERC20_ABI } from '@/lib/contracts'
 import { targetChain } from '@/lib/chain'
 import { serverPublicClient } from '@/app/lib/serverRpc'
 import {
@@ -87,12 +87,18 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
     const client = serverPublicClient()
     const addr = tokenOrHook as Address
 
-    const hookFromToken = await client.readContract({
-      address: FACTORY_ADDRESS,
-      abi: FACTORY_ABI,
-      functionName: 'tokenToHook',
-      args: [addr],
-    }) as Address
+    // Current factory first, then each retired one still listed. A token is
+    // registered on exactly one, so the first non-zero answer is the answer.
+    let hookFromToken: Address = zeroAddress
+    for (const factory of LISTED_FACTORIES) {
+      hookFromToken = await client.readContract({
+        address: factory,
+        abi: FACTORY_ABI,
+        functionName: 'tokenToHook',
+        args: [addr],
+      }) as Address
+      if (hookFromToken !== zeroAddress) break
+    }
 
     let token: Address = addr
     let hook: Address = hookFromToken

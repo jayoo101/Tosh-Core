@@ -179,7 +179,7 @@ describe('GenesisClaimPanel · english copy golden master', () => {
 describe('AwaitingLaunchPanel · english copy golden master', () => {
   // The creator sees a button and an argument for pressing it; everyone else
   // sees the same wait with none of the agency. Both are user-facing.
-  for (const [name, isCreator] of [
+  for (const [name, canLaunch] of [
     ['as the creator', true],
     ['as a depositor', false],
   ] as const) {
@@ -188,7 +188,7 @@ describe('AwaitingLaunchPanel · english copy golden master', () => {
         <AwaitingLaunchPanel
           hookAddress={HOOK}
           symbol="QMT"
-          isCreator={isCreator}
+          canLaunch={canLaunch}
           totalNativeDeposited={40_95970000n}
           genesisDeadline={BigInt(NOW - 3600)}
           nowSec={NOW}

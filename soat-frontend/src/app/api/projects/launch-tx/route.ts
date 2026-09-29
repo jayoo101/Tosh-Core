@@ -27,7 +27,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { encodeEventTopics } from 'viem'
 import type { Address, Hex, PublicClient } from 'viem'
 
-import { FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI } from '@/lib/contracts'
+import { FACTORY_ABI, HOOK_ABI, LISTED_FACTORIES } from '@/lib/contracts'
 import { applyCors, applyRateLimit, corsPreflight } from '@/app/lib/apiGuard'
 import { assertServerChain, publicFallbackClient, serverPublicClient } from '@/app/lib/serverRpc'
 import { reportError } from '@/lib/observability'
@@ -122,7 +122,8 @@ async function scan(
   const logs = await client.request({
     method: 'eth_getLogs',
     params: [{
-      address: FACTORY_ADDRESS,
+      // Every listed factory: a retired one emitted the same `LaunchCreated`.
+      address: [...LISTED_FACTORIES],
       topics,
       fromBlock: `0x${fromBlock.toString(16)}`,
       toBlock: toBlock === 'latest' ? 'latest' : `0x${toBlock.toString(16)}`,

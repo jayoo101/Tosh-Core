@@ -48,7 +48,7 @@ export const CLONE_INITCODE_BYTES = 131
  *
  *     10 B  creation stub, returning the 121 (0x79) bytes that follow
  *     45 B  EIP-1167 runtime, implementation address at offset 10
- *     76 B  immutable args: creator, projectTreasury, softCap:uint128,
+ *     76 B  immutable args: creator, projectTreasury, hardCap:uint128,
  *           perWalletCap:uint128, genesisDuration:uint32
  *
  * Note what is NOT in here. `poolManager`, `factory` and `ladderTreasury` are
@@ -72,12 +72,12 @@ export function computeCloneInitcode(
   implementation:  `0x${string}`,
   creator:         `0x${string}`,
   projectTreasury: `0x${string}`,
-  softCap:         bigint,
+  hardCap:         bigint,
   perWalletCap:    bigint,
   genesisDuration: bigint,
 ): `0x${string}` {
-  if (softCap >= 1n << 128n || perWalletCap >= 1n << 128n) {
-    throw new Error("hookMiner: softCap / perWalletCap must fit in uint128")
+  if (hardCap >= 1n << 128n || perWalletCap >= 1n << 128n) {
+    throw new Error("hookMiner: hardCap / perWalletCap must fit in uint128")
   }
   if (genesisDuration >= 1n << 32n) {
     throw new Error("hookMiner: genesisDuration must fit in uint32")
@@ -90,7 +90,7 @@ export function computeCloneInitcode(
     "0x5af43d82803e903d91602b57fd5bf3",
     creator,
     projectTreasury,
-    numberToHex(softCap, { size: 16 }),
+    numberToHex(hardCap, { size: 16 }),
     numberToHex(perWalletCap, { size: 16 }),
     numberToHex(genesisDuration, { size: 4 }),
   ])
@@ -107,12 +107,12 @@ export function computeHookInitcodeHash(
   implementation:  `0x${string}`,
   creator:         `0x${string}`,
   projectTreasury: `0x${string}`,
-  softCap:         bigint,
+  hardCap:         bigint,
   perWalletCap:    bigint,
   genesisDuration: bigint,
 ): `0x${string}` {
   return keccak256(
-    computeCloneInitcode(implementation, creator, projectTreasury, softCap, perWalletCap, genesisDuration)
+    computeCloneInitcode(implementation, creator, projectTreasury, hardCap, perWalletCap, genesisDuration)
   )
 }
 
@@ -152,11 +152,10 @@ export function deriveFinalSalt(
  *
  * The factory derives `finalSalt = keccak256(abi.encode(creator, rawSalt))`, and
  * `initcodeHash` should come from `factory.hookInitcodeHash(projectTreasury,
- * creator, softCap, perWalletCap, genesisDuration)`. The same `genesisDuration`,
- * `softCap` and `perWalletCap` must reach `createLaunch` — the first because it is
- * in the initcode hash, the latter two because `expectedSoftCap` /
- * `expectedWalletCap` are checked for equality and the launch reverts
- * `CapsChanged` otherwise.
+ * creator, hardCap, perWalletCap, genesisDuration)`. The same three values must
+ * reach `createLaunch` as `hardCap`, `walletCap` and `genesisDuration`: all
+ * three are in the initcode hash, so any difference deploys the hook somewhere
+ * other than the predicted address.
  */
 export function pickHookSalt(
   factory:      `0x${string}`,

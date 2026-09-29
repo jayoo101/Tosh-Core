@@ -215,8 +215,8 @@ that is what the 200 gas/byte is charged on. `ToshCloneLib` lays out both, and
 
 | Role | Who | Can do |
 |---|---|---|
-| Platform owner | Safe on `56`; a single public-key EOA on `97` | pause new launches, curate the buyback roster, tune caps and fees, halt shelf minting for ≤ 7 days |
-| `creator` | EOA | call `launch()` on their own project |
+| Platform owner | Safe on `56`; a single public-key EOA on `97` | open pools via `factory.launch(hook)`, pause new launches, freeze a round's deposits (`setDepositsPaused`, no expiry), overwrite PoG quotas (`setPogQuota`), curate the buyback roster, tune caps, halt shelf minting for ≤ 7 days |
+| `creator` | recorded at creation | informational only — the hook's `launch()` admits the factory alone |
 | `projectAdmin` | EOA / Safe | receive 99% of shelf proceeds; may rotate itself |
 | Genesis depositor | anyone eligible | deposit in Phase 1, claim after launch, or refund |
 | Referrer | anyone | earn commission on deposits bound to them |
@@ -251,10 +251,11 @@ address) but no code reads it.
 | `DURATION_STANDARD` | 24 hours (default) |
 | `DURATION_SLOW` | 72 hours |
 
-**Launch.** After the deadline the `creator` calls `hook.launch()`, which splits
+**Launch.** After the deadline the factory owner calls `factory.launch(hook)`,
+which forwards to the hook's `launch()` (the hook admits no other caller) and splits
 the raise, mints the genesis block, initialises the pool, locks full-range
 liquidity, seeds the oracle and shuts Phase 2 for the launch block. Nothing is
-automatic — if the creator never calls it, `refund()` opens once `LAUNCH_WINDOW`
+automatic — if the owner never calls it, `refund()` opens once `LAUNCH_WINDOW`
 (7 days) lapses.
 
 **Failure paths.** Two of them, on two clocks. A raise too small to carry a
@@ -275,8 +276,9 @@ refunded.
 `claimReferralReward()` per project, or use the aggregated ledger at
 `/referrals`.
 
-**Buyback.** Once the treasury holds `TRIGGER_STEP` (92.8 BEM) the reservoir is
-armed and `max(92.8 BEM, 10% of balance)` is due. One poke spends
+**Buyback.** Once the treasury holds `TRIGGER_STEP` (10 BEM) the reservoir is
+armed and `max(10 BEM, 50% of balance)` is due, each leg clamped to 0.5 % of its
+pool's depth. One poke spends
 `spend / BATCH_SIZE` on one roster token in round-robin order and sends it to
 `0xdead`, under a TWAP-relative floor
 (`MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000). Two things poke it:
@@ -930,7 +932,7 @@ Tosh-Core/
 | `createLaunch` reverts `CapsChanged` | `expectedSoftCap` / `expectedWalletCap` no longer equal the factory's live `defaultSoftCap` / `maxPogAllocationLimit`. Re-read both from chain and retry. This replaced `InvalidHookSalt`, which no longer exists. |
 | `createLaunch` reverts `FeeChanged` | Owner moved `launchFee` past your `expectedFee` cap. Re-read and retry. |
 | `createLaunch` reverts `NameTaken` | Name/symbol already reserved. If that round died, `releaseAbandonedName(hook)` frees it. |
-| `mintBondingCurve` reverts `NotLaunched` | The creator has not called `launch()` yet. |
+| `mintBondingCurve` reverts `NotLaunched` | The factory owner has not called `factory.launch(hook)` yet. |
 | `mintBondingCurve` reverts `SameBlockMintForbidden` | A swap landed in this block. Wait one block. |
 | `mintBondingCurve` reverts on the price gate | The market has not risen to meet the shelf. This is the gate working. |
 | `launch` reverts `LaunchWindowExpired` | More than 7 days since the deadline; depositors can `refund()`. |
@@ -940,7 +942,7 @@ Tosh-Core/
 | `addLadderToken` reverts `TokenNotLaunchedHere` | Only tokens launched by the bound factory can be listed. |
 | `addLadderToken` reverts `InvalidPoolKey` / `PoolNotLaunched` | The hook exists but has not run `launch()`, so there is no pool yet. |
 | `addLadderToken` reverts `TwapNotMature` | The pool's TWAP has not matured; listing is refused until it answers. |
-| Treasury holds ≥ 92.8 BEM and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
+| Treasury holds ≥ 10 BEM and nothing burns | Not a fault. Swaps are skipping the poke on the gas gate. Call `pokeBuyback()` — permissionless. `STATE-06` watches for this. |
 | `pokeBuyback` reverts `NotArmed` | Reservoir below `TRIGGER_STEP`, or the roster is empty. |
 | `pokeBuyback` reverts `PiggybackInProgress` | A buyback is already mid-flight in this call stack. Retry after it settles. |
 | Every swap on a pool reverts | Check `treasury.factory()` is wired. This now degrades to skipped buybacks rather than bricking pools. |

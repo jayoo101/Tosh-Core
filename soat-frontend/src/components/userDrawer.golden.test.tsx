@@ -57,14 +57,17 @@ const tokenOf = (i: number) => `0x${(i + 101).toString(16).padStart(40, '0')}` a
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: s.connected ? USER : undefined, isConnected: s.connected, chainId: 97 }),
   useDisconnect: () => ({ disconnect: vi.fn() }),
-  useReadContract: () => ({
-    data: s.loadingCount ? undefined : BigInt(s.positions.length),
-    isLoading: s.loadingCount,
-  }),
+  useReadContract: () => ({ data: undefined, isLoading: false }),
   useReadContracts: ({ contracts }: { contracts: { functionName: string }[] }) => {
     const first = contracts[0]?.functionName
     const r = (data: Leg[] | undefined) => ({ data, isLoading: false, refetch: vi.fn() })
     switch (first) {
+      case 'launchCount':
+        return {
+          data: s.loadingCount ? undefined : [ok(BigInt(s.positions.length))],
+          isLoading: s.loadingCount,
+          refetch: vi.fn(),
+        }
       case 'pogQuota':
         return r([ok(s.quota), ok([s.remaining > 0n, s.remaining, 0n]), ok(s.ban)])
       case 'launches':

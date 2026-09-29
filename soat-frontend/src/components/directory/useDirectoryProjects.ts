@@ -1,11 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useReadContract, useReadContracts } from 'wagmi'
+import { useReadContracts } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, ERC20_ABI,
+  FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI,
   QUOTE_DECIMALS, GENESIS_DURATIONS,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
@@ -17,6 +17,8 @@ export interface DirectoryProject {
   hook:            Address
   creator:         Address
   createdAt:       bigint
+  /** The factory that created it — the current one, or a retired one still listed. */
+  factory:         Address
   launched:        boolean
   genesisDeadline: bigint
   /**
@@ -268,37 +270,54 @@ export function useDirectoryProjects() {
     if (map) setRegistry(map)
   }, [fetchRegistry])
 
-  const { data: launchCountRaw, isLoading: countLoading, refetch: refetchCount } = useReadContract({
-    address:      FACTORY_ADDRESS,
-    abi:          FACTORY_ABI,
-    functionName: 'launchCount',
-    query:        { refetchInterval: 30_000, staleTime: DIRECTORY_STALE_MS },
+  // Every listed factory, current first. A retired factory keeps its hooks for
+  // life, so its launches stay in the directory — see `LISTED_FACTORIES`.
+  const countsQuery = useReadContracts({
+    contracts: LISTED_FACTORIES.map(address => ({
+      address, abi: FACTORY_ABI, functionName: 'launchCount' as const,
+    })),
+    query: { refetchInterval: 30_000, staleTime: DIRECTORY_STALE_MS },
   })
-  const launchCount = launchCountRaw !== undefined ? Number(launchCountRaw as bigint) : 0
+  const countLoading = countsQuery.isLoading
+  const refetchCount = countsQuery.refetch
+  // Joined to a primitive so the memo below does not re-run on every poll.
+  const countsKey = LISTED_FACTORIES
+    .map((_, i) => {
+      const r = countsQuery.data?.[i]
+      return r?.status === 'success' ? Number(r.result as bigint) : 0
+    })
+    .join(',')
+  const launchCount = countsKey.split(',').reduce((a, n) => a + Number(n), 0)
+  /** `SCAN_DEPTH` is per factory, so truncation is too. */
+  const truncated = countsKey.split(',').some(n => Number(n) > SCAN_DEPTH)
 
-  const launchIds = useMemo(() => {
-    const start = Math.max(0, launchCount - SCAN_DEPTH)
-    return Array.from({ length: launchCount - start }, (_, i) => BigInt(start + i))
-  }, [launchCount])
+  const launchRefs = useMemo(() => {
+    const counts = countsKey.split(',').map(Number)
+    return LISTED_FACTORIES.flatMap((factory, f) => {
+      const n = counts[f] ?? 0
+      const start = Math.max(0, n - SCAN_DEPTH)
+      return Array.from({ length: n - start }, (_, i) => ({ factory, id: BigInt(start + i) }))
+    })
+  }, [countsKey])
 
   // `launches(id)` is written once at deploy and never again.
   const launchesQuery = useReadContracts({
-    contracts: launchIds.map(id => ({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launches' as const, args: [id] as const,
+    contracts: launchRefs.map(({ factory, id }) => ({
+      address: factory, abi: FACTORY_ABI, functionName: 'launches' as const, args: [id] as const,
     })),
-    query: { enabled: launchCount > 0, staleTime: Infinity },
+    query: { enabled: launchRefs.length > 0, staleTime: Infinity },
   })
 
   const launches = useMemo(() => {
     if (!launchesQuery.data) return []
-    const out: { token: Address; hook: Address; creator: Address; createdAt: bigint }[] = []
-    for (const r of launchesQuery.data) {
-      if (r.status !== 'success') continue
+    const out: { token: Address; hook: Address; creator: Address; createdAt: bigint; factory: Address }[] = []
+    launchesQuery.data.forEach((r, i) => {
+      if (r.status !== 'success') return
       const t = r.result as readonly [Address, Address, Address, bigint]
-      out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3] })
-    }
+      out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3], factory: launchRefs[i].factory })
+    })
     return out
-  }, [launchesQuery.data])
+  }, [launchesQuery.data, launchRefs])
 
   // ERC-20 name and symbol are immutable, so they rode the 15s poll for
   // nothing: a third of every refresh re-read two constants per project.
@@ -403,7 +422,7 @@ export function useDirectoryProjects() {
     await Promise.all([refetchCount(), refetchPhase(), reloadRegistry()])
   }, [refetchCount, refetchPhase, reloadRegistry])
 
-  return { projects, counts, loading, refetch, launchCount }
+  return { projects, counts, loading, refetch, launchCount, truncated }
 }
 
 /**

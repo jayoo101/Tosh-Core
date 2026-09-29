@@ -5,11 +5,11 @@
 //   • Physical constants (addresses, chain IDs, hard floors mirrored from
 //     Solidity constants).
 //   • Pre-bound `{ address, abi }` tuples for ergonomic wagmi / viem use:
-//        useReadContract({ ...factoryContract, functionName: 'launchFee' })
+//        useReadContract({ ...factoryContract, functionName: 'maxPogAllocationLimit' })
 //        useReadContract({ ...hookContract(addr), functionName: 'tierStatus' })
 //   • Audit-cliff guards that the UI MUST honour locally so the wallet popup
 //     never opens for an obviously doomed transaction
-//     (M-01 MIN_SOFT_CAP_PROD, L-01 dust mints, 105 % shelf ceiling).
+//     (MIN_HARD_CAP / MAX_HARD_CAP, L-01 dust mints, 105 % shelf ceiling).
 //
 // LAYOUT NOTE
 // ───────────
@@ -19,6 +19,8 @@
 // ENV WIRING
 // ──────────
 //   NEXT_PUBLIC_FACTORY_ADDRESS     — deployed ToshFactory (required)
+//   NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES — comma-separated retired factories
+//                                     whose launches are still listed (optional)
 //   NEXT_PUBLIC_QUOTE_ASSET         — the token `factory.quoteAsset()` returns
 //                                     (required, and deliberately has no default)
 //   NEXT_PUBLIC_QUOTE_SYMBOL        — its ticker for display; 'BEM' if unset
@@ -88,6 +90,48 @@ if (/^0x0{38}[0-9a-fA-F]{2}$/.test(process.env.NEXT_PUBLIC_FACTORY_ADDRESS)) {
 }
 
 export const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS as Address
+
+/**
+ * Factories this site still LISTS but no longer launches on, comma-separated.
+ *
+ * A redeploy cannot migrate a hook: every clone is bound for life to the
+ * factory that created it. Its depositors still need the site to reach
+ * `refund()`, `claimGenesis()` and `claimReferralReward()`, which the hook
+ * serves directly — so a retired factory stays in the enumeration and nothing
+ * else. Deposits, PoG signatures, `/launch` and the admin console keep reading
+ * `FACTORY_ADDRESS` alone, which after a switch is the new factory.
+ *
+ * Unset is the pre-redeploy state and behaves exactly as before. A malformed
+ * entry throws rather than being skipped: a silently dropped address is a
+ * refund door removed from the site with nothing on screen saying so.
+ */
+export function parseFactoryList(raw: string | undefined, current: Address): readonly Address[] {
+  const out: Address[] = []
+  const seen = new Set([current.toLowerCase()])
+  for (const part of (raw ?? '').split(',')) {
+    const a = part.trim()
+    if (!a) continue
+    if (!/^0x[0-9a-fA-F]{40}$/.test(a)) {
+      throw new Error(`NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES: "${a}" is not a 20-byte hex address`)
+    }
+    if (seen.has(a.toLowerCase())) continue
+    seen.add(a.toLowerCase())
+    out.push(a as Address)
+  }
+  return out
+}
+
+export const LEGACY_FACTORY_ADDRESSES: readonly Address[] =
+  parseFactoryList(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES, FACTORY_ADDRESS)
+
+/** Every factory whose launches the site enumerates, current first. */
+export const LISTED_FACTORIES: readonly Address[] = [FACTORY_ADDRESS, ...LEGACY_FACTORY_ADDRESSES]
+
+export function isListedFactory(addr: string | null | undefined): boolean {
+  if (!addr) return false
+  const a = addr.toLowerCase()
+  return LISTED_FACTORIES.some(f => f.toLowerCase() === a)
+}
 
 /**
  * The quote asset every raise, fee, shelf price and buyback is denominated in.
@@ -442,64 +486,24 @@ export const treasuryContract = {
 } as const
 
 /**
- * M-01 — minimum acceptable `defaultSoftCap` (mirrors Factory.MIN_SOFT_CAP_PROD).
- * Below this floor `p0 = (lpQuote * 1e18) / GENESIS_LP_SUPPLY` truncates to zero.
+ * Bounds on a launch's hard cap (mirror `Factory.MIN_HARD_CAP` /
+ * `Factory.MAX_HARD_CAP`). `createLaunch` reverts `HardCapTooLow` /
+ * `HardCapTooHigh` outside them.
  *
- * ⚑ 100 BEM, and this floor is now LOAD-BEARING rather than a formality. It was
- * 0.035 BNB, an 18-decimal amount that cleared the point where the shelf ladder
- * degenerates by sixteen million to one. BEM has eight decimals: 100 BEM gives
- * `p0` = 2380 and `shelfP0` = 2499 against a break-even of 526, a margin of 4.75.
- * Below roughly 21 BEM two adjacent shelves round onto one price, which would let a
- * buyer clear the upper shelf at the lower shelf's price.
- *
- * So lowering this is not a UX decision. `ToshV5Fuzz.t.sol`
- * (`test_smallestReachableShelfP0_stillStepsTheLadder` and
- * `test_belowTheSoftCapFloor_theLadderStopsStepping`) holds both sides of it, and
- * `docs/BEM_QUOTE_ASSET.md` §2.2 is the argument.
+ * The floor is 30 BEM, about 1.4x `ladderViable()`'s ~21.04 BEM: a round
+ * must be able to raise enough to carry a monotone ladder even at ~70 % fill.
+ * The ceiling, 20,000 BEM, sits under the quote asset's own float and catches
+ * order-of-magnitude slips.
  */
-export const MIN_SOFT_CAP_PROD: bigint = 100n * 10n ** 8n
-export const MIN_SOFT_CAP_PROD_LABEL = '100'
+export const MIN_HARD_CAP: bigint = 30n * 10n ** 8n
+export const MIN_HARD_CAP_LABEL = '30'
+export const MAX_HARD_CAP: bigint = 20_000n * 10n ** 8n
+export const MAX_HARD_CAP_LABEL = '20,000'
 
 /**
- * Ceiling on `launchFee` (mirrors `Factory.MAX_LAUNCH_FEE`).
- *
- * Mirrored here for the same reason the soft-cap floor and the cooldown maximum
- * are: the admin panel is where the value is typed, and the slip this ceiling
- * exists to catch — an order-of-magnitude slip — is a keystroke. A bound that lives
- * only on-chain turns that keystroke into a reverted owner transaction instead of
- * an inline refusal.
- *
- * 0.5 BNB, a hundred times the 0.005 BNB default.
- *
- * ⚠ 18 DECIMALS, UNLIKE EVERY OTHER CONSTANT AROUND IT. The launch fee is the
- *   one factory dial charged in the chain's own coin; the soft cap and the PoG
- *   limit below are 8-decimal BEM. Scaling this by `10n ** 8n` to match its
- *   neighbours would put the ceiling at 5e9 wei — five gwei — and the admin
- *   panel would refuse every legal fee including the one already deployed.
- *   `checkContractConstants.ts` compares this against the Solidity constant and
- *   is what catches it if that happens.
+ * Ceiling on the PoG allocation dial (mirrors `Factory.MAX_POG_ALLOCATION_LIMIT`).
+ * Catches order-of-magnitude confusion and nothing subtler.
  */
-export const MAX_LAUNCH_FEE: bigint = 5n * 10n ** 17n
-export const MAX_LAUNCH_FEE_LABEL = '0.5'
-
-/**
- * Ceilings on the other two quote-denominated dials (mirror
- * `Factory.MAX_DEFAULT_SOFT_CAP` and `Factory.MAX_POG_ALLOCATION_LIMIT`).
- *
- * Far looser than `MAX_LAUNCH_FEE`, and read the Solidity natspec before
- * tightening either: a value picked for neatness here would reject raises and
- * wallet caps this repo's own test fixtures and rehearsal scripts depend on.
- * These catch order-of-magnitude confusion and nothing subtler — in particular a
- * per-wallet limit under the ceiling is not evidence that PoG still caps whales.
- *
- * 20,000 BEM rather than the old 1,000,000: with a fixed-supply quote asset the
- * ceiling has to sit under the asset's own float to mean anything, and 20,000 BEM
- * is around a tenth of supply. A 1,000,000 ceiling would have sat several times
- * ABOVE it and refused nothing — see `ToshFactory.MAX_DEFAULT_SOFT_CAP`'s natspec.
- */
-export const MAX_DEFAULT_SOFT_CAP: bigint = 20_000n * 10n ** 8n
-export const MAX_DEFAULT_SOFT_CAP_LABEL = '20,000'
-
 export const MAX_POG_ALLOCATION_LIMIT: bigint = 20_000n * 10n ** 8n
 export const MAX_POG_ALLOCATION_LIMIT_LABEL = '20,000'
 

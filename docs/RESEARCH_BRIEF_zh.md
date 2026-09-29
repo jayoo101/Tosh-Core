@@ -171,8 +171,9 @@ BNB，当时该 hook 冻着的软顶是 0.175 BNB），发射照常完成。见�
 
 ### Phase 3 · 通缩飞轮
 
-金库的 `TRIGGER_STEP` = 92.8 BEM，每次动用 `max(92.8 BEM, 余额的 10%)`（`SPEND_BPS` =
-1000）再除以 `BATCH_SIZE` = 3 分摊支出，每次 poke 走 `LEGS_PER_POKE` = 1 条腿。回购受
+金库的 `TRIGGER_STEP` = 10 BEM（原 92.8），每次动用 `max(10 BEM, 余额的 50%)`（`SPEND_BPS` =
+5000，原 1000）再除以 `BATCH_SIZE` = 3 分摊支出，每次 poke 走 `LEGS_PER_POKE` = 1 条腿，每条腿
+再受该池深度 0.5%（`MAX_LEG_DEPTH_BPS` = 50）截断。回购受
 `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000（10%）的滑点保护。
 
 ---

@@ -20,7 +20,6 @@ import { useReadContract } from 'wagmi'
 import { isAddress, getAddress, type Abi } from 'viem'
 import { FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import { ActionButton, useActionGate, useTxAction, revertOrder } from '@/components/ui'
 import {
   Section,
@@ -200,26 +199,14 @@ export function PlatformTreasuryPanel() {
           : <AddressLink addr={treasury as string | undefined} />}
         hint={isFetching && !isLoading ? 'syncing' : null}
       />
-      {/* ⚠ THIS SAID LAUNCH FEES ROUTE TO THE LADDER TREASURY, AND THAT STOPPED
-          BEING TRUE WHEN THE FEE WENT BACK TO NATIVE. They arrive HERE — the
-          address this panel is about — and the contracts make the old claim
-          impossible rather than merely stale: `ladderTreasury` sizes itself from
-          `quoteAsset.balanceOf` and has no `receive()`, so a BNB send there
-          would revert every `createLaunch`.
-
-          The companion error was the currency: "only ever receives the quote
-          asset" is what made the wrong destination read as consistent, since a
-          native fee could not have landed here if that were true. Both halves
-          had to move together. The shelf-mint cut and the orphaned commission
-          are unchanged, verified against the hook. */}
       <ScopeNote>
         Every buy pays a 1.00 % tax on its {QUOTE_SYMBOL} input. 0.70 % of that funds the
         ladder treasury&apos;s buyback-and-burn; the remaining 0.30 % is paid here
         as platform revenue. The sell leg is not split — the whole 1.00 % of a
-        sell&apos;s token input is burned. This address also takes the launch fee, paid
-        in {NATIVE_SYMBOL} rather than {QUOTE_SYMBOL} — the only amount the protocol
-        settles in the chain&apos;s own coin — so it holds both. The 1 % shelf-mint cut
-        and orphaned referral commission route entirely to the ladder treasury.
+        sell&apos;s token input is burned. At launch this address also receives the
+        orphaned referral commission (the 10 % of deposits that named no referrer)
+        and any {QUOTE_SYMBOL} sent straight to the hook. The 1 % shelf-mint cut
+        routes entirely to the ladder treasury. Creating a project charges nothing.
       </ScopeNote>
       <ScopeNote tone="warn">
         This address cannot be rotated. It is an immutable constructor argument

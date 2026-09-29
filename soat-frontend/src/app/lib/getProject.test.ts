@@ -14,7 +14,7 @@ const HOOK  = '0x21A52C56C15258B3f36B6455dA92d1241fB875FD'
 const ZERO  = '0x0000000000000000000000000000000000000000'
 
 /** `readContract` responses, keyed by function name, set per test. */
-let reads: Record<string, () => unknown>
+let reads: Record<string, (address: string) => unknown>
 /** What the registry query resolves to, set per test. */
 let registry: () => Promise<{ data: unknown[] | null; error: unknown }>
 /** `.eq()` calls the query carried, so the chain scoping can be asserted. */
@@ -22,10 +22,10 @@ const filters: [string, unknown][] = []
 
 vi.mock('@/app/lib/serverRpc', () => ({
   serverPublicClient: () => ({
-    readContract: async ({ functionName }: { functionName: string }) => {
+    readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
       const handler = reads[functionName]
       if (!handler) throw new Error(`unexpected read: ${functionName}`)
-      return handler()
+      return handler(address)
     },
   }),
 }))
@@ -150,6 +150,26 @@ describe('getProject — absence and unavailability are different answers', () =
     if (result.status !== 'found') return
     expect(result.row.token_address).toBe(TOKEN)
     expect(result.row.hook_address).toBe(HOOK)
+  })
+
+  it('finds a token registered on a retired factory', async () => {
+    const LEGACY = '0x20dE906A96FfB89BE6fd6267A0876A68017792F7'
+    vi.stubEnv('NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES', LEGACY)
+    const asked: string[] = []
+    reads = {
+      tokenToHook: (address) => {
+        asked.push(address)
+        return address === LEGACY ? HOOK : ZERO
+      },
+      name: () => 'Old Launch',
+      symbol: () => 'OLD',
+    }
+    const result = await getProject(TOKEN)
+    expect(result.status).toBe('found')
+    if (result.status !== 'found') return
+    expect(result.row.hook_address).toBe(HOOK)
+    // Current factory first: it is where a new launch lives.
+    expect(asked).toEqual(['0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', LEGACY])
   })
 
   it('rejects a malformed address without touching the chain or the registry', async () => {

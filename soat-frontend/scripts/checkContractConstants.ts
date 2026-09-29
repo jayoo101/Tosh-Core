@@ -7,7 +7,7 @@
  * `src/lib/contracts.ts` carries about eighteen numbers under the heading
  * "mirroring the hook" — the genesis supply split, the tier ladder, the price
  * ceiling, the TWAP window, the launch window, the genesis durations — plus
- * `MIN_SOFT_CAP_PROD` and `MAX_COOLDOWN_SECONDS` from the factory, and
+ * the hard-cap bounds and `MAX_COOLDOWN_SECONDS` from the factory, and
  * `pogQuota.ts` mirrors `MAX_SIG_VALIDITY`. Before this guard, exactly four of
  * them were checked against Solidity: `TICK_LOWER`, `TICK_UPPER`, `POOL_FEE` and
  * `TICK_SPACING`, by `scripts/checkPoolGeometry.mjs`. The rest were two
@@ -26,8 +26,9 @@
  * decide what a depositor is told they will receive; `TIER_COUNT`, `TIER_SIZE`
  * and `TIER_STEP_E18` are the ladder price the buy panel quotes; the genesis
  * durations go into the salt that `createLaunch` re-derives, so a wrong one
- * reverts `InvalidHookSalt` after the user has already mined; `MIN_SOFT_CAP_PROD`
- * decides which soft caps the form accepts before the chain rejects them.
+ * reverts `InvalidHookSalt` after the user has already mined; `MIN_HARD_CAP` /
+ * `MAX_HARD_CAP` decide which hard caps the form accepts before the chain
+ * rejects them.
  *
  * ── Ground truth ────────────────────────────────────────────────────────────
  *
@@ -51,8 +52,8 @@ import {
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
   PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS, PLATFORM_TAX_BPS,
   TAX_BPS, PLATFORM_SWAP_FEE_BPS, REFERRAL_BPS, PROJECT_REFERRAL_SHARE_BPS,
-  GENESIS_DURATIONS, MIN_SOFT_CAP_PROD, MAX_LAUNCH_FEE, MAX_COOLDOWN_SECONDS,
-  MAX_DEFAULT_SOFT_CAP, MAX_POG_ALLOCATION_LIMIT,
+  GENESIS_DURATIONS, MIN_HARD_CAP, MAX_HARD_CAP, MAX_COOLDOWN_SECONDS,
+  MAX_POG_ALLOCATION_LIMIT,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
 } from '../src/lib/contracts'
 import {
@@ -218,12 +219,10 @@ const FIELDS: Field[] = [
     cost: 'the referral desk and the rebate page split the cut one way while the hook '
       + 'splits it another, so every sharer is quoted the wrong rate on the leg they '
       + 'are actually earning' },
-  { sol: 'MIN_SOFT_CAP_PROD', file: FACTORY, ts: MIN_SOFT_CAP_PROD, where: 'contracts.MIN_SOFT_CAP_PROD',
-    cost: 'the launch form accepts a soft cap the factory rejects, or blocks one it allows' },
-  { sol: 'MAX_LAUNCH_FEE', file: FACTORY, ts: MAX_LAUNCH_FEE, where: 'contracts.MAX_LAUNCH_FEE',
-    cost: 'the admin panel accepts a fee the factory reverts on with LaunchFeeTooHigh' },
-  { sol: 'MAX_DEFAULT_SOFT_CAP', file: FACTORY, ts: MAX_DEFAULT_SOFT_CAP, where: 'contracts.MAX_DEFAULT_SOFT_CAP',
-    cost: 'the admin panel accepts a soft cap the factory reverts on with SoftCapTooHigh' },
+  { sol: 'MIN_HARD_CAP', file: FACTORY, ts: MIN_HARD_CAP, where: 'contracts.MIN_HARD_CAP',
+    cost: 'the launch form accepts a hard cap the factory rejects with HardCapTooLow, or blocks one it allows' },
+  { sol: 'MAX_HARD_CAP', file: FACTORY, ts: MAX_HARD_CAP, where: 'contracts.MAX_HARD_CAP',
+    cost: 'the launch form accepts a hard cap the factory rejects with HardCapTooHigh' },
   { sol: 'MAX_POG_ALLOCATION_LIMIT', file: FACTORY, ts: MAX_POG_ALLOCATION_LIMIT, where: 'contracts.MAX_POG_ALLOCATION_LIMIT',
     cost: 'the admin panel accepts a wallet cap the factory reverts on with PogLimitTooHigh' },
   { sol: 'MAX_COOLDOWN', file: FACTORY, ts: BigInt(MAX_COOLDOWN_SECONDS), where: 'contracts.MAX_COOLDOWN_SECONDS',

@@ -36,7 +36,7 @@ import {
 import { parseUnits, type Address, type ContractFunctionParameters } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, QUOTE_SYMBOL,
+  FACTORY_ABI, HOOK_ABI, QUOTE_SYMBOL,
 } from '@/lib/contracts'
 import {
   useActionGate, revertOrder, useTxAction, useQuoteApproval, type ActionGate,
@@ -167,14 +167,25 @@ export function BondingStateProvider(
   // platform-wide halt and this project's own together — the hook reverts
   // `LadderMintingHalted()` on either — so the two expiry stamps are read
   // alongside it only to say which one is biting and when it lifts.
-  const haltContracts: ContractFunctionParameters[] = [
-    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'ladderMintingHalted',    args: [p.hookAddress] },
-    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'globalLadderHaltedUntil' },
-    { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookLadderHaltedUntil',  args: [p.hookAddress] },
-  ]
+  //
+  // Read on the hook's OWN factory, which the hook consults. A project from a
+  // retired factory is halted there or not at all, and asking the current
+  // factory would report "not halted" over a live halt.
+  const { data: ownFactory } = useReadContract({
+    address:      p.hookAddress,
+    abi:          HOOK_ABI,
+    functionName: 'factory',
+    query:        { staleTime: Infinity },
+  })
+  const haltFactory = ownFactory as Address | undefined
+  const haltContracts: ContractFunctionParameters[] = haltFactory ? [
+    { address: haltFactory, abi: FACTORY_ABI, functionName: 'ladderMintingHalted',    args: [p.hookAddress] },
+    { address: haltFactory, abi: FACTORY_ABI, functionName: 'globalLadderHaltedUntil' },
+    { address: haltFactory, abi: FACTORY_ABI, functionName: 'hookLadderHaltedUntil',  args: [p.hookAddress] },
+  ] : []
   const { data: haltData } = useReadContracts({
     contracts: haltContracts,
-    query: { refetchInterval: 8_000 },
+    query: { enabled: Boolean(haltFactory), refetchInterval: 8_000 },
   })
   const halted        = (haltData?.[0]?.result as boolean | undefined) ?? false
   const globalHaltEnd = (haltData?.[1]?.result as bigint  | undefined) ?? 0n

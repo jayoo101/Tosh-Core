@@ -459,8 +459,8 @@ recovered by whoever parked the price.
 
 Those two figures are **denominated in ETH because that is the build they were
 measured on**, and they are left unconverted rather than rescaled. `TRIGGER_STEP`
-has since been re-denominated twice — ETH, then 3.5 BNB, and now **92.8 BEM** at
-8 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
+has since been re-denominated three times — ETH, then 3.5 BNB, then 92.8 BEM,
+and now **10 BEM** at 8 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
 attacker would be reaching for is a different number. Multiplying the old
 measurement through two currency rescales would produce a figure nobody measured
 and present it in the same sentence as one somebody did. If this window is ever

@@ -68,6 +68,7 @@ function project(over: Partial<DirectoryProject>): DirectoryProject {
   return {
     token: '0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2',
     hook: '0x94335Bc7BcF3b63C4deffA6Dd4bb5e09689384fe',
+    factory: '0x00000000000000000000000000000000000000Fa',
     creator: '0x2869207e99DC19CB89A68196eFa82E52e493D814',
     createdAt: BigInt(NOW_SEC) - 24n * HOUR,
     launched: false,

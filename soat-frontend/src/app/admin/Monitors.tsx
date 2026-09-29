@@ -20,7 +20,7 @@ export function InitcodeHashMonitor() {
   const {
     data: liveHash, isLoading, isFetching, error: readError,
   } = useReadContract({
-    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'getLiveHookInitcodeHash',
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'HOOK_CREATION_CODEHASH',
     query: { refetchInterval: 8_000, refetchOnWindowFocus: true },
   })
 
@@ -55,7 +55,7 @@ export function InitcodeHashMonitor() {
   return (
     <Section
       id="DIAG-A" title="LIVE INITCODE HASH"
-      subtitle="factory.getLiveHookInitcodeHash() · build fingerprint · 8 s probe"
+      subtitle="factory.HOOK_CREATION_CODEHASH() · build fingerprint · 8 s probe"
     >
       <p className="font-mono text-note text-text-tertiary tracking-wider break-all leading-relaxed">
         hash{'  '}<span className="text-text-secondary">{display}</span>
@@ -66,10 +66,10 @@ export function InitcodeHashMonitor() {
         {isFetching && !isLoading && <span className="text-text-quiet">· syncing</span>}
       </p>
       <ScopeNote>
-        Sentinel-address hash — a fingerprint, not a mining target. It changes iff
-        the hook creation code or the factory wiring changed, which is the signal
-        that every previously mined salt is now dead. Mine against
-        factory.hookInitcodeHash(...) with the creator&apos;s real arguments.
+        Hash of the hook creation code this factory was built with — a fingerprint,
+        not a mining target. It is immutable, so a change here means the page is
+        reading a different factory. Mine against factory.hookInitcodeHash(...)
+        with the creator&apos;s real arguments.
       </ScopeNote>
     </Section>
   )

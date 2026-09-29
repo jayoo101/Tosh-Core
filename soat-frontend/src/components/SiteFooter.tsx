@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 import { CHAIN_BYLINE } from '@/lib/contracts'
 import { EN } from '@/i18n/dict/en'
 import type { Dictionary } from '@/i18n'
@@ -61,6 +63,12 @@ export function SiteFooter({ t = EN }: { t?: Dictionary }) {
         >
           {t.site.footerSecurity}
         </a>
+        <Link
+          href="/apply"
+          className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+        >
+          {t.site.navApply}
+        </Link>
         </div>
         <span className="font-mono text-label text-text-quiet">
           © {new Date().getFullYear()} Tosh Protocol — {CHAIN_BYLINE}

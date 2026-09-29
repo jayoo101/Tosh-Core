@@ -49,14 +49,18 @@ const WalletPip = dynamic(
  * Three labels do not fit at 390px next to CONNECT. `Agent Directory` sheds
  * its first word below `sm`, which is the 52px the bar actually needed; the
  * other two labels stay in full because they are the short ones.
+ *
+ * `/apply` is the fourth and is `sm`-and-up only: the 390px arithmetic above
+ * has no room left, and the footer carries it at every width.
  */
 function navItems(t: Dictionary) {
   return [
-    { href: '/projects',  label: t.site.navDirectory, full: t.site.navDirectoryFull, exact: false },
+    { href: '/projects',  label: t.site.navDirectory, full: t.site.navDirectoryFull, exact: false, phone: true },
     ...(LAUNCHES_PAUSED ? [] : [
-      { href: '/launch',  label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false },
+      { href: '/launch',  label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false, phone: true },
     ]),
-    { href: '/referrals', label: t.site.navReferrals, full: t.site.navReferrals,     exact: false },
+    { href: '/referrals', label: t.site.navReferrals, full: t.site.navReferrals,     exact: false, phone: true },
+    { href: '/apply',     label: t.site.navApply,     full: t.site.navApply,         exact: false, phone: false },
   ] as const
 }
 
@@ -111,13 +115,14 @@ export function ToshNavbar() {
               below the fold. All three survive to 390px; Directory is the one
               that shortens (see navItems). */}
           <div className="flex items-center gap-1 min-w-0">
-            {navItems(t).map(({ href, label, full, exact }) => {
+            {navItems(t).map(({ href, label, full, exact, phone }) => {
               const active = exact ? pathname === href : pathname?.startsWith(href)
               return (
                 <Link
                   key={href}
                   href={href}
                   className={`px-2 py-1.5 rounded-input text-note font-medium whitespace-nowrap transition-colors sm:px-3
+                    ${phone ? '' : 'hidden sm:inline-block'}
                     ${active
                       ? 'text-brand bg-brand/10'
                       : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-hover'}`}

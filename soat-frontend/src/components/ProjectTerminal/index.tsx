@@ -313,6 +313,15 @@ export default function ProjectTerminal({ project, about, header }: {
   const isCreator = !!userAddress && !!creatorAddress
     && (creatorAddress as Address).toLowerCase() === userAddress.toLowerCase()
 
+  // Who may launch is the factory's owner NOW, which `creator` stops being once
+  // the Safe rotates — so this is read live rather than pinned like `creator`.
+  const { data: factoryOwner } = useReadContract({
+    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'owner',
+    query: { enabled: !!hookAddress, staleTime: 60_000 },
+  })
+  const canLaunch = !!userAddress && !!factoryOwner
+    && (factoryOwner as Address).toLowerCase() === userAddress.toLowerCase()
+
   // Snapshotted into the hook at creation and never written again, so it rides
   // outside the 12s bulk poll — which also keeps that contracts tuple from
   // growing any deeper.
@@ -596,7 +605,7 @@ export default function ProjectTerminal({ project, about, header }: {
           <AwaitingLaunchPanel
             hookAddress={hookAddress}
             symbol={symbol}
-            isCreator={isCreator}
+            canLaunch={canLaunch}
             totalNativeDeposited={totalNativeDeposited}
             genesisDeadline={genesisDeadline}
             nowSec={nowSec}

@@ -2,11 +2,11 @@
 
 import { useCallback, useMemo } from 'react'
 import Link from 'next/link'
-import { useAccount, useReadContract, useReadContracts } from 'wagmi'
+import { useAccount, useReadContracts } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
+  FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI,
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
   CHAIN_BYLINE,
 } from '@/lib/contracts'
@@ -180,7 +180,7 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
 
 export function ReferralLedger() {
   const { address: userAddress } = useAccount()
-  const { projects, loading: projectsLoading, launchCount } = useDirectoryProjects()
+  const { projects, loading: projectsLoading, launchCount, truncated } = useDirectoryProjects()
   const t = useT().referralLedger
 
   // The enumeration is the whole product here, and it is bounded. Past
@@ -189,18 +189,23 @@ export function ReferralLedger() {
   // money is never stranded — a launched project keeps its own claim while it
   // owes anything, so the project page still pays it — but the reader has to be
   // told where to go rather than left to conclude the balance is gone.
-  const scanTruncated = launchCount > SCAN_DEPTH
+  const scanTruncated = truncated
 
   // Lifetime recruits are a factory-level counter, so it is one read rather
   // than a sum over the rows below — and it deliberately counts wallets this
   // referrer bound platform-wide, including ones whose projects never launched
-  // and therefore never appear with a balance.
-  const { data: lifetimeCountRaw } = useReadContract({
-    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'referralCount',
-    args: userAddress ? [userAddress] : undefined,
+  // and therefore never appear with a balance. Each factory keeps its own
+  // binding table, so the count is summed over every listed one.
+  const { data: lifetimeCounts } = useReadContracts({
+    contracts: LISTED_FACTORIES.map(f => ({
+      address: f, abi: FACTORY_ABI, functionName: 'referralCount' as const,
+      args: [userAddress as Address] as const,
+    })),
     query: { enabled: !!userAddress },
   })
-  const lifetimeRecruits = (lifetimeCountRaw as bigint | undefined) ?? 0n
+  const lifetimeRecruits = (lifetimeCounts ?? []).reduce(
+    (a, r) => a + (r.status === 'success' ? (r.result as bigint) : 0n), 0n,
+  )
 
   // Three reads per project in one multicall. `claimableReferral` is asked of
   // the hook rather than derived from `launched && accrued`, so the unlock
@@ -216,7 +221,7 @@ export function ReferralLedger() {
         args: [userAddress as Address] as const,
       },
       {
-        address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'projectReferralCount' as const,
+        address: p.factory, abi: FACTORY_ABI, functionName: 'projectReferralCount' as const,
         args: [p.hook, userAddress as Address] as const,
       },
     ]),

@@ -32,20 +32,25 @@ let s: {
 }
 
 const hookOf = (i: number) => `0x${(i + 1).toString(16).padStart(40, '0')}` as Address
+const FACTORY = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' as Address
 const tokenOf = (i: number) => `0x${(i + 101).toString(16).padStart(40, '0')}` as Address
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: s.connected ? USER : undefined, isConnected: s.connected, chainId: 97 }),
   useConnect: () => ({ connectAsync: vi.fn(), connectors: [{}], isPending: false }),
   useSwitchChain: () => ({ switchChainAsync: vi.fn(), isPending: false }),
-  useReadContract: () => ({ data: s.lifetime, refetch: vi.fn() }),
-  useReadContracts: () => ({
-    data: s.loading ? undefined : s.rows.flatMap(r => [r.accrued, r.claimable, r.recruits].map(v => (
-      v === 'fail' ? { status: 'failure', error: new Error('x') } : { status: 'success', result: v }
-    ))),
-    isLoading: s.loading,
-    refetch: vi.fn(),
-  }),
+  useReadContract: () => ({ data: undefined, refetch: vi.fn() }),
+  useReadContracts: ({ contracts }: { contracts: { functionName: string }[] }) => (
+    contracts[0]?.functionName === 'referralCount'
+      ? { data: [{ status: 'success', result: s.lifetime }], refetch: vi.fn() }
+      : {
+          data: s.loading ? undefined : s.rows.flatMap(r => [r.accrued, r.claimable, r.recruits].map(v => (
+            v === 'fail' ? { status: 'failure', error: new Error('x') } : { status: 'success', result: v }
+          ))),
+          isLoading: s.loading,
+          refetch: vi.fn(),
+        }
+  ),
   useWriteContract: () => ({
     writeContract: vi.fn(), writeContractAsync: vi.fn(),
     data: undefined, isPending: false, error: null, reset: vi.fn(),
@@ -59,12 +64,13 @@ vi.mock('@/components/directory/useDirectoryProjects', async (importOriginal) =>
   ...(await importOriginal<typeof import('@/components/directory/useDirectoryProjects')>()),
   useDirectoryProjects: () => ({
     projects: s.rows.map((r, i) => ({
-      token: tokenOf(i), hook: hookOf(i), creator: USER, createdAt: 0n,
+      token: tokenOf(i), hook: hookOf(i), factory: FACTORY, creator: USER, createdAt: 0n,
       launched: r.launched, genesisDeadline: 0n, genesisDuration: 0n, totalNative: 0n,
       canRefund: false, symbol: r.symbol, name: `${r.symbol} Agent`,
       logoUrl: null, website: null, twitter: null, description: null,
     })),
     counts: {}, loading: false, refetch: vi.fn(), launchCount: s.launchCount,
+    truncated: s.launchCount > 48,
   }),
 }))
 

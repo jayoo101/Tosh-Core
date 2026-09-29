@@ -2,7 +2,7 @@
 import { useCallback } from 'react'
 import type { Address } from 'viem'
 
-import { HOOK_ABI, LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
+import { FACTORY_ABI, FACTORY_ADDRESS, LAUNCH_WINDOW_SECONDS } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, useTxAction, formatCountdown,
   revertOrder,
@@ -13,15 +13,19 @@ import { fmtQuote } from './format'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AWAITING LAUNCH PANEL  ·  genesis closed, creator has not opened the pool yet
+// AWAITING LAUNCH PANEL  ·  genesis closed, the pool has not been opened yet
+//
+// The hook admits only the factory, and `factory.launch(hook)` admits only the
+// factory's CURRENT owner — not the hook's `creator`, which is frozen at
+// creation and goes stale the moment the Safe is rotated.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AwaitingLaunchPanel({
-  hookAddress, symbol, isCreator, totalNativeDeposited, genesisDeadline, nowSec, refetch,
+  hookAddress, symbol, canLaunch, totalNativeDeposited, genesisDeadline, nowSec, refetch,
 }: {
   hookAddress:       Address
   symbol:            string
-  isCreator:         boolean
+  canLaunch:         boolean
   totalNativeDeposited: bigint
   genesisDeadline:   bigint
   nowSec:            number
@@ -37,8 +41,8 @@ export function AwaitingLaunchPanel({
 
   const handleLaunch = useCallback(() => {
     send({
-      address: hookAddress, abi: HOOK_ABI,
-      functionName: 'launch', args: [],
+      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+      functionName: 'launch', args: [hookAddress],
     })
   }, [hookAddress, send])
 
@@ -76,7 +80,7 @@ export function AwaitingLaunchPanel({
       id="P-1.5"
       title={t.awaitingLaunch.title}
       subtitle={t.awaitingLaunch.subtitle}
-      tone={isCreator ? 'ok' : 'default'}
+      tone={canLaunch ? 'ok' : 'default'}
     >
       <div className="grid grid-cols-1 gap-x-6 @md:grid-cols-3">
         <Readout label={t.awaitingLaunch.raised} value={`${fmtQuote(totalNativeDeposited)} ${QUOTE_SYMBOL}`} />
@@ -84,7 +88,7 @@ export function AwaitingLaunchPanel({
         <Readout label={t.awaitingLaunch.windowRemaining} value={countdown} tone="warn" />
       </div>
 
-      {isCreator ? (
+      {canLaunch ? (
         <>
           <p className="text-note text-text-secondary leading-relaxed">
             {fill(t.awaitingLaunch.creatorBody, { symbol, quote: QUOTE_SYMBOL })}

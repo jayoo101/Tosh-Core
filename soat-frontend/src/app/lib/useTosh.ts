@@ -55,64 +55,34 @@ export function useTosh() {
   const revertedB    = receiptB?.status === 'reverted'
   const isConfirmedB = settledB && !revertedB
 
-  // ── createLaunch (v3.4) ──────────────────────────────────────────────────
+  // ── createLaunch ─────────────────────────────────────────────────────────
+  // Owner-only and unpaid: the factory reverts `OwnableUnauthorizedAccount`
+  // for any other sender, and there is no launch fee to send.
+  //
   // Explicit gas cap bypasses eth_estimateGas so an RPC can't surface a
   // misleading "exceeds block gas limit" error on simulation revert.
-  // Foundry reports ~3.7M for this call; 6M gives ample headroom.
   //
-  // v3.4 wire-level changes:
-  //   • projectAdmin → mutable admin that receives the 99 % Phase-2 cut.
-  //     MUST be non-zero.
-  //   • expectedFee  → slippage cap on the platform launchFee.  Caller MUST
-  //     read `factory.launchFee()` immediately before invoking this and pass
-  //     that exact value.  The factory aborts with FeeChanged if the live
-  //     fee has since been bumped above the quote.
-  //
-  //     IT IS ALSO THE `value` NOW, and those are two jobs rather than one.
-  //     As the argument it is a ceiling the factory refuses to exceed; as the
-  //     send it is the funding. They are the same figure because the caller
-  //     read one fee and agreed to it, not because the contract ties them: a
-  //     fee the owner LOWERS in the meantime is accepted, charged at the lower
-  //     figure, and the difference is refunded in the same transaction.
-  //   • expectedSoftCap / expectedWalletCap → the `factory.defaultSoftCap()` and
-  //     `factory.maxPogAllocationLimit()` the caller derived their predicted hook
-  //     address from. EXACT, not bounds: the factory aborts with CapsChanged on
-  //     any difference, in either direction, because a dial that moved re-rolls
-  //     the CREATE2 address whether it moved favourably or not.
-  //
-  //     These replace what the address-miner used to catch by accident. Under
-  //     Uniswap V4 a rotated dial produced an address that failed the permission
-  //     mask ~98 % of the time; PancakeSwap Infinity takes permissions from the
-  //     hook's own bitmap, so nothing would object without this.
-  //   • genesisDuration → 3 h / 24 h / 72 h, in seconds.  Part of the hook's
-  //     initcode hash, so this MUST be the same window the salt was derived
-  //     against or the deployed address will not be the predicted one.
+  //   • developer → the project treasury baked into the hook, and the address
+  //     the Circuit NFT is minted to. MUST be non-zero.
+  //   • hardCap / walletCap / genesisDuration → immutable clone args, so they
+  //     MUST be the values the salt was derived against or the hook will not
+  //     land at the predicted address.
   const createLaunch = useCallback(
     async (
-      name:              string,
-      symbol:            string,
-      projectTreasury:   Address,
-      projectAdmin:      Address,
-      hookSalt:          `0x${string}`,
-      expectedFee:       bigint,
-      expectedSoftCap:   bigint,
-      expectedWalletCap: bigint,
-      genesisDuration:   bigint
+      name:            string,
+      symbol:          string,
+      developer:       Address,
+      hookSalt:        `0x${string}`,
+      hardCap:         bigint,
+      walletCap:       bigint,
+      genesisDuration: bigint
     ): Promise<`0x${string}`> =>
       writeA({
         address:      FACTORY_ADDRESS,
         abi:          FACTORY_ABI,
         functionName: 'createLaunch',
-          args: [
-            name, symbol, projectTreasury, projectAdmin, hookSalt,
-            expectedFee, expectedSoftCap, expectedWalletCap, genesisDuration,
-          ],
-          // `value` is back, and no allowance is involved any more. The fee is
-          // native BNB sent to `platformTreasury`; it was briefly a BEM
-          // `transferFrom` to `ladderTreasury`, which is why the launch page
-          // used to run an approve step before this one. It does not now.
-          value:        expectedFee,
-          gas:          6_000_000n,
+        args:         [name, symbol, developer, hookSalt, hardCap, walletCap, genesisDuration],
+        gas:          6_000_000n,
         chainId:      TARGET_CHAIN_ID,
       }),
     [writeA]

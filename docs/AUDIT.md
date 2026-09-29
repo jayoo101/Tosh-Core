@@ -88,6 +88,11 @@ baseline from 76 to 83. None is a defect.
   `_addInitialLiquidity` drops it for the same reason. `collectGenesisFees`
   drops what `vault.lock` returns, which is the empty bytes its callback
   returns.
+- *Superseded 2026-09-29:* `ToshLadderTreasury._collectGenesisFees` and both
+  of its events were removed — the sweep now runs from `CircuitNFT._update`
+  inside `try/catch` and from `hook.collectGenesisFees()` directly — so the
+  three findings below no longer reproduce. Kept as the record of what was
+  dispositioned.
 - **`calls-loop`** — 3, in `ToshLadderTreasury._collectGenesisFees`: the sweep
   and the two `balanceOf` reads that measure it. The loop runs
   `LEGS_PER_POKE` times (1), the hook comes from a listing that proved it is

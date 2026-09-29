@@ -12,17 +12,21 @@
 //     platformTreasury, ladderTreasury, quoteAsset).  Infinity splits the AMM:
 //     the CL manager runs the pool, the Vault holds every balance. The quote
 //     asset is an implementation-level immutable — same token for every clone.
-//   • createLaunch is payable: the launch fee is native BNB as msg.value.
+//   • createLaunch is nonpayable and onlyOwner (the platform Safe): there is
+//     no launch fee. Its args are (name, symbol, developer, hookSalt, hardCap,
+//     walletCap, genesisDuration); the developer receives the Circuit NFT and
+//     the hook's projectAdmin is that Circuit's revenue vault.
 //     The quote asset is pulled only on deposit / shelf mint, not here.
 //   • deposit(hook, referrer, amount) is nonpayable: the amount is an argument
 //   • createLaunch takes genesisDuration (3h / 24h / 72h, in seconds); it is
 //     part of the hook clone's immutable args.  There is no salt miner —
 //     Infinity reads permissions from getHooksRegistrationBitmap(), not from
 //     the low bits of a CREATE2 address.
-//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, softCap,
+//   • hookInitcodeHash is 5-arg: (projectTreasury, creator, hardCap,
 //     perWalletCap, genesisDuration).  projectAdmin was REMOVED by the EIP-1167
-//     clone refactor — it is mutable by design and set at initialisation, so it
-//     no longer moves the initcode hash.  This changed the selector
+//     clone refactor — it is set once at initialisation, so it no longer moves
+//     the initcode hash.  hardCap is a ceiling: deposits past it revert
+//     HardCapExceeded.  This changed the selector
 //     (0x53ced9da -> 0x42b973ff), so a factory deployed before that refactor
 //     answers the OLD signature and reverts on this one.  If the launch page
 //     reports 'hookInitcodeHash reverted', check hookImplementation() first:
@@ -116,19 +120,6 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "MAX_DEFAULT_SOFT_CAP",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_HALT_DURATION",
     "inputs": [],
     "outputs": [
@@ -142,7 +133,7 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "MAX_LAUNCH_FEE",
+    "name": "MAX_HARD_CAP",
     "inputs": [],
     "outputs": [
       {
@@ -181,7 +172,7 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "MIN_SOFT_CAP_PROD",
+    "name": "MIN_HARD_CAP",
     "inputs": [],
     "outputs": [
       {
@@ -195,6 +186,19 @@ export const FACTORY_ABI = [
   {
     "type": "function",
     "name": "QUOTE_UNIT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "UNCAPPED",
     "inputs": [],
     "outputs": [
       {
@@ -257,6 +261,38 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "circuitNFT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "circuitOf",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "cooldownDuration",
     "inputs": [],
     "outputs": [
@@ -283,12 +319,7 @@ export const FACTORY_ABI = [
         "internalType": "string"
       },
       {
-        "name": "projectTreasury",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "projectAdmin",
+        "name": "developer",
         "type": "address",
         "internalType": "address"
       },
@@ -298,17 +329,12 @@ export const FACTORY_ABI = [
         "internalType": "bytes32"
       },
       {
-        "name": "expectedFee",
+        "name": "hardCap",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "expectedSoftCap",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "expectedWalletCap",
+        "name": "walletCap",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -330,20 +356,7 @@ export const FACTORY_ABI = [
         "internalType": "address"
       }
     ],
-    "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "defaultSoftCap",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -367,6 +380,25 @@ export const FACTORY_ABI = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "depositsPaused",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -404,13 +436,13 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "getLiveHookInitcodeHash",
+    "name": "globalDepositsPaused",
     "inputs": [],
     "outputs": [
       {
-        "name": "hashSnapshot",
-        "type": "bytes32",
-        "internalType": "bytes32"
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -467,6 +499,25 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "hookDepositsPaused",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hookImplementation",
     "inputs": [],
     "outputs": [
@@ -493,7 +544,7 @@ export const FACTORY_ABI = [
         "internalType": "address"
       },
       {
-        "name": "softCap",
+        "name": "hardCap",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -557,6 +608,25 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "hookOfCircuit",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ladderMintingHalted",
     "inputs": [
       {
@@ -589,20 +659,20 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "launchCount",
-    "inputs": [],
-    "outputs": [
+    "name": "launch",
+    "inputs": [
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
       }
     ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
-    "name": "launchFee",
+    "name": "launchCount",
     "inputs": [],
     "outputs": [
       {
@@ -833,6 +903,25 @@ export const FACTORY_ABI = [
         "name": "initcodeHash_",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "predictVaultAddress",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -1131,25 +1220,17 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
-    "name": "setDefaultSoftCap",
+    "name": "setDepositsPaused",
     "inputs": [
       {
-        "name": "newSoftCap",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setLaunchFee",
-    "inputs": [
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      },
       {
-        "name": "fee",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "paused_",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -1161,6 +1242,24 @@ export const FACTORY_ABI = [
     "inputs": [
       {
         "name": "newLimit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPogQuota",
+    "inputs": [
+      {
+        "name": "users",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "quota",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1304,6 +1403,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "vaultImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "verifyHookDeployment",
     "inputs": [
       {
@@ -1322,7 +1434,7 @@ export const FACTORY_ABI = [
         "internalType": "address"
       },
       {
-        "name": "softCap",
+        "name": "hardCap",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -1372,6 +1484,37 @@ export const FACTORY_ABI = [
   },
   {
     "type": "event",
+    "name": "CircuitIssued",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "hook",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "developer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "CooldownDurationUpdated",
     "inputs": [
       {
@@ -1385,13 +1528,19 @@ export const FACTORY_ABI = [
   },
   {
     "type": "event",
-    "name": "DefaultSoftCapUpdated",
+    "name": "DepositsPausedSet",
     "inputs": [
       {
-        "name": "newSoftCap",
-        "type": "uint256",
+        "name": "hook",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "paused",
+        "type": "bool",
         "indexed": false,
-        "internalType": "uint256"
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1504,32 +1653,6 @@ export const FACTORY_ABI = [
         "type": "string",
         "indexed": false,
         "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "LaunchFeeForwarded",
-    "inputs": [
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "LaunchFeeUpdated",
-    "inputs": [
-      {
-        "name": "fee",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1745,11 +1868,6 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "CapsChanged",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "CloneDeployFailed",
     "inputs": []
   },
@@ -1761,6 +1879,11 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "DeployFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DepositsPaused",
     "inputs": []
   },
   {
@@ -1817,12 +1940,17 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "FeeChanged",
+    "name": "HaltDurationTooLong",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "HaltDurationTooLong",
+    "name": "HardCapTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HardCapTooLow",
     "inputs": []
   },
   {
@@ -1832,12 +1960,7 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "InsufficientLaunchFee",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidAdmin",
+    "name": "InvalidDeveloper",
     "inputs": []
   },
   {
@@ -1852,17 +1975,12 @@ export const FACTORY_ABI = [
   },
   {
     "type": "error",
-    "name": "InvalidSoftCap",
+    "name": "InvalidWalletCap",
     "inputs": []
   },
   {
     "type": "error",
     "name": "IsBlacklisted",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "LaunchFeeTooHigh",
     "inputs": []
   },
   {
@@ -1873,11 +1991,6 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "NameTaken",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NativeTransferFailed",
     "inputs": []
   },
   {
@@ -1956,11 +2069,6 @@ export const FACTORY_ABI = [
   {
     "type": "error",
     "name": "SignatureTooLong",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "SoftCapTooHigh",
     "inputs": []
   },
   {
@@ -3202,19 +3310,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "changeProjectAdmin",
-    "inputs": [
-      {
-        "name": "newAdmin",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "claimGenesis",
     "inputs": [],
     "outputs": [],
@@ -3522,6 +3617,19 @@ export const HOOK_ABI = [
             "internalType": "uint256"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hardCap",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -3945,19 +4053,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "function",
-    "name": "softCap",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "tickCumulative",
     "inputs": [],
     "outputs": [
@@ -4333,25 +4428,6 @@ export const HOOK_ABI = [
   },
   {
     "type": "event",
-    "name": "ProjectAdminChanged",
-    "inputs": [
-      {
-        "name": "previousAdmin",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newAdmin",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "ReferralAccrued",
     "inputs": [
       {
@@ -4550,6 +4626,11 @@ export const HOOK_ABI = [
   },
   {
     "type": "error",
+    "name": "HardCapExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidAdmin",
     "inputs": []
   },
@@ -4689,11 +4770,6 @@ export const HOOK_ABI = [
   {
     "type": "error",
     "name": "TierPriceAboveCeiling",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "Unauthorized",
     "inputs": []
   },
   {
@@ -5285,38 +5361,6 @@ export const TREASURY_ABI = [
     "inputs": [
       {
         "name": "factory",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "GenesisFeesCollected",
-    "inputs": [
-      {
-        "name": "hook",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "quoteReceived",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "GenesisFeesSkipped",
-    "inputs": [
-      {
-        "name": "hook",
         "type": "address",
         "indexed": true,
         "internalType": "address"

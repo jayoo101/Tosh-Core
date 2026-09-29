@@ -43,7 +43,6 @@
  * Local guards mirrored from Solidity (so the wallet never opens for a
  * transaction that is already known to revert):
  *
- *   defaultSoftCap  < MIN_SOFT_CAP_PROD (100 BEM)   → blocked
  *   cooldown/quota  > MAX_COOLDOWN (7 d)            → blocked
  *   blacklist batch > ADMIN_BATCH_MAX (200)         → truncated on the wire
  *   addLadderToken  → token must be factory-launched AND its hook must have
@@ -64,7 +63,7 @@ import { useProtocolOwner } from '@/lib/useProtocolOwner'
 import { ActionGateProvider, type AmbientGate } from '@/components/ui'
 import { WithoutWalletPicker } from '@/components/WalletPicker'
 import { Line, GroupHeader, AddressLink } from './shared'
-import { LaunchFeePanel, SoftCapPanel, PogLimitPanel, CooldownDurationPanel, QuotaWindowPanel } from './FactoryDials'
+import { PogLimitPanel, CooldownDurationPanel, QuotaWindowPanel } from './FactoryDials'
 import { PogSignerPanel, PlatformTreasuryPanel } from './Signers'
 import { CircuitBreakerPanel } from './CircuitBreaker'
 import { LadderHaltPanel } from './LadderHalt'
@@ -174,7 +173,7 @@ const GROUPS = {
     header: {
       index: 'G1 · FACTORY CONTROL',
       title: 'Platform parameters',
-      blurb: 'Global dials on ToshFactory. Every one of these is forward-looking: a live raise keeps the terms frozen into its hook at construction, so retuning here governs the next launch, never the current one.',
+      blurb: 'Global dials on ToshFactory. Every one of these is forward-looking: a live raise keeps the caps frozen into its hook at construction. Hard cap and wallet cap are chosen per launch, not here.',
     },
   },
   g2: {
@@ -327,8 +326,6 @@ export default function AdminPage() {
         />
 
         <GroupHeader anchor="g1" {...GROUPS.g1.header} />
-        <LaunchFeePanel />
-        <SoftCapPanel />
         <PogLimitPanel />
         <CooldownDurationPanel />
         <QuotaWindowPanel />

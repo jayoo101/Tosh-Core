@@ -190,7 +190,7 @@ on the raw integer.
 |---|---|---|---|
 | `launchFee` | 0.35 | 9.28 BEM | **native again — 0.005 BNB.** The fee left the quote asset after this table was written; `createLaunch` takes it as `msg.value`. Do not copy 9.28 BEM into `setLaunchFee`. |
 | `defaultSoftCap` | 35 | 928.4 BEM | 928.4 BEM |
-| `TRIGGER_STEP` | 3.5 | 92.8 BEM | 92.8 BEM |
+| `TRIGGER_STEP` | 3.5 | 92.8 BEM | **10 BEM** — cut on 2026-09-29 so small pools arm; the per-leg 0.5 % depth cap, not this step, is what bounds a leg. |
 | `maxPogAllocationLimit` | 1.75 | 46.4 BEM | 46.4 BEM |
 | `MIN_SOFT_CAP_PROD` | 0.035 | 0.93 BEM | **≥ 100 BEM** — see below |
 

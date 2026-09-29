@@ -385,6 +385,7 @@ exports[`site chrome · english copy golden master > footer 1`] = `
   "GitHub",
   "X",
   "Security",
+  "Apply",
   "©",
   "2026",
   "Tosh Protocol —",
@@ -392,7 +393,7 @@ exports[`site chrome · english copy golden master > footer 1`] = `
 ]
 `;
 
-exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXSecurity© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
+exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXSecurityApply© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
 
 exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
 [
@@ -403,7 +404,8 @@ exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
   "Project Directory",
   "Launch",
   "Referrals",
+  "Apply",
 ]
 `;
 
-exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchReferrals"`;
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchReferralsApply"`;

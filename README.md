@@ -643,18 +643,18 @@ number. Of the proceeds, 99% goes to `projectAdmin` and 1%
 
 ### 4.3 Phase 3 · The deflation engine
 
-Once the treasury's BEM balance reaches `TRIGGER_STEP` = 92.8 BEM, any `afterSwap`
+Once the treasury's BEM balance reaches `TRIGGER_STEP` = 10 BEM, any `afterSwap`
 on a Tosh pool will attempt a **piggyback buyback**:
 
-- **Size.** $\max(92.8\text{ BEM},\ 10\%$ of balance$)$ — `SPEND_BPS` = 1000.
+- **Size.** $\max(10\text{ BEM},\ 50\%$ of balance$)$ — `SPEND_BPS` = 5000, and
+  each leg is further clamped to 0.5 % of its pool's depth (`MAX_LEG_DEPTH_BPS`).
 - **Rotation.** `BATCH_SIZE` = 3 spreads the spend across pools, advancing
   `LEGS_PER_POKE` = 1 per poke in round-robin order.
 - **Slippage bound.** `MAX_BUYBACK_SQRT_DEVIATION_BPS` = 1000, anchored to the
   pool's own TWAP. The name is not decoration: the bound is stated in **sqrt**
   terms, so 1000 bps lets the sqrt price fall to 90% of the TWAP's, and price
   goes as the square — $0.9^2 = 0.81$, so it is roughly a **19% band in price**,
-  not 10%. Both this and `SPEND_BPS` above happen to be 1000, and they do not
-  mean the same thing. The looseness is deliberate; `src/ToshLadderTreasury.sol`
+  not 10%. The looseness is deliberate; `src/ToshLadderTreasury.sol`
   argues the trade at the constant.
 - **Gas defence, and the backstop it needs.** If the transaction has less than
   `PIGGYBACK_MIN_GAS` = 270,000 left, the protocol skips the buyback so the
@@ -1256,8 +1256,8 @@ precondition for mainnet, and it is a hard one.
 | `MAX_COOLDOWN` | 7 days | `ToshFactory` | ceiling on the deposit cooldown |
 | `cooldownDuration` | 72 hours | `ToshFactory` | per-(wallet, hook) re-deposit clock — at ≥ `DURATION_SLOW` it is the one-deposit-per-project rule, §4.1 |
 | `MAX_HALT_DURATION` | 7 days | `ToshFactory` | longest single shelf halt |
-| `TRIGGER_STEP` | 92.8 BEM | `ToshLadderTreasury` | balance that arms a buyback |
-| `SPEND_BPS` | 1000 | `ToshLadderTreasury` | share of balance spent per cycle — 10% |
+| `TRIGGER_STEP` | 10 BEM | `ToshLadderTreasury` | balance that arms a buyback |
+| `SPEND_BPS` | 5000 | `ToshLadderTreasury` | share of balance spent per cycle — 50%, before the per-leg depth clamp |
 | `BATCH_SIZE` | 3 | `ToshLadderTreasury` | pools a cycle is spread across |
 | `LEGS_PER_POKE` | 1 | `ToshLadderTreasury` | legs advanced per poke |
 | `MAX_BUYBACK_SQRT_DEVIATION_BPS` | 1000 | `ToshLadderTreasury` | buyback slippage band against TWAP |

@@ -212,6 +212,7 @@ const INVENTORY = {
   // ── Configuration. Readable on purpose; none of it is a credential. ──────
   NEXT_PUBLIC_FACTORY_ADDRESS:       { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
   NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
+  NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES: { tier: 'config', why: 'Retired factory addresses whose launches stay listed; public, shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
   NEXT_PUBLIC_QUOTE_ASSET: {
     tier: 'config',
@@ -456,6 +457,18 @@ const INVENTORY = {
     why: 'Bearer-token fallback on POST /api/admin/config. Unset disables that path entirely and '
        + 'leaves the owner-signature check as the only way in, which is the posture we want. '
        + 'Setting it re-opens a shared-secret route to a privileged endpoint.',
+  },
+  APPLY_TELEGRAM_BOT_TOKEN: {
+    tier: 'secret',
+    why: 'The /apply review bot. POST /api/apply posts every project application into the private '
+       + 'review group with it. Holding it means posting into that group as the bot, and reading '
+       + 'whatever the bot can see there — so it is a separate bot from the pager on purpose, and '
+       + 'a leak costs the review inbox rather than incident traffic. Unset, /apply answers 503.',
+  },
+  APPLY_TELEGRAM_CHAT_ID: {
+    tier: 'config',
+    why: 'The review group /api/apply posts into. Not a credential — posting needs the bot token — '
+       + 'but a wrong value makes Telegram refuse every send, so /apply answers 503 until it is fixed.',
   },
   CONTENT_ADMIN_SECRET: {
     tier: 'secret',

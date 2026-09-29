@@ -1,7 +1,10 @@
 'use client'
 
 /**
- * G1 · FACTORY CONTROL — the five forward-looking dials on ToshFactory.
+ * G1 · FACTORY CONTROL — the forward-looking dials on ToshFactory.
+ *
+ * The launch fee and the default soft cap are gone from the contract: launches
+ * are owner-only and each one passes its own hard cap and wallet cap.
  *
  * Every panel here is the same shape: read the live value, take a new one, and
  * refuse to open the wallet for a value the contract would reject.  Those
@@ -15,18 +18,11 @@ import type { Abi } from 'viem'
 import {
   FACTORY_ABI,
   FACTORY_ADDRESS,
-  MIN_SOFT_CAP_PROD,
-  MIN_SOFT_CAP_PROD_LABEL,
-  MAX_LAUNCH_FEE,
-  MAX_LAUNCH_FEE_LABEL,
-  MAX_DEFAULT_SOFT_CAP,
-  MAX_DEFAULT_SOFT_CAP_LABEL,
   MAX_POG_ALLOCATION_LIMIT,
   MAX_POG_ALLOCATION_LIMIT_LABEL,
   MAX_COOLDOWN_SECONDS,
   QUOTE_SYMBOL,
 } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
 import {
   ActionButton, useActionGate, useTxAction, revertOrder,
   type ActionBlocker,
@@ -36,12 +32,9 @@ import {
   ScopeNote,
   Field,
   Readout,
-  ConfirmDialog,
   fmtQuote,
-  fmtNative,
   fmtDuration,
   parseEthInput,
-  parseNativeInput,
 } from './shared'
 
 /**
@@ -70,194 +63,6 @@ function amountBlockers(
       reason: (!parsed.ok && parsed.reason) || 'That is not an amount this field can parse.',
     },
   ]
-}
-
-export function LaunchFeePanel() {
-  const [feeInput, setFeeInput] = useState('')
-  const [confirming, setConfirming] = useState(false)
-
-  const {
-    data: launchFeeWei, isLoading, isFetching, refetch,
-  } = useReadContract({
-    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'launchFee',
-  })
-
-  const tx = useTxAction({ action: 'update the launch fee', onConfirmed: () => { void refetch() } })
-  // parseNativeInput, not parseEthInput: this is the one dial charged in
-  // the chain's own coin. See the note on that function for what the 8-decimal
-  // parse does to a typed `0.005 — it succeeds, quietly, at 500000 wei.
-  const parsed = parseNativeInput(feeInput)
-  const aboveCeiling = parsed.ok && parsed.value > MAX_LAUNCH_FEE
-
-  // Not wrapped in `useCallback`, like every other panel in this file. Reading
-  // `parsed` for the ceiling check above left the React Compiler unable to
-  // preserve the manual memoization, which made it skip optimizing the whole
-  // component — a strictly worse trade than letting it memoize this itself.
-  const submit = () => {
-    setConfirming(false)
-    if (!parsed.ok || aboveCeiling) return
-    tx.send({
-      address: FACTORY_ADDRESS,
-      abi: FACTORY_ABI as unknown as Abi,
-      functionName: 'setLaunchFee',
-      args: [parsed.value],
-    })
-  }
-
-  const gate = useActionGate({
-    action: 'Update launch fee',
-    onAct: () => setConfirming(true),
-    tx,
-    blockersInRevertOrder: revertOrder(
-      ...amountBlockers(feeInput, parsed, 'fee'),
-      {
-        id: 'above-max-launch-fee',
-        active: aboveCeiling,
-        label: '[max_launch_fee_violation]',
-        reason: `The factory reverts LaunchFeeTooHigh above MAX_LAUNCH_FEE (${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}). The ceiling exists to catch a wei/ether slip, which is exactly what this field is where you would make.`,
-      },
-    ),
-  })
-
-  return (
-    <Section
-      id="G1-A" title="LAUNCH FEE"
-      subtitle={`setLaunchFee · native ${NATIVE_SYMBOL} charged on every createLaunch · anti-spam toll, forwarded to the platform treasury · ceiling ${MAX_LAUNCH_FEE_LABEL} ${NATIVE_SYMBOL}`}
-    >
-      <Readout
-        label="CURRENT FEE"
-        value={isLoading && launchFeeWei === undefined ? 'reading…' : fmtNative(launchFeeWei as bigint | undefined)}
-        hint={isFetching && !isLoading ? 'syncing' : null}
-      />
-      <Field
-        label={`NEW FEE · ${NATIVE_SYMBOL} · 0 ALLOWED · MAX ${MAX_LAUNCH_FEE_LABEL}`}
-        value={feeInput}
-        onChange={setFeeInput}
-        placeholder="e.g. 0.005"
-        inputMode="decimal"
-        disabled={tx.isBusy}
-        errored={aboveCeiling}
-        fluo={parsed.ok && !aboveCeiling}
-      />
-      <ScopeNote tone={aboveCeiling ? 'warn' : 'mute'}>
-        A zero fee is legal and disables the anti-spam toll entirely. The change
-        applies to the next createLaunch onward; launches already in flight paid
-        the old fee and are unaffected. Above {MAX_LAUNCH_FEE_LABEL} {NATIVE_SYMBOL} the
-        factory reverts LaunchFeeTooHigh, so this button stays inert rather than
-        burning gas on a typo.
-      </ScopeNote>
-
-      <ActionButton gate={gate} full={false} />
-
-      <ConfirmDialog
-        open={confirming}
-        title="Confirm launch-fee change"
-        body={
-          <>
-            <p>
-              {fmtNative(launchFeeWei as bigint | undefined)}
-              {' → '}
-              <span className="text-brand">
-                {parsed.ok ? fmtNative(parsed.value) : '—'}
-              </span>
-            </p>
-            <p className="mt-3 text-text-tertiary">
-              Every createLaunch after this block must attach the new amount as
-              msg.value. A UI still holding the old figure will revert.
-            </p>
-          </>
-        }
-        confirmLabel="commit fee"
-        onConfirm={submit}
-        onCancel={() => setConfirming(false)}
-      />
-    </Section>
-  )
-}
-
-export function SoftCapPanel() {
-  const [capInput, setCapInput] = useState('')
-
-  const {
-    data: currentCapWei, isLoading, isFetching, refetch,
-  } = useReadContract({
-    address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'defaultSoftCap',
-  })
-
-  const tx = useTxAction({ action: 'set the default soft cap', onConfirmed: () => { void refetch() } })
-  const parsed = parseEthInput(capInput)
-  const belowFloor = parsed.ok && parsed.value < MIN_SOFT_CAP_PROD
-  const aboveCeiling = parsed.ok && parsed.value > MAX_DEFAULT_SOFT_CAP
-
-  const gate = useActionGate({
-    action: 'Set default cap',
-    onAct: () => {
-      if (!parsed.ok) return
-      tx.send({
-        address: FACTORY_ADDRESS,
-        abi: FACTORY_ABI as unknown as Abi,
-        functionName: 'setDefaultSoftCap',
-        args: [parsed.value],
-      })
-    },
-    tx,
-    blockersInRevertOrder: revertOrder(
-      ...amountBlockers(capInput, parsed, 'cap'),
-      {
-        id: 'below-min-soft-cap',
-        active: belowFloor,
-        label: '[min_soft_cap_violation]',
-        reason: `The factory reverts InvalidSoftCap below ${MIN_SOFT_CAP_PROD_LABEL} ${QUOTE_SYMBOL}, because a smaller raise rounds p0 toward zero against the 3.78 M genesis LP supply.`,
-      },
-      {
-        id: 'above-max-soft-cap',
-        active: aboveCeiling,
-        label: '[max_soft_cap_violation]',
-        reason: `The factory reverts SoftCapTooHigh above MAX_DEFAULT_SOFT_CAP (${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}). A raise that large is a wei/ether slip, not a decision — the cap gates nothing, but a six-figure figure still means the dial was typed in wei.`,
-      },
-    ),
-  })
-
-  return (
-    <Section
-      id="G1-B" title="DEFAULT SOFT CAP"
-      subtitle={`setDefaultSoftCap · frozen into every new hook's constructor · floor ${MIN_SOFT_CAP_PROD_LABEL} ${QUOTE_SYMBOL} · ceiling ${MAX_DEFAULT_SOFT_CAP_LABEL} ${QUOTE_SYMBOL}`}
-    >
-      <Readout
-        label="LIVE CAP (NEXT LAUNCH)"
-        value={isLoading && currentCapWei === undefined ? 'reading…' : fmtQuote(currentCapWei as bigint | undefined)}
-        hint={isFetching && !isLoading ? 'syncing' : null}
-      />
-      <Field
-        label={`NEW CAP · ${QUOTE_SYMBOL} · ${MIN_SOFT_CAP_PROD_LABEL} TO ${MAX_DEFAULT_SOFT_CAP_LABEL}`}
-        value={capInput}
-        onChange={setCapInput}
-        placeholder="e.g. 10"
-        inputMode="decimal"
-        disabled={tx.isBusy}
-        errored={belowFloor || aboveCeiling}
-        fluo={parsed.ok && !belowFloor && !aboveCeiling}
-      />
-      <ScopeNote tone={belowFloor || aboveCeiling ? 'warn' : 'mute'}>
-        {/* Was the literal "0.01 ETH", which survived the ×3.5 recalibration and
-            so understated the live floor by 3.5×. Read off the same constant the
-            blocker above reverts on, so the two cannot disagree again. */}
-        The {MIN_SOFT_CAP_PROD_LABEL} {QUOTE_SYMBOL} floor is a price-truncation guard, not a business rule:
-        p0 = lpNative × 1e18 / GENESIS_LP_SUPPLY, and with 3.78 M LP tokens a raise
-        below the floor rounds p0 toward zero. The contract reverts InvalidSoftCap
-        below it, so this button stays inert rather than burning gas.
-        <br /><br />
-        The {MAX_DEFAULT_SOFT_CAP_LABEL} {QUOTE_SYMBOL} ceiling catches the opposite slip and
-        is deliberately far above any real raise. It is not a view on how much a
-        project should ask for — nothing reads the cap after the clone is
-        addressed, so it is neither a target nor a gate. The floor a raise does
-        have to clear is ladderViable(), derived from the ladder rather than
-        from this dial.
-      </ScopeNote>
-
-      <ActionButton gate={gate} full={false} />
-    </Section>
-  )
 }
 
 export function PogLimitPanel() {
@@ -292,13 +97,13 @@ export function PogLimitPanel() {
         id: 'zero-pog-limit',
         active: zero,
         label: '[invalid_pog_limit]',
-        reason: 'Zero is rejected on-chain. This value is snapshotted into every new hook constructor, which requires a non-zero per-wallet cap, so a zero ceiling would make createLaunch revert for every creator. Use the circuit breaker in G3 to stop taking on projects.',
+        reason: 'Zero is rejected on-chain: it would make every PoG attestation and every setPogQuota revert. Use the circuit breaker in G3 to stop taking on projects.',
       },
       {
         id: 'above-max-pog-limit',
         active: aboveCeiling,
         label: '[max_pog_limit_violation]',
-        reason: `The factory reverts PogLimitTooHigh above MAX_POG_ALLOCATION_LIMIT (${MAX_POG_ALLOCATION_LIMIT_LABEL} ${QUOTE_SYMBOL}). This catches a wei/ether slip only — it is not the point at which one wallet stops being able to take a whole round, and no constant can be, because the soft cap moves separately.`,
+        reason: `The factory reverts PogLimitTooHigh above MAX_POG_ALLOCATION_LIMIT (${MAX_POG_ALLOCATION_LIMIT_LABEL} ${QUOTE_SYMBOL}). This catches a wei/ether slip only; each round's own wallet cap is what bounds a single depositor.`,
       },
     ),
   })
@@ -306,7 +111,7 @@ export function PogLimitPanel() {
   return (
     <Section
       id="G1-C" title="POG ALLOCATION CEILING"
-      subtitle="setMaxPogAllocationLimit · caps the maxAlloc an oracle attestation may grant, and is snapshotted as each new project's per-wallet deposit cap"
+      subtitle="setMaxPogAllocationLimit · caps the maxAlloc an oracle attestation (or setPogQuota) may grant · per-wallet deposit caps are now set per launch"
     >
       <Readout
         label="LIVE CEILING"
@@ -327,25 +132,20 @@ export function PogLimitPanel() {
         fluo={parsed.ok && !zero && !aboveCeiling}
       />
       <ScopeNote>
-        Forward-looking only. Projects already deployed keep the per-wallet cap
-        baked into their hook constructor, and PoG quotas already registered keep
-        their granted allowance — a depositor&apos;s terms cannot be rewritten under
-        them after they commit.
+        Forward-looking only. It bounds attestations signed from now on; PoG
+        quotas already registered keep their granted allowance. Each round&apos;s
+        per-wallet cap is chosen at createLaunch and baked into its hook, so
+        this dial does not touch deployed projects at all.
         <br /><br />
         <span className="text-danger">
           Zero is not &ldquo;freeze registrations&rdquo;.
         </span>{' '}
-        This value is snapshotted into every new hook&apos;s constructor, which
-        requires a non-zero per-wallet cap, so a zero ceiling made{' '}
-        <code>createLaunch</code> revert for every creator platform-wide. The
-        factory now rejects it outright — use the circuit breaker in G3 to stop
-        taking on new projects.
+        The factory rejects it outright — use the circuit breaker in G3 to stop
+        taking on new projects, or the deposit freeze to stop a round.
         <br /><br />
         The {MAX_POG_ALLOCATION_LIMIT_LABEL} {QUOTE_SYMBOL} ceiling at the other end catches a
         wei/ether slip and nothing subtler. It is deliberately not an anti-whale
-        bound: once this value reaches the soft cap, one wallet can fund an entire
-        genesis round, and that ratio cannot be enforced here because the soft cap
-        is a separate dial. Sizing it against the current cap stays your call.
+        bound; that job belongs to each round&apos;s wallet cap.
       </ScopeNote>
 
       <ActionButton gate={gate} full={false} />

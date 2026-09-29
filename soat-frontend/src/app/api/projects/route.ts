@@ -53,6 +53,14 @@ const MAX_DIRECTORY_ROWS = 500
 
 const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
 
+/** The current factory plus any retired one the site still lists; lowercased. */
+const LISTED_FACTORY_SET = new Set(
+  [FACTORY_ADDRESS, ...(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES ?? '').split(',')]
+    .map((a) => a.trim())
+    .filter((a) => isAddress(a, { strict: false }))
+    .map((a) => a.toLowerCase()),
+)
+
 export async function OPTIONS(req: NextRequest) {
   return corsPreflight(req, CORS_OPTS)
 }
@@ -148,7 +156,7 @@ async function readLaunchFromChain(
     abi: FACTORY_ABI,
     eventName: 'LaunchCreated',
     logs: receipt.logs.filter(
-      (l) => l.address.toLowerCase() === FACTORY_ADDRESS.toLowerCase(),
+      (l) => LISTED_FACTORY_SET.has(l.address.toLowerCase()),
     ),
   })
 
