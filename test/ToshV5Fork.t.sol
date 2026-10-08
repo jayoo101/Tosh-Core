@@ -164,6 +164,12 @@ contract ToshV5ForkTest is Test {
     ///      nothing here says the supply exists to be bought.
     address internal constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
 
+    /// @dev The factory the redeploy retires, and TO, its launch that the
+    ///      successor treasury has to keep buying back.
+    address internal constant LEGACY_FACTORY = 0x20dE906A96FfB89BE6fd6267A0876A68017792F7;
+    address internal constant TO = 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2;
+    address internal constant TO_HOOK = 0x94335Bc7BcF3b63C4deffA6Dd4bb5e09689384fe;
+
     /// @dev The ArbSys precompile, kept only so its ABSENCE can be asserted:
     ///      `_hasArbSys` branches on the code length at this address, and on BSC
     ///      it must find nothing. Nothing etches over it any more.
@@ -244,7 +250,7 @@ contract ToshV5ForkTest is Test {
         assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM must still be 8 decimals for any of this to hold");
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM);
+        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM, address(0));
         factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder), BEM);
         ladder.setFactory(address(factory));
 
@@ -827,5 +833,39 @@ contract ToshV5ForkTest is Test {
         // any other. `afterSwap` returns early for the treasury, and the stamp
         // used to sit inside that early return.
         assertEq(hook.lastSwapBlock(), block.number, "the buyback did not stamp lastSwapBlock");
+    }
+
+    /// @notice The redeploy's promise to TO, against TO itself: a fresh treasury
+    ///         built with the retired factory as `legacyFactory` lists the live
+    ///         TO pool and burns TO out of it.
+    ///
+    /// @dev    The retired hook sees this treasury as an ordinary buyer — its
+    ///         early return is for ITS treasury — so the buy is taxed and part
+    ///         of the spend lands in the retired treasury. That is expected; the
+    ///         assertion is only that TO reaches the dead address.
+    function test_fork_successorTreasuryBurnsLegacyTO() public {
+        _requireFork();
+
+        ToshLadderTreasury successor = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM, LEGACY_FACTORY);
+        vm.prank(admin);
+        successor.setFactory(address(factory));
+
+        assertEq(ToshFactory(LEGACY_FACTORY).tokenToHook(TO), TO_HOOK, "TO is no longer the retired factory's launch");
+
+        vm.prank(admin);
+        successor.addLadderToken(TO);
+        assertTrue(successor.isLadderToken(TO), "TO not listed on the successor");
+
+        _setQuote(address(successor), 100e8);
+        vm.roll(block.number + 1);
+
+        uint256 reservoirBefore = quote.balanceOf(address(successor));
+        uint256 burnedBefore = IERC20(TO).balanceOf(successor.DEAD_ADDRESS());
+
+        vm.prank(trader);
+        successor.pokeBuyback();
+
+        assertLt(quote.balanceOf(address(successor)), reservoirBefore, "the successor did not spend");
+        assertGt(IERC20(TO).balanceOf(successor.DEAD_ADDRESS()), burnedBefore, "no TO was bought and burned");
     }
 }

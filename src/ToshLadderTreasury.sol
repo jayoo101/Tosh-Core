@@ -323,6 +323,26 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @notice ToshFactory, used to authenticate calling hooks.  Set once.
     address public factory;
 
+    /// @notice A retired ToshFactory whose launches may also be listed, or
+    ///         `address(0)` for none.
+    /// @dev    Consulted by `addLadderToken` only, and only for provenance: the
+    ///         venue is still read back from that token's own hook, so this
+    ///         widens which platform-launched pools can be bought into, not
+    ///         who chooses the pool.  `immutable` for the reason `factory` is
+    ///         one-shot — a re-pointable registry would let the owner vouch
+    ///         for a pool of its own and drain the reservoir into it.
+    ///
+    ///         It does NOT authenticate piggyback callers: `onlyHook` stays on
+    ///         `factory`, so a retired pool's swaps poke its own treasury, not
+    ///         this one.  This reservoir reaches those pools through the
+    ///         piggybacks of current pools and through `pokeBuyback`.
+    ///
+    ///         A retired hook taxes this treasury's buys — it exempts only its
+    ///         own `ladderTreasury` — so each such leg pays that hook's buy tax,
+    ///         most of which lands in the retired treasury, which buys back
+    ///         the same retired tokens.
+    address public immutable legacyFactory;
+
     /// @notice Platform-curated tokens eligible for buyback-and-burn.
     address[] public ladderTokens;
 
@@ -389,13 +409,16 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      `vault()` from `ProtocolFees`, but `ICLPoolManager` does not declare
     ///      it, and hand-rolling an interface for a getter would put a claim
     ///      about the live pair into a local declaration instead of a test.
-    constructor(address _poolManager, address _vault, address _owner, address _quoteAsset) Ownable(_owner) {
+    constructor(address _poolManager, address _vault, address _owner, address _quoteAsset, address _legacyFactory)
+        Ownable(_owner)
+    {
         if (_poolManager == address(0) || _vault == address(0) || _owner == address(0) || _quoteAsset == address(0)) {
             revert ZeroAddress();
         }
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
         quoteAsset = IERC20(_quoteAsset);
+        legacyFactory = _legacyFactory;
     }
 
     // ─── Funding ──────────────────────────────────────────────────────────────
@@ -550,6 +573,9 @@ contract ToshLadderTreasury is Ownable2Step {
         if (f == address(0)) revert FactoryNotSet();
 
         address hook = IToshFactoryRegistry(f).tokenToHook(token);
+        if (hook == address(0) && legacyFactory != address(0)) {
+            hook = IToshFactoryRegistry(legacyFactory).tokenToHook(token);
+        }
         if (hook == address(0)) revert TokenNotLaunchedHere();
 
         // The pool must actually exist before it can be listed, or the first

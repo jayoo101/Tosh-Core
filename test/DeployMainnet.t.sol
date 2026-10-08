@@ -20,6 +20,16 @@ import {IVault} from "infinity-core/src/interfaces/IVault.sol";
 import {CLPoolManager} from "infinity-core/src/pool-cl/CLPoolManager.sol";
 import {MockQuoteAsset} from "./utils/MockQuoteAsset.sol";
 
+/// @dev Stands in for the retired factory: the script only asks it for code and
+///      for `quoteAsset()`.
+contract LegacyFactoryStub {
+    address public quoteAsset;
+
+    constructor(address q) {
+        quoteAsset = q;
+    }
+}
+
 contract DeployMainnetTest is Test {
     /// @dev BNB Smart Chain — the chain this script is meant for
     ///      (chain 56). This constant has tracked four
@@ -49,6 +59,8 @@ contract DeployMainnetTest is Test {
     ///      reaches all three contracts — and not the asset.
     MockQuoteAsset internal quoteAsset;
 
+    LegacyFactoryStub internal legacyFactory;
+
     function setUp() public {
         deployer = vm.addr(deployerPk);
 
@@ -62,6 +74,7 @@ contract DeployMainnetTest is Test {
         // deployer's nonce alone and the `computeCreateAddress(deployer, nonce + 1)`
         // predictions below still name the factory.
         quoteAsset = new MockQuoteAsset();
+        legacyFactory = new LegacyFactoryStub(address(quoteAsset));
 
         vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(deployerPk)));
         vm.setEnv("QUOTE_ASSET", vm.toString(address(quoteAsset)));
@@ -70,6 +83,7 @@ contract DeployMainnetTest is Test {
         vm.setEnv("POG_SIGNER_ADDRESS", vm.toString(pogSigner));
         vm.setEnv("PLATFORM_TREASURY", vm.toString(platformTreasury));
         vm.setEnv("PROD_OWNER_SAFE", vm.toString(prodOwnerSafe));
+        vm.setEnv("LEGACY_FACTORY_ADDRESS", vm.toString(address(legacyFactory)));
 
         // Fixed, and never rewritten per test: `setEnv` mutates the process
         // environment, which is outside the state snapshot Forge reverts
@@ -155,6 +169,20 @@ contract DeployMainnetTest is Test {
         script.run();
     }
 
+    /// @notice A retired factory in another quote asset has no pool that could
+    ///         pass `addLadderToken`, and the treasury's binding to it is
+    ///         immutable, so the script refuses rather than deploying dead weight.
+    function test_run_refusesALegacyFactoryInAnotherQuoteAsset() public {
+        vm.chainId(TARGET_CHAIN);
+
+        vm.mockCall(
+            address(legacyFactory), abi.encodeWithSignature("quoteAsset()"), abi.encode(address(uint160(0xBEEF)))
+        );
+
+        vm.expectRevert(bytes("LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET"));
+        script.run();
+    }
+
     function test_run_deploysFactoryAndQueuesOwnershipHandoff() public {
         vm.chainId(TARGET_CHAIN);
 
@@ -177,6 +205,7 @@ contract DeployMainnetTest is Test {
         assertEq(factory.ladderTreasury(), treasuryAddr, "ladderTreasury mismatch");
         assertEq(address(treasury.poolManager()), address(poolManager), "treasury poolManager mismatch");
         assertEq(treasury.factory(), factoryAddr, "treasury factory loop not closed");
+        assertEq(treasury.legacyFactory(), address(legacyFactory), "treasury must list the retired factory env named");
 
         assertEq(factory.owner(), deployer, "factory owner should still be deployer (step 1 of 2)");
         assertEq(factory.pendingOwner(), prodOwnerSafe, "factory pendingOwner should be Safe");

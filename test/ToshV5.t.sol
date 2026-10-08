@@ -163,7 +163,7 @@ contract ToshV5Test is Test {
 
         vm.startPrank(admin);
         // Treasury first: the factory takes its address as an immutable.
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0));
         factory = new ToshFactory(
             address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
         );
@@ -4065,6 +4065,71 @@ contract ToshV5Test is Test {
         assertLt(quote.balanceOf(address(ladder)), reservoirBefore, "the reservoir actually spent");
     }
 
+    /// @notice A successor treasury can list and burn a token launched by the
+    ///         factory it replaced, which is the only reason `legacyFactory`
+    ///         exists: the platform redeploys, and the tokens already trading
+    ///         keep their buyback.
+    function test_successorTreasury_listsAndBurnsALegacyFactoryLaunch() public {
+        (ToshToken old,) = _launchProject("Legacy", "LGC", alice, address(0));
+        _matureTwap();
+
+        ToshLadderTreasury successor =
+            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(factory));
+        EmptyFactoryRegistry registry = new EmptyFactoryRegistry();
+        vm.prank(admin);
+        successor.setFactory(address(registry));
+
+        vm.prank(admin);
+        successor.addLadderToken(address(old));
+        assertTrue(successor.isLadderToken(address(old)), "legacy launch must be listable");
+
+        vm.warp(block.timestamp + 1900);
+        _nextBlock();
+
+        _setQuote(address(successor), 1000e8);
+        uint256 deadBefore = old.balanceOf(DEAD);
+        uint256 reservoirBefore = quote.balanceOf(address(successor));
+
+        vm.prank(dave);
+        successor.pokeBuyback();
+
+        assertGt(old.balanceOf(DEAD), deadBefore, "successor bought and burned the legacy token");
+        assertLt(quote.balanceOf(address(successor)), reservoirBefore, "from its own reservoir");
+    }
+
+    /// @notice Without a legacy factory the successor is exactly as strict as
+    ///         before: the old launch is a foreign token to it.
+    function test_successorTreasury_withoutLegacyRefusesTheOldLaunch() public {
+        (ToshToken old,) = _launchProject("Legacy", "LGC", alice, address(0));
+        _matureTwap();
+
+        ToshLadderTreasury successor =
+            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0));
+        EmptyFactoryRegistry registry = new EmptyFactoryRegistry();
+        vm.prank(admin);
+        successor.setFactory(address(registry));
+
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.TokenNotLaunchedHere.selector);
+        successor.addLadderToken(address(old));
+    }
+
+    /// @notice The legacy lookup widens provenance to one more factory, not to
+    ///         anything: a token neither factory launched is still refused.
+    function test_successorTreasury_legacyDoesNotVouchForAForeignToken() public {
+        MockERC20 fake = new MockERC20("Fake", "FAKE");
+
+        ToshLadderTreasury successor =
+            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(factory));
+        EmptyFactoryRegistry registry = new EmptyFactoryRegistry();
+        vm.prank(admin);
+        successor.setFactory(address(registry));
+
+        vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.TokenNotLaunchedHere.selector);
+        successor.addLadderToken(address(fake));
+    }
+
     /// @notice A treasury buyback is a swap, so it must shut the same-block
     ///         mint lockout exactly like any other swap.
     ///
@@ -4542,6 +4607,18 @@ contract SafeCostReceiver {
     receive() external payable {
         total += msg.value;
         emit Got(msg.sender, msg.value);
+    }
+}
+
+/// @notice A factory that launched nothing, standing in for a successor
+///         treasury's own (new) factory so only the legacy lookup can answer.
+contract EmptyFactoryRegistry {
+    function tokenToHook(address) external pure returns (address) {
+        return address(0);
+    }
+
+    function registeredHooks(address) external pure returns (bool) {
+        return false;
     }
 }
 

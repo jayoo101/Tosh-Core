@@ -1008,7 +1008,8 @@ contract ToshV5GuardsTest is Test {
     ///   to ask whether a function was overridden, and an override that
     ///   reproduces this behaviour exactly is not the thing worth catching.
     function test_nextSpendAmountIsNotOverridden() public {
-        ToshLadderTreasury t = new ToshLadderTreasury(address(0xBEEF), address(0xCAFE), address(this), address(quote));
+        ToshLadderTreasury t =
+            new ToshLadderTreasury(address(0xBEEF), address(0xCAFE), address(this), address(quote), address(0));
 
         uint256 step = t.TRIGGER_STEP();
 

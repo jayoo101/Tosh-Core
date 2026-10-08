@@ -7,6 +7,7 @@ import "forge-std/console2.sol";
 import {ToshFactory} from "../src/ToshFactory.sol";
 import {ToshLadderTreasury} from "../src/ToshLadderTreasury.sol";
 import {HookDeployLib} from "../src/libraries/HookDeployLib.sol";
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @notice Just enough of `CLPoolManager` to ask which Vault it belongs to.
 /// @dev    Declared locally, returning `address` rather than `IVault`, so this
@@ -54,6 +55,8 @@ interface IInfinityVaultGetter {
 //                            key lives in Vercel Production, not in this file.
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
+//    LEGACY_FACTORY_ADDRESS — the retired factory whose launches the new
+//                            treasury may also list for buyback. Immutable.
 //
 //  Deploy command. Note `set -a` — it is not decoration.
 //
@@ -301,6 +304,19 @@ contract DeployMainnetScript is Script {
 
         requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, platformTreasury);
 
+        // The retired factory whose launches the new treasury may also list
+        // (TO and the other 56 launches before this one). Immutable on the
+        // treasury, so it is checked here rather than trusted: it must be a
+        // contract on this chain and denominated in the same quote asset, or
+        // none of its pools could pass `addLadderToken`'s currency0 check.
+        address legacyFactory = vm.envAddress("LEGACY_FACTORY_ADDRESS");
+        require(legacyFactory != address(0), "LEGACY_FACTORY_ADDRESS unset");
+        require(legacyFactory.code.length > 0, "LEGACY_FACTORY_ADDRESS holds no code on this chain");
+        require(
+            ToshFactory(legacyFactory).quoteAsset() == IERC20(quoteAsset),
+            "LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET"
+        );
+
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad -- MAINNET Deployment");
         console2.log("============================================================");
@@ -312,6 +328,7 @@ contract DeployMainnetScript is Script {
         console2.log("Platform fee recipient    :", platformTreasury);
         console2.log("  ^ takes 0.30% of every buy's BNB input. IMMUTABLE: no setter,");
         console2.log("    baked into the hook implementation too. Must accept BNB always.");
+        console2.log("Legacy factory (listable) :", legacyFactory);
         console2.log("------------------------------------------------------------");
 
         vm.startBroadcast(deployerPk);
@@ -325,7 +342,7 @@ contract DeployMainnetScript is Script {
         // the Safe via the same two-step dance as the factory.  The window is
         // harmless: the treasury has no withdraw path at all, so even a fully
         // compromised deployer key could only mis-curate the buyback ladder.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset, legacyFactory);
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
         ToshFactory factory =

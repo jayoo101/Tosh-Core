@@ -16,6 +16,10 @@
  *   unpause --factory 0x…
  *           Transaction Builder batch: new factory unpause().
  *
+ *   list    --factory 0x… --treasury 0x… --token 0x…
+ *           Transaction Builder batch: new treasury addLadderToken(token).
+ *           The token may come from the new factory or the old one (TO).
+ *
  * The new addresses are always passed explicitly. `.env.production` still
  * names the OLD factory as FACTORY_ADDRESS, so falling back to it would build
  * a batch against the contract being retired.
@@ -55,10 +59,14 @@ const FACTORY = parseAbi([
 ])
 const TREASURY = parseAbi([
   'function factory() view returns (address)',
+  'function legacyFactory() view returns (address)',
   'function quoteAsset() view returns (address)',
   'function TRIGGER_STEP() view returns (uint256)',
   'function SPEND_BPS() view returns (uint256)',
+  'function isLadderToken(address) view returns (bool)',
+  'function addLadderToken(address)',
 ])
+const REGISTRY = parseAbi(['function tokenToHook(address) view returns (address)'])
 const HOOK = parseAbi([
   'function factory() view returns (address)',
   'function quoteAsset() view returns (address)',
@@ -90,6 +98,7 @@ function usage() {
   console.error('usage: node scripts/redeployTx.mjs check   --factory 0x… --treasury 0x… --stage deployed|handed|live')
   console.error('       node scripts/redeployTx.mjs handoff --factory 0x… --treasury 0x…')
   console.error('       node scripts/redeployTx.mjs unpause --factory 0x…')
+  console.error('       node scripts/redeployTx.mjs list    --factory 0x… --treasury 0x… --token 0x…')
   console.error('       [--rpc url] [--out file.json]')
   return 2
 }
@@ -114,7 +123,7 @@ function builderFile({ chainId, safe, name, description, calls }) {
 
 async function main() {
   const mode = process.argv[2]
-  if (!['check', 'handoff', 'unpause'].includes(mode)) return usage()
+  if (!['check', 'handoff', 'unpause', 'list'].includes(mode)) return usage()
 
   loadRoleEnv(['BSC_RPC', 'PROD_OWNER_SAFE', 'POG_SIGNER_ADDRESS', 'DEPLOYER_ADDRESS'])
   const rpc = arg('rpc') ?? process.env.BSC_RPC
@@ -151,6 +160,22 @@ async function main() {
     calls.push({ label: `new treasury ${treasury}.acceptOwnership()`, to: treasury, data: encodeFunctionData({ abi: OWNABLE, functionName: 'acceptOwnership' }) })
     name = 'Tosh redeploy · handoff'
     description = calls.map(c => c.label).join('; ')
+  } else if (mode === 'list') {
+    const treasury = addrArg('treasury')
+    const token = addrArg('token')
+    console.log(`treasury ${treasury}\ntoken    ${token}\n`)
+    check('new treasury owner is the Safe', same(await read(treasury, OWNABLE, 'owner'), safe))
+    check('new treasury is bound to the new factory', same(await read(treasury, TREASURY, 'factory'), factory))
+    check('new treasury legacyFactory() is the old factory', same(await read(treasury, TREASURY, 'legacyFactory'), OLD_FACTORY))
+    check('token is not listed yet', !(await read(treasury, TREASURY, 'isLadderToken', [token])))
+    const [newHook, oldHook] = await Promise.all([
+      read(factory, REGISTRY, 'tokenToHook', [token]), read(OLD_FACTORY, REGISTRY, 'tokenToHook', [token]),
+    ])
+    check('token was launched by the new or the old factory', !same(newHook, zeroAddress) || !same(oldHook, zeroAddress),
+      same(newHook, zeroAddress) ? `old factory hook ${oldHook}` : `new factory hook ${newHook}`)
+    calls.push({ label: `new treasury ${treasury}.addLadderToken(${token})`, to: treasury, data: encodeFunctionData({ abi: TREASURY, functionName: 'addLadderToken', args: [token] }) })
+    name = 'Tosh redeploy · list token on new treasury'
+    description = calls[0].label
   } else {
     console.log('')
     check('new factory owner is the Safe', same(await read(factory, OWNABLE, 'owner'), safe))
@@ -210,6 +235,7 @@ async function runCheck({ pub, read, factory, safe }) {
   console.log('— wiring')
   check('factory.ladderTreasury() is the new treasury', same(await read(factory, FACTORY, 'ladderTreasury'), treasury))
   check('treasury.factory() is the new factory', same(await read(treasury, TREASURY, 'factory'), factory))
+  check('treasury.legacyFactory() is the old factory (TO stays listable)', same(await read(treasury, TREASURY, 'legacyFactory'), OLD_FACTORY))
   check('hook implementation factory() is the new factory', same(await read(impl, HOOK, 'factory'), factory))
   for (const [label, addr, abi] of [['factory', factory, FACTORY], ['treasury', treasury, TREASURY], ['hook implementation', impl, HOOK]]) {
     check(`${label} quoteAsset() is BEM`, same(await read(addr, abi, 'quoteAsset'), BEM))

@@ -88,7 +88,8 @@ Ok 'same wallet'
 # baked into the hook implementation. Remedy is redeploying everything.
 Step 5 'Proving every variable the broadcast depends on is set'
 $must = 'TARGET_CHAIN_ID', 'TARGET_RPC', 'PLATFORM_TREASURY', 'PROD_OWNER_SAFE',
-        'POG_SIGNER_ADDRESS', 'QUOTE_ASSET', 'INFINITY_CL_POOL_MANAGER', 'INFINITY_VAULT'
+        'POG_SIGNER_ADDRESS', 'QUOTE_ASSET', 'INFINITY_CL_POOL_MANAGER', 'INFINITY_VAULT',
+        'LEGACY_FACTORY_ADDRESS'
 $bad = $must | Where-Object { -not $(Get-Item "Env:\$_" -ErrorAction SilentlyContinue).Value }
 if ($bad) { Die "NOT EXPORTED: $($bad -join ', ') -- do not broadcast." }
 Write-Host ''

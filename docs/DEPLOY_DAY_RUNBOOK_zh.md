@@ -80,6 +80,7 @@ forge script script/DeployMainnet.s.sol:DeployMainnetScript --rpc-url $env:TARGE
 - `PROD owner : 0x02DE…B310`
 - `PoG Signer : 0x5756…F877`
 - `Platform fee recipient : 0x02DE…B310`
+- `Legacy factory (listable) : 0x20dE…92F7`
 - `FACTORY_ADDRESS` / `TREASURY_ADDRESS` 和上面的预计地址一致
 - 最后是 `SIMULATION COMPLETE`
 
@@ -216,7 +217,27 @@ forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(add
 
 两条都通过，`Paused? : false`。
 
-## 第 11 步：打开发射入口
+## 第 11 步：Safe 第三批（新回购池挂上 TO）
+
+新回购池部署时记住了旧工厂（`legacyFactory`），所以旧工厂发射的 TO 也能挂上去回购。
+
+```powershell
+node scripts/redeployTx.mjs list --factory $factory --treasury $treasury --token 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2 --out safe-list-to.json
+```
+
+同第 6 步走 Transaction Builder。
+
+完成：
+
+```powershell
+cast call $treasury "isLadderToken(address)(bool)" 0x7074B785D1b27e4f0cB93bE1461B9FC60D5d8df2 --rpc-url $env:TARGET_RPC
+```
+
+显示 `true`。之后新回购池里的 BEM 攒到 10 BEM 以上，任何人调 `pokeBuyback()`（或新项目的买单顺带触发）就会买入并销毁 TO。
+
+说明：TO 池子的钩子是旧的，它把新回购池当普通买家，所以每次回购要交约 1% 买入税，其中大部分进旧回购池（旧回购池也只回购 TO），其余进 Safe。旧回购池照常工作，不受影响。
+
+## 第 12 步：打开发射入口
 
 ```powershell
 vercel env rm NEXT_PUBLIC_LAUNCHES_PAUSED production --yes
@@ -226,7 +247,7 @@ vercel env rm NEXT_PUBLIC_LAUNCHES_PAUSED production --yes
 
 完成：顶栏出现「发射」；`/launch` 显示表单，并提示 owner 是多签、要用脚本发射。
 
-## 第 12 步：第一个项目
+## 第 13 步：第一个项目
 
 例：不设硬顶、单地址 50 BEM、24 小时。
 
@@ -253,7 +274,7 @@ node scripts/safeLaunchTx.mjs launch --factory $factory --hook 0x钩子地址 --
 | 第 4 步之前 | 完全可以 | 什么都不用做 |
 | 第 4–7 步 | 可以 | 新合约放着不用；旧工厂已暂停的话，Safe 对旧工厂 `unpause()` |
 | 第 8–10 步 | 可以 | 把 Vercel 两个地址改回旧的再 Redeploy；新工厂上还没有项目 |
-| 第 12 步之后 | 不能 | 新钩子不可变，存款人已经进来 |
+| 第 13 步之后 | 不能 | 新钩子不可变，存款人已经进来 |
 
 ## 收尾
 

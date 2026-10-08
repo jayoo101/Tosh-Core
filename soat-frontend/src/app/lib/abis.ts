@@ -4822,6 +4822,11 @@ export const TREASURY_ABI = [
         "name": "_quoteAsset",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_legacyFactory",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -5105,6 +5110,19 @@ export const TREASURY_ABI = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "legacyFactory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"

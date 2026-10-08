@@ -100,7 +100,7 @@ abstract contract ArbSysHarness is Test {
         quote = new MockQuoteAsset();
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote));
+        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0));
         factory = new ToshFactory(
             address(poolManager), address(vault), pogSigner, platformTreasury, address(ladder), address(quote)
         );

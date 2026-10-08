@@ -27,6 +27,7 @@
 | 超募部分归平台 | 钩子 | 开池时不进池子的余额转平台收款地址 |
 | 无主推荐佣金归平台 | 钩子 | 没有推荐人的那份佣金转平台 |
 | 回购参数 | 金库 | `TRIGGER_STEP` 10 BEM，`SPEND_BPS` 50% |
+| 新金库也能回购旧工厂的项目（TO） | 金库构造参数 `legacyFactory`（immutable） | `addLadderToken` 先查新工厂，查不到再查旧工厂；其余校验不变（已开池、TWAP 成熟、池子币对和钩子都从钩子读回）。部署脚本要求 `LEGACY_FACTORY_ADDRESS`，并核对它的 `quoteAsset` 也是 BEM。旧钩子把新金库当普通买家收税，大部分税进旧金库 |
 | **硬顶可选** | 工厂 `createLaunch` | `hardCap = 0` 表示不设硬顶，募资只在截止时间到才结束；见第 5 节 |
 
 `script/DeployMainnet.s.sol` 一次广播就部署这三样（金库 → 工厂〔构造里部署实现和

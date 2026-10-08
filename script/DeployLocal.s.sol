@@ -58,7 +58,7 @@ contract DeployLocal is Script {
         vm.startBroadcast(deployerPk);
 
         // Treasury first — the factory needs its address at construction time.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset, address(0));
         console.log("ToshLadderTreasury deployed at:", address(treasury));
 
         ToshFactory factory = new ToshFactory(

@@ -141,7 +141,7 @@ contract DeployScript is Script {
         // ── 1. ToshLadderTreasury ─────────────────────────────────────────────
         // Must exist BEFORE the factory: the factory takes its address as an
         // immutable constructor argument, and every hook inherits it from there.
-        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset);
+        ToshLadderTreasury treasury = new ToshLadderTreasury(poolManager, vault, deployer, quoteAsset, address(0));
         console2.log("ToshLadderTreasury deployed:", address(treasury));
 
         // ── 2. ToshFactory ────────────────────────────────────────────────────
