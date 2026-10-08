@@ -112,6 +112,10 @@ const LEGACY = flag('--legacy')
 const FACTORY = (process.env.MONITOR_FACTORY || process.env.NEXT_PUBLIC_FACTORY_ADDRESS || '').toLowerCase()
 const TREASURY = (process.env.MONITOR_TREASURY || process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '').toLowerCase()
 const EXPECTED_OWNER = (process.env.MONITOR_EXPECTED_OWNER || '').toLowerCase()
+// Set once the factory is handed to `ToshLaunchGateway`. The factory's owner is
+// then the gateway, and the Safe in EXPECTED_OWNER is what the gateway answers
+// to; both links are checked, so swapping either one still pages.
+const EXPECTED_GATEWAY = LEGACY ? '' : (process.env.MONITOR_EXPECTED_GATEWAY || '').toLowerCase()
 const EXPECTED_SIGNER = (process.env.MONITOR_EXPECTED_POG_SIGNER || '').toLowerCase()
 // Empty unless an automated keeper exists. See STATE-05 below for why this is
 // not the PoG signer.
@@ -715,9 +719,20 @@ const pages = id => ['P0', 'P1'].includes(sev(id))
 try {
   const owner = asAddress(await call(FACTORY, 'owner()'))
   const pending = asAddress(await call(FACTORY, 'pendingOwner()'))
-  if (EXPECTED_OWNER && owner !== EXPECTED_OWNER) {
+  const expectedFactoryOwner = EXPECTED_GATEWAY || EXPECTED_OWNER
+  if (expectedFactoryOwner && owner !== expectedFactoryOwner) {
     record('STATE-03', sev('STATE-03'), true,
-      `factory.owner() is ${owner}, expected ${EXPECTED_OWNER}`, { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised' })
+      `factory.owner() is ${owner}, expected ${expectedFactoryOwner}`, { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised' })
+  }
+  if (EXPECTED_GATEWAY && owner === EXPECTED_GATEWAY) {
+    const gatewaySafe = asAddress(await call(EXPECTED_GATEWAY, 'safe()'))
+    const gatewayFactory = asAddress(await call(EXPECTED_GATEWAY, 'factory()'))
+    if ((EXPECTED_OWNER && gatewaySafe !== EXPECTED_OWNER) || gatewayFactory !== FACTORY) {
+      record('STATE-03', sev('STATE-03'), true,
+        `the factory's owner, gateway ${EXPECTED_GATEWAY}, answers to safe ${gatewaySafe} for factory ` +
+        `${gatewayFactory}; expected safe ${EXPECTED_OWNER || '(unset)'} for factory ${FACTORY}`,
+        { playbook: 'ownership: confirm the move against the Safe transaction history, and pause the factory if it was not authorised' })
+    }
   }
   if (pending !== '0x' + '0'.repeat(40)) {
     record('STATE-03', sev('STATE-03'), true,

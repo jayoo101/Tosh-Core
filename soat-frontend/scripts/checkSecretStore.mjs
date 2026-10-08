@@ -425,6 +425,7 @@ const INVENTORY = {
   MONITOR_FACTORY:             { tier: 'ci-config', why: 'Public factory address the watcher scans.' },
   MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
   MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },
+  MONITOR_EXPECTED_GATEWAY:    { tier: 'ci-config', why: 'Public ToshLaunchGateway address expected to own the factory for the Safe in MONITOR_EXPECTED_OWNER.' },
   MONITOR_EXPECTED_POG_SIGNER: { tier: 'ci-config', why: 'Public address of the PoG signer; the private half is POG_SIGNER_PRIVATE_KEY.' },
   MONITOR_DEPLOY_BLOCK: {
     tier: 'ci-config',

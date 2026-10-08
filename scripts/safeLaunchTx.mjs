@@ -9,8 +9,15 @@
  *   node scripts/safeLaunchTx.mjs create --name "Foo" --symbol FOO \
  *        --developer 0x… --hard-cap 1000 --wallet-cap 46.4 --duration 24h
  *   node scripts/safeLaunchTx.mjs launch --hook 0x…
+ *   node scripts/safeLaunchTx.mjs gateway-handoff --gateway 0x…
  *
  *   [--factory 0x…] [--rpc url] [--out file.json]
+ *
+ * `gateway-handoff` is the one-off batch that hands the factory to a deployed
+ * `ToshLaunchGateway`: `transferOwnership(gateway)` then
+ * `gateway.execute(acceptOwnership())`, atomically. After it, every Safe signer
+ * can list from the launch page, and `create` / `launch` here detect the
+ * gateway and target it instead of the factory.
  *
  * Caps are whole BEM (8 decimals); `--hard-cap none` launches with no cap. `--duration` is 3h, 24h or 72h. The output
  * is imported in the Safe web app under Transaction Builder → "drag and drop";
@@ -47,6 +54,9 @@ import {
 
 const FACTORY_ABI = parseAbi([
   'function owner() view returns (address)',
+  'function pendingOwner() view returns (address)',
+  'function transferOwnership(address newOwner)',
+  'function acceptOwnership()',
   'function paused() view returns (bool)',
   'function hookImplementation() view returns (address)',
   'function MIN_HARD_CAP() view returns (uint256)',
@@ -76,7 +86,35 @@ const FACTORY_ABI = parseAbi([
   'error LaunchWindowExpired()',
   'error RaiseTooSmallForLadder()',
   'error InvalidDuration()',
+  'error NotLauncher()',
+  'error NotSafe()',
 ])
+
+const GATEWAY_ABI = parseAbi([
+  'function factory() view returns (address)',
+  'function safe() view returns (address)',
+  'function canLaunch(address account) view returns (bool)',
+  'function execute(bytes data) returns (bytes)',
+])
+
+/**
+ * The account that sends, the contract it sends to, and the `creator` the
+ * factory will see. With a gateway in the way those are three different
+ * addresses: the Safe signs, the gateway is called, and the gateway is what
+ * `finalSalt` is bound to.
+ */
+async function resolveRoute(pub, factory, owner) {
+  try {
+    const [gwFactory, gwSafe] = await Promise.all([
+      pub.readContract({ address: owner, abi: GATEWAY_ABI, functionName: 'factory' }),
+      pub.readContract({ address: owner, abi: GATEWAY_ABI, functionName: 'safe' }),
+    ])
+    if (getAddress(gwFactory) === factory) {
+      return { safe: getAddress(gwSafe), to: owner, creator: owner, gateway: owner }
+    }
+  } catch { /* not a gateway */ }
+  return { safe: owner, to: factory, creator: owner, gateway: null }
+}
 
 const HOOK_ABI = parseAbi([
   'function launched() view returns (bool)',
@@ -117,12 +155,13 @@ function check(label, pass, detail) {
 function usage() {
   console.error('usage: node scripts/safeLaunchTx.mjs create --name N --symbol S --developer 0x… --hard-cap BEM --wallet-cap BEM --duration 3h|24h|72h')
   console.error('       node scripts/safeLaunchTx.mjs launch --hook 0x…')
+  console.error('       node scripts/safeLaunchTx.mjs gateway-handoff --gateway 0x…')
   console.error('       [--factory 0x…] [--rpc url] [--out file.json]')
   return 2
 }
 
-/** Safe Transaction Builder batch, one plain CALL from the Safe. */
-function builderFile({ chainId, safe, to, data, name, description }) {
+/** Safe Transaction Builder batch of plain CALLs from the Safe. */
+function builderFile({ chainId, safe, to, data, calls, name, description }) {
   return {
     version: '1.0',
     chainId: String(chainId),
@@ -134,13 +173,15 @@ function builderFile({ chainId, safe, to, data, name, description }) {
       createdFromSafeAddress: safe,
       createdFromOwnerAddress: '',
     },
-    transactions: [{ to, value: '0', data, contractMethod: null, contractInputsValues: null }],
+    transactions: (calls ?? [{ to, data }]).map((c) => (
+      { to: c.to, value: '0', data: c.data, contractMethod: null, contractInputsValues: null }
+    )),
   }
 }
 
 async function main() {
   const mode = process.argv[2]
-  if (mode !== 'create' && mode !== 'launch') return usage()
+  if (mode !== 'create' && mode !== 'launch' && mode !== 'gateway-handoff') return usage()
 
   loadRoleEnv(['BSC_RPC', 'FACTORY_ADDRESS'])
   const rpc = arg('rpc', process.env.BSC_RPC)
@@ -156,16 +197,24 @@ async function main() {
   const owner = getAddress(await read('owner'))
   const ownerCode = await pub.getCode({ address: owner })
   console.log(`chain ${chainId} · factory ${factory}`)
-  console.log(`owner ${owner} (${ownerCode && ownerCode !== '0x' ? 'contract — expected the Safe' : 'EOA'})\n`)
+  const route = await resolveRoute(pub, factory, owner)
+  if (route.gateway) {
+    console.log(`owner ${owner} (ToshLaunchGateway → Safe ${route.safe})`)
+    console.log('note  any Safe signer can also do this from the launch page with their own wallet.\n')
+  } else {
+    console.log(`owner ${owner} (${ownerCode && ownerCode !== '0x' ? 'contract — expected the Safe' : 'EOA'})\n`)
+  }
   if (!ownerCode || ownerCode === '0x') {
     console.log('note  the owner is an EOA, so it can sign directly — the launch page or cast work too.\n')
   }
 
   let file, summary
   if (mode === 'create') {
-    ;({ file, summary } = await buildCreate({ pub, read, factory, owner, chainId }))
+    ;({ file, summary } = await buildCreate({ pub, read, factory, route, chainId }))
+  } else if (mode === 'launch') {
+    ;({ file, summary } = await buildLaunch({ pub, read, factory, route, chainId }))
   } else {
-    ;({ file, summary } = await buildLaunch({ pub, read, factory, owner, chainId }))
+    ;({ file, summary } = await buildHandoff({ pub, read, factory, owner, route, chainId }))
   }
   if (!file) return 1
 
@@ -182,7 +231,53 @@ async function main() {
   return 0
 }
 
-async function buildCreate({ pub, read, factory, owner, chainId }) {
+async function buildHandoff({ pub, read, factory, owner, route, chainId }) {
+  const gatewayArg = arg('gateway')
+  if (!gatewayArg || !isAddress(gatewayArg)) { usage(); return {} }
+  const gateway = getAddress(gatewayArg)
+
+  if (!check('factory is not already behind a gateway', route.gateway === null, `owner ${owner}`)) return {}
+  const ownerCode = await pub.getCode({ address: owner })
+  check('factory owner is a contract (the Safe)', Boolean(ownerCode && ownerCode !== '0x'), owner)
+  const gwCode = await pub.getCode({ address: gateway })
+  if (!check('gateway has code', Boolean(gwCode && gwCode !== '0x'), gateway)) return {}
+
+  const gr = (functionName, args = []) => pub.readContract({ address: gateway, abi: GATEWAY_ABI, functionName, args })
+  const [gwFactory, gwSafe, pending, safeCan] = await Promise.all([
+    gr('factory'), gr('safe'), read('pendingOwner'), gr('canLaunch', [owner]),
+  ])
+  check('gateway.factory() is this factory', getAddress(gwFactory) === factory, gwFactory)
+  check('gateway.safe() is the current owner', getAddress(gwSafe) === owner, gwSafe)
+  check('no ownership transfer is already pending', getAddress(pending) === '0x0000000000000000000000000000000000000000', pending)
+  check('gateway recognises the Safe as a launcher', safeCan === true)
+
+  const calls = [
+    { to: factory, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: 'transferOwnership', args: [gateway] }) },
+    {
+      to: gateway,
+      data: encodeFunctionData({
+        abi: GATEWAY_ABI, functionName: 'execute',
+        args: [encodeFunctionData({ abi: FACTORY_ABI, functionName: 'acceptOwnership' })],
+      }),
+    },
+  ]
+  return {
+    file: builderFile({
+      chainId, safe: owner, calls,
+      name: 'Hand the factory to ToshLaunchGateway',
+      description: `factory ${factory}.transferOwnership(${gateway}); gateway.execute(acceptOwnership()) — one batch`,
+    }),
+    summary: [
+      'gateway handoff (2 calls, one Safe transaction)',
+      `  1. factory.transferOwnership(${gateway})`,
+      '  2. gateway.execute(acceptOwnership())',
+      `  after: factory.owner() == ${gateway}; createLaunch / launch open to every owner of ${owner}`,
+      '  ⚠ set MONITOR_EXPECTED_GATEWAY in the same sitting, or STATE-03 pages on the new owner.',
+    ].join('\n'),
+  }
+}
+
+async function buildCreate({ pub, read, factory, route, chainId }) {
   const name = arg('name')
   const symbol = arg('symbol')
   const developerArg = arg('developer')
@@ -226,14 +321,16 @@ async function buildCreate({ pub, read, factory, owner, chainId }) {
   const nameKey = keccak256(encodeAbiParameters([{ type: 'string' }, { type: 'string' }], [name, symbol]))
   check('name + symbol are not taken', (await read('nameTaken', [nameKey])) === false, `${name} / ${symbol}`)
 
-  // The hook's `creator` is `msg.sender`, i.e. the owner Safe.
-  const chainHash = await read('hookInitcodeHash', [developer, owner, hardCap, walletCap, duration])
-  const localHash = computeHookInitcodeHash(implementation, owner, developer, storedHardCap, walletCap, duration)
+  // The hook's `creator` is the factory's `msg.sender`: the Safe, or the gateway
+  // when there is one.
+  const creator = route.creator
+  const chainHash = await read('hookInitcodeHash', [developer, creator, hardCap, walletCap, duration])
+  const localHash = computeHookInitcodeHash(implementation, creator, developer, storedHardCap, walletCap, duration)
   check('local initcode hash matches the factory', chainHash === localHash)
 
   let rawSalt, predicted
   for (let i = 0; i < 8; i++) {
-    const c = pickHookSalt(factory, owner, chainHash)
+    const c = pickHookSalt(factory, creator, chainHash)
     const code = await pub.getCode({ address: c.hookAddress })
     if (!code || code === '0x') { rawSalt = c.rawSalt; predicted = c.hookAddress; break }
   }
@@ -242,18 +339,18 @@ async function buildCreate({ pub, read, factory, owner, chainId }) {
   const args = [name, symbol, developer, rawSalt, hardCap, walletCap, duration]
   try {
     const { result } = await pub.simulateContract({
-      address: factory, abi: FACTORY_ABI, functionName: 'createLaunch', args, account: owner,
+      address: route.to, abi: FACTORY_ABI, functionName: 'createLaunch', args, account: route.safe,
     })
-    check('createLaunch simulates from the owner', getAddress(result[1]) === getAddress(predicted),
+    check('createLaunch simulates from the Safe', getAddress(result[1]) === getAddress(predicted),
       `hook ${result[1]}`)
   } catch (e) {
-    check('createLaunch simulates from the owner', false, revertReason(e))
+    check('createLaunch simulates from the Safe', false, revertReason(e))
   }
 
   const data = encodeFunctionData({ abi: FACTORY_ABI, functionName: 'createLaunch', args })
   return {
     file: builderFile({
-      chainId, safe: owner, to: factory, data,
+      chainId, safe: route.safe, to: route.to, data,
       name: `createLaunch ${symbol}`,
       description: `${name} (${symbol}) · developer ${developer} · hard cap ${hardCapText} · wallet cap ${bem(walletCap)} · ${durationArg} · predicted hook ${predicted}`,
     }),
@@ -270,7 +367,7 @@ async function buildCreate({ pub, read, factory, owner, chainId }) {
   }
 }
 
-async function buildLaunch({ pub, read, factory, owner, chainId }) {
+async function buildLaunch({ pub, read, factory, route, chainId }) {
   const hookArg = arg('hook')
   if (!hookArg || !isAddress(hookArg)) { usage(); return {} }
   const hook = getAddress(hookArg)
@@ -291,16 +388,16 @@ async function buildLaunch({ pub, read, factory, owner, chainId }) {
   check('raise can carry the ladder', viable === true, `raised ${bem(raised)}`)
 
   try {
-    await pub.simulateContract({ address: factory, abi: FACTORY_ABI, functionName: 'launch', args: [hook], account: owner })
-    check('launch simulates from the owner', true)
+    await pub.simulateContract({ address: route.to, abi: FACTORY_ABI, functionName: 'launch', args: [hook], account: route.safe })
+    check('launch simulates from the Safe', true)
   } catch (e) {
-    check('launch simulates from the owner', false, revertReason(e))
+    check('launch simulates from the Safe', false, revertReason(e))
   }
 
   const data = encodeFunctionData({ abi: FACTORY_ABI, functionName: 'launch', args: [hook] })
   return {
     file: builderFile({
-      chainId, safe: owner, to: factory, data,
+      chainId, safe: route.safe, to: route.to, data,
       name: `launch ${hook}`,
       description: `factory.launch(${hook}) · raised ${bem(raised)} · window closes ${stamp(closes)}`,
     }),

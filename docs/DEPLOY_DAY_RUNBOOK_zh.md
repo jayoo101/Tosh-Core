@@ -247,7 +247,50 @@ vercel env rm NEXT_PUBLIC_LAUNCHES_PAUSED production --yes
 
 完成：顶栏出现「发射」；`/launch` 显示表单，并提示 owner 是多签、要用脚本发射。
 
+## 第 12.5 步：发射网关（让三个签名人直接在网站上发射）
+
+工厂的 `createLaunch` / `launch` 只认 owner。owner 换成 `ToshLaunchGateway` 后，Safe 的任一签名人用自己的钱包就能在 `/launch` 创建项目、在项目页开池；暂停、配额、黑名单、停铸等其余管理操作仍然只有 Safe 能做（通过网关的 `execute` 转发）。签名人名单实时读取 Safe 的 `isOwner`，Safe 增删签名人，发射权限随之变化。
+
+1. 部署网关（任何有 BNB 的钱包都行，部署者不获得任何权限；私钥按第 1 步的方式放进 `$env:PRIVATE_KEY`，用完即删；gas 约 0.65M）：
+
+```powershell
+$env:FACTORY_ADDRESS=$factory; $env:PROD_OWNER_SAFE='0x02DE4629129D104C63329D13A6Ca67E43db7B310'
+forge script script/DeployLaunchGateway.s.sol --rpc-url $env:TARGET_RPC --broadcast --verify
+Remove-Item Env:\PRIVATE_KEY
+```
+
+记下输出的 `ToshLaunchGateway:` 地址，下面记作 `$gateway`。
+
+2. 生成交接批次（两笔调用、一笔 Safe 交易：`transferOwnership(gateway)` 和 `gateway.execute(acceptOwnership())`）：
+
+```powershell
+node scripts/safeLaunchTx.mjs gateway-handoff --factory $factory --gateway $gateway --out safe-gateway-handoff.json
+```
+
+同第 6 步走 Transaction Builder。
+
+3. 执行后马上设置监控变量，否则 STATE-03 会因为 owner 变了而报警：
+
+```powershell
+gh variable set MONITOR_EXPECTED_GATEWAY --body $gateway
+```
+
+`MONITOR_EXPECTED_OWNER` 保持 Safe 不变：监控会同时核对「工厂 owner = 网关」和「网关的 Safe = 这个 Safe」。
+
+完成：
+
+```powershell
+cast call $factory "owner()(address)" --rpc-url $env:TARGET_RPC
+cast call $gateway "canLaunch(address)(bool)" 0x签名人地址 --rpc-url $env:TARGET_RPC
+```
+
+第一条显示网关地址，第二条显示 `true`。签名人连上 `/launch` 后按钮可用，网关创建的项目，发射后同一个钱包就能签名发布资料。
+
+撤回网关：Safe 调 `gateway.execute(transferOwnership(Safe))`，再由 Safe 调工厂的 `acceptOwnership()`，并删除 `MONITOR_EXPECTED_GATEWAY`。
+
 ## 第 13 步：第一个项目
+
+做完第 12.5 步后，直接用签名人钱包在 `/launch` 填表发射即可；下面的脚本仍可用，会自动识别网关、把交易发给网关。
 
 例：不设硬顶、单地址 50 BEM、24 小时。
 

@@ -17,15 +17,18 @@ import { fmtQuote } from './format'
 //
 // The hook admits only the factory, and `factory.launch(hook)` admits only the
 // factory's CURRENT owner — not the hook's `creator`, which is frozen at
-// creation and goes stale the moment the Safe is rotated.
+// creation and goes stale the moment the Safe is rotated. When that owner is a
+// `ToshLaunchGateway`, the call goes through it (`launchVia`) from any signer
+// of its Safe.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AwaitingLaunchPanel({
-  hookAddress, symbol, canLaunch, totalNativeDeposited, genesisDeadline, nowSec, refetch,
+  hookAddress, symbol, canLaunch, launchVia = FACTORY_ADDRESS, totalNativeDeposited, genesisDeadline, nowSec, refetch,
 }: {
   hookAddress:       Address
   symbol:            string
   canLaunch:         boolean
+  launchVia?:        Address
   totalNativeDeposited: bigint
   genesisDeadline:   bigint
   nowSec:            number
@@ -41,10 +44,10 @@ export function AwaitingLaunchPanel({
 
   const handleLaunch = useCallback(() => {
     send({
-      address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+      address: launchVia, abi: FACTORY_ABI,
       functionName: 'launch', args: [hookAddress],
     })
-  }, [hookAddress, send])
+  }, [hookAddress, launchVia, send])
 
   const expiresAt = genesisDeadline + LAUNCH_WINDOW_SECONDS
   const secsLeft = Math.max(0, Number(expiresAt) - nowSec)

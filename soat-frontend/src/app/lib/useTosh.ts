@@ -67,6 +67,8 @@ export function useTosh() {
   //   • hardCap / walletCap / genesisDuration → immutable clone args, so they
   //     MUST be the values the salt was derived against or the hook will not
   //     land at the predicted address.
+  //   • via → the factory, or the `ToshLaunchGateway` that owns it, which
+  //     takes the same call from any signer of its Safe.
   const createLaunch = useCallback(
     async (
       name:            string,
@@ -75,10 +77,11 @@ export function useTosh() {
       hookSalt:        `0x${string}`,
       hardCap:         bigint,
       walletCap:       bigint,
-      genesisDuration: bigint
+      genesisDuration: bigint,
+      via:             Address = FACTORY_ADDRESS,
     ): Promise<`0x${string}`> =>
       writeA({
-        address:      FACTORY_ADDRESS,
+        address:      via,
         abi:          FACTORY_ABI,
         functionName: 'createLaunch',
         args:         [name, symbol, developer, hookSalt, hardCap, walletCap, genesisDuration],

@@ -187,6 +187,11 @@ jobs:
           MONITOR_FACTORY: ${{ vars.MONITOR_FACTORY }}
           MONITOR_TREASURY: ${{ vars.MONITOR_TREASURY }}
           MONITOR_EXPECTED_OWNER: ${{ vars.MONITOR_EXPECTED_OWNER }}
+          # The ToshLaunchGateway that owns the factory on the Safe's behalf.
+          # Set it in the same sitting as the Safe's handoff batch executes;
+          # until then STATE-03 keeps expecting the Safe itself. The legacy
+          # pass ignores it.
+          MONITOR_EXPECTED_GATEWAY: ${{ vars.MONITOR_EXPECTED_GATEWAY }}
           MONITOR_EXPECTED_POG_SIGNER: ${{ vars.MONITOR_EXPECTED_POG_SIGNER }}
           MONITOR_KEEPER_ADDRESS: ${{ vars.MONITOR_KEEPER_ADDRESS }}
           # The block the watched pair was deployed in, and the earliest block a

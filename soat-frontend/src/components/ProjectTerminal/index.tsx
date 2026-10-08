@@ -49,6 +49,7 @@ import { RefundPanel } from './RefundPanel'
 import { ReferralPanel } from './ReferralPanel'
 import { LifecycleTracker } from './LifecycleTracker'
 import { BondingStateProvider } from './bondingState'
+import { useLaunchAuthority } from '@/lib/launchAuthority'
 
 const SAFE_OWNERS_ABI = parseAbi(['function getOwners() view returns (address[])'])
 
@@ -341,8 +342,8 @@ export default function ProjectTerminal({ project, about, header }: {
     address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'owner',
     query: { enabled: !!hookAddress, staleTime: 60_000 },
   })
-  const canLaunch = !!userAddress && !!factoryOwner
-    && (factoryOwner as Address).toLowerCase() === userAddress.toLowerCase()
+  const authority = useLaunchAuthority(factoryOwner as Address | undefined, userAddress)
+  const canLaunch = authority.canLaunch
 
   // Snapshotted into the hook at creation and never written again, so it rides
   // outside the 12s bulk poll — which also keeps that contracts tuple from
@@ -628,6 +629,7 @@ export default function ProjectTerminal({ project, about, header }: {
             hookAddress={hookAddress}
             symbol={symbol}
             canLaunch={canLaunch}
+            launchVia={authority.target}
             totalNativeDeposited={totalNativeDeposited}
             genesisDeadline={genesisDeadline}
             nowSec={nowSec}

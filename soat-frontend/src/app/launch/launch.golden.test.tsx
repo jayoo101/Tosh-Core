@@ -43,7 +43,11 @@ interface State {
   sign:        'ok' | 'hang'
   publish:     'ok' | 'fail'
   logoBusy:    boolean
+  /** The factory is owned by a gateway whose Safe is `SAFE`; `signer` is whether USER is one of its owners. */
+  gateway:     { signer: boolean } | null
 }
+
+const GATEWAY = '0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65'
 
 let s: State
 const said: string[] = []
@@ -99,7 +103,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('../lib/useTosh', () => ({
   useTosh: () => ({
-    createLaunch: vi.fn(async () => {}),
+    createLaunch: createLaunchSpy,
     hash: s.tosh.hash, receipt: s.tosh.receipt,
     isPending: false, isConfirming: false, isConfirmed: s.tosh.isConfirmed,
     error: null, reset: vi.fn(),
@@ -118,6 +122,22 @@ vi.mock('@/components/LogoField', async (importOriginal) => {
   }
 })
 
+const createLaunchSpy = vi.fn(async (..._args: unknown[]) => {})
+
+vi.mock('@/lib/launchAuthority', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/launchAuthority')>()),
+  useLaunchAuthority: (owner: string | undefined, account: string | undefined) => (s.gateway
+    ? {
+        resolved: true, gateway: GATEWAY, safe: SAFE, target: GATEWAY, creator: GATEWAY,
+        canLaunch: s.gateway.signer,
+      }
+    : {
+        resolved: owner !== undefined,
+        target: process.env.NEXT_PUBLIC_FACTORY_ADDRESS, creator: account,
+        canLaunch: !!owner && !!account && owner.toLowerCase() === account.toLowerCase(),
+      }),
+}))
+
 vi.mock('../lib/hookAddress', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/hookAddress')>()),
   pickHookSalt: () => ({ rawSalt: SALT, hookAddress: HOOK }),
@@ -132,8 +152,11 @@ beforeEach(() => {
     balance: E18, revert: null,
     tosh: { isConfirmed: false }, sign: 'ok', publish: 'ok',
     logoBusy: false,
+    gateway: null,
   }
   said.length = 0
+  createLaunchSpy.mockClear()
+  client.readContract.mockClear()
   sessionStorage.clear()
   client.getBytecode.mockImplementation(noOccupant)
   vi.spyOn(toshToast, 'error').mockImplementation((m) => { said.push(`error: ${String(m)}`); return 'id' })
@@ -269,6 +292,37 @@ describe('/launch · english copy golden master', () => {
     s.ownerIsSafe = true
     const ui = await render()
     try { await flush(); filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('owner is a gateway, wallet is not a Safe signer', async () => {
+    s.owner = GATEWAY
+    s.gateway = { signer: false }
+    const ui = await render()
+    try { filled(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('owner is a gateway, wallet is a Safe signer: ready to deploy', async () => {
+    s.owner = GATEWAY
+    s.gateway = { signer: true }
+    const ui = await render()
+    try { filled(ui); tick(ui); pin(ui) } finally { ui.unmount() }
+  })
+
+  it('through a gateway, the salt is bound to it and the call goes to it', async () => {
+    s.owner = GATEWAY
+    s.gateway = { signer: true }
+    const ui = await render()
+    try {
+      filled(ui); tick(ui); await deploy(ui)
+      const initcodeRead = client.readContract.mock.calls
+        .map(([c]) => c as { functionName: string; args?: unknown[] })
+        .find(c => c.functionName === 'hookInitcodeHash')
+      expect(initcodeRead?.args?.[1]).toBe(GATEWAY)
+      expect(client.simulateContract).toHaveBeenLastCalledWith(
+        expect.objectContaining({ address: GATEWAY, functionName: 'createLaunch', account: USER }),
+      )
+      expect(createLaunchSpy.mock.calls.at(-1)?.at(-1)).toBe(GATEWAY)
+    } finally { ui.unmount() }
   })
 
   it('factory paused', async () => {

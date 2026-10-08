@@ -10,9 +10,10 @@
  *   5. Genesis window        3 h / 24 h / 72 h, baked into the hook initcode
  *   -  Submit                unnumbered: the terms tick, then createLaunch
  *
- * `createLaunch` is `onlyOwner` and unpaid, so this page is a tool for a
- * single-key owner and nobody else. A connected wallet that is not the owner
- * is told so, and when the owner is a contract (a Safe) it is pointed at
+ * `createLaunch` is `onlyOwner` and unpaid. When the owner is a
+ * `ToshLaunchGateway`, every signer of its Safe may list from here with their
+ * own wallet, and the call goes to the gateway. Otherwise this page serves a
+ * single-key owner only; a Safe owner with no gateway is pointed at
  * `scripts/safeLaunchTx.mjs`, which builds the same call as a Transaction
  * Builder batch.
  *
@@ -67,6 +68,7 @@ import { LogoField } from '@/components/LogoField'
 import { LaunchPreview } from '@/components/LaunchPreview'
 import { LaunchesPaused } from '@/components/LaunchesPaused'
 import { LAUNCHES_PAUSED } from '@/lib/launchGate'
+import { LAUNCH_GATEWAY_ABI, useLaunchAuthority } from '@/lib/launchAuthority'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
 import {
   AddressLink, Badge, Card, Field,
@@ -125,6 +127,7 @@ function launchRevertMessage(err: unknown, t: Dictionary['launch']): string | nu
     case 'InvalidWalletCap':
       return t.revertInvalidWalletCap
     case 'OwnableUnauthorizedAccount':
+    case 'NotLauncher':
       return t.revertNotOwner
     case 'DeployFailed':
       return t.revertDeployFailed
@@ -290,16 +293,19 @@ function GenesisConsole() {
   const pogLimit = dialsReady ? (dials[3].result as bigint) : 0n
   const factoryPaused = dialsReady && (dials[4].result as boolean)
 
-  const isOwner = Boolean(address && ownerAddr && address.toLowerCase() === ownerAddr.toLowerCase())
+  const authority = useLaunchAuthority(ownerAddr, address)
+  const isOwner = authority.canLaunch
+  /** Who the platform is, for the dials and the developer warning: the Safe, through a gateway or not. */
+  const platformAddr = authority.safe ?? ownerAddr
 
   useEffect(() => {
-    if (!ownerAddr || !publicClient || isOwner) return
+    if (!ownerAddr || !publicClient || isOwner || authority.gateway) return
     let live = true
     publicClient.getBytecode({ address: ownerAddr })
       .then(code => { if (live) setOwnerIsContract(Boolean(code && code !== '0x')) })
       .catch(() => {})
     return () => { live = false }
-  }, [ownerAddr, publicClient, isOwner])
+  }, [ownerAddr, publicClient, isOwner, authority.gateway])
 
   const walletCapText = walletCapInput ?? (dialsReady ? quoteLabel(pogLimit) : '')
   // 0 is the factory's "no hard cap": the round runs to its deadline, and the
@@ -352,21 +358,23 @@ function GenesisConsole() {
   const deriveSalt = useCallback(async (): Promise<
     { rawSalt: `0x${string}`; hookAddress: `0x${string}` } | null
   > => {
-    if (!address || !publicClient || !terms) return null
+    const creator = authority.creator
+    if (!address || !creator || !publicClient || !terms) return null
     setSaltError('')
     setIsDerivingSalt(true)
     try {
       // (projectTreasury, creator, hardCap, perWalletCap, genesisDuration), and
-      // the creator is `msg.sender` — the owner signing this.
+      // the creator is the factory's `msg.sender` — the gateway when there is
+      // one, otherwise the owner signing this.
       const initcodeHash = await publicClient.readContract({
         address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'hookInitcodeHash',
-        args: [terms.developer as Address, address, terms.hardCap, terms.walletCap, terms.duration],
+        args: [terms.developer as Address, creator, terms.hardCap, terms.walletCap, terms.duration],
       }) as `0x${string}`
       let rawSalt: `0x${string}` | null = null
       let hookAddress: `0x${string}` | null = null
       for (let attempt = 0; attempt < 8; attempt++) {
         const candidate = pickHookSalt(
-          FACTORY_ADDRESS as `0x${string}`, address as `0x${string}`, initcodeHash,
+          FACTORY_ADDRESS as `0x${string}`, creator as `0x${string}`, initcodeHash,
         )
         const occupant = await publicClient.getBytecode({ address: candidate.hookAddress })
         if (!occupant || occupant === '0x') {
@@ -390,7 +398,7 @@ function GenesisConsole() {
     }
   // `terms` is rebuilt every render; its fields are the real dependencies.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, publicClient, terms?.developer, terms?.hardCap, terms?.walletCap, terms?.duration, t])
+  }, [address, authority.creator, publicClient, terms?.developer, terms?.hardCap, terms?.walletCap, terms?.duration, t])
 
   const nameTrimmed = name.trim()
   const symbolTrimmed = symbol.trim().toUpperCase()
@@ -437,8 +445,8 @@ function GenesisConsole() {
     if (publicClient) {
       try {
         await publicClient.simulateContract({
-          address: FACTORY_ADDRESS,
-          abi: FACTORY_ABI,
+          address: authority.target,
+          abi: [...FACTORY_ABI, ...LAUNCH_GATEWAY_ABI],
           functionName: 'createLaunch',
           args,
           account: address,
@@ -454,11 +462,11 @@ function GenesisConsole() {
 
     reset(); setSyncState('idle')
     try {
-      await createLaunch(...args)
+      await createLaunch(...args, authority.target)
     } catch { /* wagmi + toast */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    address, isOwner, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
+    address, isOwner, authority.target, chainId, switchChainAsync, nameTrimmed, symbolTrimmed,
     logoUrl, website, twitter, telegram, description, salt, saltLive, deriveSalt,
     createLaunch, reset, publicClient, predictedHook, t,
     terms?.developer, terms?.hardCap, terms?.walletCap, terms?.duration,
@@ -536,7 +544,8 @@ function GenesisConsole() {
       // The listing is signed because whoever writes the registry row chooses
       // the name, logo and links the audience sees, and the txHash alone is
       // public the moment the launch confirms. The server compares the signer
-      // against the event's `creator`, which is the owner that sent it.
+      // against the event's `creator` — the owner that sent it, or, for a
+      // gateway, the owners of the Safe behind it, which this signer is one of.
       const publish = async () => {
         setSyncState('syncing')
         const signature = await signMessageAsync({
@@ -583,7 +592,7 @@ function GenesisConsole() {
     void sync()
   }, [isConfirmed, hash, receipt, publicClient, router, signMessageAsync, t])
 
-  const ownerShort = ownerAddr ? truncateHex(ownerAddr) : EM_DASH
+  const ownerShort = platformAddr ? truncateHex(platformAddr) : EM_DASH
   const capRange = { min: quoteLabel(minHardCap), max: quoteLabel(maxHardCap), quote: QUOTE_SYMBOL }
 
   const gate = useActionGate({
@@ -606,15 +615,22 @@ function GenesisConsole() {
         tone: 'danger',
       },
       {
+        id: 'not-signer',
+        active: dialsReady && !!authority.gateway && authority.resolved && !isOwner,
+        label: t.signerLabel,
+        reason: fill(t.signerReason, { owner: ownerShort }),
+        tone: 'warn',
+      },
+      {
         id: 'owner-is-safe',
-        active: dialsReady && !isOwner && ownerIsContract === true,
+        active: dialsReady && authority.resolved && !authority.gateway && !isOwner && ownerIsContract === true,
         label: t.safeLabel,
         reason: fill(t.safeReason, { owner: ownerShort }),
         tone: 'warn',
       },
       {
         id: 'not-owner',
-        active: dialsReady && !isOwner && ownerIsContract !== true,
+        active: dialsReady && authority.resolved && !authority.gateway && !isOwner && ownerIsContract !== true,
         label: t.ownerLabel,
         reason: fill(t.ownerReason, { owner: ownerShort }),
         tone: 'warn',
@@ -766,7 +782,7 @@ function GenesisConsole() {
                   placeholder="0x…"
                   error={developer && !isAddress(developer) ? t.invalidAddress : null}
                 />
-                {developerAddr && ownerAddr && developerAddr.toLowerCase() === ownerAddr.toLowerCase() && (
+                {developerAddr && platformAddr && developerAddr.toLowerCase() === platformAddr.toLowerCase() && (
                   <p className="text-note text-warning">
                     {t.developerIsOwner}
                   </p>
@@ -1073,7 +1089,7 @@ function GenesisConsole() {
                   <div className="flex justify-between gap-4">
                     <dt className="text-text-tertiary">{t.dialOwner}</dt>
                     <dd className="text-text-primary">
-                      {ownerAddr ? <AddressLink value={ownerAddr} /> : EM_DASH}
+                      {platformAddr ? <AddressLink value={platformAddr} /> : EM_DASH}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
