@@ -1,0 +1,25 @@
+{
+  "lastBlock": 126394904,
+  "hooks": [
+    "0x079c9a95c431671b4f6b7d5d8d94a5c58c88119a",
+    "0xff2519ebb5b553bf3a7a0c00799a0e1840c27724",
+    "0xdd4b5c433c6aba2b6d62958b069c7401e04a4ede",
+    "0x3a26055c9ba49d80f5649e34a35626016ba38271",
+    "0x1245ec462504e553520154c6210198ed6831cc9a",
+    "0x63cfec6ece44418048dea45c8590e1e202d7acc0",
+    "0x94335bc7bcf3b63c4deffa6dd4bb5e09689384fe",
+    "0xd6ba876498a4d021eebf170224c98a23e3d52f7f",
+    "0x8148be336318b23dc903d27a13cfadd4da6ba27a",
+    "0xf4c1006bc617d80a18e6898e1e728c9c6918040e"
+  ],
+  "armedSince": null,
+  "lastPiggybackBlock": null,
+  "lastRun": "2026-10-08T06:20:34.169Z",
+  "chainId": 56,
+  "factory": "0x20de906a96ffb89be6fd6267a0876a68017792f7",
+  "treasury": "0x7105d36715e4d2bfbbead2b7c085e6cde6f85a4b",
+  "hookScanIndex": 10,
+  "lastRunEvent": "schedule",
+  "treasuryBalance": "9034360808",
+  "treasuryBalanceOf": "0x7105d36715e4d2bfbbead2b7c085e6cde6f85a4b"
+}
