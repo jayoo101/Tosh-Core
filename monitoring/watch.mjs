@@ -68,6 +68,17 @@ import { createRpc } from './rpc.mjs'
 import { buildLogQueries, matchLog } from './logQueries.mjs'
 import { retiredChain, STANDING_CHAIN_ID } from '../scripts/lib/retiredChains.mjs'
 
+// Exit 1 means "something paged", which the workflow leaves green. Node's own
+// exit code for an uncaught error is also 1, so a dead RPC key read as a quiet
+// chain for weeks (2026-10-08: "Your key is deactivated" on every pass, every
+// run green). Anything that escapes is a pass that scanned nothing: exit 2.
+for (const event of ['uncaughtException', 'unhandledRejection']) {
+  process.on(event, err => {
+    console.error(`[watch] could not run — scanned nothing: ${err?.stack ?? err}`)
+    process.exit(2)
+  })
+}
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(readFileSync(join(HERE, 'alerts.json'), 'utf8'))
 

@@ -286,10 +286,11 @@ jobs:
           set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
-          # 2 is "you configured me wrong" — no factory address, or a checkpoint
-          # that will not parse. Nothing was scanned, so this must be red.
+          # 2 is "could not run" — no factory address, a checkpoint that will
+          # not parse, or any error the watcher did not handle (an RPC refusing
+          # its key, for one). Nothing was scanned, so this must be red.
           if [ "$code" -eq 2 ]; then
-            echo "::error::The watcher could not run. It scanned nothing this pass — this is not a quiet chain, it is a blind monitor. Check MONITOR_FACTORY / MONITOR_TREASURY and the state branch."
+            echo "::error::The watcher could not run. It scanned nothing this pass — this is not a quiet chain, it is a blind monitor. Check the error above, the MONITOR_RPC secret, MONITOR_FACTORY / MONITOR_TREASURY and the state branch."
             exit 1
           fi
 
