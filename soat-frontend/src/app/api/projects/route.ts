@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   isAddress,
+  parseAbi,
   parseEventLogs,
   recoverMessageAddress,
   type Address,
@@ -18,7 +19,7 @@ import {
   corsPreflight,
   readJsonBody,
 } from '../../lib/apiGuard'
-import { FACTORY_ABI } from '../../lib/abis'
+import { FACTORY_ABI, HOOK_ABI } from '../../lib/abis'
 import { assertServerChain, serverPublicClient } from '../../lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
@@ -183,6 +184,54 @@ async function readLaunchFromChain(
   }
 }
 
+const SAFE_OWNERS_ABI = parseAbi(['function getOwners() view returns (address[])'])
+
+/**
+ * Whether `signer` may publish for `launch` without being its creator.
+ *
+ * Launches are owner-only, and the owner is a Safe: a contract cannot
+ * `personal_sign`, so a creator-only rule left every Safe-made launch without
+ * a listing. Two other parties are vouched for by the chain itself — the
+ * developer the hook was deployed for (`projectTreasury`, part of the clone's
+ * immutable args), and, when the creator is a Safe, any of its current owners.
+ *
+ * `'unavailable'` is an RPC failure, kept apart from `false` so the caller can
+ * answer 503 rather than telling an honest publisher they are not allowed.
+ */
+async function isDelegatedPublisher(
+  launch: OnChainLaunch,
+  signer: Address,
+): Promise<boolean | 'unavailable'> {
+  const client = serverPublicClient()
+  const me = signer.toLowerCase()
+  try {
+    const developer = await client.readContract({
+      address: launch.hook, abi: HOOK_ABI, functionName: 'projectTreasury',
+    }) as Address
+    if (developer.toLowerCase() === me) return true
+
+    const code = await client.getCode({ address: launch.creator })
+    if (!code || code === '0x') return false
+  } catch (err) {
+    reportError(err, {
+      surface: 'api-route',
+      extra: { route: 'POST /api/projects', stage: 'delegated-publisher' },
+    })
+    return 'unavailable'
+  }
+
+  // A contract creator that is not a Safe has no `getOwners`, and that is an
+  // answer (nobody is vouched for), not an outage.
+  try {
+    const owners = await client.readContract({
+      address: launch.creator, abi: SAFE_OWNERS_ABI, functionName: 'getOwners',
+    })
+    return owners.some((o) => o.toLowerCase() === me)
+  } catch {
+    return false
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared payload type — imported by page.tsx for the POST body
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,13 +326,28 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (signer.toLowerCase() !== launch.creator.toLowerCase()) {
+  const allowed = signer.toLowerCase() === launch.creator.toLowerCase()
+    ? true
+    : await isDelegatedPublisher(launch, signer)
+
+  if (allowed === 'unavailable') {
+    return applyCors(
+      NextResponse.json(
+        { error: 'Could not check who may publish this launch — try again' },
+        { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } },
+      ),
+      req,
+      CORS_OPTS,
+    )
+  }
+
+  if (!allowed) {
     console.warn('[Tosh API] project metadata signed by a non-creator', {
       txHash, signer, creator: launch.creator,
     })
     return applyCors(
       NextResponse.json(
-        { error: 'That signature is not from the address that created this launch' },
+        { error: "That signature is not from this launch's creator, its developer, or an owner of the creating Safe" },
         { status: 403 },
       ),
       req,

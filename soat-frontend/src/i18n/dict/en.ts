@@ -1164,7 +1164,7 @@ export const EN = {
     hashLabel:              'Creating transaction',
     hashHint:               'We could not look this up just now — reloading the page may find it. Otherwise copy the createLaunch transaction hash — the one that brought this project on chain — from your wallet history or the explorer.',
 
-    footer: 'The signature proves you are this launch\'s creator and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project can publish its listing.',
+    footer: 'The signature proves you may publish for this launch and nothing else — it sends no transaction and grants no spending permission. Only the wallet that created this project, its developer, or an owner of the Safe that created it can publish its listing.',
   },
 
   /**

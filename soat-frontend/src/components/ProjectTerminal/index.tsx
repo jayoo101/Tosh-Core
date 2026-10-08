@@ -28,7 +28,7 @@
 import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
 import { useAccount, useReadContract, useReadContracts } from 'wagmi'
-import type { Address, ContractFunctionParameters } from 'viem'
+import { parseAbi, type Address, type ContractFunctionParameters } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import {
@@ -49,6 +49,8 @@ import { RefundPanel } from './RefundPanel'
 import { ReferralPanel } from './ReferralPanel'
 import { LifecycleTracker } from './LifecycleTracker'
 import { BondingStateProvider } from './bondingState'
+
+const SAFE_OWNERS_ABI = parseAbi(['function getOwners() view returns (address[])'])
 
 // Phase-2 only, and by far the heaviest code on this route: the 4000-rung
 // ladder table, the quoting maths, and the Permit2 / V4 position manager
@@ -313,6 +315,26 @@ export default function ProjectTerminal({ project, about, header }: {
   const isCreator = !!userAddress && !!creatorAddress
     && (creatorAddress as Address).toLowerCase() === userAddress.toLowerCase()
 
+  // Who else `/api/projects` accepts a listing from: the developer, and the
+  // owners of a creating Safe (which cannot sign for itself). Only asked while
+  // there is a listing left to publish, and only of a wallet that is not the
+  // creator already. On an EOA creator `getOwners` simply fails — no owners.
+  const askPublishers = !!userAddress && !isCreator && isUnlisted(project)
+  const { data: publisherReads } = useReadContracts({
+    contracts: [
+      { address: hookAddress, abi: HOOK_ABI, functionName: 'projectTreasury' },
+      { address: creatorAddress as Address, abi: SAFE_OWNERS_ABI, functionName: 'getOwners' },
+    ],
+    query: { enabled: askPublishers && !!hookAddress && !!creatorAddress, staleTime: 60_000 },
+  })
+  const me = userAddress?.toLowerCase()
+  const developer = publisherReads?.[0]?.result as Address | undefined
+  const safeOwners = publisherReads?.[1]?.result as readonly Address[] | undefined
+  const canPublish = isCreator || (!!me && (
+    developer?.toLowerCase() === me
+    || !!safeOwners?.some((o) => o.toLowerCase() === me)
+  ))
+
   // Who may launch is the factory's owner NOW, which `creator` stops being once
   // the Safe rotates — so this is read live rather than pinned like `creator`.
   const { data: factoryOwner } = useReadContract({
@@ -435,7 +457,7 @@ export default function ProjectTerminal({ project, about, header }: {
             otherwise given no indication of. It is also a five-field form,
             which the 360px track cannot hold. It disappears for good the
             moment the row exists. */}
-        {isCreator && isUnlisted(project) && (
+        {canPublish && isUnlisted(project) && (
           <PublishListingPanel
             hookAddress={hookAddress}
             name={project.name}

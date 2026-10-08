@@ -27,9 +27,10 @@
  * nothing. Offering these fields against an existing row would be a form whose
  * Save button silently does nothing.
  *
- * ── Why it is creator-only, and what that gate is worth ─────────────────────
+ * ── Who sees it, and what that gate is worth ───────────────────────────────
  *
- * `hook.creator()` decides who sees it, which is the same authority the server
+ * The creator, the hook's developer (`projectTreasury`), and — when the creator
+ * is a Safe, which cannot sign — the Safe's owners: the same set the server
  * checks the recovered signer against. The client-side gate is therefore
  * cosmetic — hiding it from a stranger saves them a wasted signature, and
  * nothing more. The server is what makes it safe.

@@ -6,7 +6,8 @@ import { NextRequest } from 'next/server'
  *
  * The route already proves the caller is the creator: it reads the launch out
  * of the receipt, recovers the signer from a `personal_sign` attestation, and
- * requires that signer to equal `launch.creator`. `lib/projectAttestation.ts`
+ * requires that signer to be `launch.creator`, the hook's developer, or an
+ * owner of the creating Safe. `lib/projectAttestation.ts`
  * explains the attack that check exists for — watch for `LaunchCreated`, POST
  * that txHash first with your own links, and the real creator's publish comes
  * back `{ duplicate: true }` while the project page serves your site to their
@@ -91,10 +92,30 @@ vi.mock('../../lib/supabaseAdmin', async () => {
   }
 })
 
+const DEVELOPER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'
+const SAFE_OWNER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'
+
+/** What the hook and the creator answer when the route asks who else may publish. */
+let creatorCode: string
+let safeOwners: string[] | 'not-a-safe'
+let hookReadFails: boolean
+
 vi.mock('../../lib/serverRpc', () => ({
   assertServerChain: async () => true,
   serverPublicClient: () => ({
     getTransactionReceipt: async () => ({ status: 'success', logs: [] }),
+    getCode: async () => creatorCode,
+    readContract: async ({ functionName }: { functionName: string }) => {
+      if (functionName === 'projectTreasury') {
+        if (hookReadFails) throw new Error('rpc down')
+        return DEVELOPER
+      }
+      if (functionName === 'getOwners') {
+        if (safeOwners === 'not-a-safe') throw new Error('execution reverted')
+        return safeOwners
+      }
+      throw new Error(`unexpected read ${functionName}`)
+    },
   }),
 }))
 
@@ -124,6 +145,9 @@ beforeEach(() => {
   adminUnavailable = false
   recovered = CREATOR
   adminResult = { data: { id: 'row-1' }, error: null }
+  creatorCode = '0x'
+  safeOwners = []
+  hookReadFails = false
 })
 
 afterEach(() => {
@@ -168,6 +192,46 @@ describe('POST /api/projects — the writer', () => {
     expect(res.status).toBe(403)
     // A key that bypasses RLS makes the route the only thing standing between
     // a stranger and the table. It has to reject before it reaches for that.
+    expect(adminInserts).toBe(0)
+  })
+
+  it('lets the project developer publish', async () => {
+    recovered = DEVELOPER
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(adminInserts).toBe(1)
+  })
+
+  it('lets an owner of the creating Safe publish, since a Safe cannot sign', async () => {
+    creatorCode = '0x6080'
+    safeOwners = [SAFE_OWNER, '0x0000000000000000000000000000000000000001']
+    recovered = SAFE_OWNER.toLowerCase()
+    const res = await post()
+    expect(res.status).toBe(200)
+    expect(adminInserts).toBe(1)
+  })
+
+  it('refuses a stranger even when the creator is a Safe', async () => {
+    creatorCode = '0x6080'
+    safeOwners = [SAFE_OWNER]
+    recovered = '0x000000000000000000000000000000000000dEaD'
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it('vouches for nobody through a contract creator that is not a Safe', async () => {
+    creatorCode = '0x6080'
+    safeOwners = 'not-a-safe'
+    recovered = SAFE_OWNER
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it('answers 503, not 403, when the chain cannot be asked', async () => {
+    hookReadFails = true
+    recovered = DEVELOPER
+    const res = await post()
+    expect(res.status).toBe(503)
     expect(adminInserts).toBe(0)
   })
 
