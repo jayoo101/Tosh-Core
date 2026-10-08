@@ -91,12 +91,12 @@ export default function AgentDirectoryHome() {
    * alongside the search and sort controls it was always missing.
    *
    * WHICH THREE, AND WHICH IS WIDEST, is `orderTeaser` in `teaserOrder.ts` —
-   * eligibility, the raise-size ranking and an operator's pin over the top of
-   * it, with the reasoning for each. It lives there rather than here so it can
+   * eligibility, an operator's pin, the newest launch in the feature slot and
+   * the raise-size ranking beside it, with the reasoning for each. It lives there rather than here so it can
    * be tested without mounting a component that reads 48 launches off a
    * factory, which is also why `bucket()` is its own module.
    *
-   * ORDERED BY AMOUNT RAISED, where the mock orders by 24h volume. There is no
+   * THE SIDE CARDS ARE ORDERED BY AMOUNT RAISED, where the mock orders by 24h volume. There is no
    * volume index behind this app, and of the numbers there are, the size of
    * the raise is the closest thing to "this one has the most behind it".
    */

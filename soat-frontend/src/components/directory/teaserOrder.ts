@@ -24,6 +24,7 @@ import type { DirectoryTab } from './useDirectoryProjects'
 export interface TeaserCandidate {
   tab: DirectoryTab
   totalNative: bigint
+  createdAt: bigint
   featuredUntilMs: number | null
 }
 
@@ -58,6 +59,12 @@ export function isTeaserEligible(p: TeaserCandidate): boolean {
   return p.tab === 'completed' || p.tab === 'live'
 }
 
+/**
+ * The feature is a live pin if there is one, otherwise the NEWEST eligible
+ * launch by `createdAt`, so a fresh raise gets the widest card on the day it
+ * opens instead of waiting to out-raise everything before it. The two cards
+ * beside it keep the pin-then-raise ranking.
+ */
 export function orderTeaser<T extends TeaserCandidate>(
   projects: readonly T[],
   nowMs: number,
@@ -76,8 +83,12 @@ export function orderTeaser<T extends TeaserCandidate>(
       // here would silently replace that ordering.
       return a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1
     })
-    .slice(0, TEASER_SIZE)
 
-  const [feature, ...rest] = ranked
+  const pinned = ranked[0] && isPinLive(ranked[0], nowMs) ? ranked[0] : undefined
+  const feature = pinned ?? ranked.reduce<T | undefined>(
+    (newest, p) => (newest === undefined || p.createdAt > newest.createdAt ? p : newest),
+    undefined,
+  )
+  const rest = ranked.filter((p) => p !== feature).slice(0, TEASER_SIZE - 1)
   return { feature, rest }
 }

@@ -3,8 +3,8 @@
 /**
  * The homepage feature pin.
  *
- * `AgentDirectoryHome` ranks "Active markets" by amount raised and draws the
- * first card double-width. This panel overrides that for a bounded window by
+ * `AgentDirectoryHome` draws the newest launch in "Active markets" double-width
+ * and ranks the cards beside it by amount raised. This panel overrides that for a bounded window by
  * writing `projects.featured_until` through `POST /api/admin/featured`.
  *
  * ── Why this panel does not use the ambient gate ──────────────────────────
@@ -303,8 +303,8 @@ export function FeaturedProjectPanel() {
         This decides ORDER, not eligibility. A pinned launch still has to be one the
         block would show — funding or trading — so pinning cannot put a refundable raise
         on the homepage. Setting a pin clears any other, and every pin lapses on its own,
-        so a promotion nobody remembers returns the page to ranking by amount raised
-        rather than staying in the largest card indefinitely.
+        so a promotion nobody remembers returns the largest card to the newest launch
+        rather than staying there indefinitely.
       </ScopeNote>
     </Section>
   )

@@ -21,26 +21,48 @@ const NOW = 1_800_000_000_000
 /** Only the three fields the order reads, so a case is a case and not a launch. */
 function candidate(
   raised: bigint,
-  opts: { tab?: DirectoryTab; pinnedUntil?: number | null } = {},
+  opts: { tab?: DirectoryTab; pinnedUntil?: number | null; createdAt?: bigint } = {},
 ): TeaserCandidate & { id: string } {
   return {
-    id: `${opts.tab ?? 'live'}-${raised}-${opts.pinnedUntil ?? 'none'}`,
+    id: `${opts.tab ?? 'live'}-${raised}-${opts.pinnedUntil ?? 'none'}-${opts.createdAt ?? 0n}`,
     tab: opts.tab ?? 'live',
     totalNative: raised,
+    createdAt: opts.createdAt ?? 0n,
     featuredUntilMs: opts.pinnedUntil ?? null,
   }
 }
 
 describe('orderTeaser: the computed order', () => {
-  it('ranks by amount raised, descending', () => {
-    const small = candidate(1n)
-    const big = candidate(100n)
-    const mid = candidate(50n)
+  it('gives the feature to the newest launch, however small its raise', () => {
+    const whale = candidate(1_000n, { createdAt: 100n })
+    const mid = candidate(50n, { createdAt: 200n })
+    const fresh = candidate(0n, { createdAt: 300n })
 
-    const { feature, rest } = orderTeaser([small, big, mid], NOW)
+    const { feature, rest } = orderTeaser([whale, mid, fresh], NOW)
 
-    expect(feature).toBe(big)
-    expect(rest).toEqual([mid, small])
+    expect(feature).toBe(fresh)
+    expect(rest).toEqual([whale, mid])
+  })
+
+  it('ranks the cards beside the feature by amount raised, descending', () => {
+    const small = candidate(1n, { createdAt: 1n })
+    const big = candidate(100n, { createdAt: 2n })
+    const mid = candidate(50n, { createdAt: 3n })
+    const newest = candidate(0n, { createdAt: 4n })
+
+    const { feature, rest } = orderTeaser([small, big, mid, newest], NOW)
+
+    expect(feature).toBe(newest)
+    expect(rest).toEqual([big, mid])
+  })
+
+  it('does not feature a newer launch a visitor cannot act on', () => {
+    const waiting = candidate(0n, { tab: 'launching', createdAt: 9n })
+    const live = candidate(5n, { createdAt: 1n })
+
+    const { feature } = orderTeaser([waiting, live], NOW)
+
+    expect(feature).toBe(live)
   })
 
   it('leaves out the phases a visitor cannot act on', () => {
@@ -81,9 +103,9 @@ describe('orderTeaser: the computed order', () => {
 })
 
 describe('orderTeaser: an operator pin', () => {
-  it('takes the feature slot from a larger raise', () => {
-    const whale = candidate(1_000n)
-    const pinned = candidate(1n, { pinnedUntil: NOW + 3_600_000 })
+  it('takes the feature slot from a newer launch', () => {
+    const whale = candidate(1_000n, { createdAt: 9n })
+    const pinned = candidate(1n, { pinnedUntil: NOW + 3_600_000, createdAt: 1n })
 
     const { feature } = orderTeaser([whale, pinned], NOW)
 
@@ -94,8 +116,8 @@ describe('orderTeaser: an operator pin', () => {
     // The whole reason the column is a timestamp rather than a flag: forgetting
     // returns the page to the computed order instead of freezing a stale
     // promotion in the largest card.
-    const whale = candidate(1_000n)
-    const lapsed = candidate(1n, { pinnedUntil: NOW - 1 })
+    const whale = candidate(1_000n, { createdAt: 9n })
+    const lapsed = candidate(1n, { pinnedUntil: NOW - 1, createdAt: 1n })
 
     const { feature } = orderTeaser([whale, lapsed], NOW)
 
@@ -103,8 +125,8 @@ describe('orderTeaser: an operator pin', () => {
   })
 
   it('expires exactly at its deadline, not a tick later', () => {
-    const whale = candidate(1_000n)
-    const atTheEdge = candidate(1n, { pinnedUntil: NOW })
+    const whale = candidate(1_000n, { createdAt: 9n })
+    const atTheEdge = candidate(1n, { pinnedUntil: NOW, createdAt: 1n })
 
     const { feature } = orderTeaser([whale, atTheEdge], NOW)
 
@@ -135,8 +157,8 @@ describe('orderTeaser: an operator pin', () => {
     // it does not call something expired on the strength of a time it does not
     // have. Honouring is also the no-flash direction, since the common case is
     // a live pin.
-    const whale = candidate(1_000n)
-    const pinned = candidate(1n, { pinnedUntil: NOW + 3_600_000 })
+    const whale = candidate(1_000n, { createdAt: 9n })
+    const pinned = candidate(1n, { pinnedUntil: NOW + 3_600_000, createdAt: 1n })
 
     const { feature } = orderTeaser([whale, pinned], CLOCK_UNSYNCED)
 
