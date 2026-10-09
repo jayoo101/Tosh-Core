@@ -471,6 +471,8 @@ export const ZH_CN: PartialDictionary = {
         + '每个项目都会部署自己专属的 PancakeSwap Infinity 池子。',
     ctaLaunch:    '发射代币',
     ctaDirectory: '项目目录',
+    ctaQuota:     '查询 / 激活打新额度',
+    quotaActive:  '打新额度已激活 · {amount} {quote}',
 
     feedTitle: '链上动态',
     feedLive:  '工厂合约事件',

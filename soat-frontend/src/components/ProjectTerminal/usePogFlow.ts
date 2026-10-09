@@ -3,10 +3,11 @@
 /**
  * Gas lookup + optional on-chain quota registration.
  *
- * A scan is started from exactly one place: the `unattested` gate in
- * `GenesisPanel`, which is to say on a project page, once quota has been read as
- * zero and is the thing standing between the reader and a deposit. That gate
- * starts it on mount and offers the button only as a retry. (There is also
+ * A scan is started from exactly two places, both of which need the answer: the
+ * `unattested` gate in `GenesisPanel`, on a project page once quota has been
+ * read as zero, which starts it on mount and offers the button only as a retry;
+ * and `QuotaCheckCta` on the homepage, on an explicit click only, so quota can
+ * be activated before any raise is open. (There is also
  * `PogScanButton`, which nothing imports outside its own test — do not count it
  * as a route in until something mounts it.)
  *

@@ -17,6 +17,7 @@ import { useNowMs } from '@/components/ui'
 import { Emph, fill, useT } from '@/i18n'
 import { HeroFeedPanel } from './HeroFeedPanel'
 import { orderTeaser } from './teaserOrder'
+import { QuotaCheckCta } from './QuotaCheckCta'
 import {
   FeatureCard,
   ProjectCard,
@@ -210,6 +211,7 @@ export default function AgentDirectoryHome() {
                 {t.ctaDirectory}
                 <ArrowRight size={16} />
               </Link>
+              <QuotaCheckCta />
             </div>
           </div>
 

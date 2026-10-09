@@ -757,6 +757,8 @@ export const EN = {
     lede: 'Fund a launch in {quote} — the same coin TapeOut circuits mine — through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
     ctaLaunch:    'Launch a token',
     ctaDirectory: 'Project directory',
+    ctaQuota:     'Check / activate deposit quota',
+    quotaActive:  'Deposit quota active · {amount} {quote}',
 
     feedTitle: 'On-chain feed',
     feedLive:  'factory events',

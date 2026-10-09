@@ -37,6 +37,7 @@ vi.mock('@/lib/projectCache', () => ({
 }))
 
 vi.mock('./directory/HeroFeedPanel', () => ({ HeroFeedPanel: () => null }))
+vi.mock('./directory/QuotaCheckCta', () => ({ QuotaCheckCta: () => null }))
 
 vi.mock('./directory/useDirectoryProjects', async (orig) => ({
   ...(await orig<typeof import('./directory/useDirectoryProjects')>()),

@@ -54,6 +54,8 @@ vi.mock('./useDirectoryProjects', async (orig) => ({
   useDirectoryProjects: () => directory,
 }))
 
+vi.mock('./QuotaCheckCta', () => ({ QuotaCheckCta: () => null }))
+
 import AgentDirectoryHome from './AgentDirectoryHome'
 
 function project(over: Partial<DirectoryProject>): DirectoryProject {
