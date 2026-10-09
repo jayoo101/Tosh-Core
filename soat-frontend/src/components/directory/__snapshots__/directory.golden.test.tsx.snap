@@ -384,6 +384,7 @@ exports[`site chrome · english copy golden master > footer 1`] = `
   "Protocol",
   "GitHub",
   "X",
+  "Telegram",
   "Security",
   "Apply",
   "©",
@@ -393,7 +394,7 @@ exports[`site chrome · english copy golden master > footer 1`] = `
 ]
 `;
 
-exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXSecurityApply© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
+exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXTelegramSecurityApply© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
 
 exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
 [

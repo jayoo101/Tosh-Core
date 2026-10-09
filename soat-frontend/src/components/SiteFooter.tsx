@@ -48,6 +48,14 @@ export function SiteFooter({ t = EN }: { t?: Dictionary }) {
         >
           X
         </a>
+        <a
+          href="https://t.me/toshxprotocol"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-label text-text-tertiary hover:text-brand transition-colors"
+        >
+          Telegram
+        </a>
         {/* "Security", not "Audit", and the distinction is the point rather
             than modesty. A reader who sees "Audit" in a footer takes it to mean
             a firm reviewed this and put its name behind the result. What this
