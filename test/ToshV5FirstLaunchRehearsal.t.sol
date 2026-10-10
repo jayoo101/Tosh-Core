@@ -125,15 +125,20 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///      manager runs the pool, the Vault holds every balance.
     address internal constant VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
 
-    /// @dev BEM on BSC mainnet — the asset the whole rehearsal is denominated in.
+    /// @dev WBNB on BSC mainnet — the asset the whole rehearsal is denominated in.
     ///      Pinned to the same literal `ToshV5Fork.t.sol` uses, and asserted
     ///      against the live factory's own `quoteAsset()` in
     ///      `test_rehearsal_liveFactoryIsWhatWeThinkItIs` rather than trusted:
     ///      this file's job is to disagree out loud with a deployment that was
     ///      built against something else.
-    address internal constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+    ///
+    ///      ⚠ THIS WAS BEM UNTIL THE FIRST CI RUN AGAINST THE WBNB FACTORY. The
+    ///        WBNB move migrated every other suite and missed this one, for the
+    ///        reason this file keeps recording: it skips until a live factory
+    ///        is named, so a green suite proved nothing about it.
+    address internal constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
-    IERC20 internal quote = IERC20(BEM);
+    IERC20 internal quote = IERC20(WBNB);
 
     /// @dev Read from `BSC_FACTORY_ADDRESS`; see the contract docstring for what
     ///      that costs and how it is paid for.
@@ -162,12 +167,10 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///        hand in the same sweep; this one was not, and the pair is the
     ///        argument for reading this file whenever a dial is re-denominated.
     ///
-    ///        100 BEM, in base units. `MIN_SOFT_CAP_PROD` did not track the
-    ///        26.51 BEM/BNB rate the other dials were converted at — it was
-    ///        raised deliberately, because 8 decimals collapse the shelf-ladder
-    ///        granularity margin from ~16,000,000x to ~4.75x. See
-    ///        docs/BEM_QUOTE_ASSET.md §2.1.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 100e16;
+    ///        1 BNB, `MIN_HARD_CAP` on the WBNB factory. It was 100 BEM (100e8)
+    ///        while the quote had 8 decimals; at 18 the ladder margin is back
+    ///        to hundreds of millions of times the 526 break-even.
+    uint256 internal constant REHEARSAL_SOFT_CAP = 1e18;
 
     /// @dev The round is opened with its hard cap equal to the raise, so one
     ///      deposit fills it exactly.
@@ -209,6 +212,12 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///      is right for a credential nobody has, and wrong for a fact anyone can
     ///      check.
     bool internal factoryBound;
+
+    /// @dev Whether the live factory was still paused when the fork was taken —
+    ///      the window between the deploy-day handoff and the Safe's unpause
+    ///      batch. `setUp` models that batch so the lifecycle can be rehearsed
+    ///      inside the window, which is exactly when it is worth running.
+    bool internal livePaused;
 
     function setUp() public {
         string memory rpc = vm.envOr("BSC_RPC", string(""));
@@ -266,6 +275,12 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         ownerSafe = factory.owner();
         creator = ownerSafe;
 
+        livePaused = factory.paused();
+        if (livePaused) {
+            vm.prank(ownerSafe);
+            factory.unpause();
+        }
+
         // Native coin for gas, and that is now ALL it is for. Before the BEM
         // move this line funded the launch fee and the raise as well, which is
         // why nothing here acquired a token balance.
@@ -284,7 +299,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         // The spender is the FACTORY for both the fee and the deposit. The hook
         // is the spender only for `mintBondingCurve`, which this rehearsal does
         // not reach.
-        deal(BEM, depositor, 10_000e16);
+        deal(WBNB, depositor, 10e18);
         vm.prank(depositor);
         quote.approve(factoryAddr, type(uint256).max);
     }
@@ -410,24 +425,27 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertGt(POOL_MANAGER.code.length, 0, "no contract at the pinned BSC CLPoolManager address");
         assertTrue(ownerSafe != address(0), "factory owner is unset");
         assertTrue(factory.pogSigner() != address(0), "pogSigner was never set; no attestation can verify");
-        assertFalse(factory.paused(), "factory is paused; no launch can be created");
+        // Not asserted unpaused: inside the handoff window the live factory IS
+        // paused and `setUp` unpauses it as the Safe will. Whether production is
+        // paused is the watcher's question, not a rehearsal's.
+        emit log_named_string("live factory paused at fork", livePaused ? "yes (unpaused as the Safe)" : "no");
 
         // The asset before the amounts, because every amount below is meaningless
         // if this disagrees — and unlike the dials, it has no setter. A factory on
-        // 56 denominated in anything but BEM is not a dial to correct, it is a
+        // 56 denominated in anything but WBNB is not a dial to correct, it is a
         // redeploy, and this is the assertion that says so before the rehearsal
         // spends four more tests describing the wrong money.
-        assertEq(address(factory.quoteAsset()), BEM, "the live factory is denominated in something else: ABORT");
-        assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM is not 8 decimals; every figure in this file is rescaled");
+        assertEq(address(factory.quoteAsset()), WBNB, "the live factory is denominated in something else: ABORT");
+        assertEq(IERC20Metadata(WBNB).decimals(), 18, "WBNB is not 18 decimals; every figure in this file is rescaled");
 
-        assertEq(factory.MIN_HARD_CAP(), 30e16, "the hard-cap floor moved");
+        assertEq(factory.MIN_HARD_CAP(), 1e18, "the hard-cap floor moved");
         assertTrue(factory.circuitNFT() != address(0), "the live factory predates GrantPad: ABORT");
         // 46.4e16, not `1.75 ether`. This assertion carried the pre-quote-asset value
         // and nothing caught it, because the whole test sits behind `_requireFork()`
         // and skips without a mainnet fork — so it is one of the handful that the
         // green suite does not actually exercise. The unit is base units of the quote
         // asset now, and `1.75 ether` is neither the right number nor the right scale.
-        assertEq(factory.maxPogAllocationLimit(), 46.4e16, "PoG limit moved");
+        assertEq(factory.maxPogAllocationLimit(), 1.3e18, "PoG limit moved");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -551,9 +569,9 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         //   which side BEM lands on is a property of the salt, not of the protocol,
         //   and pinning either order would fail on the next launch that mines a
         //   lower address than BEM's.
-        (address lower, address higher) = BEM < tokenAddr ? (BEM, tokenAddr) : (tokenAddr, BEM);
-        assertEq(Currency.unwrap(key.currency0), lower, "currency0 is not the lower of BEM/token");
-        assertEq(Currency.unwrap(key.currency1), higher, "currency1 is not the higher of BEM/token");
+        (address lower, address higher) = WBNB < tokenAddr ? (WBNB, tokenAddr) : (tokenAddr, WBNB);
+        assertEq(Currency.unwrap(key.currency0), lower, "currency0 is not the lower of WBNB/token");
+        assertEq(Currency.unwrap(key.currency1), higher, "currency1 is not the higher of WBNB/token");
 
         // The ladder base the fuzz suite predicted for this exact raise.
         // ⚠ 2499, NOT `8_749_999_999`. The old literal was the 18-decimal figure,
@@ -567,7 +585,9 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         //   says what the number should be, and this line says the real factory,
         //   the real clone and the real singleton produce it. Deriving it again
         //   would only restate the derivation against itself.
-        assertEq(hook.shelfP0(), 2499, "shelfP0 at the floor is not the derived figure");
+        // 249,999,999,999 on WBNB: 1 BNB raised, 0.9 to the LP, same derivation
+        // as `ToshV5Fuzz` (it was 2499 at 100 BEM on 8 decimals).
+        assertEq(hook.shelfP0(), 249_999_999_999, "shelfP0 at the floor is not the derived figure");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
