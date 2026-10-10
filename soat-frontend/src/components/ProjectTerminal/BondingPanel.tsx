@@ -31,11 +31,10 @@
 import {
   Card, Readout, Field, ActionButton,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
-import { fmtQuote } from './format'
 import { ShelfLadder } from './ShelfLadder'
 import { useBondingState } from './bondingState'
+import { useQuote } from './quoteContext'
 
 export type { BondingProps } from './bondingState'
 
@@ -120,6 +119,7 @@ export function BondingBuyPanel() {
     gate, armed,
   } = useBondingState()
   const t = useT().bonding
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
 
   return (
     <Card

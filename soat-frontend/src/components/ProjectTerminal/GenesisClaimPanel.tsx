@@ -7,9 +7,8 @@ import { HOOK_ABI } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, useTxAction, revertOrder,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
-import { fmtQuote } from './format'
+import { useQuote } from './quoteContext'
 
 
 export function GenesisClaimPanel({
@@ -27,6 +26,7 @@ export function GenesisClaimPanel({
   refetch:      () => void
 }) {
   const t = useT()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
 
   const { data: hasClaimedRaw, refetch: refetchClaimed } = useReadContract({
     address:      hookAddress,

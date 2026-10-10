@@ -34,8 +34,8 @@
  *     its `maxCost` bound and charges the true cost, so a few base units of
  *     allowance usually survive the call. The next approve therefore overwrites a
  *     live nonzero allowance, which plain ERC-20 permits and USDT-style tokens
- *     refuse. BEM permits it — measured against deployed bytecode in
- *     `test_fork_realBemApproveAcceptsANonzeroToNonzeroChange`, not assumed here.
+ *     refuse. WBNB permits it — measured against deployed bytecode in
+ *     `test_fork_realWbnbApproveAcceptsANonzeroToNonzeroChange`, not assumed here.
  *     If that test ever fails this hook needs a zero-first step.
  *   • `'unknown'` is a distinct state from `'required'`. A disconnected wallet and
  *     an in-flight allowance read both mean "cannot say", and a caller that
@@ -78,15 +78,19 @@ export interface QuoteApproval {
  *                genesis deposit, the project's own hook for a shelf mint.
  * @param amount  the exact figure the action will pull. For a bounded call such
  *                as `mintBondingCurve` this is the bound, not the expected charge.
+ * @param asset   the token pulled — the project's own `quoteAsset()` on a project
+ *                page (`useQuote().asset`), which is not the current factory's on
+ *                a retired launch.
  */
 export function useQuoteApproval(
   spender: Address | undefined,
   amount: bigint,
+  asset: Address = QUOTE_ASSET,
 ): QuoteApproval {
   const { address: owner } = useAccount()
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: QUOTE_ASSET,
+    address: asset,
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: owner && spender ? [owner, spender] : undefined,
@@ -115,12 +119,12 @@ export function useQuoteApproval(
   const approve = useCallback(() => {
     if (spender === undefined || amount <= 0n) return
     tx.send({
-      address: QUOTE_ASSET,
+      address: asset,
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [spender, amount],
     })
-  }, [spender, amount, tx])
+  }, [spender, amount, asset, tx])
 
   return { state, needsApproval: state.kind === 'required', approve, tx, refetch }
 }

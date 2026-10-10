@@ -11,6 +11,7 @@ vi.hoisted(() => {
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import type { TerminalHeaderState } from '@/components/ProjectTerminal'
+import { CURRENT_QUOTE } from '@/lib/contracts'
 
 /**
  * ENGLISH GOLDEN MASTER · the project page's identity header and About card.
@@ -68,14 +69,14 @@ describe('ProjectDetail · english copy golden master', () => {
 
   for (const phase of ['genesis', 'awaiting_launch', 'refund'] as const) {
     it(phase, () => {
-      live = { phase, currentPrice: 0n, shelfIndex: 0, creator: CREATOR }
+      live = { phase, currentPrice: 0n, shelfIndex: 0, creator: CREATOR, quote: CURRENT_QUOTE }
       const ui = mount(<ProjectDetail project={ROW} />)
       try { pin(ui) } finally { ui.unmount() }
     })
   }
 
   it('bonding, with the live shelf price', () => {
-    live = { phase: 'bonding', currentPrice: 2_5000n, shelfIndex: 1_204, creator: CREATOR }
+    live = { phase: 'bonding', currentPrice: 2_5000n, shelfIndex: 1_204, creator: CREATOR, quote: CURRENT_QUOTE }
     const ui = mount(<ProjectDetail project={ROW} />)
     try { pin(ui) } finally { ui.unmount() }
   })

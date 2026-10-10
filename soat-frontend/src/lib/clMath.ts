@@ -22,7 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { encodeAbiParameters, keccak256, numberToHex, type Address } from 'viem'
-import { CL_POOL_MANAGER, POOL_FEE, TICK_SPACING, QUOTE_ASSET } from './contracts'
+import { CL_POOL_MANAGER, POOL_FEE, TICK_SPACING } from './contracts'
 
 /** sqrtPriceX96 at tick -887200. */
 export const SQRT_PRICE_LOWER = 4_310_618_292n
@@ -174,6 +174,12 @@ export function toshPoolKey(
   token: Address,
   hook: Address,
   hooksRegistrationBitmap: number,
+  /**
+   * The HOOK's `quoteAsset()`, not the current factory's. A retired BEM launch
+   * and a WBNB launch are both listed, and a key naming the wrong currency0
+   * hashes to a pool nobody initialised. Required for that reason.
+   */
+  quoteAsset: Address,
 ): PoolKeyStruct {
   if (/^0x0{40}$/.test(CL_POOL_MANAGER)) {
     throw new Error(
@@ -191,16 +197,16 @@ export function toshPoolKey(
    * would come back empty. There is no correct key to return here, which is why
    * this throws instead of reordering.
    */
-  if (BigInt(token) <= BigInt(QUOTE_ASSET)) {
+  if (BigInt(token) <= BigInt(quoteAsset)) {
     throw new Error(
-      `clMath: token ${token} does not sort above the quote asset ${QUOTE_ASSET}, so this ` +
+      `clMath: token ${token} does not sort above the quote asset ${quoteAsset}, so this ` +
       'pair would invert. The factory grinds CREATE2 salts to prevent exactly this — a ' +
       'token that fails the check was not created by the factory this app is pointed at.',
     )
   }
 
   return {
-    currency0: QUOTE_ASSET,
+    currency0: quoteAsset,
     currency1: token,
     hooks: hook,
     poolManager: CL_POOL_MANAGER,

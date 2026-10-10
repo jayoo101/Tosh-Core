@@ -46,17 +46,21 @@ interface IInfinityVaultGetter {
 //    TARGET_CHAIN_ID       — chain this run is authorised for (56 = BSC)
 //    INFINITY_CL_POOL_MANAGER — PancakeSwap Infinity CLPoolManager on the target
 //    INFINITY_VAULT        — PancakeSwap Infinity Vault (the CL manager's vault())
-//    QUOTE_ASSET           — BEM, 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a on 56.
-//                            Must have 8 decimals; the hook's constructor asserts
-//                            it. Immutable on all three contracts, so a wrong
-//                            value is a full redeploy, not a config fix.
+//    QUOTE_ASSET           — WBNB, 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c on 56,
+//                            and nothing else: `requireWbnbQuote` refuses any
+//                            other address. 18 decimals; the hook's constructor
+//                            asserts it. Immutable on all three contracts, so a
+//                            wrong value is a full redeploy, not a config fix.
 //    POG_SIGNER_ADDRESS    — backend signer; a NEW EOA, not the deployer
 //                            — a NEW EOA, not reused from testnet. The private
 //                            key lives in Vercel Production, not in this file.
 //    PLATFORM_TREASURY     — Gnosis Safe multisig (NOT an EOA)
 //    PROD_OWNER_SAFE       — Gnosis Safe multisig that will own the factory
-//    LEGACY_FACTORY_ADDRESS — the retired factory whose launches the new
-//                            treasury may also list for buyback. Immutable.
+//    LEGACY_FACTORY_ADDRESS — OPTIONAL, and left unset for the WBNB deploy. A
+//                            retired factory whose launches the new treasury
+//                            may also list for buyback; it must share the quote
+//                            asset, and both retired factories on 56 are BEM.
+//                            Immutable on the treasury.
 //
 //  Deploy command. Note `set -a` — it is not decoration.
 //
@@ -101,6 +105,28 @@ contract DeployMainnetScript is Script {
     ///         RPC-versus-env check was not enough on its own. Must be changed
     ///         together with `TARGET_CHAIN` in `test/DeployMainnet.t.sol`.
     uint256 internal constant MAINNET_CHAIN_ID = 56;
+
+    /// @notice Canonical WBNB on 56: the only quote asset this script deploys against.
+    address public constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
+
+    /// @notice Refuse any quote asset but WBNB. `public pure` for the same
+    ///         reason as `requireMainnetTarget`: the test reaches it without
+    ///         `vm.setEnv`. A `QUOTE_ASSET` still naming BEM from the previous
+    ///         deploy is the likely miss, and it would pass every other check
+    ///         here except the hook's 18-decimal assertion, at broadcast.
+    function requireWbnbQuote(address quoteAsset) public pure {
+        require(quoteAsset == WBNB, "QUOTE_ASSET is not WBNB");
+    }
+
+    /// @notice A legacy factory the treasury binds to must exist here and share
+    ///         the quote asset, or none of its pools could pass `addLadderToken`.
+    function requireLegacyInQuote(address legacyFactory, address quoteAsset) public view {
+        require(legacyFactory.code.length > 0, "LEGACY_FACTORY_ADDRESS holds no code on this chain");
+        require(
+            ToshFactory(legacyFactory).quoteAsset() == IERC20(quoteAsset),
+            "LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET"
+        );
+    }
 
     /// @dev Public so the test can exercise the 46630 collapse without
     ///      mutating process env — `vm.setEnv` is not snapshotted, and this
@@ -256,32 +282,29 @@ contract DeployMainnetScript is Script {
         }
 
         // The quote asset: what every raise is denominated in, and `currency0` of
-        // every pool this factory will ever create. BEM,
-        // `0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a` on 56.
+        // every pool this factory will ever create. WBNB,
+        // `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c` on 56 — pinned, not trusted.
         //
         // Immutable on all three contracts with no setter anywhere, so a wrong
-        // value is a redeploy of the whole set — not a config fix. Two properties
-        // the checks below cannot establish and a human must:
+        // value is a redeploy of the whole set — not a config fix. Still read
+        // from the environment rather than hard-wired, so the operator states it
+        // and a stale `.env.production` naming BEM fails here, by name:
         //
-        //   1. IT MUST HAVE 8 DECIMALS. The hook's constructor asserts this, so a
-        //      wrong token fails the broadcast rather than shipping. It is
-        //      asserted rather than assumed because `MIN_HARD_CAP` and the
-        //      shelf ladder's usable range were computed against 8, and at 18 the
-        //      ladder's flattening cliff moves somewhere nobody has checked.
+        //   1. 18 DECIMALS. The hook's constructor asserts it; `MIN_HARD_CAP`,
+        //      `TRIGGER_STEP` and the ladder floor were sized against it
+        //      (docs/BNB_QUOTE_MIGRATION_zh.md).
         //
-        //   2. ITS SUPPLY POLICY IS A TRUST ASSUMPTION. BEM's minter is an
-        //      upgradeable ERC-1967 proxy, so whoever controls it can inflate the
-        //      asset every raise is denominated in. That is acceptable only
-        //      because it is OURS; if this address ever names a token controlled
-        //      by someone else, re-read docs/BEM_QUOTE_ASSET.md §1.1 first.
+        //   2. NO MINT AUTHORITY. WBNB is the canonical WETH9-style wrapper: a
+        //      unit exists only against a native BNB deposit. This removes the
+        //      BEM-era trust assumption (an upgradeable minter whoever held it
+        //      could use to inflate every raise).
         //
-        // No rehearsal exists for this configuration. BEM has no deployment on
-        // testnet 97, so the deposit, refund and settlement paths reach mainnet
-        // having been exercised only in tests and against a fork. That was a
-        // decision, not an oversight — docs/BEM_QUOTE_ASSET.md §3 — and the fork
-        // suite against real BEM bytecode is the compensation.
+        //   3. `depositNative` calls `WBNB.deposit{value}()` and forwards the
+        //      result, so the asset MUST be the wrapper of this chain's native
+        //      coin. An ERC-20 without a payable `deposit()` breaks that entry.
         address quoteAsset = vm.envAddress("QUOTE_ASSET");
         require(quoteAsset != address(0), "QUOTE_ASSET unset");
+        requireWbnbQuote(quoteAsset);
         require(quoteAsset.code.length > 0, "QUOTE_ASSET holds no code on this chain");
 
         address pogSigner = vm.envAddress("POG_SIGNER_ADDRESS");
@@ -304,18 +327,14 @@ contract DeployMainnetScript is Script {
 
         requireDistinctRoles(deployer, pogSigner, prodOwnerSafe, platformTreasury);
 
-        // The retired factory whose launches the new treasury may also list
-        // (TO and the other 56 launches before this one). Immutable on the
-        // treasury, so it is checked here rather than trusted: it must be a
-        // contract on this chain and denominated in the same quote asset, or
-        // none of its pools could pass `addLadderToken`'s currency0 check.
-        address legacyFactory = vm.envAddress("LEGACY_FACTORY_ADDRESS");
-        require(legacyFactory != address(0), "LEGACY_FACTORY_ADDRESS unset");
-        require(legacyFactory.code.length > 0, "LEGACY_FACTORY_ADDRESS holds no code on this chain");
-        require(
-            ToshFactory(legacyFactory).quoteAsset() == IERC20(quoteAsset),
-            "LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET"
-        );
+        // Optional: a retired factory whose launches the new treasury may also
+        // list. Unset (zero) for the WBNB deploy — both retired factories on 56
+        // are BEM-quoted, and a WBNB treasury refuses their pools in
+        // `addLadderToken` (InvalidPoolKey), so binding one would be immutable
+        // dead weight. When set it is checked rather than trusted: code on this
+        // chain, same quote asset.
+        address legacyFactory = vm.envOr("LEGACY_FACTORY_ADDRESS", address(0));
+        if (legacyFactory != address(0)) requireLegacyInQuote(legacyFactory, quoteAsset);
 
         console2.log("============================================================");
         console2.log("Tosh Fair Launchpad -- MAINNET Deployment");
@@ -328,7 +347,11 @@ contract DeployMainnetScript is Script {
         console2.log("Platform fee recipient    :", platformTreasury);
         console2.log("  ^ takes 0.30% of every buy's BNB input. IMMUTABLE: no setter,");
         console2.log("    baked into the hook implementation too. Must accept BNB always.");
+        console2.log("Quote asset (WBNB)        :", quoteAsset);
         console2.log("Legacy factory (listable) :", legacyFactory);
+        if (legacyFactory == address(0)) {
+            console2.log("  ^ none: only this factory's launches can be listed for buyback.");
+        }
         console2.log("------------------------------------------------------------");
 
         vm.startBroadcast(deployerPk);
@@ -380,6 +403,8 @@ contract DeployMainnetScript is Script {
         console2.log("     factory and the ladder treasury -- until that happens the");
         console2.log("     deployer EOA still owns them.");
         console2.log("     Until the Safe accepts, do NOT announce the factory to users.");
+        console2.log("     `node scripts/redeployTx.mjs handoff` builds that batch, and it");
+        console2.log("     also pauses the retired BEM factories (via their gateway).");
         console2.log("  2. Regenerate `soat-frontend/src/app/lib/abis.ts`:");
         console2.log("       forge build");
         console2.log("       node scripts/extractAbis.js");

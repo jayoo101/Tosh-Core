@@ -6,9 +6,9 @@ import type { Address } from 'viem'
 // shelf count is stated by the curve section's header and the page title.
 import { HOOK_ABI, TIER_SIZE, TWAP_WINDOW_LABEL } from '@/lib/contracts'
 import { Readout, Progress } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
-import { fmt, fmtQuote } from './format'
+import { fmt } from './format'
+import { useQuote } from './quoteContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHELF LADDER  ·  4000 discrete rungs, 105 % price gate
@@ -68,6 +68,7 @@ export function ShelfLadder({
   status:      TierStatus | undefined
 }) {
   const t = useT().bonding
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
   const tierIndex = status?.[0] ?? 0n
   const tierPrice = status?.[1] ?? 0n
   const remaining = status?.[2] ?? 0n

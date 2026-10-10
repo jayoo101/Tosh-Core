@@ -16,10 +16,10 @@ import {
   Badge, Progress, Readout,
   type Tone,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
-import { fmt, fmtQuote } from './format'
+import { fmt } from './format'
 import type { Phase } from './phase'
+import { useQuote } from './quoteContext'
 
 /**
  * Exported because the page header now carries this badge too — the mock puts
@@ -79,6 +79,7 @@ export function HeroStats({
   genesisWindow?: { elapsedPct: number; clock: string; hours: number }
 }) {
   const t = useT().project
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
   const meta = PHASE_BADGE[phase]
   const price =
     phase === 'bonding' && currentPrice > 0n ? currentPrice

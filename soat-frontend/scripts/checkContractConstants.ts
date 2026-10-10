@@ -104,6 +104,13 @@ function evalSolidity(expr: string, rel: string): bigint | null {
     return a === null || b === null ? null : a * b
   }
 
+  // `500 * QUOTE_UNIT` — a literal count of a named unit.
+  const scaled = raw.match(/^([\d_]+)\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)$/)
+  if (scaled) {
+    const unit = solidityConstant(scaled[2], rel)
+    return unit === null ? null : BigInt(scaled[1].replace(/_/g, '')) * unit
+  }
+
   // Only now is it safe to treat `_` as a digit separator.
   const e = raw.replace(/_/g, '')
 

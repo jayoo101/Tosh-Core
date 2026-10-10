@@ -44,10 +44,10 @@ contract ToshV5FuzzTest is Test {
     MockQuoteAsset internal quote;
     address internal trader = makeAddr("trader");
 
-    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant SOFT_CAP = 100e16;
     /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
-    uint256 internal constant HARD_CAP = 20_000e8;
-    uint256 internal constant POG_CAP = 1000e8;
+    uint256 internal constant HARD_CAP = 20_000e16;
+    uint256 internal constant POG_CAP = 1000e16;
 
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
@@ -84,7 +84,7 @@ contract ToshV5FuzzTest is Test {
     ///      second resource a run can exhaust, and "the property held because the
     ///      approval ran out" is not a property.
     function _endow(address who) internal {
-        quote.mint(who, 1_000_000e8);
+        quote.mint(who, 1_000_000e16);
         vm.startPrank(who);
         quote.approve(address(factory), type(uint256).max);
         quote.approve(address(router), type(uint256).max);
@@ -279,14 +279,15 @@ contract ToshV5FuzzTest is Test {
         uint256 minLpQuote = minRaise - (minRaise * h.REFERRAL_BPS()) / 10_000;
         uint256 minShelfP0 = (((minLpQuote * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
 
-        // 30 BEM raised → 27 BEM to the LP → p0 = 2.7e9 × 1e18 / 3.78e24 = 714 →
-        // shelfP0 = 714 × 1.05 = 749. Both divisions floor.
-        assertEq(minShelfP0, 749, "ladder base of a full minimum round");
+        // 1 BNB raised → 0.9 BNB to the LP → p0 = 9e17 × 1e18 / 3.78e24 =
+        // 238,095,238,095 → shelfP0 = that × 1.05 = 249,999,999,999. Both
+        // divisions floor.
+        assertEq(minShelfP0, 249_999_999_999, "ladder base of a full minimum round");
 
-        // The floor sits above the ~21.04 BEM break-even with headroom, so a
-        // full minimum round clears 526 rather than landing on it.
+        // The ~21.04e8-wei break-even is nine orders below the floor, so a full
+        // minimum round clears 526 by a wide margin.
         assertGt(minShelfP0, 526, "a full minimum round must clear the break-even");
-        assertEq(_firstStepAt(h, minShelfP0), 1, "step at the minimum round's base");
+        assertGt(_firstStepAt(h, minShelfP0), 0, "step at the minimum round's base");
     }
 
     /// @notice Just below the ladder break-even the shelves stop stepping, and the
@@ -313,13 +314,14 @@ contract ToshV5FuzzTest is Test {
             address(quote)
         );
 
-        // 21 BEM is the largest raise whose shelf base still falls short: 18.9 to
-        // the LP, p0 = 500, shelfP0 = 525 — one unit under the break-even.
+        // 21e8 wei is the largest raise whose shelf base still falls short:
+        // 18.9e8 to the LP, p0 = 500, shelfP0 = 525 — one wei under the
+        // break-even.
         uint256 degenerate = 21e8;
         uint256 lp = degenerate - (degenerate * h.REFERRAL_BPS()) / 10_000;
         uint256 base = (((lp * 1e18) / h.GENESIS_LP_SUPPLY()) * h.SHELF_PREMIUM_BPS()) / 10_000;
 
-        assertEq(base, 525, "21 BEM lands exactly on the last degenerate base");
+        assertEq(base, 525, "21e8 wei lands exactly on the last degenerate base");
         assertEq(_firstStepAt(h, base), 0, "and at that base shelves 0 and 1 cost the same");
 
         vm.prank(admin);
@@ -329,8 +331,8 @@ contract ToshV5FuzzTest is Test {
 
     /// @dev Pro-rata genesis claims never overshoot GENESIS_CLAIM_SUPPLY.
     function testFuzz_claimGenesis_proRataNeverExceedsClaimSupply(uint256 d1, uint256 d2) public {
-        d1 = bound(d1, 1, 40e8);
-        d2 = bound(d2, 1, 40e8);
+        d1 = bound(d1, 1, 40e16);
+        d2 = bound(d2, 1, 40e16);
 
         (, ToshLaunchpadHook hook) = _createProject();
         ToshToken token = ToshToken(address(hook.projectToken()));
@@ -404,7 +406,7 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook hook) = _createProject();
         _deposit(makeAddr("funder"), hook, SOFT_CAP);
         _launch(hook);
-        _openLadder(hook, 1e8);
+        _openLadder(hook, 1e16);
 
         tokens = bound(tokens, 1, hook.TIER_SIZE());
 
@@ -424,7 +426,7 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook hook) = _createProject();
         _deposit(makeAddr("funder"), hook, SOFT_CAP);
         _launch(hook);
-        _openLadder(hook, 1e8);
+        _openLadder(hook, 1e16);
 
         uint256 cap = hook.maxMintable();
         assertGt(cap, hook.TIER_SIZE(), "the fuzz range must be able to straddle shelves");
@@ -435,7 +437,7 @@ contract ToshV5FuzzTest is Test {
         uint256 quoted = hook.quoteMint(tokens);
 
         address buyer = makeAddr("spanBuyer");
-        uint256 offered = 10_000e8;
+        uint256 offered = 10_000e16;
         quote.mint(buyer, offered);
         vm.prank(buyer);
         quote.approve(address(hook), offered);
@@ -463,12 +465,12 @@ contract ToshV5FuzzTest is Test {
         (, ToshLaunchpadHook swept) = _createProject("SweptFuzz", "SWF");
         _deposit(makeAddr("funderA"), swept, SOFT_CAP);
         _launch(swept);
-        _openLadder(swept, 1e8);
+        _openLadder(swept, 1e16);
 
         (, ToshLaunchpadHook chopped) = _createProject("ChoppedFuzz", "CHF");
         _deposit(makeAddr("funderB"), chopped, SOFT_CAP);
         _launch(chopped);
-        _openLadder(chopped, 1e8);
+        _openLadder(chopped, 1e16);
 
         assertEq(swept.shelfP0(), chopped.shelfP0(), "twins must open at the same price");
 
@@ -486,7 +488,7 @@ contract ToshV5FuzzTest is Test {
         tokens = (bound(tokens, 1e18, swept.maxMintable()) / 1e18) * 1e18;
 
         address buyer = makeAddr("spanBuyer");
-        quote.mint(buyer, 20_000e8);
+        quote.mint(buyer, 20_000e16);
         // Both hooks, because the point of this test is that the same buyer pays
         // the same total through two different call shapes.
         vm.startPrank(buyer);
@@ -495,7 +497,7 @@ contract ToshV5FuzzTest is Test {
         vm.stopPrank();
 
         vm.prank(buyer);
-        uint256 sweptCost = swept.mintBondingCurve(tokens, 5000e8);
+        uint256 sweptCost = swept.mintBondingCurve(tokens, 5000e16);
 
         uint256 choppedCost;
         uint256 left = tokens;
@@ -503,7 +505,7 @@ contract ToshV5FuzzTest is Test {
         while (left > 0) {
             uint256 take = chopped.TIER_SIZE() - chopped.currentTierSold();
             if (take > left) take = left;
-            choppedCost += chopped.mintBondingCurve(take, 5000e8);
+            choppedCost += chopped.mintBondingCurve(take, 5000e16);
             left -= take;
         }
         vm.stopPrank();

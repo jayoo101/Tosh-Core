@@ -7,25 +7,26 @@ import { MAX_COOLDOWN_SECONDS } from '@/lib/contracts'
 import { PogLimitPanel, CooldownDurationPanel } from './FactoryDials'
 
 /**
- * The 20,000-unit ceiling is typed as plain digits rather than through its
+ * The 500-unit ceiling is typed as plain digits rather than through its
  * `_LABEL` export, which carries thousands separators for the UI.
  *
  * It was `'1000000'` — the 1 M ETH ceiling from before the quote-asset
  * re-denomination. That is 50× the current bound, so the "arms exactly at the
  * ceiling" test began failing outright, while the "refuses one wei above" test
- * went on passing against a figure nowhere near the boundary it names.
+ * went on passing against a figure nowhere near the boundary it names. It was
+ * then 20,000 BEM, until the WBNB cutover set it to 500.
  */
-const MAX_POG_LIMIT_TYPED = '20000'
+const MAX_POG_LIMIT_TYPED = '500'
 
 /**
- * One base unit above the ceiling — 1e-8, not the 1e-18 it used to carry.
+ * One base unit above the ceiling — 1e-8 here, where the test env's quote asset has 8 decimals.
  *
  * `parseUnits(x, 8)` does not reject extra decimal places, it truncates them, so
- * `20000.000000000000000001` parses to exactly the ceiling and arms. A test asserting
+ * `500.000000000000000001` parses to exactly the ceiling and arms. A test asserting
  * a refusal one step above the bound therefore has to step by the quote asset's
  * actual smallest unit or it is asserting nothing.
  */
-const ONE_UNIT_ABOVE_POG_LIMIT = '20000.00000001'
+const ONE_UNIT_ABOVE_POG_LIMIT = '500.00000001'
 
 /**
  * The bounded admin dials, tested through the affordance rather than the arithmetic.
@@ -126,11 +127,10 @@ describe('POG ALLOCATION CEILING dial', () => {
     expect(v.disabled).toBe(true)
   })
 
-  it('arms at the 1000-unit limit this repo\'s own fixtures use', () => {
-    // Still 1000, and still pinned by `test_setMaxPogAllocationLimit_admitsTheValues
-    // ThisSuiteUses`, which sets `1000e8`. Only the title was stale: it said "1000
-    // ETH" for a dial that has not been denominated in ETH through two cutovers.
-    const v = verdictFor(<PogLimitPanel />, '1000')
+  it('arms at the 10-unit limit this repo\'s own fixtures use', () => {
+    // Pinned by `test_setMaxPogAllocationLimit_admitsTheValuesThisSuiteUses`,
+    // which sets `1000e16`: 10 whole units of the 18-decimal quote asset.
+    const v = verdictFor(<PogLimitPanel />, '10')
     expect(v.label).toBe(READY)
     expect(v.disabled).toBe(false)
   })

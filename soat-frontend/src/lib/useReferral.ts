@@ -52,15 +52,12 @@
 // deposit does, and this visitor had never made one. The deposit is attributed
 // to the wallet that actually caused it.
 //
-// What this module deliberately does NOT check: whether either referrer is
-// eligible. The factory also requires `pogQuota[referrer] > 0` for both slots,
-// and a deposit in THIS project for the 8 % one. Both rejections are silent
-// on-chain — the deposit still succeeds (a stale link must never brick one),
-// the binding just does not happen and that leg falls through to the buyback
-// reservoir. Checking here would mean extra RPC reads on every page load to
-// change nothing about the outcome, so the surface that matters is the SHARE
-// side — see `ReferralPanel`, which reads `canBindProjectReferral` so a sharer
-// learns their link is not live before they broadcast it.
+// What this module deliberately does NOT check: whether the referrer is
+// eligible. The factory requires `pogQuota[referrer] > 0` for both slots, and
+// the rejection is silent on-chain (a stale link must never brick a deposit).
+// The surface that matters is the SHARE side — see `ReferralPanel`, which
+// reads `canBindProjectReferral` so a sharer learns their link is not live
+// before they broadcast it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react'

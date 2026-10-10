@@ -29,3 +29,7 @@
  */
 process.env.NEXT_PUBLIC_QUOTE_ASSET = '0x2222222222222222222222222222222222222222'
 process.env.NEXT_PUBLIC_QUOTE_SYMBOL = 'TQUOTE'
+// An unknown token must state its scale. 8 keeps the fixtures recorded before
+// the WBNB move valid; the code reads decimals from config, never assumes them,
+// and `quoteContext.test.tsx` covers 18 against the real WBNB entry.
+process.env.NEXT_PUBLIC_QUOTE_DECIMALS = '8'

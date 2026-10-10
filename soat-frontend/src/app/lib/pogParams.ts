@@ -79,11 +79,21 @@ const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL ?? ''
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? ''
 const SHARED = Boolean(UPSTASH_URL && UPSTASH_TOKEN)
 
-/** The rate keeps its original key so a band already rotated in production is
- *  not silently reset to the seed by this refactor. */
-const RATE_KEY = 'tosh:pog:gasToSatoRate'
-const FLOOR_KEY = 'tosh:pog:floorWei'
-const MAX_ALLOC_KEY = 'tosh:pog:maxAllocWei'
+/**
+ * Scoped to the factory the band signs for.
+ *
+ * `maxAllocWei` is denominated in that factory's quote asset and bounded by its
+ * `maxPogAllocationLimit`, so a band is a property of one factory. The unscoped
+ * keys held the BEM factory's band — 46.4 at 8 decimals — and read at the WBNB
+ * factory's 18 that is a ceiling of 0.0000000046 BNB: every wallet registered,
+ * and none could deposit. A new factory now starts from the seeds instead of
+ * inheriting a band in another asset.
+ */
+const FACTORY_SCOPE = (process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? '').toLowerCase()
+export const POG_BAND_KEY_PREFIX = FACTORY_SCOPE ? `tosh:pog:${FACTORY_SCOPE}:` : 'tosh:pog:'
+const RATE_KEY = `${POG_BAND_KEY_PREFIX}gasToSatoRate`
+const FLOOR_KEY = `${POG_BAND_KEY_PREFIX}floorWei`
+const MAX_ALLOC_KEY = `${POG_BAND_KEY_PREFIX}maxAllocWei`
 
 /** Module-level so the value survives hot reloads in dev, as `rateLimitStore` does. */
 const g = globalThis as Record<string, unknown>

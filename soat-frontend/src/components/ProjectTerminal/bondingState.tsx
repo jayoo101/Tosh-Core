@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * BONDING STATE  ·  Phase 2, shared across two grid columns
@@ -36,14 +36,16 @@ import {
 import { parseUnits, type Address, type ContractFunctionParameters } from 'viem'
 
 import {
-  FACTORY_ABI, HOOK_ABI, QUOTE_SYMBOL,
+  FACTORY_ABI, HOOK_ABI,
 } from '@/lib/contracts'
 import {
   useActionGate, revertOrder, useTxAction, useQuoteApproval, type ActionGate,
 } from '@/components/ui'
 import { fill, useT } from '@/i18n'
-import { fmt, fmtQuote } from './format'
+import { fmt } from './format'
 import type { TierStatus } from './ShelfLadder'
+import { useQuote } from './quoteContext'
+import { useWrapNative, WRAP_VARS } from './useWrapNative'
 
 /** Buy-side slippage tolerance in basis points (0.5 %).
  *
@@ -66,6 +68,8 @@ export interface BondingProps {
   phase2Minted: bigint
   bondingMax:   bigint
   quoteBalance:   bigint
+  /** BNB, which tops up a short WBNB balance on a WBNB project. */
+  nativeBalance:  bigint
   nowSec:       number
   refetch:      () => void
 }
@@ -127,6 +131,9 @@ export function BondingStateProvider(
   { children, ...p }: BondingProps & { children: ReactNode },
 ) {
   const t = useT().bonding
+  const tw = useT().wrap
+  const quote = useQuote()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = quote
   const [tokenAmount, setTokenAmount] = useState('')
 
   const tokenAmountWei = (() => {
@@ -283,7 +290,9 @@ export function BondingStateProvider(
     return bps > 0n ? bps : 1n
   })()
   const maxQuoteCost = quoteCost === 0n ? 0n : quoteCost + quoteSlippage
-  const insufficientBal = maxQuoteCost > 0n && maxQuoteCost > p.quoteBalance
+  // A WBNB buyer short on WBNB but holding BNB is one wrap away, not refused.
+  const wrapNative = useWrapNative(maxQuoteCost, p.quoteBalance, p.nativeBalance, p.refetch)
+  const insufficientBal = maxQuoteCost > 0n && wrapNative.insufficient
   const gateLocked = tokenAmountWei > 0n && !unlocked
 
   // Before anyone has minted, a shut gate is the DESIGNED opening state, not a
@@ -337,7 +346,7 @@ export function BondingStateProvider(
    * mint fail the moment the shelf moved under it — which is the situation the
    * slippage headroom exists to absorb.
    */
-  const approval = useQuoteApproval(p.hookAddress, maxQuoteCost)
+  const approval = useQuoteApproval(p.hookAddress, maxQuoteCost, quote.asset)
 
   // Rungs climbed since shelf 0, i.e. STEP^index.  Measured against the LADDER
   // base rather than the pool's opening price, so the flat 5% mint premium
@@ -446,12 +455,22 @@ export function BondingStateProvider(
         tone: 'warn',
       },
       {
+        id: 'wrap',
+        active: maxQuoteCost > 0n && !isDust && !quoteUnknown && !quoteUnavailable && wrapNative.canWrap,
+        label: wrapNative.tx.isBusy
+          ? tw.wrappingLabel
+          : fill(tw.wrapLabel, { ...WRAP_VARS, amount: fmtQuote(wrapNative.shortfall) }),
+        reason: fill(tw.wrapReason, { ...WRAP_VARS, amount: fmtQuote(wrapNative.shortfall) }),
+        tone: 'info',
+        resolve: wrapNative.wrap,
+      },
+      {
         // Last, so it wins once the order is otherwise sendable. Same reasoning as
         // the genesis panel: approving is pointless while the amount is unquotable,
         // dust or unaffordable, so every one of those speaks first.
         id: 'approve',
         active:
-          maxQuoteCost > 0n && !insufficientBal && !isDust
+          maxQuoteCost > 0n && !insufficientBal && !isDust && wrapNative.shortfall === 0n
           && !quoteUnknown && !quoteUnavailable && approval.needsApproval,
         label: approval.tx.isBusy
           ? t.approvingLabel

@@ -383,6 +383,24 @@ export const FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "depositNative",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
     "name": "depositsPaused",
     "inputs": [
       {

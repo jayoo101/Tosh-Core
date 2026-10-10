@@ -128,6 +128,7 @@ function render(amount: string, over: { phase2Minted?: bigint; quoteBalance?: bi
       phase2Minted={over.phase2Minted ?? 1_200_000n * E18}
       bondingMax={12_600_000n * E18}
       quoteBalance={over.quoteBalance ?? 1_000_00000000n}
+      nativeBalance={0n}
       nowSec={NOW}
       refetch={() => {}}
     >

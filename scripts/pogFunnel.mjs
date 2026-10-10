@@ -57,7 +57,6 @@ const RPCS = [
 const TOPIC0 = ethers.id('PoGRegistered(address,uint256)')
 
 /** Quota is denominated in the quote asset, which carries 8 decimals. */
-const QUOTE_DECIMALS = 8
 
 const args = Object.fromEntries(
   process.argv.slice(2).filter(a => a.startsWith('--')).map(a => {
@@ -67,6 +66,13 @@ const args = Object.fromEntries(
 )
 
 const factory = ethers.getAddress(args.factory || FACTORY)
+
+// 8 on the retired BEM factories, 18 on the WBNB one.
+const RETIRED_BEM_FACTORIES = [
+  '0x20de906a96ffb89be6fd6267a0876a68017792f7',
+  '0xbca66f7382aac0c6ee2b833fc2072ca607367f2c',
+]
+const QUOTE_DECIMALS = RETIRED_BEM_FACTORIES.includes(factory.toLowerCase()) ? 8 : 18
 
 /**
  * The first endpoint that can answer a trivial request.

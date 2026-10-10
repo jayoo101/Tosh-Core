@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CURRENT_QUOTE } from '@/lib/contracts'
 import { act, type ReactNode } from 'react'
 
 import { mount as mountBare } from '@/testing/renderClient'
@@ -74,7 +75,7 @@ function project(over: Partial<DirectoryProject>): DirectoryProject {
     launched: false,
     genesisDeadline: BigInt(NOW_SEC) + 9n * HOUR,
     genesisDuration: 72n * HOUR,
-    totalNative: 1_862_4523_0000n,
+    totalNative: 1_862_4523_0000n, quote: CURRENT_QUOTE,
     canRefund: false,
     symbol: 'TO',
     name: 'Tosh',

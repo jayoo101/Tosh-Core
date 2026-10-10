@@ -28,7 +28,7 @@ exports[`page metadata · english golden master > root layout 1`] = `
     "description": "The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
     "locale": "en_US",
     "siteName": "ToshX",
-    "title": "ToshX — the fair-launch terminal of the TQUOTE ecosystem",
+    "title": "ToshX — the fair-launch terminal of the BEM ecosystem",
     "type": "website",
     "url": "https://toshx.xyz/",
   },
@@ -36,7 +36,7 @@ exports[`page metadata · english golden master > root layout 1`] = `
   "twitter": {
     "card": "summary_large_image",
     "description": "The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened. Denominated in TQUOTE, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment. Settlement on BNB Smart Chain — currently staging on the public testnet.",
-    "title": "ToshX — the fair-launch terminal of the TQUOTE ecosystem",
+    "title": "ToshX — the fair-launch terminal of the BEM ecosystem",
   },
 }
 `;

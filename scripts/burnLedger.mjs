@@ -23,7 +23,7 @@ import { withFallback } from './lib/bscProvider.mjs'
 import { logHead, scanBack, MAX_LOG_SPAN } from './lib/logScan.mjs'
 import {
   FACTORY, ERC20_ABI, LADDER_TREASURY,
-  QUOTE_ASSET, QUOTE_DECIMALS, DEAD_ADDRESS, fmt,
+  QUOTE_ASSET, QUOTE_DECIMALS, QUOTE_SYMBOL, DEAD_ADDRESS, fmt,
 } from './dashboard/config.mjs'
 
 /** ToshFactory's creation block, from broadcast/DeployMainnet.s.sol/56. No token predates it. */
@@ -68,7 +68,7 @@ async function main() {
   const head = await logHead()
 
   const tok = (v) => fmt(v, P.decimals, 4)
-  const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} BEM`
+  const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} ${QUOTE_SYMBOL}`
 
   const [deadTok, supply, vaultBem, vaultTok] = await withFallback(async (p) => {
     const t = new ethers.Contract(P.token, ERC20_ABI, p)
@@ -178,8 +178,8 @@ async function main() {
     }
     channelSum += total
     const price = spent > 0n && total > 0n
-      ? `  ·  ${bem(spent)} spent, ${fmt(spent * 10n ** BigInt(P.decimals) / total, QUOTE_DECIMALS, 8)} BEM per token`
-      : spent === 0n ? '  ·  costs no BEM' : ''
+      ? `  ·  ${bem(spent)} spent, ${fmt(spent * 10n ** BigInt(P.decimals) / total, QUOTE_DECIMALS, 8)} ${QUOTE_SYMBOL} per token`
+      : spent === 0n ? `  ·  costs no ${QUOTE_SYMBOL}` : ''
     console.log(`  ${name}  ${tok(total).padStart(16)} ${P.symbol}  over ${count} event${count === 1 ? '' : 's'}${lost ? ` (${lost} windows unreadable)` : ''}${price}`)
   }
 

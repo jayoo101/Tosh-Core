@@ -179,8 +179,12 @@ export interface LpPoolState {
   hooksRegistrationBitmap: number | undefined
 }
 
-/** Live pool price and depth for the native/token pair behind `hook`. */
-export function useLpPoolState(token: Address | undefined, hook: Address | undefined): LpPoolState {
+/** Live pool price and depth for the quote/token pair behind `hook`. */
+export function useLpPoolState(
+  token: Address | undefined,
+  hook: Address | undefined,
+  quoteAsset: Address,
+): LpPoolState {
   const { data: bitmap } = useReadContract({
     address: hook,
     abi: HOOKS_BITMAP_ABI,
@@ -190,8 +194,8 @@ export function useLpPoolState(token: Address | undefined, hook: Address | undef
 
   const poolId = useMemo(() => {
     if (!token || !hook || bitmap === undefined || Number(bitmap) === 0) return undefined
-    return poolIdOf(toshPoolKey(token, hook, Number(bitmap)))
-  }, [token, hook, bitmap])
+    return poolIdOf(toshPoolKey(token, hook, Number(bitmap), quoteAsset))
+  }, [token, hook, bitmap, quoteAsset])
 
   const managerReady = !!poolId && !/^0x0{40}$/.test(CL_POOL_MANAGER)
 

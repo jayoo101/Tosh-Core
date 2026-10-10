@@ -180,8 +180,8 @@ contract ToshHookCloneTest is Test {
     // back by `MockCloneImpl`, so the magnitudes do not gate anything -- they are
     // rescaled so the fixture does not read as an 18-decimal cap sitting in a
     // suite that measures the BEM-era clone.
-    uint256 constant HARD_CAP = 500e8;
-    uint256 constant WALLET_CAP = 200e8;
+    uint256 constant HARD_CAP = 500e16;
+    uint256 constant WALLET_CAP = 200e16;
     uint256 constant DURATION = 24 hours;
 
     /// @dev Real BEM on chain 56. A literal rather than a deployed mock because

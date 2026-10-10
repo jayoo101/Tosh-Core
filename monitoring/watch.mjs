@@ -918,7 +918,7 @@ try {
       const spent = findings.some(f => /Buyback|Piggyback/.test(f.message))
       record('STATE-02', sev('STATE-02'), true,
         `ladderTreasury balance fell from ${(Number(before) / quoteUnit).toFixed(4)} to ` +
-        `${(Number(treasuryBalance) / quoteUnit).toFixed(4)} BEM` +
+        `${(Number(treasuryBalance) / quoteUnit).toFixed(4)} quote units` +
         (spent ? ' — a buyback in this window explains it, confirm the amounts match'
                : ' with NO buyback event in this window'),
         { playbook: 'treasury: correlate the fall against buyback events in the same window before assuming a leak', correlate: true })
@@ -933,7 +933,7 @@ try {
   // as a gap every run so it can never be the reason production went quiet.
   let trigger = BigInt(await call(TREASURY, 'TRIGGER_STEP()'))
   if (process.env.MONITOR_TRIGGER_STEP_WEI) {
-    // The name still says WEI and the value is now 8-decimal base units. Kept
+    // The name says WEI and the value is the quote asset's base units. Kept
     // rather than renamed because it is set in CI secrets and in the monitoring
     // repo's workflow, where a rename is a silently-ignored variable — the same
     // shape of failure this whole block was just fixed for.

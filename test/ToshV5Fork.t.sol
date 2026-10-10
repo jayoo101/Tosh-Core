@@ -141,28 +141,21 @@ contract ToshV5ForkTest is Test {
     address internal constant UNISWAP_CANONICAL_PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address internal constant POSITION_MANAGER = 0x55f4c8abA71A1e923edC303eb4fEfF14608cC226;
 
-    /// @dev BEM on BSC mainnet — the quote asset every raise is denominated in,
+    /// @dev WBNB on BSC mainnet — the quote asset every raise is denominated in,
     ///      and `currency0` of every pool.
     ///
-    ///      ⚠ THIS SUITE IS NOW THE PRIMARY EVIDENCE THAT THE QUOTE ASSET WORKS,
-    ///      and that is a deliberate trade rather than a happy accident. BEM is
-    ///      not deployed on BSC testnet 97, so moving the unit of account to it
-    ///      gave up the real-network rehearsal that choosing PancakeSwap Infinity
-    ///      had been about acquiring (docs/BEM_QUOTE_ASSET.md §0, decision 1). A
-    ///      mainnet fork against BEM's real bytecode is what was accepted in its
-    ///      place.
+    ///      ⚠ THIS SUITE IS THE PRIMARY EVIDENCE THAT THE QUOTE ASSET WORKS: a
+    ///      mainnet fork against WBNB's real bytecode, rather than the mock every
+    ///      other suite uses.
     ///
     ///      What a fork still cannot substitute for is the passage of time on a
     ///      live network: the TWAP maturing over 30 real minutes, and a deploy
     ///      sequence that spans days. Those remain unrehearsed.
     ///
     ///      Balances here are written with `deal(token, to, amount)`, which
-    ///      pokes the balance slot rather than acquiring BEM through its own
-    ///      market. That is the right call for a test — BEM's only pool of
-    ///      consequence held 1,959 tokens, so a genuine market buy of a raise-sized
-    ///      amount would move the price it is trying to measure — but it does mean
-    ///      nothing here says the supply exists to be bought.
-    address internal constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+    ///      pokes the balance slot rather than wrapping BNB. `depositNative` is
+    ///      the path that exercises WBNB's own `deposit`.
+    address internal constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     /// @dev The factory the redeploy retires, and TO, its launch that the
     ///      successor treasury has to keep buying back.
@@ -213,14 +206,14 @@ contract ToshV5ForkTest is Test {
     ToshLadderTreasury internal ladder;
     ToshFactory internal factory;
 
-    /// @dev Real BEM, not a mock. Typed as `IERC20` rather than `MockQuoteAsset`
+    /// @dev Real WBNB, not a mock. Typed as `IERC20` rather than `MockQuoteAsset`
     ///      precisely so nothing in this file can call `mint`.
     IERC20 internal quote;
 
-    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant SOFT_CAP = 100e16;
     /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
-    uint256 internal constant HARD_CAP = 20_000e8;
-    uint256 internal constant POG_CAP = 1000e8;
+    uint256 internal constant HARD_CAP = 20_000e16;
+    uint256 internal constant POG_CAP = 1000e16;
 
     int24 internal constant TICK_LOWER = -887200;
     int24 internal constant TICK_UPPER = 887200;
@@ -243,15 +236,15 @@ contract ToshV5ForkTest is Test {
         pogSigner = vm.addr(pogSignerPk);
 
         // No mock quote asset here, unlike every other suite. The point of this
-        // file is the real deployment, and after the BEM decision that includes
+        // file is the real deployment, and after the WBNB decision that includes
         // the real quote asset: `MockQuoteAsset` would only confirm that an
         // 8-decimal ERC20 works, which the local suite already does.
-        quote = IERC20(BEM);
-        assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM must still be 8 decimals for any of this to hold");
+        quote = IERC20(WBNB);
+        assertEq(IERC20Metadata(WBNB).decimals(), 18, "WBNB must be 18 decimals for any of this to hold");
 
         vm.startPrank(admin);
-        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM, address(0));
-        factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder), BEM);
+        ladder = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, WBNB, address(0));
+        factory = new ToshFactory(POOL_MANAGER, VAULT, pogSigner, platformTreasury, address(ladder), WBNB);
         ladder.setFactory(address(factory));
 
         factory.setMaxPogAllocationLimit(POG_CAP);
@@ -269,28 +262,22 @@ contract ToshV5ForkTest is Test {
         _endow(trader);
     }
 
-    /// @dev Write a BEM balance and approve the platform-global spenders.
+    /// @dev Write a WBNB balance and approve the platform-global spenders.
     ///
-    ///      `deal(token, ...)` rather than `mint`: BEM is somebody else's
+    ///      `deal(token, ...)` rather than `mint`: WBNB is somebody else's
     ///      contract, and this fixture has no authority over it. Foundry finds
-    ///      the balance slot and writes it, which is the only way a fork test can
-    ///      hold an amount the open market could not supply.
-    ///
-    ///      100,000 BEM is over HALF OF BEM'S ENTIRE SUPPLY (191,739). That is
-    ///      acceptable in a test whose subject is the code path, and it is exactly
-    ///      the sort of figure `docs/BEM_QUOTE_ASSET.md` §1.2 is about: nothing
-    ///      here is evidence that a real depositor could assemble it.
+    ///      the balance slot and writes it.
     function _endow(address who) internal {
-        deal(BEM, who, 100_000e8);
+        deal(WBNB, who, 100_000e16);
         vm.startPrank(who);
         quote.approve(address(factory), type(uint256).max);
         vm.stopPrank();
     }
 
-    /// @dev Set an exact BEM balance, the way `vm.deal` set an exact native one.
+    /// @dev Set an exact WBNB balance, the way `vm.deal` set an exact native one.
     ///      The buyback reservoir arms on its token balance now.
     function _setQuote(address who, uint256 amount) internal {
-        deal(BEM, who, amount);
+        deal(WBNB, who, amount);
     }
 
     /// @dev Every test calls this first. `vm.skip` reports the test as skipped
@@ -438,7 +425,7 @@ contract ToshV5ForkTest is Test {
         assertEq(ARB_SYS.code.length, 0, "something lives at 0x64: the hook would read heights from ArbSys");
     }
 
-    /// @notice Real BEM's `approve` accepts a nonzero-to-nonzero change, and the
+    /// @notice Real WBNB's `approve` accepts a nonzero-to-nonzero change, and the
     ///         whole frontend approval flow depends on it.
     ///
     /// @dev    Every quote-denominated action in the UI now needs an allowance, and
@@ -452,7 +439,7 @@ contract ToshV5ForkTest is Test {
     ///         `require(allowance == 0)` and revert, which would strand any user
     ///         carrying a residue behind a button that could never be unstuck
     ///         without a manual zero-approve they have no way to discover. Whether
-    ///         BEM is one of those is a property of deployed bytecode, not of a
+    ///         WBNB is one of those is a property of deployed bytecode, not of a
     ///         standard, so it is measured here against the real contract rather
     ///         than assumed anywhere in the frontend.
     ///
@@ -463,7 +450,7 @@ contract ToshV5ForkTest is Test {
     ///           CONSECUTIVE RUNS. `quote` is only bound in `setUp` once the fork
     ///           exists, so without the skip this ran on a bare EVM and called
     ///           `address(0)` — reported as `call to non-contract address
-    ///           0x0000…0000`, which names neither BEM nor the missing RPC. It
+    ///           0x0000…0000`, which names neither WBNB nor the missing RPC. It
     ///           passed locally the whole time, because `.env` here has `BSC_RPC`
     ///           and CI does not always have the secret.
     ///
@@ -472,24 +459,24 @@ contract ToshV5ForkTest is Test {
     ///           reattached to this test and the ArbSys one was left undocumented.
     ///           Both are consequences of the same paste; the ordering above is
     ///           the repair.
-    function test_fork_realBemApproveAcceptsANonzeroToNonzeroChange() public {
+    function test_fork_realWbnbApproveAcceptsANonzeroToNonzeroChange() public {
         _requireFork();
 
         address holder = makeAddr("approver");
         address spender = makeAddr("puller");
 
         vm.startPrank(holder);
-        quote.approve(spender, 1_000e8);
-        assertEq(quote.allowance(holder, spender), 1_000e8, "first approve must land");
+        quote.approve(spender, 1_000e16);
+        assertEq(quote.allowance(holder, spender), 1_000e16, "first approve must land");
 
         // The case a residue produces: overwrite a live, nonzero allowance.
-        quote.approve(spender, 7e8);
-        assertEq(quote.allowance(holder, spender), 7e8, "BEM must allow a nonzero-to-nonzero approve");
+        quote.approve(spender, 7e16);
+        assertEq(quote.allowance(holder, spender), 7e16, "WBNB must allow a nonzero-to-nonzero approve");
 
         // And the zero-first path still works, so the fallback remains available.
         quote.approve(spender, 0);
-        quote.approve(spender, 42e8);
-        assertEq(quote.allowance(holder, spender), 42e8, "and zero-first must remain a valid route");
+        quote.approve(spender, 42e16);
+        assertEq(quote.allowance(holder, spender), 42e16, "and zero-first must remain a valid route");
         vm.stopPrank();
     }
 
@@ -530,13 +517,13 @@ contract ToshV5ForkTest is Test {
         // code path in the hook that decreases this liquidity. Asserted here
         // because a fork is the only place the position is real.
         // On a fork this is a stronger statement than in the unit suites: the
-        // ordering is checked against REAL BEM's address rather than a mock's, so it
+        // ordering is checked against REAL WBNB's address rather than a mock's, so it
         // is the CREATE2 grind clearing the actual floor it will have to clear in
         // production. It used to read `address(0)`, which the native quote asset
         // made true for free.
-        assertEq(Currency.unwrap(key.currency0), BEM, "currency0 must be BEM");
+        assertEq(Currency.unwrap(key.currency0), WBNB, "currency0 must be WBNB");
         assertEq(Currency.unwrap(key.currency1), address(token), "currency1 is not the project token");
-        assertLt(uint160(BEM), uint160(address(token)), "the grind must have sorted the token above real BEM");
+        assertLt(uint160(WBNB), uint160(address(token)), "the grind must have sorted the token above real WBNB");
     }
 
     /// @notice Our pool id does not collide with anything already live, and
@@ -562,12 +549,12 @@ contract ToshV5ForkTest is Test {
     //  The production swap path
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @dev Encode a production-path buy: BEM in, project token out.
+    /// @dev Encode a production-path buy: WBNB in, project token out.
     ///
     ///      `zeroForOne` is still always true, but NOT for the reason it used to
     ///      be. Native ETH sorted to `currency0` because nothing sorts below
-    ///      `address(0)`; BEM sits at `0x5ce0…` and would be `currency1` for
-    ///      roughly a third of nonce-derived token addresses. The ordering now
+    ///      `address(0)`; WBNB sits at `0xbb4C…` and would be `currency1` for
+    ///      roughly three quarters of nonce-derived token addresses. The ordering now
     ///      holds because `ToshCloneLib.deployBareCloneAbove` grinds every project
     ///      token above the quote asset — so this `true` is an assertion about the
     ///      factory rather than about the address space.
@@ -641,7 +628,7 @@ contract ToshV5ForkTest is Test {
 
         (ToshToken token, ToshLaunchpadHook hook) = _launchProject();
 
-        uint128 amountIn = 5e8;
+        uint128 amountIn = 5e16;
         uint256 tokensBefore = token.balanceOf(trader);
         uint256 ethBefore = quote.balanceOf(trader);
 
@@ -682,7 +669,7 @@ contract ToshV5ForkTest is Test {
 
         uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 platformBefore = quote.balanceOf(platformTreasury);
-        uint128 amountIn = 5e8;
+        uint128 amountIn = 5e16;
 
         _buyThroughRouter(hook.getPoolKey(), amountIn, 0);
 
@@ -718,7 +705,7 @@ contract ToshV5ForkTest is Test {
 
         // Orders of magnitude past the whole genesis supply, so this can only
         // fail to revert if the check is not happening at all.
-        uint128 amountIn = 5e8;
+        uint128 amountIn = 5e16;
         bytes[] memory inputs = _buyInputs(hook.getPoolKey(), amountIn, type(uint128).max);
 
         // Approved first, deliberately. Without this the revert would still
@@ -835,37 +822,24 @@ contract ToshV5ForkTest is Test {
         assertEq(hook.lastSwapBlock(), block.number, "the buyback did not stamp lastSwapBlock");
     }
 
-    /// @notice The redeploy's promise to TO, against TO itself: a fresh treasury
-    ///         built with the retired factory as `legacyFactory` lists the live
-    ///         TO pool and burns TO out of it.
+    /// @notice A WBNB treasury cannot adopt a launch from a factory quoted in a
+    ///         different asset: TO's pool is not WBNB/TO, so listing it fails.
     ///
-    /// @dev    The retired hook sees this treasury as an ordinary buyer — its
-    ///         early return is for ITS treasury — so the buy is taxed and part
-    ///         of the spend lands in the retired treasury. That is expected; the
-    ///         assertion is only that TO reaches the dead address.
-    function test_fork_successorTreasuryBurnsLegacyTO() public {
+    /// @dev    This is why the WBNB deployment passes `legacyFactory =
+    ///         address(0)`. Projects on the earlier factories keep the treasury
+    ///         that was built for their quote asset; a buyback cannot be paid
+    ///         in one asset into a pool priced in another.
+    function test_fork_wbnbTreasuryRefusesALegacyPoolInAnotherQuote() public {
         _requireFork();
 
-        ToshLadderTreasury successor = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, BEM, LEGACY_FACTORY);
+        ToshLadderTreasury successor = new ToshLadderTreasury(POOL_MANAGER, VAULT, admin, WBNB, LEGACY_FACTORY);
         vm.prank(admin);
         successor.setFactory(address(factory));
 
         assertEq(ToshFactory(LEGACY_FACTORY).tokenToHook(TO), TO_HOOK, "TO is no longer the retired factory's launch");
 
         vm.prank(admin);
+        vm.expectRevert(ToshLadderTreasury.InvalidPoolKey.selector);
         successor.addLadderToken(TO);
-        assertTrue(successor.isLadderToken(TO), "TO not listed on the successor");
-
-        _setQuote(address(successor), 100e8);
-        vm.roll(block.number + 1);
-
-        uint256 reservoirBefore = quote.balanceOf(address(successor));
-        uint256 burnedBefore = IERC20(TO).balanceOf(successor.DEAD_ADDRESS());
-
-        vm.prank(trader);
-        successor.pokeBuyback();
-
-        assertLt(quote.balanceOf(address(successor)), reservoirBefore, "the successor did not spend");
-        assertGt(IERC20(TO).balanceOf(successor.DEAD_ADDRESS()), burnedBefore, "no TO was bought and burned");
     }
 }

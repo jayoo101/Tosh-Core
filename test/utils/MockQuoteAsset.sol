@@ -4,53 +4,39 @@ pragma solidity ^0.8.24;
 import {ERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 /// @title  MockQuoteAsset
-/// @notice Stands in for BEM: the ERC20 every raise is denominated in and
+/// @notice Stands in for WBNB: the ERC20 every raise is denominated in and
 ///         `currency0` of every pool.
 ///
-/// @dev    SEPARATE FROM `MockERC20` ON PURPOSE, and the reason is the whole
-///         point of this file: `decimals()` returns 8.
+/// @dev    18 decimals, hard-coded, matching the hook constructor's assertion.
+///         No constructor parameter: a configurable precision would reintroduce
+///         the ability to test against the wrong one.
 ///
-///         `MockERC20` is 18 decimals — it was written as mock SATO, back when
-///         the quote asset was native and the only ERC20 in a test was a project
-///         token. Reusing it here would compile, deploy, and pass a great many
-///         tests, because almost nothing in the protocol reads `decimals()`. The
-///         one thing that does is the hook's constructor, which asserts 8.
-///
-///         What would break silently if that assertion were ever relaxed is the
-///         shelf ladder. `p0 = lpQuote * 1e18 / GENESIS_LP_SUPPLY`, shelves are
-///         geometric at +0.19025%, and monotonicity needs `shelfP0 >= 526` or
-///         adjacent shelves round onto the same price. At 18 decimals a 100-unit
-///         raise clears that by sixteen million to one; at 8 it clears it by
-///         4.75. A test suite running on an 18-decimal mock would therefore be
-///         measuring a ladder with effectively infinite headroom while production
-///         runs one with almost none — and every granularity test would pass for
-///         the wrong reason.
-///
-///         So: 8 decimals, hard-coded, no constructor parameter. A configurable
-///         precision would reintroduce exactly the ability to test against the
-///         wrong one.
+///         `deposit` / `withdraw` follow WETH9 so `ToshFactory.depositNative`
+///         can wrap against this mock exactly as it does against real WBNB.
+///         `mint` stays unrestricted so tests can still conjure balances
+///         without funding them in native coin; a minted balance is therefore
+///         not backed by this contract's ETH, and `withdraw` of one reverts.
 ///
 /// ── What this does NOT model ─────────────────────────────────────────────────
 ///
-///   Two properties of real BEM are absent here, and neither can be mocked into
-///   existence. Tests that pass against this contract say nothing about either.
-///
-///     1. SUPPLY. `mint` is unrestricted and free, so any test can conjure any
-///        amount. Real BEM's total supply is 191,739.22 tokens, which is 206x
-///        the 928.4-token default soft cap — so one raise at the default is
-///        0.48% of everything in existence.
-///
-///     2. DEPTH. There is no market here at all. Real BEM's only pool of
-///        consequence held 1,959 tokens, so a 928.4-token raise asks for roughly
-///        half the float, and depositors cannot buy their way in at scale.
-///
-///   Both are in docs/BEM_QUOTE_ASSET.md §1.2. They are product problems rather
-///   than code problems, which is precisely why no test will surface them.
+///   Real WBNB's depth. There is no market here, so tests say nothing about
+///   whether depositors can source the quote asset at scale. See
+///   docs/BNB_QUOTE_MIGRATION_zh.md.
 contract MockQuoteAsset is ERC20 {
-    constructor() ERC20("Mock BEM", "mBEM") {}
+    constructor() ERC20("Mock WBNB", "mWBNB") {}
 
     function decimals() public pure override returns (uint8) {
-        return 8;
+        return 18;
+    }
+
+    function deposit() external payable {
+        _mint(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 amount) external {
+        _burn(msg.sender, amount);
+        (bool ok,) = msg.sender.call{value: amount}("");
+        require(ok, "withdraw");
     }
 
     function mint(address to, uint256 amount) external {

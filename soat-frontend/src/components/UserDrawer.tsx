@@ -50,6 +50,7 @@ import { ChevronRight } from 'lucide-react'
 import {
   useAccount,
   useDisconnect,
+  useReadContract,
   useReadContracts,
 } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
@@ -63,7 +64,11 @@ import {
   CHAIN_BYLINE,
   ZERO_ADDRESS,
 } from '@/lib/contracts'
-import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
+import {
+  QUOTE_DECIMALS, QUOTE_SYMBOL, CURRENT_QUOTE, QUOTE_WRAPS_NATIVE, quoteForFactory,
+} from '@/lib/contracts'
+import { WRAPPED_NATIVE_ABI } from '@/lib/quoteAssets'
+import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
 import {
   classifyHorizon, formatHorizonLabel, formatHorizonUtc, useTxAction,
   useNowMs, CLOCK_UNSYNCED,
@@ -96,9 +101,9 @@ const TOKEN_DECIMALS = 18
  * `ETH_DECIMALS` went with it. It existed only to feed this function and could not
  * be corrected in place without making its own name a lie.
  */
-function formatQuote(units: bigint | undefined | null): string {
+function formatQuote(units: bigint | undefined | null, decimals: number = QUOTE_DECIMALS): string {
   if (units === undefined || units === null) return '—'
-  const n = Number(formatUnits(units, QUOTE_DECIMALS))
+  const n = Number(formatUnits(units, decimals))
   return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
 }
 
@@ -496,6 +501,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
             }
             onClaimed={refetchAll}
           />
+          {QUOTE_WRAPS_NATIVE && address && <UnwrapPanel address={address} />}
           <ReferralLedgerLink onNavigate={onClose} />
         </div>
 
@@ -618,6 +624,55 @@ function ReferralLedgerLink({ onNavigate }: { onNavigate: () => void }) {
         </span>
         <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-text-tertiary" />
       </Link>
+    </section>
+  )
+}
+
+/**
+ * The wallet's WBNB, with a one-click unwrap.
+ *
+ * Shelf mints and LP adds wrap exactly the shortfall, but an LP removal and a
+ * buy that the shelf partly filled both leave WBNB behind, and most wallets
+ * show it as an unfamiliar token rather than as BNB. Hidden at zero.
+ */
+function UnwrapPanel({ address }: { address: Address }) {
+  const t = useT().wrap
+  const d = useT().drawer
+  const { data: balance, refetch } = useReadContract({
+    address: CURRENT_QUOTE.asset, abi: ERC20_ABI, functionName: 'balanceOf',
+    args: [address],
+    query: { refetchInterval: 20_000 },
+  })
+  const unwrap = useTxAction({ action: fill(t.unwrapTx, WRAP_VARS), onConfirmed: () => { void refetch() } })
+  const wad = (balance as bigint | undefined) ?? 0n
+  if (wad === 0n) return null
+
+  const amount = formatQuote(wad, CURRENT_QUOTE.decimals)
+  return (
+    <section className="px-4 pb-4 pt-2">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border-subtle/70
+                      bg-surface-card/50 p-4">
+        <span className="min-w-0">
+          <span className="block font-mono text-micro font-bold tracking-widest text-brand/70">
+            {fill(t.unwrapTitle, WRAP_VARS)}
+          </span>
+          <span className="mt-1 block text-note text-text-secondary">{fill(t.unwrapHint, WRAP_VARS)}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => unwrap.send({
+            address: CURRENT_QUOTE.asset, abi: WRAPPED_NATIVE_ABI,
+            functionName: 'withdraw', args: [wad],
+          })}
+          disabled={unwrap.isBusy}
+          className="text-label tracking-[0.32em] uppercase px-3 py-1.5
+                     border border-brand text-brand
+                     hover:bg-brand hover:text-bg-base transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+        >
+          {unwrap.isPending ? d.signing : unwrap.isConfirming ? d.mining : fill(t.unwrapCta, { ...WRAP_VARS, amount })}
+        </button>
+      </div>
     </section>
   )
 }
@@ -795,6 +850,8 @@ function AssetRow({
 }) {
   const { row, degraded, launched, totalNative, hasClaimed, claimable, symbol } = snapshot
   const t = useT().drawer
+  // Per row: a retired factory's hooks hold BEM, the current one's WBNB.
+  const quote = quoteForFactory(row.factory)
 
   // Routed through useTxAction rather than a bare useWriteContract: this row
   // previously read neither the write error nor the receipt, so a rejected
@@ -840,7 +897,7 @@ function AssetRow({
 
       {/* `nativeDeposited` came from an earlier read that succeeded, so it stays
           on the degraded row — it is the one number here that is still known. */}
-      <Row label={t.deposited} value={`${formatQuote(row.nativeDeposited)} ${QUOTE_SYMBOL}`} />
+      <Row label={t.deposited} value={`${formatQuote(row.nativeDeposited, quote.decimals)} ${quote.symbol}`} />
 
       {degraded && (
         <p className="mt-3 text-micro tracking-[0.32em] uppercase text-text-tertiary">
@@ -854,7 +911,7 @@ function AssetRow({
                         text-text-tertiary flex items-baseline justify-between gap-2">
             <span>{t.raiseTotal}</span>
             <span className="text-text-primary tabular-nums normal-case tracking-wider">
-              {formatQuote(totalNative)}
+              {formatQuote(totalNative, quote.decimals)}
             </span>
           </p>
         </div>

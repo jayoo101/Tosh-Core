@@ -489,22 +489,31 @@ if (vaultCode === '0x') {
 // shelf and buyback in a token nobody meant, and the only remedy is deploying a
 // new one and abandoning this.
 //
-// THE DECIMALS ARE THE LOAD-BEARING PART. The hook's constructor asserts
-// `decimals() == 8`, so an 18-decimal token fails the broadcast — loudly, which
-// is fine. The dangerous case is a DIFFERENT 8-decimal token: it deploys
-// perfectly, and every dial then means something else by a factor nobody
-// notices, because 9.28 of the wrong token is still 9.28 on screen.
+// THE ADDRESS IS THE LOAD-BEARING PART. The hook's constructor asserts
+// `decimals() == 18`, which a stale BEM value (8) fails loudly at broadcast —
+// fine, but late. The dangerous case is a DIFFERENT 18-decimal token: it deploys
+// perfectly and every figure then means something else. On 56 the address is
+// therefore pinned to WBNB here, as DeployMainnet.s.sol's `requireWbnbQuote`
+// does, so the miss surfaces before any gas is spent.
 console.log('\n5c. permanent — QUOTE_ASSET is the token every figure is denominated in')
+const WBNB_56 = ethers.getAddress('0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c')
+const BEM_56 = ethers.getAddress('0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a')
 const quoteAsset = ethers.getAddress(process.env.QUOTE_ASSET)
 const quoteCode = await codeOf(quoteAsset)
-if (quoteCode === '0x') {
+if (targetChainId === 56n && quoteAsset !== WBNB_56) {
+  fail(
+    `QUOTE_ASSET on chain 56 is ${quoteAsset}${quoteAsset === BEM_56 ? ' (BEM, the previous deploy)' : ''}, not WBNB`,
+    'DeployMainnet.s.sol refuses any quote asset but WBNB on 56 (`requireWbnbQuote`), so this '
+    + 'would revert at broadcast. See docs/BNB_QUOTE_MIGRATION_zh.md.',
+    `Set QUOTE_ASSET=${WBNB_56} in .env.production.`,
+  )
+} else if (quoteCode === '0x') {
   fail(
     'QUOTE_ASSET has no code on this chain',
     'DeployMainnet.s.sol requires it to hold code, so this would revert at broadcast. More to '
     + 'the point, an address with no token behind it cannot be the asset three immutable fields '
     + 'are about to be set to.',
-    'Set QUOTE_ASSET to the quote token on this chain. On 56 that is BEM, '
-    + '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a.',
+    `Set QUOTE_ASSET to this chain's wrapped native token. On 56 that is WBNB, ${WBNB_56}.`,
   )
 } else {
   pass('QUOTE_ASSET is a contract', `${(quoteCode.length - 2) / 2} bytes`)
@@ -522,48 +531,55 @@ if (quoteCode === '0x') {
     fail(
       'QUOTE_ASSET does not answer decimals()',
       `Called decimals() on ${quoteAsset} and it reverted (${err.shortMessage ?? err.message}). `
-      + 'The hook constructor calls the same function and asserts it returns 8, so this address '
+      + 'The hook constructor calls the same function and asserts it returns 18, so this address '
       + 'cannot be deployed against whatever else it is.',
-      'Set QUOTE_ASSET to an ERC-20 with 8 decimals.',
+      'Set QUOTE_ASSET to the wrapped native token (18 decimals).',
     )
   }
 
-  if (decimals !== null && decimals !== 8) {
+  if (decimals !== null && decimals !== 18) {
     fail(
-      `QUOTE_ASSET has ${decimals} decimals, not 8`,
-      'ToshLaunchpadHook\'s constructor requires exactly 8, so the broadcast would revert. The '
-      + 'constant mirrors in soat-frontend and every scaled figure in the test suite assume 8 as '
-      + 'well — this is a protocol invariant, not a property of one token.',
-      'Set QUOTE_ASSET to the 8-decimal quote token for this chain.',
+      `QUOTE_ASSET has ${decimals} decimals, not 18`,
+      'ToshLaunchpadHook\'s constructor requires exactly 18, so the broadcast would revert. '
+      + 'MIN_HARD_CAP, TRIGGER_STEP and the ladder floor were sized against 18 as well — this is '
+      + 'a protocol invariant, not a property of one token.',
+      'Set QUOTE_ASSET to the wrapped native token (18 decimals).',
     )
-  } else if (decimals === 8) {
+  } else if (decimals === 18) {
     let label = ''
     try {
       const [symbol, supply] = await Promise.all([erc20.symbol(), erc20.totalSupply()])
-      label = `${symbol} · supply ${ethers.formatUnits(supply, 8)}`
-    } catch { label = '8 decimals' }
-    pass('QUOTE_ASSET is an 8-decimal token', label)
+      label = `${symbol} · supply ${ethers.formatUnits(supply, 18)}`
+    } catch { label = '18 decimals' }
+    pass('QUOTE_ASSET is an 18-decimal token', label)
+  }
+}
 
-    // Named rather than enforced. A deploy to a chain other than 56 legitimately
-    // uses a different token, and on 97 it MUST, since BEM has no deployment
-    // there. So this reports the disagreement and leaves the judgement with the
-    // operator instead of refusing a rehearsal.
-    // `targetChainId`, not `chainId` — which is what this line said until the
-    // first run that ever reached it, and it threw a ReferenceError that took
-    // the whole preflight down at the last check.
-    //
-    // Worth recording how it survived being written: every earlier run exited 2
-    // at the top because `.env.production` did not exist, so check 5c had never
-    // executed once. A guard that cannot run is not a guard that passes, and the
-    // day it would first have run is deploy day.
-    const BEM_56 = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
-    if (targetChainId === 56n && quoteAsset !== ethers.getAddress(BEM_56)) {
-      notes.push(
-        `QUOTE_ASSET on chain 56 is ${quoteAsset}, not BEM (${BEM_56}). Every document in this `
-        + 'tree says the mainnet quote asset is BEM. If that changed, the docs are now wrong; if '
-        + 'it did not, this is the one value you cannot fix after broadcast.',
-      )
-    }
+// ── 5d. Permanent: the legacy factory the treasury binds to ──────────────────
+//
+// Optional in DeployMainnet.s.sol, and meant to be EMPTY for the WBNB deploy:
+// both retired factories on 56 are BEM-quoted, a WBNB treasury refuses their
+// pools, and the script reverts on a mismatch. `.env.production` still carries
+// the BEM-era value, so this names it before the broadcast does.
+console.log('\n5d. permanent — LEGACY_FACTORY_ADDRESS (expected unset for the WBNB deploy)')
+const legacyRaw = (process.env.LEGACY_FACTORY_ADDRESS ?? '').trim()
+if (!legacyRaw || /^0x0{40}$/i.test(legacyRaw)) {
+  pass('LEGACY_FACTORY_ADDRESS is unset', 'the new treasury lists only this factory\'s launches')
+} else {
+  let legacyQuote = null
+  try {
+    const legacy = new ethers.Contract(ethers.getAddress(legacyRaw), ['function quoteAsset() view returns (address)'], provider)
+    legacyQuote = ethers.getAddress(await legacy.quoteAsset())
+  } catch { /* reported below */ }
+  if (legacyQuote !== quoteAsset) {
+    fail(
+      `LEGACY_FACTORY_ADDRESS ${legacyRaw} is not denominated in QUOTE_ASSET`,
+      `It answers quoteAsset() = ${legacyQuote ?? '(no answer)'}. DeployMainnet.s.sol reverts with `
+      + '"LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET".',
+      'Delete the LEGACY_FACTORY_ADDRESS line from .env.production.',
+    )
+  } else {
+    pass('LEGACY_FACTORY_ADDRESS shares the quote asset', legacyRaw)
   }
 }
 

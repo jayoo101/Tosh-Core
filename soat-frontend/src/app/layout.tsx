@@ -10,7 +10,8 @@ import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { CHAIN_POSITIONING } from '@/lib/chain'
-import { QUOTE_POSITIONING, QUOTE_SYMBOL } from '@/lib/contracts'
+import { QUOTE_POSITIONING } from '@/lib/contracts'
+import { ECOSYSTEM_SYMBOL } from '@/lib/quoteAssets'
 import { I18nProvider, LOCALES_ENABLED, DEFAULT_LOCALE, fill, type Locale } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
 
@@ -103,7 +104,7 @@ const OG_LOCALE: Partial<Record<Locale, string>> = { 'en': 'en_US', 'zh-CN': 'zh
 export async function generateMetadata(): Promise<Metadata> {
   const { locale, dict } = await requestDictionary()
   const t = dict.meta
-  const cardTitle = fill(t.cardTitle, { quote: QUOTE_SYMBOL })
+  const cardTitle = fill(t.cardTitle, { ecosystem: ECOSYSTEM_SYMBOL })
 
   /*
    * One description, used three times.

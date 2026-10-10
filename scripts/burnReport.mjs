@@ -42,7 +42,7 @@ import { ethers } from 'ethers'
 import { connect, withFallback } from './lib/bscProvider.mjs'
 import { scanBack } from './lib/logScan.mjs'
 import {
-  FACTORY, LADDER_TREASURY, QUOTE_ASSET, QUOTE_DECIMALS, DEAD_ADDRESS,
+  FACTORY, LADDER_TREASURY, QUOTE_ASSET, QUOTE_DECIMALS, QUOTE_SYMBOL, DEAD_ADDRESS,
   TRIGGER_STEP, ERC20_ABI, fmt,
 } from './dashboard/config.mjs'
 
@@ -92,7 +92,7 @@ const IFACE = new ethers.Interface([
 const TOPIC = (name) => IFACE.getEvent(name).topicHash
 
 const tok = (v, d = 18) => `${fmt(v, d, 4)}`
-const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} BEM`
+const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} ${QUOTE_SYMBOL}`
 const pct = (part, whole) =>
   whole === 0n ? 'n/a' : `${(Number((part * 1000000n) / whole) / 10000).toFixed(4)}%`
 
@@ -212,11 +212,11 @@ async function main() {
     ])
   })
 
-  console.log(`── BEM, the quote asset ──`)
+  console.log(`── ${QUOTE_SYMBOL}, the quote asset ──`)
   console.log(`  total supply      ${bem(bemSupply)}`)
   console.log(`  at 0xdead         ${bem(bemDead)}   ${bemDead === 0n
-    ? '← no BEM has ever been burned, by this protocol or anyone else'
-    : '← NOTE: someone has sent BEM to 0xdead. No Tosh code path does this.'}`)
+    ? `← no ${QUOTE_SYMBOL} has ever been burned, by this protocol or anyone else`
+    : `← NOTE: someone has sent ${QUOTE_SYMBOL} to 0xdead. No Tosh code path does this.`}`)
   console.log(`  in the treasury   ${bem(bemTreasury)}   (buyback ammunition, spendable)`)
   console.log(`  in the V4 vault   ${bem(bemPool)}   (pool reserves — where buybacks send it)\n`)
 
@@ -285,12 +285,12 @@ async function main() {
   const buybackBurned = sum(mine, 'tokensBurned')
 
   console.log(`  1 · SELL TAX → 0xdead        ${sell.logs.length} event(s), ${tok(sellBurned, d)} ${symbol} burned`)
-  console.log(`      costs no BEM — the seller pays it in the token being sold`)
+  console.log(`      costs no ${QUOTE_SYMBOL} — the seller pays it in the token being sold`)
   console.log(`  2 · BUYBACK → 0xdead         ${mine.length} event(s), ${tok(buybackBurned, d)} ${symbol} burned`)
-  console.log(`      BEM spent into the pool   ${bem(buybackSpent)}`)
+  console.log(`      ${QUOTE_SYMBOL} spent into the pool   ${bem(buybackSpent)}`)
   console.log(`      skipped legs (all tokens) ${skipped.logs.length}`)
   console.log('')
-  console.log(`  BEM tax collected in this span`)
+  console.log(`  ${QUOTE_SYMBOL} tax collected in this span`)
   console.log(`      → treasury (0.70%)       ${bem(sum(buyTax.logs, 'nativeAmount'))} over ${buyTax.logs.length} buy(s)`)
   console.log(`      → platform (0.30%)       ${bem(sum(platFee.logs, 'nativeAmount'))} over ${platFee.logs.length} buy(s)`)
 

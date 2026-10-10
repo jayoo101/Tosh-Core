@@ -5,17 +5,15 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
-  REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
 import type { Phase } from './phase'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { fmtQuote, fmtQuoteFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 import { Linked, fill, useT } from '@/i18n'
+import { useQuote } from './quoteContext'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
  *  `toFixed` would print "10.0%" and they are quoted as prose. */
@@ -40,21 +38,16 @@ const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
 // `scripts/checkContractConstants.ts`, so a change to the rate on chain fails
 // that guard instead of quietly making this panel promise the old one.
 //
-// THAT 10 % ARRIVES IN TWO LEGS, and which one a sharer earns depends on
-// something they can change, so the panel has to say so rather than quote a
-// single headline number:
+// THAT 10 % ARRIVES IN TWO LEGS:
 //
-//   8 %  to whoever brought the depositor to THIS project — but the factory
-//        will not bind a project referrer who holds no deposit here, so this
-//        leg is dark until the sharer has staked the project themselves.
+//   8 %  to whoever brought the depositor to THIS project;
 //   2 %  to whoever first brought that wallet to the platform at all, on every
 //        project it ever deposits into.
 //
-// A sharer whose 8 % leg is dark is the case worth designing for: their link
-// still works, deposits still succeed, and they still earn the 2 % — so
-// nothing visibly breaks while four fifths of what they expected silently
-// becomes buyback fuel.  `canBindProjectReferral` is read for exactly this,
-// rather than reproducing the gate in TypeScript where it would go stale.
+// Only a PoG-attested wallet can promote: the factory binds neither leg to a
+// referrer with no quota, and needs no deposit of its own. The rejection is
+// silent on-chain, so `canBindProjectReferral` is read to tell an unattested
+// sharer before they broadcast a link that pays nothing.
 
 // `isConnected` is gone from the props: the gate resolves wallet state itself,
 // so threading it in only gave this panel a second, staler copy of it.
@@ -73,6 +66,7 @@ export function ReferralPanel({
   refetch:     () => void
 }) {
   const t = useT().referral
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote, fmtFull: fmtQuoteFull } = useQuote()
   const pct = { total: REFERRAL_PCT, project: PROJECT_PCT, lifetime: LIFETIME_PCT }
   const { data: claimableRaw, refetch: refetchClaimable } = useReadContract({
     address:      hookAddress,
@@ -104,45 +98,16 @@ export function ReferralPanel({
   })
   const accrued = (accruedRaw as bigint | undefined) ?? 0n
 
-  // A referrer must hold their own PoG attestation for EITHER slot to bind —
-  // the guard that stops the programme being a self-rebate for anyone with a
-  // second wallet.  Rejection is silent on-chain (the depositor's transaction
-  // still succeeds, the commission just becomes buyback fuel), so an
-  // unattested sharer would otherwise watch their link earn nothing with no
-  // explanation anywhere.
-  const { data: ownQuotaRaw } = useReadContract({
-    address:      FACTORY_ADDRESS,
-    abi:          FACTORY_ABI,
-    functionName: 'pogQuota',
-    args:         userAddress ? [userAddress] : undefined,
-    query:        { enabled: !!userAddress },
-  })
-  // `quotaKnown` separates "the read has not landed" from "the quota is zero",
-  // the way `PogLookupProvider` already does. Collapsing `undefined` into `0n`
-  // made the panel assert "this link will not pay at all" on first paint for
-  // every attested wallet — a definite accusation derived from missing data,
-  // shown in the loudest style on the card and then silently withdrawn.
-  const quotaKnown = typeof ownQuotaRaw === 'bigint'
-  const hasAttestation = quotaKnown && (ownQuotaRaw as bigint) > 0n
-
-  // The project leg's own gate, asked of the factory rather than rebuilt here.
-  // It folds in the attestation check as well, so it is the stricter of the
-  // two and `hasAttestation` above is only needed to tell the two failure
-  // states apart: nothing at all, versus the 2 % tail only.
-  const { data: projectLegRaw } = useReadContract({
+  // `undefined` is "not known yet", not "false": an unresolved read draws no
+  // strip rather than flashing the warning at every attested wallet.
+  const { data: linkLiveRaw } = useReadContract({
     address:      FACTORY_ADDRESS,
     abi:          FACTORY_ABI,
     functionName: 'canBindProjectReferral',
     args:         userAddress ? [userAddress, hookAddress] : undefined,
     query:        { enabled: !!userAddress, refetchInterval: 30_000 },
   })
-  // Third read, third instance of the same distinction. `false` here is a
-  // definite "the 8% leg will not bind for you", and while the read was in
-  // flight every attested sharer was told the link pays 2% instead of 10% — a
-  // number that then changed under them with no explanation. `pays` treats
-  // unknown as unknown and draws no strip at all.
-  const projectLegKnown = typeof projectLegRaw === 'boolean'
-  const projectLegIsLive = (projectLegRaw as boolean | undefined) ?? false
+  const linkLive = typeof linkLiveRaw === 'boolean' ? linkLiveRaw : undefined
 
   const { send, isPending, isConfirming } = useTxAction({
     action: t.txAction,
@@ -194,38 +159,6 @@ export function ReferralPanel({
   // failure this guard must not have.
   if (phase !== 'genesis' && claimableKnown && claimable === 0n) return null
 
-  // ── What this link is worth right now, as one line ─────────────────────────
-  //
-  // This was two paragraphs of small print at the bottom of the card, which is
-  // the wrong end: whether the link pays 10%, 2% or nothing at all is the first
-  // thing a sharer needs and the last thing they were told. Worse, the copy
-  // button sat fully enabled above it, so the default path was to copy a dead
-  // link and read why afterwards.
-  //
-  // `null` while EITHER read is in flight — see `quotaKnown` and
-  // `projectLegKnown`. An unknown state draws no strip rather than guessing at
-  // the pessimistic one, and both legs have to be known before the difference
-  // between "nothing", "2%" and "the full 10%" can be stated.
-  const pays = !quotaKnown || !projectLegKnown ? null
-    : !hasAttestation ? {
-      tone: 'text-danger' as const,
-      headline: t.noneHeadline,
-      detail: fill(t.noneDetail, pct),
-      hasFix: true,
-    }
-    : !projectLegIsLive ? {
-      tone: 'text-warning' as const,
-      headline: fill(t.partHeadline, pct),
-      detail: fill(t.partDetail, pct),
-      hasFix: true,
-    }
-    : {
-      tone: 'text-success' as const,
-      headline: fill(t.fullHeadline, pct),
-      detail: fill(t.fullDetail, pct),
-      hasFix: false,
-    }
-
   // Withheld entirely during genesis with nothing earned, when it could only
   // ever read "0 · Nothing to claim" — and, because the gate ranks the network
   // blocker first, put a full-width "switch network" button on a card offering
@@ -238,14 +171,14 @@ export function ReferralPanel({
       title={t.title}
       subtitle={fill(t.subtitle, pct)}
     >
-      {pays && (
+      {linkLive !== undefined && (
         <div className="flex flex-col gap-1">
-          <p className={`font-mono text-label tracking-[0.32em] uppercase ${pays.tone}`}>
-            {'→ '}{pays.headline}
+          <p className={`font-mono text-label tracking-[0.32em] uppercase ${linkLive ? 'text-success' : 'text-danger'}`}>
+            {'→ '}{linkLive ? fill(t.fullHeadline, pct) : t.noneHeadline}
           </p>
           <p className="font-mono text-note text-text-tertiary leading-relaxed">
             <Linked
-              text={pays.detail}
+              text={linkLive ? fill(t.fullDetail, pct) : fill(t.noneDetail, pct)}
               href="#DEPOSIT"
               className="text-brand underline decoration-dotted underline-offset-2"
             />
@@ -253,7 +186,7 @@ export function ReferralPanel({
         </div>
       )}
 
-      <ReferralLinkBox link={link} label={t.linkLabel} copyLabel={pays && pays.hasFix ? t.copyAnyway : t.copy}>
+      <ReferralLinkBox link={link} label={t.linkLabel} copyLabel={linkLive === false ? t.copyAnyway : t.copy}>
         {/* Collapsed, because the binding rules are reference material: correct,
             worth having, and read once. Left expanded they tripled the height of
             the card and buried the link they were describing. */}

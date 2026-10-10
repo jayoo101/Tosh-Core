@@ -31,7 +31,6 @@ import { ArrowUpRight } from 'lucide-react'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtQuote } from './useDirectoryProjects'
 import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import type { ProjectRow } from '@/app/lib/supabase'
 import { CLOCK_UNSYNCED, formatCountdown, Progress, useNowSec } from '@/components/ui'
 import { genesisWindow } from '@/components/ProjectTerminal/phase'
@@ -281,7 +280,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
             <Remaining deadline={p.genesisDeadline} tab={p.tab} />
           </div>
           <div className="mt-1.5 font-mono text-note tabular-nums text-text-primary">
-            {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
+            {fmtQuote(p.totalNative, p.quote.decimals)} {p.quote.symbol}
           </div>
           {/* `line`, not `bar`: Progress reserves the 8px glowing track for one
               headline meter per page, and a grid of these is the opposite of
@@ -308,7 +307,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
               {d.raisedAtGenesis}
             </div>
             <div className="font-mono text-readout tabular-nums text-text-primary">
-              {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
+              {fmtQuote(p.totalNative, p.quote.decimals)} {p.quote.symbol}
             </div>
           </div>
           {/* There is no price feed behind this app, so there is nothing to
@@ -431,7 +430,7 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
           <div>
             <div className="flex items-center justify-between gap-gap text-note text-text-tertiary">
               <span className="font-mono tabular-nums text-text-primary">
-                {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
+                {fmtQuote(p.totalNative, p.quote.decimals)} {p.quote.symbol}
               </span>
               <Remaining deadline={p.genesisDeadline} tab={p.tab} precise />
             </div>
@@ -463,10 +462,10 @@ function FeatureCardImpl({ project: p }: { project: DirectoryProject }) {
               and `MBEM` is a different string that matches no token. */
           <div className="border-t border-border-subtle pt-4">
             <div className="font-mono text-figure tabular-nums text-text-primary">
-              {fmtQuote(p.totalNative)}
+              {fmtQuote(p.totalNative, p.quote.decimals)}
             </div>
             <div className="font-mono text-micro uppercase text-text-tertiary">
-              <Emph text={d.featureRaised} vars={{ quote: QUOTE_SYMBOL }} className="normal-case" />
+              <Emph text={d.featureRaised} vars={{ quote: p.quote.symbol }} className="normal-case" />
             </div>
           </div>
         )}

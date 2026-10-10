@@ -318,10 +318,7 @@ export const ZH_CN: PartialDictionary = {
     title:  '你已进入 ${symbol}',
     staked: '已在本轮 GENESIS 中质押 {amount} {quote}',
 
-    // 英文把因果放在一个冒号两边，中文把条件前置更自然:先说「只有……才」，
-    // 再说「你现在满足了」。两个 `{pct}` 是同一个比例，`fill()` 会一起替换。
-    body: '你的推荐链接刚刚变得更值钱了：{pct}% 的项目佣金只会绑定到'
-        + '已经在这里存过款的推荐人身上，而你现在就是。把它分享出去，'
+    body: '把你的推荐链接分享出去：'
         + '每一笔通过它在 {symbol} 上完成的 GENESIS 存款，你都能拿到 {pct}%；'
         + '另外，凡是第一次点击 Tosh 链接来自你的钱包，你终身可拿 {lifetime}%。',
 
@@ -395,7 +392,7 @@ export const ZH_CN: PartialDictionary = {
 
   directory: {
     title: '项目目录',
-    lede:  'Tosh Protocol 上的每一个项目 —— 从开放中的募资窗口到 shelf-ladder 交易，全部以 TapeOut 生态的 {quote} 在 {chain} 上结算。',
+    lede:  'Tosh Protocol 上的每一个项目 —— 从开放中的募资窗口到 shelf-ladder 交易，全部以 {quote} 在 {chain} 上结算。',
 
     searchPlaceholder: '搜索…',
     searchLabel:       '按名称、代号或地址搜索项目',
@@ -466,8 +463,8 @@ export const ZH_CN: PartialDictionary = {
 
     // 三行硬换行，渐变落在最后一行。中文短语之间不加空格，组件只在拉丁字符
     // 结尾的行后补空格。
-    headline: '{quote} 生态的|公平发射|*交易终端。*',
-    lede: '用 {quote} 参与项目募资（TapeOut 生态里电路挖矿产出的就是这枚币），额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
+    headline: '{ecosystem} 生态的|公平发射|*交易终端。*',
+    lede: '用 {quote} 参与项目募资，额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
         + '每个项目都会部署自己专属的 PancakeSwap Infinity 池子。',
     ctaLaunch:    '发射代币',
     ctaDirectory: '项目目录',
@@ -773,9 +770,7 @@ export const ZH_CN: PartialDictionary = {
     subtitle: '通过你的链接在本项目的存款计 {project}%，你带来 Tosh 的钱包终身再计 {lifetime}% · 项目上线时发放',
 
     noneHeadline: '这个链接目前还不产生佣金',
-    noneDetail:   '两部分佣金都要求你本人先完成 PoG 认证。认证之后，同一个链接就会开始按 {total}% 计佣。[去认证 PoG]。',
-    partHeadline: '这个链接只按 {lifetime}% 计佣，而不是 {total}%',
-    partDetail:   '{project}% 这部分只会绑定给已经在本项目存过款的推荐人。你存款之后，从下一笔存款起开始计佣。[先去存款]。',
+    noneDetail:   '推荐需要你本人先通过 PoG 认证。认证之后，同一个链接就会按完整的 {total}% 计佣，不需要存款。[去激活 PoG]。',
     fullHeadline: '这个链接按完整的 {total}% 计佣',
     fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。',
 
@@ -785,7 +780,7 @@ export const ZH_CN: PartialDictionary = {
     copied:     '已复制',
     bindSummary: '两部分佣金如何绑定',
     bindHow:    '钱包第一次通过本项目的链接进来时，会在本项目绑定给你，计 {project}%。如果这也是这个钱包用过的第一个 Tosh 链接，它今后在任何项目的全部存款，你都终身获得 {lifetime}%。两种绑定都是永久的，工厂合约会忽略自我推荐。',
-    bindSilent: '没绑定上的那部分不会报错，也没人看得到：存款照常成功，这份佣金会在开盘时归平台，而不是给你。工厂合约在每一笔存款时都会重新尝试绑定，所以已经发出去的链接，一旦满足条件就会开始计佣。',
+    bindSilent: '没绑定上的那部分不会报错：存款照常成功，这份佣金归最先绑定这个钱包的推荐人；如果没有人绑定，就在开盘时归平台。你的链接要在你本人通过 PoG 认证之后才会绑定；工厂合约在每一笔存款时都会重新尝试，所以已经发出去的链接从那时起开始计佣。',
 
     claimLabel:  '可领取佣金',
     earnedHint:  '已赚取 {amount} {quote} · launch() 后解锁',
@@ -1074,6 +1069,18 @@ export const ZH_CN: PartialDictionary = {
     noAllocation: '[ 无额度 ]',
   },
 
+  wrap: {
+    txAction:      '包装 {native}',
+    wrapLabel:     '先包装 {amount} {native}',
+    wrappingLabel: '包装中…',
+    wrapReason:    '这一步用 {wrapped} 支付，也就是代币形式的 {native}。包装会把你的 {amount} {native} 按 1:1 换成 {wrapped}，'
+                 + '合约才能扣款；多出来的可以在个人面板里解包。',
+    unwrapTx:      '解包 {wrapped}',
+    unwrapTitle:   '已包装的 {native}',
+    unwrapHint:    '货架购买或撤出流动性后剩下的。解包后按 1:1 换回 {native}。',
+    unwrapCta:     '解包 {amount} {wrapped}',
+  },
+
   chrome: {
     wrongNetwork:        '网络不对 —— Tosh 在 {chain} 上结算。请切换网络后继续。',
     wrongNetworkStaging: '网络不对 —— Tosh 在 {chain} 上结算；测试环境运行在 {staging} 上。请切换网络后继续。',
@@ -1097,7 +1104,7 @@ export const ZH_CN: PartialDictionary = {
 
   meta: {
     siteDescription:      'TapeOut 生态的公平发射台：Proof-of-Gas 决定额度，4,000 档 shelf ladder 交易，基于 PancakeSwap Infinity hooks 构建。',
-    cardTitle:            'ToshX —— {quote} 生态的公平发射台',
+    cardTitle:            'ToshX —— {ecosystem} 生态的公平发射台',
     projectsTitle:        '项目目录 // ToshX',
     projectsDescription:  'Tosh Protocol 上的每一个项目 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上以 {quote} 实时进行的 shelf-ladder 交易。',
     referralsTitle:       '推荐台账 // ToshX',

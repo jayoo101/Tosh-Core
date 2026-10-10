@@ -6,9 +6,8 @@ import { HOOK_ABI } from '@/lib/contracts'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useT, type Dictionary } from '@/i18n'
-import { fmtQuote } from './format'
+import { useQuote } from './quoteContext'
 
 
 /**
@@ -43,6 +42,7 @@ export function RefundPanel({
   ladderViable?: boolean
 }) {
   const t = useT()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
 
   const { send, isPending, isConfirming } = useTxAction({
     action: t.refund.txAction,

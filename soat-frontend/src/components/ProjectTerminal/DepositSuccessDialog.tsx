@@ -4,16 +4,10 @@
  * What to say in the one moment the referral programme is worth explaining.
  *
  * The referral desk has always been on this page, and it was reliably missed:
- * before a wallet has deposited, its 8% project leg is dark, its claim button
- * says "Nothing to claim", and it reads as a description of a programme rather
- * than an offer. A reader in that state has no reason to stop on it.
- *
- * A confirmed deposit is the state change that makes the same panel mean
- * something else. `canBindProjectReferral` requires the referrer to hold a
- * deposit in the project, so until this transaction landed the sharer's link
- * paid 2% and forfeited the 8% to the buyback reservoir — and now it pays both.
- * That is the fact this dialog exists to deliver, and it is only true from here
- * on.
+ * its claim button says "Nothing to claim" and it reads as a description of a
+ * programme rather than an offer. A wallet that has just deposited is the
+ * reader most likely to share the project, so this is where the link is put
+ * in front of them.
  *
  * ── Why a dialog, when a dialog is the thing people close ────────────────────
  *
@@ -31,9 +25,8 @@ import type { Address } from 'viem'
 
 import { fill, Linked, useT } from '@/i18n'
 import { PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS } from '@/lib/contracts'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { fmtQuote } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
+import { useQuote } from './quoteContext'
 
 const PROJECT_PCT = PROJECT_REFERRAL_BPS / 100
 const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
@@ -49,6 +42,7 @@ export function DepositSuccessDialog({
   deposited:   bigint
 }) {
   const t = useT()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
   const link = useReferralLink(userAddress, symbol)
 
   useEffect(() => {

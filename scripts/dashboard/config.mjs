@@ -11,21 +11,45 @@ import { ethers } from 'ethers'
 
 export const CHAIN_ID = 56
 
+const BEM = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
+const WBNB = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'
+
 /**
- * Mainnet factory.
- *
- * Cross-checked three ways: `NEXT_PUBLIC_FACTORY_ADDRESS` in Vercel production,
- * and `factory()` on both the $TO hook and the ladder treasury, which are
+ * The retired BEM-era factories, with the treasury each was deployed beside.
+ * Cross-checked against `factory()` on their hooks and treasuries, which are
  * independent contracts that agree.
+ */
+const RETIRED = {
+  '0x20de906a96ffb89be6fd6267a0876a68017792f7': { treasury: '0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B' },
+  '0xbca66f7382aac0c6ee2b833fc2072ca607367f2c': { treasury: '0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE' },
+}
+
+/**
+ * The factory this dashboard reads. `POG_FACTORY` selects it; the default is
+ * the first-generation factory, whose launches are the history this dashboard
+ * was built to watch. Any factory outside `RETIRED` is the WBNB one, whose
+ * treasury has to be named too: `DASHBOARD_LADDER_TREASURY`.
  */
 export const FACTORY = process.env.POG_FACTORY
   || '0x20dE906A96FfB89BE6fd6267A0876A68017792F7'
 
-export const LADDER_TREASURY = '0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B'
+const retired = RETIRED[FACTORY.toLowerCase()]
+if (!retired && !process.env.DASHBOARD_LADDER_TREASURY) {
+  throw new Error(
+    `POG_FACTORY ${FACTORY} is not a retired BEM factory, so it is the WBNB one and ` +
+    'DASHBOARD_LADDER_TREASURY must name its treasury (factory.ladderTreasury()).',
+  )
+}
 
-/** BEM, the quote asset. 8 decimals, not 18. */
-export const QUOTE_ASSET = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
-export const QUOTE_DECIMALS = 8
+/** True for the WBNB-era factory: 18-decimal quote, factory-scoped band keys. */
+export const IS_WBNB_ERA = !retired
+
+export const LADDER_TREASURY = retired ? retired.treasury : process.env.DASHBOARD_LADDER_TREASURY
+
+/** The quote asset: BEM at 8 decimals on a retired factory, WBNB at 18 on the current one. */
+export const QUOTE_ASSET = retired ? BEM : WBNB
+export const QUOTE_DECIMALS = retired ? 8 : 18
+export const QUOTE_SYMBOL = retired ? 'BEM' : 'BNB'
 export const TOKEN_DECIMALS = 18
 
 export const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD'
@@ -49,7 +73,7 @@ export const TAX_BPS = 100n
 export const BPS = 10_000n
 
 /** Where the buyback trigger sits, from ToshLadderTreasury.TRIGGER_STEP. */
-export const TRIGGER_STEP = 10n * 10n ** 8n // 10e8
+export const TRIGGER_STEP = retired ? 10n * 10n ** 8n : 3n * 10n ** 17n // 10 BEM | 0.3 BNB
 
 export const FACTORY_ABI = [
   'function owner() view returns (address)',
@@ -127,22 +151,25 @@ export const TOPICS = {
   LadderMintingHalted: ethers.id('LadderMintingHalted(address,uint256)'),
 }
 
-/** Upstash keys the production app writes. `scanJobStore.ts`, `pogParams.ts`. */
+/**
+ * Upstash keys the production app writes. `scanJobStore.ts`, `pogParams.ts`.
+ * The band is factory-scoped since the WBNB cutover; the BEM factories' band
+ * lives under the old unscoped keys.
+ */
+const BAND = retired ? 'tosh:pog:' : `tosh:pog:${FACTORY.toLowerCase()}:`
 export const REDIS_KEYS = {
-  floorWei: 'tosh:pog:floorWei',
-  gasToSatoRate: 'tosh:pog:gasToSatoRate',
-  maxAllocWei: 'tosh:pog:maxAllocWei',
+  floorWei: `${BAND}floorWei`,
+  gasToSatoRate: `${BAND}gasToSatoRate`,
+  maxAllocWei: `${BAND}maxAllocWei`,
   credits: 'tosh:pogscan:credits',
   scanJobPattern: 'tosh:pogscan:*',
   globalLimitPattern: 'tosh:rl:pog-scan:global:*',
 }
 
 /** Defaults the frontend seeds when Redis holds no override. `pogQuota.ts`. */
-export const POG_DEFAULTS = {
-  floorWei: 25n * 10n ** 15n, // 0.025 ETH
-  gasToAllocRate: 46.4,
-  maxAllocWei: 464n * 10n ** 7n, // 46.4 BEM at 8 decimals
-}
+export const POG_DEFAULTS = retired
+  ? { floorWei: 25n * 10n ** 15n, gasToAllocRate: 46.4, maxAllocWei: 464n * 10n ** 7n } // 46.4 BEM
+  : { floorWei: 25n * 10n ** 15n, gasToAllocRate: 1.3, maxAllocWei: 13n * 10n ** 17n }  // 1.3 BNB
 
 export const fmt = (v, decimals, places = 4) =>
   Number(ethers.formatUnits(v ?? 0n, decimals)).toLocaleString('en-US', { maximumFractionDigits: places })

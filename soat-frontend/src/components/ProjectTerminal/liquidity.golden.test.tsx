@@ -7,7 +7,8 @@ import { mount } from '@/testing/renderClient'
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_FACTORY_ADDRESS = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
   process.env.NEXT_PUBLIC_CHAIN_ID = '97'
-  process.env.NEXT_PUBLIC_QUOTE_ASSET = '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a'
+  // Not a known asset, so the env's symbol and decimals apply; sorts below TOKEN.
+  process.env.NEXT_PUBLIC_QUOTE_ASSET = '0x2222222222222222222222222222222222222222'
 })
 
 /**
@@ -139,6 +140,8 @@ function render(amount: string, over: {
       userAddress={USER}
       isConnected
       quoteBalance={over.quoteBalance ?? 1_000_00000000n}
+      nativeBalance={0n}
+      refetchBalances={() => {}}
       nowSec={over.nowSec ?? NOW}
     />,
   )

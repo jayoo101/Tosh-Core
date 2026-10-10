@@ -540,16 +540,7 @@ export const EN = {
     title:  'You are in ${symbol}',
     staked: '{amount} {quote} staked in this genesis',
 
-    /*
-     * Why the dialog exists at all: `canBindProjectReferral` requires the
-     * referrer to already hold a deposit here, so this transaction is the moment
-     * the reader's own link started paying the project leg. Said as one sentence
-     * because the two halves are cause and effect, and a translator handed them
-     * separately cannot keep that relationship.
-     */
-    body: 'Your referral link just became worth more: the {pct}% project '
-        + 'commission only binds to a referrer who already holds a deposit here, '
-        + 'and you now do. Share it and you earn {pct}% of every genesis deposit '
+    body: 'Share your referral link: you earn {pct}% of every genesis deposit '
         + 'made through it on {symbol}, plus {lifetime}% for life on any wallet '
         + 'whose first Tosh link was yours.',
 
@@ -673,7 +664,7 @@ export const EN = {
   directory: {
     title: 'Project Directory',
     lede:  'Every launch on Tosh Protocol — from open funding windows to '
-         + 'shelf-ladder trading, all settled in {quote} from the TapeOut ecosystem, on {chain}.',
+         + 'shelf-ladder trading, all settled in {quote} on {chain}.',
 
     searchPlaceholder: 'Search…',
     searchLabel:       'Search launches by name, ticker or address',
@@ -753,8 +744,10 @@ export const EN = {
     // hard lines; below `sm` the browser wraps it. `*…*` is the gradient run.
     // Both are the translator's to place: the break points and which phrase
     // carries the gradient depend on word order.
-    headline: 'The fair-launch|terminal of the|*{quote} ecosystem.*',
-    lede: 'Fund a launch in {quote} — the same coin TapeOut circuits mine — through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
+    // `{ecosystem}` is the ecosystem the site belongs to; `{quote}` is what a
+    // raise is paid in. They were one token until the WBNB move.
+    headline: 'The fair-launch|terminal of the|*{ecosystem} ecosystem.*',
+    lede: 'Fund a launch in {quote} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
     ctaLaunch:    'Launch a token',
     ctaDirectory: 'Project directory',
     ctaQuota:     'Check / activate deposit quota',
@@ -1104,8 +1097,8 @@ export const EN = {
    * `{total}`, `{project}` and `{lifetime}` are the commission rates in whole
    * percent, read from the contract mirrors rather than typed in here.
    *
-   * The `[…]` run in `noneDetail` and `partDetail` is the link to the deposit
-   * card, rendered by `Linked`.
+   * The `[…]` run in `noneDetail` is the link to the deposit card, where the
+   * PoG activation lives, rendered by `Linked`.
    *
    * `copied` is `ReferralLinkBox`'s own word after a click, so it also shows in
    * the deposit-confirmed dialog.
@@ -1120,9 +1113,7 @@ export const EN = {
     subtitle: '{project}% on deposits made through your link here, plus {lifetime}% for life on wallets you bring to Tosh · paid out when the project launches',
 
     noneHeadline: 'This link pays nothing yet',
-    noneDetail:   'Both legs need your own PoG attestation. Register it, and the same link starts paying {total}%. [Register PoG].',
-    partHeadline: 'This link pays {lifetime}%, not {total}%',
-    partDetail:   'The {project}% leg binds only to a referrer already holding a deposit here. It starts paying on the next deposit after you stake. [Deposit first].',
+    noneDetail:   'Referring needs your own PoG attestation. Activate it, and the same link starts paying the full {total}% — no deposit needed. [Activate PoG].',
     fullHeadline: 'This link pays the full {total}%',
     fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh.',
 
@@ -1132,7 +1123,7 @@ export const EN = {
     copied:     'copied',
     bindSummary: 'How the two legs bind',
     bindHow:    'The first link a wallet arrives on through this project binds it to you here, for {project}%. If it is also the first Tosh link that wallet ever used, you keep {lifetime}% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.',
-    bindSilent: 'A leg that does not bind is not an error anyone sees: the deposit still succeeds and that share of the carve goes to the platform at launch instead of to you. The factory retries the binding on every deposit, so a link already in circulation starts paying as soon as its condition is met.',
+    bindSilent: 'A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.',
 
     claimLabel:  'CLAIMABLE COMMISSION',
     earnedHint:  '{amount} {quote} earned · unlocks at launch()',
@@ -1447,6 +1438,23 @@ export const EN = {
   },
 
   /**
+   * BNB ⇄ WBNB on a WBNB project. A genesis deposit takes BNB directly; a shelf
+   * buy and an LP add pull WBNB, so a short wrapped balance is topped up by
+   * wrapping first. `{amount}` is already formatted.
+   */
+  wrap: {
+    txAction:      'Wrap {native}',
+    wrapLabel:     'Wrap {amount} {native} first',
+    wrappingLabel: 'Wrapping…',
+    wrapReason:    'This step pays in {wrapped}, the token form of {native}. Wrapping turns {amount} of your {native} '
+                 + 'into {wrapped} 1:1 so the contract can take it; unwrap any leftover from your profile.',
+    unwrapTx:      'Unwrap {wrapped}',
+    unwrapTitle:   'Wrapped {native}',
+    unwrapHint:    'Left over from a shelf buy or an LP removal. Unwrap to get {native} back 1:1.',
+    unwrapCta:     'Unwrap {amount} {wrapped}',
+  },
+
+  /**
    * Site-wide pieces outside any one page: the wrong-network strip, the copy
    * control on every address, and the 404 page. The 404's `→` arrows stay in
    * the JSX.
@@ -1480,7 +1488,7 @@ export const EN = {
    */
   meta: {
     siteDescription:      'The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
-    cardTitle:            'ToshX — the fair-launch terminal of the {quote} ecosystem',
+    cardTitle:            'ToshX — the fair-launch terminal of the {ecosystem} ecosystem',
     projectsTitle:        'Project Directory // ToshX',
     projectsDescription:  'Every launch on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading in {quote} on {chain}.',
     referralsTitle:       'Referral Ledger // ToshX',
@@ -1501,7 +1509,7 @@ export const EN = {
  */
 export const TIER0_SURFACES = [
   'tx', 'gate', 'nav', 'wallet', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
-  'awaitingLaunch', 'success', 'gas', 'referral',
+  'awaitingLaunch', 'success', 'gas', 'referral', 'wrap',
 ] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */

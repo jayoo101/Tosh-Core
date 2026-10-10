@@ -150,7 +150,7 @@ if (/^0x0{40}$/.test(CL_POOL_MANAGER)) {
 console.log('CL_MINT_POSITION + SETTLE_PAIR + SWEEP')
 
 const mintPayload = encodeMintPayload({
-  token: TOKEN, hook: HOOK, hooksRegistrationBitmap: HOOKS_BITMAP, owner: OWNER,
+  token: TOKEN, quoteAsset: QUOTE_ASSET, hook: HOOK, hooksRegistrationBitmap: HOOKS_BITMAP, owner: OWNER,
   liquidity: 76_376_261_582_597_339_790n,
   amount0Max: 50_250_000_000_000_000n,
   amount1Max: 117_250_000_000_000_000_000_000n,
@@ -194,7 +194,7 @@ check('SWEEP recipient == owner', '0x' + sweep[1].toString(16).padStart(40, '0')
 console.log('\nCL_BURN_POSITION + TAKE_PAIR')
 
 const burnPayload = encodeBurnPayload({
-  token: TOKEN, recipient: OWNER, tokenId: 7n,
+  token: TOKEN, quoteAsset: QUOTE_ASSET, recipient: OWNER, tokenId: 7n,
   amount0Min: 49_000_000_000_000_000n,
   amount1Min: 116_000_000_000_000_000_000_000n,
 })

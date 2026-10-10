@@ -12,6 +12,7 @@ import {
   CHAIN_STAGING_NOTE,
 } from '@/lib/contracts'
 import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { ECOSYSTEM_SYMBOL } from '@/lib/quoteAssets'
 import { LAUNCHES_PAUSED } from '@/lib/launchGate'
 import { useNowMs } from '@/components/ui'
 import { Emph, fill, useT } from '@/i18n'
@@ -168,7 +169,7 @@ export default function AgentDirectoryHome() {
 
             {/* Hard line breaks and the gradient run: see `Headline`. */}
             <h1 className="text-balance font-mono text-hero text-text-primary sm:text-display">
-              <Headline text={fill(t.headline, { quote: QUOTE_SYMBOL })} />
+              <Headline text={fill(t.headline, { ecosystem: ECOSYSTEM_SYMBOL })} />
             </h1>
 
             <p className="max-w-md text-lede text-text-secondary">

@@ -21,23 +21,15 @@ import { ReferralPanel } from './ReferralPanel'
 // The panel only renders with a wallet connected, so none of it can be checked
 // by loading a page — which is how it came to carry a claim readout that could
 // only ever say "0", a full-width "switch network" button on a card offering no
-// action worth switching for, and a red assertion that the visitor's link "will
-// not pay at all" drawn from a read that had not come back yet.
+// action worth switching for.
 //
 // Reads are stubbed BY FUNCTION NAME rather than by call order. They are
 // independent `useReadContract` calls, so ordering them here would pin an
 // implementation detail that is free to change.
-//
-// ⚠ `undefined` IS A DISTINCT ANSWER, which is what the `pogQuota: undefined`
-//   case exists to hold. `0n` means "unattested, this link earns nothing"; an
-//   unresolved read means "not known yet". The panel used to collapse the two
-//   with `?? 0n`, so the loudest warning on the card was shown to every
-//   attested wallet on first paint and then quietly withdrawn.
 
 type Reads = {
   claimableReferral?: bigint
   referralAccrued?: bigint
-  pogQuota?: bigint
   canBindProjectReferral?: boolean
 }
 
@@ -93,51 +85,25 @@ afterEach(() => {
 })
 
 describe('ReferralPanel · what the link is worth, said first', () => {
-  it('says nothing about the rate while the attestation read is in flight', () => {
-    reads = { pogQuota: undefined, canBindProjectReferral: false }
+  it('says nothing about the rate while the read is in flight', () => {
     open = show('genesis')
 
-    // The pessimistic strip is precisely what an unresolved read used to draw.
     expect(open.text()).not.toMatch(/pays nothing yet/i)
     expect(open.text()).not.toMatch(/pays the full/i)
     expect(open.buttons().map(b => b.textContent?.trim())).not.toContain('copy anyway')
   })
 
-  it('leads with "pays nothing" for an unattested wallet, and hedges the copy verb', () => {
-    reads = { pogQuota: 0n, canBindProjectReferral: false }
+  it('leads with "pays nothing" for a wallet without PoG, and hedges the copy verb', () => {
+    reads = { canBindProjectReferral: false }
     open = show('genesis')
 
     expect(open.text()).toMatch(/pays nothing yet/i)
-    expect(open.text()).toMatch(/Register PoG/i)
-    // The link stays real and stays copyable — the verb only stops framing
-    // handing out a dead link as the obvious next step.
+    expect(open.text()).toMatch(/Activate PoG/i)
     expect(open.button('copy anyway')).toBeTruthy()
   })
 
-  it('says nothing about the rate while only the project leg is in flight', () => {
-    // The sibling of the case above, and it survived the first repair because
-    // `quotaKnown` was added to one read and not the other. With the quota
-    // landed and `canBindProjectReferral` still pending, every attested sharer
-    // was told the link pays 2% instead of 10% — then watched it change.
-    reads = { pogQuota: 1n, canBindProjectReferral: undefined }
-    open = show('genesis')
-
-    expect(open.text()).not.toMatch(/pays 2%, not 10%/i)
-    expect(open.text()).not.toMatch(/pays the full/i)
-    expect(open.text()).not.toMatch(/pays nothing yet/i)
-  })
-
-  it('separates the 2%-only case from the dead one', () => {
-    reads = { pogQuota: 1n, canBindProjectReferral: false }
-    open = show('genesis')
-
-    expect(open.text()).not.toMatch(/pays nothing yet/i)
-    expect(open.text()).toMatch(/pays 2%, not 10%/i)
-    expect(open.text()).toMatch(/Deposit first/i)
-  })
-
-  it('confirms the full rate when both legs bind, with no fix to offer', () => {
-    reads = { pogQuota: 1n, canBindProjectReferral: true }
+  it('confirms the full rate once attested, with no fix to offer', () => {
+    reads = { canBindProjectReferral: true }
     open = show('genesis')
 
     expect(open.text()).toMatch(/pays the full 10%/i)
@@ -148,7 +114,6 @@ describe('ReferralPanel · what the link is worth, said first', () => {
 describe('ReferralPanel · the claim block earns its space', () => {
   it('is absent during genesis when nothing has accrued', () => {
     reads = {
-      pogQuota: 1n, canBindProjectReferral: true,
       claimableReferral: 0n, referralAccrued: 0n,
     }
     open = show('genesis')
@@ -165,7 +130,6 @@ describe('ReferralPanel · the claim block earns its space', () => {
 
   it('appears as soon as the link has earned, before launch unlocks it', () => {
     reads = {
-      pogQuota: 1n, canBindProjectReferral: true,
       claimableReferral: 0n, referralAccrued: 5n * 10n ** 17n,
     }
     open = show('genesis')
@@ -178,7 +142,6 @@ describe('ReferralPanel · the claim block earns its space', () => {
 
   it('still draws after genesis when there is money to collect', () => {
     reads = {
-      pogQuota: 1n, canBindProjectReferral: true,
       claimableReferral: 10n ** 18n, referralAccrued: 10n ** 18n,
     }
     open = show('bonding')
@@ -194,7 +157,6 @@ describe('ReferralPanel · the claim block earns its space', () => {
     // /referrals became the only route to the money — which is the outcome the
     // early return's own comment says it exists to prevent.
     reads = {
-      pogQuota: 1n, canBindProjectReferral: true,
       claimableReferral: undefined, referralAccrued: undefined,
     }
     open = show('bonding')

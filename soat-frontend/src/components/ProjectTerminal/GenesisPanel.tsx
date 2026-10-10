@@ -1,10 +1,9 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { parseUnits, formatUnits, type Address } from 'viem'
+import { formatUnits, type Address } from 'viem'
 
 import {
   FACTORY_ABI, FACTORY_ADDRESS, ZERO_ADDRESS,
-  QUOTE_DECIMALS, QUOTE_SYMBOL,
 } from '@/lib/contracts'
 import { resolveReferrerNow } from '@/lib/useReferral'
 import { Emph, fill, useT } from '@/i18n'
@@ -14,12 +13,16 @@ import {
   Card, Readout, Field, FieldAffix,
   ActionButton, useActionGate, revertOrder, useTxAction, useQuoteApproval,
 } from '@/components/ui'
-import { fmt, fmtQuote, fmtQuoteFull } from './format'
+import { fmt } from './format'
 import { QuotaLedger, type QuotaBlock } from './QuotaLedger'
 import { GenesisIneligible } from './GenesisIneligible'
 import { DepositSuccessDialog } from './DepositSuccessDialog'
 import { usePogLookup } from './PogLookupProvider'
 import { shouldAutoScan } from './pogAutoScan'
+import { useQuote } from './quoteContext'
+// The max button leaves this much BNB behind on a native deposit so the deposit
+// can still pay for gas; the reader can still type the whole balance.
+import { NATIVE_GAS_RESERVE } from './useWrapNative'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GENESIS PANEL  ·  Phase 1
@@ -32,6 +35,9 @@ export interface GenesisProps {
   isConnected:        boolean
   totalNativeDeposited:  bigint
   quoteBalance:         bigint
+  /// The wallet's BNB. Funds the deposit directly on a WBNB project
+  /// (`depositNative`); zero and unused on any other asset.
+  nativeBalance:        bigint
   /// `undefined` while the read is in flight, and that is NOT the same as `0n`.
   /// Zero means "this wallet has no attestation" and is a definite refusal; the
   /// panel must not make that claim, nor lock the Deposit button, on a read that
@@ -66,6 +72,12 @@ export interface GenesisProps {
 
 export function GenesisPanel(p: GenesisProps) {
   const t = useT()
+  const quote = useQuote()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote, fmtFull: fmtQuoteFull } = quote
+  // A WBNB raise takes BNB straight from the wallet: `depositNative` wraps it in
+  // the same call, so there is no allowance and no second transaction.
+  const payNative = quote.wrapsNative
+  const payBalance = payNative ? p.nativeBalance : p.quoteBalance
   const [amount, setAmount] = useState('')
 
   /**
@@ -83,7 +95,7 @@ export function GenesisPanel(p: GenesisProps) {
   const amountWei = (() => {
     const raw = amount.trim()
     if (!raw) return 0n
-    try { return parseUnits(raw, QUOTE_DECIMALS) } catch { return -1n }
+    return quote.parse(raw)
   })()
   const amountInvalid = amountWei === -1n
 
@@ -168,7 +180,12 @@ export function GenesisPanel(p: GenesisProps) {
   const quotaRemaining  = p.quotaRemaining ?? 0n
   const quotaBreached   = quotaKnown && quotaBlock === null
                        && amountWei > 0n && amountWei > quotaRemaining
-  const insufficientBal = amountWei > 0n && amountWei > p.quoteBalance
+  // Paying in BNB, the same coin pays the gas, so a deposit of the whole
+  // balance cannot be sent.
+  const payFunds = payNative
+    ? (payBalance > NATIVE_GAS_RESERVE ? payBalance - NATIVE_GAS_RESERVE : 0n)
+    : payBalance
+  const insufficientBal = amountWei > 0n && amountWei > payFunds
 
   // ⚠ THE "OVERSUBSCRIBED" BANNER IS GONE, along with the soft cap it was
   //   measured against. It fired when the raise passed `softCap` and said the
@@ -258,7 +275,7 @@ export function GenesisPanel(p: GenesisProps) {
   const spendable = (() => {
     let cap = quotaRemaining
     if (p.perWalletCap > 0n && walletHeadroom < cap) cap = walletHeadroom
-    return cap < p.quoteBalance ? cap : p.quoteBalance
+    return cap < payFunds ? cap : payFunds
   })()
 
   const {
@@ -277,6 +294,15 @@ export function GenesisPanel(p: GenesisProps) {
   })
 
   const submitDeposit = useCallback(() => {
+    if (payNative) {
+      sendDeposit({
+        address: FACTORY_ADDRESS, abi: FACTORY_ABI,
+        functionName: 'depositNative',
+        args: [p.hookAddress, resolveReferrerNow(p.userAddress, p.hookAddress)],
+        value: amountWei,
+      })
+      return
+    }
     sendDeposit({
       address: FACTORY_ADDRESS, abi: FACTORY_ABI,
       functionName: 'deposit',
@@ -290,7 +316,7 @@ export function GenesisPanel(p: GenesisProps) {
       // comes from the allowance approved below.
       args: [p.hookAddress, resolveReferrerNow(p.userAddress, p.hookAddress), amountWei],
     })
-  }, [p.hookAddress, p.userAddress, amountWei, sendDeposit])
+  }, [p.hookAddress, p.userAddress, amountWei, payNative, sendDeposit])
 
   /*
    * The allowance in front of the deposit.
@@ -305,7 +331,9 @@ export function GenesisPanel(p: GenesisProps) {
    * re-sent whenever the amount in the field changes, which is why it is keyed off
    * `amountWei` and not off some once-per-session ceiling.
    */
-  const approval = useQuoteApproval(FACTORY_ADDRESS, amountWei > 0n ? amountWei : 0n)
+  const approval = useQuoteApproval(
+    payNative ? undefined : FACTORY_ADDRESS, amountWei > 0n ? amountWei : 0n, quote.asset,
+  )
 
   const cooldownTxt = (() => {
     if (p.cooldownEnd === 0n) return '—'
@@ -629,8 +657,8 @@ export function GenesisPanel(p: GenesisProps) {
         {p.isConnected && (
           <div className="grid grid-cols-1 @sm:grid-cols-2 gap-x-6">
             <Readout label={fill(t.deposit.balanceReadout, { quote: QUOTE_SYMBOL })}
-                     value={`${fmtQuote(p.quoteBalance)} ${QUOTE_SYMBOL}`}
-                     hint={fmtQuoteFull(p.quoteBalance)} />
+                     value={`${fmtQuote(payBalance)} ${QUOTE_SYMBOL}`}
+                     hint={fmtQuoteFull(payBalance)} />
             <Readout label={t.deposit.cooldownLabel}
                      value={cooldownTxt}
                      tone={onCooldown ? 'mute' : 'ink'} />
@@ -673,7 +701,7 @@ export function GenesisPanel(p: GenesisProps) {
             : undefined}
           affix={
             <FieldAffix
-              onClick={() => setAmount(formatUnits(spendable, QUOTE_DECIMALS))}
+              onClick={() => setAmount(formatUnits(spendable, quote.decimals))}
               disabled={txBusy || !p.isConnected || windowClosed || spendable === 0n}
             />
           }

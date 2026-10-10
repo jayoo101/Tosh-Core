@@ -1,10 +1,10 @@
 'use client'
 import { useState, useCallback, useMemo } from 'react'
 import { useReadContract } from 'wagmi'
-import { parseUnits, parseEventLogs, erc20Abi, type Address } from 'viem'
+import { parseEventLogs, erc20Abi, type Address } from 'viem'
 
 import {
-  PERMIT2, CL_POSITION_MANAGER, QUOTE_ASSET, QUOTE_DECIMALS, QUOTE_SYMBOL,
+  PERMIT2, CL_POSITION_MANAGER,
 } from '@/lib/contracts'
 import { POSM_ABI, PERMIT2_ABI } from '@/lib/lpAbis'
 import { pairedAmount1, liquidityForAmounts, amountsForLiquidity } from '@/lib/clMath'
@@ -21,7 +21,9 @@ import {
   CLOCK_UNSYNCED,
 } from '@/components/ui'
 import type { TxReceipt } from '@/components/ui/useTxAction'
-import { fmt, fmtQuote } from './format'
+import { fmt } from './format'
+import { useQuote } from './quoteContext'
+import { useWrapNative, WRAP_VARS } from './useWrapNative'
 
 const LP_SLIPPAGE_PRESETS = [
   { bps: 50n,  label: '0.5%' },
@@ -51,7 +53,8 @@ export const PERMIT2_TTL_SECONDS = 60n * 60n * 24n * 30n
 export const TX_DEADLINE_SECONDS = 60n * 20n
 
 export function LiquidityPanel({
-  hookAddress, tokenAddress, symbol, userAddress, isConnected, quoteBalance, nowSec,
+  hookAddress, tokenAddress, symbol, userAddress, isConnected, quoteBalance, nativeBalance, nowSec,
+  refetchBalances,
 }: {
   hookAddress:  Address
   tokenAddress: Address | undefined
@@ -59,15 +62,25 @@ export function LiquidityPanel({
   userAddress:  Address | undefined
   isConnected:  boolean
   quoteBalance:   bigint
+  /** BNB, which tops up a short WBNB balance on a WBNB project. */
+  nativeBalance:  bigint
   /** Ticking clock lifted to the parent, so render stays pure. */
   nowSec:       number
+  /** Re-reads the wallet balances the parent owns, after a wrap. */
+  refetchBalances: () => void
 }) {
   const t = useT().liquidity
+  const tw = useT().wrap
+  const quote = useQuote()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = quote
+  // The pool's currency0 is the hook's asset, which on a retired launch is not
+  // the current factory's.
+  const QUOTE_ASSET = quote.asset
   const [quoteAmount, setEthAmount] = useState('')
   const [slippageBps, setSlippageBps] = useState(100n)
 
   const { sqrtPriceX96, totalLiquidity, hooksRegistrationBitmap } =
-    useLpPoolState(tokenAddress, hookAddress)
+    useLpPoolState(tokenAddress, hookAddress, QUOTE_ASSET)
   const { positions, totals, degraded, refresh } =
     useLpPositions(userAddress, hookAddress, sqrtPriceX96)
 
@@ -80,7 +93,7 @@ export function LiquidityPanel({
   const quoteUnits = (() => {
     const t = quoteAmount.trim()
     if (!t) return 0n
-    try { return parseUnits(t, QUOTE_DECIMALS) } catch { return -1n }
+    return quote.parse(t)
   })()
   const quoteInvalid = quoteUnits === -1n
 
@@ -185,7 +198,8 @@ export function LiquidityPanel({
     quotePosmAllowance !== undefined &&
     (quotePosmAllowance[0] < quoteMax || BigInt(quotePosmAllowance[1]) <= mintDeadline)
 
-  const insufficientQuote   = quoteMax > 0n && quoteMax > quoteBalance
+  const wrapNative = useWrapNative(quoteMax, quoteBalance, nativeBalance, refetchBalances)
+  const insufficientQuote   = quoteMax > 0n && wrapNative.insufficient
   const insufficientToken =
     tokenMax > 0n && tokenBalance !== undefined && tokenMax > tokenBalance
 
@@ -278,7 +292,7 @@ export function LiquidityPanel({
       address: QUOTE_ASSET, abi: erc20Abi, functionName: 'approve',
       args: [PERMIT2, MAX_UINT160],
     })
-  }, [send])
+  }, [QUOTE_ASSET, send])
 
   const approveQuotePermit2 = useCallback(() => {
     send({
@@ -288,7 +302,7 @@ export function LiquidityPanel({
         Number(nowSeconds + PERMIT2_TTL_SECONDS),
       ],
     })
-  }, [nowSeconds, send])
+  }, [QUOTE_ASSET, nowSeconds, send])
 
   // Hoisted out of the click handler so the gate can refuse a deposit that would
   // mint nothing, instead of the handler discovering it after the user commits.
@@ -306,6 +320,7 @@ export function LiquidityPanel({
 
     const unlockData = encodeMintPayload({
       token: tokenAddress,
+      quoteAsset: QUOTE_ASSET,
       hook: hookAddress,
       hooksRegistrationBitmap,
       owner: userAddress,
@@ -325,7 +340,7 @@ export function LiquidityPanel({
     })
   }, [
     userAddress, tokenAddress, hookAddress, hooksRegistrationBitmap, liquidity,
-    quoteMax, tokenMax, nowSeconds, send,
+    quoteMax, tokenMax, nowSeconds, send, QUOTE_ASSET,
   ])
 
   const withdraw = useCallback((tokenId: bigint, amount0: bigint, amount1: bigint) => {
@@ -336,6 +351,7 @@ export function LiquidityPanel({
 
     const unlockData = encodeBurnPayload({
       token: tokenAddress,
+      quoteAsset: QUOTE_ASSET,
       recipient: userAddress,
       tokenId,
       amount0Min: amount0 - (amount0 * slippageBps) / 10_000n,
@@ -346,7 +362,7 @@ export function LiquidityPanel({
       address: CL_POSITION_MANAGER, abi: POSM_ABI, functionName: 'modifyLiquidities',
       args: [unlockData, nowSeconds + TX_DEADLINE_SECONDS],
     })
-  }, [userAddress, tokenAddress, nowSeconds, send, slippageBps, t])
+  }, [userAddress, tokenAddress, QUOTE_ASSET, nowSeconds, send, slippageBps, t])
 
   // Terse: the red border plus a short tag.  The gate states each of these in
   // full under the button, including the numbers, so repeating them here would
@@ -474,6 +490,16 @@ export function LiquidityPanel({
         reason: fill(t.step2Reason, { symbol }),
         tone: 'info',
         resolve: approvePermit2,
+      },
+      {
+        id: 'wrap',
+        active: quoteMax > 0n && wrapNative.canWrap,
+        label: wrapNative.tx.isBusy
+          ? tw.wrappingLabel
+          : fill(tw.wrapLabel, { ...WRAP_VARS, amount: fmtQuote(wrapNative.shortfall) }),
+        reason: fill(tw.wrapReason, { ...WRAP_VARS, amount: fmtQuote(wrapNative.shortfall) }),
+        tone: 'info',
+        resolve: wrapNative.wrap,
       },
       {
         id: 'approve-quote-erc20',

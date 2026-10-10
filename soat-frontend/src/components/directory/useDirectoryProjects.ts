@@ -6,7 +6,7 @@ import { formatUnits, type Address } from 'viem'
 
 import {
   FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI,
-  QUOTE_DECIMALS, GENESIS_DURATIONS,
+  QUOTE_DECIMALS, GENESIS_DURATIONS, quoteForFactory, type QuoteConfig,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
 
@@ -29,6 +29,12 @@ export interface DirectoryProject {
    */
   genesisDuration: bigint
   totalNative:        bigint
+  /**
+   * What `totalNative` is denominated in. A retired factory's launches raised
+   * BEM at 8 decimals and the current one's raise WBNB at 18, so formatting
+   * either with the other's decimals is off by ten orders of magnitude.
+   */
+  quote:           QuoteConfig
   /** The hook's `canRefund()`. The `archived` tab is this and nothing else. */
   canRefund:       boolean
   symbol:          string
@@ -364,6 +370,7 @@ export function useDirectoryProjects() {
       out.push({
         ...l,
         launched, genesisDeadline, totalNative, canRefund,
+        quote: quoteForFactory(l.factory),
         genesisDuration: deriveGenesisDuration(genesisDeadline, l.createdAt),
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
@@ -434,8 +441,8 @@ export function useDirectoryProjects() {
  * rather than as a formatting fault — so every card in the directory would have
  * understated its progress bar by ten orders of magnitude while looking fine.
  */
-export function fmtQuote(units: bigint): string {
-  const n = Number(formatUnits(units, QUOTE_DECIMALS))
+export function fmtQuote(units: bigint, decimals: number = QUOTE_DECIMALS): string {
+  const n = Number(formatUnits(units, decimals))
   if (!Number.isFinite(n)) return '0'
   return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
 }

@@ -53,7 +53,7 @@
 
 import { encodeAbiParameters, encodePacked, type Address, type Hex } from 'viem'
 
-import { TICK_LOWER, TICK_UPPER, CL_ACTIONS, QUOTE_ASSET } from './contracts'
+import { TICK_LOWER, TICK_UPPER, CL_ACTIONS } from './contracts'
 import { POOL_KEY_PARAM, toshPoolKey } from './clMath'
 
 const MINT_PARAM_SPEC = [
@@ -94,6 +94,8 @@ const UNLOCK_SPEC = [{ type: 'bytes' }, { type: 'bytes[]' }] as const
  */
 export function encodeMintPayload(args: {
   token: Address
+  /** The hook's `quoteAsset()` — currency0 of this project's pool. */
+  quoteAsset: Address
   hook: Address
   hooksRegistrationBitmap: number
   owner: Address
@@ -107,18 +109,18 @@ export function encodeMintPayload(args: {
   )
 
   const mint = encodeAbiParameters(MINT_PARAM_SPEC, [
-    toshPoolKey(args.token, args.hook, args.hooksRegistrationBitmap),
+    toshPoolKey(args.token, args.hook, args.hooksRegistrationBitmap, args.quoteAsset),
     TICK_LOWER, TICK_UPPER,
     args.liquidity, args.amount0Max, args.amount1Max,
     args.owner, '0x',
   ])
   const settle = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }],
-    [QUOTE_ASSET, args.token],
+    [args.quoteAsset, args.token],
   )
   const sweep = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }],
-    [QUOTE_ASSET, args.owner],
+    [args.quoteAsset, args.owner],
   )
 
   return encodeAbiParameters(UNLOCK_SPEC, [actions, [mint, settle, sweep]])
@@ -132,6 +134,8 @@ export function encodeMintPayload(args: {
  */
 export function encodeBurnPayload(args: {
   token: Address
+  /** The hook's `quoteAsset()` — currency0 of this project's pool. */
+  quoteAsset: Address
   recipient: Address
   tokenId: bigint
   amount0Min: bigint
@@ -147,7 +151,7 @@ export function encodeBurnPayload(args: {
   ])
   const take = encodeAbiParameters(
     [{ type: 'address' }, { type: 'address' }, { type: 'address' }],
-    [QUOTE_ASSET, args.token, args.recipient],
+    [args.quoteAsset, args.token, args.recipient],
   )
 
   return encodeAbiParameters(UNLOCK_SPEC, [actions, [burn, take]])

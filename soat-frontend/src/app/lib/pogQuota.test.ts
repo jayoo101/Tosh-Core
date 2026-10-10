@@ -144,24 +144,22 @@ describe('PoG allocation band', () => {
   })
 
   it('holds the numbers that were actually chosen', () => {
-    // 18-decimal ETH of gas history in, 8-decimal quote units of quota out. The two
-    // literals below differing by ten orders of magnitude is the point, not an
-    // oversight — see the currency note in pogQuota.ts.
-    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)  // 0.025 ETH of gas
-    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(4_640_000_000n)           // 46.4 quote units
-    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(46.4)                     // per 1 ETH of gas
-    // Matches ToshFactory.maxPogAllocationLimit. A signature above the live dial
-    // reverts registerPoG, so this is lockstep rather than a coincidence.
-    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(464n * 10n ** 7n)
+    // 18-decimal ETH of gas history in, 18-decimal WBNB of quota out.
+    expect(DEFAULT_POG_GAS_FLOOR_WEI).toBe(25_000_000_000_000_000n)     // 0.025 ETH of gas
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(1_300_000_000_000_000_000n)  // 1.3 BNB
+    expect(DEFAULT_GAS_TO_ALLOC_RATE).toBe(1.3)                         // per 1 ETH of gas
+    // Matches the WBNB factory's maxPogAllocationLimit. A signature above the live
+    // dial reverts registerPoG, so this is lockstep rather than a coincidence.
+    expect(DEFAULT_POG_MAX_ALLOC_WEI).toBe(13n * 10n ** 17n)
 
     /*
-     * 1 ETH of gas fills the ceiling, UNCHANGED THROUGH BOTH RE-DENOMINATIONS.
+     * 1 ETH of gas fills the ceiling, UNCHANGED THROUGH EVERY RE-DENOMINATION.
      *
      * This is the assertion that would have caught a missing `QUOTE_SCALE_GAP`.
      * Ceiling and rate always move together so their quotient is fixed, which means
      * this line is insensitive to the policy numbers above and sensitive to exactly
-     * one thing: whether the 10^10 scale conversion is applied. Without it the cap
-     * lands at 1e8 wei — a tenth of a gwei, which every wallet clears, so every
+     * one thing: whether the scale conversion matches the quote decimals. On the
+     * 8-decimal BEM a missing gap put the cap at 1e8 wei — a tenth of a gwei, which every wallet clears, so every
      * allocation would pin to the ceiling and the gas history would stop ranking
      * anybody. Nothing would revert.
      */

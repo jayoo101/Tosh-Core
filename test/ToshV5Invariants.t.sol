@@ -634,7 +634,7 @@ contract ToshInvariantHandler is Test {
 
         // Kept within what four actors can fund, so fuzzed rounds can still
         // fill and launch; some land small enough that `HardCapExceeded` bites.
-        uint256 hardCap = bound(capSeed, factory.MIN_HARD_CAP(), 5000e8);
+        uint256 hardCap = bound(capSeed, factory.MIN_HARD_CAP(), 5000e16);
         uint256 pogLimit = factory.maxPogAllocationLimit();
         uint256 walletCap = pogLimit < hardCap ? pogLimit : hardCap;
         bytes32 initcodeHash = factory.hookInitcodeHash(projTreasury, creator, hardCap, walletCap, dur);
@@ -685,7 +685,7 @@ contract ToshInvariantHandler is Test {
 
         // Bounded to something a funded actor can actually pay, and above the
         // `ZeroAmount` floor.
-        amount = bound(amount, 1e7, 500e8);
+        amount = bound(amount, 1e7, 500e16);
         // The affordability check reads a token balance now. Leaving it on
         // `user.balance` would have compared a BEM figure against a native one
         // and admitted deposits the actor could not pay, turning every one of
@@ -816,7 +816,7 @@ contract ToshInvariantHandler is Test {
         if (!hook.launched()) return;
 
         address who = _actor(actorSeed);
-        nativeIn = bound(nativeIn, 1e7, 300e8);
+        nativeIn = bound(nativeIn, 1e7, 300e16);
         if (quote.balanceOf(who) < nativeIn) return;
 
         // Read the key BEFORE the prank. `vm.prank` applies to the next call of
@@ -1182,7 +1182,7 @@ contract ToshInvariantHandler is Test {
         // Floor raised to 2 ETH now that the soft cap tops out at 6: this value
         // becomes each new round's `perWalletCap`, and four actors capped at
         // 1 ETH each cannot clear a 6-ETH soft cap no matter how long the run.
-        limit = bound(limit, 200e8, 100_000e8);
+        limit = bound(limit, 200e16, 100_000e16);
         vm.prank(admin);
         try factory.setMaxPogAllocationLimit(limit) {
             ++okOwnerAction;
@@ -1306,11 +1306,11 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///      post-launch invariants (genesis claims, referral claims) get
     ///      exercised at all rather than sitting behind a zero-raise
     ///      `ZeroAmount` revert.
-    uint256 internal constant SOFT_CAP = 200e8;
+    uint256 internal constant SOFT_CAP = 200e16;
     /// @dev Hard cap of the rounds `setUp` opens.
-    uint256 internal constant HARD_CAP = 5000e8;
-    uint256 internal constant POG_CAP = 2000e8;
-    uint256 internal constant ACTOR_FUNDING = 10_000e8;
+    uint256 internal constant HARD_CAP = 5000e16;
+    uint256 internal constant POG_CAP = 2000e16;
+    uint256 internal constant ACTOR_FUNDING = 10_000e16;
 
     /// @dev The three legal genesis durations. Giving each project a different
     ///      one staggers the deadlines, so a single monotonic clock can have one
@@ -2085,7 +2085,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         a readable reason instead of a shrunk counterexample.
     function test_handlerPlumbingIsLive() public {
         // Genesis: a deposit must land and reach the hook's ledger.
-        handler.deposit(0, 0, 100e8, 1);
+        handler.deposit(0, 0, 100e16, 1);
         assertEq(handler.okDeposit(), 1, "handler could not land a deposit");
 
         ToshLaunchpadHook h0 = handler.hooks(0);
@@ -2117,7 +2117,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // Soft cap is 5 ETH; four actors at 5 ETH each clears it on the 72h
         // project, which is still inside its genesis window.
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         ToshLaunchpadHook h2 = handler.hooks(2);
         assertGe(h2.totalNativeDeposited(), SOFT_CAP, "could not fund past the soft cap");
@@ -2146,7 +2146,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         `_actorWithReferral` then finds.
     function test_referralPromiseCoverageIsLive() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         ToshLaunchpadHook h2 = handler.hooks(2);
         address referrer = handler.actors(0);
@@ -2177,7 +2177,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         here has a companion reachability test.
     function test_genesisPromiseCoverageIsLive() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2213,7 +2213,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         gate is open by the second clause of `canRefund()` and the test
     ///         does not depend on whether the ladder was viable.
     function test_refundPromiseSurvivesEveryPlatformSwitch() public {
-        handler.deposit(0, 2, 500e8, 0);
+        handler.deposit(0, 2, 500e16, 0);
         ToshLaunchpadHook h2 = handler.hooks(2);
         address alice = handler.actors(0);
         uint256 dep = h2.nativeDeposited(alice);
@@ -2245,13 +2245,13 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         arms stays green.
     function test_mintShelfRaisesTheTreasuryFloor() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
         assertTrue(handler.hooks(2).launched(), "precondition: the round must launch");
 
-        handler.swapBuy(0, 2, 50e8);
+        handler.swapBuy(0, 2, 50e16);
         assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
         handler.warpShort(1 minutes);
 
@@ -2288,7 +2288,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     function test_handlerCanReachBuybackAndBurn() public {
         // Fund and launch the 72h round, then list it so the ladder is non-empty.
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2325,7 +2325,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         uint256 ladderBefore = quote.balanceOf(address(ladder));
         uint256 burnedBefore = IERC20(address(h2.projectToken())).balanceOf(DEAD);
 
-        handler.swapBuy(0, 2, 50e8);
+        handler.swapBuy(0, 2, 50e16);
         assertEq(handler.okSwapBuy(), 1, "handler could not land a swap");
 
         // The piggyback spent from the reservoir and the proceeds were burned.
@@ -2339,7 +2339,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         input tax rather than feeding the reservoir.
     function test_handlerCanReachSwapSell() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2368,7 +2368,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         step for the packed write to be exercised.
     function test_boundaryMintCrossesAShelf() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2378,7 +2378,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // A buy lifts the reference over shelf 0's price and stamps the
         // same-block lockout; the mint is legal in the next block. Same pairing
         // as `test_handlerCanReachMintShelf`.
-        handler.swapBuy(0, 2, 50e8);
+        handler.swapBuy(0, 2, 50e16);
         assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
         handler.warpShort(1 minutes);
 
@@ -2421,7 +2421,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         stops subtracting looks identical to one that never had to.
     function test_sellBorneBuybackIsAttributedNetOfSellTax() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2476,7 +2476,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         caller holding no role.
     function test_handlerCanReachPokeBuyback() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2512,7 +2512,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // and spends the pot straight back down — an earlier version armed and
         // then swapped, and landed at 0.828 ether wondering why.
         for (uint256 i; i < 4; ++i) {
-            handler.swapBuy(i, 2, 100e8);
+            handler.swapBuy(i, 2, 100e16);
         }
 
         // Donated rather than paid in as launch fees, for the reason
@@ -2575,7 +2575,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
     ///         rather than only against sequences a unit test authored.
     function test_handlerCanReachMintShelf() public {
         for (uint256 i; i < 4; ++i) {
-            handler.deposit(i, 2, 500e8, 0);
+            handler.deposit(i, 2, 500e16, 0);
         }
         handler.warpLong(4 days);
         handler.launchProject(2);
@@ -2587,7 +2587,7 @@ contract ToshV5InvariantsTest is StdInvariant, Test {
         // (and stamps the lockout); the next block is when a mint is legal.
         // That pairing — swap then mint, same-block illegal, next-block
         // legal — is the composition this action exists to put in the mix.
-        handler.swapBuy(0, 2, 50e8);
+        handler.swapBuy(0, 2, 50e16);
         assertEq(handler.okSwapBuy(), 1, "precondition: a buy must lift the reference");
         handler.warpShort(1 minutes);
 

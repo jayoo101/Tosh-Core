@@ -47,8 +47,8 @@ contract ToshLaunchGatewayTest is Test {
     address internal stranger = makeAddr("stranger");
     address internal developer = makeAddr("developer");
 
-    uint256 internal constant HARD_CAP = 20_000e8;
-    uint256 internal constant WALLET_CAP = 1_000e8;
+    uint256 internal constant HARD_CAP = 20_000e16;
+    uint256 internal constant WALLET_CAP = 1_000e16;
 
     MockSafeOwners internal safe;
     ToshFactory internal factory;
