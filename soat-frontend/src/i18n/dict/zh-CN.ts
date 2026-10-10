@@ -769,15 +769,18 @@ export const ZH_CN: PartialDictionary = {
     title:    '推荐台',
     subtitle: '通过你的链接在本项目的存款计 {project}%，你带来 Tosh 的钱包终身再计 {lifetime}% · 项目上线时发放',
 
+    noneHeadline: '这个链接目前还不产生佣金',
+    noneDetail:   '推荐需要你本人先通过 PoG 认证。认证之后，同一个链接就会按完整的 {total}% 计佣，不需要存款。[去激活 PoG]。',
     fullHeadline: '这个链接按完整的 {total}% 计佣',
-    fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。任何人都能推广，无需存款或 PoG 认证。',
+    fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。',
 
     linkLabel:  '你的推荐链接',
     copy:       '复制',
+    copyAnyway: '仍然复制',
     copied:     '已复制',
     bindSummary: '两部分佣金如何绑定',
     bindHow:    '钱包第一次通过本项目的链接进来时，会在本项目绑定给你，计 {project}%。如果这也是这个钱包用过的第一个 Tosh 链接，它今后在任何项目的全部存款，你都终身获得 {lifetime}%。两种绑定都是永久的，工厂合约会忽略自我推荐。',
-    bindSilent: '如果钱包已经绑定了别的推荐人，你的链接不会覆盖，也不会报错：存款照常成功，这部分佣金继续归最先绑定的推荐人。',
+    bindSilent: '没绑定上的那部分不会报错：存款照常成功，这份佣金归最先绑定这个钱包的推荐人；如果没有人绑定，就在开盘时归平台。你的链接要在你本人通过 PoG 认证之后才会绑定；工厂合约在每一笔存款时都会重新尝试，所以已经发出去的链接从那时起开始计佣。',
 
     claimLabel:  '可领取佣金',
     earnedHint:  '已赚取 {amount} {quote} · launch() 后解锁',

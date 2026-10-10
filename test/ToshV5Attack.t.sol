@@ -1643,18 +1643,16 @@ contract ToshV5AttackTest is Test {
     //  PROBE J — the self-referral guard is one EOA deep
     // ══════════════════════════════════════════════════════════════════════════
     //
-    // `_recordReferral` refuses `referrer == user`, and nothing more: binding
-    // needs no PoG attestation and no deposit, so any address can promote. A
-    // second address the same person controls is not `user`, so the whole
-    // 10 % carve comes back to a wallet with no quota, no deposit and no
-    // history.
+    // `_recordReferral` refuses `referrer == user`, and a second address the
+    // same person controls is not `user`.
     //
-    // ⚠ ACCEPTED. Earlier versions gated the referrer on PoG quota and, for the
-    //   8 % project leg, on a deposit in that project. Both gates were removed
-    //   on 2026-10-10 so that anyone can promote; the self-rebate below is the
-    //   cost of that, pinned so it is a decision and not a surprise.
+    // THE GATE. A referrer must hold PoG quota, for both slots, which puts a
+    // throwaway wallet behind the same oracle attestation a depositor needs.
+    // Not a wall; a per-sybil cost the signer can price off-chain. No deposit
+    // is required of the referrer (that second gate was removed on
+    // 2026-10-10), so an ATTESTED second wallet recovers the whole 10 %.
     function test_probeJ_referralSelfFarmViaSecondWallet() public {
-        address sybil = makeAddr("sybil"); // attacker's own second EOA, never attested
+        address sybil = makeAddr("sybil"); // attacker's own second EOA
 
         bytes32 salt = _pickSalt();
         uint256 agreedWalletCap = factory.maxPogAllocationLimit();
@@ -1664,22 +1662,26 @@ contract ToshV5AttackTest is Test {
 
         _registerPoG(attacker, POG_CAP);
         vm.prank(attacker);
-        factory.deposit(address(hook), sybil, 1000e16);
+        factory.deposit(address(hook), sybil, 500e16);
 
-        assertEq(hook.nativeDeposited(attacker), 1000e16, "deposit is unaffected");
-        assertEq(factory.globalReferrers(attacker), sybil, "an unattested referrer binds the lifetime slot");
-        assertEq(factory.projectReferrers(attacker, address(hook)), sybil, "and the project slot");
-        assertEq(hook.referralAccrued(sybil), 100e16, "the whole 10 % carve goes to the second wallet");
-        assertEq(hook.orphanReferral(), 0, "nothing falls through to the platform");
+        // Unattested: the deposit succeeds — a rejected binding must never
+        // brick one — and the carve falls through to the platform.
+        assertEq(hook.nativeDeposited(attacker), 500e16, "deposit is unaffected");
+        assertEq(factory.globalReferrers(attacker), address(0), "unattested referrer does not bind");
+        assertEq(factory.projectReferrers(attacker, address(hook)), address(0), "in either slot");
+        assertEq(hook.referralAccrued(sybil), 0, "and accrues nothing");
+        assertEq(hook.orphanReferral(), 50e16, "the 10 % falls through to the platform");
 
-        vm.warp(hook.genesisDeadline() + 1);
-        vm.prank(creator);
-        factory.launch(address(hook));
+        // Attested, and still holding no deposit: the next deposit binds both
+        // slots and the whole carve comes back. This is the residual cost of
+        // the gate, one attestation per throwaway.
+        _registerPoG(sybil, POG_CAP);
+        vm.prank(attacker);
+        factory.deposit(address(hook), sybil, 500e16);
 
-        uint256 before = quote.balanceOf(sybil);
-        vm.prank(sybil);
-        hook.claimReferralReward();
-        assertEq(quote.balanceOf(sybil) - before, 100e16, "and is claimable after launch");
+        assertEq(factory.globalReferrers(attacker), sybil, "attested second wallet binds the lifetime slot");
+        assertEq(factory.projectReferrers(attacker, address(hook)), sybil, "and the project slot, with no stake");
+        assertEq(hook.referralAccrued(sybil), 50e16, "the whole 10 % of the second deposit");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

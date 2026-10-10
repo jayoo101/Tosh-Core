@@ -5,7 +5,7 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  HOOK_ABI,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
 import type { Phase } from './phase'
@@ -15,7 +15,7 @@ import {
 import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fmtQuote, fmtQuoteFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
-import { fill, useT } from '@/i18n'
+import { Linked, fill, useT } from '@/i18n'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
  *  `toFixed` would print "10.0%" and they are quoted as prose. */
@@ -46,8 +46,10 @@ const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
 //   2 %  to whoever first brought that wallet to the platform at all, on every
 //        project it ever deposits into.
 //
-// Any wallet can promote: the factory binds a referrer with no PoG
-// attestation and no deposit of its own, so every link pays both legs.
+// Only a PoG-attested wallet can promote: the factory binds neither leg to a
+// referrer with no quota, and needs no deposit of its own. The rejection is
+// silent on-chain, so `canBindProjectReferral` is read to tell an unattested
+// sharer before they broadcast a link that pays nothing.
 
 // `isConnected` is gone from the props: the gate resolves wallet state itself,
 // so threading it in only gave this panel a second, staler copy of it.
@@ -96,6 +98,17 @@ export function ReferralPanel({
     query:        { enabled: !!userAddress, refetchInterval: 15_000 },
   })
   const accrued = (accruedRaw as bigint | undefined) ?? 0n
+
+  // `undefined` is "not known yet", not "false": an unresolved read draws no
+  // strip rather than flashing the warning at every attested wallet.
+  const { data: linkLiveRaw } = useReadContract({
+    address:      FACTORY_ADDRESS,
+    abi:          FACTORY_ABI,
+    functionName: 'canBindProjectReferral',
+    args:         userAddress ? [userAddress, hookAddress] : undefined,
+    query:        { enabled: !!userAddress, refetchInterval: 30_000 },
+  })
+  const linkLive = typeof linkLiveRaw === 'boolean' ? linkLiveRaw : undefined
 
   const { send, isPending, isConfirming } = useTxAction({
     action: t.txAction,
@@ -159,16 +172,22 @@ export function ReferralPanel({
       title={t.title}
       subtitle={fill(t.subtitle, pct)}
     >
-      <div className="flex flex-col gap-1">
-        <p className="font-mono text-label tracking-[0.32em] uppercase text-success">
-          {'→ '}{fill(t.fullHeadline, pct)}
-        </p>
-        <p className="font-mono text-note text-text-tertiary leading-relaxed">
-          {fill(t.fullDetail, pct)}
-        </p>
-      </div>
+      {linkLive !== undefined && (
+        <div className="flex flex-col gap-1">
+          <p className={`font-mono text-label tracking-[0.32em] uppercase ${linkLive ? 'text-success' : 'text-danger'}`}>
+            {'→ '}{linkLive ? fill(t.fullHeadline, pct) : t.noneHeadline}
+          </p>
+          <p className="font-mono text-note text-text-tertiary leading-relaxed">
+            <Linked
+              text={linkLive ? fill(t.fullDetail, pct) : fill(t.noneDetail, pct)}
+              href="#DEPOSIT"
+              className="text-brand underline decoration-dotted underline-offset-2"
+            />
+          </p>
+        </div>
+      )}
 
-      <ReferralLinkBox link={link} label={t.linkLabel} copyLabel={t.copy}>
+      <ReferralLinkBox link={link} label={t.linkLabel} copyLabel={linkLive === false ? t.copyAnyway : t.copy}>
         {/* Collapsed, because the binding rules are reference material: correct,
             worth having, and read once. Left expanded they tripled the height of
             the card and buried the link they were describing. */}

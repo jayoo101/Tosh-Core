@@ -20,6 +20,7 @@ vi.hoisted(() => {
 type Reads = {
   claimableReferral?: bigint
   referralAccrued?: bigint
+  canBindProjectReferral?: boolean
 }
 
 let reads: Reads = {}
@@ -68,7 +69,8 @@ beforeEach(() => {
 describe('ReferralPanel · english copy golden master', () => {
   const cases: [string, 'genesis' | 'bonding', Reads][] = [
     ['reads in flight', 'genesis', {}],
-    ['pays the full rate', 'genesis', { claimableReferral: 0n, referralAccrued: 0n }],
+    ['no PoG, pays nothing', 'genesis', { canBindProjectReferral: false }],
+    ['pays the full rate', 'genesis', { canBindProjectReferral: true, claimableReferral: 0n, referralAccrued: 0n }],
     ['earned, locked until launch', 'genesis', {
       claimableReferral: 0n, referralAccrued: 5n * 10n ** 7n,
     }],

@@ -1095,6 +1095,9 @@ export const EN = {
    * `{total}`, `{project}` and `{lifetime}` are the commission rates in whole
    * percent, read from the contract mirrors rather than typed in here.
    *
+   * The `[…]` run in `noneDetail` is the link to the deposit card, where the
+   * PoG activation lives, rendered by `Linked`.
+   *
    * `copied` is `ReferralLinkBox`'s own word after a click, so it also shows in
    * the deposit-confirmed dialog.
    */
@@ -1107,15 +1110,18 @@ export const EN = {
     title:    'REFERRAL DESK',
     subtitle: '{project}% on deposits made through your link here, plus {lifetime}% for life on wallets you bring to Tosh · paid out when the project launches',
 
+    noneHeadline: 'This link pays nothing yet',
+    noneDetail:   'Referring needs your own PoG attestation. Activate it, and the same link starts paying the full {total}% — no deposit needed. [Activate PoG].',
     fullHeadline: 'This link pays the full {total}%',
-    fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.',
+    fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh.',
 
     linkLabel:  'YOUR REFERRAL LINK',
     copy:       'copy',
+    copyAnyway: 'copy anyway',
     copied:     'copied',
     bindSummary: 'How the two legs bind',
     bindHow:    'The first link a wallet arrives on through this project binds it to you here, for {project}%. If it is also the first Tosh link that wallet ever used, you keep {lifetime}% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.',
-    bindSilent: 'If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.',
+    bindSilent: 'A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.',
 
     claimLabel:  'CLAIMABLE COMMISSION',
     earnedHint:  '{amount} {quote} earned · unlocks at launch()',

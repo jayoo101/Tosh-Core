@@ -52,8 +52,12 @@
 // deposit does, and this visitor had never made one. The deposit is attributed
 // to the wallet that actually caused it.
 //
-// The factory binds any referrer other than the depositor, with no PoG or
-// deposit requirement, so there is no eligibility to check here.
+// What this module deliberately does NOT check: whether the referrer is
+// eligible. The factory requires `pogQuota[referrer] > 0` for both slots, and
+// the rejection is silent on-chain (a stale link must never brick a deposit).
+// The surface that matters is the SHARE side — see `ReferralPanel`, which
+// reads `canBindProjectReferral` so a sharer learns their link is not live
+// before they broadcast it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react'

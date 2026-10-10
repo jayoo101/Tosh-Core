@@ -858,19 +858,20 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         different code — turning a cosmetic mismatch into a denial of
     ///         service.  A rejected binding is not a rejected deposit: the
     ///         commission simply falls through to `orphanReferral` and becomes
-    ///         buyback fuel.  The three rejection cases:
+    ///         buyback fuel.  The four rejection cases:
     ///           • already bound        → first binding wins, forever;
     ///           • zero referrer        → nothing to bind;
-    ///           • self-referral        → the trivial case.
+    ///           • self-referral        → the trivial case;
+    ///           • referrer holds no PoG quota → only attested wallets promote.
     ///
-    ///         Any other address binds: promoting needs no PoG attestation and
-    ///         no deposit.  `referrer != user` is one address deep, so a second
-    ///         wallet the depositor controls can take the carve on their own
-    ///         deposits; that rebate is accepted as the price of an open
-    ///         referral programme.
+    ///         No deposit is required of the referrer.  `referrer != user` is
+    ///         one address deep, so the PoG requirement is what prices a
+    ///         self-rebate through a second wallet: each throwaway needs its own
+    ///         attestation, which the signer can rate-limit or refuse off-chain.
     function _recordReferral(address user, address referrer) internal {
         if (globalReferrers[user] != address(0)) return;
         if (referrer == address(0) || referrer == user) return;
+        if (pogQuota[referrer] == 0) return;
 
         globalReferrers[user] = referrer;
         unchecked {
@@ -889,11 +890,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         deposit — the 8 % leg simply falls through to `orphanReferral`
     ///         and becomes buyback fuel.
     ///
-    ///         Same open gate as the lifetime slot: any address other than the
-    ///         depositor binds, with no attestation or deposit of its own.
+    ///         Same gate as the lifetime slot: the referrer must hold PoG quota,
+    ///         and needs no deposit in this project.
     function _recordProjectReferral(address user, address hook, address referrer) internal {
         if (projectReferrers[user][hook] != address(0)) return;
         if (referrer == address(0) || referrer == user) return;
+        if (pogQuota[referrer] == 0) return;
 
         projectReferrers[user][hook] = referrer;
         unchecked {
@@ -1171,7 +1173,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         particular depositor is already bound — this answers "is my link
     ///         live on this project", not "will it bind for this one visitor".
     function canBindProjectReferral(address referrer, address hook) external view returns (bool) {
-        return referrer != address(0) && registeredHooks[hook];
+        return referrer != address(0) && registeredHooks[hook] && pogQuota[referrer] > 0;
     }
 
     function launchCount() external view returns (uint256) {

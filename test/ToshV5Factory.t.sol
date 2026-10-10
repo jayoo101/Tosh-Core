@@ -1171,6 +1171,7 @@ contract ToshV5FactoryTest is Test {
     function test_depositNative_wrapsAndCreditsLikeDeposit() public {
         (, address hook) = _createLaunch("Tok", "TOK");
         _register(user1, 5e16);
+        _register(user2, 5e16);
         vm.deal(user1, 3e16);
         uint256 quoteBefore = quote.balanceOf(user1);
 

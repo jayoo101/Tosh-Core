@@ -30,6 +30,7 @@ import { ReferralPanel } from './ReferralPanel'
 type Reads = {
   claimableReferral?: bigint
   referralAccrued?: bigint
+  canBindProjectReferral?: boolean
 }
 
 let reads: Reads = {}
@@ -84,11 +85,28 @@ afterEach(() => {
 })
 
 describe('ReferralPanel · what the link is worth, said first', () => {
-  it('always states the full rate: any wallet can promote', () => {
+  it('says nothing about the rate while the read is in flight', () => {
+    open = show('genesis')
+
+    expect(open.text()).not.toMatch(/pays nothing yet/i)
+    expect(open.text()).not.toMatch(/pays the full/i)
+    expect(open.buttons().map(b => b.textContent?.trim())).not.toContain('copy anyway')
+  })
+
+  it('leads with "pays nothing" for a wallet without PoG, and hedges the copy verb', () => {
+    reads = { canBindProjectReferral: false }
+    open = show('genesis')
+
+    expect(open.text()).toMatch(/pays nothing yet/i)
+    expect(open.text()).toMatch(/Activate PoG/i)
+    expect(open.button('copy anyway')).toBeTruthy()
+  })
+
+  it('confirms the full rate once attested, with no fix to offer', () => {
+    reads = { canBindProjectReferral: true }
     open = show('genesis')
 
     expect(open.text()).toMatch(/pays the full 10%/i)
-    expect(open.text()).toMatch(/no deposit or PoG needed/i)
     expect(open.button('copy')).toBeTruthy()
   })
 })

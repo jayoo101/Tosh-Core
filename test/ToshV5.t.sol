@@ -874,7 +874,10 @@ contract ToshV5Test is Test {
         (, ToshLaunchpadHook hookB) = _createProject("RefB", "RFB");
 
         _registerPoG(alice, POG_CAP);
-        // Neither referrer is attested or holds a deposit: binding is open.
+        // Both referrers are attested, as `_recordReferral` requires; neither
+        // holds a deposit, which it does not.
+        _registerPoG(bob, POG_CAP);
+        _registerPoG(carol, POG_CAP);
 
         // First ever deposit binds alice -> bob, in both slots.
         _deposit(alice, hookA, 100e16, bob);
@@ -1077,18 +1080,28 @@ contract ToshV5Test is Test {
         assertEq(hook.orphanReferral(), 10e16, "only bob's own unreferred deposit orphans");
     }
 
-    /// @notice Anyone can promote: a referrer with no PoG attestation and no
-    ///         deposit anywhere binds both slots on the first deposit.
-    function test_projectReferral_bindsAReferrerWithNoQuotaOrStake() public {
+    /// @notice Only a PoG-attested wallet can promote, and once attested it
+    ///         binds both slots with no deposit of its own. A rejected binding
+    ///         is not sticky.
+    function test_referral_requiresPoGButNoStake() public {
         (, ToshLaunchpadHook hook) = _createProject("Gate", "GAT");
 
         assertEq(factory.pogQuota(bob), 0, "bob is not attested");
         _deposit(alice, hook, 100e16, bob);
 
-        assertEq(factory.globalReferrers(alice), bob, "lifetime slot binds");
-        assertEq(factory.projectReferrers(alice, address(hook)), bob, "project slot binds");
-        assertEq(hook.referralAccrued(bob), 10e16, "both legs pay");
-        assertEq(hook.orphanReferral(), 0, "nothing orphans");
+        assertEq(factory.globalReferrers(alice), address(0), "unattested referrer does not bind the lifetime slot");
+        assertEq(factory.projectReferrers(alice, address(hook)), address(0), "nor the project slot");
+        assertEq(hook.referralAccrued(bob), 0, "and earns nothing");
+        assertEq(hook.orphanReferral(), 10e16, "the whole carve orphans");
+
+        // Attested, still holding no deposit anywhere: alice's next deposit
+        // binds both slots.
+        _registerPoG(bob, POG_CAP);
+        _deposit(alice, hook, 100e16, bob);
+
+        assertEq(factory.globalReferrers(alice), bob, "lifetime slot binds once bob is attested");
+        assertEq(factory.projectReferrers(alice, address(hook)), bob, "project slot binds without a stake");
+        assertEq(hook.referralAccrued(bob), 10e16, "both legs pay on the second deposit");
     }
 
     /// @notice The project slot is first-link-wins PER PROJECT: a later link
@@ -1164,7 +1177,10 @@ contract ToshV5Test is Test {
     function test_canBindProjectReferral_tracksTheGate() public {
         (, ToshLaunchpadHook hook) = _createProject("View", "VEW");
 
-        assertTrue(factory.canBindProjectReferral(bob, address(hook)), "any address's link is live");
+        assertFalse(factory.canBindProjectReferral(bob, address(hook)), "unattested");
+
+        _registerPoG(bob, POG_CAP);
+        assertTrue(factory.canBindProjectReferral(bob, address(hook)), "attested, no stake needed");
 
         assertFalse(factory.canBindProjectReferral(address(0), address(hook)), "the zero address is nobody");
         assertFalse(factory.canBindProjectReferral(bob, makeAddr("notAHook")), "an unregistered hook");
@@ -1832,6 +1848,8 @@ contract ToshV5Test is Test {
     function test_ladderHalt_blocksNeitherLaunchNorPayouts() public {
         (ToshToken token, ToshLaunchpadHook hook) = _createProject("HaltRef", "HRF");
 
+        // A referrer must hold PoG quota of their own — see `_recordReferral`.
+        _registerPoG(bob, POG_CAP);
         _deposit(alice, hook, SOFT_CAP, bob);
 
         // The halt has to OUTLIVE the genesis window, because `_launch` warps to

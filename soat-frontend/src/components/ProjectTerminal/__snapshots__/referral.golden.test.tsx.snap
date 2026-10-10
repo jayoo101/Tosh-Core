@@ -5,38 +5,32 @@ exports[`ReferralPanel · english copy golden master > after copying 1`] = `
   "/// REF",
   "REFERRAL DESK",
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
-  "→",
-  "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copied",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "→",
   "Commission across every project",
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > after copying 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopied// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > after copying 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launchesYOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopied// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.→ Commission across every project"`;
 
 exports[`ReferralPanel · english copy golden master > claimable after launch 1`] = `
 [
   "/// REF",
   "REFERRAL DESK",
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
-  "→",
-  "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copy",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "CLAIMABLE COMMISSION",
   "123.4568 TQUOTE",
   "123.45678901",
@@ -46,23 +40,20 @@ exports[`ReferralPanel · english copy golden master > claimable after launch 1`
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > claimable after launch 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.CLAIMABLE COMMISSION123.4568 TQUOTE123.45678901claim commission→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > claimable after launch 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launchesYOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.CLAIMABLE COMMISSION123.4568 TQUOTE123.45678901claim commission→ Commission across every project"`;
 
 exports[`ReferralPanel · english copy golden master > claimable, large 1`] = `
 [
   "/// REF",
   "REFERRAL DESK",
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
-  "→",
-  "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copy",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "CLAIMABLE COMMISSION",
   "10000000.00B TQUOTE",
   "10000000000000000",
@@ -72,23 +63,20 @@ exports[`ReferralPanel · english copy golden master > claimable, large 1`] = `
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > claimable, large 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.CLAIMABLE COMMISSION10000000.00B TQUOTE10000000000000000claim commission→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > claimable, large 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launchesYOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.CLAIMABLE COMMISSION10000000.00B TQUOTE10000000000000000claim commission→ Commission across every project"`;
 
 exports[`ReferralPanel · english copy golden master > earned, locked until launch 1`] = `
 [
   "/// REF",
   "REFERRAL DESK",
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
-  "→",
-  "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copy",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "CLAIMABLE COMMISSION",
   "0 TQUOTE",
   "0.5 TQUOTE earned · unlocks at launch()",
@@ -100,7 +88,31 @@ exports[`ReferralPanel · english copy golden master > earned, locked until laun
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > earned, locked until launch 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.CLAIMABLE COMMISSION0 TQUOTE0.5 TQUOTE earned · unlocks at launch()Nothing to claim→ No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > earned, locked until launch 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launchesYOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.CLAIMABLE COMMISSION0 TQUOTE0.5 TQUOTE earned · unlocks at launch()Nothing to claim→ No commission has accrued to this wallet yet — it builds as deposits arrive through your link and unlocks at launch.→ Commission across every project"`;
+
+exports[`ReferralPanel · english copy golden master > no PoG, pays nothing 1`] = `
+[
+  "/// REF",
+  "REFERRAL DESK",
+  "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
+  "→",
+  "This link pays nothing yet",
+  "Referring needs your own PoG attestation. Activate it, and the same link starts paying the full 10% — no deposit needed.",
+  "Activate PoG",
+  ".",
+  "YOUR REFERRAL LINK",
+  "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
+  "copy anyway",
+  "//",
+  "How the two legs bind",
+  "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
+  "→",
+  "Commission across every project",
+]
+`;
+
+exports[`ReferralPanel · english copy golden master > no PoG, pays nothing 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays nothing yetReferring needs your own PoG attestation. Activate it, and the same link starts paying the full 10% — no deposit needed. Activate PoG.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy anyway// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.→ Commission across every project"`;
 
 exports[`ReferralPanel · english copy golden master > pays the full rate 1`] = `
 [
@@ -109,39 +121,36 @@ exports[`ReferralPanel · english copy golden master > pays the full rate 1`] = 
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
   "→",
   "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
+  "8% on deposits here, 2% for life on wallets new to Tosh.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copy",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "→",
   "Commission across every project",
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > pays the full rate 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > pays the full rate 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.→ Commission across every project"`;
 
 exports[`ReferralPanel · english copy golden master > reads in flight 1`] = `
 [
   "/// REF",
   "REFERRAL DESK",
   "8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches",
-  "→",
-  "This link pays the full 10%",
-  "8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.",
   "YOUR REFERRAL LINK",
   "http://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874a",
   "copy",
   "//",
   "How the two legs bind",
   "The first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.",
-  "If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.",
+  "A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.",
   "→",
   "Commission across every project",
 ]
 `;
 
-exports[`ReferralPanel · english copy golden master > reads in flight 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launches→ This link pays the full 10%8% on deposits here, 2% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.YOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.→ Commission across every project"`;
+exports[`ReferralPanel · english copy golden master > reads in flight 2`] = `"/// REFREFERRAL DESK8% on deposits made through your link here, plus 2% for life on wallets you bring to Tosh · paid out when the project launchesYOUR REFERRAL LINKhttp://localhost:3000/?ref=0x35b232E26a275f62E594e010624aEA0c46b7874acopy// How the two legs bindThe first link a wallet arrives on through this project binds it to you here, for 8%. If it is also the first Tosh link that wallet ever used, you keep 2% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.A leg that does not bind shows no error: the deposit still succeeds, and the share goes to whoever bound that wallet first, or to the platform at launch if nobody did. Your link binds only once your own PoG attestation is on file; the factory retries on every deposit, so a link already in circulation starts paying from then on.→ Commission across every project"`;
