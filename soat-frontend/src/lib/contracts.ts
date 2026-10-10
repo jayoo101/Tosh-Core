@@ -131,6 +131,19 @@ export const LEGACY_FACTORY_ADDRESSES: readonly Address[] =
 /** Every factory whose launches the site enumerates, current first. */
 export const LISTED_FACTORIES: readonly Address[] = [FACTORY_ADDRESS, ...LEGACY_FACTORY_ADDRESSES]
 
+/**
+ * Hooks the directory, the homepage feature card and the admin pin picker
+ * leave out. Lower-case.
+ *
+ * Presentation only: the chain still holds the round, its project page still
+ * resolves by address, and wallet-scoped views (the user drawer, referrals)
+ * still list it, because a depositor must be able to find their refund.
+ */
+export const HIDDEN_HOOKS: ReadonlySet<string> = new Set([
+  // TapeOut Space (SPACE), withdrawn on 2026-10-10 before any deposit.
+  '0x55a98df7310f3f94d9c7287c3b4ad236b762c3c2',
+])
+
 export function isListedFactory(addr: string | null | undefined): boolean {
   if (!addr) return false
   const a = addr.toLowerCase()
