@@ -199,7 +199,7 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
 
 export function ReferralLedger() {
   const { address: userAddress } = useAccount()
-  const { projects, loading: projectsLoading, launchCount, truncated } = useDirectoryProjects()
+  const { projects, loading: projectsLoading, launchCount, truncated } = useDirectoryProjects({ includeHidden: true })
   const t = useT().referralLedger
 
   // The enumeration is the whole product here, and it is bounded. Past

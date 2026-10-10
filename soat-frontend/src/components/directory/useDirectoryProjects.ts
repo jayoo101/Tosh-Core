@@ -5,7 +5,7 @@ import { useReadContracts } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
 
 import {
-  FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI,
+  FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI, HIDDEN_HOOKS,
   QUOTE_DECIMALS, GENESIS_DURATIONS, quoteForFactory, type QuoteConfig,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
@@ -231,7 +231,9 @@ function warnRegistryUnavailable(reason: string): null {
   return null
 }
 
-export function useDirectoryProjects() {
+/** `includeHidden` is for views that owe a wallet something on every round —
+ *  see `HIDDEN_HOOKS`. */
+export function useDirectoryProjects({ includeHidden = false }: { includeHidden?: boolean } = {}) {
   const nowSec = useNowSec(BUCKET_CADENCE_MS)
   const [registry, setRegistry] = useState<Map<string, RegistryRow>>(new Map())
 
@@ -320,10 +322,11 @@ export function useDirectoryProjects() {
     launchesQuery.data.forEach((r, i) => {
       if (r.status !== 'success') return
       const t = r.result as readonly [Address, Address, Address, bigint]
+      if (!includeHidden && HIDDEN_HOOKS.has(t[1].toLowerCase())) return
       out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3], factory: launchRefs[i].factory })
     })
     return out
-  }, [launchesQuery.data, launchRefs])
+  }, [launchesQuery.data, launchRefs, includeHidden])
 
   // ERC-20 name and symbol are immutable, so they rode the 15s poll for
   // nothing: a third of every refresh re-read two constants per project.
