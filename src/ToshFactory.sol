@@ -858,34 +858,19 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         different code — turning a cosmetic mismatch into a denial of
     ///         service.  A rejected binding is not a rejected deposit: the
     ///         commission simply falls through to `orphanReferral` and becomes
-    ///         buyback fuel.  The four rejection cases:
+    ///         buyback fuel.  The three rejection cases:
     ///           • already bound        → first binding wins, forever;
     ///           • zero referrer        → nothing to bind;
-    ///           • self-referral        → the trivial case;
-    ///           • referrer holds no PoG quota → see below.
+    ///           • self-referral        → the trivial case.
     ///
-    ///         ── On self-farming ─────────────────────────────────────────────
-    ///
-    ///         `referrer != user` alone is one address deep.  A second EOA the
-    ///         same person controls is not `user`, so the check used to hand
-    ///         back 10 % of every deposit to anyone who knew to open a throwaway
-    ///         wallet — and the wallet needed nothing at all: no quota, no
-    ///         deposit, no history.  That is not a referral programme, it is an
-    ///         undocumented 10 % discount for the informed, funded by the
-    ///         orphan sweep that only the uninformed pay into.
-    ///
-    ///         Requiring `pogQuota[referrer] > 0` does NOT make sybils
-    ///         impossible — nothing on-chain can, since a referrer is just an
-    ///         address.  What it does is move the judgement to the only party
-    ///         that can actually make it: the PoG oracle.  A referrer must now
-    ///         have passed the same attestation a depositor passes, so farming
-    ///         costs an attestation per throwaway wallet and the signer can
-    ///         price, rate-limit, or refuse that off-chain.  The guard is
-    ///         honest about being a cost, not a wall.
+    ///         Any other address binds: promoting needs no PoG attestation and
+    ///         no deposit.  `referrer != user` is one address deep, so a second
+    ///         wallet the depositor controls can take the carve on their own
+    ///         deposits; that rebate is accepted as the price of an open
+    ///         referral programme.
     function _recordReferral(address user, address referrer) internal {
         if (globalReferrers[user] != address(0)) return;
         if (referrer == address(0) || referrer == user) return;
-        if (pogQuota[referrer] == 0) return;
 
         globalReferrers[user] = referrer;
         unchecked {
@@ -904,48 +889,11 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         deposit — the 8 % leg simply falls through to `orphanReferral`
     ///         and becomes buyback fuel.
     ///
-    ///         ── Why this gate is stricter than the lifetime one ─────────────
-    ///
-    ///         Per-project binding multiplies the self-rebate.  Under the
-    ///         lifetime registry alone, a farmer running a throwaway wallet as
-    ///         the referrer for their own real wallet collected the carve ONCE,
-    ///         ever, for the cost of one PoG attestation.  Bind per project and
-    ///         the same pair collects 8 % in every project the real wallet ever
-    ///         deposits into, with the attestation cost amortised across all of
-    ///         them.  The cheapest attack got N times better and no more
-    ///         expensive.
-    ///
-    ///         So the project slot additionally requires the referrer to
-    ///         already hold a deposit IN THIS PROJECT.  Farming now needs
-    ///         capital committed per project rather than one attestation
-    ///         spread over many.
-    ///
-    ///         Be honest about the size of that: the throwaway's deposit is not
-    ///         burned, it earns genesis tokens like any other, so the cost is
-    ///         capital tied up and not capital lost.  This is a price, not a
-    ///         wall — the wall, as ever, is the off-chain PoG oracle, which is
-    ///         the only party that can price or refuse an attestation.
-    ///
-    ///         ── What this costs honest promoters ────────────────────────────
-    ///
-    ///         A project's earliest deposits CANNOT bind a project referrer,
-    ///         because at that point nobody has a deposit here to qualify
-    ///         with.  Their 8 % orphans to the platform.  The playbook
-    ///         that follows is deliberate and has to be surfaced in the UI: to
-    ///         earn on a project, deposit into it before sharing the link.
-    ///
-    ///         A failed binding is NOT sticky.  The slot stays empty, so the
-    ///         same user's next deposit into the same project tries again and
-    ///         will bind if the referrer has since qualified.
+    ///         Same open gate as the lifetime slot: any address other than the
+    ///         depositor binds, with no attestation or deposit of its own.
     function _recordProjectReferral(address user, address hook, address referrer) internal {
         if (projectReferrers[user][hook] != address(0)) return;
         if (referrer == address(0) || referrer == user) return;
-        if (pogQuota[referrer] == 0) return;
-
-        // Read before the caller's own ETH reaches the hook, so this is the
-        // referrer's state from an earlier transaction. `referrer != user`
-        // above already rules out self-qualification either way.
-        if (ToshLaunchpadHook(payable(hook)).nativeDeposited(referrer) == 0) return;
 
         projectReferrers[user][hook] = referrer;
         unchecked {
@@ -1223,10 +1171,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         particular depositor is already bound — this answers "is my link
     ///         live on this project", not "will it bind for this one visitor".
     function canBindProjectReferral(address referrer, address hook) external view returns (bool) {
-        if (referrer == address(0)) return false;
-        if (!registeredHooks[hook]) return false;
-        if (pogQuota[referrer] == 0) return false;
-        return ToshLaunchpadHook(payable(hook)).nativeDeposited(referrer) > 0;
+        return referrer != address(0) && registeredHooks[hook];
     }
 
     function launchCount() external view returns (uint256) {

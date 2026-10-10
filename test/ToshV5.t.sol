@@ -863,46 +863,35 @@ contract ToshV5Test is Test {
 
     /// @notice A wallet's FIRST referrer is bound platform-wide and forever, and
     ///         keeps earning the LIFETIME leg on every later project.  A
-    ///         competing referral code is silently ignored rather than
-    ///         reverting (a stale link must never brick a deposit).
+    ///         competing referral code cannot rebind it, and never reverts
+    ///         (a stale link must never brick a deposit).
     ///
-    /// @dev    The rate asserted here is 2 %, not the whole 10 %, and that is
-    ///         the two-slot design working rather than a shortfall.  bob never
-    ///         deposits into either project, so he never qualifies for the 8 %
-    ///         project leg and it orphans to the buyback reservoir.  What bob
-    ///         holds is the tail that follows alice around the platform.  The
-    ///         other leg is covered by
-    ///         `test_projectReferral_takesEightOfTheTenPoints`.
+    /// @dev    On the second project the competing code takes that project's
+    ///         8 % slot, which is fresh, while bob keeps the 2 % lifetime tail
+    ///         that follows alice around the platform.
     function test_globalReferralPersistence() public {
         (, ToshLaunchpadHook hookA) = _createProject("RefA", "RFA");
         (, ToshLaunchpadHook hookB) = _createProject("RefB", "RFB");
 
         _registerPoG(alice, POG_CAP);
-        // A referrer must itself hold PoG quota — see `_recordReferral`.  bob is
-        // the referrer under test; carol is attested too so that the "competing
-        // code is ignored" assertion below is testing immutability of the
-        // binding rather than carol simply being ineligible.
-        _registerPoG(bob, POG_CAP);
-        _registerPoG(carol, POG_CAP);
+        // Neither referrer is attested or holds a deposit: binding is open.
 
-        // First ever deposit binds alice -> bob.
+        // First ever deposit binds alice -> bob, in both slots.
         _deposit(alice, hookA, 100e16, bob);
         assertEq(factory.globalReferrers(alice), bob, "first referrer must be bound");
         assertEq(factory.referralCount(bob), 1);
-        assertEq(
-            factory.projectReferrers(alice, address(hookA)),
-            address(0),
-            "bob holds no deposit in hookA, so the project slot must stay empty"
-        );
-        assertEq(hookA.referralAccrued(bob), 2e16, "referrer earns the 2% lifetime leg");
-        assertEq(hookA.orphanReferral(), 8e16, "the unbound 8% leg becomes buyback fuel");
+        assertEq(factory.projectReferrers(alice, address(hookA)), bob, "the project slot binds too");
+        assertEq(hookA.referralAccrued(bob), 10e16, "referrer earns the whole 10% carve");
+        assertEq(hookA.orphanReferral(), 0, "nothing orphans");
 
-        // A different project, a different (competing) code: binding is immutable.
+        // A different project, a different (competing) code: the lifetime
+        // binding is immutable, but hookB's project slot is fresh.
         _deposit(alice, hookB, 100e16, carol);
         assertEq(factory.globalReferrers(alice), bob, "binding must be permanent");
-        assertEq(factory.referralCount(carol), 0, "competing code must not rebind");
-        assertEq(hookB.referralAccrued(carol), 0, "competing referrer earns nothing");
-        assertEq(hookB.referralAccrued(bob), 2e16, "original referrer earns on the new project too");
+        assertEq(factory.referralCount(carol), 0, "competing code must not rebind the lifetime slot");
+        assertEq(factory.projectReferrers(alice, address(hookB)), carol, "carol takes hookB's project slot");
+        assertEq(hookB.referralAccrued(carol), 8e16, "competing referrer earns the 8% project leg");
+        assertEq(hookB.referralAccrued(bob), 2e16, "original referrer earns the lifetime leg on the new project too");
 
         // ...and the commission is real ETH, claimable once the project launches.
         _launch(hookB);
@@ -1088,33 +1077,18 @@ contract ToshV5Test is Test {
         assertEq(hook.orphanReferral(), 10e16, "only bob's own unreferred deposit orphans");
     }
 
-    /// @notice The project slot will not bind a referrer who holds no stake in
-    ///         the project, and a rejected binding is not sticky.
-    ///
-    /// @dev    The first half is the cost this gate imposes on honest early
-    ///         promoters — see `_recordProjectReferral`.  The second half is why
-    ///         it is a delay and not a forfeit.
-    function test_projectReferral_requiresTheReferrerToHoldADepositHere() public {
+    /// @notice Anyone can promote: a referrer with no PoG attestation and no
+    ///         deposit anywhere binds both slots on the first deposit.
+    function test_projectReferral_bindsAReferrerWithNoQuotaOrStake() public {
         (, ToshLaunchpadHook hook) = _createProject("Gate", "GAT");
 
-        _registerPoG(bob, POG_CAP);
-
-        // bob is attested but has staked nothing here, so the 8 % has nobody to
-        // go to and becomes buyback fuel.
-        _deposit(alice, hook, 100e16, bob);
-        assertEq(factory.projectReferrers(alice, address(hook)), address(0), "gate rejects an unstaked referrer");
-        assertEq(hook.referralAccrued(bob), 2e16, "only the lifetime leg pays");
-        assertEq(hook.orphanReferral(), 8e16, "the project leg orphans");
-
-        // bob stakes the project, and alice's NEXT deposit binds him.  The empty
-        // slot was never poisoned by the earlier rejection.
-        _deposit(bob, hook, 100e16, address(0));
+        assertEq(factory.pogQuota(bob), 0, "bob is not attested");
         _deposit(alice, hook, 100e16, bob);
 
-        assertEq(factory.projectReferrers(alice, address(hook)), bob, "binding retries and succeeds");
-        assertEq(
-            hook.referralAccrued(bob), 12e16, "two lifetime legs at 2% plus one project leg at 8% on the second deposit"
-        );
+        assertEq(factory.globalReferrers(alice), bob, "lifetime slot binds");
+        assertEq(factory.projectReferrers(alice, address(hook)), bob, "project slot binds");
+        assertEq(hook.referralAccrued(bob), 10e16, "both legs pay");
+        assertEq(hook.orphanReferral(), 0, "nothing orphans");
     }
 
     /// @notice The project slot is first-link-wins PER PROJECT: a later link
@@ -1190,13 +1164,7 @@ contract ToshV5Test is Test {
     function test_canBindProjectReferral_tracksTheGate() public {
         (, ToshLaunchpadHook hook) = _createProject("View", "VEW");
 
-        assertFalse(factory.canBindProjectReferral(bob, address(hook)), "unattested and unstaked");
-
-        _registerPoG(bob, POG_CAP);
-        assertFalse(factory.canBindProjectReferral(bob, address(hook)), "attested but holds no stake here");
-
-        _deposit(bob, hook, 100e16, address(0));
-        assertTrue(factory.canBindProjectReferral(bob, address(hook)), "attested and staked");
+        assertTrue(factory.canBindProjectReferral(bob, address(hook)), "any address's link is live");
 
         assertFalse(factory.canBindProjectReferral(address(0), address(hook)), "the zero address is nobody");
         assertFalse(factory.canBindProjectReferral(bob, makeAddr("notAHook")), "an unregistered hook");
@@ -1864,8 +1832,6 @@ contract ToshV5Test is Test {
     function test_ladderHalt_blocksNeitherLaunchNorPayouts() public {
         (ToshToken token, ToshLaunchpadHook hook) = _createProject("HaltRef", "HRF");
 
-        // A referrer must hold PoG quota of their own — see `_recordReferral`.
-        _registerPoG(bob, POG_CAP);
         _deposit(alice, hook, SOFT_CAP, bob);
 
         // The halt has to OUTLIVE the genesis window, because `_launch` warps to
@@ -1895,16 +1861,15 @@ contract ToshV5Test is Test {
         factory.haltLadderMinting(address(0), maxHalt);
         assertTrue(factory.ladderMintingHalted(address(hook)), "re-armed for the payout paths below");
 
-        // bob is alice's LIFETIME referrer and holds no deposit in this project,
-        // so he earns the 2 % leg rather than the whole 10 % carve — see
-        // `test_globalReferralPersistence`. A literal rather than a re-derivation
+        // bob holds both of alice's slots, so he earns the whole 10 % carve —
+        // see `test_globalReferralPersistence`. A literal rather than a re-derivation
         // from the constants: what this test owns is that a halt pays commission
         // out at all, so if the split ever moves, this should fail loudly and be
         // re-read rather than quietly agree with whatever the contract now does.
         uint256 bobBefore = quote.balanceOf(bob);
         vm.prank(bob);
         hook.claimReferralReward();
-        assertEq(quote.balanceOf(bob) - bobBefore, SOFT_CAP / 50, "referral commission pays out mid-halt");
+        assertEq(quote.balanceOf(bob) - bobBefore, SOFT_CAP / 10, "referral commission pays out mid-halt");
 
         vm.prank(alice);
         hook.claimGenesis();

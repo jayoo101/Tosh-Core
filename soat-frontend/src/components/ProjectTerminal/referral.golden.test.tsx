@@ -13,17 +13,13 @@ vi.hoisted(() => {
 /**
  * ENGLISH GOLDEN MASTER · the referral desk.
  *
- * Taken before its copy moves into the dictionary. What the link is worth is
- * three different sentences depending on two reads, and the claim block has
- * its own three states; each is rendered on its own below, plus the copy
+ * Taken before its copy moves into the dictionary. The claim block has three states; each is rendered on its own below, plus the copy
  * button after a click.
  */
 
 type Reads = {
   claimableReferral?: bigint
   referralAccrued?: bigint
-  pogQuota?: bigint
-  canBindProjectReferral?: boolean
 }
 
 let reads: Reads = {}
@@ -72,17 +68,15 @@ beforeEach(() => {
 describe('ReferralPanel · english copy golden master', () => {
   const cases: [string, 'genesis' | 'bonding', Reads][] = [
     ['reads in flight', 'genesis', {}],
-    ['unattested, pays nothing', 'genesis', { pogQuota: 0n, canBindProjectReferral: false }],
-    ['project leg dark, pays the lifetime leg only', 'genesis', { pogQuota: 1n, canBindProjectReferral: false }],
-    ['pays the full rate', 'genesis', { pogQuota: 1n, canBindProjectReferral: true, claimableReferral: 0n, referralAccrued: 0n }],
+    ['pays the full rate', 'genesis', { claimableReferral: 0n, referralAccrued: 0n }],
     ['earned, locked until launch', 'genesis', {
-      pogQuota: 1n, canBindProjectReferral: true, claimableReferral: 0n, referralAccrued: 5n * 10n ** 7n,
+      claimableReferral: 0n, referralAccrued: 5n * 10n ** 7n,
     }],
     ['claimable after launch', 'bonding', {
-      pogQuota: 1n, canBindProjectReferral: true, claimableReferral: 123_45678901n, referralAccrued: 123_45678901n,
+      claimableReferral: 123_45678901n, referralAccrued: 123_45678901n,
     }],
     ['claimable, large', 'bonding', {
-      pogQuota: 1n, canBindProjectReferral: true, claimableReferral: 1_000_000n * E18, referralAccrued: 0n,
+      claimableReferral: 1_000_000n * E18, referralAccrued: 0n,
     }],
   ]
 
@@ -95,7 +89,7 @@ describe('ReferralPanel · english copy golden master', () => {
   }
 
   it('after copying', async () => {
-    reads = { pogQuota: 1n, canBindProjectReferral: true }
+    reads = {}
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } })
     const ui = render('genesis')
     try {

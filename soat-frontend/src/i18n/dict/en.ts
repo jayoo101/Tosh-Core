@@ -540,16 +540,7 @@ export const EN = {
     title:  'You are in ${symbol}',
     staked: '{amount} {quote} staked in this genesis',
 
-    /*
-     * Why the dialog exists at all: `canBindProjectReferral` requires the
-     * referrer to already hold a deposit here, so this transaction is the moment
-     * the reader's own link started paying the project leg. Said as one sentence
-     * because the two halves are cause and effect, and a translator handed them
-     * separately cannot keep that relationship.
-     */
-    body: 'Your referral link just became worth more: the {pct}% project '
-        + 'commission only binds to a referrer who already holds a deposit here, '
-        + 'and you now do. Share it and you earn {pct}% of every genesis deposit '
+    body: 'Share your referral link: you earn {pct}% of every genesis deposit '
         + 'made through it on {symbol}, plus {lifetime}% for life on any wallet '
         + 'whose first Tosh link was yours.',
 
@@ -1104,9 +1095,6 @@ export const EN = {
    * `{total}`, `{project}` and `{lifetime}` are the commission rates in whole
    * percent, read from the contract mirrors rather than typed in here.
    *
-   * The `[…]` run in `noneDetail` and `partDetail` is the link to the deposit
-   * card, rendered by `Linked`.
-   *
    * `copied` is `ReferralLinkBox`'s own word after a click, so it also shows in
    * the deposit-confirmed dialog.
    */
@@ -1119,20 +1107,15 @@ export const EN = {
     title:    'REFERRAL DESK',
     subtitle: '{project}% on deposits made through your link here, plus {lifetime}% for life on wallets you bring to Tosh · paid out when the project launches',
 
-    noneHeadline: 'This link pays nothing yet',
-    noneDetail:   'Both legs need your own PoG attestation. Register it, and the same link starts paying {total}%. [Register PoG].',
-    partHeadline: 'This link pays {lifetime}%, not {total}%',
-    partDetail:   'The {project}% leg binds only to a referrer already holding a deposit here. It starts paying on the next deposit after you stake. [Deposit first].',
     fullHeadline: 'This link pays the full {total}%',
-    fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh.',
+    fullDetail:   '{project}% on deposits here, {lifetime}% for life on wallets new to Tosh. Anyone can share — no deposit or PoG needed.',
 
     linkLabel:  'YOUR REFERRAL LINK',
     copy:       'copy',
-    copyAnyway: 'copy anyway',
     copied:     'copied',
     bindSummary: 'How the two legs bind',
     bindHow:    'The first link a wallet arrives on through this project binds it to you here, for {project}%. If it is also the first Tosh link that wallet ever used, you keep {lifetime}% of everything it deposits anywhere, for life. Both bindings are permanent, and self-referral is ignored by the factory.',
-    bindSilent: 'A leg that does not bind is not an error anyone sees: the deposit still succeeds and that share of the carve goes to the platform at launch instead of to you. The factory retries the binding on every deposit, so a link already in circulation starts paying as soon as its condition is met.',
+    bindSilent: 'If a wallet is already bound to another referrer, your link does not override it and no error is shown: the deposit still succeeds and that leg keeps paying whoever bound it first.',
 
     claimLabel:  'CLAIMABLE COMMISSION',
     earnedHint:  '{amount} {quote} earned · unlocks at launch()',

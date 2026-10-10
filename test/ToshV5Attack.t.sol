@@ -1643,26 +1643,16 @@ contract ToshV5AttackTest is Test {
     //  PROBE J — the self-referral guard is one EOA deep
     // ══════════════════════════════════════════════════════════════════════════
     //
-    // ORIGINAL FINDING.  `_recordReferral` refused `referrer == user` and the
-    // natspec claimed this stopped "anyone farming their own 10 %".  A second
-    // address the same person controls is not `user`, so the 10 % came straight
-    // back — to a wallet with no quota, no deposit and no history.
+    // `_recordReferral` refuses `referrer == user`, and nothing more: binding
+    // needs no PoG attestation and no deposit, so any address can promote. A
+    // second address the same person controls is not `user`, so the whole
+    // 10 % carve comes back to a wallet with no quota, no deposit and no
+    // history.
     //
-    // FIX 1.  A referrer must hold PoG quota, which puts a throwaway wallet
-    // behind the same oracle attestation a depositor needs.  Not a wall; a per
-    // sybil cost the signer can price off-chain.
-    //
-    // FIX 2 (two-slot referrals).  Binding per project would have made this
-    // attack N times better at no extra cost — the same throwaway collecting on
-    // every project instead of once per wallet, lifetime.  So the 8 % project
-    // leg additionally requires the referrer to hold a deposit IN THAT PROJECT,
-    // and only the 2 % lifetime leg is reachable without one.
-    //
-    // What that leaves, measured below: an attested but unstaked throwaway
-    // recovers 2 % rather than 10 %, and recovering the full 10 % costs a stake
-    // in every project it wants to farm.  The throwaway's stake is not burned —
-    // it earns genesis tokens like any other deposit — so this is capital tied
-    // up, not capital lost.  Still a price, still not a wall.
+    // ⚠ ACCEPTED. Earlier versions gated the referrer on PoG quota and, for the
+    //   8 % project leg, on a deposit in that project. Both gates were removed
+    //   on 2026-10-10 so that anyone can promote; the self-rebate below is the
+    //   cost of that, pinned so it is a decision and not a surprise.
     function test_probeJ_referralSelfFarmViaSecondWallet() public {
         address sybil = makeAddr("sybil"); // attacker's own second EOA, never attested
 
@@ -1676,60 +1666,20 @@ contract ToshV5AttackTest is Test {
         vm.prank(attacker);
         factory.deposit(address(hook), sybil, 1000e16);
 
-        // The deposit still succeeds — a rejected binding must never brick one.
         assertEq(hook.nativeDeposited(attacker), 1000e16, "deposit is unaffected");
-        assertEq(factory.globalReferrers(attacker), address(0), "unattested referrer does not bind");
-        assertEq(hook.referralAccrued(sybil), 0, "and accrues nothing");
-        assertEq(hook.orphanReferral(), 100e16, "the 10 % falls through to buyback fuel");
+        assertEq(factory.globalReferrers(attacker), sybil, "an unattested referrer binds the lifetime slot");
+        assertEq(factory.projectReferrers(attacker, address(hook)), sybil, "and the project slot");
+        assertEq(hook.referralAccrued(sybil), 100e16, "the whole 10 % carve goes to the second wallet");
+        assertEq(hook.orphanReferral(), 0, "nothing falls through to the platform");
 
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(creator);
         factory.launch(address(hook));
 
+        uint256 before = quote.balanceOf(sybil);
         vm.prank(sybil);
-        vm.expectRevert(ToshLaunchpadHook.NoReferralReward.selector);
         hook.claimReferralReward();
-
-        // An ATTESTED referrer is still paid — the programme itself still works.
-        address realRef = makeAddr("realReferrer");
-        _registerPoG(realRef, POG_CAP);
-        _registerPoG(alice, POG_CAP);
-
-        bytes32 salt2 = _pickSalt();
-        agreedWalletCap = factory.maxPogAllocationLimit();
-        vm.prank(creator);
-        (, address h2) = factory.createLaunch("Farm2", "FR2", projTreasury, salt2, HARD_CAP, agreedWalletCap, 24 hours);
-        ToshLaunchpadHook hook2 = ToshLaunchpadHook(payable(h2));
-
-        vm.prank(alice);
-        factory.deposit(address(hook2), realRef, 1000e16);
-        assertEq(hook2.referralAccrued(realRef), 20e16, "an attested but unstaked referrer earns the 2 % leg");
-        assertEq(hook2.orphanReferral(), 80e16, "the 8 % project leg orphans for want of a stake");
-
-        // The whole 10 % is still reachable — it just costs a stake in this
-        // project, which is the gate's entire purpose. `realRef` stakes hook2,
-        // and the next referee to arrive on their link pays both legs.
-        address referee2 = makeAddr("referee2");
-        // Both deposit, so both need a quote balance and a factory allowance. This
-        // was two `vm.deal` calls, which funded them for a `msg.value` deposit that
-        // no longer exists; the native deal stays only because they still pay gas.
-        _endow(realRef);
-        _endow(referee2);
-        vm.deal(realRef, 10 ether);
-        vm.deal(referee2, 100 ether);
-
-        vm.prank(realRef);
-        factory.deposit(address(hook2), address(0), 100e16);
-
-        _registerPoG(referee2, POG_CAP);
-        vm.prank(referee2);
-        factory.deposit(address(hook2), realRef, 1000e16);
-
-        assertEq(
-            hook2.referralAccrued(realRef),
-            120e16,
-            "0.2 from alice's lifetime leg, then 0.8 + 0.2 from a referee who arrived after the stake"
-        );
+        assertEq(quote.balanceOf(sybil) - before, 100e16, "and is claimable after launch");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -318,10 +318,7 @@ export const ZH_CN: PartialDictionary = {
     title:  '你已进入 ${symbol}',
     staked: '已在本轮 GENESIS 中质押 {amount} {quote}',
 
-    // 英文把因果放在一个冒号两边，中文把条件前置更自然:先说「只有……才」，
-    // 再说「你现在满足了」。两个 `{pct}` 是同一个比例，`fill()` 会一起替换。
-    body: '你的推荐链接刚刚变得更值钱了：{pct}% 的项目佣金只会绑定到'
-        + '已经在这里存过款的推荐人身上，而你现在就是。把它分享出去，'
+    body: '把你的推荐链接分享出去：'
         + '每一笔通过它在 {symbol} 上完成的 GENESIS 存款，你都能拿到 {pct}%；'
         + '另外，凡是第一次点击 Tosh 链接来自你的钱包，你终身可拿 {lifetime}%。',
 
@@ -772,20 +769,15 @@ export const ZH_CN: PartialDictionary = {
     title:    '推荐台',
     subtitle: '通过你的链接在本项目的存款计 {project}%，你带来 Tosh 的钱包终身再计 {lifetime}% · 项目上线时发放',
 
-    noneHeadline: '这个链接目前还不产生佣金',
-    noneDetail:   '两部分佣金都要求你本人先完成 PoG 认证。认证之后，同一个链接就会开始按 {total}% 计佣。[去认证 PoG]。',
-    partHeadline: '这个链接只按 {lifetime}% 计佣，而不是 {total}%',
-    partDetail:   '{project}% 这部分只会绑定给已经在本项目存过款的推荐人。你存款之后，从下一笔存款起开始计佣。[先去存款]。',
     fullHeadline: '这个链接按完整的 {total}% 计佣',
-    fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。',
+    fullDetail:   '本项目存款的 {project}%，加上 Tosh 新钱包的终身 {lifetime}%。任何人都能推广，无需存款或 PoG 认证。',
 
     linkLabel:  '你的推荐链接',
     copy:       '复制',
-    copyAnyway: '仍然复制',
     copied:     '已复制',
     bindSummary: '两部分佣金如何绑定',
     bindHow:    '钱包第一次通过本项目的链接进来时，会在本项目绑定给你，计 {project}%。如果这也是这个钱包用过的第一个 Tosh 链接，它今后在任何项目的全部存款，你都终身获得 {lifetime}%。两种绑定都是永久的，工厂合约会忽略自我推荐。',
-    bindSilent: '没绑定上的那部分不会报错，也没人看得到：存款照常成功，这份佣金会在开盘时归平台，而不是给你。工厂合约在每一笔存款时都会重新尝试绑定，所以已经发出去的链接，一旦满足条件就会开始计佣。',
+    bindSilent: '如果钱包已经绑定了别的推荐人，你的链接不会覆盖，也不会报错：存款照常成功，这部分佣金继续归最先绑定的推荐人。',
 
     claimLabel:  '可领取佣金',
     earnedHint:  '已赚取 {amount} {quote} · launch() 后解锁',
