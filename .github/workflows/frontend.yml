@@ -50,16 +50,16 @@ jobs:
       # call was aimed at, and the quote asset being the factory is not a shape
       # worth teaching the build to accept.
       NEXT_PUBLIC_QUOTE_ASSET: "0x2222222222222222222222222222222222222222"
-      # `mBEM`, not `BEM`, and not left to the `?? 'BEM'` fallback. The chain id
-      # above is 97, where the quote asset is an unrestricted-mint 8-decimal mock
-      # with no market — `contracts.ts` says as much where `QUOTE_POSITIONING` is
-      # defined, and that string is what link previews render. Taking the
-      # fallback would have this job build copy claiming the real asset on a
-      # testnet id, which is the exact class of quiet lie checkChainCopy exists
-      # to fail on.
-      NEXT_PUBLIC_QUOTE_SYMBOL: "mBEM"
-      # Required for any token `quoteAssets.ts` does not know; the testnet mock is 8.
-      NEXT_PUBLIC_QUOTE_DECIMALS: "8"
+      # A mock ticker, not `WBNB`/`BNB`. The chain id above is 97 and the
+      # address a placeholder; naming the real asset would have this job build
+      # copy claiming it on a testnet id, which is the exact class of quiet lie
+      # checkChainCopy exists to fail on. Was `mBEM` while the quote was BEM.
+      NEXT_PUBLIC_QUOTE_SYMBOL: "mWBNB"
+      # Required for any token `quoteAssets.ts` does not know. 18, because the
+      # factory's hard-cap and PoG bounds are 18-decimal literals now and
+      # `guard:constants` compares them against `n * QUOTE_UNIT`; 8 (the BEM
+      # mock) fails it.
+      NEXT_PUBLIC_QUOTE_DECIMALS: "18"
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""
@@ -431,10 +431,13 @@ jobs:
       # because the header strip and the lifecycle rail are ternaries between
       # near-neighbour strings, and a swap between two arms only shows when both
       # render — and +6 for the identity header above the terminal.
+      #
+      # 648 -> 678: the homepage PoG-quota entry and the WBNB move (native
+      # deposit, auto-wrap on buys, WBNB unwrap, multi-factory directory).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=648
+          floor=678
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
