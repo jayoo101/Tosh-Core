@@ -37,6 +37,18 @@
 
 暂停旧工厂只挡 `createLaunch` 和 `registerPoG`；旧项目的存款、退款、开池、领取照常。
 
+2026-10-10 执行结果（第 0–12.5 步已完成）：
+
+| | 地址 |
+|---|---|
+| WBNB 工厂（部署块 126796453，已解除暂停） | `0xb5D1bBB16fED6048920a78CEEd15fd00b998d362` |
+| WBNB 回购池（owner 是 Safe） | `0xE5743620aBdE7A76b1683Be9f607Be6Cf5bbF83d` |
+| 发射网关（工厂的 owner，`safe()` 是上面的 Safe） | `0xbD378b7A30adf3AdBcC4D6369206472232a75dD3` |
+| hook 实现 | `0xfa26b461A00C1803e6b241d2F13EaCb757A70FC7` |
+| CircuitNFT | `0xBEDfcBf5f3E09e627Cf8BF9a0A2F2E0466FD2888` |
+
+`.env.production` 里的 `ETHERSCAN_API_KEY` 还是占位符，所以第 3 步和第 12.5 步都没有在 BscScan 验证源码，需要换成真 key 后补做。
+
 ---
 
 ## 第 0 步：部署钱包
@@ -243,7 +255,15 @@ gh workflow run watch.yml
 
 `MONITOR_EXPECTED_OWNER`（Safe）、`MONITOR_EXPECTED_POG_SIGNER` 和三个 `MONITOR_LEGACY_*` 都不用改。`MONITOR_EXPECTED_GATEWAY` 指的是旧网关，新工厂此时 owner 是 Safe，所以先删掉，第 12.5 步再设成新网关。
 
-完成：这一轮 watch 两组都跑到，新的一组只报预期的 WATCHER-06（「盯的工厂换了」）。
+完成：这一轮 watch 两组都跑到。新的一组从 `$blk` 重扫，所以除了 WATCHER-06（「盯的工厂换了」），部署日自己的交易也会全部报出来，会推送到 Telegram：
+
+- 构造函数里的 OwnershipTransferred：GOV-02 是工厂，GOV-03 是 treasury；
+- `setFactory` 触发 GOV-06；
+- 两笔 `transferOwnership(Safe)`：GOV-01 和 GOV-07；
+- 第 5 步的暂停触发 SWITCH-01；
+- 第 6 步 Safe 批量里的两笔 OwnershipTransferred：GOV-02 和 GOV-03。
+
+在 `tosh-alerts` 里逐条核对：交易的发送方要么是部署钱包，要么是 Safe 的 owner（经 `execTransaction`）；新 owner 是 Safe。全部对上后再关闭。对不上的那一条就是真事故。
 
 ## 第 10 步：Safe 第二批（解除新工厂暂停）
 
@@ -296,6 +316,8 @@ Remove-Item Env:\PRIVATE_KEY
 ```
 
 记下输出的 `ToshLaunchGateway:` 地址，下面记作 `$gateway`。
+
+forge 可能报 `dropped from the mempool` 和 `Total Paid: 0`，这是公共 RPC 没及时返回回执造成的误报。不要重跑，先用 `cast code $gateway` 和部署钱包的 `cast nonce` 确认是否已经上链。`--verify` 需要真的 `ETHERSCAN_API_KEY`，没有的话去掉它，之后再单独验证。
 
 2. 生成交接批次（两笔调用、一笔 Safe 交易：`transferOwnership(gateway)` 和 `gateway.execute(acceptOwnership())`）：
 
