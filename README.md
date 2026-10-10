@@ -9,8 +9,8 @@
 |---|---|
 | Version | v5.0 |
 | Date | 2026-09-18 |
-| Network | Migrating to BNB Smart Chain. Rehearsed end to end on testnet `97`; mainnet `56` **not yet deployed** |
-| Quote asset | **BEM** — 8-decimal ERC-20, see §3.1. `97` runs the same denomination against an 8-decimal mock, since real BEM has no testnet deployment; §A.2 says what that does and does not prove |
+| Network | BNB Smart Chain mainnet `56`, live since 2026-09-21. New launches since 2026-10-10 go through the WBNB factory `0xb5D1bBB16fED6048920a78CEEd15fd00b998d362` (ladder treasury `0xE5743620aBdE7A76b1683Be9f607Be6Cf5bbF83d`, owner `ToshLaunchGateway` `0xbD378b7A30adf3AdBcC4D6369206472232a75dD3`, controlled by a 2-of-3 Safe); the first factory `0x20dE906A96FfB89BE6fd6267A0876A68017792F7` is paused for new launches and its projects carry on |
+| Quote asset | **WBNB** (18 decimals) for launches on the WBNB factory; see `docs/BNB_QUOTE_MIGRATION_zh.md`. **Most of this document still describes the BEM design** (8-decimal ERC-20, §3.1) that the earlier factories were built for, and its figures are in BEM |
 | Previously | Robinhood Chain `4663` — retired, see Appendix A |
 | Site | [toshx.xyz](https://toshx.xyz) |
 | Source | [github.com/jayoo101/Tosh-Core](https://github.com/jayoo101/Tosh-Core) |

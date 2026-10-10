@@ -97,6 +97,13 @@ const FACTORY_ABI = [
   'function quoteAsset() view returns (address)',
 ]
 
+/* A `ToshLaunchGateway` owner signs through its Safe; the server resolves it the
+ * same way (`signingAuthority` in api/admin/config/route.ts). */
+const GATEWAY_ABI = [
+  'function factory() view returns (address)',
+  'function safe() view returns (address)',
+]
+
 /* `getMessageHash` and `isValidSignature` live on the CompatibilityFallbackHandler
  * and are reached through the Safe's fallback, so they are called on the Safe's
  * own address. */
@@ -328,7 +335,16 @@ async function connect() {
   }
 
   const factory = new ethers.Contract(factoryAddress(), FACTORY_ABI, provider)
-  const owner = ethers.getAddress(await factory.owner())
+  let owner = ethers.getAddress(await factory.owner())
+  if ((await provider.getCode(owner)) !== '0x') {
+    const gateway = new ethers.Contract(owner, GATEWAY_ABI, provider)
+    const gatewayFactory = await gateway.factory().catch(() => null)
+    if (gatewayFactory && ethers.getAddress(gatewayFactory) === factoryAddress()) {
+      const safeAddr = ethers.getAddress(await gateway.safe())
+      console.log(`  owner         ${owner} is a ToshLaunchGateway; signing for its Safe ${safeAddr}`)
+      owner = safeAddr
+    }
+  }
   if ((await provider.getCode(owner)) === '0x') {
     fail(
       `owner ${owner} is an EOA, not a Safe — this script is for the contract-owner ` +

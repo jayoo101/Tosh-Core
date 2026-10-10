@@ -91,6 +91,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { bearerMatches } from '@/app/lib/adminBearer'
 import {
   isAddress,
+  parseAbi,
   recoverMessageAddress,
   type Address,
   type Hex,
@@ -172,6 +173,41 @@ const FACTORY_ADDRESS  = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
  */
 const BEARER_LABEL = { route: 'admin/config', varName: 'ADMIN_SECRET' } as const
 
+const LAUNCH_GATEWAY_ABI = parseAbi([
+  'function factory() view returns (address)',
+  'function safe() view returns (address)',
+])
+
+/**
+ * The Safe behind a `ToshLaunchGateway` owner, or `owner` itself.
+ *
+ * The gateway holds factory ownership on the Safe's behalf and cannot sign: it
+ * has no `isValidSignature`, so checking against it 403s every request. Every
+ * owner-gated factory call it can make goes through `execute`, which only its
+ * `safe()` may call, so that Safe is the authority a rotation is checked against.
+ * A gateway is recognised by `factory()` naming this factory, which a Safe or an
+ * EOA cannot answer. A `safe()` that cannot be read throws, and the caller turns
+ * that into a 503 like any other failed owner read.
+ */
+async function signingAuthority(owner: Address): Promise<Address> {
+  const client = serverPublicClient()
+  try {
+    const factory = await client.readContract({
+      address: owner,
+      abi: LAUNCH_GATEWAY_ABI,
+      functionName: 'factory',
+    })
+    if ((factory as string).toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) return owner
+  } catch {
+    return owner
+  }
+  return (await client.readContract({
+    address: owner,
+    abi: LAUNCH_GATEWAY_ABI,
+    functionName: 'safe',
+  })) as Address
+}
+
 async function readChainOwner(): Promise<Address | null> {
   if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) return null
   try {
@@ -189,7 +225,7 @@ async function readChainOwner(): Promise<Address | null> {
       abi: FACTORY_ABI,
       functionName: 'owner',
     })
-    return owner as Address
+    return await signingAuthority(owner as Address)
   } catch (err) {
     console.error('[admin/config] readChainOwner failed:', err)
     // Returning null here makes the owner check fail closed, so an RPC outage
