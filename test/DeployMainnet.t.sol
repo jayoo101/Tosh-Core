@@ -53,13 +53,15 @@ contract DeployMainnetTest is Test {
 
     CLPoolManager internal poolManager;
 
-    /// @dev Stands in for BEM. Not the real address, which is the point: the
-    ///      script reads `QUOTE_ASSET` from env and asserts `decimals() == 8`, so
-    ///      what this suite can check is the plumbing — that whatever env names
+    /// @dev Stands in for WBNB, at WBNB's real address: the script refuses any
+    ///      other `QUOTE_ASSET`, so the mock is placed there with `deployCodeTo`.
+    ///      What this suite can check is the plumbing — that the pinned asset
     ///      reaches all three contracts — and not the asset.
     MockQuoteAsset internal quoteAsset;
 
     LegacyFactoryStub internal legacyFactory;
+
+    address internal constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     function setUp() public {
         deployer = vm.addr(deployerPk);
@@ -73,7 +75,8 @@ contract DeployMainnetTest is Test {
         // Deployed by the TEST contract, not by `deployer`, so it leaves the
         // deployer's nonce alone and the `computeCreateAddress(deployer, nonce + 1)`
         // predictions below still name the factory.
-        quoteAsset = new MockQuoteAsset();
+        deployCodeTo("MockQuoteAsset.sol:MockQuoteAsset", WBNB);
+        quoteAsset = MockQuoteAsset(WBNB);
         legacyFactory = new LegacyFactoryStub(address(quoteAsset));
 
         vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(deployerPk)));
@@ -83,7 +86,7 @@ contract DeployMainnetTest is Test {
         vm.setEnv("POG_SIGNER_ADDRESS", vm.toString(pogSigner));
         vm.setEnv("PLATFORM_TREASURY", vm.toString(platformTreasury));
         vm.setEnv("PROD_OWNER_SAFE", vm.toString(prodOwnerSafe));
-        vm.setEnv("LEGACY_FACTORY_ADDRESS", vm.toString(address(legacyFactory)));
+        // LEGACY_FACTORY_ADDRESS deliberately unset: the WBNB deploy binds none.
 
         // Fixed, and never rewritten per test: `setEnv` mutates the process
         // environment, which is outside the state snapshot Forge reverts
@@ -172,15 +175,31 @@ contract DeployMainnetTest is Test {
     /// @notice A retired factory in another quote asset has no pool that could
     ///         pass `addLadderToken`, and the treasury's binding to it is
     ///         immutable, so the script refuses rather than deploying dead weight.
-    function test_run_refusesALegacyFactoryInAnotherQuoteAsset() public {
-        vm.chainId(TARGET_CHAIN);
-
-        vm.mockCall(
-            address(legacyFactory), abi.encodeWithSignature("quoteAsset()"), abi.encode(address(uint160(0xBEEF)))
-        );
-
+    ///         Both retired factories on 56 are BEM, which is exactly this case.
+    function test_requireLegacyInQuote_refusesAnotherQuoteAsset() public {
+        LegacyFactoryStub bemEra = new LegacyFactoryStub(address(uint160(0xBEEF)));
         vm.expectRevert(bytes("LEGACY_FACTORY_ADDRESS is not denominated in QUOTE_ASSET"));
-        script.run();
+        script.requireLegacyInQuote(address(bemEra), address(quoteAsset));
+    }
+
+    function test_requireLegacyInQuote_refusesAnAddressWithNoCode() public {
+        vm.expectRevert(bytes("LEGACY_FACTORY_ADDRESS holds no code on this chain"));
+        script.requireLegacyInQuote(makeAddr("not-a-factory"), address(quoteAsset));
+    }
+
+    function test_requireLegacyInQuote_acceptsTheSameQuoteAsset() public view {
+        script.requireLegacyInQuote(address(legacyFactory), address(quoteAsset));
+    }
+
+    /// @notice A `.env.production` still naming BEM from the previous deploy is
+    ///         the likely miss; the script refuses it by name.
+    function test_requireWbnbQuote_refusesBem() public {
+        vm.expectRevert(bytes("QUOTE_ASSET is not WBNB"));
+        script.requireWbnbQuote(0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a);
+    }
+
+    function test_requireWbnbQuote_acceptsWbnb() public view {
+        script.requireWbnbQuote(WBNB);
     }
 
     function test_run_deploysFactoryAndQueuesOwnershipHandoff() public {
@@ -205,7 +224,7 @@ contract DeployMainnetTest is Test {
         assertEq(factory.ladderTreasury(), treasuryAddr, "ladderTreasury mismatch");
         assertEq(address(treasury.poolManager()), address(poolManager), "treasury poolManager mismatch");
         assertEq(treasury.factory(), factoryAddr, "treasury factory loop not closed");
-        assertEq(treasury.legacyFactory(), address(legacyFactory), "treasury must list the retired factory env named");
+        assertEq(treasury.legacyFactory(), address(0), "WBNB deploy binds no legacy factory");
 
         assertEq(factory.owner(), deployer, "factory owner should still be deployer (step 1 of 2)");
         assertEq(factory.pendingOwner(), prodOwnerSafe, "factory pendingOwner should be Safe");
@@ -305,5 +324,6 @@ contract DeployMainnetTest is Test {
         assertEq(address(factory.quoteAsset()), address(quoteAsset), "factory must pull what env named");
         assertEq(address(impl.quoteAsset()), address(quoteAsset), "and the hooks must settle the same token");
         assertEq(address(treasury.quoteAsset()), address(quoteAsset), "and the treasury must buy back in it");
+        assertEq(address(factory.quoteAsset()), WBNB, "which is WBNB");
     }
 }

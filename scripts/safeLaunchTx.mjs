@@ -7,7 +7,7 @@
  * without signing.
  *
  *   node scripts/safeLaunchTx.mjs create --name "Foo" --symbol FOO \
- *        --developer 0x… --hard-cap 1000 --wallet-cap 46.4 --duration 24h
+ *        --developer 0x… --hard-cap 30 --wallet-cap 1.3 --duration 24h
  *   node scripts/safeLaunchTx.mjs launch --hook 0x…
  *   node scripts/safeLaunchTx.mjs gateway-handoff --gateway 0x…
  *
@@ -19,7 +19,8 @@
  * can list from the launch page, and `create` / `launch` here detect the
  * gateway and target it instead of the factory.
  *
- * Caps are whole BEM (8 decimals); `--hard-cap none` launches with no cap. `--duration` is 3h, 24h or 72h. The output
+ * Caps are whole units of the factory's quote asset (BNB on the WBNB factory),
+ * scaled by the decimals the asset reports; `--hard-cap none` launches with no cap. `--duration` is 3h, 24h or 72h. The output
  * is imported in the Safe web app under Transaction Builder → "drag and drop";
  * the owners then sign and execute it as usual. Nothing here holds a key or
  * broadcasts.
@@ -59,6 +60,7 @@ const FACTORY_ABI = parseAbi([
   'function acceptOwnership()',
   'function paused() view returns (bool)',
   'function hookImplementation() view returns (address)',
+  'function quoteAsset() view returns (address)',
   'function MIN_HARD_CAP() view returns (uint256)',
   'function MAX_HARD_CAP() view returns (uint256)',
   'function UNCAPPED() view returns (uint256)',
@@ -132,7 +134,14 @@ function arg(name, fallback) {
   return fallback
 }
 
-const bem = (v) => `${formatUnits(v, 8)} BEM`
+const ERC20_META_ABI = parseAbi([
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+])
+
+/** Set from the factory's own `quoteAsset()` in `main`, before any amount is parsed or printed. */
+const QUOTE = { decimals: 18, symbol: '' }
+const fmtQuote = (v) => `${formatUnits(v, QUOTE.decimals)} ${QUOTE.symbol}`
 
 /** The decoded custom error when viem found one, else its one-line message. */
 function revertReason(e) {
@@ -153,7 +162,7 @@ function check(label, pass, detail) {
 }
 
 function usage() {
-  console.error('usage: node scripts/safeLaunchTx.mjs create --name N --symbol S --developer 0x… --hard-cap BEM --wallet-cap BEM --duration 3h|24h|72h')
+  console.error('usage: node scripts/safeLaunchTx.mjs create --name N --symbol S --developer 0x… --hard-cap AMOUNT --wallet-cap AMOUNT --duration 3h|24h|72h')
   console.error('       node scripts/safeLaunchTx.mjs launch --hook 0x…')
   console.error('       node scripts/safeLaunchTx.mjs gateway-handoff --gateway 0x…')
   console.error('       [--factory 0x…] [--rpc url] [--out file.json]')
@@ -196,7 +205,14 @@ async function main() {
 
   const owner = getAddress(await read('owner'))
   const ownerCode = await pub.getCode({ address: owner })
-  console.log(`chain ${chainId} · factory ${factory}`)
+  const quoteAsset = getAddress(await read('quoteAsset'))
+  const [quoteDecimals, quoteSymbol] = await Promise.all([
+    pub.readContract({ address: quoteAsset, abi: ERC20_META_ABI, functionName: 'decimals' }),
+    pub.readContract({ address: quoteAsset, abi: ERC20_META_ABI, functionName: 'symbol' }),
+  ])
+  QUOTE.decimals = Number(quoteDecimals)
+  QUOTE.symbol = quoteSymbol
+  console.log(`chain ${chainId} · factory ${factory} · quote ${quoteSymbol} (${QUOTE.decimals} dp)`)
   const route = await resolveRoute(pub, factory, owner)
   if (route.gateway) {
     console.log(`owner ${owner} (ToshLaunchGateway → Safe ${route.safe})`)
@@ -300,22 +316,22 @@ async function buildCreate({ pub, read, factory, route, chainId }) {
   // factory stores it as UNCAPPED, and its hookInitcodeHash maps 0 the same
   // way, so the local hash below must be computed from the stored value.
   const uncapped = hardCapArg === 'none' || Number(hardCapArg) === 0
-  const hardCap = uncapped ? 0n : parseUnits(hardCapArg, 8)
-  const walletCap = parseUnits(walletCapArg, 8)
+  const hardCap = uncapped ? 0n : parseUnits(hardCapArg, QUOTE.decimals)
+  const walletCap = parseUnits(walletCapArg, QUOTE.decimals)
   const [minHard, maxHard, paused, implementation, storedUncapped] = await Promise.all([
     read('MIN_HARD_CAP'), read('MAX_HARD_CAP'), read('paused'), read('hookImplementation'), read('UNCAPPED'),
   ])
   check('factory is not paused', paused === false)
   if (uncapped) {
     check('wallet cap is non-zero and at most MAX_HARD_CAP (no hard cap)',
-      walletCap > 0n && walletCap <= maxHard, `${bem(walletCap)} (at most ${bem(maxHard)})`)
+      walletCap > 0n && walletCap <= maxHard, `${fmtQuote(walletCap)} (at most ${fmtQuote(maxHard)})`)
   } else {
     check('hard cap within MIN_HARD_CAP..MAX_HARD_CAP', hardCap >= minHard && hardCap <= maxHard,
-      `${bem(hardCap)} (allowed ${bem(minHard)} – ${bem(maxHard)})`)
-    check('wallet cap is non-zero and at most the hard cap', walletCap > 0n && walletCap <= hardCap, bem(walletCap))
+      `${fmtQuote(hardCap)} (allowed ${fmtQuote(minHard)} – ${fmtQuote(maxHard)})`)
+    check('wallet cap is non-zero and at most the hard cap', walletCap > 0n && walletCap <= hardCap, fmtQuote(walletCap))
   }
   const storedHardCap = uncapped ? storedUncapped : hardCap
-  const hardCapText = uncapped ? 'none (runs to the deadline)' : bem(hardCap)
+  const hardCapText = uncapped ? 'none (runs to the deadline)' : fmtQuote(hardCap)
   check('symbol is upper-case', symbol === symbol.toUpperCase(), symbol)
 
   const nameKey = keccak256(encodeAbiParameters([{ type: 'string' }, { type: 'string' }], [name, symbol]))
@@ -352,13 +368,13 @@ async function buildCreate({ pub, read, factory, route, chainId }) {
     file: builderFile({
       chainId, safe: route.safe, to: route.to, data,
       name: `createLaunch ${symbol}`,
-      description: `${name} (${symbol}) · developer ${developer} · hard cap ${hardCapText} · wallet cap ${bem(walletCap)} · ${durationArg} · predicted hook ${predicted}`,
+      description: `${name} (${symbol}) · developer ${developer} · hard cap ${hardCapText} · wallet cap ${fmtQuote(walletCap)} · ${durationArg} · predicted hook ${predicted}`,
     }),
     summary: [
       `createLaunch("${name}", "${symbol}")`,
       `  developer      ${developer}   (receives the Circuit NFT)`,
       `  hard cap       ${hardCapText}`,
-      `  wallet cap     ${bem(walletCap)}`,
+      `  wallet cap     ${fmtQuote(walletCap)}`,
       `  duration       ${durationArg}  (genesis window starts at execution)`,
       `  salt           ${rawSalt}`,
       `  predicted hook ${predicted}`,
@@ -385,7 +401,7 @@ async function buildLaunch({ pub, read, factory, route, chainId }) {
   check('not launched yet', launched === false)
   check('genesis window has closed', now > deadline, `deadline ${stamp(deadline)}`)
   check('launch window still open', now <= closes, `closes ${stamp(closes)}`)
-  check('raise can carry the ladder', viable === true, `raised ${bem(raised)}`)
+  check('raise can carry the ladder', viable === true, `raised ${fmtQuote(raised)}`)
 
   try {
     await pub.simulateContract({ address: route.to, abi: FACTORY_ABI, functionName: 'launch', args: [hook], account: route.safe })
@@ -399,11 +415,11 @@ async function buildLaunch({ pub, read, factory, route, chainId }) {
     file: builderFile({
       chainId, safe: route.safe, to: route.to, data,
       name: `launch ${hook}`,
-      description: `factory.launch(${hook}) · raised ${bem(raised)} · window closes ${stamp(closes)}`,
+      description: `factory.launch(${hook}) · raised ${fmtQuote(raised)} · window closes ${stamp(closes)}`,
     }),
     summary: [
       `launch(${hook})`,
-      `  raised         ${bem(raised)}`,
+      `  raised         ${fmtQuote(raised)}`,
       `  window closes  ${stamp(closes)} — the Safe must EXECUTE before this, not just sign`,
     ].join('\n'),
   }

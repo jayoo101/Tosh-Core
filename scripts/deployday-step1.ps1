@@ -88,21 +88,28 @@ Ok 'same wallet'
 # baked into the hook implementation. Remedy is redeploying everything.
 Step 5 'Proving every variable the broadcast depends on is set'
 $must = 'TARGET_CHAIN_ID', 'TARGET_RPC', 'PLATFORM_TREASURY', 'PROD_OWNER_SAFE',
-        'POG_SIGNER_ADDRESS', 'QUOTE_ASSET', 'INFINITY_CL_POOL_MANAGER', 'INFINITY_VAULT',
-        'LEGACY_FACTORY_ADDRESS'
+        'POG_SIGNER_ADDRESS', 'QUOTE_ASSET', 'INFINITY_CL_POOL_MANAGER', 'INFINITY_VAULT'
 $bad = $must | Where-Object { -not $(Get-Item "Env:\$_" -ErrorAction SilentlyContinue).Value }
 if ($bad) { Die "NOT EXPORTED: $($bad -join ', ') -- do not broadcast." }
 Write-Host ''
 $must | ForEach-Object { Write-Host ('    {0,-26} {1}' -f $_, (Get-Item "Env:\$_").Value) }
 
 # ── 6. The two that must be read, not just be present ────────────────────────
-Step 6 'Checking the two values that fail permanently and silently'
+Step 6 'Checking the values that fail permanently and silently'
 if ($env:TARGET_CHAIN_ID -ne '56') { Die "TARGET_CHAIN_ID is '$($env:TARGET_CHAIN_ID)', not 56." }
 Ok 'TARGET_CHAIN_ID is 56'
 if ($env:PLATFORM_TREASURY.ToLower() -ne $env:PROD_OWNER_SAFE.ToLower()) {
   Die "PLATFORM_TREASURY ($env:PLATFORM_TREASURY) is not the owner Safe ($env:PROD_OWNER_SAFE). PM-C9 decided they are the same Safe."
 }
 Ok 'PLATFORM_TREASURY is the owner Safe (PM-C9)'
+if ($env:QUOTE_ASSET.ToLower() -ne '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c') {
+  Die "QUOTE_ASSET ($env:QUOTE_ASSET) is not WBNB. The script refuses anything else on 56."
+}
+Ok 'QUOTE_ASSET is WBNB'
+if ($env:LEGACY_FACTORY_ADDRESS) {
+  Die "LEGACY_FACTORY_ADDRESS is set ($env:LEGACY_FACTORY_ADDRESS). Both retired factories are BEM-quoted; remove it from .env.production."
+}
+Ok 'LEGACY_FACTORY_ADDRESS is unset'
 
 Write-Host "`nStep 1 done. This window is now the deploy session -- do not close it.`n" -ForegroundColor Green
 Write-Host 'Next, the DRY RUN (sends nothing):'
