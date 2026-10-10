@@ -7,9 +7,8 @@ import {
   Card, Readout, ActionButton, useActionGate, useTxAction, formatCountdown,
   revertOrder,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
-import { fmtQuote } from './format'
+import { useQuote } from './quoteContext'
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +34,7 @@ export function AwaitingLaunchPanel({
   refetch:           () => void
 }) {
   const t = useT()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
 
   const { send, isPending, isConfirming } = useTxAction({
     action: t.awaitingLaunch.txAction,

@@ -33,7 +33,6 @@ import { fmtQuote } from '@/components/ProjectTerminal/format'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
 
 function safeHref(url: string | null | undefined): string | null {
@@ -159,9 +158,9 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
           {tradable && live && (
             <div className="flex items-end gap-6 sm:flex-col sm:items-end sm:gap-1">
               <span className="font-mono text-section font-bold tabular-nums tracking-tight text-text-primary sm:text-hero">
-                {live.currentPrice > 0n ? fmtQuote(live.currentPrice) : '—'}
+                {live.currentPrice > 0n ? fmtQuote(live.currentPrice, 4, live.quote.decimals) : '—'}
                 <span className="ml-1.5 text-readout font-normal text-text-secondary">
-                  {fill(t.headerPriceUnit, { quote: QUOTE_SYMBOL })}
+                  {fill(t.headerPriceUnit, { quote: live.quote.symbol })}
                 </span>
               </span>
               {/* WAS A PERMANENT "no price feed · 24h". The mock prints a 24h

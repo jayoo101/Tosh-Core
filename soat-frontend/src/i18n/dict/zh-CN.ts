@@ -1069,6 +1069,18 @@ export const ZH_CN: PartialDictionary = {
     noAllocation: '[ 无额度 ]',
   },
 
+  wrap: {
+    txAction:      '包装 {native}',
+    wrapLabel:     '先包装 {amount} {native}',
+    wrappingLabel: '包装中…',
+    wrapReason:    '这一步用 {wrapped} 支付，也就是代币形式的 {native}。包装会把你的 {amount} {native} 按 1:1 换成 {wrapped}，'
+                 + '合约才能扣款；多出来的可以在个人面板里解包。',
+    unwrapTx:      '解包 {wrapped}',
+    unwrapTitle:   '已包装的 {native}',
+    unwrapHint:    '货架购买或撤出流动性后剩下的。解包后按 1:1 换回 {native}。',
+    unwrapCta:     '解包 {amount} {wrapped}',
+  },
+
   chrome: {
     wrongNetwork:        '网络不对 —— Tosh 在 {chain} 上结算。请切换网络后继续。',
     wrongNetworkStaging: '网络不对 —— Tosh 在 {chain} 上结算；测试环境运行在 {staging} 上。请切换网络后继续。',

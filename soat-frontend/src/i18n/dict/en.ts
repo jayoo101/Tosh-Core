@@ -1436,6 +1436,23 @@ export const EN = {
   },
 
   /**
+   * BNB ⇄ WBNB on a WBNB project. A genesis deposit takes BNB directly; a shelf
+   * buy and an LP add pull WBNB, so a short wrapped balance is topped up by
+   * wrapping first. `{amount}` is already formatted.
+   */
+  wrap: {
+    txAction:      'Wrap {native}',
+    wrapLabel:     'Wrap {amount} {native} first',
+    wrappingLabel: 'Wrapping…',
+    wrapReason:    'This step pays in {wrapped}, the token form of {native}. Wrapping turns {amount} of your {native} '
+                 + 'into {wrapped} 1:1 so the contract can take it; unwrap any leftover from your profile.',
+    unwrapTx:      'Unwrap {wrapped}',
+    unwrapTitle:   'Wrapped {native}',
+    unwrapHint:    'Left over from a shelf buy or an LP removal. Unwrap to get {native} back 1:1.',
+    unwrapCta:     'Unwrap {amount} {wrapped}',
+  },
+
+  /**
    * Site-wide pieces outside any one page: the wrong-network strip, the copy
    * control on every address, and the 404 page. The 404's `→` arrows stay in
    * the JSX.
@@ -1490,7 +1507,7 @@ export const EN = {
  */
 export const TIER0_SURFACES = [
   'tx', 'gate', 'nav', 'wallet', 'deposit', 'refund', 'claim', 'ineligible', 'ledger',
-  'awaitingLaunch', 'success', 'gas', 'referral',
+  'awaitingLaunch', 'success', 'gas', 'referral', 'wrap',
 ] as const
 
 /** Where a Tier-0 gap fails the build rather than falling back. */

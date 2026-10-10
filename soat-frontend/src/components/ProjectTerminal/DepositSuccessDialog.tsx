@@ -25,9 +25,8 @@ import type { Address } from 'viem'
 
 import { fill, Linked, useT } from '@/i18n'
 import { PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS } from '@/lib/contracts'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { fmtQuote } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
+import { useQuote } from './quoteContext'
 
 const PROJECT_PCT = PROJECT_REFERRAL_BPS / 100
 const LIFETIME_PCT = LIFETIME_REFERRAL_BPS / 100
@@ -43,6 +42,7 @@ export function DepositSuccessDialog({
   deposited:   bigint
 }) {
   const t = useT()
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote } = useQuote()
   const link = useReferralLink(userAddress, symbol)
 
   useEffect(() => {

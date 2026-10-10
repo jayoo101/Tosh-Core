@@ -34,7 +34,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * EXIT CODES
  *   0  the app, the factory, the hook implementation and the treasury agree
- *   1  they disagree, or the token is not an 8-decimal ERC-20
+ *   1  they disagree, or the token's decimals differ from the factory's or the app's
  *   2  the check could not run (no RPC, unreachable chain)
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -139,7 +139,18 @@ const FACTORY_ABI = [
   QUOTE_ASSET_FN,
   fn('hookImplementation', [{ type: 'address' }]),
   fn('ladderTreasury', [{ type: 'address' }]),
+  fn('QUOTE_UNIT', [{ type: 'uint256' }]),
 ]
+
+/**
+ * The decimals the app will scale amounts by: `src/lib/quoteAssets.ts`'s known
+ * table first, then `NEXT_PUBLIC_QUOTE_DECIMALS`. Restated rather than imported
+ * because this runs as plain node; a drift between the two copies fails here.
+ */
+const KNOWN_DECIMALS = {
+  '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c': 18, // WBNB
+  '0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a': 8,  // BEM
+}
 const ERC20_ABI = [
   fn('decimals', [{ type: 'uint8' }]),
   fn('symbol', [{ type: 'string' }]),
@@ -225,15 +236,27 @@ for (const [label, getterName] of [
 }
 
 /*
- * Eight decimals is a protocol invariant, not a property of one token: the hook's
- * constructor asserts it and refuses to deploy against anything else. Checked here
- * because the frontend mirrors the number as a constant, and a mirror that drifts
- * misreads every amount by whatever the gap is.
+ * Three copies of one number: the token's `decimals()`, the factory's
+ * `QUOTE_UNIT` (which every cap and price in the protocol is scaled by), and
+ * the decimals the app reads amounts at. Any two drifting misreads every amount
+ * by the gap, and nothing on screen looks wrong.
  */
 try {
   const decimals = Number(await read(onChainQuote, ERC20_ABI, 'decimals'))
   const symbol = await read(onChainQuote, ERC20_ABI, 'symbol').catch(() => '?')
-  report(decimals === 8, 'quote asset has 8 decimals', `${symbol} · decimals ${decimals}`)
+
+  const unit = await read(factoryAddress, FACTORY_ABI, 'QUOTE_UNIT').catch(() => undefined)
+  if (unit === undefined) {
+    console.log('  note  factory has no QUOTE_UNIT() (a pre-WBNB build); token decimals not reconciled against it')
+  } else {
+    report(unit === 10n ** BigInt(decimals), 'factory.QUOTE_UNIT == 10^decimals()',
+      `${symbol} · decimals ${decimals} · QUOTE_UNIT ${unit}`)
+  }
+
+  const appDecimals = KNOWN_DECIMALS[declared.toLowerCase()] ?? Number(env('NEXT_PUBLIC_QUOTE_DECIMALS'))
+  report(appDecimals === decimals, 'the app reads amounts at the token\'s decimals',
+    appDecimals === decimals ? `${symbol} · decimals ${decimals}`
+      : `app would use ${Number.isFinite(appDecimals) ? appDecimals : '(unset)'}, token has ${decimals}`)
 
   const declaredSymbol = env('NEXT_PUBLIC_QUOTE_SYMBOL')
   if (declaredSymbol && declaredSymbol !== symbol) {

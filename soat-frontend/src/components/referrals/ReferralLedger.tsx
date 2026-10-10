@@ -8,9 +8,8 @@ import type { Address } from 'viem'
 import {
   FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI,
   REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
-  CHAIN_BYLINE,
+  CHAIN_BYLINE, CURRENT_QUOTE,
 } from '@/lib/contracts'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useDirectoryProjects, SCAN_DEPTH, type DirectoryProject } from '@/components/directory/useDirectoryProjects'
 import {
   Badge, Card, PageHeader, Readout, ReadoutGrid, Skeleton,
@@ -56,6 +55,25 @@ import { fill, Linked, useT } from '@/i18n'
 // on screen once it starts cutting, and the project's own desk remains the
 // route to anything past it.
 
+/**
+ * An amount in a project's own quote asset, scaled to 18 decimals so rows
+ * denominated in BEM (8) and WBNB (18) can be ordered against each other.
+ * Ordering only: the figures are different assets and are never summed.
+ */
+function sortKey(units: bigint, decimals: number): bigint {
+  return decimals >= 18 ? units : units * 10n ** BigInt(18 - decimals)
+}
+
+interface AssetTotal { symbol: string; decimals: number; claimable: bigint; accrued: bigint }
+
+/** Per-asset totals, joined: "1.2 BNB + 30 BEM". A single asset prints alone. */
+function joinTotals(totals: AssetTotal[], pick: (a: AssetTotal) => bigint): string {
+  const parts = totals.filter(a => pick(a) !== 0n).map(a => `${fmtQuote(pick(a), 4, a.decimals)} ${a.symbol}`)
+  if (parts.length > 0) return parts.join(' + ')
+  const first = totals[0]
+  return first ? `0 ${first.symbol}` : '0'
+}
+
 /** Whole percents at these rates — see the note in `ReferralPanel`. */
 const REFERRAL_PCT = REFERRAL_BPS / 100
 const PROJECT_PCT = PROJECT_REFERRAL_BPS / 100
@@ -83,6 +101,7 @@ interface LedgerRow {
 function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void }) {
   const { project, accrued, claimable, recruits, degraded } = row
   const t = useT().referralLedger
+  const { symbol, decimals } = project.quote
 
   const { send, isPending, isConfirming } = useTxAction({
     action: t.txAction,
@@ -144,15 +163,15 @@ function ReferralRow({ row, onClaimed }: { row: LedgerRow; onClaimed: () => void
         <Readout
           layout="stack"
           label={t.claimable}
-          value={`${fmtQuote(claimable)} ${QUOTE_SYMBOL}`}
-          hint={claimable === 0n ? t.claimableHint : fmtQuoteFull(claimable)}
+          value={`${fmtQuote(claimable, 4, decimals)} ${symbol}`}
+          hint={claimable === 0n ? t.claimableHint : fmtQuoteFull(claimable, decimals)}
           tone={claimable > 0n ? 'ok' : 'mute'}
         />
         <Readout
           layout="stack"
           label={t.earned}
-          value={`${fmtQuote(accrued)} ${QUOTE_SYMBOL}`}
-          hint={accrued === 0n ? t.earnedHint : fmtQuoteFull(accrued)}
+          value={`${fmtQuote(accrued, 4, decimals)} ${symbol}`}
+          hint={accrued === 0n ? t.earnedHint : fmtQuoteFull(accrued, decimals)}
           tone={accrued > 0n ? 'ink' : 'mute'}
         />
         <Readout
@@ -255,20 +274,42 @@ export function ReferralLedger() {
 
     // Claimable first, because that is the only row with an action on it.
     out.sort((a, b) => {
-      if (a.claimable !== b.claimable) return a.claimable > b.claimable ? -1 : 1
-      return a.accrued > b.accrued ? -1 : a.accrued < b.accrued ? 1 : 0
+      const ca = sortKey(a.claimable, a.project.quote.decimals)
+      const cb = sortKey(b.claimable, b.project.quote.decimals)
+      if (ca !== cb) return ca > cb ? -1 : 1
+      const aa = sortKey(a.accrued, a.project.quote.decimals)
+      const ab = sortKey(b.accrued, b.project.quote.decimals)
+      return aa > ab ? -1 : aa < ab ? 1 : 0
     })
     return out
   }, [ledgerQuery.data, projects])
 
+  // Summed per asset: a retired launch's commission is BEM and a current one's
+  // is WBNB, and adding the raw units would publish a number in neither.
   const totals = useMemo(() => {
-    let claimable = 0n
-    let accrued = 0n
+    const byAsset = new Map<string, AssetTotal>()
+    byAsset.set(CURRENT_QUOTE.asset.toLowerCase(), {
+      symbol: CURRENT_QUOTE.symbol, decimals: CURRENT_QUOTE.decimals, claimable: 0n, accrued: 0n,
+    })
     for (const r of rows) {
-      claimable += r.claimable
-      accrued += r.accrued
+      const q = r.project.quote
+      const key = q.asset.toLowerCase()
+      const acc = byAsset.get(key) ?? { symbol: q.symbol, decimals: q.decimals, claimable: 0n, accrued: 0n }
+      acc.claimable += r.claimable
+      acc.accrued += r.accrued
+      byAsset.set(key, acc)
     }
-    return { claimable, accrued, locked: accrued - claimable }
+    const list = [...byAsset.values()]
+    const single = list.filter(a => a.accrued !== 0n).length <= 1
+    const anyClaimable = list.some(a => a.claimable !== 0n)
+    const anyLocked = list.some(a => a.accrued - a.claimable !== 0n)
+    const claimableOnly = list.find(a => a.claimable !== 0n)
+    return {
+      claimableText: joinTotals(list, a => a.claimable),
+      lockedText: joinTotals(list, a => a.accrued - a.claimable),
+      claimableFull: single && claimableOnly ? fmtQuoteFull(claimableOnly.claimable, claimableOnly.decimals) : undefined,
+      anyClaimable, anyLocked,
+    }
   }, [rows])
 
   const refetchLedger = ledgerQuery.refetch
@@ -298,17 +339,17 @@ export function ReferralLedger() {
             <Readout
               layout="stack"
               label={t.totalClaimable}
-              value={`${fmtQuote(totals.claimable)} ${QUOTE_SYMBOL}`}
-              hint={totals.claimable === 0n ? t.totalClaimableHint : fmtQuoteFull(totals.claimable)}
-              tone={totals.claimable > 0n ? 'ok' : 'mute'}
+              value={totals.claimableText}
+              hint={!totals.anyClaimable ? t.totalClaimableHint : totals.claimableFull}
+              tone={totals.anyClaimable ? 'ok' : 'mute'}
               loading={loading}
             />
             <Readout
               layout="stack"
               label={t.totalLocked}
-              value={`${fmtQuote(totals.locked)} ${QUOTE_SYMBOL}`}
+              value={totals.lockedText}
               hint={t.totalLockedHint}
-              tone={totals.locked > 0n ? 'warn' : 'mute'}
+              tone={totals.anyLocked ? 'warn' : 'mute'}
               loading={loading}
             />
             <Readout

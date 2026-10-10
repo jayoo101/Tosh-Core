@@ -183,7 +183,14 @@ forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(add
 vercel env update NEXT_PUBLIC_FACTORY_ADDRESS production --value $factory --yes
 vercel env update NEXT_PUBLIC_TREASURY_ADDRESS production --value $treasury --yes
 vercel env update NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES production --value "0xBCa66f7382aaC0C6EE2b833fc2072CA607367f2c,0x20dE906A96FfB89BE6fd6267A0876A68017792F7" --yes
+vercel env update NEXT_PUBLIC_QUOTE_ASSET production --value 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c --yes
+vercel env rm NEXT_PUBLIC_QUOTE_SYMBOL production --yes
 ```
+
+- 四个变量必须在同一次 Redeploy 里一起生效：工厂换成 WBNB 工厂而计价资产还是 BEM（或反过来），
+  前端会按错的小数位读金额。
+- `NEXT_PUBLIC_QUOTE_SYMBOL` 删掉：WBNB 和 BEM 都在前端的已知资产表里，符号和小数位自带；
+  留着旧的 `BEM` 没有作用，只会让人误会。
 
 - `NEXT_PUBLIC_LAUNCHES_PAUSED` 保持 `1`。
 

@@ -27,14 +27,15 @@
  */
 import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
-import { useAccount, useReadContract, useReadContracts } from 'wagmi'
+import { useAccount, useBalance, useReadContract, useReadContracts } from 'wagmi'
 import { parseAbi, type Address, type ContractFunctionParameters } from 'viem'
 
 import type { ProjectRow } from '@/app/lib/supabase'
 import {
   FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, BONDING_MAX, TIER_COUNT, TIER_SIZE,
-  ERC20_ABI, QUOTE_ASSET, QUOTE_SYMBOL, TARGET_CHAIN_ID,
+  ERC20_ABI, TARGET_CHAIN_ID, quoteForAsset, type QuoteConfig,
 } from '@/lib/contracts'
+import { QuoteProvider } from './quoteContext'
 import { isUnlisted } from '@/lib/projectRow'
 import { useBoundReferrer } from '@/lib/useReferral'
 import {
@@ -135,6 +136,8 @@ export interface TerminalHeaderState {
    * the only place it exists.
    */
   creator: Address | undefined
+  /** The hook's quote asset, which `currentPrice` is denominated in. */
+  quote: QuoteConfig
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +166,16 @@ export default function ProjectTerminal({ project, about, header }: {
   const hookAddress = project.hook_address as Address | undefined
   const symbol      = project.symbol || 'TOK'
 
+  // The hook's own asset, not the current factory's: a retired BEM launch is
+  // read at 8 decimals and a WBNB one at 18 on the same site. Immutable, so read
+  // once; nothing quote-denominated renders until it lands.
+  const { data: hookQuoteAsset, isError: quoteAssetFailed } = useReadContract({
+    address: hookAddress, abi: HOOK_ABI, functionName: 'quoteAsset',
+    query: { enabled: !!hookAddress, staleTime: Infinity },
+  })
+  const quote = quoteForAsset(hookQuoteAsset as Address | undefined)
+  const quoteAsset = quote?.asset
+
   /*
    * ONE BALANCE, AND IT IS NO LONGER THE NATIVE ONE.
    *
@@ -179,13 +192,23 @@ export default function ProjectTerminal({ project, about, header }: {
    * 9.28e8, so every balance gate in the terminal would have opened for everyone.
    * The deposits would then revert inside `transferFrom`, having spent gas.
    */
-  const { data: quoteBal } = useReadContract({
-    address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf',
+  const { data: quoteBal, refetch: refetchQuoteBal } = useReadContract({
+    address: quoteAsset, abi: ERC20_ABI, functionName: 'balanceOf',
     args: userAddress ? [userAddress] : undefined,
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: !!userAddress },
+    query: { enabled: !!userAddress && !!quoteAsset },
   })
   const quoteBalance = quoteBal ?? 0n
+
+  // The native balance is back, for a WBNB project only, and under its own name
+  // so it is never compared against a BEM amount: it funds `depositNative`
+  // directly and tops up the wrapped balance a shelf mint or an LP add pulls.
+  const { data: nativeBal, refetch: refetchNativeBal } = useBalance({
+    address: userAddress,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: !!userAddress && !!quote?.wrapsNative },
+  })
+  const nativeBalance = quote?.wrapsNative ? (nativeBal?.value ?? 0n) : 0n
 
   /**
    * The shared clock store, not a locally-seeded one.
@@ -248,13 +271,19 @@ export default function ProjectTerminal({ project, about, header }: {
       // and deliberately leaves the total alone, because `claimTokens` divides
       // by it. So the total is a high-water mark that never falls, and a raise
       // refunded down to nothing still reports its peak forever.
-      { address: QUOTE_ASSET, abi: ERC20_ABI, functionName: 'balanceOf', args: [hookAddress] },
+      { address: quoteAsset as Address, abi: ERC20_ABI, functionName: 'balanceOf', args: [hookAddress] },
     ] : []
 
-  const { data, refetch } = useReadContracts({
+  const { data, refetch: refetchBulk } = useReadContracts({
     contracts: bulkContracts,
-    query: { enabled: !!hookAddress, refetchInterval: 12_000 },
+    query: { enabled: !!hookAddress && !!quoteAsset, refetchInterval: 12_000 },
   })
+  // Every action below changes a wallet balance as well as hook state, and the
+  // two balance reads are outside the bulk poll.
+  const refetch = () => {
+    void refetchBulk()
+    if (userAddress) { void refetchQuoteBal(); if (quote?.wrapsNative) void refetchNativeBal() }
+  }
 
   const totalNativeDeposited  = (data?.[0]?.result  as bigint  | undefined) ?? 0n
   const launched           = (data?.[1]?.result  as boolean | undefined) ?? false
@@ -414,10 +443,29 @@ export default function ProjectTerminal({ project, about, header }: {
     )
   }
 
+  // A hook in an asset this site cannot scale. Printing its figures at a guessed
+  // decimals is the 10^10 misread, so it gets an explanation instead of numbers.
+  if (quoteAssetFailed || (hookQuoteAsset !== undefined && !quote)) {
+    return (
+      <>
+        {header?.(null)}
+        <div className="mt-6 flex flex-col">
+          <Card id="ERR" title="UNKNOWN QUOTE ASSET">
+            <p className="font-mono text-note text-text-tertiary leading-relaxed">
+              This project&apos;s hook is denominated in{' '}
+              <span className="text-brand">{String(hookQuoteAsset ?? 'an asset that could not be read')}</span>,
+              which this site does not know how to display.
+            </p>
+          </Card>
+        </div>
+      </>
+    )
+  }
+
   // Vertical rhythm lives on the container rather than as `mt-6` on each panel:
   // a Card carrying its own top margin only spaces correctly when it happens to
   // have a sibling above it.
-  if (!clockReady) {
+  if (!clockReady || !quote) {
     return (
       <>
         {header?.(null)}
@@ -517,7 +565,7 @@ export default function ProjectTerminal({ project, about, header }: {
             <p className="font-mono text-label text-warning">Refund window open</p>
             <p className="mt-1 text-note text-text-secondary leading-relaxed">
               This raise did not open a pool. Every depositor can reclaim 100% of
-              their {QUOTE_SYMBOL} — no penalty, no haircut, no expiry on the claim itself.
+              their {quote.symbol} — no penalty, no haircut, no expiry on the claim itself.
             </p>
           </div>
         )}
@@ -558,7 +606,9 @@ export default function ProjectTerminal({ project, about, header }: {
                 userAddress={userAddress}
                 isConnected={wConnected}
                 quoteBalance={quoteBalance}
+                nativeBalance={nativeBalance}
                 nowSec={nowSec}
+                refetchBalances={refetch}
               />
             )}
           </>
@@ -609,6 +659,7 @@ export default function ProjectTerminal({ project, about, header }: {
             isConnected={wConnected}
             totalNativeDeposited={totalNativeDeposited}
             quoteBalance={quoteBalance}
+            nativeBalance={nativeBalance}
             pogQuota={pogQuota}
             quotaRemaining={quotaRemaining}
             blacklistedUntil={blacklistedUntil}
@@ -652,7 +703,7 @@ export default function ProjectTerminal({ project, about, header }: {
   )
 
   return (
-    <>
+    <QuoteProvider value={quote}>
       {header?.({
         phase,
         currentPrice,
@@ -666,6 +717,7 @@ export default function ProjectTerminal({ project, about, header }: {
           ? Math.min(TIER_COUNT, Number(phase2Minted / TIER_SIZE))
           : 0,
         creator: creatorAddress as Address | undefined,
+        quote,
       })}
       {/*
         The provider wraps BOTH tracks because its two consumers sit in
@@ -684,12 +736,13 @@ export default function ProjectTerminal({ project, about, header }: {
           phase2Minted={phase2Minted}
           bondingMax={bondingMax}
           quoteBalance={quoteBalance}
+          nativeBalance={nativeBalance}
           nowSec={nowSec}
           refetch={() => { void refetch() }}
         >
           {grid}
         </BondingStateProvider>
       ) : grid}
-    </>
+    </QuoteProvider>
   )
 }

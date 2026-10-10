@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Tosh Protocol — canonical on-chain bindings (v5.0, BEM quote asset, PancakeSwap Infinity).
+// Tosh Protocol — canonical on-chain bindings (v5.0, WBNB quote asset, PancakeSwap Infinity).
 //
 // SINGLE SOURCE OF TRUTH for:
 //   • Physical constants (addresses, chain IDs, hard floors mirrored from
@@ -23,7 +23,8 @@
 //                                     whose launches are still listed (optional)
 //   NEXT_PUBLIC_QUOTE_ASSET         — the token `factory.quoteAsset()` returns
 //                                     (required, and deliberately has no default)
-//   NEXT_PUBLIC_QUOTE_SYMBOL        — its ticker for display; 'BEM' if unset
+//   NEXT_PUBLIC_QUOTE_SYMBOL        — ticker, only for a token `quoteAssets.ts` does not know
+//   NEXT_PUBLIC_QUOTE_DECIMALS      — decimals, required for such a token (no default)
 //   NEXT_PUBLIC_CHAIN_ID            — settlement chain (default 97, BSC testnet)
 //   NEXT_PUBLIC_POSITION_MANAGER    — Infinity CLPositionManager; the target
 //                                     chain's address if unset
@@ -43,6 +44,9 @@ import { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI } from '@/app/lib/abis'
 // thing: `export … from` forwards a name without binding it locally, so
 // QUOTE_POSITIONING needs it imported here as well.
 import { envAddress, TARGET_CHAIN_ID, BSC_ID, BSC_TESTNET_ID, IS_TESTNET } from '@/lib/chain'
+import { knownQuote, RETIRED_FACTORY_QUOTES, type QuoteConfig } from '@/lib/quoteAssets'
+
+export type { QuoteConfig }
 
 export { FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI }
 export {
@@ -141,7 +145,7 @@ export function isListedFactory(addr: string | null | undefined): boolean {
  * implementation and the treasury alike. A default here would let the app approve
  * one token while the factory pulls another, which does not fail at approve time:
  * the allowance is granted, the button enables, and the deposit reverts. On chain
- * 56 the value is BEM; on 97 BEM has no deployment at all, so whatever 8-decimal
+ * 56 the value is WBNB; on 97 the factory runs against a mock, so whatever
  * token the testnet factory was constructed against is the only correct answer and
  * this file cannot guess it.
  *
@@ -158,27 +162,67 @@ if (!process.env.NEXT_PUBLIC_QUOTE_ASSET) {
 }
 export const QUOTE_ASSET = process.env.NEXT_PUBLIC_QUOTE_ASSET as Address
 
-/**
- * Eight, not eighteen, and nothing may assume otherwise.
- *
- * The hook's constructor asserts `decimals() == 8` and refuses to deploy against
- * anything else, so this is a protocol invariant rather than a property of a
- * particular token. It is mirrored here because the ten-orders-of-magnitude gap
- * between this and the project token's 18 is the single most common way a display
- * or an input silently misreads a balance by a factor of 10^10 — `formatUnits(x, 18)`
- * on a quote amount shows 0.0000000928 where 9.28 belongs, and reads as a rounding
- * artefact rather than as a bug.
- */
-export const QUOTE_DECIMALS = 8
+const KNOWN_CURRENT_QUOTE = knownQuote(QUOTE_ASSET)
 
 /**
- * What to call it on screen.
+ * The CURRENT factory's quote decimals: 18 for WBNB, 8 for the retired BEM.
  *
- * Read from env so the testnet's stand-in token is not labelled BEM: chain 97 runs
- * against some other 8-decimal token by necessity, and calling that BEM in the UI
- * would be the interface asserting something the chain does not support.
+ * Taken from the asset table rather than typed, because the site lists launches
+ * in both: a figure on a retired BEM project must not be read at 18, nor a WBNB
+ * one at 8 — either misreads by 10^10 and still looks like a plausible number.
+ * Project-scoped panels therefore read `useQuote()`, which follows the hook's
+ * own `quoteAsset()`; this constant is for what only the current factory has
+ * (PoG quota, launch caps, the admin dials).
+ *
+ * A token the table does not know (a testnet stand-in) must name its decimals in
+ * `NEXT_PUBLIC_QUOTE_DECIMALS`. No default: a guessed scale is the 10^10 bug.
  */
-export const QUOTE_SYMBOL = process.env.NEXT_PUBLIC_QUOTE_SYMBOL ?? 'BEM'
+export const QUOTE_DECIMALS: number = KNOWN_CURRENT_QUOTE?.decimals ?? (() => {
+  const raw = process.env.NEXT_PUBLIC_QUOTE_DECIMALS
+  const n = Number(raw)
+  if (!raw || !Number.isInteger(n) || n < 0 || n > 36) {
+    throw new Error(
+      `NEXT_PUBLIC_QUOTE_ASSET ${QUOTE_ASSET} is not a known quote asset, so ` +
+      'NEXT_PUBLIC_QUOTE_DECIMALS must state its decimals.',
+    )
+  }
+  return n
+})()
+
+/**
+ * What to call it on screen. The table wins over env, so a stale
+ * `NEXT_PUBLIC_QUOTE_SYMBOL=BEM` cannot label WBNB amounts as BEM after the
+ * switch; env names only a stand-in the table does not know.
+ */
+export const QUOTE_SYMBOL: string =
+  KNOWN_CURRENT_QUOTE?.symbol ?? process.env.NEXT_PUBLIC_QUOTE_SYMBOL ?? 'QUOTE'
+
+/** The current factory's asset wraps the native coin (WBNB): `depositNative` exists. */
+export const QUOTE_WRAPS_NATIVE: boolean = KNOWN_CURRENT_QUOTE?.wrapsNative ?? false
+
+export const CURRENT_QUOTE: QuoteConfig = {
+  asset: QUOTE_ASSET,
+  decimals: QUOTE_DECIMALS,
+  symbol: QUOTE_SYMBOL,
+  wrapsNative: QUOTE_WRAPS_NATIVE,
+}
+
+/**
+ * The asset a listed factory's launches are denominated in. Current factory →
+ * `CURRENT_QUOTE`; a retired one → its entry in `RETIRED_FACTORY_QUOTES`, or the
+ * current asset when the table has none (true everywhere but post-WBNB 56).
+ */
+export function quoteForFactory(factory: string | undefined | null): QuoteConfig {
+  if (!factory || factory.toLowerCase() === FACTORY_ADDRESS.toLowerCase()) return CURRENT_QUOTE
+  return quoteForAsset(RETIRED_FACTORY_QUOTES[factory.toLowerCase()]) ?? CURRENT_QUOTE
+}
+
+/** The config for a hook's `quoteAsset()`, or undefined for an unknown token. */
+export function quoteForAsset(asset: string | undefined | null): QuoteConfig | undefined {
+  if (!asset) return undefined
+  if (asset.toLowerCase() === QUOTE_ASSET.toLowerCase()) return CURRENT_QUOTE
+  return knownQuote(asset)
+}
 
 /**
  * The denomination as a sentence, for page metadata and link previews.
@@ -197,9 +241,14 @@ export const QUOTE_SYMBOL = process.env.NEXT_PUBLIC_QUOTE_SYMBOL ?? 'BEM'
  * saying BEM would be the same class of claim as the interface labelling that
  * mock "BEM" — which is why `NEXT_PUBLIC_QUOTE_SYMBOL` is `mBEM` there.
  */
+/** "an 8-decimal", "an 18-decimal", "a 6-decimal" — the article follows the sound. */
+const DECIMALS_ARTICLE = /^(8|11|18)$/.test(String(QUOTE_DECIMALS)) ? 'an' : 'a'
+
 export const QUOTE_POSITIONING = IS_TESTNET
-  ? `Denominated in ${QUOTE_SYMBOL}, an 8-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment.`
-  : `Denominated in ${QUOTE_SYMBOL}, an 8-decimal ERC-20.`
+  ? `Denominated in ${QUOTE_SYMBOL}, ${DECIMALS_ARTICLE} ${QUOTE_DECIMALS}-decimal ERC-20 standing in for the production quote asset, which has no testnet deployment.`
+  : QUOTE_WRAPS_NATIVE
+    ? `Denominated in ${QUOTE_SYMBOL}: deposit native ${QUOTE_SYMBOL}, settled as its wrapped ERC-20.`
+    : `Denominated in ${QUOTE_SYMBOL}, ${DECIMALS_ARTICLE} ${QUOTE_DECIMALS}-decimal ERC-20.`
 
 /** Pre-bound quote-asset tuple, for allowance reads and approve writes. */
 export const quoteContract = {
@@ -490,22 +539,23 @@ export const treasuryContract = {
  * `Factory.MAX_HARD_CAP`). `createLaunch` reverts `HardCapTooLow` /
  * `HardCapTooHigh` outside them.
  *
- * The floor is 30 BEM, about 1.4x `ladderViable()`'s ~21.04 BEM: a round
- * must be able to raise enough to carry a monotone ladder even at ~70 % fill.
- * The ceiling, 20,000 BEM, sits under the quote asset's own float and catches
- * order-of-magnitude slips.
+ * Whole units of the current quote asset, scaled by its decimals: 1 and 500
+ * BNB on the WBNB factory (docs/BNB_QUOTE_MIGRATION_zh.md). The floor clears the
+ * ladder's viability floor with room; the ceiling catches order-of-magnitude
+ * slips.
  */
-export const MIN_HARD_CAP: bigint = 30n * 10n ** 8n
-export const MIN_HARD_CAP_LABEL = '30'
-export const MAX_HARD_CAP: bigint = 20_000n * 10n ** 8n
-export const MAX_HARD_CAP_LABEL = '20,000'
+const QUOTE_UNIT: bigint = 10n ** BigInt(QUOTE_DECIMALS)
+export const MIN_HARD_CAP: bigint = 1n * QUOTE_UNIT
+export const MIN_HARD_CAP_LABEL = '1'
+export const MAX_HARD_CAP: bigint = 500n * QUOTE_UNIT
+export const MAX_HARD_CAP_LABEL = '500'
 
 /**
  * Ceiling on the PoG allocation dial (mirrors `Factory.MAX_POG_ALLOCATION_LIMIT`).
  * Catches order-of-magnitude confusion and nothing subtler.
  */
-export const MAX_POG_ALLOCATION_LIMIT: bigint = 20_000n * 10n ** 8n
-export const MAX_POG_ALLOCATION_LIMIT_LABEL = '20,000'
+export const MAX_POG_ALLOCATION_LIMIT: bigint = 500n * QUOTE_UNIT
+export const MAX_POG_ALLOCATION_LIMIT_LABEL = '500'
 
 /**
  * The 40 / 60 genesis-to-ladder split (mirrors `Hook.GENESIS_SUPPLY` and

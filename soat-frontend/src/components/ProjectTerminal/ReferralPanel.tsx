@@ -5,17 +5,15 @@ import { useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 
 import {
-  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI,
-  REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
+  FACTORY_ABI, FACTORY_ADDRESS, HOOK_ABI, REFERRAL_BPS, PROJECT_REFERRAL_BPS, LIFETIME_REFERRAL_BPS,
 } from '@/lib/contracts'
 import type { Phase } from './phase'
 import {
   Card, Readout, ActionButton, useActionGate, revertOrder, useTxAction,
 } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
-import { fmtQuote, fmtQuoteFull } from './format'
 import { ReferralLinkBox, useReferralLink } from './referralLink'
 import { Linked, fill, useT } from '@/i18n'
+import { useQuote } from './quoteContext'
 
 /** Basis points, so 1e4 is 100%. All three are whole percents at these rates;
  *  `toFixed` would print "10.0%" and they are quoted as prose. */
@@ -68,6 +66,7 @@ export function ReferralPanel({
   refetch:     () => void
 }) {
   const t = useT().referral
+  const { symbol: QUOTE_SYMBOL, fmt: fmtQuote, fmtFull: fmtQuoteFull } = useQuote()
   const pct = { total: REFERRAL_PCT, project: PROJECT_PCT, lifetime: LIFETIME_PCT }
   const { data: claimableRaw, refetch: refetchClaimable } = useReadContract({
     address:      hookAddress,

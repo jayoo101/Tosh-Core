@@ -80,6 +80,9 @@ process.env.NEXT_PUBLIC_CHAIN_ID ||= '97'
  * one. The token placeholder each guard uses sits above this.
  */
 process.env.NEXT_PUBLIC_QUOTE_ASSET ||= '0x2222222222222222222222222222222222222222'
+// A placeholder is not in the known-asset table, so its decimals must be stated.
+// 18, matching the factory's `QUOTE_UNIT`, which `guard:constants` reconciles.
+process.env.NEXT_PUBLIC_QUOTE_DECIMALS ||= '18'
 
 /**
  * Path aliases, read from tsconfig so a renamed alias fails loudly here

@@ -128,6 +128,7 @@ const BASE: GenesisProps = {
   isConnected: true,
   totalNativeDeposited: 0n,
   quoteBalance: 298_69280000n,
+  nativeBalance: 0n,
   pogQuota: 0n,
   quotaRemaining: 0n,
   blacklistedUntil: 0n,

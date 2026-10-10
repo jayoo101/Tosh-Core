@@ -50,13 +50,18 @@ export function fmtFull(wei: bigint | null | undefined, dec = 18): string {
  */
 
 /** A quote-asset amount — raises, fees, caps, shelf prices, treasury balances. */
-export function fmtQuote(units: bigint | null | undefined, precision = 4): string {
-  return fmt(units, QUOTE_DECIMALS, precision)
+export function fmtQuote(
+  units: bigint | null | undefined,
+  precision = 4,
+  /** The project's own asset decimals, where it may not be the current factory's. */
+  decimals: number = QUOTE_DECIMALS,
+): string {
+  return fmt(units, decimals, precision)
 }
 
 /** A quote-asset amount, unabbreviated, for the `hint` line under a readout. */
-export function fmtQuoteFull(units: bigint | null | undefined): string {
-  return fmtFull(units, QUOTE_DECIMALS)
+export function fmtQuoteFull(units: bigint | null | undefined, decimals: number = QUOTE_DECIMALS): string {
+  return fmtFull(units, decimals)
 }
 
 export function basescanTx(hash: string) {

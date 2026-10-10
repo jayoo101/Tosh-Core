@@ -3,7 +3,6 @@
 import Link from 'next/link'
 
 import { ProjectLogo } from '@/components/ProjectLogo'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { useT, type Dictionary } from '@/i18n'
 import { fmtQuote, type DirectoryProject } from './useDirectoryProjects'
 
@@ -95,7 +94,7 @@ function Row({ project: p, index }: { project: DirectoryProject; index: number }
 
       <span className="flex shrink-0 flex-col items-end">
         <span className="font-mono text-note text-text-primary tabular-nums">
-          {fmtQuote(p.totalNative)} {QUOTE_SYMBOL}
+          {fmtQuote(p.totalNative, p.quote.decimals)} {p.quote.symbol}
         </span>
         <span className={`font-mono text-micro tabular-nums ${sub.cls}`}>{sub.text}</span>
       </span>

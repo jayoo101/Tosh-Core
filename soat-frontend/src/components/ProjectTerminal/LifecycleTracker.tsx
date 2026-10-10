@@ -14,9 +14,9 @@
 
 import { Check } from 'lucide-react'
 import { Card, cn } from '@/components/ui'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill, useT, type Dictionary } from '@/i18n'
 import type { Phase } from './phase'
+import { useQuote } from './quoteContext'
 
 /**
  * Three steps, and the reference's own copy for two of them.
@@ -30,9 +30,9 @@ import type { Phase } from './phase'
  * difference between a progress bar and a promise. Same correction as the
  * directory card's `launching` body; see v0 audit §D2.
  */
-function lifecycle(t: Dictionary['project']): { key: Phase; label: string; body: string }[] {
+function lifecycle(t: Dictionary['project'], quote: string): { key: Phase; label: string; body: string }[] {
   return [
-    { key: 'genesis',         label: t.stepFunding,  body: fill(t.stepFundingBody, { quote: QUOTE_SYMBOL }) },
+    { key: 'genesis',         label: t.stepFunding,  body: fill(t.stepFundingBody, { quote }) },
     { key: 'awaiting_launch', label: t.stepAwaiting, body: t.stepAwaitingBody },
     { key: 'bonding',         label: t.stepTrading,  body: t.stepTradingBody },
   ]
@@ -40,7 +40,7 @@ function lifecycle(t: Dictionary['project']): { key: Phase; label: string; body:
 
 export function LifecycleTracker({ phase }: { phase: Phase }) {
   const t = useT().project
-  const LIFECYCLE = lifecycle(t)
+  const LIFECYCLE = lifecycle(t, useQuote().symbol)
   // A failed raise is not "step 1 of 3 in progress". The mock parks `archived`
   // at index 0 with nothing active, which reads correctly: the rail greys out
   // and the banner below carries the outcome.

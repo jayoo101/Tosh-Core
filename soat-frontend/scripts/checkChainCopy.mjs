@@ -193,8 +193,12 @@ const GAS_CONTEXT_LINES = 1
  *   is one ternary on `IS_TESTNET` and is commented at its definition, which is
  *   a weaker guarantee than rule 2 offers and is the honest state of it.
  */
-const QUOTE_TICKERS = /\b[mt]?BEM\b/
+// `$BEM` is exempt: since the quote asset moved to WBNB, the `$`-prefixed
+// form names the TapeOut ecosystem token on /apply, not a denomination.
+const QUOTE_TICKERS = /(?<!\$)\b[mt]?BEM\b/
 const QUOTE_SOURCE = 'src/lib/contracts.ts'
+/** The per-asset symbol table, which states tickers on purpose. */
+const SYMBOL_TABLE = 'src/lib/quoteAssets.ts'
 
 /**
  * RULE 5: the launch fee is the one figure NOT denominated in the quote asset,
@@ -288,8 +292,8 @@ function scanLiterals(mainnetLabel) {
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
     const rel = file.split('\\').join('/')
-    const isLabelSource = rel.endsWith(LABEL_SOURCE)
-    const isQuoteSource = rel.endsWith(QUOTE_SOURCE)
+    const isLabelSource = rel.endsWith(LABEL_SOURCE) || rel.endsWith(SYMBOL_TABLE)
+    const isQuoteSource = rel.endsWith(QUOTE_SOURCE) || rel.endsWith(SYMBOL_TABLE)
     const isTest = /\.test\.tsx?$/.test(rel)
 
     if (!mightCarryGuardedCopy(text, mainnetLabel, isLabelSource)) continue

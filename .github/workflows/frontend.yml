@@ -58,6 +58,8 @@ jobs:
       # testnet id, which is the exact class of quiet lie checkChainCopy exists
       # to fail on.
       NEXT_PUBLIC_QUOTE_SYMBOL: "mBEM"
+      # Required for any token `quoteAssets.ts` does not know; the testnet mock is 8.
+      NEXT_PUBLIC_QUOTE_DECIMALS: "8"
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""

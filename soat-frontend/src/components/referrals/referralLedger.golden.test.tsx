@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CURRENT_QUOTE } from '@/lib/contracts'
 import type { Address } from 'viem'
 
 import { mount } from '@/testing/renderClient'
@@ -65,7 +66,7 @@ vi.mock('@/components/directory/useDirectoryProjects', async (importOriginal) =>
   useDirectoryProjects: () => ({
     projects: s.rows.map((r, i) => ({
       token: tokenOf(i), hook: hookOf(i), factory: FACTORY, creator: USER, createdAt: 0n,
-      launched: r.launched, genesisDeadline: 0n, genesisDuration: 0n, totalNative: 0n,
+      launched: r.launched, genesisDeadline: 0n, genesisDuration: 0n, totalNative: 0n, quote: CURRENT_QUOTE,
       canRefund: false, symbol: r.symbol, name: `${r.symbol} Agent`,
       logoUrl: null, website: null, twitter: null, description: null,
     })),
