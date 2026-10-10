@@ -52,7 +52,10 @@ cast gas-price --rpc-url https://bsc-dataseed.bnbchain.org
 结果（单位 wei）超过 `200000000`（0.2 gwei）就先往这个钱包补 BNB：补到「1727 万 × gas 价」的两倍。
 余额不够会在广播中途停下，只部署出一半，接下来要补钱再用 `--resume` 续传，这段时间旧私钥的风险窗口也跟着拉长。
 
-记下预计地址（回购池用当前 nonce，工厂用当前 nonce + 1）：
+记下预计地址（回购池用当前 nonce，工厂用当前 nonce + 1）。
+⚠ 如果 `HookDeployLib` 改过、链上还没有，广播的第一笔是用固定部署器 0x4e59…956C 部署它（占掉当前 nonce），
+回购池和工厂就各往后顺延一位（nonce + 1 / nonce + 2）。试跑输出里第一笔是 `Create2Deployer::create2()` 就是这种情况；
+2026-10-10 那次正是这样（nonce 17 部署库，18 回购池，19 工厂），不是私钥被动过。
 
 ```powershell
 $n = [int](cast nonce 0x35b232E26a275f62E594e010624aEA0c46b7874a --rpc-url https://bsc-dataseed.bnbchain.org)

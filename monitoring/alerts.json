@@ -82,8 +82,8 @@
   "chainId": 56,
 
   "addresses": {
-    "factory": "0xBCa66f7382aaC0C6EE2b833fc2072CA607367f2c",
-    "ladderTreasury": "0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE",
+    "factory": "0xb5D1bBB16fED6048920a78CEEd15fd00b998d362",
+    "ladderTreasury": "0xE5743620aBdE7A76b1683Be9f607Be6Cf5bbF83d",
     "legacyFactory": "0x20dE906A96FfB89BE6fd6267A0876A68017792F7",
     "legacyLadderTreasury": "0x7105d36715e4d2bFbBEaD2B7c085e6CDE6f85a4B",
     "gnosisSafe": "0x02DE4629129D104C63329D13A6Ca67E43db7B310",
@@ -106,6 +106,11 @@
       "treasury, setLaunchFee(1e15) — and had never been used before that."
     ],
     "$replaced": [
+      "2026-10-10: repointed within chain 56 to the WBNB-quote build, factory",
+      "0xb5D1bBB16fED6048920a78CEEd15fd00b998d362 / treasury",
+      "0xE5743620aBdE7A76b1683Be9f607Be6Cf5bbF83d, deploy block 126796453. The Safe",
+      "accepted both and paused the BEM factory 0xBCa6… (zero launches, nothing to",
+      "watch). The legacy set stays on the 2026-09-21 pair, which has launches.",
       "2026-10-08: repointed within chain 56 to the genesis-fee build, factory",
       "0xBCa66f7382aaC0C6EE2b833fc2072CA607367f2c / treasury",
       "0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE, deploy block 126391950. The Safe",
