@@ -74,7 +74,7 @@ const PINNED_VERSION = '0.6.8';
 // Aderyn infers this from foundry.toml's `src`. Asserted rather than trusted:
 // a run that analyses nothing reports no findings, which is indistinguishable
 // from a clean tree unless the denominator is checked too.
-const EXPECTED_SOURCE_UNITS = 7;
+const EXPECTED_SOURCE_UNITS = 10;
 
 const UPDATE = process.argv.includes('--update');
 const fail = [];
