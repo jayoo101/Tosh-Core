@@ -259,7 +259,14 @@ try {
       : `app would use ${Number.isFinite(appDecimals) ? appDecimals : '(unset)'}, token has ${decimals}`)
 
   const declaredSymbol = env('NEXT_PUBLIC_QUOTE_SYMBOL')
-  if (declaredSymbol && declaredSymbol !== symbol) {
+  if (declaredSymbol && declared.toLowerCase() in KNOWN_DECIMALS) {
+    // src/lib/quoteAssets.ts supplies the label for a known asset and the app
+    // never reads this variable for it.
+    console.log(
+      `  note  NEXT_PUBLIC_QUOTE_SYMBOL="${declaredSymbol}" is ignored for ${symbol}; ` +
+      'the app labels it from its known-asset table. Remove the variable.',
+    )
+  } else if (declaredSymbol && declaredSymbol !== symbol) {
     // Not a failure. The label is deliberately env-driven so a testnet stand-in is
     // not called BEM, and a ticker that differs from the token's own is often the
     // honest choice rather than a mistake. Worth printing, not worth blocking.

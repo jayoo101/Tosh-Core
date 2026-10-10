@@ -197,6 +197,12 @@ async function main() {
   banner(`anvil fork of BSC 56 on :${PORT}`)
   const anvil = await startAnvil()
   const forkBlock = await pub.getBlockNumber()
+  // anvil fetches untouched accounts from upstream lazily, at the fork block, and
+  // a public BSC node keeps only ~128 blocks of state. Load Multicall3 now: the
+  // frontend batches every read through it, and against a --keep fork more than
+  // a minute old it would otherwise fail with "missing trie node".
+  const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11'
+  await Promise.all([pub.getCode({ address: MULTICALL3 }), pub.getBalance({ address: MULTICALL3 }), pub.getTransactionCount({ address: MULTICALL3 })])
   console.log(`fork block ${forkBlock} · safe ${SAFE} · throwaway deployer ${deployer.address}`)
   const work = path.join(broadcastDir, 'batches')
   fs.mkdirSync(work)

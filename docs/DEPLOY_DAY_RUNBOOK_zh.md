@@ -42,7 +42,15 @@
 ## 第 0 步：部署钱包
 
 用旧部署钱包 `0x35b2…874a`，`.env.production` 里的 `DEPLOYER_ADDRESS` 已经是它。
-钱包里约 0.0041 BNB；上次部署花了约 0.00086 BNB（gas 价 0.05 gwei），够用，不用再转。
+钱包里约 0.0041 BNB；上次部署用了 1727 万 gas，按 0.05 gwei 约 0.00086 BNB。
+这点余额只够 gas 价在 **0.23 gwei 以下**时部署。第 4 步广播前先看一眼：
+
+```powershell
+cast gas-price --rpc-url https://bsc-dataseed.bnbchain.org
+```
+
+结果（单位 wei）超过 `200000000`（0.2 gwei）就先往这个钱包补 BNB：补到「1727 万 × gas 价」的两倍。
+余额不够会在广播中途停下，只部署出一半，接下来要补钱再用 `--resume` 续传，这段时间旧私钥的风险窗口也跟着拉长。
 
 记下预计地址（回购池用当前 nonce，工厂用当前 nonce + 1）：
 
