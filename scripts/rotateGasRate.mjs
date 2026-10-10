@@ -6,7 +6,7 @@
  *
  *   --rate       quote units of deposit quota per 1 ETH of historical gas
  *   --floor      lifetime gas required to qualify, in ETH
- *   --max-alloc  ceiling on one wallet's deposit, in quote units (8 decimals)
+ *   --max-alloc  ceiling on one wallet's deposit, in whole quote units (BNB)
  *
  * `--rate` is always signed. The other two are optional and sign as the literal
  * `keep` when omitted, so "move the rate only" is a different signature from
@@ -52,8 +52,8 @@
  * single rate, and to a nonce the server will refuse to see twice.
  *
  * Usage:
- *   node scripts/rotateGasRate.mjs request --rate 46.4 [--floor 0.025]
- *                                          [--max-alloc 46.4] [--ttl 21600]
+ *   node scripts/rotateGasRate.mjs request --rate 1.3 [--floor 0.025]
+ *                                          [--max-alloc 1.3] [--ttl 21600]
  *   node scripts/rotateGasRate.mjs verify  [scripts/.rate-signatures.json]
  *   node scripts/rotateGasRate.mjs submit
  *
@@ -92,7 +92,10 @@ function fail(message) {
   throw new CheckFailed(message)
 }
 
-const FACTORY_ABI = ['function owner() view returns (address)']
+const FACTORY_ABI = [
+  'function owner() view returns (address)',
+  'function quoteAsset() view returns (address)',
+]
 
 /* `getMessageHash` and `isValidSignature` live on the CompatibilityFallbackHandler
  * and are reached through the Safe's fallback, so they are called on the Safe's
@@ -209,8 +212,8 @@ function buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt }) {
  *
  * ONLY `--floor` uses this. The floor measures gas burned on ETH-settled chains
  * and stayed in ETH through both re-denominations. `--max-alloc` is a quote-asset
- * amount and goes through `quoteFlag` — feeding it to this function would take
- * "46.4" as 46.4 ETH and sign a ceiling 10^10 too large.
+ * amount and goes through `quoteFlag`, which scales by the quote asset's own
+ * decimals rather than assuming 18.
  */
 function weiFlag(name) {
   const raw = flag(name)
@@ -226,20 +229,20 @@ function weiFlag(name) {
 }
 
 /**
- * Read a quote-denominated flag into 8-decimal base units.
+ * Read a quote-denominated flag into the quote asset's base units.
  *
- * Same job as `weiFlag`, for the other scale. The ceiling is what a wallet may
- * deposit, and deposits are in the quote asset, so "46.4" here means 46.4 BEM
- * and not 46.4 of anything 18-decimal.
+ * Same job as `weiFlag`, for the deposit side. The ceiling is what a wallet may
+ * deposit, so "1.3" here means 1.3 of the factory's quote asset, scaled by that
+ * asset's own `decimals()` — 18 for WBNB, 8 for the retired BEM.
  */
-function quoteFlag(name) {
+function quoteFlag(name, decimals) {
   const raw = flag(name)
   if (raw === undefined) return null
   let units
   try {
-    units = ethers.parseUnits(raw, 8)
+    units = ethers.parseUnits(raw, decimals)
   } catch {
-    return fail(`--${name} must be an amount in quote units, e.g. --${name} 46.4 (got ${raw})`)
+    return fail(`--${name} must be an amount in quote units, e.g. --${name} 1.3 (got ${raw})`)
   }
   if (units <= 0n) fail(`--${name} must be positive, got ${raw}`)
   return units
@@ -368,6 +371,20 @@ async function probeErc1271(safe, dataHash) {
   }
 }
 
+/**
+ * The factory's quote-asset decimals, read rather than assumed: the same flag
+ * value means 10^10 different ceilings on an 8- and an 18-decimal asset.
+ * `--quote-decimals` overrides it for offline use.
+ */
+async function quoteDecimals(provider) {
+  const override = flag('quote-decimals')
+  if (override !== undefined) return Number(override)
+  const factory = new ethers.Contract(factoryAddress(), FACTORY_ABI, provider)
+  const asset = await factory.quoteAsset()
+  const token = new ethers.Contract(asset, ['function decimals() view returns (uint8)'], provider)
+  return Number(await token.decimals())
+}
+
 async function request() {
   const rateArg = flag('rate')
   if (!rateArg) fail('pass --rate <number>, the new ETH quota per 1 ETH of gas')
@@ -381,9 +398,10 @@ async function request() {
   if (!Number.isInteger(ttl) || ttl <= 0) fail(`--ttl must be a positive integer of seconds`)
 
   const floorWei = weiFlag('floor')
-  const maxAllocWei = quoteFlag('max-alloc')
 
-  const { chainId, owner, safe } = await connect()
+  const { provider, chainId, owner, safe } = await connect()
+  const decimals = flag('max-alloc') === undefined ? 18 : await quoteDecimals(provider)
+  const maxAllocWei = quoteFlag('max-alloc', decimals)
   const [owners, threshold] = await Promise.all([safe.getOwners(), safe.getThreshold()])
 
   const nonce = Date.now()
@@ -443,7 +461,7 @@ async function request() {
   console.log(`\n  safe          ${owner}  (${threshold}-of-${owners.length})`)
   console.log(`  rate          ${rate}`)
   console.log(`  floor         ${floorWei === null ? 'unchanged' : ethers.formatEther(floorWei) + ' ETH of gas'}`)
-  console.log(`  max alloc     ${maxAllocWei === null ? 'unchanged' : ethers.formatUnits(maxAllocWei, 8) + ' quote units'}`)
+  console.log(`  max alloc     ${maxAllocWei === null ? 'unchanged' : ethers.formatUnits(maxAllocWei, decimals) + ` quote units (${decimals} dp)`}`)
   console.log(`  nonce         ${nonce}`)
   console.log(`  expires       ${new Date(expiresAt * 1000).toISOString()}  (${ttl}s)`)
   console.log(`  hash to sign  ${local}  ✓ matches the Safe's own getMessageHash`)
@@ -572,7 +590,7 @@ function template() {
   const text = buildMessage({
     rate,
     floorWei: weiFlag('floor'),
-    maxAllocWei: quoteFlag('max-alloc'),
+    maxAllocWei: quoteFlag('max-alloc', Number(flag('quote-decimals') ?? 18)),
     nonce,
     expiresAt,
   })

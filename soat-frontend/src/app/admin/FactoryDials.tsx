@@ -122,10 +122,9 @@ export function PogLimitPanel() {
         label={`NEW CEILING · ${QUOTE_SYMBOL} · NON-ZERO · MAX ${MAX_POG_ALLOCATION_LIMIT_LABEL}`}
         value={limitInput}
         onChange={setLimitInput}
-        // Was `e.g. 0.1`, left over from when this dial was BNB. It is BEM at
-        // 46.4, so the hint was suggesting a figure three orders of magnitude
-        // under the live value — on the field that sets the per-wallet cap.
-        placeholder="e.g. 46.4"
+        // The live value, so the hint is never orders of magnitude off the
+        // figure an operator means — on the field that sets the per-wallet cap.
+        placeholder="e.g. 1.3"
         inputMode="decimal"
         disabled={tx.isBusy}
         errored={zero || aboveCeiling}

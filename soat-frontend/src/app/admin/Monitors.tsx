@@ -278,7 +278,7 @@ export function ExchangeRatePanel() {
         label={`NEW RATE · ${QUOTE_SYMBOL} QUOTA PER 1 ETH GAS`}
         value={rateInput}
         onChange={setRateInput}
-        placeholder="e.g. 46.4"
+        placeholder="e.g. 1.3"
         inputMode="decimal"
         disabled={busy}
         fluo={armed}

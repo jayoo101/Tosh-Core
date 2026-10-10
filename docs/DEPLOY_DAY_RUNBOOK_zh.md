@@ -204,6 +204,10 @@ $env:NEXT_PUBLIC_FACTORY_ADDRESS=$factory; npm run check:quote
 
 - 上面的检查通过；
 - 线上目录里两个旧工厂的项目都还在，金额仍按 BEM 显示；
+- `https://toshx.xyz/api/admin/config` 返回 `globalGasToSatoRate: 1.3`、
+  `pogMaxAllocWei: "1300000000000000000"`、`pogFloorWei: "25000000000000000"`。
+  PoG 参数在 Upstash 里按工厂地址分开存，新工厂第一次读到的就是代码里的初始值，
+  不需要 Safe 签名去改；旧的 46.4 BEM 那组参数留在旧键里，不会被带过来；
 - `/launch` 仍显示暂停；
 - `/apply` 提交一条测试申请能到 Telegram 群。
 
