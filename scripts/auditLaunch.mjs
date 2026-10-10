@@ -70,7 +70,6 @@ const HOOK_ABI = [
   'function creator() view returns (address)',
   'function projectTreasury() view returns (address)',
   'function projectAdmin() view returns (address)',
-  'function softCap() view returns (uint256)',
   'function perWalletCap() view returns (uint256)',
   'function genesisDeadline() view returns (uint256)',
   'function genesisDuration() view returns (uint256)',
@@ -112,7 +111,6 @@ const problems = []
 const notes = []
 const fail = (m) => problems.push(m)
 
-const quote = (v) => `${ethers.formatUnits(v, 8)} quote`
 const tok = (v) => Number(ethers.formatUnits(v, 18)).toLocaleString('en-US', { maximumFractionDigits: 4 })
 
 /** Pass/fail on an exact bigint identity, printed either way. */
@@ -125,15 +123,22 @@ function expect(label, actual, wanted, format = String) {
 const provider = new ethers.JsonRpcProvider(RPC)
 const hook = new ethers.Contract(HOOK, HOOK_ABI, provider)
 
+// BEM hooks quote in 8 decimals, WBNB hooks in 18; the hook names its asset.
+const quoteAddr = await hook.quoteAsset()
+const quoteToken = new ethers.Contract(quoteAddr, ERC20_ABI, provider)
+const [QUOTE_DECIMALS, QUOTE_SYMBOL] = await Promise.all([quoteToken.decimals(), quoteToken.symbol()])
+const quote = (v) => `${ethers.formatUnits(v, QUOTE_DECIMALS)} ${QUOTE_SYMBOL}`
+const perToken = (v) => `${ethers.formatUnits(v, QUOTE_DECIMALS)} ${QUOTE_SYMBOL}/token`
+
 const [
   launched, tokenInit, tokenAddr, pmAddr, ladderTreasury, platformFee,
-  creator, projectTreasury, projectAdmin, softCap, perWalletCap,
+  creator, projectTreasury, projectAdmin, perWalletCap,
   genesisDeadline, genesisDuration, totalNative, refReserved, refClaimed, orphan,
   p0, shelfP0, tierIndex, tierSold, phase2, canRefund, zombie,
 ] = await Promise.all([
   hook.launched(), hook.tokenInitialized(), hook.projectToken(), hook.poolManager(),
   hook.ladderTreasury(), hook.platformFeeRecipient(), hook.creator(),
-  hook.projectTreasury(), hook.projectAdmin(), hook.softCap(), hook.perWalletCap(),
+  hook.projectTreasury(), hook.projectAdmin(), hook.perWalletCap(),
   hook.genesisDeadline(), hook.genesisDuration(), hook.totalNativeDeposited(),
   hook.totalReferralReserved(), hook.totalReferralClaimed(), hook.orphanReferral(),
   hook.p0(), hook.shelfP0(), hook.currentTierIndex(), hook.currentTierSold(),
@@ -186,7 +191,6 @@ try {
 
 console.log('\nThe raise')
 console.log(`        deposited         ${quote(totalNative)}`)
-console.log(`        soft cap          ${quote(softCap)}  (not a gate — read by nothing)`)
 console.log(`        per-wallet cap    ${quote(perWalletCap)}`)
 console.log(`        referral reserved ${quote(refReserved)}   claimed ${quote(refClaimed)}`)
 console.log(`        orphan referral   ${quote(orphan)}`)
@@ -227,9 +231,9 @@ const wantP0 = (lpNative * 10n ** 18n) / GENESIS_LP_SUPPLY
 const wantShelf = (wantP0 * SHELF_PREMIUM_BPS) / BPS
 
 console.log('\nAnchor prices  (p0 = lpNative / 3.78M, shelfP0 = p0 * 1.05)')
-expect('p0', p0, wantP0, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
-expect('shelfP0', shelfP0, wantShelf, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
-if (ev) expect('p0 matches the Launched event', p0, ev.p0, (v) => `${ethers.formatUnits(v, 8)} quote/token`)
+expect('p0', p0, wantP0, perToken)
+expect('shelfP0', shelfP0, wantShelf, perToken)
+if (ev) expect('p0 matches the Launched event', p0, ev.p0, perToken)
 
 // ── Token supply and where it sits ───────────────────────────────────────────
 const [vaultAddr, poolKey] = await Promise.all([hook.vault(), hook.getPoolKey()])
@@ -309,8 +313,6 @@ const poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
 ))
 
 const pm = new ethers.Contract(pmAddr, CL_POOL_ABI, provider)
-const quoteAddr = await hook.quoteAsset()
-const quoteToken = new ethers.Contract(quoteAddr, ERC20_ABI, provider)
 const [slot0, liquidity, vaultQuote] = await Promise.all([
   pm.getSlot0(poolId),
   pm.getLiquidity(poolId),
@@ -357,7 +359,7 @@ if (ev) expect('liquidity matches the Launched event', liquidity, ev.lpLiquidity
 const Q192 = 1n << 192n
 const tokensPerNative = (sqrtPriceX96 * sqrtPriceX96) >> 192n
 const spot = tokensPerNative === 0n ? 0n : (Q192 * 10n ** 18n) / (sqrtPriceX96 * sqrtPriceX96)
-console.log(`        spot              ${ethers.formatUnits(spot, 8)} quote/token  (${tokensPerNative} token-wei per quote-unit)`)
+console.log(`        spot              ${perToken(spot)}  (${tokensPerNative} token-wei per quote-unit)`)
 
 // The pool price moves the instant anyone trades, so a difference from the
 // opening price is information rather than a fault. Only the direction has to
