@@ -213,21 +213,22 @@ $env:NEXT_PUBLIC_FACTORY_ADDRESS=$factory; npm run check:quote
 
 ## 第 9 步：监控同时盯新旧两组
 
-前提：监控脚本已按 WBNB 改好（见「部署前必须先完成」）。旧的一组改盯 BEM 工厂，它的 owner 是网关。
+前提：监控脚本已按 WBNB 改好（见「部署前必须先完成」）。
+
+旧的一组**不动**，继续盯第一代工厂 0x20dE…：它有 10 个项目，hook 还在交易、退款、结算。
+BEM 工厂 0xBCa6… 一个项目都没有，链上没有东西要盯，只需要保持暂停——第 6 步的交接批量会暂停它，
+`redeployTx check` 每次都会核对它是不是暂停着。
 
 ```powershell
 $blk = (cast receipt (Get-Content broadcast\DeployMainnet.s.sol\56\run-latest.json -Raw | ConvertFrom-Json).receipts[0].transactionHash blockNumber --rpc-url $env:TARGET_RPC)
 gh variable set MONITOR_FACTORY --body $factory
 gh variable set MONITOR_TREASURY --body $treasury
 gh variable set MONITOR_DEPLOY_BLOCK --body $blk
-gh variable set MONITOR_LEGACY_FACTORY --body 0xBCa66f7382aaC0C6EE2b833fc2072CA607367f2c
-gh variable set MONITOR_LEGACY_TREASURY --body 0x3009e10a696AC43465C8bdb9AFD8C989aB9cebdE
-gh variable set MONITOR_LEGACY_EXPECTED_OWNER --body 0x305E16cf376f1800683C9aE5c66D99a08f107c83
 gh variable delete MONITOR_EXPECTED_GATEWAY
 gh workflow run watch.yml
 ```
 
-`MONITOR_EXPECTED_OWNER`（Safe）和 `MONITOR_EXPECTED_POG_SIGNER` 不用改。`MONITOR_EXPECTED_GATEWAY` 指的是旧网关，新工厂此时 owner 是 Safe，所以先删掉，第 12.5 步再设成新网关。
+`MONITOR_EXPECTED_OWNER`（Safe）、`MONITOR_EXPECTED_POG_SIGNER` 和三个 `MONITOR_LEGACY_*` 都不用改。`MONITOR_EXPECTED_GATEWAY` 指的是旧网关，新工厂此时 owner 是 Safe，所以先删掉，第 12.5 步再设成新网关。
 
 完成：这一轮 watch 两组都跑到，新的一组只报预期的 WATCHER-06（「盯的工厂换了」）。
 

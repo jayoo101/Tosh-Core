@@ -481,7 +481,7 @@
       "id": "STATE-02",
       "severity": "P0",
       "cadence": "every 15 minutes",
-      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury), NOT eth_getBalance -- is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
+      "check": "ladderTreasury quote-asset balance -- quoteAsset.balanceOf(treasury), NOT eth_getBalance -- is strictly non-decreasing, except across a PiggybackExecuted or BuybackBurned in the same window",
       "why": "The one-way valve is asserted by invariant_treasuryNeverLosesEth in test/ToshV5Invariants.t.sol against the deployed logic, but the invariant cannot speak for the deployed bytecode. This is the production-side counterpart: a balance drop with no buyback to explain it means either a withdrawal path exists or we are watching the wrong contract. NOTE THE ASSET, because getting it wrong is undetectable: the reservoir became an ERC-20 balance when the quote asset became BEM, and watch.mjs read eth_getBalance for one commit afterwards. The treasury's native balance is 0 and cannot fall, so this check passed every run while watching nothing -- it produced no error and no gap, only a clean pass. Any reimplementation against a different alerting product has to read balanceOf.",
       "action": "Treat as funds-at-risk: pause the factory via the Safe, then correlate the fall against buyback events and Safe transactions in the same window. A fall matching neither is a governance compromise, and once the reservoir is spent there is no on-chain remedy — announce."
     },
@@ -518,7 +518,7 @@
       "id": "STATE-06",
       "severity": "P2",
       "cadence": "hourly",
-      "check": "ladderTreasury BEM balance -- quoteAsset.balanceOf(treasury) -- has been >= TRIGGER_STEP (10 BEM, i.e. 10e8 base units) continuously for 24h with no PiggybackExecuted in that window",
+      "check": "ladderTreasury quote-asset balance -- quoteAsset.balanceOf(treasury) -- has been >= TRIGGER_STEP (read from the treasury: 0.3 BNB = 3e17 on the WBNB build, 10 BEM = 10e8 on the retired ones) continuously for 24h with no PiggybackExecuted in that window",
       "why": "The gas gate in ToshLaunchpadHook.afterSwap skips the buyback when the triggering trade cannot afford it, which is what stops that trade from reverting. The cost is that the reservoir no longer deploys itself from trading alone: a market where wallets attach tight gas limits leaves it armed and idle, emitting NOTHING. There is deliberately no event for a skipped poke — skipping is the common case, and logging it would bill every trader for the privilege. So this has to be a balance-and-silence poll; it is the only signal that the reservoir has stopped deploying.",
       "action": "Call pokeBuyback() on the treasury. Permissionless — no role, no Safe transaction, any address can clear it."
     },

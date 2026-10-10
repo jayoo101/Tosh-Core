@@ -1,6 +1,6 @@
 # 计价资产从 BEM 切换到 BNB：完整方案
 
-> 状态：合约、测试、部署脚本、Safe 交接脚本已在 `feat/bnb-quote` 完成；前端、PoG 签名服务、监控未完成。部署步骤见 `DEPLOY_DAY_RUNBOOK_zh.md`。日期：2026-10-10。
+> 状态：合约、测试、部署脚本、Safe 交接脚本、前端、PoG 签名服务、监控和报表脚本已在 `feat/bnb-quote` 完成，剩主网 fork 全流程演练和部署本身。部署步骤见 `DEPLOY_DAY_RUNBOOK_zh.md`。日期：2026-10-10。
 
 ## 已决定（2026-10-10）
 
@@ -56,11 +56,11 @@
 |---|---|---|
 | `ToshLaunchpadHook.QUOTE_DECIMALS` | 8（构造函数校验 `decimals()==8`） | 18 |
 | `ToshFactory.QUOTE_UNIT` | `1e8` | `1e18` |
-| `ToshFactory.MIN_HARD_CAP` | `30e8`（30 BEM） | 【待定】BNB |
-| `ToshFactory.MAX_HARD_CAP` | `20_000e8` | 【待定】BNB |
-| `ToshFactory.MAX_POG_ALLOCATION_LIMIT` | `20_000e8` | 【待定】BNB |
-| `ToshFactory.maxPogAllocationLimit`（可调） | `46.4e8` | 【待定】，例如 1 BNB |
-| `ToshLadderTreasury.TRIGGER_STEP` | `10e8` | 【待定】，例如 0.3 BNB |
+| `ToshFactory.MIN_HARD_CAP` | `30e8`（30 BEM） | `1e18`（1 BNB） |
+| `ToshFactory.MAX_HARD_CAP` | `20_000e8` | `500e18`（500 BNB） |
+| `ToshFactory.MAX_POG_ALLOCATION_LIMIT` | `20_000e8` | `500e18`（500 BNB） |
+| `ToshFactory.maxPogAllocationLimit`（可调） | `46.4e8` | `1.3e18`（1.3 BNB） |
+| `ToshLadderTreasury.TRIGGER_STEP` | `10e8` | `3e17`（0.3 BNB） |
 | `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP` | `10e8` | 与上一致 |
 
 > 18 位小数下精度只会更好：`RaiseTooSmallForLadder`（`shelfP0 ≥ 526`）在 18 位时几乎不可能触发；价格与 tick 数量级整体平移 1e10，平台 9 月之前就是 18 位原生币，这套数学当时已验证过，但需要用新常量重跑全部测试。
@@ -102,8 +102,8 @@ function depositNative(address hook, address referrer) external payable nonReent
 | 货架 / 池子交易 | 自动 wrap；Universal Router 用 `WRAP_ETH` 命令，卖出可 `UNWRAP_WETH` 直接收 BNB |
 | 退款 / 推荐佣金 / Circuit 金库 | 收到的是 WBNB，加"一键解包为 BNB"按钮 |
 | 多工厂列表 | 新工厂设为当前工厂，BEM 工厂进入"历史工厂"列表，老项目照常展示和交易 |
-| PoG 签名服务 | 额度换算：现为 1 ETH gas → 46.4 BEM，改为 1 ETH gas → 【待定】BNB（`rotateGasRate.mjs`）；门槛 0.025 ETH 不变 |
-| 首页文案 | 当前定位是「BEM 生态的公平发射交易终端」，需要改定位文案 |
+| PoG 签名服务 | 额度换算 1 ETH gas → 1.3 BNB，上限 1.3 BNB，门槛 0.025 ETH 不变。Upstash 里的参数按工厂地址分开存，新工厂直接用代码初始值，不需要 `rotateGasRate.mjs` |
+| 首页文案 | 定位句里的计价资产名由 `QUOTE_SYMBOL` 填入，切到 WBNB 后自动变成 BNB |
 | 守卫脚本 | `checkQuoteFormat`、`checkChainCopy`、`checkQuoteAsset` 等按 18 位与 WBNB 更新 |
 | 监控 | `alerts.json`、`watch.mjs` 新工厂 / 金库 / 网关地址；`MONITOR_EXPECTED_GATEWAY` 更新 |
 

@@ -37,7 +37,7 @@ import { ethers } from 'ethers'
 import { connect, withFallback } from './lib/bscProvider.mjs'
 import { fetchLogs, deploymentBlock, LogSourceUnavailable } from './lib/etherscanLogs.mjs'
 import {
-  FACTORY, LADDER_TREASURY, QUOTE_ASSET, QUOTE_DECIMALS, TOKEN_DECIMALS,
+  FACTORY, LADDER_TREASURY, QUOTE_ASSET, QUOTE_DECIMALS, QUOTE_SYMBOL, TOKEN_DECIMALS,
   FACTORY_ABI, ERC20_ABI, fmt, topicAddress,
 } from './dashboard/config.mjs'
 
@@ -89,7 +89,7 @@ const TOPICS = {
 }
 
 const bnb = (v) => `${fmt(v, 18, 6)} BNB`
-const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} BEM`
+const bem = (v) => `${fmt(v, QUOTE_DECIMALS, 4)} ${QUOTE_SYMBOL}`
 
 async function main() {
   const { provider, url, blockNumber } = await connect()
@@ -122,13 +122,13 @@ async function main() {
     withFallback((p) => new ethers.Contract(QUOTE_ASSET, ERC20_ABI, p).balanceOf(treasury)),
   ])
   console.log(`  BNB   ${bnb(nativeBal)}   <- launch fees (old factory only)`)
-  console.log(`  BEM   ${bem(quoteBal)}   <- 0.30% of buy volume + orphan commission`)
+  console.log(`  ${QUOTE_SYMBOL}   ${bem(quoteBal)}   <- 0.30% of buy volume + orphan commission`)
 
   // Context, so the two numbers above can be read against the pot they were
   // carved from rather than in isolation.
   const reservoirBal = await withFallback((p) =>
     new ethers.Contract(QUOTE_ASSET, ERC20_ABI, p).balanceOf(LADDER_TREASURY))
-  console.log(`\n  for contrast, ladderTreasury holds ${bem(reservoirBal)} of BEM`)
+  console.log(`\n  for contrast, ladderTreasury holds ${bem(reservoirBal)} of ${QUOTE_SYMBOL}`)
   console.log('  it takes 0.70% of the same buys, so ~2.33x the platform cut,')
   console.log('  and it SPENDS that on buyback+burn rather than banking it.')
 
@@ -326,8 +326,8 @@ async function cumulative(toBlock, quoteBal, nativeBal, platformTreasury) {
     // `data` is exactly one word and needs no decoder.
     const launchTotal = launchFees.reduce((a, l) => a + BigInt(l.data), 0n)
 
-    console.log(`  BEM from swaps    ${bem(swapTotal)}   over ${swapCount} taxed buys`)
-    console.log(`  BEM from orphans  ${bem(orphanTotal)}   referral commission with no referrer, paid at launch`)
+    console.log(`  ${QUOTE_SYMBOL} from swaps    ${bem(swapTotal)}   over ${swapCount} taxed buys`)
+    console.log(`  ${QUOTE_SYMBOL} from orphans  ${bem(orphanTotal)}   referral commission with no referrer, paid at launch`)
     console.log(`  BNB from launches ${bnb(launchTotal)}   over ${launches.length} launches`)
 
     if (perHook.length > 1) {
@@ -348,7 +348,7 @@ async function cumulative(toBlock, quoteBal, nativeBal, platformTreasury) {
     }
 
     console.log('\n── EARNED vs STILL HELD ' + '─'.repeat(39))
-    report('BEM', swapTotal + orphanTotal, quoteBal, bem)
+    report(`${QUOTE_SYMBOL}`, swapTotal + orphanTotal, quoteBal, bem)
     report('BNB', launchTotal, nativeBal, bnb)
   } catch (e) {
     if (e instanceof LogSourceUnavailable) {
