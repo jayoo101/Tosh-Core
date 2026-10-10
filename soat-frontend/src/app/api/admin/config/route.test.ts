@@ -23,6 +23,8 @@ import { buildAdminConfigMessage, SIGNATURE_WINDOW_SEC } from '@/lib/adminConfig
 const FACTORY = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
 /** Stands in for the Safe. Nothing signs as this address, which is the point. */
 const SAFE    = '0x1111111111111111111111111111111111111111'
+/** Stands in for the `ToshLaunchGateway` that owns the factory for the Safe. */
+const GATEWAY = '0x2222222222222222222222222222222222222222'
 
 const SIGNER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
 const signerEoa  = privateKeyToAccount(SIGNER_KEY)
@@ -56,16 +58,27 @@ let claimImpl: (() => Promise<'claimed' | 'replayed' | 'unavailable'>) | null
  *  must treat as "cannot check" rather than "no ceiling". */
 let onChainPogLimit: bigint | null
 
+/** What GATEWAY answers for `factory()` and `safe()`; `null` fails the `safe()` read. */
+let gatewayFactory: Address
+let gatewaySafe: Address | null
+
 const verifyCalls: { address: Address; message: string; signature: Hex }[] = []
 const applied: { rate?: number; floorWei?: bigint; maxAllocWei?: bigint }[] = []
 
 vi.mock('@/app/lib/serverRpc', () => ({
   assertServerChain: async () => chainOk,
   serverPublicClient: () => ({
-    readContract: async ({ functionName }: { functionName: string }) => {
+    readContract: async ({ address, functionName }: { address: Address; functionName: string }) => {
       if (functionName === 'maxPogAllocationLimit') {
         if (onChainPogLimit === null) throw new Error('rpc down')
         return onChainPogLimit
+      }
+      if (functionName === 'factory' || functionName === 'safe') {
+        // A Safe or an EOA has neither function.
+        if (address !== GATEWAY) throw new Error('execution reverted')
+        if (functionName === 'factory') return gatewayFactory
+        if (gatewaySafe === null) throw new Error('rpc down')
+        return gatewaySafe
       }
       if (owner === null) throw new Error('rpc down')
       return owner
@@ -129,6 +142,8 @@ beforeEach(() => {
   ownerCode = '0xfe'          // matches the default owner: a contract
   chainOk = true
   onChainPogLimit = 500_000_000_000_000_000n   // 0.5 ETH, the deployed default
+  gatewayFactory = FACTORY
+  gatewaySafe = SAFE
   nonceStoreKind = 'redis'    // the posture production is meant to run in
   verifyImpl = null
   claimImpl = null
@@ -253,6 +268,45 @@ describe('POST /api/admin/config — owner is a Safe', () => {
     expect(verifyCalls[0].message).toBe(signable({
       rate: 0.25, floorWei: null, maxAllocWei: null, nonce: 7, expiresAt,
     }))
+  })
+})
+
+describe('POST /api/admin/config — owner is a ToshLaunchGateway', () => {
+  beforeEach(() => { owner = GATEWAY })
+
+  it('checks the signature against the Safe behind the gateway', async () => {
+    // The gateway has no `isValidSignature`; checking against it 403'd every
+    // request once it took factory ownership from the Safe.
+    verifyImpl = async () => true
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const res = await signedPost({ rate: 3.9 })
+
+    expect(res.status).toBe(200)
+    expect(applied).toEqual([{ rate: 3.9 }])
+    expect(verifyCalls[0].address).toBe(SAFE)
+    const entry = log.mock.calls.find(([msg]) => msg === '[admin/config] band updated')
+    expect(entry?.[1]).toMatchObject({ signer: SAFE })
+    log.mockRestore()
+  })
+
+  it('does not follow a contract whose factory() names another factory', async () => {
+    gatewayFactory = '0x3333333333333333333333333333333333333333'
+    verifyImpl = async () => true
+
+    await signedPost()
+
+    expect(verifyCalls[0].address).toBe(GATEWAY)
+  })
+
+  it('answers 503 when the gateway is recognised but its Safe cannot be read', async () => {
+    gatewaySafe = null
+
+    const res = await signedPost()
+
+    expect(res.status).toBe(503)
+    expect(applied).toEqual([])
+    expect(verifyCalls).toHaveLength(0)
   })
 })
 
