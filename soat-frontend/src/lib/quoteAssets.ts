@@ -29,6 +29,9 @@ const KNOWN: Record<string, Omit<QuoteConfig, 'asset'>> = {
   [BEM_BSC.toLowerCase()]:  { decimals: 8,  symbol: 'BEM', wrapsNative: false },
 }
 
+/** The ecosystem the site positions itself in (TapeOut's coin), whatever a raise is paid in. */
+export const ECOSYSTEM_SYMBOL = KNOWN[BEM_BSC.toLowerCase()].symbol
+
 /** The table entry for `asset`, or undefined for a token this file does not know. */
 export function knownQuote(asset: string | undefined | null): QuoteConfig | undefined {
   if (!asset) return undefined

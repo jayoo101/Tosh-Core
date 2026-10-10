@@ -664,7 +664,7 @@ export const EN = {
   directory: {
     title: 'Project Directory',
     lede:  'Every launch on Tosh Protocol — from open funding windows to '
-         + 'shelf-ladder trading, all settled in {quote} from the TapeOut ecosystem, on {chain}.',
+         + 'shelf-ladder trading, all settled in {quote} on {chain}.',
 
     searchPlaceholder: 'Search…',
     searchLabel:       'Search launches by name, ticker or address',
@@ -744,8 +744,10 @@ export const EN = {
     // hard lines; below `sm` the browser wraps it. `*…*` is the gradient run.
     // Both are the translator's to place: the break points and which phrase
     // carries the gradient depend on word order.
-    headline: 'The fair-launch|terminal of the|*{quote} ecosystem.*',
-    lede: 'Fund a launch in {quote} — the same coin TapeOut circuits mine — through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
+    // `{ecosystem}` is the ecosystem the site belongs to; `{quote}` is what a
+    // raise is paid in. They were one token until the WBNB move.
+    headline: 'The fair-launch|terminal of the|*{ecosystem} ecosystem.*',
+    lede: 'Fund a launch in {quote} through a window your gas history unlocks, then trade it on a 4,000-shelf price ladder. Every launch deploys its own PancakeSwap Infinity pool.',
     ctaLaunch:    'Launch a token',
     ctaDirectory: 'Project directory',
     ctaQuota:     'Check / activate deposit quota',
@@ -1486,7 +1488,7 @@ export const EN = {
    */
   meta: {
     siteDescription:      'The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
-    cardTitle:            'ToshX — the fair-launch terminal of the {quote} ecosystem',
+    cardTitle:            'ToshX — the fair-launch terminal of the {ecosystem} ecosystem',
     projectsTitle:        'Project Directory // ToshX',
     projectsDescription:  'Every launch on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading in {quote} on {chain}.',
     referralsTitle:       'Referral Ledger // ToshX',

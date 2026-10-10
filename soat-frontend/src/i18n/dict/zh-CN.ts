@@ -392,7 +392,7 @@ export const ZH_CN: PartialDictionary = {
 
   directory: {
     title: '项目目录',
-    lede:  'Tosh Protocol 上的每一个项目 —— 从开放中的募资窗口到 shelf-ladder 交易，全部以 TapeOut 生态的 {quote} 在 {chain} 上结算。',
+    lede:  'Tosh Protocol 上的每一个项目 —— 从开放中的募资窗口到 shelf-ladder 交易，全部以 {quote} 在 {chain} 上结算。',
 
     searchPlaceholder: '搜索…',
     searchLabel:       '按名称、代号或地址搜索项目',
@@ -463,8 +463,8 @@ export const ZH_CN: PartialDictionary = {
 
     // 三行硬换行，渐变落在最后一行。中文短语之间不加空格，组件只在拉丁字符
     // 结尾的行后补空格。
-    headline: '{quote} 生态的|公平发射|*交易终端。*',
-    lede: '用 {quote} 参与项目募资（TapeOut 生态里电路挖矿产出的就是这枚币），额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
+    headline: '{ecosystem} 生态的|公平发射|*交易终端。*',
+    lede: '用 {quote} 参与项目募资，额度由你钱包的 Gas 历史解锁；募资结束后，在 4,000 档价格阶梯上交易。'
         + '每个项目都会部署自己专属的 PancakeSwap Infinity 池子。',
     ctaLaunch:    '发射代币',
     ctaDirectory: '项目目录',
@@ -1104,7 +1104,7 @@ export const ZH_CN: PartialDictionary = {
 
   meta: {
     siteDescription:      'TapeOut 生态的公平发射台：Proof-of-Gas 决定额度，4,000 档 shelf ladder 交易，基于 PancakeSwap Infinity hooks 构建。',
-    cardTitle:            'ToshX —— {quote} 生态的公平发射台',
+    cardTitle:            'ToshX —— {ecosystem} 生态的公平发射台',
     projectsTitle:        '项目目录 // ToshX',
     projectsDescription:  'Tosh Protocol 上的每一个项目 —— 开放中的募资窗口、等待开池的项目，以及在 {chain} 上以 {quote} 实时进行的 shelf-ladder 交易。',
     referralsTitle:       '推荐台账 // ToshX',
