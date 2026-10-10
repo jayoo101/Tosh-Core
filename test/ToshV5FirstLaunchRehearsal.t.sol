@@ -167,7 +167,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
     ///        raised deliberately, because 8 decimals collapse the shelf-ladder
     ///        granularity margin from ~16,000,000x to ~4.75x. See
     ///        docs/BEM_QUOTE_ASSET.md §2.1.
-    uint256 internal constant REHEARSAL_SOFT_CAP = 100e8;
+    uint256 internal constant REHEARSAL_SOFT_CAP = 100e16;
 
     /// @dev The round is opened with its hard cap equal to the raise, so one
     ///      deposit fills it exactly.
@@ -284,7 +284,7 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         // The spender is the FACTORY for both the fee and the deposit. The hook
         // is the spender only for `mintBondingCurve`, which this rehearsal does
         // not reach.
-        deal(BEM, depositor, 10_000e8);
+        deal(BEM, depositor, 10_000e16);
         vm.prank(depositor);
         quote.approve(factoryAddr, type(uint256).max);
     }
@@ -420,14 +420,14 @@ contract ToshV5FirstLaunchRehearsalTest is Test {
         assertEq(address(factory.quoteAsset()), BEM, "the live factory is denominated in something else: ABORT");
         assertEq(IERC20Metadata(BEM).decimals(), 8, "BEM is not 8 decimals; every figure in this file is rescaled");
 
-        assertEq(factory.MIN_HARD_CAP(), 30e8, "the hard-cap floor moved");
+        assertEq(factory.MIN_HARD_CAP(), 30e16, "the hard-cap floor moved");
         assertTrue(factory.circuitNFT() != address(0), "the live factory predates GrantPad: ABORT");
-        // 46.4e8, not `1.75 ether`. This assertion carried the pre-quote-asset value
+        // 46.4e16, not `1.75 ether`. This assertion carried the pre-quote-asset value
         // and nothing caught it, because the whole test sits behind `_requireFork()`
         // and skips without a mainnet fork — so it is one of the handful that the
         // green suite does not actually exercise. The unit is base units of the quote
         // asset now, and `1.75 ether` is neither the right number nor the right scale.
-        assertEq(factory.maxPogAllocationLimit(), 46.4e8, "PoG limit moved");
+        assertEq(factory.maxPogAllocationLimit(), 46.4e16, "PoG limit moved");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

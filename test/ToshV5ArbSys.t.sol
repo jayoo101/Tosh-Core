@@ -63,10 +63,10 @@ abstract contract ArbSysHarness is Test {
     /// @dev Stands in for BEM, at eight decimals.
     MockQuoteAsset internal quote;
 
-    uint256 internal constant SOFT_CAP = 100e8;
+    uint256 internal constant SOFT_CAP = 100e16;
     /// @dev Per-launch hard cap; the factory ceiling, so it binds only on purpose.
-    uint256 internal constant HARD_CAP = 20_000e8;
-    uint256 internal constant POG_CAP = 1000e8;
+    uint256 internal constant HARD_CAP = 20_000e16;
+    uint256 internal constant POG_CAP = 1000e16;
 
     /// @dev Mirrors the mock's slot 0 so tests can read it without a call.
     uint256 internal chainHeight;
@@ -128,7 +128,7 @@ abstract contract ArbSysHarness is Test {
     ///      input side. See `ToshV5Test._endow` for why the swap allowance names
     ///      the router rather than the Vault.
     function _endow(address who) internal {
-        quote.mint(who, 100_000e8);
+        quote.mint(who, 100_000e16);
         vm.startPrank(who);
         quote.approve(address(factory), type(uint256).max);
         quote.approve(address(router), type(uint256).max);
@@ -234,7 +234,7 @@ abstract contract ArbSysHarness is Test {
     ///      105 % ceiling stops being the binding constraint and the lockout is
     ///      the only thing these tests are measuring.
     function _openLadder(ToshLaunchpadHook hook) internal {
-        _swapBuy(hook, 1e8);
+        _swapBuy(hook, 1e16);
         _nextBlock();
         vm.warp(block.timestamp + 1900);
         _swapBuy(hook, 1e6);
@@ -271,7 +271,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
         ToshLaunchpadHook hook = _launchProject();
         _nextBlock();
 
-        _swapBuy(hook, 1e8);
+        _swapBuy(hook, 1e16);
 
         assertEq(hook.lastSwapBlock(), chainHeight, "stamp must be the chain's own height");
         assertTrue(hook.lastSwapBlock() != vm.getBlockNumber(), "stamp must not be block.number");
@@ -305,7 +305,7 @@ contract ToshV5ArbSysTest is ArbSysHarness {
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
-        hook.mintBondingCurve(1e18, 100e8);
+        hook.mintBondingCurve(1e18, 100e16);
     }
 
     /// @notice ...and advancing the chain's own height by one does clear it.
@@ -332,7 +332,7 @@ contract ToshV5NoArbSysTest is ArbSysHarness {
 
         ToshLaunchpadHook hook = _launchProject();
         _nextBlock();
-        _swapBuy(hook, 1e8);
+        _swapBuy(hook, 1e16);
 
         assertEq(hook.lastSwapBlock(), vm.getBlockNumber(), "without ArbSys the stamp is block.number");
     }

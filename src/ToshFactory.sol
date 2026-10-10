@@ -17,6 +17,11 @@ import {HookDeployLib} from "./libraries/HookDeployLib.sol";
 import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 import {CircuitNFT} from "./CircuitNFT.sol";
 
+/// @dev The one call `depositNative` makes on the quote asset beyond ERC20.
+interface IWrappedNative {
+    function deposit() external payable;
+}
+
 /// @title  ToshFactory v5.0 — ETH-native launchpad with a global referral graph
 /// @notice Platform singleton: deploys launches, guards genesis eligibility, and
 ///         owns the platform-wide lifetime referral registry.
@@ -64,40 +69,33 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant MAX_SIG_VALIDITY = 24 hours;
     uint256 public constant MAX_COOLDOWN = 7 days;
 
-    /// @dev One whole unit of the quote asset. BEM has 8 decimals, so this is
-    ///      1e8 and not 1e18, and `ether` must not appear anywhere near these
-    ///      dials any more.
-    ///
-    ///      Spelled out as its own constant because the literals below read as
-    ///      plausible numbers either way: `928.4e8` and `928.4 ether` are both
-    ///      well-formed Solidity and differ by ten orders of magnitude, with
-    ///      nothing in the syntax to suggest which was meant. Writing
-    ///      `928.4 * QUOTE_UNIT` makes the unit part of the expression.
-    uint256 public constant QUOTE_UNIT = 1e8;
+    /// @dev One whole unit of the quote asset. WBNB has 18 decimals, so this is
+    ///      1e18. BEM, the previous quote asset, had 8; a literal carried over
+    ///      from that era (`46.4e8`) is ten orders of magnitude too small here
+    ///      and still compiles, which is why these dials are written against
+    ///      this constant or in `ether`, never in `e8`.
+    uint256 public constant QUOTE_UNIT = 1e18;
 
     /// @notice Bounds on a launch's `hardCap`, in quote-asset base units.
     ///
-    /// @dev    The floor is set by the ladder, not by policy. `launch()` refuses
-    ///         any raise below ~21.04 BEM (`RaiseTooSmallForLadder`), because
-    ///         under that the first shelf step truncates to zero. A round can
-    ///         close anywhere under its cap, so a cap close to 21.04 would mean
-    ///         only a nearly full round can launch at all. 30 BEM means a round
-    ///         launches once it reaches ~70 % of the smallest legal cap.
+    /// @dev    The floor is policy, not arithmetic. With an 18-decimal quote the
+    ///         ladder's `RaiseTooSmallForLadder` floor sits at ~2.1e-9 BNB, far
+    ///         below anything worth a launch; 1 BNB is the smallest round worth
+    ///         opening a pool for.
     ///
-    ///         The ceiling guards unit confusion (`20_000 ether` where
-    ///         `20_000e8` was meant is a factor of 1e10). 20,000 BEM is ~10.4 %
-    ///         of BEM's 191,739 supply, far above any raise this platform could
-    ///         fill.
-    uint256 public constant MIN_HARD_CAP = 30e8;
-    uint256 public constant MAX_HARD_CAP = 20_000e8;
+    ///         The ceiling guards unit confusion: 500 BNB is above any raise
+    ///         this platform expects to fill, and a cap typed in the wrong unit
+    ///         lands far outside it.
+    uint256 public constant MIN_HARD_CAP = 1 * QUOTE_UNIT;
+    uint256 public constant MAX_HARD_CAP = 500 * QUOTE_UNIT;
 
     /// @notice What a `hardCap` of 0 is stored as: no cap, the round runs to
     ///         its deadline whatever it raises.
     ///
     /// @dev    A sentinel rather than a flag because the hook cannot grow (its
     ///         deployer is within bytes of the size limit) and already refuses
-    ///         a zero cap. The widest value its uint128 arg holds is one no
-    ///         deposit sum can reach — BEM's whole supply is ~1.9e13 base units.
+    ///         a zero cap. The widest value its uint128 arg holds (~3.4e38) is
+    ///         one no deposit sum can reach — all BNB in existence is ~1.4e26 wei.
     ///         `MIN_HARD_CAP`/`MAX_HARD_CAP` do not apply; the wallet cap is
     ///         held to `MAX_HARD_CAP` instead, as the unit-slip guard.
     uint256 public constant UNCAPPED = type(uint128).max;
@@ -110,7 +108,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         that PoG still limits whales: a per-launch wallet cap equal to
     ///         the hard cap lets one wallet fill an entire round. That sizing is
     ///         made per launch, on the review form.
-    uint256 public constant MAX_POG_ALLOCATION_LIMIT = 20_000e8;
+    uint256 public constant MAX_POG_ALLOCATION_LIMIT = 500 * QUOTE_UNIT;
 
     // ─── Immutables ───────────────────────────────────────────────────────────
 
@@ -186,7 +184,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
 
     address public pogSigner;
 
-    /// @notice Platform fee destination. Receives two flows, both in BEM: the
+    /// @notice Platform fee destination. Receives two flows, both in WBNB: the
     ///         0.30 % maintenance cut of every buy's quote input, and orphaned
     ///         referral commission flushed at each `launch`.
     ///
@@ -291,20 +289,14 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///         reverts `ExceedsGlobalPogLimit`, so the off-chain dial may be
     ///         lowered freely and raised only after this one moves.
     ///
-    ///         THE UNIT GAP BETWEEN THIS DIAL AND ITS INPUT IS NOW TWO HOPS, not
-    ///         one, and it is the weakest link in the PoG chain.  `maxAlloc` is
-    ///         BEM because a deposit is BEM; the gas history it is derived from is
-    ///         ETH, because the chains scanned for it settle in ETH. So the
-    ///         oracle's rate has to carry ETH → BNB → BEM.
+    ///         `maxAlloc` is BNB because a deposit is WBNB; the gas history it is
+    ///         derived from is ETH, because the chains scanned for it settle in
+    ///         ETH. So the oracle's rate carries one hop, ETH → BNB, across two
+    ///         deep, liquid markets. `docs/BSC_MIGRATION.md` §6 argues it.
     ///
-    ///         The first hop is two deep, liquid markets. The second is BEM,
-    ///         whose only pool of consequence held 1,959 BEM. A rate derived
-    ///         through it is therefore as stable as that pool is deep, and an
-    ///         allocation signed against a stale one is wrong in BEM terms the
-    ///         moment anyone trades. `docs/BSC_MIGRATION.md` §6 argues the first
-    ///         hop; docs/BEM_QUOTE_ASSET.md §2.7 is where the second is the
-    ///         open problem.
-    uint256 public maxPogAllocationLimit = 46.4e8;
+    ///         1.3 BNB is what 46.4 BEM was worth on 2026-10-10, the day the
+    ///         quote asset moved to WBNB, so a full-quota wallet keeps its size.
+    uint256 public maxPogAllocationLimit = 1.3 ether;
 
     // ─── Eligibility maps ─────────────────────────────────────────────────────
 
@@ -1095,6 +1087,21 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     ///                  call for a different amount. Approve what you intend to
     ///                  deposit, not what you intend to deposit eventually.
     function deposit(address hook, address referrer, uint256 amount) external nonReentrant {
+        _deposit(hook, referrer, amount, false);
+    }
+
+    /// @notice `deposit`, paid in native BNB: `msg.value` is wrapped into the
+    ///         quote asset (WBNB) and deposited under exactly the same checks.
+    ///
+    /// @dev    Adds no path that sends native coin anywhere, so it opens no
+    ///         re-entry surface `deposit` lacks: the only external call before
+    ///         the hook's is WBNB's own `deposit`. Refunds, claims and referral
+    ///         payouts stay in WBNB.
+    function depositNative(address hook, address referrer) external payable nonReentrant {
+        _deposit(hook, referrer, msg.value, true);
+    }
+
+    function _deposit(address hook, address referrer, uint256 amount, bool native) internal {
         if (amount == 0) revert ZeroAmount();
         if (!registeredHooks[hook]) revert HookNotRegistered();
         if (depositsPaused(hook)) revert DepositsPaused();
@@ -1134,7 +1141,12 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         // The transfer precedes the call, so the hook re-derives the arrival from
         // its own balance rather than taking `amount` on our word. See its
         // `deposit`.
-        SafeERC20.safeTransferFrom(quoteAsset, msg.sender, hook, amount);
+        if (native) {
+            IWrappedNative(address(quoteAsset)).deposit{value: amount}();
+            SafeERC20.safeTransfer(quoteAsset, hook, amount);
+        } else {
+            SafeERC20.safeTransferFrom(quoteAsset, msg.sender, hook, amount);
+        }
         ToshLaunchpadHook(payable(hook)).deposit(msg.sender, boundProject, boundLifetime, amount);
 
         emit GenesisDeposit(msg.sender, hook, amount, boundProject, boundLifetime);

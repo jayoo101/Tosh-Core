@@ -31,9 +31,9 @@ contract ToshGrantPadTest is Test {
     CircuitRevenueVault internal vault;
     uint256 internal tokenId;
 
-    uint256 internal constant HARD_CAP = 500e8;
-    uint256 internal constant WALLET_CAP = 50e8;
-    uint256 internal constant REVENUE = 1_000e8;
+    uint256 internal constant HARD_CAP = 500e16;
+    uint256 internal constant WALLET_CAP = 50e16;
+    uint256 internal constant REVENUE = 1_000e16;
 
     event Withdrawn(address indexed token, address indexed to, uint256 amount);
     event Settled(address indexed to, uint256 amount);
@@ -164,13 +164,13 @@ contract ToshGrantPadTest is Test {
 
     function test_vault_holderWithdrawsImmediately() public {
         vm.expectEmit(true, true, false, true, address(vault));
-        emit Withdrawn(address(quote), payout, 100e8);
+        emit Withdrawn(address(quote), payout, 100e16);
         vm.prank(developer);
-        uint256 paid = vault.withdraw(address(quote), payout, 100e8);
+        uint256 paid = vault.withdraw(address(quote), payout, 100e16);
 
-        assertEq(paid, 100e8);
-        assertEq(quote.balanceOf(payout), 100e8);
-        assertEq(quote.balanceOf(address(vault)), REVENUE - 100e8);
+        assertEq(paid, 100e16);
+        assertEq(quote.balanceOf(payout), 100e16);
+        assertEq(quote.balanceOf(address(vault)), REVENUE - 100e16);
     }
 
     function test_vault_withdrawPaysTheLesserOfAmountAndBalance() public {
@@ -189,10 +189,10 @@ contract ToshGrantPadTest is Test {
 
     function test_vault_withdrawsOtherTokensToo() public {
         MockQuoteAsset other = new MockQuoteAsset();
-        other.mint(address(vault), 7e8);
+        other.mint(address(vault), 7e16);
         vm.prank(developer);
-        vault.withdraw(address(other), payout, 7e8);
-        assertEq(other.balanceOf(payout), 7e8);
+        vault.withdraw(address(other), payout, 7e16);
+        assertEq(other.balanceOf(payout), 7e16);
     }
 
     function test_vault_withdrawIsHolderOnly() public {
@@ -264,15 +264,15 @@ contract ToshGrantPadTest is Test {
     function test_transfer_revenueAfterTheSaleBelongsToTheBuyer() public {
         vm.prank(developer);
         circuit.transferFrom(developer, buyer, tokenId);
-        quote.mint(address(vault), 30e8);
+        quote.mint(address(vault), 30e16);
 
         vm.prank(developer);
         vm.expectRevert(CircuitRevenueVault.NotCircuitHolder.selector);
-        vault.withdraw(address(quote), developer, 30e8);
+        vault.withdraw(address(quote), developer, 30e16);
 
         vm.prank(buyer);
-        vault.withdraw(address(quote), buyer, 30e8);
-        assertEq(quote.balanceOf(buyer), 30e8);
+        vault.withdraw(address(quote), buyer, 30e16);
+        assertEq(quote.balanceOf(buyer), 30e16);
     }
 
     function test_transfer_withAnEmptyVaultSucceeds() public {
@@ -286,10 +286,10 @@ contract ToshGrantPadTest is Test {
     /// @dev Only the quote asset is settled; anything else travels with the NFT.
     function test_transfer_leavesOtherTokensInTheVault() public {
         MockQuoteAsset other = new MockQuoteAsset();
-        other.mint(address(vault), 7e8);
+        other.mint(address(vault), 7e16);
         vm.prank(developer);
         circuit.transferFrom(developer, buyer, tokenId);
-        assertEq(other.balanceOf(address(vault)), 7e8);
+        assertEq(other.balanceOf(address(vault)), 7e16);
         assertEq(other.balanceOf(developer), 0);
     }
 
@@ -310,15 +310,15 @@ contract ToshGrantPadTest is Test {
     function test_vault_isolatedPerCircuit() public {
         (ToshLaunchpadHook other,) = _launch("Other", "OTHR", stranger);
         CircuitRevenueVault otherVault = CircuitRevenueVault(other.projectAdmin());
-        quote.mint(address(otherVault), 5e8);
+        quote.mint(address(otherVault), 5e16);
 
         vm.prank(developer);
         vm.expectRevert(CircuitRevenueVault.NotCircuitHolder.selector);
-        otherVault.withdraw(address(quote), developer, 5e8);
+        otherVault.withdraw(address(quote), developer, 5e16);
 
         vm.prank(developer);
         circuit.transferFrom(developer, buyer, tokenId);
-        assertEq(quote.balanceOf(address(otherVault)), 5e8);
+        assertEq(quote.balanceOf(address(otherVault)), 5e16);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

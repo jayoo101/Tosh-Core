@@ -67,7 +67,7 @@ contract ToshV5GuardsTest is Test {
     uint256 internal cloneNonce;
 
     /// @dev Per-launch hard cap of the fixture round; the factory ceiling.
-    uint256 internal constant HARD_CAP = 20_000e8;
+    uint256 internal constant HARD_CAP = 20_000e16;
 
     function setUp() public {
         pogSigner = vm.addr(pogSignerPk);
@@ -82,7 +82,7 @@ contract ToshV5GuardsTest is Test {
         // 1000 BEM, the suite's working figure. `MAX_POG_ALLOCATION_LIMIT` is
         // 20,000 BEM — a tenth of BEM's supply — so the old 1000-ETH-equivalent
         // headroom does not exist to be used.
-        factory.setMaxPogAllocationLimit(1000e8);
+        factory.setMaxPogAllocationLimit(1000e16);
         vm.stopPrank();
 
         // Native for gas only.
@@ -106,7 +106,7 @@ contract ToshV5GuardsTest is Test {
     }
 
     function _endow(address who) internal {
-        quote.mint(who, 100_000e8);
+        quote.mint(who, 100_000e16);
         vm.prank(who);
         quote.approve(address(factory), type(uint256).max);
     }
@@ -185,7 +185,7 @@ contract ToshV5GuardsTest is Test {
     }
 
     function _freshHook() internal returns (ToshLaunchpadHook) {
-        return _freshClone(100e8, 100e8, 24 hours);
+        return _freshClone(100e16, 100e16, 24 hours);
     }
 
     // ── Hook constructor ──────────────────────────────────────────────────────
@@ -349,13 +349,13 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_initializeToken_rejectsZeroHardCap() public {
-        ToshLaunchpadHook fresh = _freshClone(0, 100e8, 24 hours);
+        ToshLaunchpadHook fresh = _freshClone(0, 100e16, 24 hours);
         vm.expectRevert(bytes("zero hardCap"));
         fresh.initializeToken(makeAddr("tok"), projTreasury);
     }
 
     function test_initializeToken_rejectsZeroPerWalletCap() public {
-        ToshLaunchpadHook fresh = _freshClone(100e8, 0, 24 hours);
+        ToshLaunchpadHook fresh = _freshClone(100e16, 0, 24 hours);
         vm.expectRevert(bytes("zero perWalletCap"));
         fresh.initializeToken(makeAddr("tok"), projTreasury);
     }
@@ -364,7 +364,7 @@ contract ToshV5GuardsTest is Test {
         uint256[3] memory allowed = [hook.DURATION_FAST(), hook.DURATION_STANDARD(), hook.DURATION_SLOW()];
 
         for (uint256 i; i < allowed.length; ++i) {
-            ToshLaunchpadHook h = _freshClone(100e8, 100e8, allowed[i]);
+            ToshLaunchpadHook h = _freshClone(100e16, 100e16, allowed[i]);
             h.initializeToken(makeAddr("tok"), projTreasury);
 
             assertEq(h.genesisDuration(), allowed[i], "window is frozen in the clone's code");
@@ -384,7 +384,7 @@ contract ToshV5GuardsTest is Test {
         uint256[5] memory rejected = [uint256(0), 1 seconds, 12 hours, 25 hours, 3650 days];
 
         for (uint256 i; i < rejected.length; ++i) {
-            ToshLaunchpadHook h = _freshClone(100e8, 100e8, rejected[i]);
+            ToshLaunchpadHook h = _freshClone(100e16, 100e16, rejected[i]);
             vm.expectRevert(ToshLaunchpadHook.InvalidDuration.selector);
             h.initializeToken(makeAddr("tok"), projTreasury);
         }
@@ -429,15 +429,15 @@ contract ToshV5GuardsTest is Test {
     function test_hook_deposit_rejectsNonFactory() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.OnlyFactory.selector);
-        hook.deposit(user1, address(0), address(0), 100e8);
+        hook.deposit(user1, address(0), address(0), 100e16);
     }
 
     function test_deposit_revertsAfterDeadline() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.warp(hook.genesisDeadline());
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.GenesisExpired.selector);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e16);
     }
 
     // ── Revenue recipient is fixed ────────────────────────────────────────────
@@ -471,9 +471,9 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_canRefund_falseInsideLaunchWindow_overCap() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + 1);
         assertFalse(hook.canRefund());
     }
@@ -482,42 +482,42 @@ contract ToshV5GuardsTest is Test {
     /// cannot carry a ladder, so the launch window has nothing to offer it and
     /// `canRefund()` no longer makes depositors sit through one.
     function test_canRefund_trueAtGenesisClose_whenRaiseCannotCarryALadder() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e9);
         vm.warp(hook.genesisDeadline() + 1);
         assertTrue(hook.canRefund());
     }
 
     /// The gate is the ladder, not the clock: still shut while genesis is live.
     function test_canRefund_falseWhileGenesisIsStillOpen() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e16);
         assertFalse(hook.canRefund(), "deposits are still being taken");
     }
 
     function test_canRefund_trueAfterZombieWindow_overCap() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         assertTrue(hook.canRefund());
     }
 
     function test_refund_revertsBeforeDeadline() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e16);
         vm.prank(user1);
         vm.expectRevert(bytes("Refund not available"));
         hook.refund();
     }
 
     function test_refund_revertsInsideLaunchWindow_overCap() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + 1);
         vm.prank(user1);
         vm.expectRevert(bytes("Refund not available"));
@@ -525,24 +525,24 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_refund_succeedsAfterZombieWindow_overCap() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
 
         uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
         hook.refund();
-        assertEq(quote.balanceOf(user1) - before, 1000e8, "a refund pays back in the quote asset");
+        assertEq(quote.balanceOf(user1) - before, 1000e16, "a refund pays back in the quote asset");
         assertTrue(hook.refundAnnounced());
     }
 
     /// A raise that CAN carry a ladder waits out the window, because the
     /// creator can still open the pool with it. This is the abandonment case.
     function test_refund_viableRaiseWaitsForTheLaunchWindow() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + 1);
 
         assertTrue(hook.ladderViable(), "1000 BEM is far above the ladder floor");
@@ -558,12 +558,12 @@ contract ToshV5GuardsTest is Test {
     ///   so `launch()` can never succeed on it and the seven days were a wait
     ///   for a verdict that was already final when deposits closed.
     function test_refund_raiseTooSmallForLadderOpensAtGenesisClose() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e9);
         vm.warp(hook.genesisDeadline() + 1);
 
-        assertFalse(hook.ladderViable(), "1 BEM is below the ladder floor");
+        assertFalse(hook.ladderViable(), "1 gwei is below the ladder floor");
         assertTrue(hook.canRefund(), "so refunds open the moment genesis closes");
 
         // The other half of the claim: the door it skips is genuinely shut.
@@ -574,30 +574,30 @@ contract ToshV5GuardsTest is Test {
         uint256 before = quote.balanceOf(user1);
         vm.prank(user1);
         hook.refund();
-        assertEq(quote.balanceOf(user1) - before, 1e8, "refunded in full, six days early");
+        assertEq(quote.balanceOf(user1) - before, 1e9, "refunded in full, six days early");
     }
 
     /// The two failures are told apart in the log, not merged into one alarm.
     function test_refund_announcesGenesisFailedNotZombie_whenRaiseTooSmall() public {
-        _register(user1, 100e8);
+        _register(user1, 100e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1e8);
+        factory.deposit(address(hook), address(0), 1e9);
         vm.warp(hook.genesisDeadline() + 1);
 
         vm.expectEmit(false, false, false, true, address(hook));
-        emit ToshLaunchpadHook.GenesisFailed(1e8);
+        emit ToshLaunchpadHook.GenesisFailed(1e9);
         vm.prank(user1);
         hook.refund();
     }
 
     function test_refund_announcesZombie_whenTheCreatorSimplyNeverLaunched() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
 
         vm.expectEmit(false, false, false, true, address(hook));
-        emit ToshLaunchpadHook.ZombieRefund(1000e8);
+        emit ToshLaunchpadHook.ZombieRefund(1000e16);
         vm.prank(user1);
         hook.refund();
     }
@@ -618,10 +618,10 @@ contract ToshV5GuardsTest is Test {
     /// and no test in this file calls it expecting to. The launching half lives
     /// where the DEX does.
     function testFuzz_launchAndRefundDoorsNeverDisagree(uint96 raw) public {
-        uint256 amount = uint256(raw) % 200e8;
+        uint256 amount = uint256(raw) % 200e16;
         vm.assume(amount > 0);
 
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
         factory.deposit(address(hook), address(0), amount);
         vm.warp(hook.genesisDeadline() + 1);
@@ -692,9 +692,9 @@ contract ToshV5GuardsTest is Test {
     }
 
     function test_launch_revertsAfterLaunchWindowExpired() public {
-        _register(user1, 1000e8);
+        _register(user1, 1000e16);
         vm.prank(user1);
-        factory.deposit(address(hook), address(0), 1000e8);
+        factory.deposit(address(hook), address(0), 1000e16);
         vm.warp(hook.genesisDeadline() + hook.LAUNCH_WINDOW() + 1);
         vm.prank(creator);
         vm.expectRevert(ToshLaunchpadHook.LaunchWindowExpired.selector);
@@ -716,7 +716,7 @@ contract ToshV5GuardsTest is Test {
     function test_mintBondingCurve_revertsBeforeLaunch() public {
         vm.prank(user1);
         vm.expectRevert(ToshLaunchpadHook.NotLaunched.selector);
-        hook.mintBondingCurve(1e18, 100e8);
+        hook.mintBondingCurve(1e18, 100e16);
     }
 
     // ── Views ─────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test, console2} from "forge-std/Test.sol";
 
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "../lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ICLPoolManager} from "../lib/infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 import {PoolKey} from "../lib/infinity-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "../lib/infinity-core/src/types/PoolId.sol";
@@ -101,6 +102,14 @@ contract ToshV5ForkGenesisFeesTest is Test {
     }
 
     function test_forkGenesisFees_sweepsEveryLivePosition() public onFork {
+        // The current hook only accepts an 18-decimal quote asset, so its code
+        // can no longer stand in for the implementation behind a factory quoted
+        // in a different one.
+        vm.skip(
+            IERC20Metadata(address(ToshLaunchpadHook(HOOKS[0]).quoteAsset())).decimals() != 18,
+            "live factory's quote asset is not 18 decimals"
+        );
+
         Snapshot[10] memory before;
         for (uint256 i; i < HOOKS.length; ++i) {
             before[i] = _snap(ToshLaunchpadHook(HOOKS[i]));

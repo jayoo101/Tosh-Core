@@ -568,7 +568,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
     ///         equal.  Reading it from the treasury instead would cost the very
     ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 10e8;
+    uint256 public constant PIGGYBACK_TRIGGER_STEP = 0.3 ether;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.
@@ -727,14 +727,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
     /// @dev The quote asset's decimals, asserted in the constructor rather than
     ///      assumed, because the ladder's usable range was computed against it.
-    ///      BEM has 8. `p0 = lpQuote * 1e18 / GENESIS_LP_SUPPLY` therefore
-    ///      carries ten fewer decimal digits than an 18-decimal quote would,
-    ///      and adjacent shelf prices differ by an INTEGER — so below roughly
-    ///      21 quote units of raise, neighbouring shelves round onto the same
-    ///      price and the 4,000-shelf ladder degenerates into a step function.
-    ///      That is what `MIN_SOFT_CAP_PROD` is sized against; see
-    ///      docs/BEM_QUOTE_ASSET.md 2.1 for the table.
-    uint8 internal constant QUOTE_DECIMALS = 8;
+    ///      WBNB has 18, so `p0 = lpQuote * 1e18 / GENESIS_LP_SUPPLY` lands in
+    ///      the billions for any raise worth a pool and adjacent shelves never
+    ///      round onto the same price. Under BEM's 8 they did below ~21 BEM of
+    ///      raise; docs/BEM_QUOTE_ASSET.md 2.1 has the table from that era.
+    uint8 internal constant QUOTE_DECIMALS = 18;
 
     /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
     ///         share of the buy-side dark tax and the shelf cut.
@@ -1254,8 +1251,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             _poolManager == address(0) || _vault == address(0) || _factory == address(0)
                 || _ladderTreasury == address(0) || _platformFeeRecipient == address(0) || _quoteAsset == address(0)
         ) revert ZeroAddress();
-        // Asserted, not assumed: `MIN_SOFT_CAP_PROD` and the ladder's usable
-        // range were both computed against 8 decimals. A quote asset with any
+        // Asserted, not assumed: `ToshFactory.MIN_HARD_CAP` and the ladder's usable
+        // range were both computed against 18 decimals. A quote asset with any
         // other precision silently moves where the shelf ladder degenerates,
         // and a deploy is the worst place to discover that.
         if (IERC20Metadata(_quoteAsset).decimals() != QUOTE_DECIMALS) revert WrongQuoteDecimals();
@@ -1760,10 +1757,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // raise itself can refuse a dust round.
         //
         // It went unnoticed because an 18-decimal quote asset made the window
-        // unreachable: any BNB raise worth opening a pool for produced `p0` in
-        // the billions, nine orders clear of 526. BEM's 8 decimals deliver 1e10
-        // fewer base units for the same tokens, so the window moved from
-        // theoretical to one small round away.
+        // unreachable: any BNB raise worth opening a pool for produces `p0` in
+        // the billions, nine orders clear of 526. BEM's 8 decimals moved it to
+        // one small round away; with WBNB it is theoretical again, and the
+        // check stays because it costs nothing and is precision-agnostic.
         //
         // Checked as the PROPERTY rather than as a derived minimum. A
         // `MIN_RAISE` constant would have to be re-derived by hand whenever

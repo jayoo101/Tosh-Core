@@ -147,9 +147,9 @@ library ToshCloneLib {
 
     /// @dev Iteration ceiling for the ordering grind below.
     ///
-    ///      Sized to be unreachable rather than to be tight. Against BEM's
-    ///      `0x5ce0…`, each candidate clears the floor with probability ≈ 0.638,
-    ///      so the chance of 256 consecutive failures is 0.362^256 ≈ 1e-113.
+    ///      Sized to be unreachable rather than to be tight. Against WBNB's
+    ///      `0xbb4C…`, each candidate clears the floor with probability ≈ 0.267,
+    ///      so the chance of 256 consecutive failures is 0.733^256 ≈ 3e-35.
     ///      The bound exists so the loop is provably finite, not because anyone
     ///      expects to approach it — a quote asset whose address began `0xffff…`
     ///      would make the grind genuinely improbable, and this is where that
@@ -187,10 +187,10 @@ library ToshCloneLib {
     ///         zero, so the quote side was `currency0` for every project that
     ///         would ever exist, and 91 call sites in the hook could read
     ///         `amount0` as "quote" and `amount1` as "project token" without a
-    ///         branch. An ERC20 quote asset has no such privilege. BEM sits at
-    ///         `0x5ce0…`, roughly 36% of the way up the address space, so a
-    ///         nonce-derived token address would land BELOW it about a third of
-    ///         the time and invert the pool's sides — silently, since the pool
+    ///         branch. An ERC20 quote asset has no such privilege. WBNB sits at
+    ///         `0xbb4C…`, roughly 73% of the way up the address space, so a
+    ///         nonce-derived token address would land BELOW it about three
+    ///         times in four and invert the pool's sides — silently, since the pool
     ///         initialises fine either way, and per project, since each launch
     ///         rolls independently.
     ///

@@ -43,7 +43,7 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///   v5.0 replaces the v4.x per-pool `harvestAndBurn` + off-chain harvest bot
 ///   with a fully on-chain, self-driving deflation engine:
 ///
-///     1. The quote asset (BEM, an ERC20 with 8 decimals) flows in through
+///     1. The quote asset (WBNB, an ERC20 with 18 decimals) flows in through
 ///        TWO pipes:
 ///          • the 0.7 % BUY-side in-flight tax from every Tosh pool,
 ///          • the 1 % platform cut of every Phase-2 shelf mint.
@@ -61,13 +61,13 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///        fees from the inflow; the claim that they are buyback fuel survived
 ///        in three docstrings after it stopped being true.
 ///     2. Every swap's `afterSwap` pokes `autoPiggybackBuyback()`.
-///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (10 BEM),
+///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (0.3 BNB),
 ///        the poking swap "gives a ride" (顺风车) to a buyback:
 ///        `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000)` is sized per pool
 ///        as `spend / BATCH_SIZE` and market-bought through PancakeSwap
 ///        Infinity in round-robin order, with the proceeds sent straight to
 ///        `DEAD_ADDRESS`.  The 50 % proportional spend means a full reservoir
-///        does not sit idle waiting for dozens of 10-BEM drips; the floor
+///        does not sit idle waiting for dozens of 0.3-BNB drips; the floor
 ///        keeps a near-empty pot from wasting gas on dust legs.
 ///
 ///        ONE LEG RUNS PER POKE, not `BATCH_SIZE` of them. The divisor and the
@@ -151,11 +151,10 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev    Sized by intent rather than by a spot rate, because it is a
     ///         constant and a constant outlives the rate that set it.  The
     ///         question it answers is "how much ammunition is worth one shot,
-    ///         net of the gas to fire it".  It was 92.8 BEM (where 3.5 BNB sat,
-    ///         which sat where 1 ETH sat when this was written) and was cut to
-    ///         10 BEM so small projects' buybacks fire at all: BSC gas makes a
-    ///         ~3.3 BEM leg worth firing.  A cheaper trigger spends the
-    ///         reservoir on fees; a dearer one lets it idle.
+    ///         net of the gas to fire it".  Under BEM it was cut from 92.8 to
+    ///         10 BEM so small projects' buybacks fire at all; 0.3 BNB is what
+    ///         10 BEM was worth when the quote asset moved to WBNB.  A cheaper
+    ///         trigger spends the reservoir on fees; a dearer one lets it idle.
     ///
     ///         ⚠ MUST EQUAL `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP`. Both are
     ///           `constant` with no setter, in separately deployed contracts, so
@@ -164,7 +163,7 @@ contract ToshLadderTreasury is Ownable2Step {
     ///           contract would have acted on and the buyback simply goes quiet —
     ///           a skipped poke emits nothing by design, so the symptom is
     ///           silence. `ToshV5Guards.t.sol` pins the pair.
-    uint256 public constant TRIGGER_STEP = 10e8;
+    uint256 public constant TRIGGER_STEP = 0.3 ether;
 
     /// @notice Fraction of the reservoir spent per piggyback cycle, in
     ///         basis points.  5000 = 50 %.  Floored at `TRIGGER_STEP`.
@@ -642,11 +641,11 @@ contract ToshLadderTreasury is Ownable2Step {
         // property of the key — `address(0)` cannot be anything but currency0,
         // because no address sorts below it — so the old check could only fail
         // if the hook returned a key for the wrong pool entirely. An ERC20 quote
-        // asset has no such guarantee: roughly two thirds of random addresses
-        // sort above BEM and one third below, and a token in the latter group
-        // would produce a pool with the token as currency0 and BEM as
+        // asset has no such guarantee: roughly a quarter of random addresses
+        // sort above WBNB and three quarters below, and a token in the latter
+        // group would produce a pool with the token as currency0 and WBNB as
         // currency1. `_buyAndBurn` would then spend the PROJECT TOKEN to buy
-        // BEM — burning the reservoir's ammunition to acquire what it already
+        // WBNB — burning the reservoir's ammunition to acquire what it already
         // holds, once per cycle, permanently.
         //
         // The factory prevents such a token existing by grinding CREATE2 salts
@@ -951,7 +950,7 @@ contract ToshLadderTreasury is Ownable2Step {
 
         // One expression, multiplying before dividing, so the bps scaling does not
         // compound the truncation of `L / sqrtP`. The precision at stake is
-        // sub-unit — a unit is 1e-8 BEM — but there is no reason to spend it, and
+        // sub-unit — a unit is 1 wei of WBNB — but there is no reason to spend it, and
         // unlike `ToshLaunchpadHook.ladderViable` nothing downstream depends on the
         // intermediate being floored.
         //
