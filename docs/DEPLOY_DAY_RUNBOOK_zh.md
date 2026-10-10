@@ -8,7 +8,10 @@
 - 计价资产固定为 WBNB，部署脚本和预检都拒绝其他地址；
 - 新回购池**不绑定旧工厂**（`LEGACY_FACTORY_ADDRESS` 留空）：两个旧工厂都是 BEM 计价，WBNB 回购池挂不上它们的池子，所以原来的「第 11 步挂 TO」取消；
 - 退役的是 BEM 工厂 `0xBCa6…7f2c`，它的 owner 是旧网关，交接批次会通过网关暂停它；
-- 换一个**全新的部署钱包**：旧部署钱包 `0x35b2…874a` 的私钥泄露过，不再使用。
+- 部署钱包**继续用** `0x35b2…874a`。它的私钥泄露过，所以从第 4 步广播到第 6 步 Safe 接受所有权之间，
+  拿到私钥的人也能操作新合约。对策是第 5、6 步的 `check` 会审计这段时间两个合约的**全部事件**：
+  部署、暂停、交接以外的任何操作都会报 FAIL。出现 FAIL 就放弃这套合约，换新钱包重新部署
+  （新工厂还没公布、没有用户，损失只有 gas）。第 4 步之前约好两位签名人，第 4 到第 6 步之间不要停顿。
 
 ## 部署前必须先完成
 
@@ -18,7 +21,7 @@
 | 前端 18 位小数 / BNB 显示 / `depositNative` / 多旧工厂 | 代码已在分支完成；**合并并发布到 Vercel** 要在第 8 步之前 |
 | PoG 签名服务：1 ETH gas → 1.3 BNB 配额 | 代码已在分支完成（随前端一起发布）；第 12 步之前必须上线 |
 | 监控：新的一组盯 WBNB 新工厂，旧的一组继续盯第一代工厂 | 已完成；地址在第 9 步设置 |
-| 主网 fork 全流程演练（第 3–6、10、12.5、13 步，用的就是本清单的命令） | 已通过：`node scripts/rehearseRedeploy.mjs`，31/31，2026-10-10，分叉区块 126774887 |
+| 主网 fork 全流程演练（第 3–6、10、12.5、13 步，用的就是本清单的命令；含「部署私钥在交接前动合约」演习，`check` 必须报 FAIL） | 已通过：`node scripts/rehearseRedeploy.mjs`，34/34，2026-10-10 |
 
 固定地址：
 
@@ -36,30 +39,21 @@
 
 ---
 
-## 第 0 步：新部署钱包
+## 第 0 步：部署钱包
 
-在你自己的电脑上生成，私钥只存在你自己那里：
+用旧部署钱包 `0x35b2…874a`，`.env.production` 里的 `DEPLOYER_ADDRESS` 已经是它。
+钱包里约 0.0041 BNB；上次部署花了约 0.00086 BNB（gas 价 0.05 gwei），够用，不用再转。
 
-```powershell
-cast wallet new
-```
-
-1. 把输出的地址写进 `.env.production` 的 `DEPLOYER_ADDRESS=`（私钥**不要**写进任何文件）。
-2. 从你自己的钱包向这个新地址转 **0.005 BNB**。
-3. 记下预计地址（新钱包 nonce 从 0 开始：回购池 nonce 0，工厂 nonce 1）：
+记下预计地址（回购池用当前 nonce，工厂用当前 nonce + 1）：
 
 ```powershell
-cast compute-address <新部署地址> --nonce 0
-cast compute-address <新部署地址> --nonce 1
+$n = [int](cast nonce 0x35b232E26a275f62E594e010624aEA0c46b7874a --rpc-url https://bsc-dataseed.bnbchain.org)
+cast compute-address 0x35b232E26a275f62E594e010624aEA0c46b7874a --nonce $n
+cast compute-address 0x35b232E26a275f62E594e010624aEA0c46b7874a --nonce ($n + 1)
 ```
 
-完成：
-
-```powershell
-cast balance <新部署地址> --rpc-url https://bsc-dataseed.bnbchain.org --ether
-```
-
-显示 ≥ 0.005。从这里到第 4 步，这个钱包不能发任何交易，否则预计地址会变。
+完成：记下两个地址（2026-10-10 时 nonce 是 17）。从这里到第 4 步，这个钱包不能发任何交易，否则预计地址会变。
+如果到第 3 步试跑时地址和这里不一致，说明有人用这把私钥发过交易：停下，换新钱包。
 
 ## 第 1 步：预检
 
@@ -80,7 +74,7 @@ node scripts/preflightMainnet.mjs
 .\scripts\deployday-step1.ps1
 ```
 
-提示粘贴私钥时，粘贴第 0 步新钱包的私钥。粘贴时屏幕上不显示，是正常的。
+提示粘贴私钥时，粘贴 `.env.testnet-parked` 里 `PRIVATE_KEY` 那一行（旧部署钱包的私钥）。粘贴时屏幕上不显示，是正常的。
 
 完成：看到 `same wallet`、`TARGET_CHAIN_ID is 56`、`PLATFORM_TREASURY is the owner Safe`、`QUOTE_ASSET is WBNB`、`LEGACY_FACTORY_ADDRESS is unset`，最后一行 `Step 1 done`。
 
@@ -93,7 +87,7 @@ forge script script/DeployMainnet.s.sol:DeployMainnetScript --rpc-url $env:TARGE
 完成：输出里
 
 - `Chain ID (verified) : 56`
-- `Deployer : <新部署地址>`
+- `Deployer : 0x35b2…874a`
 - `PROD owner : 0x02DE…B310`
 - `PoG Signer : 0x5756…F877`
 - `Platform fee recipient : 0x02DE…B310`
@@ -122,18 +116,23 @@ forge script script/DeployMainnet.s.sol:DeployMainnetScript --rpc-url $env:TARGE
 ```powershell
 $factory  = '<输出里的 FACTORY_ADDRESS>'
 $treasury = '<输出里的 TREASURY_ADDRESS>'
+$blk = (cast receipt (Get-Content broadcast\DeployMainnet.s.sol\56\run-latest.json -Raw | ConvertFrom-Json).receipts[0].transactionHash blockNumber --rpc-url $env:TARGET_RPC)
+$blk
 ```
+
+`$blk` 是部署区块，第 5、6 步的 `check` 从这里开始审计事件。`TARGET_RPC` 不支持查事件，脚本会自动改用 `bsc-rpc.publicnode.com` 查（输出里有一行 `note … logs read from`）；它只保留最近一两天的事件，所以第 6 步不要拖过一天。马上进第 5 步，再马上让签名人签第 6 步。
 
 ## 第 5 步：部署钱包立刻暂停新工厂，然后清掉私钥
 
 ```powershell
 cast send $factory "pause()" --rpc-url $env:TARGET_RPC --private-key $env:PRIVATE_KEY
 cast call $factory "paused()(bool)" --rpc-url $env:TARGET_RPC
-node scripts/redeployTx.mjs check --factory $factory --treasury $treasury --stage deployed
+node scripts/redeployTx.mjs check --factory $factory --treasury $treasury --stage deployed --deploy-block $blk
 Remove-Item Env:\PRIVATE_KEY
 ```
 
-完成：`paused()` 是 `true`；`check` 最后是 `all checks passed`（其中包括 `quoteAsset() is WBNB`、`TRIGGER_STEP() == 0.3 BNB`、`legacyFactory() is unset`、`has depositNative`）。
+完成：`paused()` 是 `true`；`check` 最后是 `all checks passed`（其中包括 `quoteAsset() is WBNB`、`TRIGGER_STEP() == 0.3 BNB`、`legacyFactory() is unset`、`has depositNative`，
+以及两行 `nothing but deploy / pause / handoff before the Safe took over`）。
 从这里起部署钱包的工作结束，后面都由 Safe 签。
 
 ## 第 6 步：Safe 第一批（暂停 BEM 工厂 + 接受两份所有权）
@@ -157,12 +156,16 @@ node scripts/redeployTx.mjs handoff --factory $factory --treasury $treasury --ou
 完成：
 
 ```powershell
-node scripts/redeployTx.mjs check --factory $factory --treasury $treasury --stage handed
+node scripts/redeployTx.mjs check --factory $factory --treasury $treasury --stage handed --deploy-block $blk
 $env:EXPECTED_PAUSED='true'; $env:EXPECTED_OWNER='0x02DE4629129D104C63329D13A6Ca67E43db7B310'
 forge script script/VerifyDeployment.s.sol:VerifyDeploymentScript --sig "run(address)" $factory --rpc-url $env:TARGET_RPC
 ```
 
 两条都通过（`all checks passed`、`ALL CHECKS PASSED`，`Paused? : true`）。`check` 里两个退役工厂都显示 `is paused`。
+
+**这一条是旧私钥风险的关口**：Safe 接受所有权之后，部署钱包对新合约就没有任何权限了。
+如果 `nothing but deploy / pause / handoff` 报 FAIL（例如出现 `PoGRegistered`、`LaunchCreated`、`pending owner set to 0x…`），
+说明有人在交接前用这把私钥动过合约：不要往下走，放弃这套地址，换新钱包从第 0 步重来。
 
 ## 第 7 步：把新地址告诉我
 
@@ -220,7 +223,6 @@ BEM 工厂 0xBCa6… 一个项目都没有，链上没有东西要盯，只需�
 `redeployTx check` 每次都会核对它是不是暂停着。
 
 ```powershell
-$blk = (cast receipt (Get-Content broadcast\DeployMainnet.s.sol\56\run-latest.json -Raw | ConvertFrom-Json).receipts[0].transactionHash blockNumber --rpc-url $env:TARGET_RPC)
 gh variable set MONITOR_FACTORY --body $factory
 gh variable set MONITOR_TREASURY --body $treasury
 gh variable set MONITOR_DEPLOY_BLOCK --body $blk
@@ -341,6 +343,7 @@ node scripts/safeLaunchTx.mjs launch --factory $factory --hook 0x钩子地址 --
 |---|---|---|
 | 第 4 步之前 | 完全可以 | 什么都不用做 |
 | 第 4–7 步 | 可以 | 新合约放着不用；BEM 工厂已暂停的话，Safe 调旧网关 `execute(unpause())` |
+| `check` 事件审计 FAIL | 可以 | 同上；换新钱包（`cast wallet new`）从第 0 步重新部署 |
 | 第 8–10 步 | 可以 | 把 Vercel 三个变量改回旧值再 Redeploy；新工厂上还没有项目 |
 | 第 13 步之后 | 不能 | 新钩子不可变，存款人已经进来 |
 
@@ -348,6 +351,6 @@ node scripts/safeLaunchTx.mjs launch --factory $factory --hook 0x钩子地址 --
 
 部署完成后：
 
-- 新部署钱包里剩下的 BNB 转回 Safe；交接完成后这把私钥对新合约没有任何权限，可以销毁；
-- 旧部署钱包 `0x35b2…874a`（私钥泄露过）里的约 0.0041 BNB 转到 Safe，然后弃用；
+- 部署钱包 `0x35b2…874a` 继续保留。交接完成后它对新合约没有任何权限；网关的部署者也不获得权限，
+  所以第 12.5 步同样可以用它。不要再让它持有任何合约的 owner 身份，余额保持在够付 gas 的水平；
 - `.env.testnet-parked` 里是旧部署钱包的私钥，确认测试网不再需要后删除。

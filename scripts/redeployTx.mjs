@@ -3,10 +3,13 @@
  * redeployTx.mjs — the deploy-day reads and Safe batches for the BSC 56 WBNB
  * redeploy (docs/BNB_QUOTE_MIGRATION_zh.md, docs/DEPLOY_DAY_RUNBOOK_zh.md).
  *
- *   check   --factory 0x… --treasury 0x… --stage deployed|handed|live
+ *   check   --factory 0x… --treasury 0x… --stage deployed|handed|live [--deploy-block N]
  *           Read-only. Proves the pair is this build (selectors, constants,
- *           wiring, WBNB everywhere) and that ownership / pause match the
- *           named stage.
+ *           wiring, WBNB everywhere), that ownership / pause match the named
+ *           stage, and — at deployed and handed, where --deploy-block is
+ *           required — that the deployer key did nothing but deploy, pause and
+ *           hand off while it owned them (event audit from N; LOGS_RPC when
+ *           the main RPC refuses eth_getLogs).
  *
  *   handoff --factory 0x… --treasury 0x…
  *           Transaction Builder batch, one Safe signature round:
@@ -36,7 +39,7 @@
 import { writeFileSync } from 'node:fs'
 import {
   createPublicClient, http, parseAbi, encodeFunctionData, getAddress, isAddress,
-  toFunctionSelector, zeroAddress,
+  toFunctionSelector, zeroAddress, decodeEventLog,
 } from 'viem'
 
 import { loadRoleEnv } from './loadRoleEnv.mjs'
@@ -89,6 +92,40 @@ const TREASURY = parseAbi([
   'function addLadderToken(address)',
 ])
 const REGISTRY = parseAbi(['function tokenToHook(address) view returns (address)'])
+
+/** Every event the new factory and treasury can emit. All owner-only calls
+ *  emit one, so the log is a complete record of what the deployer key did. */
+const EVENTS = parseAbi([
+  'event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner)',
+  'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
+  'event Paused(address account)',
+  'event Unpaused(address account)',
+  'event LaunchCreated(uint256 indexed launchId, address indexed token, address indexed hook, address developer, string name, string symbol)',
+  'event Blacklisted(address indexed user, uint256 untilTimestamp)',
+  'event PoGRegistered(address indexed user, uint256 quota)',
+  'event GenesisDeposit(address indexed user, address indexed hook, uint256 amount, address indexed referrer, address lifetimeReferrer)',
+  'event ReferralBound(address indexed user, address indexed referrer)',
+  'event ProjectReferralBound(address indexed user, address indexed hook, address indexed referrer)',
+  'event PogSignerUpdated(address indexed newSigner)',
+  'event CooldownDurationUpdated(uint256 duration)',
+  'event QuotaWindowDurationUpdated(uint256 duration)',
+  'event MaxPogAllocationLimitUpdated(uint256 newLimit)',
+  'event CircuitIssued(uint256 indexed tokenId, address indexed hook, address indexed developer, address vault)',
+  'event QuotaWindowReset(address indexed user, uint256 windowEnd)',
+  'event NameReleased(address indexed hook, bytes32 indexed nameKey)',
+  'event LadderMintingHalted(address indexed hook, uint256 until)',
+  'event LadderMintingResumed(address indexed hook)',
+  'event DepositsPausedSet(address indexed hook, bool paused)',
+  'event FactorySet(address indexed factory)',
+  'event LadderTokenAdded(address indexed token, uint256 index)',
+  'event LadderTokenRemoved(address indexed token, uint256 index)',
+  'event TaxReceived(address indexed from, uint256 amount)',
+  'event PiggybackExecuted(uint256 nativeSpent, uint256 tokensServiced, uint256 newCursor)',
+  'event BuybackBurned(address indexed token, uint256 nativeIn, uint256 tokensBurned)',
+  'event BuybackSkipped(address indexed token, uint256 nativeIn)',
+])
+/** Not owner actions: anyone can pay tax in, and the buyback runs from hooks. */
+const PASSIVE = new Set(['TaxReceived', 'PiggybackExecuted', 'BuybackBurned', 'BuybackSkipped'])
 const HOOK = parseAbi([
   'function factory() view returns (address)',
   'function quoteAsset() view returns (address)',
@@ -117,7 +154,7 @@ function check(label, pass, detail) {
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase()
 
 function usage() {
-  console.error('usage: node scripts/redeployTx.mjs check   --factory 0x… --treasury 0x… --stage deployed|handed|live')
+  console.error('usage: node scripts/redeployTx.mjs check   --factory 0x… --treasury 0x… --stage deployed|handed|live [--deploy-block N]')
   console.error('       node scripts/redeployTx.mjs handoff --factory 0x… --treasury 0x…')
   console.error('       node scripts/redeployTx.mjs unpause --factory 0x…')
   console.error('       node scripts/redeployTx.mjs list    --factory 0x… --treasury 0x… --token 0x…')
@@ -331,8 +368,105 @@ async function runCheck({ pub, read, factory, safe }) {
     check(stage === 'handed' ? 'new factory is still paused' : 'new factory is unpaused', stage === 'handed' ? paused : !paused)
   }
 
+  if (stage !== 'live') await auditDeployerWindow({ pub, factory, treasury, safe })
+
   console.log(failed ? `\n✗ ${failed} check(s) failed.` : '\n✓ all checks passed.')
   return failed ? 1 : 0
+}
+
+async function getLogsChunked(pub, address, fromBlock, toBlock) {
+  const logs = []
+  let step = 5000n
+  for (let start = fromBlock; start <= toBlock;) {
+    const end = start + step - 1n > toBlock ? toBlock : start + step - 1n
+    try {
+      logs.push(...await pub.getLogs({ address, fromBlock: start, toBlock: end }))
+      start = end + 1n
+    } catch (e) {
+      if (step <= 50n) throw e
+      step /= 4n
+    }
+  }
+  return logs.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : Number(a.blockNumber - b.blockNumber)))
+}
+
+/**
+ * The deployer key owns both contracts from the broadcast until the Safe's
+ * acceptOwnership(). The stage checks above read end state, which misses an
+ * owner who acted and then put things back: re-pointed the pending owner, or
+ * unpaused, created a launch, granted PoG quota or listed a token, and paused
+ * again. Every owner-only call emits an event, so this walks both contracts'
+ * logs from the deploy block and allows, before the Safe owns a contract, only
+ * the deploy itself, pause(), setFactory and transfers to the Safe.
+ */
+async function auditDeployerWindow({ pub, factory, treasury, safe }) {
+  console.log('— deployer window (every event since the deploy block)')
+  const fromArg = arg('deploy-block')
+  if (!check('--deploy-block given', /^\d+$/.test(fromArg ?? ''),
+    'the first receipt\'s blockNumber in broadcast/DeployMainnet.s.sol/56/run-latest.json')) return
+  const fromBlock = BigInt(fromArg)
+  const toBlock = await pub.getBlockNumber()
+  const expectedDeployer = process.env.DEPLOYER_ADDRESS
+
+  // bsc-dataseed answers every eth_getLogs with "Request exceeds defined limit",
+  // whatever the range; publicnode serves 5000-block ranges over recent blocks.
+  const logsUrl = process.env.LOGS_RPC ?? 'https://bsc-rpc.publicnode.com'
+  const logsPub = createPublicClient({ transport: http(logsUrl, { retryCount: 4, retryDelay: 800 }) })
+  for (const [label, address] of [['factory', factory], ['treasury', treasury]]) {
+    let logs
+    try {
+      logs = await getLogsChunked(pub, address, fromBlock, toBlock)
+    } catch {
+      try {
+        logs = await getLogsChunked(logsPub, address, fromBlock, toBlock)
+        console.log(`note  ${label} logs read from ${process.env.LOGS_RPC ? 'LOGS_RPC' : logsUrl}: the main RPC refuses eth_getLogs`)
+      } catch (e) {
+        check(`${label} logs readable from block ${fromBlock}`, false,
+          `${(e.shortMessage ?? e.message ?? '').split('\n')[0]} — set LOGS_RPC to a node that serves eth_getLogs`)
+        continue
+      }
+    }
+    let owner = null
+    let deployer = null
+    const bad = []
+    for (const log of logs) {
+      let ev
+      try {
+        ev = decodeEventLog({ abi: EVENTS, data: log.data, topics: log.topics })
+      } catch {
+        bad.push(`unrecognised event ${log.topics[0]} at block ${log.blockNumber}`)
+        continue
+      }
+      const at = `${ev.eventName} at block ${log.blockNumber}`
+      const safeOwns = same(owner, safe)
+      if (ev.eventName === 'OwnershipTransferred') {
+        if (owner === null && same(ev.args.previousOwner, zeroAddress)) {
+          owner = deployer = ev.args.newOwner
+        } else if (same(ev.args.newOwner, safe)) {
+          owner = safe
+        } else if (!safeOwns) {
+          bad.push(`${at}: ownership moved to ${ev.args.newOwner}, not the Safe`)
+          owner = ev.args.newOwner
+        } else {
+          owner = ev.args.newOwner
+        }
+      } else if (ev.eventName === 'OwnershipTransferStarted') {
+        if (!safeOwns && !same(ev.args.newOwner, safe)) bad.push(`${at}: pending owner set to ${ev.args.newOwner}, not the Safe`)
+      } else if (safeOwns || PASSIVE.has(ev.eventName)) {
+        // the Safe's own actions, or nobody's
+      } else if (ev.eventName === 'Paused') {
+        // braking is always allowed
+      } else if (ev.eventName === 'FactorySet' && same(ev.args.factory, factory)) {
+        // the deploy binding the treasury
+      } else {
+        bad.push(`${at} while ${owner ?? 'nobody yet'} owned it, before the Safe`)
+      }
+    }
+    check(`${label}: deployed by the expected key`, deployer !== null && (!expectedDeployer || same(deployer, expectedDeployer)),
+      `${deployer ?? `no constructor OwnershipTransferred since block ${fromBlock}`}`)
+    check(`${label}: nothing but deploy / pause / handoff before the Safe took over`, bad.length === 0,
+      bad.length ? bad.slice(0, 6).join('; ') + (bad.length > 6 ? `; +${bad.length - 6} more` : '') : `${logs.length} event(s), blocks ${fromBlock}–${toBlock}`)
+  }
 }
 
 main().then(code => { process.exitCode = code ?? 0 }, e => { console.error(e); process.exitCode = 1 })

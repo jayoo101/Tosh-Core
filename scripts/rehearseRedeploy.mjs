@@ -7,6 +7,9 @@
  *
  *   step 3–4   DeployMainnet dry run, then broadcast
  *   step 5     deployer pause(), redeployTx check --stage deployed
+ *   drill      on a snapshot: the deployer key grants PoG quota and re-points
+ *              the pending owner, then restores it; check must FAIL on both.
+ *              Reverted before step 6.
  *   step 6     redeployTx handoff → batch executed as the Safe,
  *              check --stage handed, VerifyDeployment (EXPECTED_PAUSED=true)
  *   step 10    redeployTx unpause → executed, check --stage live, VerifyDeployment
@@ -47,12 +50,15 @@ const PORT = Number(arg('port', '8547'))
 const RPC = `http://127.0.0.1:${PORT}`
 const KEEP = process.argv.includes('--keep')
 const WBNB = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'
+const FORK_CHAIN = { id: 56, name: 'bsc-fork', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } }
 
 const FACTORY = parseAbi([
   'function pause()',
   'function paused() view returns (bool)',
   'function owner() view returns (address)',
   'function setPogQuota(address[] users, uint256 quota)',
+  'function transferOwnership(address newOwner)',
+  'function pendingOwner() view returns (address)',
   'function depositNative(address hook, address referrer) payable',
   'function registeredHooks(address) view returns (bool)',
 ])
@@ -108,12 +114,18 @@ delete childEnv.PRIVATE_KEY
 
 /** Run a child, show only lines matching `show`, return { ok, out }. The deploy
  *  key reaches forge through the child env only, and is masked if echoed. */
-function run(label, cmd, args, { env = {}, show = /PASS|FAIL|✓|✗|note|ALL CHECKS|Error|error|revert|Paused\?|Owner  |simulated|wrote|deployed|ToshLaunchGateway:|predicted hook|COMPLETE/ } = {}) {
+function run(label, cmd, args, { env = {}, expectFail = null, show = /PASS|FAIL|✓|✗|note|ALL CHECKS|Error|error|revert|Paused\?|Owner  |simulated|wrote|deployed|ToshLaunchGateway:|predicted hook|COMPLETE/ } = {}) {
   const r = spawnSync(cmd, args, {
     cwd: ROOT, env: { ...childEnv, ...env }, encoding: 'utf8', maxBuffer: 64 << 20, shell: false,
   })
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`.replaceAll(deployerKey, '<deployer key>').replaceAll(deployerKey.slice(2), '<deployer key>')
   for (const line of out.split(/\r?\n/)) if (show.test(line)) console.log(`   │ ${line.trim()}`)
+  if (expectFail) {
+    const missed = expectFail.filter((re) => !re.test(out))
+    const ok = r.status === 1 && missed.length === 0
+    record(label, ok, ok ? 'failed as it should' : `exit ${r.status}; not reported: ${missed.join(', ')}`)
+    return { ok, out }
+  }
   const ok = r.status === 0
   record(label, ok, ok ? '' : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}`)
   return { ok, out }
@@ -202,6 +214,7 @@ async function main() {
     if (!dry.ok) return
 
     banner('step 4 · broadcast')
+    const deployBlock = String((await pub.getBlockNumber()) + 1n)
     const live = forge('step 4 DeployMainnet broadcast', ['script/DeployMainnet.s.sol:DeployMainnetScript', '--broadcast', '--slow', '-vvvv'],
       { ...dep, show: /deployed|ONCHAIN EXECUTION COMPLETE|Error|revert/ })
     const factory = pick(live.out, /ToshFactory deployed\s*:\s*(0x[0-9a-fA-F]{40})/)
@@ -210,16 +223,34 @@ async function main() {
 
     banner('step 5 · deployer pauses')
     const wallet = createWalletClient({ account: deployer, transport: http(RPC) })
-    const ph = await wallet.writeContract({ address: factory, abi: FACTORY, functionName: 'pause', chain: { id: 56, name: 'bsc-fork', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: { default: { http: [RPC] } } } })
+    const ph = await wallet.writeContract({ address: factory, abi: FACTORY, functionName: 'pause', chain: FORK_CHAIN })
     await pub.waitForTransactionReceipt({ hash: ph })
     record('step 5 new factory paused()', await read(factory, FACTORY, 'paused'))
-    node('step 5 check --stage deployed', 'scripts/redeployTx.mjs', ['check', '--factory', factory, '--treasury', treasury, '--stage', 'deployed'])
+    node('step 5 check --stage deployed', 'scripts/redeployTx.mjs', ['check', '--factory', factory, '--treasury', treasury, '--stage', 'deployed', '--deploy-block', deployBlock])
+
+    banner('drill · deployer key misuses the window, then tidies up')
+    const snap = await rpc('evm_snapshot')
+    const thief = privateKeyToAccount(generatePrivateKey()).address
+    for (const [functionName, args] of [
+      ['setPogQuota', [[thief], parseEther('1.3')]],
+      ['transferOwnership', [thief]],
+      ['transferOwnership', [SAFE]],
+    ]) {
+      const hash = await wallet.writeContract({ address: factory, abi: FACTORY, functionName, args, chain: FORK_CHAIN })
+      await pub.waitForTransactionReceipt({ hash })
+    }
+    record('drill end state looks clean (pending owner is the Safe again)',
+      getAddress(await read(factory, FACTORY, 'pendingOwner')) === SAFE)
+    node('drill check --stage deployed catches it', 'scripts/redeployTx.mjs',
+      ['check', '--factory', factory, '--treasury', treasury, '--stage', 'deployed', '--deploy-block', deployBlock],
+      { expectFail: [/PoGRegistered at block/, /pending owner set to 0x/i], show: /FAIL/ })
+    record('drill reverted', await rpc('evm_revert', [snap]))
 
     banner('step 6 · Safe batch 1: retire BEM factory + accept ownership')
     const h = node('step 6 handoff batch built and simulated', 'scripts/redeployTx.mjs', ['handoff', '--factory', factory, '--treasury', treasury, '--out', out('safe-handoff.json')])
     if (!h.ok) return
     await executeBatch('step 6', out('safe-handoff.json'))
-    node('step 6 check --stage handed', 'scripts/redeployTx.mjs', ['check', '--factory', factory, '--treasury', treasury, '--stage', 'handed'])
+    node('step 6 check --stage handed', 'scripts/redeployTx.mjs', ['check', '--factory', factory, '--treasury', treasury, '--stage', 'handed', '--deploy-block', deployBlock])
     forge('step 6 VerifyDeployment (paused)', ['script/VerifyDeployment.s.sol:VerifyDeploymentScript', '--sig', 'run(address)', factory],
       { env: { EXPECTED_PAUSED: 'true' } })
 
