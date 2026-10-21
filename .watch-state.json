@@ -1,12 +1,12 @@
 {
-  "lastBlock": 128882370,
+  "lastBlock": 128884342,
   "hooks": [
     "0x542f13fb783386491b8e270461cd65b843c603cb",
     "0x55a98df7310f3f94d9c7287c3b4ad236b762c3c2"
   ],
   "armedSince": null,
   "lastPiggybackBlock": null,
-  "lastRun": "2026-10-21T05:30:39.854Z",
+  "lastRun": "2026-10-21T05:45:26.933Z",
   "chainId": 56,
   "factory": "0xb5d1bbb16fed6048920a78ceed15fd00b998d362",
   "treasury": "0xe5743620abde7a76b1683be9f607be6cf5bbf83d",
