@@ -67,6 +67,33 @@ import {AccessControl} from "../lib/openzeppelin-contracts/contracts/access/Acce
 ///   setup at a glance.  Minting on demand keeps the visible supply equal to
 ///   the supply people actually paid for.
 ///
+/// ── v2: closed until launch ─────────────────────────────────────────────────
+///
+///   Genesis buyers receive tokens the moment they pay, but there is no pool
+///   until `launch()`, and the point of that is lost if a market can form
+///   anyway. Until the hook calls `openTrading()` a transfer must be a wallet
+///   moving its own tokens to another wallet, which is exactly:
+///
+///     from == tx.origin          the signer is moving their own balance, so
+///                                no contract, constructor or 7702 delegate
+///                                is spending on anyone's behalf
+///     caller is from or BID_BOOK the only spender allowed is the bid book,
+///                                which holds its own caller to tx.origin
+///     from, to have no code      excludes deployed contracts and EIP-7702
+///                                accounts, whose code is `0xef0100 ‖ target`
+///     to is a registered receiver
+///
+///   The last line closes what the code check cannot: a CREATE2 address has
+///   no code until it is deployed, so it would pass as a wallet, take tokens,
+///   and only then become a contract able to sell claims on them. Registering
+///   requires sending a transaction from the address itself, and an address
+///   nobody holds a key for can never do that. Genesis buyers and bidders are
+///   registered automatically by the hook and the bid book, which have
+///   already established that they are the transaction's origin.
+///
+///   Mints (`from == 0`) are exempt: they come only from the hook. After
+///   `openTrading()` none of this runs and the token is a plain ERC-20.
+///
 contract ToshToken is ERC20, AccessControl {
     // ─── Roles ────────────────────────────────────────────────────────────────
 
@@ -84,10 +111,20 @@ contract ToshToken is ERC20, AccessControl {
     /// @dev Factory that deployed this token.
     address public immutable factory;
 
+    /// @notice The one spender allowed before launch. Platform-wide, so it
+    ///         lives on the implementation and every clone resolves the same.
+    address public immutable bidBook;
+
     // ─── Single-write state ───────────────────────────────────────────────────
 
     /// @notice Hook that was granted MINTER_ROLE. Set once by initialize().
     address public hook;
+
+    /// @notice False until the hook launches the pool; one-way.
+    bool public tradingOpen;
+
+    /// @notice Addresses allowed to receive a pre-launch transfer. Append-only.
+    mapping(address => bool) public isReceiver;
 
     /// @dev Written once by `initialize` and surfaced through the `name()` and
     ///      `symbol()` overrides below.  OpenZeppelin keeps its own `_name` and
@@ -102,6 +139,15 @@ contract ToshToken is ERC20, AccessControl {
     error OnlyFactory();
     error AlreadyInitialized();
     error MaxSupplyExceeded();
+    error OnlyHook();
+    error OnlyRegistrar();
+    error NotAWallet();
+    error TransferRestricted();
+    error ReceiverNotRegistered(address to);
+    error ApprovalRestricted();
+
+    event TradingOpened();
+    event ReceiverRegistered(address indexed account);
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -113,9 +159,11 @@ contract ToshToken is ERC20, AccessControl {
     ///
     ///      AccessControl is initialised with NO roles granted to anyone, which
     ///      is what stops any party (factory, deployer) from later granting them.
-    constructor(address factory_) ERC20("", "") {
+    constructor(address factory_, address bidBook_) ERC20("", "") {
         require(factory_ != address(0), "zero factory");
+        require(bidBook_ != address(0), "zero bidBook");
         factory = factory_;
+        bidBook = bidBook_;
     }
 
     // ─── Factory initialisation ───────────────────────────────────────────────
@@ -171,6 +219,53 @@ contract ToshToken is ERC20, AccessControl {
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
         if (totalSupply() + amount > MAX_SUPPLY) revert MaxSupplyExceeded();
         _mint(to, amount);
+    }
+
+    // ─── Pre-launch gate ──────────────────────────────────────────────────────
+
+    /// @notice Lift every transfer restriction, permanently. Hook-only, and the
+    ///         hook calls it from `launch()` before it mints the pool's side.
+    function openTrading() external {
+        if (msg.sender != hook) revert OnlyHook();
+        if (tradingOpen) return;
+        tradingOpen = true;
+        emit TradingOpened();
+    }
+
+    /// @notice Make the calling wallet eligible to receive pre-launch transfers.
+    function registerReceiver() external {
+        if (msg.sender != tx.origin || msg.sender.code.length != 0) revert NotAWallet();
+        _register(msg.sender);
+    }
+
+    /// @notice Register a wallet the hook or bid book has already verified is
+    ///         the origin of the current transaction.
+    function registerFor(address account) external {
+        if (msg.sender != hook && msg.sender != bidBook) revert OnlyRegistrar();
+        _register(account);
+    }
+
+    function _register(address account) private {
+        if (isReceiver[account]) return;
+        isReceiver[account] = true;
+        emit ReceiverRegistered(account);
+    }
+
+    function approve(address spender, uint256 value) public override returns (bool) {
+        if (!tradingOpen && spender != bidBook) revert ApprovalRestricted();
+        return super.approve(spender, value);
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (!tradingOpen && from != address(0)) {
+            address caller = _msgSender();
+            if (
+                from != tx.origin || (caller != from && caller != bidBook) || from.code.length != 0
+                    || to.code.length != 0
+            ) revert TransferRestricted();
+            if (!isReceiver[to]) revert ReceiverNotRegistered(to);
+        }
+        super._update(from, to, value);
     }
 
     // NOTE: there is deliberately no kill-switch here.  A `renounceMinterRole`
