@@ -18,6 +18,9 @@ import { useGenesisState } from '@/lib/v2/useV2'
 import { fmtCountdown, fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
 import { useNow, useWrapShortfall } from './hooks'
+import { AgentModeSheet } from './AgentModeSheet'
+import { prepSteps } from './agentSteps'
+import { TransferPanel } from './TransferPanel'
 
 type State = NonNullable<ReturnType<typeof useGenesisState>['data']>
 
@@ -49,6 +52,7 @@ export function V2Terminal({ hook, symbol }: { hook: Address; symbol: string }) 
       <aside className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
         {!s.launched && <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} />}
         <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
+        <TransferPanel token={s.token} symbol={symbol} />
       </aside>
     </div>
   )
@@ -115,6 +119,13 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
         {s.launched ? t.launchExplain : started ? (publicOpen ? t.launchPublic : fill(t.launchAdminWindow, { time: fmtTime(s.publicLaunchAt) })) : t.launchExplain}
       </p>
       {!s.launched && <ActionButton gate={gate} />}
+      {!s.launched && started && (
+        <AgentModeSheet
+          title={t.launchBtn}
+          steps={[{ note: t.agentNoteLaunch, to: hook, abi: V2_HOOK_ABI, functionName: 'launch' }]}
+          onDone={onDone}
+        />
+      )}
       {s.launched && <LaunchedLine hook={hook} quote={quote} />}
     </Card>
   )
@@ -159,6 +170,13 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
         <Readout label={t.fundAvailable} value={`${fmtSig(s.fundAvailable)} ${quote.symbol}`} />
         <Readout label={t.fundTo} value={<AddressLink value={s.projectFund} />} />
       </ReadoutGrid>
+      {s.fundAvailable > 0n && (
+        <AgentModeSheet
+          title={`${t.withdraw} ${fmtSig(s.fundAvailable)} ${quote.symbol}`}
+          steps={[{ note: t.agentNoteWithdraw, to: hook, abi: V2_HOOK_ABI, functionName: 'withdrawFund' }]}
+          onDone={onDone}
+        />
+      )}
       {isController && (
         <div className="flex flex-col gap-4">
           <ActionButton gate={wGate} />
@@ -218,6 +236,15 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
       <Field label={`${t.mintAmount} (${symbol})`} value={raw} onValueChange={setRaw} inputMode="decimal" placeholder="0" />
       {maxCost > 0n && <Readout label={t.payLabel} value={`${fmtSig(maxCost)} ${quote.symbol}`} />}
       <ActionButton gate={gate} />
+      <AgentModeSheet
+        title={fill(t.agentNoteMint, { amount: fmtSig(amount), symbol })}
+        summary={maxCost > 0n ? `${t.payLabel}: ${fmtSig(maxCost)} ${quote.symbol}` : undefined}
+        steps={unlocked && amount > 0n && maxCost > 0n ? [
+          ...prepSteps(quote, hook, maxCost, t),
+          { note: fill(t.agentNoteMint, { amount: fmtSig(amount), symbol }), to: hook, abi: V2_HOOK_ABI, functionName: 'mintBondingCurve', args: [amount, maxCost] },
+        ] : null}
+        onDone={() => { void refetch(); approval.refetch(); wrap.refetch() }}
+      />
     </Card>
   )
 }

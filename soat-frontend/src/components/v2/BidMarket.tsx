@@ -20,13 +20,17 @@ import { fmtSig, parseAmount } from './fmt'
 import { useTokenBalance, useWrapShortfall } from './hooks'
 import { RiskAck, useRiskAck } from './RiskAck'
 import { RecentTrades } from './RecentTrades'
+import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
+import { approveStep, prepSteps } from './agentSteps'
 
 /** 1 % below the previewed proceeds, for `minTotalOut`. */
 const SELL_SLIPPAGE_BPS = 100n
 
 export function BidMarket({ hook, symbol }: { hook: Address; symbol: string }) {
   const t = useT().v2
-  const { address } = useAccount()
+  const { address: connected } = useAccount()
+  const agent = useAgentAddress()
+  const address = connected ?? agent
   const { data: s } = useGenesisState(hook)
   const book = useBids(hook)
 
@@ -150,6 +154,18 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
       )}
       <RiskAck {...risk} />
       <ActionButton gate={gate} />
+      <AgentModeSheet
+        title={`${t.agentNoteSell} ${fmtSig(plan.tokens)} ${symbol}`}
+        summary={plan.tokens > 0n ? fill(t.sellReceive, { amount: fmtSig(plan.out), quote: quote.symbol }) : undefined}
+        steps={risk.acked && plan.tokens > 0n ? [
+          approveStep(token, symbol, V2_BIDBOOK!, plan.tokens, t),
+          {
+            note: t.agentNoteSell, to: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'fill',
+            args: [hook, plan.ids, plan.qtys, withSlippage(plan.out, SELL_SLIPPAGE_BPS)],
+          },
+        ] : null}
+        onDone={() => { void bal.refetch(); void refetchAllowance(); onDone() }}
+      />
     </Card>
   )
 }
@@ -203,6 +219,14 @@ function PlacePanel({ hook, quote, price, minBid, onDone }: {
       <Field label={t.placeQty} value={rawQty} onValueChange={setRawQty} inputMode="decimal" placeholder="0" />
       {escrow > 0n && <Readout label={t.payLabel} value={fill(t.placeEscrow, { amount: fmtSig(escrow), quote: quote.symbol })} />}
       <ActionButton gate={gate} />
+      <AgentModeSheet
+        title={`${t.agentNoteBid} ${fmtSig(qty)} @ ${fmtSig(bidPrice, 18, 6)} ${quote.symbol}`}
+        steps={bidPrice >= price && qty >= V2.MIN_FILL_QTY && grossAt(bidPrice, qty) >= minBid ? [
+          ...prepSteps(quote, V2_BIDBOOK!, escrow, t),
+          { note: t.agentNoteBid, to: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'placeBid', args: [hook, bidPrice, qty] },
+        ] : null}
+        onDone={() => { approval.refetch(); wrap.refetch(); onDone() }}
+      />
     </Card>
   )
 }
@@ -241,6 +265,16 @@ function MyBidRow({ bid, quote, onDone, showHook }: {
         {...(tx.isBusy ? { busy: true as const } : {})}
         onClick={() => tx.send({ address: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'cancelBid', args: [bid.id] })}
       />
+      <div className="basis-full font-sans">
+        <AgentModeSheet
+          title={fill(t.agentNoteCancel, { id: bid.id.toString() })}
+          steps={[{
+            note: fill(t.agentNoteCancel, { id: bid.id.toString() }),
+            to: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'cancelBid', args: [bid.id],
+          }]}
+          onDone={onDone}
+        />
+      </div>
     </li>
   )
 }

@@ -12,6 +12,8 @@ import { V2_LENS, type V2Quote } from '@/lib/v2/config'
 import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
 import { fmtSig, parseAmount } from './fmt'
 import { RiskAck, useRiskAck } from './RiskAck'
+import { AgentModeSheet } from './AgentModeSheet'
+import { approveStep } from './agentSteps'
 
 /** 0.5 % below the quoted token amount, for `minTokens`. */
 const SLIPPAGE_BPS = 50n
@@ -28,7 +30,8 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
   const hasCode = code !== undefined && code !== '0x'
 
   const remaining = acct.data?.remaining ?? 0n
-  const budget = pay > remaining ? remaining : pay
+  // With no wallet connected (an Agent signs elsewhere) the quote is for the full amount.
+  const budget = acct.data !== undefined && pay > remaining ? remaining : pay
   const { data: q } = useReadContract({
     address: V2_LENS,
     abi: V2_LENS_ABI,
@@ -104,6 +107,21 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
       <Readout label={t.receiveLabel} value={tokens > 0n ? fmtSig(tokens, 18, 6) : '—'} />
       <RiskAck {...risk} />
       <ActionButton gate={gate} />
+      {open && (
+        <AgentModeSheet
+          title={`${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}`}
+          summary={tokens > 0n ? `${t.receiveLabel}: ${fmtSig(tokens, 18, 6)}` : undefined}
+          steps={risk.acked && pay > 0n && tokens > 0n ? [
+            ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, pay, t)]),
+            {
+              note: t.agentNoteBuy, to: hook, abi: V2_HOOK_ABI, functionName: 'buyGenesis',
+              args: [pay, minTokens], ...(quote.native ? { value: pay } : {}),
+            },
+          ] : null}
+          notes={[t.agentNoteCapClamp]}
+          onDone={() => { void state.refetch(); void acct.refetch(); approval.refetch() }}
+        />
+      )}
     </Card>
   )
 }

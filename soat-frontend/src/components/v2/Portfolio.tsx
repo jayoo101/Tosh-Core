@@ -7,10 +7,13 @@ import { useT } from '@/i18n'
 import { V2_ENABLED, V2_WBNB, v2Quote } from '@/lib/v2/config'
 import { useBids } from '@/lib/v2/useV2'
 import { MyBids } from './BidMarket'
+import { useAgentAddress } from './AgentModeSheet'
 
 export function Portfolio() {
   const t = useT().v2
-  const { address } = useAccount()
+  const { address: connected } = useAccount()
+  const agent = useAgentAddress()
+  const address = connected ?? agent
   const book = useBids(undefined, address)
   const mine = book.bids.filter(b => b.escrow > 0n)
 

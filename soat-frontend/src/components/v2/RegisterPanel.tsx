@@ -9,11 +9,14 @@ import { ActionButton, Badge, Card, Field, PageHeader, revertOrder, useActionGat
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_TOKEN_ABI } from '@/lib/v2/abis'
+import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 
 export function RegisterPanel() {
   const t = useT().v2
   const params = useSearchParams()
-  const { address } = useAccount()
+  const { address: connected } = useAccount()
+  const agent = useAgentAddress()
+  const address = connected ?? agent
   const [raw, setRaw] = useState(params.get('token') ?? '')
   const token = isAddress(raw.trim()) ? (raw.trim() as Address) : undefined
 
@@ -58,6 +61,13 @@ export function RegisterPanel() {
           </Badge>
         )}
         <ActionButton gate={gate} />
+        {symbol && open === false && (
+          <AgentModeSheet
+            title={fill(t.agentNoteRegister, { symbol })}
+            steps={[{ note: fill(t.agentNoteRegister, { symbol }), to: token!, abi: V2_TOKEN_ABI, functionName: 'registerReceiver' }]}
+            onDone={() => void refetch()}
+          />
+        )}
       </Card>
     </div>
   )
