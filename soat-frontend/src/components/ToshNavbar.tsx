@@ -59,7 +59,7 @@ function navItems(t: Dictionary) {
     ...(LAUNCHES_PAUSED ? [] : [
       { href: '/launch',  label: t.site.navLaunch,    full: t.site.navLaunch,        exact: false, phone: true },
     ]),
-    { href: '/referrals', label: t.site.navReferrals, full: t.site.navReferrals,     exact: false, phone: true },
+    { href: '/portfolio', label: t.site.navPortfolio, full: t.site.navPortfolio,     exact: false, phone: true },
     { href: '/apply',     label: t.site.navApply,     full: t.site.navApply,         exact: false, phone: false },
   ] as const
 }

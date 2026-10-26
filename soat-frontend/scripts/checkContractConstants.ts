@@ -51,7 +51,7 @@ import {
   GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY, BONDING_MAX,
   TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
   PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS, PLATFORM_TAX_BPS,
-  TAX_BPS, PLATFORM_SWAP_FEE_BPS, REFERRAL_BPS, PROJECT_REFERRAL_SHARE_BPS,
+  TAX_BPS, PLATFORM_SWAP_FEE_BPS,
   GENESIS_DURATIONS, MIN_HARD_CAP, MAX_HARD_CAP, MAX_COOLDOWN_SECONDS,
   MAX_POG_ALLOCATION_LIMIT,
   ADMIN_BATCH_MAX, DEAD_ADDRESS,
@@ -60,10 +60,15 @@ import {
   GENESIS_DURATION_FAST, GENESIS_DURATION_STANDARD, GENESIS_DURATION_SLOW,
 } from '../src/app/lib/hookAddress'
 import { SIG_VALIDITY_SECONDS } from '../src/app/lib/pogQuota'
+import { V2 } from '../src/lib/v2/config'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const HOOK = 'src/ToshLaunchpadHook.sol'
-const FACTORY = 'src/ToshFactory.sol'
+// `contracts.ts` describes the v1 hooks still on chain, so it is held to the
+// v1 sources frozen at the v2 cut-over; the v2 mirrors are checked against `src/`.
+const HOOK = 'legacy/src-v1/ToshLaunchpadHook.sol'
+const FACTORY = 'legacy/src-v1/ToshFactory.sol'
+const V2_HOOK = 'src/ToshLaunchpadHook.sol'
+const V2_BOOK = 'src/ToshBidBook.sol'
 
 const problems: string[] = []
 const fail = (m: string) => problems.push(m)
@@ -219,13 +224,6 @@ const FIELDS: Field[] = [
       + 'publishes as a single percentage next to a buy button' },
   { sol: 'PLATFORM_SWAP_FEE_BPS', file: HOOK, ts: BigInt(PLATFORM_SWAP_FEE_BPS), where: 'contracts.PLATFORM_SWAP_FEE_BPS',
     cost: "the buy leg's split is misattributed — the share called platform revenue is not the one the hook pays out" },
-  { sol: 'REFERRAL_BPS', file: HOOK, ts: BigInt(REFERRAL_BPS), where: 'contracts.REFERRAL_BPS',
-    cost: 'the referral panel promises a cut the hook does not reserve' },
-  { sol: 'PROJECT_REFERRAL_SHARE_BPS', file: HOOK, ts: BigInt(PROJECT_REFERRAL_SHARE_BPS),
-    where: 'contracts.PROJECT_REFERRAL_SHARE_BPS',
-    cost: 'the referral desk and the rebate page split the cut one way while the hook '
-      + 'splits it another, so every sharer is quoted the wrong rate on the leg they '
-      + 'are actually earning' },
   { sol: 'MIN_HARD_CAP', file: FACTORY, ts: MIN_HARD_CAP, where: 'contracts.MIN_HARD_CAP',
     cost: 'the launch form accepts a hard cap the factory rejects with HardCapTooLow, or blocks one it allows' },
   { sol: 'MAX_HARD_CAP', file: FACTORY, ts: MAX_HARD_CAP, where: 'contracts.MAX_HARD_CAP',
@@ -236,6 +234,16 @@ const FIELDS: Field[] = [
     cost: 'the admin panel offers a cooldown the factory reverts on' },
   { sol: 'MAX_SIG_VALIDITY', file: FACTORY, ts: BigInt(SIG_VALIDITY_SECONDS), where: 'pogQuota.SIG_VALIDITY_SECONDS',
     cost: 'attestations are signed against the wrong ceiling — SignatureTooLong on every registration' },
+  { sol: 'FEE_BPS', file: V2_BOOK, ts: V2.FEE_BPS, where: 'v2/config.V2.FEE_BPS',
+    cost: 'the bid form locks too little escrow and placeBid pulls more than was approved' },
+  { sol: 'FILL_FLOOR_BPS', file: V2_BOOK, ts: V2.FILL_FLOOR_BPS, where: 'v2/config.V2.FILL_FLOOR_BPS',
+    cost: 'the sell preview routes into bids the book skips, and the sale reverts NothingFilled' },
+  { sol: 'MIN_FILL_QTY', file: V2_BOOK, ts: V2.MIN_FILL_QTY, where: 'v2/config.V2.MIN_FILL_QTY',
+    cost: 'the bid form accepts a quantity placeBid rejects' },
+  { sol: 'ADMIN_LAUNCH_WINDOW', file: V2_HOOK, ts: BigInt(V2.ADMIN_LAUNCH_WINDOW_S), where: 'v2/config.V2.ADMIN_LAUNCH_WINDOW_S',
+    cost: 'the launch panel tells the public it may launch while the hook still reserves it for the NFT holder' },
+  { sol: 'GENESIS_SUPPLY', file: V2_HOOK, ts: V2.GENESIS_SUPPLY, where: 'v2/config.V2.GENESIS_SUPPLY',
+    cost: 'the v2 progress bar measures sales against the wrong supply' },
 ]
 
 for (const f of FIELDS) {

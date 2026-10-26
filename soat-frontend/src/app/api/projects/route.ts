@@ -56,7 +56,12 @@ const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
 
 /** The current factory plus any retired one the site still lists; lowercased. */
 const LISTED_FACTORY_SET = new Set(
-  [FACTORY_ADDRESS, ...(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES ?? '').split(',')]
+  [
+    FACTORY_ADDRESS,
+    ...(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES ?? '').split(','),
+    process.env.NEXT_PUBLIC_V2_FACTORY_BNB ?? '',
+    process.env.NEXT_PUBLIC_V2_FACTORY_USDT ?? '',
+  ]
     .map((a) => a.trim())
     .filter((a) => isAddress(a, { strict: false }))
     .map((a) => a.toLowerCase()),

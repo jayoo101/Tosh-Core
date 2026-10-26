@@ -404,9 +404,9 @@ exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
   "Directory",
   "Project Directory",
   "Launch",
-  "Referrals",
+  "Portfolio",
   "Apply",
 ]
 `;
 
-exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchReferralsApply"`;
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchPortfolioApply"`;

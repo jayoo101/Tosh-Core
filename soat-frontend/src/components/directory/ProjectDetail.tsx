@@ -34,6 +34,11 @@ import { ProjectLogo } from '@/components/ProjectLogo'
 import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
+import { V2Terminal } from '@/components/v2/V2Terminal'
+import { V2_ENABLED } from '@/lib/v2/config'
+import { useIsV2Hook } from '@/lib/v2/useV2'
+import type { ReactNode } from 'react'
+import type { Address } from 'viem'
 
 function safeHref(url: string | null | undefined): string | null {
   if (!url) return null
@@ -45,13 +50,30 @@ const SOCIAL_CLS =
   'flex h-7 w-7 items-center justify-center rounded-input border border-border-subtle ' +
   'text-text-tertiary transition-colors hover:border-brand/40 hover:text-brand'
 
+/** v1 or v2 terminal, by the hook's factory. Holds back both until that read lands. */
+function VersionedTerminal({ project: p, about, header }: {
+  project: ProjectRow
+  about: ReactNode
+  header: (live: TerminalHeaderState | null) => ReactNode
+}) {
+  const isV2 = useIsV2Hook(p.hook_address as Address | undefined)
+  if (isV2 === false) return <ProjectTerminal project={p} about={about} header={header} />
+  if (isV2 === undefined) return null
+  return (
+    <div className="flex flex-col gap-6">
+      {header(null)}
+      <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} />
+      {about}
+    </div>
+  )
+}
+
 export function ProjectDetail({ project: p }: { project: ProjectRow }) {
   const t = useT().project
   const tw = safeHref(p.twitter)
   const tg = safeHref(p.telegram)
   const web = safeHref(p.website)
   const desc = p.description?.trim()
-
   /**
    * The mock's `About` card, minus its tag row.
    *
@@ -186,7 +208,9 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
   return (
     <div className="font-sans text-text-primary">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <ProjectTerminal project={p} about={about} header={header} />
+        {V2_ENABLED
+          ? <VersionedTerminal project={p} about={about} header={header} />
+          : <ProjectTerminal project={p} about={about} header={header} />}
       </main>
     </div>
   )

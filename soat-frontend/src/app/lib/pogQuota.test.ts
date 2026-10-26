@@ -51,9 +51,9 @@ function registerPoGDeadlineGate(deadline: number, blockTimestamp: number): stri
  */
 function solidityMaxSigValidity(): number {
   const sol = readFileSync(
-    join(process.cwd(), '..', 'src', 'ToshFactory.sol'), 'utf8')
+    join(process.cwd(), '..', 'legacy', 'src-v1', 'ToshFactory.sol'), 'utf8')
   const m = sol.match(/constant\s+MAX_SIG_VALIDITY\s*=\s*(\d+)\s*(hours|days|minutes|seconds)\s*;/)
-  if (!m) throw new Error('could not find MAX_SIG_VALIDITY in src/ToshFactory.sol')
+  if (!m) throw new Error('could not find MAX_SIG_VALIDITY in legacy/src-v1/ToshFactory.sol')
   const n = Number(m[1])
   const unit = { seconds: 1, minutes: 60, hours: 3600, days: 86400 }[m[2] as 'hours']
   return n * unit

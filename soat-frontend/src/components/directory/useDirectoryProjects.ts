@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useReadContracts } from 'wagmi'
-import { formatUnits, type Address } from 'viem'
+import { formatUnits, type Abi, type Address } from 'viem'
 
 import {
   FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI, HIDDEN_HOOKS,
   QUOTE_DECIMALS, GENESIS_DURATIONS, quoteForFactory, type QuoteConfig,
 } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
+import { V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORIES, isV2Factory, v2QuoteConfig } from '@/lib/v2/config'
+
+/** v1 factories first, then the v2 stacks; `launches(i)` has the same shape on both. */
+const ENUMERATED_FACTORIES: readonly Address[] = [...LISTED_FACTORIES, ...V2_FACTORIES]
 
 export type DirectoryTab = 'live' | 'launching' | 'completed' | 'archived'
 
@@ -93,6 +98,17 @@ const HOOK_READS = [
   'genesisDeadline',
   'totalNativeDeposited',
   'canRefund',
+] as const
+
+/**
+ * The same four slots for a v2 hook. v2 has no refunds, so slot 3 carries
+ * `soldOutAt`: a sold-out genesis is closed even before its deadline.
+ */
+const V2_HOOK_READS = [
+  'launched',
+  'genesisDeadline',
+  'raised',
+  'soldOutAt',
 ] as const
 
 const READS_PER_HOOK = HOOK_READS.length
@@ -281,7 +297,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   // Every listed factory, current first. A retired factory keeps its hooks for
   // life, so its launches stay in the directory — see `LISTED_FACTORIES`.
   const countsQuery = useReadContracts({
-    contracts: LISTED_FACTORIES.map(address => ({
+    contracts: ENUMERATED_FACTORIES.map(address => ({
       address, abi: FACTORY_ABI, functionName: 'launchCount' as const,
     })),
     query: { refetchInterval: 30_000, staleTime: DIRECTORY_STALE_MS },
@@ -289,7 +305,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   const countLoading = countsQuery.isLoading
   const refetchCount = countsQuery.refetch
   // Joined to a primitive so the memo below does not re-run on every poll.
-  const countsKey = LISTED_FACTORIES
+  const countsKey = ENUMERATED_FACTORIES
     .map((_, i) => {
       const r = countsQuery.data?.[i]
       return r?.status === 'success' ? Number(r.result as bigint) : 0
@@ -301,7 +317,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
 
   const launchRefs = useMemo(() => {
     const counts = countsKey.split(',').map(Number)
-    return LISTED_FACTORIES.flatMap((factory, f) => {
+    return ENUMERATED_FACTORIES.flatMap((factory, f) => {
       const n = counts[f] ?? 0
       const start = Math.max(0, n - SCAN_DEPTH)
       return Array.from({ length: n - start }, (_, i) => ({ factory, id: BigInt(start + i) }))
@@ -339,9 +355,12 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   })
 
   const phaseQuery = useReadContracts({
-    contracts: launches.flatMap(l =>
-      HOOK_READS.map(functionName => ({ address: l.hook, abi: HOOK_ABI, functionName })),
-    ),
+    // Results are decoded per slot below, so one nominal element type is enough.
+    contracts: launches.flatMap<{ address: Address; abi: Abi; functionName: string }>(l =>
+      isV2Factory(l.factory)
+        ? V2_HOOK_READS.map(functionName => ({ address: l.hook, abi: V2_HOOK_ABI, functionName }))
+        : HOOK_READS.map(functionName => ({ address: l.hook, abi: HOOK_ABI, functionName })),
+    ) as unknown as { address: Address; abi: typeof HOOK_ABI; functionName: (typeof HOOK_READS)[number] }[],
     query: {
       enabled: launches.length > 0,
       refetchInterval: 20_000,
@@ -363,18 +382,22 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
       const off = i * READS_PER_HOOK
       const ioff = i * 2
       const l = launches[i]
+      const v2 = isV2Factory(l.factory)
       const launched        = d[off]?.status === 'success' ? (d[off].result as boolean) : false
-      const genesisDeadline = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
+      const deadline        = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
       const totalNative        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
-      const canRefund       = d[off + 3]?.status === 'success' ? (d[off + 3].result as boolean) : false
+      const slot3           = d[off + 3]?.status === 'success' ? d[off + 3].result : undefined
+      const canRefund       = !v2 && slot3 === true
+      const soldOutAt       = v2 && typeof slot3 === 'bigint' ? slot3 : 0n
+      const genesisDeadline = soldOutAt > 0n && soldOutAt < deadline ? soldOutAt : deadline
       const symbol          = ident?.[ioff]?.status === 'success' ? (ident[ioff].result as string) : '???'
       const name            = ident?.[ioff + 1]?.status === 'success' ? (ident[ioff + 1].result as string) : 'Unknown'
       const reg             = registry.get(l.token.toLowerCase())
       out.push({
         ...l,
         launched, genesisDeadline, totalNative, canRefund,
-        quote: quoteForFactory(l.factory),
-        genesisDuration: deriveGenesisDuration(genesisDeadline, l.createdAt),
+        quote: v2 ? v2QuoteConfig(l.factory) : quoteForFactory(l.factory),
+        genesisDuration: v2 ? (deadline > l.createdAt ? deadline - l.createdAt : 0n) : deriveGenesisDuration(genesisDeadline, l.createdAt),
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
