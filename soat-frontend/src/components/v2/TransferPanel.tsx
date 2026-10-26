@@ -9,15 +9,13 @@ import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_TOKEN_ABI } from '@/lib/v2/abis'
 import { AgentModeSheet } from './AgentModeSheet'
-import { fmtSig, parseAmount } from './fmt'
+import { fmtSig, isContractCode as hasCode, parseAmount } from './fmt'
 import { useTokenBalance } from './hooks'
 
-const hasCode = (c: string | undefined) => c !== undefined && c !== '0x'
-
 /**
- * Wallet-to-wallet transfer. Before launch the token only moves between plain
- * wallets and only to registered receivers, so both are checked here first
- * rather than left to surface as a revert.
+ * Wallet-to-wallet transfer. Before launch the token only moves between
+ * wallets (EIP-7702 accounts included) and only to registered receivers, so
+ * both are checked here first rather than left to surface as a revert.
  */
 export function TransferPanel({ token, symbol }: { token: Address; symbol: string }) {
   const t = useT().v2

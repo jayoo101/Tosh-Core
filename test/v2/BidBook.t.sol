@@ -123,10 +123,10 @@ contract BidBookTest is V2Base {
         assertEq(out + book.feesAccrued(address(quote)), escrow);
     }
 
-    function test_fill_skipsBelowFloorAndDelegatedBidders() public {
+    function test_fill_skipsBelowFloorAndCodeBidders_fillsDelegated() public {
         uint256 p0 = hook.currentGenesisPrice();
         uint256 cheap = _place(dave, p0, 10_000e18);
-        uint256 delegated = _place(trader, p0 * 2, 10_000e18);
+        uint256 coded = _place(trader, p0 * 2, 10_000e18);
         uint256 good = _place(carol, p0 * 2, 10_000e18);
 
         // Curve moves up past cheap / 0.9.
@@ -140,11 +140,12 @@ contract BidBookTest is V2Base {
             vm.stopPrank();
         }
         assertLt(p0, book.fillFloor(address(hook)));
-        vm.etch(trader, abi.encodePacked(hex"ef0100", address(0xBEEF)));
+        vm.etch(trader, hex"60006000");
+        vm.etch(carol, abi.encodePacked(hex"ef0100", address(0xBEEF)));
 
         uint256[] memory ids = new uint256[](3);
         uint256[] memory qs = new uint256[](3);
-        (ids[0], ids[1], ids[2]) = (cheap, delegated, good);
+        (ids[0], ids[1], ids[2]) = (cheap, coded, good);
         (qs[0], qs[1], qs[2]) = (10_000e18, 10_000e18, 10_000e18);
         vm.prank(alice, alice);
         (, uint256 totalQty) = book.fill(address(hook), ids, qs, 0);

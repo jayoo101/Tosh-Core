@@ -56,18 +56,49 @@ contract TokenTransferRulesTest is V2Base {
         token.transfer(address(relay), 1e18);
     }
 
-    function test_revert_fromDelegatedEoa() public {
+    function test_fromDelegatedEoa() public {
         vm.etch(alice, abi.encodePacked(hex"ef0100", address(relay)));
+        uint256 before = token.balanceOf(bob);
+        vm.prank(alice, alice);
+        token.transfer(bob, 1e18);
+        assertEq(token.balanceOf(bob) - before, 1e18);
+    }
+
+    function test_delegatedEoa_batchesItsOwnTransfer() public {
+        vm.etch(alice, abi.encodePacked(hex"ef0100", address(relay)));
+        uint256 before = token.balanceOf(bob);
+        vm.prank(alice, alice);
+        Relay(alice).push(token, bob, 1e18);
+        assertEq(token.balanceOf(bob) - before, 1e18);
+    }
+
+    function test_toDelegatedEoa() public {
+        vm.etch(bob, abi.encodePacked(hex"ef0100", address(relay)));
+        uint256 before = token.balanceOf(bob);
+        vm.prank(alice, alice);
+        token.transfer(bob, 1e18);
+        assertEq(token.balanceOf(bob) - before, 1e18);
+    }
+
+    function test_revert_delegateRunByAnotherOrigin() public {
+        vm.etch(alice, abi.encodePacked(hex"ef0100", address(relay)));
+        vm.prank(bob, bob);
+        vm.expectRevert(ToshToken.TransferRestricted.selector);
+        Relay(alice).push(token, bob, 1e18);
+    }
+
+    function test_revert_toNonDesignatorCode() public {
+        vm.etch(bob, abi.encodePacked(hex"600060", address(relay)));
         vm.prank(alice, alice);
         vm.expectRevert(ToshToken.TransferRestricted.selector);
         token.transfer(bob, 1e18);
     }
 
-    function test_revert_toDelegatedEoa() public {
-        vm.etch(bob, abi.encodePacked(hex"ef0100", address(relay)));
-        vm.prank(alice, alice);
-        vm.expectRevert(ToshToken.TransferRestricted.selector);
-        token.transfer(bob, 1e18);
+    function test_delegatedEoa_canRegister() public {
+        vm.etch(dave, abi.encodePacked(hex"ef0100", address(relay)));
+        vm.prank(dave, dave);
+        token.registerReceiver();
+        assertTrue(token.isReceiver(dave));
     }
 
     function test_revert_notOrigin() public {

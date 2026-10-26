@@ -1433,10 +1433,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    Eligibility is a Binance Agent ID resolved on-chain, with the
     ///         allowance booked against the name rather than the address (see
-    ///         `AgentIdLib`). The buyer must be the transaction's origin and
-    ///         hold no code, so a contract, a constructor or an EIP-7702
-    ///         delegate cannot buy on someone's behalf and then hold tokens
-    ///         the pre-launch transfer rules were meant to keep in wallets.
+    ///         `AgentIdLib`). The buyer must be the transaction's origin, so a
+    ///         contract or constructor cannot buy on someone's behalf and then
+    ///         hold tokens the pre-launch transfer rules keep in wallets. An
+    ///         EIP-7702 account qualifies: its delegate runs only on its own
+    ///         signature (see `ToshToken`).
     ///
     ///         The spend is `min(maxPay, remaining allowance, cost to sell
     ///         out)`, and the buyer pays exactly the curve cost of what they
@@ -1460,7 +1461,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (launched) revert AlreadyLaunched();
         if (block.timestamp >= genesisDeadline) revert GenesisExpired();
         if (soldOutAt != 0) revert GenesisSoldOut();
-        if (msg.sender != tx.origin || msg.sender.code.length != 0) revert NotAWallet();
+        if (msg.sender != tx.origin) revert NotAWallet();
         if (IToshFactoryHalt(factory).genesisBlocked(address(this), msg.sender)) revert GenesisPaused();
         if (msg.value != 0) {
             if (!acceptsNative) revert NativeNotAccepted();
@@ -1507,13 +1508,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // ── Interactions ─────────────────────────────────────────────────────
         if (msg.value != 0) {
             IWrappedNativeDeposit(address(quoteAsset)).deposit{value: cost}();
-            uint256 change = msg.value - cost;
-            if (change != 0) {
-                // The recipient was just shown to be a code-less transaction
-                // origin, so this call runs no code.
-                (bool ok,) = msg.sender.call{value: change}("");
-                if (!ok) revert NativeTransferFailed();
-            }
         } else {
             quoteAsset.safeTransferFrom(msg.sender, address(this), cost);
         }
@@ -1522,6 +1516,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         projectToken.registerFor(msg.sender);
 
         emit GenesisBuy(msg.sender, agentKey, cost, tokens, soldAfter);
+
+        // Last: a 7702 buyer's delegate code runs on this call.
+        uint256 change = msg.value == 0 ? 0 : msg.value - cost;
+        if (change != 0) {
+            (bool ok,) = msg.sender.call{value: change}("");
+            if (!ok) revert NativeTransferFailed();
+        }
     }
 
     /// @notice Price of the next genesis token, quote wei per whole token.

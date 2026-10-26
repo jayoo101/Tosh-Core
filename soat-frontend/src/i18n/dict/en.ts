@@ -1513,11 +1513,13 @@ export const EN = {
     closed:            'Closed',
 
     agentTitle:        'Binance Agent ID',
-    agentNone:         'This wallet has no Binance Agent ID. GENESIS is open to Agent ID holders only; anyone can still bid in the market.',
+    agentNone:         'This wallet has no Binance Agent ID. GENESIS is open to Agent ID holders only: buy from your Agentic Wallet with Agent mode below. Anyone can still bid in the market.',
+    agentGenesisLead:  'GENESIS is bought by the Agentic Wallet that holds your Agent ID. It cannot connect to websites, so hand the instructions below to your agent.',
+    agentWalletSettings: 'In the Binance app, Agentic Wallet settings: the Developer mode daily limit must exceed this amount; set abnormal transaction handling to "Need confirmation"; set tradable tokens to "All". Developer mode cannot be enabled while the wallet balance is above its limit.',
     agentOk:           'Agent ID verified · {remaining} {quote} left of your {cap} {quote} allowance.',
     agentUsedUp:       'This Agent ID has used its whole allowance for this project.',
     agentRegistryDown: 'The Agent ID registry did not answer. Try again shortly.',
-    agentCodeWallet:   'This address has contract code (a smart wallet or an EIP-7702 delegation), so it cannot buy GENESIS. Use a plain wallet.',
+    agentCodeWallet:   'This address is a contract (such as a smart contract wallet), so it cannot buy GENESIS. Plain wallets and EIP-7702 accounts can.',
 
     payLabel:          'You pay',
     receiveLabel:      'You receive (estimate)',
@@ -1642,9 +1644,9 @@ export const EN = {
     transferBtn:       'Send',
     transferAction:    'token transfer',
     transferBadAddr:   'Enter a valid recipient address.',
-    transferContract:  'Before launch, tokens cannot be sent to a contract or EIP-7702 account.',
+    transferContract:  'Before launch, tokens cannot be sent to a contract (EIP-7702 accounts are fine).',
     transferUnregistered: 'The recipient has to register on ToshX first. Send them this link:',
-    transferSelfCode:  'Before launch, this wallet cannot send tokens: it has contract code.',
+    transferSelfCode:  'Before launch, this wallet cannot send tokens: it is a contract wallet.',
     transferAmountReason: 'Enter an amount no larger than your balance.',
     copyLink:          'Copy link',
 

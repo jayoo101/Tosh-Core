@@ -10,7 +10,7 @@ import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { V2_LENS, type V2Quote } from '@/lib/v2/config'
 import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
-import { fmtSig, parseAmount } from './fmt'
+import { fmtSig, isContractCode, parseAmount } from './fmt'
 import { RiskAck, useRiskAck } from './RiskAck'
 import { AgentModeSheet } from './AgentModeSheet'
 import { approveStep } from './agentSteps'
@@ -27,7 +27,10 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
   const state = useGenesisState(hook)
   const acct = useAccountState(hook, address)
   const { data: code } = useBytecode({ address, chainId: TARGET_CHAIN_ID, query: { enabled: !!address } })
-  const hasCode = code !== undefined && code !== '0x'
+  const hasCode = isContractCode(code)
+  const noAgentId = acct.data !== undefined && acct.data.registryOk && acct.data.agentKey === `0x${'0'.repeat(64)}`
+  // The Agent ID lives on the Agentic Wallet, which cannot connect to a site.
+  const agentFirst = !address || hasCode || noAgentId
 
   const remaining = acct.data?.remaining ?? 0n
   // With no wallet connected (an Agent signs elsewhere) the quote is for the full amount.
@@ -66,8 +69,7 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
       !open && { id: 'closed', active: true, label: t.closed, reason: t.launchWaiting, tone: 'neutral' },
       hasCode && { id: 'code', active: true, label: t.agentTitle, reason: t.agentCodeWallet },
       acct.data !== undefined && !acct.data.registryOk && { id: 'registry', active: true, label: t.agentTitle, reason: t.agentRegistryDown, tone: 'warn' },
-      acct.data !== undefined && acct.data.registryOk && acct.data.agentKey === `0x${'0'.repeat(64)}` &&
-        { id: 'agent', active: true, label: t.agentTitle, reason: t.agentNone },
+      noAgentId && { id: 'agent', active: true, label: t.agentTitle, reason: t.agentNone },
       acct.data !== undefined && acct.data.agentKey !== `0x${'0'.repeat(64)}` && remaining === 0n &&
         { id: 'used', active: true, label: t.agentTitle, reason: t.agentUsedUp, tone: 'neutral' },
       { id: 'amount', active: pay === 0n || tokens === 0n, label: t.buy, reason: fill(t.minBuy, { min: fmtSig(minBuy), quote: quote.symbol }), tone: 'neutral' },
@@ -118,7 +120,9 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
               args: [pay, minTokens], ...(quote.native ? { value: pay } : {}),
             },
           ] : null}
-          notes={[t.agentNoteCapClamp]}
+          lead={agentFirst ? t.agentGenesisLead : undefined}
+          defaultOpen={agentFirst}
+          notes={[t.agentNoteCapClamp, t.agentWalletSettings]}
           onDone={() => { void state.refetch(); void acct.refetch(); approval.refetch() }}
         />
       )}

@@ -5,6 +5,7 @@ import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20
 import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {WalletLib} from "./libraries/WalletLib.sol";
 
 interface IBidBookHook {
     function launched() external view returns (bool);
@@ -149,7 +150,7 @@ contract ToshBidBook is ReentrancyGuard {
     ///         tokens. `price` must be at least the latest genesis price.
     function placeBid(address hook, uint256 price, uint256 qty) external nonReentrant returns (uint256 bidId) {
         if (!initialized) revert NotInitialized();
-        if (msg.sender != tx.origin || msg.sender.code.length != 0) revert NotAWallet();
+        if (msg.sender != tx.origin) revert NotAWallet();
         address factory = factoryOf(hook);
         if (factory == address(0)) revert UnknownHook();
         IBidBookHook h = IBidBookHook(hook);
@@ -205,7 +206,7 @@ contract ToshBidBook is ReentrancyGuard {
 
     /// @notice Sell into bids on `hook`. Each `qtys[i]` is clamped to what is
     ///         left on `bidIds[i]`. Bids priced under 90 % of the latest genesis
-    ///         price, bids whose bidder now has code, closed bids and fills
+    ///         price, bids whose bidder is no longer a wallet, closed bids and fills
     ///         under one token (unless they finish the bid) are skipped rather
     ///         than reverting the batch.
     /// @param  minTotalOut Least quote the seller accepts net of fees.
@@ -215,7 +216,7 @@ contract ToshBidBook is ReentrancyGuard {
         returns (uint256 totalOut, uint256 totalQty)
     {
         if (bidIds.length != qtys.length) revert LengthMismatch();
-        if (msg.sender != tx.origin || msg.sender.code.length != 0) revert NotAWallet();
+        if (msg.sender != tx.origin) revert NotAWallet();
         IBidBookHook h = IBidBookHook(hook);
         if (factoryOf(hook) == address(0)) revert UnknownHook();
         if (h.launched()) revert Launched();
@@ -229,7 +230,7 @@ contract ToshBidBook is ReentrancyGuard {
             Bid storage b = bids[bidIds[i]];
             if (b.hook != hook || b.price < floor) continue;
             address bidder = b.bidder;
-            if (bidder.code.length != 0) continue;
+            if (!WalletLib.isWallet(bidder)) continue;
 
             uint256 f = b.filled;
             uint256 left = b.qty - f;

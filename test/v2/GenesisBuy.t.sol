@@ -11,6 +11,16 @@ import {AgentIdLib} from "../../src/libraries/AgentIdLib.sol";
 import {GenesisCurve} from "../../src/libraries/GenesisCurve.sol";
 import {MockERC20} from "../utils/MockERC20.sol";
 
+contract AcceptsNative {
+    receive() external payable {}
+}
+
+contract ReentersOnNative {
+    receive() external payable {
+        ToshLaunchpadHook(payable(msg.sender)).buyGenesis(1e18, 0);
+    }
+}
+
 contract GenesisBuyTest is V2Base {
     ToshToken token;
     ToshLaunchpadHook hook;
@@ -64,11 +74,12 @@ contract GenesisBuyTest is V2Base {
         hook.buyGenesis(1e18, 0);
     }
 
-    function test_revert_delegatedEoa() public {
+    function test_delegatedEoa_canBuy() public {
         vm.etch(alice, abi.encodePacked(hex"ef0100", address(0xBEEF)));
-        vm.prank(alice, alice);
-        vm.expectRevert(ToshLaunchpadHook.NotAWallet.selector);
-        hook.buyGenesis(1e18, 0);
+        (uint256 tokens,) = _buy(hook, alice, 1e18);
+        assertGt(tokens, 0);
+        assertEq(token.balanceOf(alice), tokens);
+        assertTrue(token.isReceiver(alice));
     }
 
     function test_agentCap_clampsAndThenStops() public {
@@ -143,6 +154,21 @@ contract GenesisBuyTest is V2Base {
         assertEq(ethBefore - alice.balance, cost, "change returned");
         assertEq(quote.balanceOf(alice), quoteBefore, "no ERC20 pulled");
         assertEq(quote.balanceOf(address(hook)), cost, "wrapped");
+    }
+
+    function test_native_delegatedBuyerGetsChange() public {
+        vm.etch(alice, abi.encodePacked(hex"ef0100", address(new AcceptsNative())));
+        uint256 ethBefore = alice.balance;
+        vm.prank(alice, alice);
+        (, uint256 cost) = hook.buyGenesis{value: 100 ether}(100 ether, 0);
+        assertEq(ethBefore - alice.balance, cost, "change returned");
+    }
+
+    function test_revert_native_delegatedBuyerReentersOnChange() public {
+        vm.etch(alice, abi.encodePacked(hex"ef0100", address(new ReentersOnNative())));
+        vm.prank(alice, alice);
+        vm.expectRevert(ToshLaunchpadHook.NativeTransferFailed.selector);
+        hook.buyGenesis{value: 100 ether}(100 ether, 0);
     }
 
     function test_revert_nativeAmountMismatch() public {

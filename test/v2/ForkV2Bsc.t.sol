@@ -89,8 +89,8 @@ contract ForkV2BscTest is Test {
         if (holder == address(0)) return;
         assertTrue(AgentIdLib.agentKeyOf(REGISTRY, holder) != bytes32(0), "holder resolves to a key");
         if (holder.code.length != 0) {
-            emit log("AGENT_ID_HOLDER has code (smart wallet / 7702): it cannot buy genesis");
-            return;
+            emit log("AGENT_ID_HOLDER has code: a 7702 delegation is accepted, a contract is not");
+            if (holder.code.length != 23) return;
         }
         vm.deal(holder, 1 ether);
         vm.prank(holder, holder);

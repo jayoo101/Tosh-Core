@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {AccessControl} from "../lib/openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {WalletLib} from "./libraries/WalletLib.sol";
 
 /// @title  ToshToken
 /// @notice ERC-20 minted on demand by exactly one address: its launch hook.
@@ -75,13 +76,19 @@ import {AccessControl} from "../lib/openzeppelin-contracts/contracts/access/Acce
 ///   moving its own tokens to another wallet, which is exactly:
 ///
 ///     from == tx.origin          the signer is moving their own balance, so
-///                                no contract, constructor or 7702 delegate
-///                                is spending on anyone's behalf
+///                                no contract or constructor is spending on
+///                                anyone's behalf
 ///     caller is from or BID_BOOK the only spender allowed is the bid book,
 ///                                which holds its own caller to tx.origin
-///     from, to have no code      excludes deployed contracts and EIP-7702
-///                                accounts, whose code is `0xef0100 ‖ target`
+///     to is a wallet             no code, or only an EIP-7702 designator
+///                                (`WalletLib`); excludes deployed contracts
 ///     to is a registered receiver
+///
+///   EIP-7702 accounts pass as both sender and receiver. Their delegate code
+///   cannot become a pool: tokens leave an account only in a transaction that
+///   account signed, so no one else can draw on its balance. What it does
+///   allow is settling a private trade atomically, which an escrow contract
+///   reading balances can already approximate across two transactions.
 ///
 ///   The last line closes what the code check cannot: a CREATE2 address has
 ///   no code until it is deployed, so it would pass as a wallet, take tokens,
@@ -234,7 +241,7 @@ contract ToshToken is ERC20, AccessControl {
 
     /// @notice Make the calling wallet eligible to receive pre-launch transfers.
     function registerReceiver() external {
-        if (msg.sender != tx.origin || msg.sender.code.length != 0) revert NotAWallet();
+        if (msg.sender != tx.origin) revert NotAWallet();
         _register(msg.sender);
     }
 
@@ -259,10 +266,9 @@ contract ToshToken is ERC20, AccessControl {
     function _update(address from, address to, uint256 value) internal override {
         if (!tradingOpen && from != address(0)) {
             address caller = _msgSender();
-            if (
-                from != tx.origin || (caller != from && caller != bidBook) || from.code.length != 0
-                    || to.code.length != 0
-            ) revert TransferRestricted();
+            if (from != tx.origin || (caller != from && caller != bidBook) || !WalletLib.isWallet(to)) {
+                revert TransferRestricted();
+            }
             if (!isReceiver[to]) revert ReceiverNotRegistered(to);
         }
         super._update(from, to, value);

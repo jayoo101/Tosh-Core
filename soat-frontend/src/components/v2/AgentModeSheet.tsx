@@ -71,17 +71,21 @@ async function copy(text: string): Promise<boolean> {
 /**
  * "Run with Agent": the exact calls a Binance Agentic Wallet should make for
  * this action, numbered, with every prerequisite (wrap, approve) spelled out.
- * `steps` is null until the form holds enough to build them.
+ * `steps` is null until the form holds enough to build them. `defaultOpen`
+ * is followed until the user toggles the sheet themselves.
  */
-export function AgentModeSheet({ title, summary, steps, notes = [], onDone }: {
+export function AgentModeSheet({ title, summary, lead, steps, notes = [], defaultOpen = false, onDone }: {
   title: string
   summary?: string
+  lead?: string
   steps: AgentStep[] | null
   notes?: string[]
+  defaultOpen?: boolean
   onDone?: () => void
 }) {
   const t = useT().v2
-  const [open, setOpen] = useState(false)
+  const [toggled, setOpen] = useState<boolean | null>(null)
+  const open = toggled ?? defaultOpen
   const [copied, setCopied] = useState<'text' | 'data' | null>(null)
   const stored = useSyncExternalStore(subscribeAddr, readAddr, () => '')
   const account = isAddress(stored.trim()) ? (stored.trim() as Address) : undefined
@@ -122,6 +126,7 @@ export function AgentModeSheet({ title, summary, steps, notes = [], onDone }: {
         </div>
         <Button size="sm" variant="quiet" label={t.agentClose} onClick={() => setOpen(false)} />
       </div>
+      {lead && <p className="text-text-primary">{lead}</p>}
       <ol className="flex list-decimal flex-col gap-2 pl-5 text-text-secondary">
         <li>{t.agentStep1}</li>
         <li>

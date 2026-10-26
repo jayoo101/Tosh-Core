@@ -1128,11 +1128,13 @@ export const ZH_CN: PartialDictionary = {
     closed:            '已结束',
 
     agentTitle:        'Binance Agent ID',
-    agentNone:         '此钱包没有 Binance Agent ID。GENESIS 只对 Agent ID 持有人开放；任何人都可以在买单市场挂单。',
+    agentNone:         '此钱包没有 Binance Agent ID。GENESIS 只对 Agent ID 持有人开放，请用下方 Agent 模式由你的 Agentic Wallet 买入；任何人都可以在买单市场挂单。',
+    agentGenesisLead:  'GENESIS 要由持有 Agent ID 的 Agentic Wallet 发起。它不能连接网页，请把下面的指令交给你的 agent 执行。',
+    agentWalletSettings: '在 Binance App 的 Agentic Wallet 设置里：开发者模式的每日额度要高于本次金额；"异常交易处理"选"需要确认"；可交易代币选"全部"。钱包余额超过开发者模式额度时无法开启。',
     agentOk:           'Agent ID 已验证 · 你的 {cap} {quote} 额度还剩 {remaining} {quote}。',
     agentUsedUp:       '此 Agent ID 在这个项目上的额度已经用完。',
     agentRegistryDown: 'Agent ID 注册表没有响应，请稍后再试。',
-    agentCodeWallet:   '此地址带有合约代码（智能钱包或 EIP-7702 委托），不能参与 GENESIS。请换用普通钱包。',
+    agentCodeWallet:   '此地址是合约（例如智能合约钱包），不能参与 GENESIS。普通钱包和 EIP-7702 账户可以。',
 
     payLabel:          '支付',
     receiveLabel:      '预计获得',
@@ -1257,9 +1259,9 @@ export const ZH_CN: PartialDictionary = {
     transferBtn:       '转账',
     transferAction:    '代币转账',
     transferBadAddr:   '请填写有效的收款地址。',
-    transferContract:  '开盘前不能转给合约地址或 EIP-7702 账户。',
+    transferContract:  '开盘前不能转给合约地址（EIP-7702 账户可以）。',
     transferUnregistered: '对方需要先在 ToshX 登记收款地址。把这个链接发给对方：',
-    transferSelfCode:  '开盘前这个钱包无法转币：它带有合约代码。',
+    transferSelfCode:  '开盘前这个钱包无法转币：它是合约钱包。',
     transferAmountReason: '请填写不超过余额的数量。',
     copyLink:          '复制链接',
 
