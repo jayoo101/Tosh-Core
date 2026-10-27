@@ -462,7 +462,7 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
       </ReadoutGrid>
       <Field label={`${t.mintAmount} (${symbol})`} value={raw} onValueChange={setRaw} inputMode="decimal" placeholder="0" />
       {maxCost > 0n && <Readout label={t.payLabel} value={`${fmtSig(maxCost)} ${quote.symbol}`} />}
-      <WalletAction gate={gate} />
+      <WalletAction gate={gate} open />
       <AgentModeSheet
         title={fill(t.agentNoteMint, { amount: fmtSig(amount), symbol })}
         summary={maxCost > 0n ? `${t.payLabel}: ${fmtSig(maxCost)} ${quote.symbol}` : undefined}

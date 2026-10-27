@@ -1292,7 +1292,7 @@ export const ZH_CN: PartialDictionary = {
     lfNotOwner:        '只有工厂 owner（{owner}）可以发送。请改为导出 Safe 批量交易。',
 
     shelfTitle:        '货架阶梯',
-    shelfBlurb:        '固定价格的供应，从首个 GENESIS 价格的 2 倍开始，每一档比上一档高约 0.19%。只有池子价格接近或高于某一档时，这一档才开放。',
+    shelfBlurb:        '固定价格的供应，从首个 GENESIS 价格的 2 倍开始，每一档比上一档高约 0.19%。只有池子价格接近或高于某一档时，这一档才开放。不需要 Agent ID，普通钱包即可购买。',
     shelfPrice:        '货架价格',
     shelfLeft:         '本档剩余',
     shelfLocked:       '锁定中：池子价格低于这一档。',

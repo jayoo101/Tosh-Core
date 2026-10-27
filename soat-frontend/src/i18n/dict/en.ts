@@ -1677,7 +1677,7 @@ export const EN = {
     lfNotOwner:        'Only the factory owner can send this ({owner}). Export the Safe batch instead.',
 
     shelfTitle:        'Shelf ladder',
-    shelfBlurb:        'Fixed-price supply that starts at 2× the first GENESIS price, each shelf about 0.19 % above the last. A shelf opens only while the pool trades near or above it.',
+    shelfBlurb:        'Fixed-price supply that starts at 2× the first GENESIS price, each shelf about 0.19 % above the last. A shelf opens only while the pool trades near or above it. No Agent ID needed: any wallet can buy.',
     shelfPrice:        'Shelf price',
     shelfLeft:         'Left on this shelf',
     shelfLocked:       'Locked: the pool is trading below this shelf.',
