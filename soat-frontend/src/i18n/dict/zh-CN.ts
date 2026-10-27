@@ -369,7 +369,7 @@ export const ZH_CN: PartialDictionary = {
     rulesTitle: '发射规则',
     rule1:      '开盘无主：开盘后创世流动性永久锁定，任何人（包括你的团队和平台）都无法撤出。',
     rule2:      '团队无预留：代币只会卖给 GENESIS 买家和货架买家，或注入锁定的开盘池；未售出的 GENESIS 代币在开盘时销毁。团队和其他人一样按价购买。',
-    rule3:      '货架机制：60% 的供应按开盘价之上固定的 4,000 档价格梯子出售；货架收入的 99% 进入你团队持有的 Circuit NFT 金库，1% 用于回购销毁。',
+    rule3:      '货架机制：60% 的供应放在开盘价之上 4,000 档固定价格的货架上，只有池子价格涨到某一档，这一档才会开放出售。价格不涨，货架就卖不出去，项目方也就没有这部分收入。货架收入的 99% 进入你团队持有的 Circuit NFT 金库，1% 用于回购销毁：项目方的持续收入只来自币价上涨，和持币用户的利益一致。',
     rule4:      'GENESIS：仅限币安 Agent ID 持有人购买，每个 ID 一份额度；买入即成交，不退款。售罄或到期后以 2P 开盘，48 小时内由 Circuit NFT 持有人开盘，之后任何人都可以开盘。',
     rulesAccept: '我已阅读并接受以上发射规则。',
 
@@ -521,6 +521,7 @@ export const ZH_CN: PartialDictionary = {
   },
 
   project: {
+    legacyRetired: '这是旧版（v1）项目，本站已不再提供它的交易界面；链上合约仍可直接调用。',
     badgeGenesis:  'Genesis',
     badgeAwaiting: '待上线',
     badgeLadder:   'Ladder',

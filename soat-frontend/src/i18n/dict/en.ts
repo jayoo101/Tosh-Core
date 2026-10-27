@@ -620,7 +620,7 @@ export const EN = {
     rulesTitle: 'Launch rules',
     rule1:      'Ownerless launch: once the pool opens, the genesis liquidity is locked permanently and no one — not your team, not the platform — can withdraw it.',
     rule2:      'No team allocation: tokens only go to GENESIS buyers, shelf buyers or the locked opening pool; unsold GENESIS tokens are burned at launch. Your team buys like anyone else.',
-    rule3:      'Shelf mechanism: 60 % of supply sells on a fixed 4,000-tier price ladder above the opening price; 99 % of shelf revenue goes to the vault of the Circuit NFT your team holds, 1 % funds buyback-and-burn.',
+    rule3:      'Shelf mechanism: 60 % of supply sits on 4,000 fixed-price shelves above the opening price, and a shelf only opens once the pool price has risen to it. No price rise, no shelf sales, and no revenue for the project from them. 99 % of shelf revenue goes to the vault of the Circuit NFT your team holds, 1 % funds buyback-and-burn: your ongoing income comes only from the price going up, the same thing holders want.',
     rule4:      'GENESIS: Binance Agent ID holders only, one allowance per ID; every buy is final, with no refunds. After sell-out or the deadline the pool opens at 2P, launched by the Circuit NFT holder within 48 hours, then by anyone.',
     rulesAccept: 'I have read and accept the launch rules above.',
 
@@ -812,6 +812,7 @@ export const EN = {
    * tracker. Neither takes money; both are read before anything that does.
    */
   project: {
+    legacyRetired: 'This is a legacy v1 launch. The site no longer offers its trading screen; its contracts remain callable on-chain.',
     // One set for the header pill and the strip's badge, so they cannot disagree.
     badgeGenesis:  'Genesis',
     badgeAwaiting: 'Awaiting launch',
