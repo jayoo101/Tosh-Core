@@ -223,7 +223,7 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
         </p>
       )}
       <RiskAck {...risk} />
-      <WalletAction gate={gate} />
+      <WalletAction gate={gate} open />
       <AgentModeSheet
         title={`${t.agentNoteSell} ${fmtSig(plan.tokens)} ${symbol}`}
         summary={plan.tokens > 0n ? fill(t.sellReceive, { amount: fmtSig(plan.out), quote: quote.symbol }) : undefined}
@@ -288,7 +288,7 @@ function PlacePanel({ hook, quote, price, minBid, onDone }: {
       />
       <Field label={t.placeQty} value={rawQty} onValueChange={setRawQty} inputMode="decimal" placeholder="0" />
       {escrow > 0n && <Readout label={t.payLabel} value={fill(t.placeEscrow, { amount: fmtSig(escrow), quote: quote.symbol })} />}
-      <WalletAction gate={gate} />
+      <WalletAction gate={gate} open />
       <AgentModeSheet
         title={`${t.agentNoteBid} ${fmtSig(qty)} @ ${fmtSig(bidPrice, 18, 6)} ${quote.symbol}`}
         steps={bidPrice >= price && qty >= V2.MIN_FILL_QTY && grossAt(bidPrice, qty) >= minBid ? [

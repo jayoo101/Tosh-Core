@@ -9,7 +9,7 @@ import { ActionButton, type ActionGate } from '@/components/ui'
  * page Agent mode is the primary path.
  *
  * `open` keeps the connect prompt for actions that need no Agent ID (the shelf
- * ladder), where an ordinary wallet is the expected path.
+ * ladder, the bid book), where an ordinary wallet is the expected path.
  */
 export function WalletAction({ gate, open = false }: { gate: ActionGate; open?: boolean }) {
   if (gate.verdict.kind === 'connect' && !open) return null
