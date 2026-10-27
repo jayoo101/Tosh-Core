@@ -1137,7 +1137,31 @@ select:focus {
   pointer-events: none;
 }
 
+/** Headings: a gold gradient clipped to the text, sweeping left. */
+@keyframes toshx-gold-shift {
+  to { background-position: -200% 0; }
+}
+
+.text-gold-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    #3a2c05 0%,
+    #f0b90b 22%,
+    #fff1b8 34%,
+    #f0b90b 46%,
+    #3a2c05 62%,
+    #f0b90b 80%,
+    #3a2c05 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: toshx-gold-shift 5s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .text-gold-shimmer,
   .glow-panel::before,
   .glow-panel::after,
   .glow-frame::before,

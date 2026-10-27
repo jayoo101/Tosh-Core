@@ -1684,6 +1684,7 @@ export const EN = {
 
   /** The ToshX black-gold shell: home, list pages and the v2 project page. */
   x: {
+    navHome:           'Home',
     navMarket:         'Market',
     navLaunching:      'Launching',
     navLaunched:       'Launched',
@@ -1732,17 +1733,6 @@ export const EN = {
     featShelfTitle:    'Shelf ladder',
     featShelfBody:     '4,000 fixed-price steps unlock from 2P as the pool price rises. The pool tax funds a reservoir that buys back and burns.',
 
-    browseTitle:       'All projects',
-    browseStageLabel:  'Stage',
-    browseAll:         'All',
-    browseLive:        'Live',
-    browseLaunched:    'Launched',
-    browseSearchLabel: 'Search projects',
-    browseSearch:      'Search by name, ticker or description',
-    browseSort:        'Sort',
-    browseSortNew:     'Newest',
-    browseSortName:    'Name',
-    browseEmpty:       'No projects match.',
 
     launchingTitle:    'Launching now',
     launchingSub:      'GENESIS raises in progress',
@@ -1833,6 +1823,16 @@ export const EN = {
     mktSideLabel:      'Order side',
     mktSell:           'Sell',
     mktBid:            'Bid',
+    mktBuyOnly:        'Buy orders only. Sell from the project page.',
+    mktBuyOnlyWarn:    'A bid must be at or above the latest GENESIS price. If the price then rises until the bid is below 90% of it, the bid goes stale: it cannot fill and can only be cancelled for a full refund.',
+
+    marketTitle:       'Market',
+    marketLede:        'The only official pre-launch order market. Buy orders only: the funds sit in escrow in the contract and can be cancelled for a full refund at any time.',
+    marketPrice:       'GENESIS price',
+    marketDetails:     'Project details',
+    marketEmpty:       'No project is taking bids right now.',
+    metaMarketTitle:       'Market · ToshX',
+    metaMarketDescription: 'The ToshX pre-launch bid market on {chain}. Buy orders only.',
 
     tokGenesis:        'GENESIS sale',
     tokPool:           'Launch pool',

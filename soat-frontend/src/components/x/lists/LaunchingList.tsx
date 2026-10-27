@@ -25,7 +25,7 @@ export function LaunchingList() {
           <span className="flex size-10 items-center justify-center rounded-card bg-surface-hover text-brand">
             <Rocket className="size-5" aria-hidden />
           </span>
-          {t.launchingTitle}
+          <span className="text-gold-shimmer">{t.launchingTitle}</span>
         </h1>
         <span className="text-body text-text-tertiary">{t.launchingSub}</span>
       </div>
@@ -41,14 +41,20 @@ export function LaunchingList() {
         </div>
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {items.map(p => <LaunchingCard key={p.hook} project={p} summary={summaryOf(summaries, p.hook)} />)}
+          {items.map((p, idx) => (
+            <LaunchingCard key={p.hook} project={p} summary={summaryOf(summaries, p.hook)} delayed={idx % 2 === 1} />
+          ))}
         </ul>
       )}
     </section>
   )
 }
 
-function LaunchingCard({ project: p, summary: s }: { project: DirectoryProject; summary: GenesisSummary | undefined }) {
+function LaunchingCard({ project: p, summary: s, delayed }: {
+  project: DirectoryProject
+  summary: GenesisSummary | undefined
+  delayed: boolean
+}) {
   const t = useT().x
   const d = p.quote.decimals
   const progress = s ? pct(s.raised, s.hardCap) : null
@@ -56,8 +62,9 @@ function LaunchingCard({ project: p, summary: s }: { project: DirectoryProject; 
     <li>
       <ProjectLink
         project={p}
-        className="group flex h-full flex-col overflow-hidden rounded-panel border border-transparent bg-surface-card transition-colors hover:border-brand"
+        className={`glow-frame group flex h-full flex-col rounded-panel bg-surface-card p-px ${delayed ? 'glow-delay' : ''}`}
       >
+        <div className="flex flex-1 flex-col overflow-hidden rounded-panel bg-surface-card">
         <ProjectCover project={p}>
           <StatusPill status={statusOf(p)} className="absolute left-3 top-3" />
         </ProjectCover>
@@ -81,6 +88,7 @@ function LaunchingCard({ project: p, summary: s }: { project: DirectoryProject; 
               )}
             </div>
           </div>
+        </div>
         </div>
       </ProjectLink>
     </li>

@@ -1298,6 +1298,7 @@ export const ZH_CN: PartialDictionary = {
   },
 
   x: {
+    navHome:           '首页',
     navMarket:         '市场',
     navLaunching:      '发射中',
     navLaunched:       '已上线',
@@ -1346,17 +1347,6 @@ export const ZH_CN: PartialDictionary = {
     featShelfTitle:    '货架阶梯',
     featShelfBody:     '4,000 档固定价格从 2P 起，随池子价格上涨逐档开放。池子交易税进入储备池，只用于回购销毁。',
 
-    browseTitle:       '全部项目',
-    browseStageLabel:  '阶段',
-    browseAll:         '全部',
-    browseLive:        '进行中',
-    browseLaunched:    '已上线',
-    browseSearchLabel: '搜索项目',
-    browseSearch:      '按名称、代币符号或简介搜索',
-    browseSort:        '排序',
-    browseSortNew:     '最新',
-    browseSortName:    '名称',
-    browseEmpty:       '没有符合条件的项目。',
 
     launchingTitle:    '正在发射',
     launchingSub:      '进行中的 GENESIS 募集',
@@ -1447,6 +1437,16 @@ export const ZH_CN: PartialDictionary = {
     mktSideLabel:      '买卖方向',
     mktSell:           '卖出',
     mktBid:            '挂买单',
+    mktBuyOnly:        '这里只能挂买单。卖出请到项目页。',
+    mktBuyOnlyWarn:    '买单价格必须不低于最新 GENESIS 价格。之后如果价格上涨，使买单低于其 90%，买单就会失效：不能成交，只能撤单并全额退款。',
+
+    marketTitle:       '市场',
+    marketLede:        '唯一官方的开盘前挂单市场。只支持买单：资金托管在合约里，随时可以撤单并全额退款。',
+    marketPrice:       'GENESIS 价格',
+    marketDetails:     '项目详情',
+    marketEmpty:       '当前没有接受挂单的项目。',
+    metaMarketTitle:       '市场 · ToshX',
+    metaMarketDescription: '{chain} 上的 ToshX 开盘前挂单市场，只支持买单。',
 
     tokGenesis:        'GENESIS 认购',
     tokPool:           '开盘池',

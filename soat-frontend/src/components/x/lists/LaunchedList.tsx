@@ -25,7 +25,7 @@ export function LaunchedList() {
         <span className="flex size-10 items-center justify-center rounded-card bg-surface-hover text-brand">
           <BadgeCheck className="size-5" aria-hidden />
         </span>
-        {t.launchedTitle}
+        <span className="text-gold-shimmer">{t.launchedTitle}</span>
         <span className="rounded-pill bg-surface-hover px-2.5 py-0.5 font-mono text-body font-medium text-text-tertiary">
           {items.length}
         </span>
@@ -39,15 +39,16 @@ export function LaunchedList() {
         <p className="rounded-panel bg-surface-card p-10 text-center text-text-tertiary">{t.launchedEmpty}</p>
       ) : (
         <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {items.map(p => {
+          {items.map((p, idx) => {
             const shelf = summaryOf(shelves, p.hook)
             const d = p.quote.decimals
             return (
               <li key={p.hook}>
                 <ProjectLink
                   project={p}
-                  className="flex h-full gap-4 rounded-panel border border-transparent bg-surface-card p-5 transition-colors hover:border-brand/60"
+                  className={`glow-frame flex h-full rounded-panel bg-surface-card p-px ${idx % 2 ? 'glow-delay' : ''}`}
                 >
+                  <div className="flex flex-1 gap-4 rounded-panel bg-surface-card p-5">
                   <ProjectLogo src={p.logoUrl} name={p.name || p.symbol} className="size-12 shrink-0 rounded-pill" />
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                     <div className="flex items-center gap-2">
@@ -65,6 +66,7 @@ export function LaunchedList() {
                       </div>
                     )}
                     <span className="truncate font-mono text-note text-brand/80">{p.token}</span>
+                  </div>
                   </div>
                 </ProjectLink>
               </li>

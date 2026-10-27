@@ -93,7 +93,7 @@ export function Hero({ projects, counts, summaries }: {
 
         <div className="relative flex flex-col items-center gap-4">
           <Image
-            src="/images/launch-mascot-pro.png"
+            src="/images/launch-mascot.png"
             alt=""
             width={642}
             height={681}

@@ -31,7 +31,13 @@ const SELL_SLIPPAGE_BPS = 100n
  * one order panel at a time, and a layout that follows the tab's width, not
  * the viewport's, because the tab sits beside the buy column.
  */
-export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; symbol: string; embedded?: boolean }) {
+export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
+  hook: Address
+  symbol: string
+  embedded?: boolean
+  /** The `/market` listing: bids only, no sell panel. Implies `embedded`. */
+  buyOnly?: boolean
+}) {
   const t = useT().v2
   const tx = useT().x
   const { address: connected } = useAccount()
@@ -45,7 +51,8 @@ export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; s
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
   const mine = book.bids.filter(b => address && b.bidder.toLowerCase() === address.toLowerCase() && b.escrow > 0n)
 
-  if (embedded) {
+  if (embedded || buyOnly) {
+    const activeSide = buyOnly ? 'bid' : side
     const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
     const escrowed = book.open.reduce((sum, b) => sum + b.escrow, 0n)
     const stats = [
@@ -56,7 +63,9 @@ export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; s
     ] as const
     return (
       <div className="@container flex flex-col gap-6">
-        <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
+        {buyOnly
+          ? <p className="rounded-card border border-border-subtle bg-bg-base p-4 text-body text-text-tertiary">{tx.mktBuyOnlyWarn}</p>
+          : <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>}
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-4">
           {stats.map(([k, v]) => (
             <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
@@ -70,7 +79,8 @@ export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; s
           <DepthTable bids={book.open} quote={quote} floor={fillFloor(s.currentPrice)} />
           {!s.launched && (
             <div className="flex flex-col gap-4">
-              <div role="tablist" aria-label={tx.mktSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
+              {buyOnly && <p className="rounded-input bg-brand/10 px-3 py-2 text-note text-brand">{tx.mktBuyOnly}</p>}
+              <div hidden={buyOnly} role="tablist" aria-label={tx.mktSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
                 {([['sell', tx.mktSell], ['bid', tx.mktBid]] as const).map(([id, label]) => (
                   <button
                     key={id}
@@ -86,7 +96,7 @@ export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; s
                   </button>
                 ))}
               </div>
-              {side === 'sell'
+              {activeSide === 'sell'
                 ? <SellPanel hook={hook} token={s.token} symbol={symbol} quote={quote} bids={book.open} price={s.currentPrice} onDone={book.refetch} />
                 : <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />}
             </div>
