@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { erc20Abi, formatUnits, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
@@ -21,7 +21,7 @@ import { useTokenBalance, useWrapShortfall } from './hooks'
 import { RiskAck, useRiskAck } from './RiskAck'
 import { RecentTrades } from './RecentTrades'
 import { WalletAction } from './WalletAction'
-import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
+import { AgentAddressField, AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { approveStep, prepSteps } from './agentSteps'
 
 /** 1 % below the previewed proceeds, for `minTotalOut`. */
@@ -102,7 +102,13 @@ export function BidMarket({ hook, symbol, embedded = false }: {
             </div>
           )}
         </div>
-        <MyBids bids={mine} quote={quote} onDone={book.refetch} />
+        <MyBids
+          bids={mine}
+          quote={quote}
+          onDone={book.refetch}
+          empty={address ? t.myBidsNone : t.myBidsLookup}
+          footer={!connected && <AgentAddressField label={t.myBidsAddr} />}
+        />
         <RecentTrades hook={hook} quote={quote} />
       </div>
     )
@@ -301,16 +307,23 @@ function PlacePanel({ hook, quote, price, minBid, onDone }: {
   )
 }
 
-export function MyBids({ bids, quote, onDone, showHook = false }: {
+/** Hidden when there are no bids, unless `empty` gives the card something to say. */
+export function MyBids({ bids, quote, onDone, showHook = false, empty, footer }: {
   bids: readonly (LiveBid & { hook?: Address })[]; quote?: V2Quote; onDone: () => void; showHook?: boolean
+  empty?: string; footer?: ReactNode
 }) {
   const t = useT().v2
-  if (bids.length === 0) return null
+  if (bids.length === 0 && !empty) return null
   return (
     <Card title={t.myBids}>
-      <ul className="flex flex-col divide-y divide-border-subtle">
-        {bids.map(b => <MyBidRow key={b.id.toString()} bid={b} quote={quote} onDone={onDone} showHook={showHook} />)}
-      </ul>
+      {bids.length === 0
+        ? <p className="text-note text-text-tertiary">{empty}</p>
+        : (
+          <ul className="flex flex-col divide-y divide-border-subtle">
+            {bids.map(b => <MyBidRow key={b.id.toString()} bid={b} quote={quote} onDone={onDone} showHook={showHook} />)}
+          </ul>
+        )}
+      {footer}
     </Card>
   )
 }
@@ -319,6 +332,7 @@ function MyBidRow({ bid, quote, onDone, showHook }: {
   bid: LiveBid & { hook?: Address }; quote?: V2Quote; onDone: () => void; showHook: boolean
 }) {
   const t = useT().v2
+  const { address } = useAccount()
   const tx = useTxAction({ action: t.cancelAction, onConfirmed: onDone })
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3 font-mono text-note tabular-nums">
@@ -328,13 +342,15 @@ function MyBidRow({ bid, quote, onDone, showHook }: {
       )}
       <span>{fmtSig(bid.price, 18, 6)} {quote?.symbol ?? ''}</span>
       <span className="text-text-secondary">{fill(t.filledOf, { filled: fmtSig(bid.filled), qty: fmtSig(bid.qty) })}</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        label={t.cancel}
-        {...(tx.isBusy ? { busy: true as const } : {})}
-        onClick={() => tx.send({ address: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'cancelBid', args: [bid.id] })}
-      />
+      {address && (
+        <Button
+          size="sm"
+          variant="ghost"
+          label={t.cancel}
+          {...(tx.isBusy ? { busy: true as const } : {})}
+          onClick={() => tx.send({ address: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'cancelBid', args: [bid.id] })}
+        />
+      )}
       <div className="basis-full font-sans">
         <AgentModeSheet
           title={fill(t.agentNoteCancel, { id: bid.id.toString() })}

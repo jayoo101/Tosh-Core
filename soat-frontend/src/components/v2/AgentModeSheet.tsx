@@ -33,6 +33,12 @@ export function useAgentAddress(): Address | undefined {
   return isAddress(stored.trim()) ? (stored.trim() as Address) : undefined
 }
 
+/** The same stored Agent address, editable outside any sheet. */
+export function AgentAddressField({ label }: { label: string }) {
+  const stored = useSyncExternalStore(subscribeAddr, readAddr, () => '')
+  return <Field label={label} value={stored} onValueChange={writeAddr} placeholder="0x…" />
+}
+
 /** Calls `onSeen` once the account's nonce moves past what it was when watching began. */
 function useNonceWatch(account: Address | undefined, active: boolean, onSeen: () => void) {
   const client = usePublicClient({ chainId: TARGET_CHAIN_ID })
