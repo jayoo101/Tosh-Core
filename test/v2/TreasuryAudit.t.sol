@@ -199,15 +199,15 @@ contract TreasuryAuditTest is V2Base {
         uint256 capPumped = ladder.legCeiling(address(token));
         uint256 mult = perToken / capPumped + 1;
         int256 Lj = int256(uint256(Lg) * mult * 2);
+        // The hook refuses any range narrower than full, so the JIT step fails.
+        vm.expectRevert();
         atk.liq(key, lo, hi, Lj);
-        console2.log("leg cap after JIT            ", ladder.legCeiling(address(token)));
 
         // 3. drain: every poke on a one-token ladder hits this pool
         uint256 n = _poke(40);
         console2.log("pokes run in one tx          ", n);
 
         // 4. unwind
-        atk.liq(key, lo, hi, -Lj);
         atk.swap(key, false, -int256(pumpTokens), TickMath.MAX_SQRT_RATIO - 1);
 
         uint256 q1 = quote.balanceOf(address(atk));

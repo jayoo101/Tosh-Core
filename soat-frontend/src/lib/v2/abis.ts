@@ -1161,6 +1161,19 @@ export const V2_HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_MINT_TICK_DRIFT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int256",
+        "internalType": "int256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_TIERS_PER_TX",
     "inputs": [],
     "outputs": [
@@ -1882,7 +1895,7 @@ export const V2_HOOK_ABI = [
         ]
       },
       {
-        "name": "",
+        "name": "params",
         "type": "tuple",
         "internalType": "struct ICLPoolManager.ModifyLiquidityParams",
         "components": [
@@ -3461,6 +3474,11 @@ export const V2_HOOK_ABI = [
   {
     "type": "error",
     "name": "OnlyVault",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RangeNotFull",
     "inputs": []
   },
   {

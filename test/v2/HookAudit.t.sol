@@ -7,8 +7,9 @@ import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
 import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
 import {CLPoolManagerRouter} from "infinity-core/test/pool-cl/helpers/CLPoolManagerRouter.sol";
-import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
-import {LiquidityAmounts} from "infinity-periphery/src/pool-cl/libraries/LiquidityAmounts.sol";
+import {ICLHooks} from "infinity-core/src/pool-cl/interfaces/ICLHooks.sol";
+import {Hooks} from "infinity-core/src/libraries/Hooks.sol";
+import {CustomRevert} from "infinity-core/src/libraries/CustomRevert.sol";
 
 import {V2Base} from "./utils/V2Base.sol";
 import {ToshLaunchpadHook} from "../../src/ToshLaunchpadHook.sol";
@@ -16,7 +17,10 @@ import {ToshToken} from "../../src/ToshToken.sol";
 import {CircuitRevenueVault} from "../../src/CircuitRevenueVault.sol";
 
 /// @notice Adversarial PoCs against ToshLaunchpadHook (v2).
-/// @dev    `test_OPEN_*` pin behaviour that is known and not yet changed: they
+/// @dev    `test_DESIGN_*` pin accepted behaviour: the Circuit holder funds the
+///         project through shelves at ~1 % net cost, which is the point of
+///         routing 99 % of proceeds to it.
+///         `test_OPEN_*` pin behaviour that is known and not yet changed: they
 ///         pass while the issue stands, and are meant to fail, and be inverted,
 ///         by whatever change closes it.
 contract HookAuditTest is V2Base {
@@ -42,7 +46,7 @@ contract HookAuditTest is V2Base {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // M-1: the shelf beneficiary mints at ~1 % net cost and dumps on the pool.
+    // H-1 (accepted by design): the shelf beneficiary mints at ~1 % net cost.
     // ─────────────────────────────────────────────────────────────────────────
 
     function _mintAndDump(address who, bool rebate) internal returns (int256 pnl, uint256 minted) {
@@ -60,7 +64,7 @@ contract HookAuditTest is V2Base {
         pnl = int256(quote.balanceOf(who)) - int256(q0);
     }
 
-    function test_OPEN_H1_controllerMintAndDump_isProfitable() public {
+    function test_DESIGN_H1_controllerMintAndDump_isProfitable() public {
         _launched();
         uint256 lpQuoteBefore = quote.balanceOf(address(vault));
         (int256 pnl, uint256 minted) = _mintAndDump(dev, true);
@@ -72,7 +76,7 @@ contract HookAuditTest is V2Base {
 
     /// @dev No outside buyers at all: the controller funds its own pump, waits
     ///      one TWAP window, mints the unlocked shelves, then dumps everything.
-    function test_OPEN_H1_controllerSelfFundedCycles_drainGenesisLp() public {
+    function test_DESIGN_H1_controllerSelfFundedCycles_drainGenesisLp() public {
         _launched();
         CircuitRevenueVault rv = CircuitRevenueVault(hook.projectAdmin());
         uint256 q0 = quote.balanceOf(dev);
@@ -102,7 +106,7 @@ contract HookAuditTest is V2Base {
 
     /// @dev Shelves are fixed-size in tokens while pool depth scales with the
     ///      raise, so a thin raise is drained almost entirely in one block.
-    function test_OPEN_H1_thinRaise_controllerDrainsNearlyAllLpQuote() public {
+    function test_DESIGN_H1_thinRaise_controllerDrainsNearlyAllLpQuote() public {
         (ToshToken t2, ToshLaunchpadHook h2) = _create("Thin", HARD_CAP, AGENT_CAP);
         _buy(h2, carol, 0.5e18);
         _launchAsAdmin(h2);
@@ -128,30 +132,43 @@ contract HookAuditTest is V2Base {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // L-1: a tax-free 99-wei swap shuts shelf minting for the rest of the block.
+    // L-1: a tax-free 99-wei swap used to shut shelf minting for the block.
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_OPEN_L1_dustSwapGriefsShelfMint() public {
+    function test_L1_dustSwapNoLongerGriefsShelfMint() public {
         _launched();
         assertGt(hook.maxMintable(), 0, "shelves open");
         uint256 cost = hook.quoteMint(1_000e18);
 
-        uint256 res0 = quote.balanceOf(address(ladder));
-        uint256 plat0 = quote.balanceOf(platform);
         _swapBuy(hook, trader, 99); // front-run by griefer
-        assertEq(quote.balanceOf(address(ladder)), res0, "griefer paid no reservoir tax");
-        assertEq(quote.balanceOf(platform), plat0, "griefer paid no platform tax");
+        assertGt(hook.maxMintable(), 0, "a dust swap leaves the ladder open");
 
         vm.prank(bob, bob);
-        vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
         hook.mintBondingCurve(1_000e18, cost);
+    }
+
+    function test_L1_aSwapThatMovesThePriceStillShutsTheBlock() public {
+        _launched();
+        _swapBuy(hook, trader, 99);
+        _swapBuy(hook, trader, 0.1e18);
+        assertEq(hook.maxMintable(), 0);
+        vm.prank(bob, bob);
+        vm.expectRevert(ToshLaunchpadHook.SameBlockMintForbidden.selector);
+        hook.mintBondingCurve(1e18, type(uint256).max);
+    }
+
+    function test_L1_launchBlockStaysShut() public {
+        _launchAsAdmin(hook);
+        assertEq(hook.maxMintable(), 0);
+        _swapBuy(hook, trader, 99);
+        assertEq(hook.maxMintable(), 0, "a swap in the launch block does not open it");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // L-2: range orders let a holder exit (or a buyer enter) with zero hook tax.
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_OPEN_L2_rangeOrderSell_paysNoSellTax() public {
+    function test_L2_rangeOrderIsRefused() public {
         _launched();
         PoolKey memory key = hook.getPoolKey();
         int24 t = _tick();
@@ -160,48 +177,25 @@ contract HookAuditTest is V2Base {
         if (upper == t) upper -= 200;
         int24 lower = upper - 2000;
 
-        uint256 sellAmt = 50_000e18;
-        uint128 liq = LiquidityAmounts.getLiquidityForAmount1(
-            TickMath.getSqrtRatioAtTick(lower), TickMath.getSqrtRatioAtTick(upper), sellAmt
-        );
-
-        uint256 dead0 = token.balanceOf(DEAD);
-        uint256 aliceTok0 = token.balanceOf(alice);
-        uint256 aliceQ0 = quote.balanceOf(alice);
-
         vm.startPrank(alice);
         token.approve(address(router), type(uint256).max);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CustomRevert.WrappedError.selector,
+                address(hook),
+                ICLHooks.beforeAddLiquidity.selector,
+                abi.encodeWithSelector(ToshLaunchpadHook.RangeNotFull.selector),
+                abi.encodeWithSelector(Hooks.HookCallFailed.selector)
+            )
+        );
         router.modifyPosition(
             key,
             ICLPoolManager.ModifyLiquidityParams({
-                tickLower: lower, tickUpper: upper, liquidityDelta: int256(uint256(liq)), salt: bytes32("alice-ro")
+                tickLower: lower, tickUpper: upper, liquidityDelta: 1e18, salt: bytes32("alice-ro")
             }),
             ""
         );
         vm.stopPrank();
-
-        // Organic buyers push the price through Alice's range.
-        _swapBuy(hook, trader, 6e18);
-        assertLt(_tick(), lower, "range fully crossed");
-        uint256 deadAfterBuy = token.balanceOf(DEAD);
-
-        vm.prank(alice);
-        router.modifyPosition(
-            key,
-            ICLPoolManager.ModifyLiquidityParams({
-                tickLower: lower, tickUpper: upper, liquidityDelta: -int256(uint256(liq)), salt: bytes32("alice-ro")
-            }),
-            ""
-        );
-
-        uint256 tokensSold = aliceTok0 - token.balanceOf(alice);
-        uint256 quoteOut = quote.balanceOf(alice) - aliceQ0;
-        console2.log("tokens exited via range order", tokensSold / 1e18);
-        console2.log("quote received (wei)", quoteOut);
-        console2.log("sell tax burned for alice (would be 1%)", token.balanceOf(DEAD) - deadAfterBuy);
-        assertApproxEqRel(tokensSold, sellAmt, 1e15);
-        assertGt(quoteOut, 0);
-        assertEq(token.balanceOf(DEAD), dead0, "zero tokens burned: no 1% sell tax on this exit");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

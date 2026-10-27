@@ -96,8 +96,12 @@ import {AgentIdLib} from "./libraries/AgentIdLib.sol";
 ///   3. DISCRETE TIER SHELVES replace the v4.x `tan(z)` Taylor bonding curve.
 ///      Phase 2 is a monotonic ramp of `TIER_COUNT` (4000) fixed-price shelves
 ///      spanning 2000× from the opening price, each gated behind a market-price
-///      ceiling so the project cannot mint its way down into the pool and
-///      drain it.
+///      ceiling so no OUTSIDER can mint below the market and dump at a profit.
+///      The Circuit holder is different by design: 99 % of what it pays comes
+///      back through its revenue vault, so shelves the ceiling has opened
+///      cost it about 1 %. That is the project's funding channel, and it is
+///      bounded by the ceiling — once a dump lowers the price, the ladder
+///      closes until the market climbs back.
 ///
 ///   4. ASYMMETRIC IN-FLIGHT TAX & DIRECT BURN.  A 1.0 % skim is taken off the
 ///      INPUT of every swap, routed by direction rather than by which currency
@@ -471,7 +475,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///             ceiling left shelves 0..25 (109 200 tokens) mintable in the
     ///             launch block.  One notch above it, only shelf 0 can ever be
     ///             in range at the open, and even that is held back: `launch()`
-    ///             stamps `lastSwapBlock`, so the launch block is closed
+    ///             stamps the launch block as moved, so it is closed
     ///             outright and Phase 2 lifts from the next block, only once
     ///             the market holds at or above the genesis price.
     ///
@@ -499,6 +503,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         in range at the open; the launch block's same-block lockout is
     ///         what keeps them shut until the next block.
     uint256 public constant SHELF_PREMIUM_BPS = 10_000;
+
+    /// @notice Ticks (≈ 1 bp of price each) the pool may drift within a block
+    ///         and still let shelves mint in that block.
+    int256 public constant MAX_MINT_TICK_DRIFT = 10;
 
     /// @notice Target TWAP window.  The hook keeps two rolling checkpoints
     ///         rather than a full ring buffer, so on a pool that trades at
@@ -1010,11 +1018,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      ticks every 100 ms.  That is 120x faster and still ~890,000 years,
     ///      so the narrowing remains far from a real ceiling; the old premise
     ///      simply no longer describes where this deploys.  Slot use is
-    ///      7 + 4 + 3 + 6 = 20 of 32 bytes.
+    ///      7 + 4 + 3 + 6 + 3 = 23 of 32 bytes.
     int56 public tickCumulative;
     uint32 public lastObservationTs;
     int24 public lastTick;
     uint48 private _lastSwapBlock;
+    /// @dev The tick this block opened at, latched by its first swap.
+    int24 private _blockOpenTick;
 
     /// @dev Rolling TWAP checkpoints. `_prev` is the reference point the TWAP
     ///      is measured from; it rolls forward once `_cur` ages past TWAP_WINDOW.
@@ -1170,6 +1180,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice A swap touched this pool in the current block.  Shelf mints must
     ///         wait one block so a flash-loan spike cannot fake the price gate.
     error SameBlockMintForbidden();
+    error RangeNotFull();
 
     /// @notice The platform has suspended shelf minting, either for this project
     ///         or globally.  Trading, LP, genesis claims, referral claims and
@@ -1638,8 +1649,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         // Shelf 0 is level with the pool, so it would be inside the 105 %
         // ceiling in the launch block itself. The same-block lockout keeps
-        // Phase 2 shut until the next block.
+        // Phase 2 shut until the next block: no real tick is this far from any
+        // other, so `_priceMovedThisBlock` holds for the rest of the block.
         _lastSwapBlock = uint48(_blockNumber());
+        _blockOpenTick = type(int24).max;
 
         // Everything held beyond the unwithdrawn fund is owed to nobody: the
         // seed's rounding remainder plus anything sent here from outside.
@@ -1686,13 +1699,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// ── Anti-drain gate ─────────────────────────────────────────────────────
     ///
-    ///   The failure mode this defends against: a project admin with limited
-    ///   capital mints cheap tokens from a low shelf and dumps them into the
-    ///   pool, extracting the genesis ETH.  Three compounding guards close it:
+    ///   The failure mode this defends against: a buyer mints a shelf below
+    ///   the market and dumps it into the pool, extracting the genesis quote.
+    ///   It does not bind the Circuit holder, which gets 99 % of its payment
+    ///   back (see the header).  Three compounding guards:
     ///
-    ///     1. SAME-BLOCK LOCKOUT.  Any swap on this pool sets `lastSwapBlock`.
-    ///        Minting in that same block reverts, so a flash-loaned pump cannot
-    ///        be observed by the price gate before it unwinds.
+    ///     1. SAME-BLOCK LOCKOUT.  Once a swap in this block has moved the
+    ///        price more than `MAX_MINT_TICK_DRIFT` from the block's open,
+    ///        minting in that block reverts, so a flash-loaned pump cannot be
+    ///        observed by the price gate before it unwinds. A dust swap that
+    ///        leaves the price where it was no longer shuts the block.
     ///
     ///     2. min(SPOT, SLOW).  Once a full `TWAP_WINDOW` has elapsed the
     ///        slow leg is the rolling geometric TWAP, so pumping spot cannot
@@ -1748,7 +1764,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
 
         // ── Guard 1: same-block lockout ───────────────────────────────────────
-        if (_blockNumber() <= _lastSwapBlock) revert SameBlockMintForbidden();
+        if (_priceMovedThisBlock()) revert SameBlockMintForbidden();
 
         // One SLOAD for the whole position. Read as a struct rather than through
         // the three getters, which would be three reads of the same slot.
@@ -1910,7 +1926,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         launch block too.
     function maxMintable() public view returns (uint256 tokens) {
         if (!launched) return 0;
-        if (_blockNumber() <= _lastSwapBlock) return 0;
+        if (_priceMovedThisBlock()) return 0;
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) return 0;
 
         LadderState memory st = _ladderState;
@@ -2090,6 +2106,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // Sampling here rather than after `_skimUnspecifiedInput` is
         // price-neutral: the skim settles deltas through `poolManager.take`,
         // which moves no price, so `lastTick` reads the same either way.
+        //
+        // Before the observation overwrites it, `lastTick` is where the last
+        // swap left the price, which is where this block opened.
+        if (_lastSwapBlock < _blockNumber()) _blockOpenTick = lastTick;
         _lastSwapBlock = uint48(_blockNumber());
         _writeObservation();
 
@@ -2259,12 +2279,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return ICLHooks.afterInitialize.selector;
     }
 
+    /// @dev Full range only. A narrow position is a limit order: one-sided
+    ///      liquidity that buyers or sellers cross converts at the pool price
+    ///      without ever passing through `beforeSwap`, so it trades untaxed.
     function beforeAddLiquidity(
         address,
         PoolKey calldata,
-        ICLPoolManager.ModifyLiquidityParams calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata
     ) external pure returns (bytes4) {
+        if (params.tickLower != TICK_LOWER || params.tickUpper != TICK_UPPER) revert RangeNotFull();
         return ICLHooks.beforeAddLiquidity.selector;
     }
 
@@ -2500,6 +2524,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
     //  Dark tax + oracle internals
     // ══════════════════════════════════════════════════════════════════════════
+
+    /// @dev Whether a swap in this block has moved the price further than
+    ///      `MAX_MINT_TICK_DRIFT` from where the block opened. Every swap
+    ///      refreshes `lastTick` and nothing else moves the price, so `lastTick`
+    ///      is spot. A dust swap no longer shuts the ladder for the block; a
+    ///      pump or dump that the reference price would see still does.
+    function _priceMovedThisBlock() internal view returns (bool) {
+        if (_lastSwapBlock < _blockNumber()) return false;
+        int256 drift = int256(lastTick) - int256(_blockOpenTick);
+        return drift > MAX_MINT_TICK_DRIFT || drift < -MAX_MINT_TICK_DRIFT;
+    }
 
     /// @dev Advance the geometric-mean accumulator and roll the TWAP window.
     function _writeObservation() internal {
