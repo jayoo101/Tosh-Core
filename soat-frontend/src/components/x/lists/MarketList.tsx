@@ -142,7 +142,7 @@ function MarketBody() {
             </ProjectLink>
           </div>
         </div>
-        <BidMarket hook={selected.hook as Address} symbol={selected.symbol} buyOnly />
+        <BidMarket hook={selected.hook as Address} symbol={selected.symbol} embedded />
       </Panel>
     </div>
   )

@@ -1191,6 +1191,10 @@ export const ZH_CN: PartialDictionary = {
     sellReceive:       '扣除 1% 手续费后约得 {amount} {quote}。',
     sellFloor:         '低于 {floor} {quote}（最新 GENESIS 价格的 90%）的买单不能成交。',
     sellNothing:       '没有买单能接这个数量。',
+    sellNoneAtPrice:   '没有出价不低于这个价格的买单。',
+    sellMinPrice:      '最低卖价（{quote}）',
+    sellAnyPrice:      '不限',
+    sellMinHint:       '只卖给出价不低于这个价格的买单，从最高价开始成交，没成交的部分留在你手里。这里不能挂卖单。',
     sellBtn:           '卖出',
     sellAction:        '卖出',
     approveToken:      '授权 {symbol}',
@@ -1431,7 +1435,6 @@ export const ZH_CN: PartialDictionary = {
     mktSideLabel:      '买卖方向',
     mktSell:           '卖出',
     mktBid:            '挂买单',
-    mktBuyOnly:        '这里只能挂买单。卖出请到项目页。',
     mktBuyOnlyWarn:    '买单价格必须不低于最新 GENESIS 价格。之后如果价格上涨，使买单低于其 90%，买单就会失效：不能成交，只能撤单并全额退款。',
 
     marketTitle:       '市场',

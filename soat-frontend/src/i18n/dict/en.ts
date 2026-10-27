@@ -1576,6 +1576,10 @@ export const EN = {
     sellReceive:       'You receive about {amount} {quote} after the 1 % fee.',
     sellFloor:         'Bids under {floor} {quote} (90 % of the latest GENESIS price) cannot fill.',
     sellNothing:       'No open bid can take this amount.',
+    sellNoneAtPrice:   'No open bid is at or above this price.',
+    sellMinPrice:      'Lowest price ({quote})',
+    sellAnyPrice:      'Any',
+    sellMinHint:       'Sells only into bids at or above this price, best first; whatever does not fill stays with you. Sell orders cannot be placed.',
     sellBtn:           'Sell',
     sellAction:        'sale',
     approveToken:      'Approve {symbol}',
@@ -1817,7 +1821,6 @@ export const EN = {
     mktSideLabel:      'Order side',
     mktSell:           'Sell',
     mktBid:            'Bid',
-    mktBuyOnly:        'Buy orders only. Sell from the project page.',
     mktBuyOnlyWarn:    'A bid must be at or above the latest GENESIS price. If the price then rises until the bid is below 90% of it, the bid goes stale: it cannot fill and can only be cancelled for a full refund.',
 
     marketTitle:       'Market',

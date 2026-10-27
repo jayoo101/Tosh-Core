@@ -28,16 +28,14 @@ import { approveStep, prepSteps } from './agentSteps'
 const SELL_SLIPPAGE_BPS = 100n
 
 /**
- * `embedded` is the project page's market tab: no page header, a stats strip,
- * one order panel at a time, and a layout that follows the tab's width, not
- * the viewport's, because the tab sits beside the buy column.
+ * `embedded` is the project page's market tab and the `/market` listing: no
+ * page header, a stats strip, one order panel at a time, and a layout that
+ * follows the container's width, not the viewport's.
  */
-export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
+export function BidMarket({ hook, symbol, embedded = false }: {
   hook: Address
   symbol: string
   embedded?: boolean
-  /** The `/market` listing: bids only, no sell panel. Implies `embedded`. */
-  buyOnly?: boolean
 }) {
   const t = useT().v2
   const tx = useT().x
@@ -52,8 +50,7 @@ export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
   const mine = book.bids.filter(b => address && b.bidder.toLowerCase() === address.toLowerCase() && b.escrow > 0n)
 
-  if (embedded || buyOnly) {
-    const activeSide = buyOnly ? 'bid' : side
+  if (embedded) {
     const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
     const escrowed = book.open.reduce((sum, b) => sum + b.escrow, 0n)
     const stats = [
@@ -64,9 +61,7 @@ export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
     ] as const
     return (
       <div className="@container flex flex-col gap-6">
-        {!buyOnly
-          ? <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
-          : !s.launched && <p className="rounded-card border border-border-subtle bg-bg-base p-4 text-body text-text-tertiary">{tx.mktBuyOnlyWarn}</p>}
+        <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-4">
           {stats.map(([k, v]) => (
             <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
@@ -80,8 +75,7 @@ export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
           <DepthTable bids={book.open} quote={quote} floor={fillFloor(s.currentPrice)} />
           {!s.launched && (
             <div className="flex flex-col gap-4">
-              {buyOnly && <p className="rounded-input bg-brand/10 px-3 py-2 text-note text-brand">{tx.mktBuyOnly}</p>}
-              <div hidden={buyOnly} role="tablist" aria-label={tx.mktSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
+              <div role="tablist" aria-label={tx.mktSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
                 {([['sell', tx.mktSell], ['bid', tx.mktBid]] as const).map(([id, label]) => (
                   <button
                     key={id}
@@ -97,9 +91,14 @@ export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
                   </button>
                 ))}
               </div>
-              {activeSide === 'sell'
+              {side === 'sell'
                 ? <SellPanel hook={hook} token={s.token} symbol={symbol} quote={quote} bids={book.open} price={s.currentPrice} onDone={book.refetch} />
-                : <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />}
+                : (
+                  <>
+                    <p className="rounded-input bg-brand/10 px-3 py-2 text-note text-brand">{tx.mktBuyOnlyWarn}</p>
+                    <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />
+                  </>
+                )}
             </div>
           )}
         </div>
@@ -172,12 +171,16 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
   const t = useT().v2
   const { address } = useAccount()
   const [raw, setRaw] = useState('')
+  const [rawMin, setRawMin] = useState('')
   const amount = parseAmount(raw) ?? 0n
+  const minPrice = parseAmount(rawMin) ?? 0n
   const bal = useTokenBalance(token)
   // Routed only into bids 1 % clear of the floor: GENESIS buys keep raising it,
   // and a bid that drops under it by inclusion time is skipped, not filled.
   const routeFloor = (fillFloor(price) * 101n) / 100n
-  const plan = useMemo(() => planSell(bids, amount, routeFloor), [bids, amount, routeFloor])
+  const floor = minPrice > routeFloor ? minPrice : routeFloor
+  const plan = useMemo(() => planSell(bids, amount, floor), [bids, amount, floor])
+  const best = bids.reduce((m, b) => (b.price >= routeFloor && b.qty > b.filled && b.price > m ? b.price : m), 0n)
   const risk = useRiskAck(hook)
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: token, abi: erc20Abi, functionName: 'allowance',
@@ -197,7 +200,7 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
     blockersInRevertOrder: revertOrder(
       { id: 'amount', active: amount === 0n, label: t.sellBtn, reason: t.sellAmount, tone: 'neutral' },
       { id: 'balance', active: amount > (bal.data ?? 0n), label: t.sellBtn, reason: fill(t.sellBalance, { amount: fmtSig(bal.data) }), tone: 'neutral' },
-      { id: 'nothing', active: plan.tokens === 0n, label: t.sellBtn, reason: t.sellNothing, tone: 'neutral' },
+      { id: 'nothing', active: plan.tokens === 0n, label: t.sellBtn, reason: minPrice > routeFloor ? t.sellNoneAtPrice : t.sellNothing, tone: 'neutral' },
       { id: 'risk', active: !risk.acked, label: t.sellBtn, reason: t.riskRequired, tone: 'neutral' },
       (allowance ?? 0n) < plan.tokens && {
         id: 'approve', active: true, label: fill(t.approveToken, { symbol }), reason: fill(t.approveToken, { symbol }), tone: 'info',
@@ -208,6 +211,15 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
 
   return (
     <Card title={t.sellTitle}>
+      <Field
+        label={fill(t.sellMinPrice, { quote: quote.symbol })}
+        value={rawMin}
+        onValueChange={setRawMin}
+        inputMode="decimal"
+        placeholder={t.sellAnyPrice}
+        hint={t.sellMinHint}
+        affix={<FieldAffix label="best" onClick={() => setRawMin(formatUnits(best, 18))} disabled={best === 0n} />}
+      />
       <Field
         label={`${t.sellAmount} (${symbol})`}
         value={raw}
