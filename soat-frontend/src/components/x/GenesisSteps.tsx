@@ -65,6 +65,7 @@ export function GenesisSteps({ symbol, quote, cap, activeBuyStep, needsAgentId }
             {t.walletInviteCta}
             <ExternalLink className="size-4" aria-hidden="true" />
           </a>
+          <p className="text-pretty text-note text-text-tertiary">{t.walletDevMode}</p>
         </div>
       ) : (
         <ol className="flex flex-col" role="tabpanel">

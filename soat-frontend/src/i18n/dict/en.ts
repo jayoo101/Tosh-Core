@@ -1776,6 +1776,7 @@ export const EN = {
     stepCurrent:       '(current step)',
     walletInvite:      'Open Binance Wallet, create an Agentic Wallet and claim your Agent ID.',
     walletInviteCta:   'Claim in Binance Wallet',
+    walletDevMode:     'Once claimed, turn on Developer mode under Agentic Wallet → Settings, or your agent cannot sign.',
     buyStep1:          'Have the Agent ID ready',
     buyStep1Body:      'The Agentic Wallet holds its Agent ID and has Developer mode on.',
     buyStep2:          'Enter the amount',

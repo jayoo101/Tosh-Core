@@ -1390,6 +1390,7 @@ export const ZH_CN: PartialDictionary = {
     stepCurrent:       '（当前步骤）',
     walletInvite:      '打开币安钱包，创建 Agentic Wallet 并领取 Agent ID。',
     walletInviteCta:   '前往币安钱包领取',
+    walletDevMode:     '领取后请在 Agentic Wallet → 设置 中开启开发者模式，否则 Agent 无法签名。',
     buyStep1:          '准备 Agent ID',
     buyStep1Body:      '确认 Agentic Wallet 已领取 Agent ID 并开启开发者模式。',
     buyStep2:          '输入认购数量',
