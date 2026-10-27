@@ -1407,7 +1407,6 @@ export const ZH_CN: PartialDictionary = {
     quoteSlippage:     '滑点',
     quoteMin:          '最少获得',
     buyMarketLink:     '或者去挂单市场挂买单 →',
-    connectHint:       '使用浏览器钱包？连接后可直接在这里操作',
     holdHint:          '连接钱包，或在 Agent 模式里填写 Agent 钱包地址后，可查看持仓并转账。',
 
     currentPrice:      '当前价格',

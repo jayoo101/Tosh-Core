@@ -1793,7 +1793,6 @@ export const EN = {
     quoteSlippage:     'Slippage',
     quoteMin:          'Minimum received',
     buyMarketLink:     'Or place a bid in the bid market →',
-    connectHint:       'Using a browser wallet? Connect it to act here directly',
     holdHint:          'Connect a wallet, or enter your Agent wallet address in Agent mode, to see your holdings and transfer.',
 
     currentPrice:      'Current price',
