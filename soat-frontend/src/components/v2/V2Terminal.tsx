@@ -20,6 +20,7 @@ import { Bar, Panel, Stat, StatGrid } from '@/components/x/Panel'
 import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
+import { DEMO, demoGenesisState, demoTierStatus, demoTiers } from '@/lib/demo'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
 import { useGenesisState } from '@/lib/v2/useV2'
@@ -27,7 +28,7 @@ import { BidMarket } from './BidMarket'
 import { fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
 import { useNow, useWrapShortfall } from './hooks'
-import { AgentModeSheet } from './AgentModeSheet'
+import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { prepSteps } from './agentSteps'
 import { TransferPanel } from './TransferPanel'
 
@@ -213,16 +214,18 @@ const LADDER_WINDOW = 6
 
 function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const tx = useT().x
-  const { data: st } = useReadContract({
+  const { data: chainSt } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
-    query: { refetchInterval: 8_000 },
+    query: { enabled: !DEMO, refetchInterval: 8_000 },
   })
+  const st = DEMO ? demoTierStatus(hook) : chainSt
   const idx = st?.[0] ?? 0n
   const start = idx > 1n ? idx - 1n : 0n
-  const { data: tiers } = useReadContract({
+  const { data: chainTiers } = useReadContract({
     address: V2_LENS, abi: V2_LENS_ABI, functionName: 'getTiers', args: [hook, start, BigInt(LADDER_WINDOW)],
-    chainId: TARGET_CHAIN_ID, query: { enabled: !!st && !!V2_LENS, refetchInterval: 8_000 },
+    chainId: TARGET_CHAIN_ID, query: { enabled: !DEMO && !!st && !!V2_LENS, refetchInterval: 8_000 },
   })
+  const tiers = DEMO ? demoTiers(hook, start, BigInt(LADDER_WINDOW)) : chainTiers
   const current = tiers?.[Number(idx - start)]
   const filled = current ? pct(current.soldAmount, current.totalAmount) : 0
   const step = (n: bigint) => (n + 1n).toLocaleString()
@@ -312,10 +315,15 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
 }) {
   const t = useT().v2
   const { address } = useAccount()
+  const agent = useAgentAddress()
   const tx = useTxAction({ action: t.launchAction, onConfirmed: onDone })
   const started = BigInt(now) >= s.launchStart && s.raised > 0n
   const publicOpen = BigInt(now) >= s.publicLaunchAt
-  const isController = !!address && address.toLowerCase() === s.projectController.toLowerCase()
+  const controller = s.projectController.toLowerCase()
+  const isController = !!address && address.toLowerCase() === controller
+  // The Circuit NFT holder is often an Agentic Wallet, which cannot connect,
+  // so the address typed into Agent mode counts as being the project too.
+  const isProject = isController || (!!agent && agent.toLowerCase() === controller)
 
   const gate = useActionGate({
     action: t.launchBtn,
@@ -330,6 +338,8 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
       },
     ),
   })
+
+  if (!isProject) return null
 
   return (
     <Card title={t.launchTitle}>
@@ -351,7 +361,10 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
 
 function LaunchedLine({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const t = useT().v2
-  const { data: p0 } = useReadContract({ address: hook, abi: V2_HOOK_ABI, functionName: 'p0', chainId: TARGET_CHAIN_ID })
+  const { data: chainP0 } = useReadContract({
+    address: hook, abi: V2_HOOK_ABI, functionName: 'p0', chainId: TARGET_CHAIN_ID, query: { enabled: !DEMO },
+  })
+  const p0 = DEMO ? demoGenesisState(hook)?.currentPrice : chainP0
   return <p className="text-note text-success">{fill(t.launched, { p0: fmtSig(p0), quote: quote.symbol })}</p>
 }
 
@@ -411,10 +424,11 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
   const tw = useT().wrap
   const [raw, setRaw] = useState('')
   const amount = parseAmount(raw) ?? 0n
-  const { data: st, refetch } = useReadContract({
+  const { data: chainSt, refetch } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
-    query: { refetchInterval: 8_000 },
+    query: { enabled: !DEMO, refetchInterval: 8_000 },
   })
+  const st = DEMO ? demoTierStatus(hook) : chainSt
   const { data: cost } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'quoteMint', args: [amount], chainId: TARGET_CHAIN_ID,
     query: { enabled: amount > 0n },
