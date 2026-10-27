@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { formatUnits, type Address } from 'viem'
 import { useAccount, useBytecode, useReadContract } from 'wagmi'
 
 import { ActionButton, Card, Field, FieldAffix, revertOrder, useActionGate, useQuoteApproval, useTxAction } from '@/components/ui'
 import { fmtPrice, priceAfterWei, toNum } from '@/components/x/curve'
-import { GenesisSteps } from '@/components/x/GenesisSteps'
 import { Row } from '@/components/x/Panel'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
@@ -21,6 +21,8 @@ import { approveStep } from './agentSteps'
 
 /** 0.5 % below the quoted token amount, for `minTokens`. */
 const SLIPPAGE_BPS = 50n
+
+const BINANCE_WALLET_INVITE = 'https://web3.binance.com/referral?ref=TOSHX'
 
 export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; quote: V2Quote; open: boolean; symbol: string }) {
   const t = useT().v2
@@ -102,17 +104,15 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
               quote: quote.symbol,
             })
 
-  const activeStep = pay === 0n ? 1 : !risk.acked ? 2 : 3
-
   return (
     <Card title={t.genesisTitle} subtitle={t.agentTitle}>
-      <GenesisSteps
-        symbol={symbol}
-        quote={quote.symbol}
-        cap={fmtSig(state.data?.perAgentCap)}
-        activeBuyStep={activeStep}
-        needsAgentId={noAgentId}
-      />
+      <p className="text-pretty text-note text-text-tertiary">
+        {fill(tx2.genesisNeed, { cap: fmtSig(state.data?.perAgentCap), quote: quote.symbol })}{' '}
+        <a href={BINANCE_WALLET_INVITE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-bold text-brand hover:underline">
+          {tx2.genesisGetId}
+          <ExternalLink className="size-3" aria-hidden="true" />
+        </a>
+      </p>
       {agentLine && <p className="text-note text-text-secondary">{agentLine}</p>}
       <Field
         label={`${t.payLabel} (${quote.symbol})`}
@@ -125,21 +125,25 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
       />
       <dl className="flex flex-col gap-2 rounded-card border border-border-subtle bg-bg-base/60 p-4 text-body">
         <Row k={t.receiveLabel} v={tokens > 0n ? `${fmtSig(tokens, 18, 6)} ${symbol}` : '—'} strong />
-        <Row k={tx2.quoteAvg} v={tokens > 0n ? `${fmtPrice(toNum(cost, quote.decimals) / toNum(tokens))} ${quote.symbol}` : '—'} />
-        <Row k={tx2.quoteAfter} v={after > 0n ? `${fmtPrice(toNum(after, quote.decimals))} ${quote.symbol}` : '—'} />
-        <Row
-          k={tx2.quoteVs2P}
-          v={after > 0n ? `${((toNum(after, quote.decimals) / (2 * toNum(base, quote.decimals))) * 100).toFixed(1)}%` : '—'}
-        />
-        <Row k={tx2.quoteSlippage} v={`${Number(SLIPPAGE_BPS) / 100}%`} />
-        <Row k={tx2.quoteMin} v={tokens > 0n ? `${fmtSig(minTokens, 18, 6)} ${symbol}` : '—'} />
       </dl>
+      <details className="text-note text-text-tertiary">
+        <summary className="cursor-pointer hover:text-text-primary">{tx2.quoteDetails}</summary>
+        <dl className="mt-2 flex flex-col gap-2 px-1 text-body">
+          <Row k={tx2.quoteAvg} v={tokens > 0n ? `${fmtPrice(toNum(cost, quote.decimals) / toNum(tokens))} ${quote.symbol}` : '—'} />
+          <Row k={tx2.quoteAfter} v={after > 0n ? `${fmtPrice(toNum(after, quote.decimals))} ${quote.symbol}` : '—'} />
+          <Row
+            k={tx2.quoteVs2P}
+            v={after > 0n ? `${((toNum(after, quote.decimals) / (2 * toNum(base, quote.decimals))) * 100).toFixed(1)}%` : '—'}
+          />
+          <Row k={tx2.quoteSlippage} v={`${Number(SLIPPAGE_BPS) / 100}%`} />
+          <Row k={tx2.quoteMin} v={tokens > 0n ? `${fmtSig(minTokens, 18, 6)} ${symbol}` : '—'} />
+        </dl>
+      </details>
       <RiskAck {...risk} />
       {gate.verdict.kind !== 'connect' && <ActionButton gate={gate} />}
       {open && (
         <AgentModeSheet
           title={`${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}`}
-          summary={tokens > 0n ? `${t.receiveLabel}: ${fmtSig(tokens, 18, 6)}` : undefined}
           steps={risk.acked && pay > 0n && tokens > 0n ? [
             ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, pay, t)]),
             {
@@ -147,7 +151,6 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
               args: [pay, minTokens], ...(quote.native ? { value: pay } : {}),
             },
           ] : null}
-          lead={agentFirst ? t.agentGenesisLead : undefined}
           defaultOpen={agentFirst}
           notes={[t.agentNoteCapClamp, t.agentWalletSettings]}
           onDone={() => { void state.refetch(); void acct.refetch(); approval.refetch() }}

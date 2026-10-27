@@ -71,13 +71,14 @@ async function copy(text: string): Promise<boolean> {
 /**
  * "Run with Agent": the exact calls a Binance Agentic Wallet should make for
  * this action, numbered, with every prerequisite (wrap, approve) spelled out.
- * `steps` is null until the form holds enough to build them. `defaultOpen`
- * is followed until the user toggles the sheet themselves.
+ * The page shows one copy button; the instruction text itself is folded away,
+ * because the agent reads it, not the user. `steps` is null until the form
+ * holds enough to build them. `defaultOpen` is followed until the user toggles
+ * the sheet themselves.
  */
-export function AgentModeSheet({ title, summary, lead, steps, notes = [], defaultOpen = false, onDone }: {
+export function AgentModeSheet({ title, summary, steps, notes = [], defaultOpen = false, onDone }: {
   title: string
   summary?: string
-  lead?: string
   steps: AgentStep[] | null
   notes?: string[]
   defaultOpen?: boolean
@@ -126,34 +127,25 @@ export function AgentModeSheet({ title, summary, lead, steps, notes = [], defaul
         </div>
         <Button size="sm" variant="quiet" label={t.agentClose} onClick={() => setOpen(false)} />
       </div>
-      {lead && <p className="text-text-primary">{lead}</p>}
-      <ol className="flex list-decimal flex-col gap-2 pl-5 text-text-secondary">
-        <li>{t.agentStep1}</li>
-        <li>
-          {t.agentStep2}
-          {encoded ? (
+      {encoded ? (
+        <>
+          <Button full label={copied === 'text' ? t.agentCopied : t.agentCopy}
+            onClick={() => void copy(instruction).then(ok => ok && flash('text'))} />
+          <p className="text-text-tertiary">{t.agentHowTo}</p>
+          <details className="text-text-tertiary">
+            <summary className="cursor-pointer hover:text-text-primary">{t.agentShow}</summary>
             <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-input border border-border-subtle p-2 font-mono text-micro text-text-primary">
               {instruction}
             </pre>
-          ) : (
-            <p className="mt-1 text-text-tertiary">{t.agentFillFirst}</p>
-          )}
-          {encoded && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button size="sm" variant="ghost" label={copied === 'text' ? t.agentCopied : t.agentCopy}
-                onClick={() => void copy(instruction).then(ok => ok && flash('text'))} />
-              <Button size="sm" variant="ghost" label={copied === 'data' ? t.agentCopied : t.agentCopyData}
-                onClick={() => void copy(encoded.map(e => e.data).join('\n')).then(ok => ok && flash('data'))} />
-            </div>
-          )}
-          {encoded && <p className="mt-1 text-micro text-text-tertiary">{t.agentStale}</p>}
-        </li>
-        <li>
-          {t.agentStep3}
-          <Field label={t.agentAddrLabel} value={stored} onValueChange={writeAddr} placeholder="0x…" />
-          {account && <p className={seen ? 'text-success' : 'text-text-tertiary'}>{seen ? t.agentSeen : t.agentWatching}</p>}
-        </li>
-      </ol>
+            <Button className="mt-2" size="sm" variant="ghost" label={copied === 'data' ? t.agentCopied : t.agentCopyData}
+              onClick={() => void copy(encoded.map(e => e.data).join('\n')).then(ok => ok && flash('data'))} />
+          </details>
+        </>
+      ) : (
+        <p className="text-text-tertiary">{t.agentFillFirst}</p>
+      )}
+      <Field label={t.agentAddrLabel} value={stored} onValueChange={writeAddr} placeholder="0x…" />
+      {account && <p className={seen ? 'text-success' : 'text-text-tertiary'}>{seen ? t.agentSeen : t.agentWatching}</p>}
     </CardWell>
   )
 }
