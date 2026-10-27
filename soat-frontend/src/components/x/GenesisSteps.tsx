@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, ExternalLink } from 'lucide-react'
 
 import { fill, useT } from '@/i18n'
 
 type Phase = 'wallet' | 'buy'
 
+const BINANCE_WALLET_INVITE = 'https://web3.binance.com/referral?ref=UXMSOBGQ'
+
 /**
- * Two checklists: getting an Agent ID, then buying with it. The buy list is
+ * Getting an Agent ID (an invite into Binance Wallet), then buying with it. The buy list is
  * about Agent mode, not connecting: the Agentic Wallet that holds the Agent ID
  * cannot connect to a website, so the purchase is signed by the agent.
  */
@@ -23,22 +25,14 @@ export function GenesisSteps({ symbol, quote, cap, activeBuyStep, needsAgentId }
   const [phase, setPhase] = useState<Phase | null>(null)
   const current: Phase = phase ?? (needsAgentId ? 'wallet' : 'buy')
 
-  const walletSteps = [
-    [t.walletStep1, t.walletStep1Body],
-    [t.walletStep2, t.walletStep2Body],
-    [t.walletStep3, t.walletStep3Body],
-    [t.walletStep4, t.walletStep4Body],
-    [t.walletStep5, t.walletStep5Body],
-  ]
-  const buySteps = [
+  const steps = [
     [t.buyStep1, t.buyStep1Body],
     [t.buyStep2, fill(t.buyStep2Body, { cap, quote })],
     [t.buyStep3, t.buyStep3Body],
     [t.buyStep4, t.buyStep4Body],
     [fill(t.buyStep5, { symbol }), t.buyStep5Body],
   ]
-  const steps = current === 'wallet' ? walletSteps : buySteps
-  const active = current === 'wallet' ? 0 : activeBuyStep
+  const active = activeBuyStep
 
   return (
     <div className="flex flex-col gap-4 rounded-card border border-border-subtle bg-bg-base/60 p-4">
@@ -59,39 +53,54 @@ export function GenesisSteps({ symbol, quote, cap, activeBuyStep, needsAgentId }
         ))}
       </div>
 
-      <ol className="flex flex-col" role="tabpanel">
-        {steps.map(([title, body], i) => {
-          const done = i < active
-          const isActive = i === active
-          const last = i === steps.length - 1
-          return (
-            <li key={title} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <span
-                  className={`flex size-7 shrink-0 items-center justify-center rounded-pill font-mono text-note font-bold transition-colors ${
-                    done
-                      ? 'bg-brand/20 text-brand'
-                      : isActive
-                        ? 'bg-brand text-bg-base shadow-[0_0_16px_var(--tosh-brand-glow)]'
-                        : 'border border-border-subtle bg-surface-card text-text-tertiary'
-                  }`}
-                  aria-hidden="true"
-                >
-                  {done ? <Check className="size-3.5" /> : String(i + 1).padStart(2, '0')}
-                </span>
-                {!last && <span className={`w-px flex-1 ${done ? 'bg-brand/50' : 'bg-border-subtle'}`} aria-hidden="true" />}
-              </div>
-              <div className={`flex flex-col gap-0.5 ${last ? '' : 'pb-4'}`}>
-                <span className={`text-body font-bold ${isActive ? 'text-brand' : 'text-text-primary'}`}>
-                  {title}
-                  {isActive && <span className="sr-only"> {t.stepCurrent}</span>}
-                </span>
-                <span className="text-pretty text-note text-text-tertiary">{body}</span>
-              </div>
-            </li>
-          )
-        })}
-      </ol>
+      {current === 'wallet' ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
+          <p className="text-pretty text-note text-text-tertiary">{t.walletInvite}</p>
+          <a
+            href={BINANCE_WALLET_INVITE}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-input bg-brand px-4 py-2.5 text-body font-bold text-bg-base transition-opacity hover:opacity-90"
+          >
+            {t.walletInviteCta}
+            <ExternalLink className="size-4" aria-hidden="true" />
+          </a>
+        </div>
+      ) : (
+        <ol className="flex flex-col" role="tabpanel">
+          {steps.map(([title, body], i) => {
+            const done = i < active
+            const isActive = i === active
+            const last = i === steps.length - 1
+            return (
+              <li key={title} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span
+                    className={`flex size-7 shrink-0 items-center justify-center rounded-pill font-mono text-note font-bold transition-colors ${
+                      done
+                        ? 'bg-brand/20 text-brand'
+                        : isActive
+                          ? 'bg-brand text-bg-base shadow-[0_0_16px_var(--tosh-brand-glow)]'
+                          : 'border border-border-subtle bg-surface-card text-text-tertiary'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {done ? <Check className="size-3.5" /> : String(i + 1).padStart(2, '0')}
+                  </span>
+                  {!last && <span className={`w-px flex-1 ${done ? 'bg-brand/50' : 'bg-border-subtle'}`} aria-hidden="true" />}
+                </div>
+                <div className={`flex flex-col gap-0.5 ${last ? '' : 'pb-4'}`}>
+                  <span className={`text-body font-bold ${isActive ? 'text-brand' : 'text-text-primary'}`}>
+                    {title}
+                    {isActive && <span className="sr-only"> {t.stepCurrent}</span>}
+                  </span>
+                  <span className="text-pretty text-note text-text-tertiary">{body}</span>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      )}
 
       {current === 'wallet' && (
         <button type="button" onClick={() => setPhase('buy')} className="w-fit text-note font-bold text-brand hover:underline">
