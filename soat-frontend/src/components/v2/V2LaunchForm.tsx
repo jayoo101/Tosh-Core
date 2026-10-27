@@ -51,7 +51,9 @@ export function V2LaunchForm() {
   const [minCap, maxCap, minAgent, maxAgent] = [val<bigint>(1), val<bigint>(2), val<bigint>(3), val<bigint>(4)]
 
   const hardCap = parseAmount(rawCap) ?? 0n
-  const agentCap = parseAmount(rawAgentCap) ?? 0n
+  // Equal bounds are a platform-wide allowance (BNB: ten 0.01 shares), not a choice.
+  const fixedAgentCap = minAgent !== undefined && minAgent === maxAgent ? minAgent : undefined
+  const agentCap = fixedAgentCap ?? parseAmount(rawAgentCap) ?? 0n
   const dev = isAddress(developer.trim()) ? (developer.trim() as Address) : undefined
   const fundAddr = isAddress(fund.trim()) ? (fund.trim() as Address) : undefined
   const args = useMemo(
@@ -117,8 +119,12 @@ export function V2LaunchForm() {
         <Field label={t.lfFund} value={fund} onValueChange={setFund} placeholder="0x…" hint={t.lfFundHint} />
         <Field label={`${t.hardCap} (${unit})`} value={rawCap} onValueChange={setRawCap} inputMode="decimal"
           hint={fill(t.lfCapRange, { min: fmtSig(minCap), max: fmtSig(maxCap), unit })} />
-        <Field label={`${t.perAgentCap} (${unit})`} value={rawAgentCap} onValueChange={setRawAgentCap} inputMode="decimal"
-          hint={fill(t.lfAgentRange, { min: fmtSig(minAgent), max: fmtSig(maxAgent), unit })} />
+        {fixedAgentCap !== undefined ? (
+          <Readout label={`${t.perAgentCap} (${unit})`} value={fmtSig(fixedAgentCap)} />
+        ) : (
+          <Field label={`${t.perAgentCap} (${unit})`} value={rawAgentCap} onValueChange={setRawAgentCap} inputMode="decimal"
+            hint={fill(t.lfAgentRange, { min: fmtSig(minAgent), max: fmtSig(maxAgent), unit })} />
+        )}
         <div className="flex items-center gap-2">
           <span className="text-label text-text-tertiary">{t.lfDuration}</span>
           {DURATIONS.map(h => (

@@ -32,6 +32,7 @@ import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { prepSteps } from './agentSteps'
 import { TransferPanel } from './TransferPanel'
 
+import { agentShares } from './shares'
 type State = NonNullable<ReturnType<typeof useGenesisState>['data']>
 
 /**
@@ -176,9 +177,12 @@ function Tokenomics({ s, quote }: { s: State; quote: V2Quote }) {
 function Rules({ s, quote }: { s: State; quote: V2Quote }) {
   const t = useT().v2
   const tx = useT().x
+  const shares = agentShares(quote, s.minBuy, s.perAgentCap)
   const rules = [
     [tx.ruleCurve, tx.ruleCurveBody],
-    [tx.ruleCap, fill(tx.ruleCapBody, { cap: fmtSig(s.perAgentCap), quote: quote.symbol })],
+    [tx.ruleCap, shares
+      ? fill(tx.ruleCapBodyShares, { size: fmtSig(shares.size), quote: quote.symbol, count: String(shares.count) })
+      : fill(tx.ruleCapBody, { cap: fmtSig(s.perAgentCap), quote: quote.symbol })],
     [tx.ruleFinal, tx.ruleFinalBody],
     [tx.rulePrelaunch, tx.rulePrelaunchBody],
     [tx.ruleLaunch, tx.ruleLaunchBody],

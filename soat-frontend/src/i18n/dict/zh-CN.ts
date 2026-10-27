@@ -370,7 +370,7 @@ export const ZH_CN: PartialDictionary = {
     rule1:      '开盘无主：开盘后创世流动性永久锁定，任何人（包括你的团队和平台）都无法撤出。',
     rule2:      '团队无预留：代币只会卖给 GENESIS 买家和货架买家，或注入锁定的开盘池；未售出的 GENESIS 代币在开盘时销毁。团队和其他人一样按价购买。',
     rule3:      '货架机制：60% 的供应放在开盘价之上 4,000 档固定价格的货架上，只有池子价格涨到某一档，这一档才会开放出售。价格不涨，货架就卖不出去，项目方也就没有这部分收入。货架收入的 99% 进入你团队持有的 Circuit NFT 金库，1% 用于回购销毁：项目方的持续收入只来自币价上涨，和持币用户的利益一致。',
-    rule4:      'GENESIS：仅限币安 Agent ID 持有人购买，每个 ID 一份额度；买入即成交，不退款。售罄或到期后以 2P 开盘，48 小时内由 Circuit NFT 持有人开盘，之后任何人都可以开盘。',
+    rule4:      'GENESIS：仅限币安 Agent ID 持有人购买，BNB 项目每份 0.01 BNB，每个 ID 最多 10 份；买入即成交，不退款。售罄或到期后以 2P 开盘，48 小时内由 Circuit NFT 持有人开盘，之后任何人都可以开盘。',
     rulesAccept: '我已阅读并接受以上发射规则。',
 
     errRequired:        '必填。',
@@ -1134,6 +1134,9 @@ export const ZH_CN: PartialDictionary = {
     agentNone:         '此钱包没有 Binance Agent ID。GENESIS 只对 Agent ID 持有人开放，请用下方 Agent 模式由你的 Agentic Wallet 买入；任何人都可以在买单市场挂单。',
     agentWalletSettings: '在 Binance App 的 Agentic Wallet 设置里：开发者模式的每日额度要高于本次金额；"异常交易处理"选"需要确认"；可交易代币选"全部"。钱包余额超过开发者模式额度时无法开启。',
     agentOk:           'Agent ID 已验证 · 你的 {cap} {quote} 额度还剩 {remaining} {quote}。',
+    agentOkShares:     'Agent ID 已验证 · 还可买 {left} 份（共 {count} 份）。',
+    sharesLabel:       '份数（每份 {size} {quote}）',
+    sharesHint:        '合计 {pay} {quote} · 每个 Agent ID 最多 {count} 份',
     agentUsedUp:       '此 Agent ID 在这个项目上的额度已经用完。',
     agentRegistryDown: 'Agent ID 注册表没有响应，请稍后再试。',
     agentCodeWallet:   '此地址是合约（例如智能合约钱包），不能参与 GENESIS。普通钱包和 EIP-7702 账户可以。',
@@ -1384,6 +1387,7 @@ export const ZH_CN: PartialDictionary = {
     ladderNow:         '当前',
 
     genesisNeed:       '仅限币安 Agent ID 认购，每个最多 {cap} {quote}。',
+    genesisNeedShares: '仅限币安 Agent ID 认购，每份 {size} {quote}，每个 ID 最多 {count} 份。',
     genesisGetId:      '还没有？去币安钱包领取',
     quoteDetails:      '价格详情',
 
@@ -1440,6 +1444,7 @@ export const ZH_CN: PartialDictionary = {
     ruleCurveBody:     '价格随销量从 P 线性涨到 1.5P，越早越便宜。',
     ruleCap:           '额度',
     ruleCapBody:       '一个币安 Agent ID 一份额度：最多 {cap} {quote}，可分多次买入。',
+    ruleCapBodyShares: '每份 {size} {quote}，一个币安 Agent ID 最多 {count} 份，可分多次买入。',
     ruleFinal:         '不退款',
     ruleFinalBody:     '买入即成交，代币立即到账买入钱包。',
     rulePrelaunch:     '开盘前',

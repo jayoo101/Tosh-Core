@@ -19,6 +19,7 @@ import { AgentModeSheet } from './AgentModeSheet'
 import { WalletAction } from './WalletAction'
 import { approveStep } from './agentSteps'
 
+import { agentShares, sharesLeft } from './shares'
 /** 0.5 % below the quoted token amount, for `minTokens`. */
 const SLIPPAGE_BPS = 50n
 
@@ -29,11 +30,15 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
   const tx2 = useT().x
   const { address } = useAccount()
   const [raw, setRaw] = useState('')
-  const pay = parseAmount(raw, quote.decimals) ?? 0n
 
   const state = useGenesisState(hook)
   const acct = useAccountState(hook, address)
   const { data: code } = useBytecode({ address, chainId: TARGET_CHAIN_ID, query: { enabled: !!address } })
+  const shares = agentShares(quote, state.data?.minBuy, state.data?.perAgentCap)
+  const shareCount = shares && /^\d+$/.test(raw.trim()) ? BigInt(raw.trim()) : 0n
+  const pay = shares
+    ? (shareCount > shares.count ? shares.count : shareCount) * shares.size
+    : parseAmount(raw, quote.decimals) ?? 0n
   const hasCode = isContractCode(code)
   const noAgentId = acct.data !== undefined && acct.data.registryOk && acct.data.agentKey === `0x${'0'.repeat(64)}`
   // The Agent ID lives on the Agentic Wallet, which cannot connect to a site.
@@ -98,31 +103,52 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
         ? t.agentRegistryDown
         : acct.data.agentKey === `0x${'0'.repeat(64)}`
           ? t.agentNone
-          : fill(t.agentOk, {
-              remaining: fmtSig(remaining),
-              cap: fmtSig(state.data?.perAgentCap),
-              quote: quote.symbol,
-            })
+          : shares
+            ? fill(t.agentOkShares, { left: String(sharesLeft(shares, remaining)), count: String(shares.count) })
+            : fill(t.agentOk, {
+                remaining: fmtSig(remaining),
+                cap: fmtSig(state.data?.perAgentCap),
+                quote: quote.symbol,
+              })
 
   return (
     <Card title={t.genesisTitle} subtitle={t.agentTitle}>
       <p className="text-pretty text-note text-text-tertiary">
-        {fill(tx2.genesisNeed, { cap: fmtSig(state.data?.perAgentCap), quote: quote.symbol })}{' '}
+        {shares
+          ? fill(tx2.genesisNeedShares, { size: fmtSig(shares.size), quote: quote.symbol, count: String(shares.count) })
+          : fill(tx2.genesisNeed, { cap: fmtSig(state.data?.perAgentCap), quote: quote.symbol })}{' '}
         <a href={BINANCE_WALLET_INVITE} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-bold text-brand hover:underline">
           {tx2.genesisGetId}
           <ExternalLink className="size-3" aria-hidden="true" />
         </a>
       </p>
       {agentLine && <p className="text-note text-text-secondary">{agentLine}</p>}
-      <Field
-        label={`${t.payLabel} (${quote.symbol})`}
-        value={raw}
-        onValueChange={setRaw}
-        inputMode="decimal"
-        placeholder="0.0"
-        affix={<FieldAffix onClick={() => setRaw(formatUnits(remaining, quote.decimals))} disabled={remaining === 0n} />}
-        hint={fill(t.minBuy, { min: fmtSig(minBuy), quote: quote.symbol })}
-      />
+      {shares ? (
+        <Field
+          label={fill(t.sharesLabel, { size: fmtSig(shares.size), quote: quote.symbol })}
+          value={raw}
+          onValueChange={setRaw}
+          inputMode="numeric"
+          placeholder="1"
+          affix={
+            <FieldAffix
+              onClick={() => setRaw(String(acct.data !== undefined ? sharesLeft(shares, remaining) : shares.count))}
+              disabled={acct.data !== undefined && remaining === 0n}
+            />
+          }
+          hint={fill(t.sharesHint, { pay: fmtSig(pay), quote: quote.symbol, count: String(shares.count) })}
+        />
+      ) : (
+        <Field
+          label={`${t.payLabel} (${quote.symbol})`}
+          value={raw}
+          onValueChange={setRaw}
+          inputMode="decimal"
+          placeholder="0.0"
+          affix={<FieldAffix onClick={() => setRaw(formatUnits(remaining, quote.decimals))} disabled={remaining === 0n} />}
+          hint={fill(t.minBuy, { min: fmtSig(minBuy), quote: quote.symbol })}
+        />
+      )}
       <dl className="flex flex-col gap-2 rounded-card border border-border-subtle bg-bg-base/60 p-4 text-body">
         <Row k={t.receiveLabel} v={tokens > 0n ? `${fmtSig(tokens, 18, 6)} ${symbol}` : '—'} strong />
       </dl>

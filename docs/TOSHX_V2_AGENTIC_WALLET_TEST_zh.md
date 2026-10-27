@@ -35,7 +35,7 @@ forge test --match-path test/v2/ForkV2Bsc.t.sol -vv
 | 参数 | BNB 项目 | USDT 项目 |
 |---|---|---|
 | 硬顶 `hardCap` | 1 BNB | 500 USDT |
-| 每个 Agent ID 额度 | 0.02 BNB（最小买入 0.01 的两倍，方便测额度截断） | 5 USDT |
+| 每个 Agent ID 额度 | 0.1 BNB（平台固定：每份 0.01 BNB，最多 10 份） | 5 USDT |
 | 创世时长 | 3 小时 | 3 小时 |
 | `developer`（Circuit NFT 持有者） | 测试人员自己的普通钱包，创世结束后可以立即开盘 | 同左 |
 
@@ -47,7 +47,7 @@ forge test --match-path test/v2/ForkV2Bsc.t.sol -vv
 | B | MetaMask 普通钱包，没有 Agent ID | 在网页上挂买单，接 A 的卖单 |
 | C | 另一个普通钱包，先不登记 | 测试"未登记不能收币" |
 
-**预算**：A 约 0.06 BNB（含 gas，第 2 步临时多付的 0.02 会退回），B 约 0.05 BNB，USDT 项目另需 A 约 10 USDT。
+**预算**：A 约 0.15 BNB（含 gas，第 2 步临时多付的 0.02 会退回），B 约 0.05 BNB，USDT 项目另需 A 约 10 USDT。
 
 ---
 
@@ -72,7 +72,7 @@ forge test --match-path test/v2/ForkV2Bsc.t.sol -vv
 **第 1 步：创世买入（BNB）**
 
 1. 不连接钱包打开项目页，确认 Agent 模式默认展开，顶部提示"创世买入要由持有 Agent ID 的 Agentic Wallet 发起"。
-2. 输入 0.01（最小买入，额度的一半），勾选风险确认，复制指令发给 A 的 agent。
+2. 份数输入 9（0.09 BNB，额度还剩 1 份），勾选风险确认，复制指令发给 A 的 agent。
 3. agent 执行 `contract-call preview`，记录模拟结果和风险提示；确认后 `execute`。
 4. 回到页面填入 A 的地址，确认页面识别到交易并刷新。
 5. 链上核对：A 的代币余额大于 0；`token.isReceiver(A) == true`。
@@ -89,7 +89,7 @@ forge test --match-path test/v2/ForkV2Bsc.t.sol -vv
 
 **第 2 步：超额买入与找零**
 
-再买 0.03 BNB（额度只剩 0.01）。预期：只扣剩余 0.01 额度对应的成本，多付的约 0.02 BNB 在同一笔交易里退回 A。核对 A 的 BNB 余额变化（扣除 gas 后约少 0.01）。之后再买一次，预期页面和模拟都提示额度已用完。
+再买 3 份，即 0.03 BNB（额度只剩 1 份 0.01）。预期：只扣剩余 0.01 额度对应的成本，多付的约 0.02 BNB 在同一笔交易里退回 A。核对 A 的 BNB 余额变化（扣除 gas 后约少 0.01）。之后再买一次，预期页面和模拟都提示额度已用完。
 
 **第 3 步：USDT 项目创世买入**
 
@@ -148,6 +148,6 @@ A 用 Agent 模式挂一张最低额买单，再撤单。核对托管资金全�
 建议：
 
 - USDT 工厂：每个 Agent ID 额度上限从 30,000 调到 10,000（`USDT_AGENTCAP_MAX`）。最高一档 50,000 USDT 只有大户会开，而且余额超过额度时开不了开发者模式。
-- BNB 工厂：额度上限按 `上限 × BNB 价格 ≤ 10,000 USDT` 设定。例如 BNB 为 1,000 USDT 时，`BNB_AGENTCAP_MAX` 设为 10 BNB（默认 50 BNB）。
+- BNB 工厂：额度固定为 0.1 BNB（`BNB_AGENTCAP_MIN` = `BNB_AGENTCAP_MAX` = 0.1 BNB，每份 0.01 BNB，最多 10 份），远低于开发者模式最低一档，不用再按 BNB 价格调整。
 
 这两个值部署后可以由多签用 `setAgentCapBounds` 调整，不需要重新部署。

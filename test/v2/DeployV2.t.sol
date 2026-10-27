@@ -83,7 +83,8 @@ contract DeployV2Test is Test {
         vm.setEnv("AGENT_REGISTRY", vm.toString(address(registry)));
         vm.setEnv("WBNB", vm.toString(address(wbnb)));
         vm.setEnv("USDT", vm.toString(address(usdt)));
-        vm.setEnv("BNB_AGENTCAP_MAX", "50000000000000000000");
+        vm.setEnv("BNB_AGENTCAP_MIN", "100000000000000000");
+        vm.setEnv("BNB_AGENTCAP_MAX", "100000000000000000");
     }
 
     function _expectRefusal(string memory key, string memory value, string memory reason) internal {
@@ -111,7 +112,6 @@ contract DeployV2Test is Test {
 
         // ── a clean run ─────────────────────────────────────────────────────
         _env();
-        vm.setEnv("BNB_AGENTCAP_MAX", "10000000000000000000"); // the tuned cap the guide recommends
         DeployV2Harness s = new DeployV2Harness();
         s.run();
 
@@ -124,7 +124,8 @@ contract DeployV2Test is Test {
         assertEq(fs[1], u.factory);
         assertEq(book.feeRecipient(), feeRecipient);
 
-        _checkStack(b, address(wbnb), true, 0.01e18, 500e18, 10e18);
+        _checkStack(b, address(wbnb), true, 0.01e18, 500e18, 0.1e18);
+        assertEq(ToshFactory(b.factory).minAgentCap(), 0.1e18);
         _checkStack(u, address(usdt), false, 5e18, 300_000e18, 30_000e18);
 
         // The deployer keeps nothing once the Safe accepts.
@@ -137,7 +138,7 @@ contract DeployV2Test is Test {
         ToshFactory f = ToshFactory(b.factory);
         bytes32 salt = _salt(f);
         bytes memory call = abi.encodeCall(
-            ToshFactory.createLaunch, ("Deployed", "DPL", dev, makeAddr("fund"), salt, 10e18, 1e18, 24 hours)
+            ToshFactory.createLaunch, ("Deployed", "DPL", dev, makeAddr("fund"), salt, 10e18, 0.1e18, 24 hours)
         );
         safe.exec(address(f), call);
         assertEq(f.launchCount(), 1);

@@ -50,7 +50,7 @@ v2 没有"领取"和"退款"阶段：买入即到账，买入即最终成交。
 |---|---|---|
 | 计价币 | BNB（内部为 WBNB）或 USDT | 由选择的工厂决定 |
 | `hardCap`（H） | BNB 项目 1 – 500 BNB；USDT 项目 500 – 300,000 USDT | 卖完时的募集总额；第一枚价格 P = H ÷ 7,000,000 |
-| `perAgentCap` | BNB 项目 0.01 – 50 BNB；USDT 项目 5 – 30,000 USDT（平台可调整范围） | 每个 Agent ID 在本项目最多花多少 |
+| `perAgentCap` | BNB 项目固定 0.1 BNB（每份 0.01 BNB，最多 10 份）；USDT 项目 5 – 30,000 USDT（平台可调整范围） | 每个 Agent ID 在本项目最多花多少 |
 | `genesisDuration` | 3 小时 / 24 小时 / 72 小时 | 创世窗口时长，只有这三档 |
 | `developer` | 任意非零地址 | 接收该项目的 Circuit NFT |
 | `projectFund` | 任意非零地址 | 接收 20% 募集资金；NFT 持有者之后可以修改 |

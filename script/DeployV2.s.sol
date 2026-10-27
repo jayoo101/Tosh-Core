@@ -34,7 +34,7 @@ interface ISafeOwners {
 //
 //  Optional (defaults in brackets, quote units):
 //    BNB_MIN_BUY [0.01e18]  BNB_HARDCAP_MIN [1e18]   BNB_HARDCAP_MAX [500e18]
-//    BNB_AGENTCAP_MIN [0.01e18]  BNB_AGENTCAP_MAX [50e18]
+//    BNB_AGENTCAP_MIN [0.1e18]   BNB_AGENTCAP_MAX [0.1e18]   (ten 0.01 BNB shares per Agent ID)
 //    USDT_MIN_BUY [5e18]    USDT_HARDCAP_MIN [500e18] USDT_HARDCAP_MAX [300000e18]
 //    USDT_AGENTCAP_MIN [5e18]    USDT_AGENTCAP_MAX [30000e18]
 //
@@ -89,8 +89,8 @@ contract DeployV2 is Script {
             [
                 vm.envOr("BNB_HARDCAP_MIN", uint256(1e18)),
                 vm.envOr("BNB_HARDCAP_MAX", uint256(500e18)),
-                vm.envOr("BNB_AGENTCAP_MIN", uint256(0.01e18)),
-                vm.envOr("BNB_AGENTCAP_MAX", uint256(50e18))
+                vm.envOr("BNB_AGENTCAP_MIN", uint256(0.1e18)),
+                vm.envOr("BNB_AGENTCAP_MAX", uint256(0.1e18))
             ]
         );
         Stack memory usdt = _deployStack(

@@ -621,7 +621,7 @@ export const EN = {
     rule1:      'Ownerless launch: once the pool opens, the genesis liquidity is locked permanently and no one — not your team, not the platform — can withdraw it.',
     rule2:      'No team allocation: tokens only go to GENESIS buyers, shelf buyers or the locked opening pool; unsold GENESIS tokens are burned at launch. Your team buys like anyone else.',
     rule3:      'Shelf mechanism: 60 % of supply sits on 4,000 fixed-price shelves above the opening price, and a shelf only opens once the pool price has risen to it. No price rise, no shelf sales, and no revenue for the project from them. 99 % of shelf revenue goes to the vault of the Circuit NFT your team holds, 1 % funds buyback-and-burn: your ongoing income comes only from the price going up, the same thing holders want.',
-    rule4:      'GENESIS: Binance Agent ID holders only, one allowance per ID; every buy is final, with no refunds. After sell-out or the deadline the pool opens at 2P, launched by the Circuit NFT holder within 48 hours, then by anyone.',
+    rule4:      'GENESIS: Binance Agent ID holders only; on BNB launches a share is 0.01 BNB and each ID may buy up to 10; every buy is final, with no refunds. After sell-out or the deadline the pool opens at 2P, launched by the Circuit NFT holder within 48 hours, then by anyone.',
     rulesAccept: 'I have read and accept the launch rules above.',
 
     errRequired:        'Required.',
@@ -1519,6 +1519,9 @@ export const EN = {
     agentNone:         'This wallet has no Binance Agent ID. GENESIS is open to Agent ID holders only: buy from your Agentic Wallet with Agent mode below. Anyone can still bid in the market.',
     agentWalletSettings: 'In the Binance app, Agentic Wallet settings: the Developer mode daily limit must exceed this amount; set abnormal transaction handling to "Need confirmation"; set tradable tokens to "All". Developer mode cannot be enabled while the wallet balance is above its limit.',
     agentOk:           'Agent ID verified · {remaining} {quote} left of your {cap} {quote} allowance.',
+    agentOkShares:     'Agent ID verified · {left} of your {count} shares left.',
+    sharesLabel:       'Shares ({size} {quote} each)',
+    sharesHint:        '{pay} {quote} in total · up to {count} shares per Agent ID',
     agentUsedUp:       'This Agent ID has used its whole allowance for this project.',
     agentRegistryDown: 'The Agent ID registry did not answer. Try again shortly.',
     agentCodeWallet:   'This address is a contract (such as a smart contract wallet), so it cannot buy GENESIS. Plain wallets and EIP-7702 accounts can.',
@@ -1770,6 +1773,7 @@ export const EN = {
     ladderNow:         'Now',
 
     genesisNeed:       'Binance Agent ID holders only, up to {cap} {quote} each.',
+    genesisNeedShares: 'Binance Agent ID holders only: {size} {quote} a share, up to {count} shares per ID.',
     genesisGetId:      'No Agent ID? Get one in Binance Wallet',
     quoteDetails:      'Price details',
 
@@ -1826,6 +1830,7 @@ export const EN = {
     ruleCurveBody:     'The price rises linearly with sales, from P to 1.5P. Earlier is cheaper.',
     ruleCap:           'Allowance',
     ruleCapBody:       'One Binance Agent ID, one allowance: up to {cap} {quote}, across any number of buys.',
+    ruleCapBodyShares: '{size} {quote} a share, up to {count} shares per Binance Agent ID, across any number of buys.',
     ruleFinal:         'No refunds',
     ruleFinalBody:     'Buying is final. The tokens land in the buying wallet immediately.',
     rulePrelaunch:     'Before launch',
