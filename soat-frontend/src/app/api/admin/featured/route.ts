@@ -78,8 +78,31 @@ const MAX_PIN_HOURS = 24 * 14
 export interface FeaturedPayload {
   /** The launch's ERC-20 address, as it appears in the registry. */
   tokenAddress: string
-  /** How long the pin should last. `0` clears the pin on this launch. */
-  hours: number
+  /**
+   * How long the pin should last. `0` clears the pin on this launch. Absent
+   * only alongside `coverUrl`, to change the cover without touching any pin.
+   */
+  hours?: number
+  /**
+   * The card cover (migration 0007). Absent leaves it as it is, `null` removes
+   * it. Only an object in our `project-logos` bucket is accepted, so a cover
+   * cannot point visitors at a third-party host.
+   */
+  coverUrl?: string | null
+}
+
+const COVER_URL_MAX = 512
+
+function coverPrefix(): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  return base ? `${base.replace(/\/+$/, '')}/storage/v1/object/public/project-logos/` : null
+}
+
+function validCover(v: unknown): v is string | null {
+  if (v === null) return true
+  const prefix = coverPrefix()
+  return typeof v === 'string' && prefix !== null && v.length <= COVER_URL_MAX &&
+    v.startsWith(prefix) && /^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(v.slice(prefix.length))
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -117,7 +140,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = await readJsonBody<FeaturedPayload>(req)
   if (parsed.error) return applyCors(parsed.error, req, CORS_OPTS)
-  const { tokenAddress, hours } = parsed.data
+  const { tokenAddress, hours, coverUrl } = parsed.data
 
   if (typeof tokenAddress !== 'string' || !isAddress(tokenAddress)) {
     return applyCors(
@@ -127,10 +150,22 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > MAX_PIN_HOURS) {
+  const coverOnly = hours === undefined && coverUrl !== undefined
+  if (!coverOnly && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > MAX_PIN_HOURS)) {
     return applyCors(
       NextResponse.json(
         { error: `hours must be between 0 and ${MAX_PIN_HOURS}` },
+        { status: 422 },
+      ),
+      req,
+      CORS_OPTS,
+    )
+  }
+
+  if (coverUrl !== undefined && !validCover(coverUrl)) {
+    return applyCors(
+      NextResponse.json(
+        { error: 'coverUrl must be null or an image uploaded through /api/projects/logo' },
         { status: 422 },
       ),
       req,
@@ -201,6 +236,37 @@ export async function POST(req: NextRequest) {
         },
         { status: 404 },
       ),
+      req,
+      CORS_OPTS,
+    )
+  }
+
+  if (coverUrl !== undefined) {
+    const { error: coverError } = await supabaseAdmin
+      .from('projects')
+      .update({ cover_url: coverUrl })
+      .eq('chain_id', targetChain.id)
+      .eq('token_address', token)
+      .abortSignal(AbortSignal.timeout(REGISTRY_WRITE_DEADLINE_MS))
+
+    if (coverError) {
+      console.error('[admin/featured] could not set the cover:', coverError)
+      reportError(coverError, {
+        surface: 'api-route',
+        extra: { route: 'POST /api/admin/featured', stage: 'cover', code: coverError.code },
+      })
+      return applyCors(
+        NextResponse.json({ error: 'Could not update the registry' }, { status: 500 }),
+        req,
+        CORS_OPTS,
+      )
+    }
+  }
+
+  if (hours === undefined) {
+    console.log(`[admin/featured] ${row.symbol} cover ${coverUrl ? 'set' : 'removed'}`)
+    return applyCors(
+      NextResponse.json({ ok: true, symbol: row.symbol, coverUrl }, { status: 200 }),
       req,
       CORS_OPTS,
     )

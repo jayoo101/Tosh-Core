@@ -46,6 +46,8 @@ export interface DirectoryProject {
   name:            string
   logoUrl:         string | null
   website:         string | null
+  /** The platform-set 16:9 card cover (migration 0007); absent or null means none. */
+  coverUrl?:       string | null
   twitter:         string | null
   description:     string | null
   /**
@@ -155,6 +157,8 @@ interface RegistryRow {
   /** ISO-8601 from Postgres `timestamptz`, or absent on a row written before 0005. */
   featured_until: string | null
 }
+  /** Absent on a row written before 0007. */
+  cover_url?:    string | null
 
 /**
  * `featured_until` as a number the sort can compare, or `null`.
@@ -402,6 +406,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
         website: reg?.website ?? null,
+        coverUrl: reg?.cover_url ?? null,
         twitter: reg?.twitter ?? null,
         description: reg?.description ?? null,
         featuredUntilMs: parseFeaturedUntil(reg?.featured_until),

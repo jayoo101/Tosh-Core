@@ -3,9 +3,10 @@
 /**
  * The homepage feature pin.
  *
- * `AgentDirectoryHome` draws the newest launch in "Active markets" double-width
- * and ranks the cards beside it by amount raised. This panel overrides that for a bounded window by
- * writing `projects.featured_until` through `POST /api/admin/featured`.
+ * The homepage features one raise (`pickFeatured`): the newest live v2 raise
+ * unless one is pinned. This panel pins one for a bounded window by writing
+ * `projects.featured_until` through `POST /api/admin/featured`, and sets the
+ * card's cover (`projects.cover_url`) through the same route.
  *
  * ── Why this panel does not use the ambient gate ──────────────────────────
  *
@@ -18,7 +19,7 @@
  * unusable. The owner is a 2-of-3 Safe, and `/admin` connects through
  * `injected()` alone — so the ambient verdict on this page is permanently
  * `[read_only]` for any wallet a browser can actually connect. Deciding which
- * of three eligible cards is drawn widest is not an owner power and does not
+ * raise the homepage features is not an owner power and does not
  * need the Safe's pen; it needs a credential scoped to exactly that. So the
  * button is a plain button, the authorisation is `CONTENT_ADMIN_SECRET`, and
  * the wallet in the header is irrelevant to it.
@@ -30,6 +31,8 @@ import {
   toshToast, shortErrorMessage, useNowMs, useIsHydrated, CLOCK_UNSYNCED,
 } from '@/components/ui'
 import { useDirectoryProjects, fmtQuote } from '@/components/directory/useDirectoryProjects'
+import { pickFeatured } from '@/components/x/home/Hero'
+import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
 import { Section, ScopeNote, Field, labelCls, fmtDuration } from './shared'
 
 /**
@@ -74,6 +77,9 @@ export function FeaturedProjectPanel() {
   const [selected, setSelected] = useState('')
   const [hours, setHours] = useState<number>(24)
   const [busy, setBusy] = useState(false)
+  /** An unsaved cover choice, tied to the launch it was made for. `url: null` is "remove". */
+  const [coverEdit, setCoverEdit] = useState<{ token: string; url: string | null } | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   /**
    * The credential, from storage until the operator types.
@@ -99,9 +105,9 @@ export function FeaturedProjectPanel() {
   }, [])
 
   /**
-   * Only what the teaser would actually show.
+   * Only what the homepage would actually show.
    *
-   * The same filter `AgentDirectoryHome` applies, deliberately duplicated as a
+   * The same filter `pickFeatured` applies, deliberately duplicated as a
    * filter on a list rather than shared as a predicate, because the two are
    * answering different questions: that one decides what a visitor sees, this
    * one decides what an operator may choose. What they must not do is disagree
@@ -110,10 +116,7 @@ export function FeaturedProjectPanel() {
    * field. Pinning a refundable raise would write a row, report success, and
    * change nothing on the page.
    */
-  const eligible = useMemo(
-    () => projects.filter(p => p.tab === 'live' || p.tab === 'completed'),
-    [projects],
-  )
+  const eligible = useMemo(() => projects.filter(p => p.tab === 'live'), [projects])
 
   const pinned = useMemo(() => {
     const live = (p: typeof projects[number]) =>
@@ -122,13 +125,11 @@ export function FeaturedProjectPanel() {
     return projects.find(live) ?? null
   }, [projects, nowMs])
 
-  /** What the double-width card holds right now, by the rule the page applies. */
-  const currentFeature = useMemo(() => {
-    if (pinned && eligible.some(p => p.token === pinned.token)) return pinned
-    return [...eligible].sort((a, b) =>
-      a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1,
-    )[0] ?? null
-  }, [eligible, pinned])
+  /** What the homepage card holds right now, by the rule the page applies. */
+  const currentFeature = useMemo(
+    () => pickFeatured(projects, nowMs === CLOCK_UNSYNCED ? 0 : nowMs) ?? null,
+    [projects, nowMs],
+  )
 
   /**
    * A pin on a launch the teaser will not show.
@@ -141,10 +142,38 @@ export function FeaturedProjectPanel() {
    */
   const pinnedButHidden = pinned !== null && !eligible.some(p => p.token === pinned.token)
 
-  const submit = useCallback(async (hoursToSet: number) => {
+  const coverTouched = coverEdit !== null && coverEdit.token === selected
+  const cover = coverTouched
+    ? coverEdit.url
+    : eligible.find(p => p.token === selected)?.coverUrl ?? null
+
+  const uploadCover = useCallback(async (file: File) => {
+    if (!selected) return
+    if (file.size === 0 || file.size > LOGO_MAX_BYTES) {
+      toshToast.error(`The cover must be between 1 byte and ${LOGO_MAX_BYTES / 1024} KB.`)
+      return
+    }
+    setUploading(true)
+    try {
+      const body = new FormData()
+      body.set('file', file)
+      const res = await fetch(LOGO_ENDPOINT, { method: 'POST', body })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || typeof data.url !== 'string') throw new Error(data.error ?? `HTTP ${res.status}`)
+      setCoverEdit({ token: selected, url: data.url })
+    } catch (err) {
+      toshToast.error(shortErrorMessage(err) ?? 'Could not upload the cover.')
+    } finally {
+      setUploading(false)
+    }
+  }, [selected])
+
+  /** `hoursToSet` undefined saves the cover alone and leaves every pin as it is. */
+  const submit = useCallback(async (hoursToSet: number | undefined) => {
     const token = hoursToSet === 0 ? pinned?.token ?? selected : selected
     if (!token || !secret) return
 
+    const withCover = hoursToSet !== 0 && coverTouched
     setBusy(true)
     try {
       const res = await fetch('/api/admin/featured', {
@@ -153,23 +182,29 @@ export function FeaturedProjectPanel() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
         },
-        body: JSON.stringify({ tokenAddress: token, hours: hoursToSet }),
+        body: JSON.stringify({
+          tokenAddress: token,
+          hours: hoursToSet,
+          ...(withCover ? { coverUrl: cover } : {}),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       toshToast.success(
-        hoursToSet === 0
-          ? 'Pin cleared — the homepage is back on its computed order.'
-          : `${data.symbol} pinned for ${hoursToSet}h.`,
+        hoursToSet === undefined
+          ? `${data.symbol} cover ${cover ? 'saved' : 'removed'}.`
+          : hoursToSet === 0
+            ? 'Pin cleared — the homepage is back on its computed order.'
+            : `${data.symbol} pinned for ${hoursToSet}h${withCover ? ', cover saved' : ''}.`,
       )
     } catch (err) {
       toshToast.error(shortErrorMessage(err) ?? 'Could not update the feature pin.')
     } finally {
       setBusy(false)
     }
-  }, [pinned, selected, secret])
+  }, [pinned, selected, secret, coverTouched, cover])
 
-  const armed = selected !== '' && secret !== '' && !busy
+  const armed = selected !== '' && secret !== '' && !busy && !uploading
 
   return (
     <Section
@@ -200,7 +235,7 @@ export function FeaturedProjectPanel() {
           </dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Big card now</dt>
+          <dt className="text-text-tertiary">Featured now</dt>
           <dd>{currentFeature ? `$${currentFeature.symbol}` : 'nothing eligible'}</dd>
         </div>
         <div className="flex justify-between gap-3">
@@ -231,7 +266,7 @@ export function FeaturedProjectPanel() {
           {eligible.map(p => (
             <option key={p.token} value={p.token}>
               ${p.symbol} · {p.name} · {fmtQuote(p.totalNative)} raised
-              {p.tab === 'completed' ? ' · trading' : ' · funding'}
+ · funding
             </option>
           ))}
         </select>
@@ -242,6 +277,60 @@ export function FeaturedProjectPanel() {
           Launches appear once their creator has published metadata.
         </span>
       </label>
+
+      <div className="flex flex-col gap-1.5">
+        <span className={labelCls}>CARD COVER (OPTIONAL)</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative aspect-[16/9] w-48 overflow-hidden rounded-lg border border-border-subtle bg-bg-base">
+            {cover ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a bucket object, previewed as uploaded
+              <img src={cover} alt="" className="size-full object-cover" />
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center px-2 text-center font-mono text-micro text-text-tertiary">
+                {selected ? 'none, built from the logo' : 'select a launch first'}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={`inline-flex w-fit items-center rounded-lg border border-border-subtle px-3 py-2 font-mono text-note text-text-primary transition-colors hover:border-brand/50 ${!selected || busy || uploading ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}>
+              {uploading ? 'Uploading…' : cover ? 'Replace' : 'Upload'}
+              <input
+                type="file"
+                accept={LOGO_ACCEPT}
+                className="hidden"
+                disabled={!selected || busy || uploading}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void uploadCover(file)
+                }}
+              />
+            </label>
+            {cover && (
+              <button
+                type="button"
+                disabled={busy || uploading}
+                onClick={() => setCoverEdit({ token: selected, url: null })}
+                className="w-fit font-mono text-note text-text-tertiary hover:text-danger disabled:opacity-40"
+              >
+                Remove
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!armed || !coverTouched}
+              onClick={() => void submit(undefined)}
+              className="w-fit font-mono text-note text-brand hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
+            >
+              Save cover only
+            </button>
+          </div>
+        </div>
+        <span className="text-label text-text-tertiary tracking-wider">
+          16:9, PNG / JPEG / WebP / GIF, up to {LOGO_MAX_BYTES / 1024} KB. Saved with the pin, or on
+          its own without touching the pin. Without one the card builds a cover from the logo.
+        </span>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <span className={labelCls}>FOR HOW LONG</span>
@@ -300,11 +389,11 @@ export function FeaturedProjectPanel() {
       </div>
 
       <ScopeNote>
-        This decides ORDER, not eligibility. A pinned launch still has to be one the
-        block would show — funding or trading — so pinning cannot put a refundable raise
-        on the homepage. Setting a pin clears any other, and every pin lapses on its own,
-        so a promotion nobody remembers returns the largest card to the newest launch
-        rather than staying there indefinitely.
+        This decides WHICH raise the homepage features, not eligibility. A pinned launch
+        still has to be funding, so pinning cannot put a closed or refundable raise on the
+        homepage. Setting a pin clears any other, and every pin lapses on its own, so a
+        promotion nobody remembers returns the card to the newest v2 raise rather than
+        staying there indefinitely.
       </ScopeNote>
     </Section>
   )

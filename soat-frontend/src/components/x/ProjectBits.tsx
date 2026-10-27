@@ -74,12 +74,22 @@ export function ProjectLink({ project: p, className, children, label }: {
 }
 
 /**
- * The 16:9 header of a card. Projects have a logo and no cover image, so the
- * cover is the logo twice: blurred to fill the frame, and sharp in the middle.
+ * The 16:9 header of a card: the platform-set cover when there is one,
+ * otherwise the logo twice, blurred to fill the frame and sharp in the middle,
+ * over a gold glow so a black-and-white logo does not leave a grey slab.
  */
 export function ProjectCover({ project: p, children, className }: { project: DirectoryProject; children?: ReactNode; className?: string }) {
+  if (p.coverUrl) {
+    return (
+      <div className={cn('relative aspect-[16/9] w-full overflow-hidden bg-bg-subtle', className)}>
+        <img src={p.coverUrl} alt="" aria-hidden className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        {children}
+      </div>
+    )
+  }
   return (
     <div className={cn('relative aspect-[16/9] w-full overflow-hidden bg-bg-subtle', className)}>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgb(240_185_11/0.22),rgb(240_185_11/0.06)_45%,transparent_75%)]" aria-hidden />
       <div className="hero-grid absolute inset-0 opacity-70" aria-hidden />
       {p.logoUrl && (
         <img src={p.logoUrl} alt="" aria-hidden className="absolute inset-0 size-full scale-125 object-cover opacity-30 blur-2xl" />
