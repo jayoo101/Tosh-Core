@@ -407,7 +407,8 @@ exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
   "Launching",
   "Launched",
   "Market",
+  "Apply",
 ]
 `;
 
-exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"TOSHXBNB Smart Chain · testnetHomeLaunchingLaunchedMarket"`;
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"TOSHXBNB Smart Chain · testnetHomeLaunchingLaunchedMarketApply"`;
