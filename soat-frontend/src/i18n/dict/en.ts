@@ -1744,6 +1744,7 @@ export const EN = {
     launchingTitle:    'Launching now',
     launchingSub:      'GENESIS raises in progress',
     launchingEmpty:    'Nothing is raising right now.',
+    browseMore:        '{n} more raising now, see all',
     priceTo2P:         '{price} {quote} → 2P',
     launchedTitle:     'Launched projects',
     launchedEmpty:     'No project has launched yet.',

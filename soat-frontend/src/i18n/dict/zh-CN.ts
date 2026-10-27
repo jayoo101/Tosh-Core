@@ -1358,6 +1358,7 @@ export const ZH_CN: PartialDictionary = {
     launchingTitle:    '正在发射',
     launchingSub:      '进行中的 GENESIS 募集',
     launchingEmpty:    '当前没有正在募集的项目。',
+    browseMore:        '还有 {n} 个项目正在募集，查看全部',
     priceTo2P:         '{price} {quote} → 2P',
     launchedTitle:     '已上线项目',
     launchedEmpty:     '还没有项目开盘。',

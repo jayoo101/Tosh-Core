@@ -77,9 +77,9 @@ export function ProjectLink({ project: p, className, children, label }: {
  * The 16:9 header of a card. Projects have a logo and no cover image, so the
  * cover is the logo twice: blurred to fill the frame, and sharp in the middle.
  */
-export function ProjectCover({ project: p, children }: { project: DirectoryProject; children?: ReactNode }) {
+export function ProjectCover({ project: p, children, className }: { project: DirectoryProject; children?: ReactNode; className?: string }) {
   return (
-    <div className="relative aspect-[16/9] w-full overflow-hidden bg-bg-subtle">
+    <div className={cn('relative aspect-[16/9] w-full overflow-hidden bg-bg-subtle', className)}>
       <div className="hero-grid absolute inset-0 opacity-70" aria-hidden />
       {p.logoUrl && (
         <img src={p.logoUrl} alt="" aria-hidden className="absolute inset-0 size-full scale-125 object-cover opacity-30 blur-2xl" />
