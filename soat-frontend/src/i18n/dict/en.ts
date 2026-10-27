@@ -1824,6 +1824,9 @@ export const EN = {
     marketPrice:       'GENESIS price',
     marketDetails:     'Project details',
     marketEmpty:       'No project is taking bids right now.',
+    marketPick:        'Choose a project',
+    marketSearch:      'Search by name or ticker',
+    marketNoMatch:     'No project matches.',
     metaMarketTitle:       'Market · ToshX',
     metaMarketDescription: 'The ToshX pre-launch bid market on {chain}. Buy orders only.',
 
