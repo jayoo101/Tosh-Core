@@ -171,16 +171,12 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
   const t = useT().v2
   const { address } = useAccount()
   const [raw, setRaw] = useState('')
-  const [rawMin, setRawMin] = useState('')
   const amount = parseAmount(raw) ?? 0n
-  const minPrice = parseAmount(rawMin) ?? 0n
   const bal = useTokenBalance(token)
   // Routed only into bids 1 % clear of the floor: GENESIS buys keep raising it,
   // and a bid that drops under it by inclusion time is skipped, not filled.
   const routeFloor = (fillFloor(price) * 101n) / 100n
-  const floor = minPrice > routeFloor ? minPrice : routeFloor
-  const plan = useMemo(() => planSell(bids, amount, floor), [bids, amount, floor])
-  const best = bids.reduce((m, b) => (b.price >= routeFloor && b.qty > b.filled && b.price > m ? b.price : m), 0n)
+  const plan = useMemo(() => planSell(bids, amount, routeFloor), [bids, amount, routeFloor])
   const risk = useRiskAck(hook)
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: token, abi: erc20Abi, functionName: 'allowance',
@@ -200,7 +196,7 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
     blockersInRevertOrder: revertOrder(
       { id: 'amount', active: amount === 0n, label: t.sellBtn, reason: t.sellAmount, tone: 'neutral' },
       { id: 'balance', active: amount > (bal.data ?? 0n), label: t.sellBtn, reason: fill(t.sellBalance, { amount: fmtSig(bal.data) }), tone: 'neutral' },
-      { id: 'nothing', active: plan.tokens === 0n, label: t.sellBtn, reason: minPrice > routeFloor ? t.sellNoneAtPrice : t.sellNothing, tone: 'neutral' },
+      { id: 'nothing', active: plan.tokens === 0n, label: t.sellBtn, reason: t.sellNothing, tone: 'neutral' },
       { id: 'risk', active: !risk.acked, label: t.sellBtn, reason: t.riskRequired, tone: 'neutral' },
       (allowance ?? 0n) < plan.tokens && {
         id: 'approve', active: true, label: fill(t.approveToken, { symbol }), reason: fill(t.approveToken, { symbol }), tone: 'info',
@@ -211,15 +207,6 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
 
   return (
     <Card title={t.sellTitle}>
-      <Field
-        label={fill(t.sellMinPrice, { quote: quote.symbol })}
-        value={rawMin}
-        onValueChange={setRawMin}
-        inputMode="decimal"
-        placeholder={t.sellAnyPrice}
-        hint={t.sellMinHint}
-        affix={<FieldAffix label="best" onClick={() => setRawMin(formatUnits(best, 18))} disabled={best === 0n} />}
-      />
       <Field
         label={`${t.sellAmount} (${symbol})`}
         value={raw}
