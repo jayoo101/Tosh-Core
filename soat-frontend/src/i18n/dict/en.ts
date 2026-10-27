@@ -1827,6 +1827,7 @@ export const EN = {
     marketPick:        'Choose a project',
     marketSearch:      'Search by name or ticker',
     marketNoMatch:     'No project matches.',
+    marketLaunchedTag: 'Launched',
     metaMarketTitle:       'Market · ToshX',
     metaMarketDescription: 'The ToshX pre-launch bid market on {chain}. Buy orders only.',
 

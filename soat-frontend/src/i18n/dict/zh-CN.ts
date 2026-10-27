@@ -1441,6 +1441,7 @@ export const ZH_CN: PartialDictionary = {
     marketPick:        '选择项目',
     marketSearch:      '搜索项目名称或代码',
     marketNoMatch:     '没有匹配的项目。',
+    marketLaunchedTag: '已开盘',
     metaMarketTitle:       '市场 · ToshX',
     metaMarketDescription: '{chain} 上的 ToshX 开盘前挂单市场，只支持买单。',
 

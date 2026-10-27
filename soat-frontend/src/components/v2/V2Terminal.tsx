@@ -61,8 +61,9 @@ export function V2Terminal({ hook, symbol, header, about }: {
   const phase = v2Phase(s, now)
   const p = toNum(s.basePrice)
 
+  // After launch the book only takes cancellations, and those live on /market.
   const tabs = [
-    { id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> },
+    ...(s.launched ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
     { id: 'overview', label: tx.tabOverview, content: about ?? <p className="text-body text-text-tertiary">{tx.noDescription}</p> },
     { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
     { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },

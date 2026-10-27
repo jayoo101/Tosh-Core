@@ -64,9 +64,9 @@ export function BidMarket({ hook, symbol, embedded = false, buyOnly = false }: {
     ] as const
     return (
       <div className="@container flex flex-col gap-6">
-        {buyOnly
-          ? <p className="rounded-card border border-border-subtle bg-bg-base p-4 text-body text-text-tertiary">{tx.mktBuyOnlyWarn}</p>
-          : <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>}
+        {!buyOnly
+          ? <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
+          : !s.launched && <p className="rounded-card border border-border-subtle bg-bg-base p-4 text-body text-text-tertiary">{tx.mktBuyOnlyWarn}</p>}
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-4">
           {stats.map(([k, v]) => (
             <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
