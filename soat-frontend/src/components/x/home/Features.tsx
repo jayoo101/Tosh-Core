@@ -13,10 +13,10 @@ export function Features() {
   ]
   return (
     <section id="how" aria-labelledby="how-title" className="flex scroll-mt-24 flex-col gap-6">
-      <h2 id="how-title" className="text-gold-shimmer text-gold-flow w-fit text-section font-black">{t.featTitle}</h2>
+      <h2 id="how-title" className="text-gold-shimmer w-fit text-section font-black">{t.featTitle}</h2>
       <ol className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {features.map(({ icon: Icon, step, title, body }, idx) => (
-          <li key={step} className={`glow-frame glow-flow flex flex-col gap-4 rounded-panel bg-surface-card p-6 ${idx === 1 ? 'glow-delay' : ''}`}>
+        {features.map(({ icon: Icon, step, title, body }) => (
+          <li key={step} className="glow-frame flex flex-col gap-4 rounded-panel bg-surface-card p-6">
             <div className="flex items-center gap-3">
               <span className="flex size-11 shrink-0 items-center justify-center rounded-card bg-surface-hover text-brand">
                 <Icon className="size-5" aria-hidden />

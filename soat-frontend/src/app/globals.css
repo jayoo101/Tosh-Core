@@ -943,8 +943,8 @@ select:focus {
   pointer-events: none;
 }
 
-/** The moving rim and halo, kept to the home hero and the how-it-works cards;
- *  every other frame keeps the still rim above. */
+/** The moving rim and halo, kept to the home hero; every other frame keeps the
+ *  still rim above. */
 .glow-flow::before {
   background: conic-gradient(
     from var(--toshx-angle),
@@ -1151,28 +1151,7 @@ select:focus {
   color: transparent;
 }
 
-/** The sweeping variant, for the how-it-works heading only. */
-@keyframes toshx-gold-shift {
-  to { background-position: -200% 0; }
-}
-
-.text-gold-shimmer.text-gold-flow {
-  background-image: linear-gradient(
-    100deg,
-    #3a2c05 0%,
-    #f0b90b 22%,
-    #fff1b8 34%,
-    #f0b90b 46%,
-    #3a2c05 62%,
-    #f0b90b 80%,
-    #3a2c05 100%
-  );
-  background-size: 200% 100%;
-  animation: toshx-gold-shift 5s linear infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .text-gold-flow,
   .glow-flow::before,
   .glow-flow::after,
   .toshx-grid::before,
