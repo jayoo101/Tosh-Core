@@ -19,6 +19,7 @@ const CONTRACTS = [
   ['ToshLaunchpadHook', 'V2_HOOK_ABI'],
   ['ToshFactory', 'V2_FACTORY_ABI'],
   ['ToshToken', 'V2_TOKEN_ABI'],
+  ['ToshLadderTreasury', 'V2_TREASURY_ABI'],
 ]
 
 let body =

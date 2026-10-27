@@ -63,6 +63,8 @@ import { useProtocolOwner } from '@/lib/useProtocolOwner'
 import { LEGACY_V1 } from '@/lib/legacy'
 import { ActionGateProvider, type AmbientGate } from '@/components/ui'
 import { WithoutWalletPicker } from '@/components/WalletPicker'
+import { LocalePicker } from '@/components/LocalePicker'
+import { fill, useT, type Dictionary } from '@/i18n'
 import { Line, GroupHeader, AddressLink } from './shared'
 import { PogLimitPanel, CooldownDurationPanel, QuotaWindowPanel } from './FactoryDials'
 import { PogSignerPanel, PlatformTreasuryPanel } from './Signers'
@@ -72,6 +74,7 @@ import { BlacklistConsole } from './Blacklist'
 import { LadderTreasuryPanel } from './LadderTreasury'
 import { OwnershipPanel } from './Ownership'
 import { FeaturedProjectPanel } from './FeaturedProject'
+import { V2RosterPanel } from './V2RosterPanel'
 import { InitcodeHashMonitor, ExchangeRatePanel } from './Monitors'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +82,7 @@ import { InitcodeHashMonitor, ExchangeRatePanel } from './Monitors'
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WalletBar() {
+  const t = useT().admin
   const { address, isConnected } = useAccount()
   const { connect }    = useConnect()
   const { disconnect } = useDisconnect()
@@ -91,7 +95,7 @@ function WalletBar() {
                    tracking-[0.32em] uppercase font-bold rounded-xl
                    hover:border-brand hover:text-brand transition-colors"
       >
-        connect wallet
+        {t.connect}
       </button>
     )
   }
@@ -105,7 +109,7 @@ function WalletBar() {
         className="px-2 py-1 text-text-tertiary hover:text-danger transition-colors
                    tracking-[0.32em] uppercase"
       >
-        disc
+        {t.disconnect}
       </button>
     </div>
   )
@@ -227,9 +231,27 @@ const GROUPS = {
   },
 } as const
 
-const GROUP_ORDER: readonly (keyof typeof GROUPS)[] = LEGACY_V1
+type GroupKey = keyof typeof GROUPS | 'roster'
+type Group = { chip: string; header: { index: string; title: string; blurb: string } }
+
+const GROUP_ORDER: readonly GroupKey[] = LEGACY_V1
   ? ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'diag']
-  : ['g6']
+  : ['roster', 'g6']
+
+/** The v1 groups stay English (that console is being retired); the v2 ones follow the locale. */
+function groupsFor(t: Dictionary['admin']): Record<GroupKey, Group> {
+  return {
+    ...GROUPS,
+    roster: {
+      chip: t.rosterChip,
+      header: { index: t.rosterIndex, title: t.rosterGroupTitle, blurb: t.rosterGroupBlurb },
+    },
+    g6: LEGACY_V1 ? GROUPS.g6 : {
+      chip: t.featChip,
+      header: { index: t.featIndex, title: t.featGroupTitle, blurb: t.featGroupBlurb },
+    },
+  }
+}
 
 /**
  * Jump bar for a console that is fourteen phone screens tall.
@@ -240,10 +262,10 @@ const GROUP_ORDER: readonly (keyof typeof GROUPS)[] = LEGACY_V1
  * at that moment.  Plain anchors, so it works before hydration and a
  * middle-click still opens a section in a new tab.
  */
-function GroupJumpBar() {
+function GroupJumpBar({ groups, label }: { groups: Record<GroupKey, Group>; label: string }) {
   return (
     <nav
-      aria-label="Console sections"
+      aria-label={label}
       className="sticky top-0 z-30 -mx-6 mb-2 px-6 border-b border-border-subtle/60
                  bg-bg-base/95 backdrop-blur overflow-x-auto"
     >
@@ -257,7 +279,7 @@ function GroupJumpBar() {
                          text-text-tertiary hover:text-brand hover:bg-surface-hover/40
                          transition-colors"
             >
-              {GROUPS[key].chip}
+              {groups[key].chip}
             </a>
           </li>
         ))}
@@ -271,6 +293,8 @@ function GroupJumpBar() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
+  const t = useT().admin
+  const groups = useMemo(() => groupsFor(t), [t])
   const { address, isConnected } = useAccount()
   const { owner, isOwner, isLoading: ownerLoading } = useProtocolOwner()
 
@@ -298,28 +322,31 @@ export default function AdminPage() {
             <div className="flex items-center gap-2 mb-2">
                 <span className="w-2 h-2 rounded-full bg-admin dot-breathe" />
                 <span className="text-label font-mono text-admin uppercase tracking-widest">
-                  Operator Console
+                  {t.eyebrow}
                 </span>
                 {LEGACY_V1 && !access.allowed && (
                   <span className="text-label font-mono text-danger uppercase tracking-widest">
-                    · read-only
+                    {t.readOnly}
                   </span>
                 )}
               </div>
               <h1 className="text-2xl font-black tracking-tight text-text-primary">
-                Protocol <span className="text-brand">Control</span>
+                {t.titleLead} <span className="text-brand">{t.titleBrand}</span>
               </h1>
               <p className="text-xs text-text-tertiary mt-1 font-mono">
                 {CHAIN_BYLINE}
                 {LEGACY_V1 && <> · {FACTORY_ADDRESS.slice(0, 10)}…{FACTORY_ADDRESS.slice(-6)}</>}
               </p>
             </div>
-            <WalletBar />
+            <div className="flex items-center gap-3">
+              <LocalePicker />
+              <WalletBar />
+            </div>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 pb-24 pt-4">
-        <GroupJumpBar />
+        <GroupJumpBar groups={groups} label={t.jumpAria} />
 
         {LEGACY_V1 && <>
         <AccessBanner
@@ -350,7 +377,12 @@ export default function AdminPage() {
         <OwnershipPanel connected={address} />
         </>}
 
-        <GroupHeader anchor="g6" {...GROUPS.g6.header} />
+        {!LEGACY_V1 && <>
+        <GroupHeader anchor="roster" {...groups.roster.header} />
+        <V2RosterPanel />
+        </>}
+
+        <GroupHeader anchor="g6" {...groups.g6.header} />
         <FeaturedProjectPanel />
 
         {LEGACY_V1 && <>
@@ -362,7 +394,7 @@ export default function AdminPage() {
         <div className="pt-12">
           <Line />
           <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
-            {LEGACY_V1 ? 'every on-chain write here is onlyOwner' : 'off-chain content only'} · chain {TARGET_CHAIN_ID}
+            {LEGACY_V1 ? t.footerV1 : t.footerV2} · {fill(t.footerChain, { id: TARGET_CHAIN_ID })}
           </p>
         </div>
       </main>

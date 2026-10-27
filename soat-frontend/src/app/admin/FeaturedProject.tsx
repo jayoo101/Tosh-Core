@@ -32,6 +32,7 @@ import {
 } from '@/components/ui'
 import { useDirectoryProjects, fmtQuote } from '@/components/directory/useDirectoryProjects'
 import { pickFeatured } from '@/components/x/home/Hero'
+import { fill, useT } from '@/i18n'
 import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
 import { Section, ScopeNote, Field, labelCls, fmtDuration } from './shared'
 
@@ -56,12 +57,7 @@ function readHeldCredential(): string {
 }
 
 /** The offered windows. The route's own ceiling is 14 days; see `MAX_PIN_HOURS`. */
-const DURATIONS = [
-  { hours: 6,   label: '6H'  },
-  { hours: 24,  label: '24H' },
-  { hours: 72,  label: '72H' },
-  { hours: 168, label: '7D'  },
-] as const
+const DURATIONS = [6, 24, 72, 168] as const
 
 /** Matches the teaser's own expiry cadence, so the two read the same. */
 const CADENCE_MS = 10_000
@@ -71,6 +67,7 @@ const inputCls =
    font-mono text-sm text-text-primary disabled:opacity-40 transition-colors duration-150`
 
 export function FeaturedProjectPanel() {
+  const t = useT().admin
   const { projects, loading } = useDirectoryProjects()
   const nowMs = useNowMs(CADENCE_MS)
 
@@ -150,7 +147,7 @@ export function FeaturedProjectPanel() {
   const uploadCover = useCallback(async (file: File) => {
     if (!selected) return
     if (file.size === 0 || file.size > LOGO_MAX_BYTES) {
-      toshToast.error(`The cover must be between 1 byte and ${LOGO_MAX_BYTES / 1024} KB.`)
+      toshToast.error(fill(t.featCoverSize, { kb: LOGO_MAX_BYTES / 1024 }))
       return
     }
     setUploading(true)
@@ -162,11 +159,11 @@ export function FeaturedProjectPanel() {
       if (!res.ok || typeof data.url !== 'string') throw new Error(data.error ?? `HTTP ${res.status}`)
       setCoverEdit({ token: selected, url: data.url })
     } catch (err) {
-      toshToast.error(shortErrorMessage(err) ?? 'Could not upload the cover.')
+      toshToast.error(shortErrorMessage(err) ?? t.featCoverFailed)
     } finally {
       setUploading(false)
     }
-  }, [selected])
+  }, [selected, t])
 
   /** `hoursToSet` undefined saves the cover alone and leaves every pin as it is. */
   const submit = useCallback(async (hoursToSet: number | undefined) => {
@@ -192,68 +189,64 @@ export function FeaturedProjectPanel() {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       toshToast.success(
         hoursToSet === undefined
-          ? `${data.symbol} cover ${cover ? 'saved' : 'removed'}.`
+          ? fill(cover ? t.featCoverSaved : t.featCoverRemoved, { symbol: data.symbol })
           : hoursToSet === 0
-            ? 'Pin cleared — the homepage is back on its computed order.'
-            : `${data.symbol} pinned for ${hoursToSet}h${withCover ? ', cover saved' : ''}.`,
+            ? t.featPinCleared
+            : fill(withCover ? t.featPinnedForCover : t.featPinnedFor, { symbol: data.symbol, h: hoursToSet }),
       )
     } catch (err) {
-      toshToast.error(shortErrorMessage(err) ?? 'Could not update the feature pin.')
+      toshToast.error(shortErrorMessage(err) ?? t.featPinFailed)
     } finally {
       setBusy(false)
     }
-  }, [pinned, selected, secret, coverTouched, cover])
+  }, [pinned, selected, secret, coverTouched, cover, t])
 
   const armed = selected !== '' && secret !== '' && !busy && !uploading
 
   return (
     <Section
       id="G6-A"
-      title="HOMEPAGE FEATURE"
-      subtitle="POST /api/admin/featured · off-chain, no transaction · expires on its own"
+      title={t.featTitle}
+      subtitle={t.featSubtitle}
     >
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-note @sm:grid-cols-2">
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Pinned</dt>
+          <dt className="text-text-tertiary">{t.featPinned}</dt>
           <dd>
             {loading && projects.length === 0
-              ? 'reading…'
+              ? t.featReading
               : pinned
                 ? `$${pinned.symbol}`
-                : 'nothing — computed order'}
+                : t.featPinnedNone}
           </dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Expires in</dt>
+          <dt className="text-text-tertiary">{t.featExpiresIn}</dt>
           <dd>
             {pinned && pinned.featuredUntilMs !== null && nowMs !== CLOCK_UNSYNCED
               ? fmtDuration(
                   BigInt(Math.max(0, Math.floor((pinned.featuredUntilMs - nowMs) / 1000))),
-                  'now',
+                  t.featNow,
                 )
               : '—'}
           </dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Featured now</dt>
-          <dd>{currentFeature ? `$${currentFeature.symbol}` : 'nothing eligible'}</dd>
+          <dt className="text-text-tertiary">{t.featFeaturedNow}</dt>
+          <dd>{currentFeature ? `$${currentFeature.symbol}` : t.featNothingEligible}</dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Eligible</dt>
-          <dd>{eligible.length} launch{eligible.length === 1 ? '' : 'es'}</dd>
+          <dt className="text-text-tertiary">{t.featEligible}</dt>
+          <dd>{eligible.length === 1 ? t.featEligibleOne : fill(t.featEligibleMany, { n: eligible.length })}</dd>
         </div>
       </dl>
 
       {pinnedButHidden && (
-        <ScopeNote tone="warn">
-          ${pinned?.symbol} is pinned but is no longer one of the launches this block
-          shows, so the pin is doing nothing. Its raise has closed without launching, or
-          it is refundable. Clearing the pin costs nothing and removes the confusion.
-        </ScopeNote>
+        <ScopeNote tone="warn">{fill(t.featPinnedHidden, { symbol: pinned?.symbol ?? '' })}</ScopeNote>
       )}
 
       <label className="flex flex-col gap-1.5">
-        <span className={labelCls}>LAUNCH TO FEATURE</span>
+        <span className={labelCls}>{t.featLaunchLabel}</span>
         <select
           value={selected}
           disabled={busy || eligible.length === 0}
@@ -261,12 +254,11 @@ export function FeaturedProjectPanel() {
           className={inputCls}
         >
           <option value="">
-            {eligible.length === 0 ? 'nothing eligible to feature' : 'select a launch…'}
+            {eligible.length === 0 ? t.featSelectNone : t.featSelectPrompt}
           </option>
           {eligible.map(p => (
             <option key={p.token} value={p.token}>
-              ${p.symbol} · {p.name} · {fmtQuote(p.totalNative)} raised
- · funding
+              ${p.symbol} · {p.name} · {fill(t.featOptionRaised, { raised: fmtQuote(p.totalNative) })}
             </option>
           ))}
         </select>
@@ -274,12 +266,12 @@ export function FeaturedProjectPanel() {
             and the route refuses to pin a launch without one. Saying so here is
             cheaper than a 404 the operator has to interpret. */}
         <span className="text-label text-text-tertiary tracking-wider">
-          Launches appear once their creator has published metadata.
+          {t.featPublishedHint}
         </span>
       </label>
 
       <div className="flex flex-col gap-1.5">
-        <span className={labelCls}>CARD COVER (OPTIONAL)</span>
+        <span className={labelCls}>{t.featCoverLabel}</span>
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative aspect-[16/9] w-48 overflow-hidden rounded-lg border border-border-subtle bg-bg-base">
             {cover ? (
@@ -287,13 +279,13 @@ export function FeaturedProjectPanel() {
               <img src={cover} alt="" className="size-full object-cover" />
             ) : (
               <span className="absolute inset-0 flex items-center justify-center px-2 text-center font-mono text-micro text-text-tertiary">
-                {selected ? 'none, built from the logo' : 'select a launch first'}
+                {selected ? t.featCoverNone : t.featCoverSelectFirst}
               </span>
             )}
           </div>
           <div className="flex flex-col gap-2">
             <label className={`inline-flex w-fit items-center rounded-lg border border-border-subtle px-3 py-2 font-mono text-note text-text-primary transition-colors hover:border-brand/50 ${!selected || busy || uploading ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}>
-              {uploading ? 'Uploading…' : cover ? 'Replace' : 'Upload'}
+              {uploading ? t.featUploading : cover ? t.featReplace : t.featUpload}
               <input
                 type="file"
                 accept={LOGO_ACCEPT}
@@ -313,7 +305,7 @@ export function FeaturedProjectPanel() {
                 onClick={() => setCoverEdit({ token: selected, url: null })}
                 className="w-fit font-mono text-note text-text-tertiary hover:text-danger disabled:opacity-40"
               >
-                Remove
+                {t.featRemove}
               </button>
             )}
             <button
@@ -322,46 +314,45 @@ export function FeaturedProjectPanel() {
               onClick={() => void submit(undefined)}
               className="w-fit font-mono text-note text-brand hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
             >
-              Save cover only
+              {t.featSaveCover}
             </button>
           </div>
         </div>
         <span className="text-label text-text-tertiary tracking-wider">
-          16:9, PNG / JPEG / WebP / GIF, up to {LOGO_MAX_BYTES / 1024} KB. Saved with the pin, or on
-          its own without touching the pin. Without one the card builds a cover from the logo.
+          {fill(t.featCoverHint, { kb: LOGO_MAX_BYTES / 1024 })}
         </span>
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className={labelCls}>FOR HOW LONG</span>
+        <span className={labelCls}>{t.featDurationLabel}</span>
         <div className="flex flex-wrap gap-2">
-          {DURATIONS.map(d => (
+          {DURATIONS.map(h => (
             <button
-              key={d.hours}
+              key={h}
               type="button"
               disabled={busy}
-              onClick={() => setHours(d.hours)}
+              onClick={() => setHours(h)}
               className={`rounded-lg border px-3 py-2 font-mono text-note transition-colors
                           disabled:opacity-40 ${
-                            hours === d.hours
+                            hours === h
                               ? 'border-brand text-brand'
                               : 'border-border-subtle text-text-tertiary hover:border-brand/50'
                           }`}
             >
-              {d.label}
+              {h % 24 === 0 && h > 72 ? fill(t.featDays, { n: h / 24 }) : fill(t.featHours, { n: h })}
             </button>
           ))}
         </div>
       </div>
 
       <Field
-        label="CONTENT ADMIN CREDENTIAL"
+        label={t.featCredential}
         type="password"
         value={secret}
         onChange={rememberSecret}
         placeholder="CONTENT_ADMIN_SECRET"
         disabled={busy}
-        hint="Held for this tab only, never stored. Not the factory owner's key — this credential cannot reach a contract."
+        hint={t.featCredentialHint}
       />
 
       <div className="flex flex-wrap gap-2">
@@ -373,7 +364,7 @@ export function FeaturedProjectPanel() {
                      text-readout font-semibold text-bg-base transition-opacity
                      hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {busy ? 'Working…' : `Pin for ${hours}h`}
+          {busy ? t.featWorking : fill(t.featPinFor, { h: hours })}
         </button>
         <button
           type="button"
@@ -384,17 +375,11 @@ export function FeaturedProjectPanel() {
                      transition-colors hover:border-brand/50 disabled:opacity-40
                      disabled:cursor-not-allowed"
         >
-          Clear pin
+          {t.featClearPin}
         </button>
       </div>
 
-      <ScopeNote>
-        This decides WHICH raise the homepage features, not eligibility. A pinned launch
-        still has to be funding, so pinning cannot put a closed or refundable raise on the
-        homepage. Setting a pin clears any other, and every pin lapses on its own, so a
-        promotion nobody remembers returns the card to the newest v2 raise rather than
-        staying there indefinitely.
-      </ScopeNote>
+      <ScopeNote>{t.featScope}</ScopeNote>
     </Section>
   )
 }
