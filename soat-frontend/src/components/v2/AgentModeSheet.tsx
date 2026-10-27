@@ -73,13 +73,17 @@ async function copy(text: string): Promise<boolean> {
  * this action, numbered, with every prerequisite (wrap, approve) spelled out.
  * The page shows one copy button; the instruction text itself is folded away,
  * because the agent reads it, not the user. `steps` is null until the form
- * holds enough to build them. `defaultOpen` is followed until the user toggles
- * the sheet themselves.
+ * holds enough to build them; `template`, when given, is offered meanwhile: an
+ * instruction that leaves the amount to the user. `defaultOpen` is followed
+ * until the user toggles the sheet themselves.
  */
-export function AgentModeSheet({ title, summary, steps, notes = [], defaultOpen = false, onDone }: {
+export function AgentModeSheet({ title, summary, steps, template, pending, notes = [], defaultOpen = false, onDone }: {
   title: string
   summary?: string
   steps: AgentStep[] | null
+  template?: string
+  /** What is still missing, in place of the generic "fill in the form". */
+  pending?: string
   notes?: string[]
   defaultOpen?: boolean
   onDone?: () => void
@@ -141,8 +145,20 @@ export function AgentModeSheet({ title, summary, steps, notes = [], defaultOpen 
               onClick={() => void copy(encoded.map(e => e.data).join('\n')).then(ok => ok && flash('data'))} />
           </details>
         </>
+      ) : template ? (
+        <>
+          <Button full label={copied === 'text' ? t.agentCopied : t.agentCopyTemplate}
+            onClick={() => void copy(template).then(ok => ok && flash('text'))} />
+          <p className="text-text-tertiary">{t.agentTemplateHint}</p>
+          <details className="text-text-tertiary">
+            <summary className="cursor-pointer hover:text-text-primary">{t.agentShow}</summary>
+            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-input border border-border-subtle p-2 font-mono text-micro text-text-primary">
+              {template}
+            </pre>
+          </details>
+        </>
       ) : (
-        <p className="text-text-tertiary">{t.agentFillFirst}</p>
+        <p className="text-text-tertiary">{pending ?? t.agentFillFirst}</p>
       )}
       <Field label={t.agentAddrLabel} value={stored} onValueChange={writeAddr} placeholder="0x…" />
       {account && <p className={seen ? 'text-success' : 'text-text-tertiary'}>{seen ? t.agentSeen : t.agentWatching}</p>}

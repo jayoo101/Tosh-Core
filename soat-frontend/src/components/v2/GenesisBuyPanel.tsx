@@ -9,7 +9,7 @@ import { ActionButton, Card, Field, FieldAffix, revertOrder, useActionGate, useQ
 import { fmtPrice, priceAfterWei, toNum } from '@/components/x/curve'
 import { Row } from '@/components/x/Panel'
 import { fill, useT } from '@/i18n'
-import { TARGET_CHAIN_ID } from '@/lib/chain'
+import { ACTIVE_CHAIN_LABEL, TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { V2_LENS, type V2Quote } from '@/lib/v2/config'
 import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
@@ -143,7 +143,15 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
       {gate.verdict.kind !== 'connect' && <ActionButton gate={gate} />}
       {open && (
         <AgentModeSheet
-          title={`${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}`}
+          title={pay > 0n ? `${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}` : `${t.agentNoteBuy} ${symbol}`}
+          template={risk.acked ? [
+            fill(quote.native ? t.agentTplGenesisNative : t.agentTplGenesis, {
+              chain: ACTIVE_CHAIN_LABEL, id: String(TARGET_CHAIN_ID), quote: quote.symbol, symbol,
+              asset: quote.asset, hook, dec: String(quote.decimals),
+            }),
+            t.agentWalletSettings,
+          ].join('\n\n') : undefined}
+          pending={t.agentAckFirst}
           steps={risk.acked && pay > 0n && tokens > 0n ? [
             ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, pay, t)]),
             {
