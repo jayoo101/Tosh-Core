@@ -10,6 +10,10 @@ import {ToshLaunchpadHook} from "../../src/ToshLaunchpadHook.sol";
 import {ToshToken} from "../../src/ToshToken.sol";
 import {AgentIdLib} from "../../src/libraries/AgentIdLib.sol";
 
+contract AcceptsNative {
+    receive() external payable {}
+}
+
 /// @notice BSC mainnet fork: the real Binance Agent ID registry, WBNB and
 ///         PancakeSwap Infinity. Skipped unless `BSC_RPC` is set.
 ///         `AGENT_ID_HOLDER` (optional) names an address that owns an Agent ID,
@@ -92,6 +96,18 @@ contract ForkV2BscTest is Test {
             emit log("AGENT_ID_HOLDER has code: a 7702 delegation is accepted, a contract is not");
             if (holder.code.length != 23) return;
         }
+        _buyAndLaunch(holder);
+    }
+
+    function test_fork_delegatedHolderBuysWithNativeBnb() public {
+        if (!live) return;
+        address holder = vm.envOr("AGENT_ID_HOLDER", address(0));
+        if (holder == address(0) || holder.code.length != 0) return;
+        vm.etch(holder, abi.encodePacked(hex"ef0100", address(new AcceptsNative())));
+        _buyAndLaunch(holder);
+    }
+
+    function _buyAndLaunch(address holder) internal {
         vm.deal(holder, 1 ether);
         vm.prank(holder, holder);
         (uint256 tokens, uint256 cost) = hook.buyGenesis{value: 0.5 ether}(0.5 ether, 0);
