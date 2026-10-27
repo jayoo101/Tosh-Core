@@ -197,7 +197,7 @@ contract LaunchTest is V2Base {
         assertEq(tierPrice, hook.p0());
         assertTrue(unlocked, "shelf 0 level with the pool");
 
-        uint256 amount = 1_000e18;
+        uint256 amount = hook.tierSize() / 2;
         cost = hook.quoteMint(amount);
         uint256 adminBefore = quote.balanceOf(hook.projectAdmin());
         vm.prank(bob, bob);

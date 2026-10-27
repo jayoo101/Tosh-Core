@@ -285,11 +285,14 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Number of discrete price shelves in Phase 2.
     uint256 public constant TIER_COUNT = 4000;
 
-    /// @notice Token quota per shelf.  4000 × 3 150 = 12 600 000, which keeps
-    ///         the total-supply arithmetic intact (8.4 M + 12.6 M = 21 M).
+    /// @notice Token quota per shelf on a sold-out raise.  4000 × 3 150 =
+    ///         12 600 000, which keeps the total-supply arithmetic intact
+    ///         (8.4 M + 12.6 M = 21 M).  A partial raise sells smaller shelves;
+    ///         see `tierSize`.
     uint256 public constant TIER_SIZE = 3_150e18;
 
-    /// @notice Total Phase-2 issuance once every shelf is cleared.
+    /// @notice Most Phase-2 issuance can ever be: every shelf cleared on a
+    ///         sold-out raise.  A partial raise caps at `TIER_COUNT * tierSize`.
     uint256 public constant BONDING_MAX = TIER_COUNT * TIER_SIZE;
 
     /// @dev Geometric shelf step in 1e18 fixed point: price(i) = shelfP0 · STEP^i.
@@ -320,18 +323,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    A gas bound, NOT a security bound.  Shelf mints never touch the
     ///         pool, so `min(spot, TWAP)` is constant for the whole call and
-    ///         the 105 % ceiling caps how far the ladder can travel regardless
+    ///         the price ceiling caps how far the ladder can travel regardless
     ///         of how the order is chopped up — a buyer who hits this limit can
     ///         simply send a second transaction in the same block and reach the
     ///         identical end state.  The cap exists only so one call cannot be
     ///         made to loop hundreds of times (each leg recomputes
     ///         `tierPriceAt`, which is O(log i)) and run out of gas.
     ///
-    ///         Sized against the gate rather than picked round: a market that
-    ///         has caught up to the cursor opens `ln(1.05) / ln(STEP) ≈ 25.7`
-    ///         shelves, so 32 legs let the 105 % ceiling be the thing that
-    ///         stops a normal sweep.  At 16 the leg cap bound first and every
-    ///         such buyer paid for a second transaction that changed nothing.
+    ///         Sized when the ceiling was 105 %, at which a market level with
+    ///         the cursor opened `ln(1.05) / ln(STEP) ≈ 25.7` shelves. At par
+    ///         each 1 % the market rises opens about 5 shelves, so 32 legs
+    ///         cover a ~6 % rally in one call.
     uint256 public constant MAX_TIERS_PER_TX = 32;
 
     // ─── Genesis timing ───────────────────────────────────────────────────────
@@ -449,8 +451,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     // ─── Anti-spike gate ──────────────────────────────────────────────────────
 
     /// @notice A shelf may only be minted while its price sits at or below
-    ///         105 % of the anti-spike reference price.
-    uint256 public constant PRICE_CEILING_BPS = 10_500;
+    ///         the anti-spike reference price.
+    ///
+    /// @dev    Par, not 105 %. With shelf 0 level with the pool (see
+    ///         `SHELF_PREMIUM_BPS`), a 105 % ceiling left a 5 % band, shelves
+    ///         0..25 (81 900 tokens), open at launch with no price move at all.
+    ///         The pool's token side is 2.8M × (raised / hardCap), so on a 10 %
+    ///         raise that band was 23 % of the pool's quote for the Circuit
+    ///         holder, who gets 99 % of a shelf payment back. At par a shelf
+    ///         opens only once the market has risen to its price.
+    uint256 public constant PRICE_CEILING_BPS = 10_000;
 
     /// @notice Shelf 0 opens at this markup over the pool's opening price, so
     ///         the ladder starts one notch ABOVE the market instead of level
@@ -499,9 +509,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         0 now opens level with the pool at 2P, which is already a third
     ///         above what the last genesis buyer paid, so the depositor
     ///         protection the 5 % notch existed for is supplied by the curve
-    ///         instead. The ceiling stays at 105 %, which leaves shelves 0..25
-    ///         in range at the open; the launch block's same-block lockout is
-    ///         what keeps them shut until the next block.
+    ///         instead. The ceiling is par as well (see `PRICE_CEILING_BPS`),
+    ///         so at the open at most shelf 0 is in range, and the launch
+    ///         block's same-block lockout keeps even that shut until the next
+    ///         block.
     uint256 public constant SHELF_PREMIUM_BPS = 10_000;
 
     /// @notice Ticks (≈ 1 bp of price each) the pool may drift within a block
@@ -540,10 +551,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         So the number is the lever.  1800 s puts the realised window in
     ///         [30 min, 60 min) and triples the hold an attacker has to fund,
     ///         while still letting an honestly rallying market open its ladder
-    ///         within the hour.  It is not a wall: minting stays deliberately
-    ///         unprofitable on its own terms (every shelf costs 105 % of the
-    ///         reference), and this window is what makes reaching that
-    ///         reference cost real time rather than one block.
+    ///         within the hour.  It is not a wall: a shelf costs at most the
+    ///         reference, so an outsider profits only from spot running above
+    ///         the TWAP by more than a round trip's fees, and this window is
+    ///         what makes reaching that reference cost real time rather than
+    ///         one block.
     uint32 public constant TWAP_WINDOW = 1800;
 
     // ─── Pool ─────────────────────────────────────────────────────────────────
@@ -947,6 +959,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         every view the UI polls.
     uint256 public shelfP0;
 
+    /// @notice Tokens per shelf for this project: `TIER_SIZE × raised / hardCap`,
+    ///         rounded up, fixed at launch.  Zero before launch.
+    ///
+    /// @dev    The pool is seeded with 2.8 M × raised / hardCap tokens at a
+    ///         price that does not depend on the raise, so a thin raise opens
+    ///         a thin pool.  Shelves scaled by the same ratio keep every shelf
+    ///         the same share of the pool on any raise; full-size shelves
+    ///         against a 10 % pool would let each one move the price ten times
+    ///         as far.
+    uint256 public tierSize;
+
     /// @notice The whole Phase-2 ladder position, in one slot.
     ///
     /// @dev    These three were `uint256 public` fields in three slots until the
@@ -963,7 +986,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         silently rather than revert.
     ///
     ///           tierIndex  ≤ TIER_COUNT  = 4 000    (uint16  holds 65 535)
-    ///           tierSold   < TIER_SIZE   = 3.15e21  (uint88  holds 3.09e26)
+    ///           tierSold   < tierSize    ≤ TIER_SIZE = 3.15e21  (uint88  holds 3.09e26)
     ///           minted     ≤ BONDING_MAX = 1.26e25  (uint96  holds 7.92e28)
     ///
     ///         Shelf PRICES are still not stored.  With 4000 rungs a materialised
@@ -1188,7 +1211,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         See `ToshFactory.haltLadderMinting`.
     error LadderMintingHalted();
 
-    /// @notice The active shelf costs more than 105 % of `min(spot, TWAP)`.
+    /// @notice The active shelf costs more than `min(spot, TWAP)`.
     ///         The secondary market has to catch up before this shelf unlocks.
     error TierPriceAboveCeiling();
 
@@ -1630,6 +1653,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         p0 = (lpQuote * ONE_E18) / lpTokens;
         shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
+        tierSize = FullMath.mulDivRoundingUp(TIER_SIZE, totalRaised, hardCap());
 
         uint160 sqrtPriceX96 = _toSqrtPriceX96(lpQuote, lpTokens);
         poolManager.initialize(_key(), sqrtPriceX96);
@@ -1647,7 +1671,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         _prevCheckpointTs = uint32(block.timestamp);
         _curCheckpointTs = uint32(block.timestamp);
 
-        // Shelf 0 is level with the pool, so it would be inside the 105 %
+        // Shelf 0 is level with the pool, so it can sit exactly on the
         // ceiling in the launch block itself. The same-block lockout keeps
         // Phase 2 shut until the next block: no real tick is this far from any
         // other, so `_priceMovedThisBlock` holds for the rest of the block.
@@ -1717,7 +1741,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///        name, and falling back to it would let a two-block pump mint
     ///        against a fabricated ceiling.
     ///
-    ///     3. 105 % CEILING.  The shelf must cost no more than 1.05 × that
+    ///     3. PAR CEILING.  The shelf must cost no more than that
     ///        reference.  A shelf therefore only unlocks after the secondary
     ///        market has genuinely, durably risen to meet it — the ladder is
     ///        pulled up by real demand rather than pushed up by the issuer.
@@ -1735,7 +1759,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///   never a safety property, only a gas tax on the buyer.
     ///
     /// @param tokenAmount Tokens to buy.  May span several shelves; capped by
-    ///                    `maxMintable()`, which folds in both the 105 %
+    ///                    `maxMintable()`, which folds in both the price
     ///                    ceiling and `MAX_TIERS_PER_TX`.
     /// @param maxCost     Most quote asset the caller will pay. Pass the figure
     ///                    `quoteBondingCurve` returned, plus whatever tolerance
@@ -1773,10 +1797,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint256 tierIndex = st.tierIndex;
         if (tierIndex >= TIER_COUNT) revert LadderExhausted();
 
-        // ── Guards 2 + 3: anti-spike reference and 105 % ceiling ──────────────
+        // ── Guards 2 + 3: anti-spike reference and par ceiling ──────────────
         // Hoisted out of the loop: no leg can move it (see the note above).
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
         uint256 filled;
         uint256 cost;
@@ -1789,7 +1814,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             uint256 tierPrice = tierPriceAt(tierIndex);
             if (tierPrice > ceiling) revert TierPriceAboveCeiling();
 
-            uint256 room = TIER_SIZE - sold;
+            uint256 room = size - sold;
             uint256 take = tokenAmount - filled;
             if (take > room) take = room;
 
@@ -1804,7 +1829,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
             emit TierMinted(msg.sender, tierIndex, tierPrice, take, legCost);
 
-            if (sold == TIER_SIZE) {
+            if (sold == size) {
                 sold = 0;
                 unchecked {
                     ++tierIndex;
@@ -1831,7 +1856,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         //
         // One SSTORE for all three. The casts are safe by the bounds proved on
         // `LadderState`: `tierIndex` is fenced by the `TIER_COUNT` checks above,
-        // `sold` by the rollover that resets it at `TIER_SIZE`, and the running
+        // `sold` by the rollover that resets it at `tierSize`, and the running
         // total by the same `TIER_COUNT` fence, which caps lifetime issuance at
         // `BONDING_MAX`.
         _ladderState = LadderState({
@@ -1878,6 +1903,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
         uint256 filled;
         uint256 legs;
@@ -1889,7 +1915,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             uint256 tierPrice = tierPriceAt(tierIndex);
             if (tierPrice > ceiling) revert TierPriceAboveCeiling();
 
-            uint256 room = TIER_SIZE - sold;
+            uint256 room = size - sold;
             uint256 take = tokenAmount - filled;
             if (take > room) take = room;
 
@@ -1897,7 +1923,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             filled += take;
             sold += take;
 
-            if (sold == TIER_SIZE) {
+            if (sold == size) {
                 sold = 0;
                 unchecked {
                     ++tierIndex;
@@ -1912,9 +1938,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    Folds together every quantity limit the buyer can hit: the
     ///         active shelf's leftovers, every subsequent shelf still under the
-    ///         105 % ceiling, the end of the ladder, `MAX_TIERS_PER_TX`, and the
+    ///         price ceiling, the end of the ladder, `MAX_TIERS_PER_TX`, and the
     ///         same-block lockout.  The UI sizes its "max" button off this
-    ///         instead of guessing `TIER_SIZE`.  Returns 0 while the gate is
+    ///         instead of guessing `tierSize`.  Returns 0 while the gate is
     ///         shut.
     ///
     ///         RIGHT NOW, not next block — which is why the lockout belongs
@@ -1935,11 +1961,12 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (tierIndex >= TIER_COUNT) return 0;
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
 
         for (uint256 legs; legs < MAX_TIERS_PER_TX && tierIndex < TIER_COUNT; ++legs) {
             if (tierPriceAt(tierIndex) > ceiling) break;
-            tokens += TIER_SIZE - sold;
+            tokens += size - sold;
             sold = 0;
             unchecked {
                 ++tierIndex;
@@ -2755,7 +2782,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @return remaining   Tokens left on it.
     /// @return spotPrice   Live pool price.
     /// @return twapPrice   Rolling geometric TWAP (0 before the first window).
-    /// @return ceiling     105 % of the anti-spike reference (`min(spot, TWAP)`
+    /// @return ceiling     The anti-spike reference (`min(spot, TWAP)`
     ///                     once the window is mature, `min(spot, p0)` until then).
     /// @return unlocked    Whether the shelf currently passes the price gate.
     function tierStatus()
@@ -2775,7 +2802,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         tierIndex = st.tierIndex;
         tierPrice = tierPriceAt(tierIndex);
-        remaining = tierIndex >= TIER_COUNT ? 0 : TIER_SIZE - st.tierSold;
+        remaining = tierIndex >= TIER_COUNT ? 0 : tierSize - st.tierSold;
 
         if (!launched) return (tierIndex, tierPrice, remaining, 0, 0, 0, false);
 

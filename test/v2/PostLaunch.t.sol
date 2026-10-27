@@ -61,6 +61,14 @@ contract PostLaunchTest is V2Base {
         _nextBlock();
     }
 
+    /// @dev The ceiling is par, so nothing mints until the market has risen.
+    ///      A buy of this size lifts spot ~2.5 %, about a dozen shelves, and a
+    ///      quiet window makes the TWAP agree.
+    function _openLadder() internal {
+        _swapBuy(hook, trader, 0.1e18);
+        _matureTwap();
+    }
+
     function _list(ToshToken t) internal {
         vm.prank(admin);
         ladder.addLadderToken(address(t));
@@ -165,10 +173,11 @@ contract PostLaunchTest is V2Base {
     }
 
     function test_shelf_maxMintableIsExactlyTheGate() public {
+        _openLadder();
         uint256 max = hook.maxMintable();
-        assertGt(max, hook.TIER_SIZE(), "several shelves open at launch");
+        assertGt(max, hook.tierSize(), "a risen market opens several shelves");
         (,,,,, uint256 ceiling,) = hook.tierStatus();
-        uint256 shelves = max / hook.TIER_SIZE();
+        uint256 shelves = max / hook.tierSize();
         assertLe(hook.tierPriceAt(shelves - 1), ceiling, "last open shelf under the ceiling");
         assertGt(hook.tierPriceAt(shelves), ceiling, "next shelf above it");
 
@@ -188,7 +197,8 @@ contract PostLaunchTest is V2Base {
     }
 
     function test_shelf_paymentSplitsOneToTheReservoir() public {
-        uint256 amount = 5_000e18; // spans two shelves
+        _openLadder();
+        uint256 amount = hook.tierSize() * 3 / 2; // spans two shelves
         uint256 cost = hook.quoteMint(amount);
         uint256 resBefore = ladder.reservoir();
         uint256 vaultBefore = quote.balanceOf(hook.projectAdmin());
@@ -198,10 +208,11 @@ contract PostLaunchTest is V2Base {
         assertEq(ladder.reservoir() - resBefore, platformCut);
         assertEq(quote.balanceOf(hook.projectAdmin()) - vaultBefore, cost - platformCut);
         assertEq(hook.currentTierIndex(), 1);
-        assertEq(hook.currentTierSold(), amount - hook.TIER_SIZE());
+        assertEq(hook.currentTierSold(), amount - hook.tierSize());
     }
 
     function test_revert_shelf_costAboveMax() public {
+        _openLadder();
         uint256 cost = hook.quoteMint(1_000e18);
         vm.prank(bob, bob);
         vm.expectRevert(ToshLaunchpadHook.CostAboveMax.selector);
@@ -219,10 +230,12 @@ contract PostLaunchTest is V2Base {
         uint256 before = hook.maxMintable();
         _swapBuy(hook, trader, 5e18);
         _nextBlock();
-        assertLe(hook.maxMintable(), before, "capped at 1.05 x p0 until the TWAP matures");
+        assertEq(before, 0, "nothing at a flat open");
+        assertLe(hook.maxMintable(), hook.tierSize(), "capped at p0, shelf 0, until the TWAP matures");
     }
 
     function test_shelf_dumpTightensTheGate() public {
+        _openLadder();
         uint256 before = hook.maxMintable();
         _swapSell(hook, alice, token.balanceOf(alice));
         _nextBlock();
@@ -237,6 +250,7 @@ contract PostLaunchTest is V2Base {
     }
 
     function test_shelf_haltStopsMinting_resumeAndLapse() public {
+        _openLadder();
         vm.prank(admin);
         factory.haltLadderMinting(address(hook), 1 days);
         assertTrue(factory.ladderMintingHalted(address(hook)));
@@ -280,20 +294,21 @@ contract PostLaunchTest is V2Base {
     }
 
     function test_lens_tiersAndRemaining() public {
-        uint256 amount = hook.TIER_SIZE() + 100e18;
+        _openLadder();
+        uint256 amount = hook.tierSize() + 100e18;
         uint256 cost = hook.quoteMint(amount);
         vm.prank(bob, bob);
         hook.mintBondingCurve(amount, cost);
 
         ToshHookLens.Tier[] memory t = lens.getTiers(address(hook), 0, 3);
         assertEq(t.length, 3);
-        assertEq(t[0].soldAmount, hook.TIER_SIZE());
+        assertEq(t[0].soldAmount, hook.tierSize());
         assertEq(t[1].soldAmount, 100e18);
         assertEq(t[2].soldAmount, 0);
         assertEq(t[1].price, hook.tierPriceAt(1));
         assertEq(lens.getTiers(address(hook), hook.TIER_COUNT(), 5).length, 0);
         assertEq(lens.getTiers(address(hook), hook.TIER_COUNT() - 2, 5).length, 2);
-        assertEq(lens.bondingRemaining(address(hook)), hook.BONDING_MAX() - amount);
+        assertEq(lens.bondingRemaining(address(hook)), hook.TIER_COUNT() * hook.tierSize() - amount);
     }
 
     // ─── reservoir and buyback ────────────────────────────────────────────────
@@ -369,7 +384,7 @@ contract PostLaunchTest is V2Base {
     }
 
     function test_poke_buysAndBurns_cappedByDepth_andShutsMinting() public {
-        _matureTwap();
+        _openLadder();
         _list(token);
         _setReservoir(1e18);
         uint256 cap = ladder.legCeiling(address(token));
@@ -500,9 +515,10 @@ contract PostLaunchTest is V2Base {
     function test_circuit_saleSettlesTheSeller_buyerStartsEmpty() public {
         _swapBuy(hook, trader, 2e18);
         _nextBlock();
-        uint256 cost = hook.quoteMint(1_000e18);
+        uint256 amount = hook.tierSize() / 2;
+        uint256 cost = hook.quoteMint(amount);
         vm.prank(bob, bob);
-        hook.mintBondingCurve(1_000e18, cost);
+        hook.mintBondingCurve(amount, cost);
 
         CircuitNFT nft = CircuitNFT(factory.circuitNFT());
         uint256 id = factory.circuitOf(address(hook));

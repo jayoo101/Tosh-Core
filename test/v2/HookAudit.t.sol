@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PoolKey} from "infinity-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "infinity-core/src/types/PoolId.sol";
 import {ICLPoolManager} from "infinity-core/src/pool-cl/interfaces/ICLPoolManager.sol";
@@ -18,8 +19,8 @@ import {CircuitRevenueVault} from "../../src/CircuitRevenueVault.sol";
 
 /// @notice Adversarial PoCs against ToshLaunchpadHook (v2).
 /// @dev    `test_DESIGN_*` pin accepted behaviour: the Circuit holder funds the
-///         project through shelves at ~1 % net cost, which is the point of
-///         routing 99 % of proceeds to it.
+///         project through shelves at ~1 % net cost once the market has risen
+///         to them, which is the point of routing 99 % of proceeds to it.
 ///         `test_OPEN_*` pin behaviour that is known and not yet changed: they
 ///         pass while the issue stands, and are meant to fail, and be inverted,
 ///         by whatever change closes it.
@@ -49,29 +50,14 @@ contract HookAuditTest is V2Base {
     // H-1 (accepted by design): the shelf beneficiary mints at ~1 % net cost.
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _mintAndDump(address who, bool rebate) internal returns (int256 pnl, uint256 minted) {
-        uint256 q0 = quote.balanceOf(who);
-        minted = hook.maxMintable();
-        uint256 cost = hook.quoteMint(minted);
-        vm.prank(who, who);
-        hook.mintBondingCurve(minted, cost);
-        if (rebate) {
-            CircuitRevenueVault rv = CircuitRevenueVault(hook.projectAdmin());
-            vm.prank(who);
-            rv.withdraw(address(quote), who, type(uint256).max);
-        }
-        _swapSell(hook, who, minted);
-        pnl = int256(quote.balanceOf(who)) - int256(q0);
-    }
-
-    function test_DESIGN_H1_controllerMintAndDump_isProfitable() public {
+    /// @dev With a par ceiling nothing is mintable until the market has risen
+    ///      to a shelf's price, so there is no band to dump at the open.
+    function test_H1_noShelfOpensAtLaunch() public {
         _launched();
-        uint256 lpQuoteBefore = quote.balanceOf(address(vault));
-        (int256 pnl, uint256 minted) = _mintAndDump(dev, true);
-        console2.log("shelf tokens minted by controller", minted / 1e18);
-        console2.log("controller net quote PnL (wei)", pnl);
-        console2.log("quote drained from vault/pool (wei)", lpQuoteBefore - quote.balanceOf(address(vault)));
-        assertGt(pnl, 0, "controller extracts quote from the pool by minting fresh supply");
+        assertEq(hook.maxMintable(), 0, "a flat market opens no shelf");
+        vm.prank(dev, dev);
+        vm.expectRevert(ToshLaunchpadHook.TierPriceAboveCeiling.selector);
+        hook.mintBondingCurve(1e18, type(uint256).max);
     }
 
     /// @dev No outside buyers at all: the controller funds its own pump, waits
@@ -105,30 +91,30 @@ contract HookAuditTest is V2Base {
     }
 
     /// @dev Shelves are fixed-size in tokens while pool depth scales with the
-    ///      raise, so a thin raise is drained almost entirely in one block.
-    function test_DESIGN_H1_thinRaise_controllerDrainsNearlyAllLpQuote() public {
-        (ToshToken t2, ToshLaunchpadHook h2) = _create("Thin", HARD_CAP, AGENT_CAP);
+    ///      raise. At a 105 % ceiling a 0.5 % raise lost 85 % of its pool quote
+    ///      in the block after launch; at par the thin pool opens nothing.
+    function test_H1_thinRaise_noShelfOpensAtLaunch() public {
+        (, ToshLaunchpadHook h2) = _create("Thin", HARD_CAP, AGENT_CAP);
         _buy(h2, carol, 0.5e18);
         _launchAsAdmin(h2);
         _nextBlock();
-        hook = h2;
-        token = t2;
-        uint256 lpQuote = quote.balanceOf(address(vault)); // only the Thin pool is funded
-        (int256 pnl, uint256 minted) = _mintAndDump(dev, true);
-        uint256 left = quote.balanceOf(address(vault));
-        console2.log("LP quote at open (wei)", lpQuote);
-        console2.log("LP quote left after controller dump (wei)", left);
-        console2.log("minted tokens", minted / 1e18);
-        console2.log("controller PnL (wei)", pnl);
-        assertGt(pnl, 0);
-        assertLt(left * 5, lpQuote, "more than 80 % of the genesis LP quote extracted");
+        assertEq(h2.maxMintable(), 0);
     }
 
-    function test_H1_control_outsiderMintAndDump_loses() public {
-        _launched();
-        (int256 pnl,) = _mintAndDump(carol, false);
-        console2.log("outsider net quote PnL (wei)", pnl);
-        assertLt(pnl, 0);
+    /// @dev The pool's token side is 2.8 M × raised / hardCap, so shelves shrink
+    ///      by the same ratio and each stays the same share of the pool.
+    function test_H1_shelvesScaleWithTheRaise() public {
+        (, ToshLaunchpadHook thin) = _create("Thin", HARD_CAP, AGENT_CAP);
+        _buy(thin, carol, 0.5e18);
+        _sellOut(hook);
+        assertEq(thin.tierSize(), 0, "unset before launch");
+
+        _launchAsAdmin(hook);
+        _launchAsAdmin(thin);
+        uint256 raised = thin.raised();
+        assertEq(thin.tierSize(), Math.mulDiv(thin.TIER_SIZE(), raised, HARD_CAP, Math.Rounding.Ceil));
+        assertLt(thin.tierSize(), thin.TIER_SIZE() / 100, "a 0.5 % raise sells 0.5 % shelves");
+        assertEq(hook.tierSize(), hook.TIER_SIZE(), "a sold-out raise sells full shelves");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -137,14 +123,17 @@ contract HookAuditTest is V2Base {
 
     function test_L1_dustSwapNoLongerGriefsShelfMint() public {
         _launched();
+        _swapBuy(hook, trader, 0.1e18); // the market rises to shelf 0
+        _nextBlock();
         assertGt(hook.maxMintable(), 0, "shelves open");
-        uint256 cost = hook.quoteMint(1_000e18);
+        uint256 amount = hook.tierSize() / 2;
+        uint256 cost = hook.quoteMint(amount);
 
         _swapBuy(hook, trader, 99); // front-run by griefer
         assertGt(hook.maxMintable(), 0, "a dust swap leaves the ladder open");
 
         vm.prank(bob, bob);
-        hook.mintBondingCurve(1_000e18, cost);
+        hook.mintBondingCurve(amount, cost);
     }
 
     function test_L1_aSwapThatMovesThePriceStillShutsTheBlock() public {
@@ -259,7 +248,7 @@ contract HookAuditTest is V2Base {
         (, uint256 spot, uint256 twap,,,) = _status(hook);
         console2.log("maxMintable before / after", before / 1e18, hook.maxMintable() / 1e18);
         assertApproxEqRel(twap, spot, 1e16, "TWAP == pumped spot after one idle window");
-        assertEq(hook.maxMintable(), hook.MAX_TIERS_PER_TX() * hook.TIER_SIZE(), "full 32-shelf run open");
+        assertEq(hook.maxMintable(), hook.MAX_TIERS_PER_TX() * hook.tierSize(), "full 32-shelf run open");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

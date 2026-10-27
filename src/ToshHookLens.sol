@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {GenesisCurve} from "./libraries/GenesisCurve.sol";
 import {AgentIdLib} from "./libraries/AgentIdLib.sol";
 
@@ -31,7 +32,7 @@ interface IToshHookView {
     function ADMIN_LAUNCH_WINDOW() external view returns (uint256);
     function TIER_COUNT() external view returns (uint256);
     function TIER_SIZE() external view returns (uint256);
-    function BONDING_MAX() external view returns (uint256);
+    function tierSize() external view returns (uint256);
 }
 
 /// @title  ToshHookLens — stateless read helpers for ToshX hooks
@@ -146,7 +147,7 @@ contract ToshHookLens {
         uint256 end = start + count;
         if (end > tierCount) end = tierCount;
 
-        uint256 size = h.TIER_SIZE();
+        uint256 size = shelfSize(hook);
         uint256 idxNow = h.currentTierIndex();
         uint256 soldNow = h.currentTierSold();
 
@@ -158,11 +159,19 @@ contract ToshHookLens {
         }
     }
 
+    /// @notice Tokens per shelf: the hook's own figure once launched, and before
+    ///         that what launching on the current raise would fix it at.
+    function shelfSize(address hook) public view returns (uint256) {
+        IToshHookView h = IToshHookView(hook);
+        if (h.launched()) return h.tierSize();
+        return Math.mulDiv(h.TIER_SIZE(), h.raised(), h.hardCap(), Math.Rounding.Ceil);
+    }
+
     /// @notice Shelf tokens still unissued across the whole ladder.
     function bondingRemaining(address hook) external view returns (uint256) {
         IToshHookView h = IToshHookView(hook);
         uint256 minted = h.phase2Minted();
-        uint256 max = h.BONDING_MAX();
+        uint256 max = h.TIER_COUNT() * shelfSize(hook);
         return minted >= max ? 0 : max - minted;
     }
 }

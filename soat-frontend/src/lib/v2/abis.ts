@@ -979,6 +979,25 @@ export const V2_LENS_ABI = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "shelfSize",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "error",
     "name": "AgentRegistryUnavailable",
     "inputs": []
@@ -2913,6 +2932,19 @@ export const V2_HOOK_ABI = [
         "internalType": "uint256"
       }
     ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "tierSize",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
