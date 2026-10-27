@@ -47,7 +47,7 @@ export function Hero({ projects, counts, summaries }: {
   ]
 
   return (
-    <section aria-labelledby="hero-title" className="glow-frame relative isolate overflow-hidden rounded-[1.5rem] bg-surface-card/85">
+    <section aria-labelledby="hero-title" className="glow-frame glow-flow relative isolate overflow-hidden rounded-[1.5rem] bg-surface-card/85">
       <div aria-hidden="true" className="hero-grid pointer-events-none absolute inset-0 -z-10" />
       <div className="grid gap-8 p-6 md:p-10 lg:grid-cols-2 lg:items-center lg:gap-6 lg:p-12">
         <div className="flex flex-col gap-6">
@@ -103,7 +103,7 @@ export function Hero({ projects, counts, summaries }: {
           {featured ? (
             <FeaturedCard project={featured} summary={s} now={now} />
           ) : (
-            <div className="glow-panel glow-delay flex w-full max-w-md flex-col gap-2 p-5 lg:-mt-10">
+            <div className="glow-panel glow-flow glow-delay flex w-full max-w-md flex-col gap-2 p-5 lg:-mt-10">
               <span className="font-bold text-text-primary">{t.heroNoLive}</span>
               <Link href="/launched" className="text-body text-brand hover:underline">{t.heroNoLiveLink}</Link>
             </div>
@@ -142,7 +142,7 @@ function FeaturedCard({ project: p, summary: s, now }: { project: DirectoryProje
     <ProjectLink
       project={p}
       label={fill(t.heroViewAria, { symbol: p.symbol })}
-      className="glow-panel glow-delay group flex w-full max-w-md flex-col gap-4 p-4 lg:-mt-10"
+      className="glow-panel glow-flow glow-delay group flex w-full max-w-md flex-col gap-4 p-4 lg:-mt-10"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

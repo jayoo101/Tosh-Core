@@ -934,6 +934,18 @@ select:focus {
   z-index: -1;
   border-radius: inherit;
   padding: 1px;
+  background: rgb(240 185 11 / 0.14);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/** The moving rim and halo, kept to the home hero and the how-it-works cards;
+ *  every other frame keeps the still rim above. */
+.glow-flow::before {
   background: conic-gradient(
     from var(--toshx-angle),
     rgb(240 185 11 / 0.12) 0deg,
@@ -941,16 +953,10 @@ select:focus {
     rgb(252 213 53 / 0.95) 320deg,
     rgb(240 185 11 / 0.12) 360deg
   );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
   animation: toshx-spin 4s linear infinite;
-  pointer-events: none;
 }
 
-.glow-panel::after {
+.glow-panel.glow-flow::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -1137,12 +1143,20 @@ select:focus {
   pointer-events: none;
 }
 
-/** Headings: a gold gradient clipped to the text, sweeping left. */
+/** Headings: a still gold gradient clipped to the text. */
+.text-gold-shimmer {
+  background-image: linear-gradient(100deg, #f0b90b 0%, #fcd535 50%, #f0b90b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/** The sweeping variant, for the how-it-works heading only. */
 @keyframes toshx-gold-shift {
   to { background-position: -200% 0; }
 }
 
-.text-gold-shimmer {
+.text-gold-shimmer.text-gold-flow {
   background-image: linear-gradient(
     100deg,
     #3a2c05 0%,
@@ -1154,17 +1168,13 @@ select:focus {
     #3a2c05 100%
   );
   background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
   animation: toshx-gold-shift 5s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .text-gold-shimmer,
-  .glow-panel::before,
-  .glow-panel::after,
-  .glow-frame::before,
+  .text-gold-flow,
+  .glow-flow::before,
+  .glow-flow::after,
   .toshx-grid::before,
   .toshx-grid::after,
   .hero-grid::before,
