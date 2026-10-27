@@ -16,6 +16,7 @@ interface IToshHookView {
     function currentGenesisPrice() external view returns (uint256);
     function agentRegistry() external view returns (address);
     function agentSpent(bytes32 key) external view returns (uint256);
+    function walletSpent(address account) external view returns (uint256);
     function minBuy() external view returns (uint256);
     function acceptsNative() external view returns (bool);
     function quoteAsset() external view returns (address);
@@ -125,6 +126,8 @@ contract ToshHookLens {
         }
         if (a.agentKey == bytes32(0)) return a;
         a.spent = h.agentSpent(a.agentKey);
+        uint256 byWallet = h.walletSpent(account);
+        if (byWallet > a.spent) a.spent = byWallet;
         uint256 cap = h.perAgentCap();
         a.remaining = a.spent >= cap ? 0 : cap - a.spent;
     }

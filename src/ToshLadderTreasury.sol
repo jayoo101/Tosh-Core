@@ -283,6 +283,19 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         pins the width, and PROBE G measures what leaks through it.
     uint256 public constant MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000;
 
+    /// @notice How far the pool's spot may already sit above its TWAP, in sqrt
+    ///         terms (50 bps ≈ 1 % in price), for a leg to start at all.
+    ///
+    /// @dev    `MAX_BUYBACK_SQRT_DEVIATION_BPS` bounds where a leg ENDS, so a
+    ///         pump that stops inside that band left the leg free to buy the
+    ///         whole stretch. And `MAX_LEG_DEPTH_BPS` reads ACTIVE liquidity,
+    ///         which anyone can inflate with a narrow position around spot for
+    ///         one transaction. Together they let a leg run at full size against
+    ///         the attacker's own just-in-time position at a pumped price. With
+    ///         spot pinned near the TWAP before the swap, whatever liquidity the
+    ///         leg fills against, it fills at about the market's settled price.
+    uint256 public constant MAX_PRE_LEG_SQRT_PREMIUM_BPS = 50;
+
     /// @dev Transient-storage slot holding the recursion guard.  A piggyback
     ///      buys through OTHER Tosh pools, whose hooks would otherwise tax the
     ///      buyback and re-trigger a nested piggyback.  Hooks read
@@ -354,6 +367,12 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev token => (index in `ladderTokens`) + 1.  Zero means "not listed".
     mapping(address => uint256) internal _indexPlusOne;
 
+    /// @notice token => block of its last buyback leg.  One leg per pool per
+    ///         block: `MAX_LEG_DEPTH_BPS` bounds a leg, but a sandwich captures
+    ///         every leg between its buy and its sell, and the TWAP cannot move
+    ///         inside a block to tighten the floor between them.
+    mapping(address => uint256) public lastLegBlock;
+
     // ─── Events ───────────────────────────────────────────────────────────────
 
     event FactorySet(address indexed factory);
@@ -400,6 +419,8 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev `pokeBuyback` called with nothing to deploy.
     error NotArmed();
     error PiggybackInProgress();
+    error LegAlreadyRanThisBlock();
+    error SpotAboveTwap();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -777,6 +798,15 @@ contract ToshLadderTreasury is Ownable2Step {
         uint256 total = ladderTokens.length;
         if (total == 0) return;
 
+        // An outer frame that synced the quote asset and has not settled yet
+        // would have that sync overwritten by a leg's own `sync`, and its
+        // settle would then credit nothing. Wait for a cleaner swap instead.
+        try vault.getVaultReserve() returns (Currency synced, uint256) {
+            if (Currency.unwrap(synced) != address(0)) return;
+        } catch {
+            return;
+        }
+
         // Legs per poke and the spend divisor are separate numbers; see both
         // constants.  `count` is only clamped by the ladder length so a
         // one-token ladder does not index past the end.
@@ -856,10 +886,14 @@ contract ToshLadderTreasury is Ownable2Step {
         //   that a thin pool is bought back over more pokes; pokes are
         //   permissionless and ride on user swaps, so that costs nobody a
         //   transaction.
+        if (lastLegBlock[token] == block.number) revert LegAlreadyRanThisBlock();
+        if (_spotStretchedAboveTwap(key)) revert SpotAboveTwap();
+
         uint256 ceiling = _legDepthCeiling(key);
         if (ceiling == 0) return;
         if (nativeIn > ceiling) nativeIn = ceiling;
 
+        lastLegBlock[token] = block.number;
         BalanceDelta delta = poolManager.swap(
             key,
             ICLPoolManager.SwapParams({
@@ -1031,6 +1065,22 @@ contract ToshLadderTreasury is Ownable2Step {
             return floor > unbounded ? uint160(floor) : unbounded;
         } catch {
             return unbounded;
+        }
+    }
+
+    /// @dev True when spot already prices the token more than
+    ///      `MAX_PRE_LEG_SQRT_PREMIUM_BPS` above its TWAP. The token is
+    ///      currency1, so a dearer token is a LOWER sqrt price. No TWAP, or a
+    ///      hook that cannot answer, falls through to `_buybackSqrtFloor`'s
+    ///      handling of the same two cases.
+    function _spotStretchedAboveTwap(PoolKey memory key) internal view returns (bool) {
+        try IToshHookTwap(address(key.hooks)).twapSqrtPriceX96() returns (uint160 twapSqrt) {
+            if (twapSqrt == 0) return false;
+            (uint160 spot,,,) = poolManager.getSlot0(key.toId());
+            uint256 lowest = (uint256(twapSqrt) * (BPS_DENOMINATOR - MAX_PRE_LEG_SQRT_PREMIUM_BPS)) / BPS_DENOMINATOR;
+            return uint256(spot) < lowest;
+        } catch {
+            return false;
         }
     }
 

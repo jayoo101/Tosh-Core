@@ -2993,6 +2993,25 @@ export const V2_HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "walletSpent",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "withdrawFund",
     "inputs": [],
     "outputs": [],
@@ -4326,6 +4345,19 @@ export const V2_FACTORY_ABI = [
   {
     "type": "function",
     "name": "releaseAbandonedName",
+    "inputs": [
+      {
+        "name": "hook",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "releaseName",
     "inputs": [
       {
         "name": "hook",
@@ -5872,6 +5904,19 @@ export const V2_TREASURY_ABI = [
   },
   {
     "type": "function",
+    "name": "MAX_PRE_LEG_SQRT_PREMIUM_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "SPEND_BPS",
     "inputs": [],
     "outputs": [
@@ -6065,6 +6110,25 @@ export const V2_TREASURY_ABI = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastLegBlock",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -6497,6 +6561,11 @@ export const V2_TREASURY_ABI = [
   },
   {
     "type": "error",
+    "name": "LegAlreadyRanThisBlock",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotArmed",
     "inputs": []
   },
@@ -6562,6 +6631,11 @@ export const V2_TREASURY_ABI = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "SpotAboveTwap",
+    "inputs": []
   },
   {
     "type": "error",

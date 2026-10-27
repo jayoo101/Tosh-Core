@@ -920,6 +920,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Quote spent per Agent ID, keyed by `keccak256(handle)`.
     mapping(bytes32 => uint256) public agentSpent;
 
+    /// @notice Quote spent per buying wallet. The cap is booked against the
+    ///         larger of this and `agentSpent`, so a wallet that moves to a
+    ///         different Agent ID does not start a fresh allowance.
+    mapping(address => uint256) public walletSpent;
+
     // ─── Phase 2 shelves ──────────────────────────────────────────────────────
 
     /// @notice The pool's opening price — ETH-wei per whole token, derived at
@@ -1472,6 +1477,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (agentKey == bytes32(0)) revert NoAgentId();
 
         uint256 spent = agentSpent[agentKey];
+        uint256 spentByWallet = walletSpent[msg.sender];
+        if (spentByWallet > spent) spent = spentByWallet;
         uint256 cap = perAgentCap();
         if (spent >= cap) revert AgentCapReached();
         uint256 budget = maxPay;
@@ -1493,6 +1500,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         genesisSold = soldAfter;
         raised += cost;
         agentSpent[agentKey] = spent + cost;
+        walletSpent[msg.sender] = spent + cost;
 
         uint256 fund = (cost * FUND_BPS) / BPS_DENOMINATOR;
         fundAccrued += fund;
@@ -1549,7 +1557,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Where `withdrawFund` pays the accrued 20 %.
     function setProjectFund(address newFund) external {
         if (msg.sender != projectController()) revert OnlyProjectController();
-        if (newFund == address(0)) revert ZeroAddress();
+        // Paid to the hook, the fund would read as surplus at `launch()`.
+        if (newFund == address(0) || newFund == address(this)) revert ZeroAddress();
         emit ProjectFundChanged(projectFund, newFund);
         projectFund = newFund;
     }

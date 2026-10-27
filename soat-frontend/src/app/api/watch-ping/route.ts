@@ -27,7 +27,7 @@
  *        or `repository_dispatch` absent from the default branch)
  *   503  a credential this route needs is unset on the deployment
  */
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { applyRateLimit } from '@/app/lib/apiGuard'
@@ -65,11 +65,9 @@ function providedSecret(req: NextRequest): Credential {
   return { kind: 'absent', scheme: scheme || null }
 }
 
+/** Digests first, so the comparison is equal-length and leaks nothing, length included. */
 function secretsEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a)
-  const right = Buffer.from(b)
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 }
 
 export async function GET(req: NextRequest) {

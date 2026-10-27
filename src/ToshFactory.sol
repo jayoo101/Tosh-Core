@@ -408,6 +408,22 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         emit NameReleased(hook, key);
     }
 
+    /// @notice Free a live launch's name for reuse. Owner only.
+    /// @dev    For a launch the platform did not mean to list. Through
+    ///         `ToshLaunchGateway` any single Safe signer can `createLaunch`,
+    ///         and one genesis buy puts the name out of `releaseAbandonedName`'s
+    ///         reach for good. The launch itself is untouched; only its claim
+    ///         on the name goes. `execute` keeps this with the Safe as a whole.
+    function releaseName(address hook) external onlyOwner {
+        if (!registeredHooks[hook]) revert HookNotRegistered();
+        bytes32 key = hookNameKey[hook];
+        if (key == bytes32(0)) revert NameStillHeld();
+
+        delete hookNameKey[hook];
+        nameTaken[key] = false;
+        emit NameReleased(hook, key);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     //  Views
     // ══════════════════════════════════════════════════════════════════════════

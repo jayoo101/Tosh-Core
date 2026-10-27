@@ -79,6 +79,7 @@ import {
   applyCors, applyRateLimit, corsPreflight, readJsonBody,
 } from '@/app/lib/apiGuard'
 import { consumeRateLimit } from '@/app/lib/rateLimitStore'
+import { legacyGone } from '@/app/lib/legacyApi'
 
 /**
  * The budget for the whole scan, and therefore for `after()`.
@@ -488,6 +489,8 @@ export async function OPTIONS(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const gone = legacyGone()
+  if (gone) return gone
   // Before the store is touched, not after: the first Upstash command is the
   // cost being bounded, so charging for it afterwards would leave the whole
   // budget spendable by requests that are refused.
@@ -522,6 +525,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const gone = legacyGone()
+  if (gone) return gone
   const limited = await applyRateLimit(req, RATE_LIMIT_OPTS)
   if (limited) return applyCors(limited, req, CORS_OPTS)
 

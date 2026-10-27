@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useBytecode, useReadContract, useSignMessage } from 'wagmi'
-import { FACTORY_ABI, FACTORY_ADDRESS } from '@/lib/contracts'
+import { FACTORY_ABI, FACTORY_ADDRESS, TARGET_CHAIN_ID } from '@/lib/contracts'
 import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
 import {
   ActionButton, useActionGate, revertOrder,
@@ -168,7 +168,9 @@ export function ExchangeRatePanel() {
     // about them rather than their absence — this panel deliberately does not
     // offer them, because a per-wallet deposit cap typed into a box with no
     // second pair of eyes is what `scripts/rotateGasRate.mjs` exists to avoid.
-    const msg       = buildAdminConfigMessage({ rate, nonce, expiresAt })
+    const msg       = buildAdminConfigMessage({
+      chainId: TARGET_CHAIN_ID, factory: FACTORY_ADDRESS, rate, nonce, expiresAt,
+    })
 
     setBusy(true)
     try {

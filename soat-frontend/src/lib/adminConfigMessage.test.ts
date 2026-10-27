@@ -10,12 +10,16 @@ import {
 
 const REPO_ROOT = path.resolve(__dirname, '../../..')
 
+const FACTORY = '0x00000000000000000000000000000000000000Fa'
+const DEPLOYMENT = { chainId: 56, factory: FACTORY } as const
+const CLI_DEPLOYMENT = ['--chainId', '56', '--factory', FACTORY]
+
 describe('the canonical admin-config message', () => {
   it('keeps the alignment that is part of the signed bytes', () => {
     // Whitespace is not cosmetic once something signs it. Pinning the exact
     // string here means a well-meaning reformat shows up as a failed assertion
     // rather than as a 403 that looks like the wrong wallet is connected.
-    expect(buildAdminConfigMessage({
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.12,
       floorWei: '25000000000000000',
       maxAllocWei: '500000000000000000',
@@ -23,6 +27,8 @@ describe('the canonical admin-config message', () => {
       expiresAt: 1757021600,
     })).toBe(
       'Tosh Admin Config Update\n' +
+      'chainId:     56\n' +
+      'factory:     0x00000000000000000000000000000000000000fa\n' +
       'rate:        0.12\n' +
       'floorWei:    25000000000000000\n' +
       'maxAllocWei: 500000000000000000\n' +
@@ -34,7 +40,7 @@ describe('the canonical admin-config message', () => {
   it('renders a rate the way a wallet will, not padded', () => {
     // `0.5` must sign as `0.5`. Anything that reformats numbers on one side of
     // this exchange invalidates every signature without saying so.
-    expect(buildAdminConfigMessage({ rate: 0.5, nonce: 1n, expiresAt: 2 }))
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT, rate: 0.5, nonce: 1n, expiresAt: 2 }))
       .toContain('rate:        0.5\n')
   })
 
@@ -43,11 +49,11 @@ describe('the canonical admin-config message', () => {
     // A blank, or an omitted line, would let the server choose between several
     // texts the owner might have signed — and the ceiling is the per-wallet
     // deposit cap, so that choice is worth attacking.
-    const msg = buildAdminConfigMessage({ rate: 0.5, nonce: 1n, expiresAt: 2 })
+    const msg = buildAdminConfigMessage({ ...DEPLOYMENT, rate: 0.5, nonce: 1n, expiresAt: 2 })
     expect(msg).toContain(`floorWei:    ${ADMIN_CONFIG_KEEP}\n`)
     expect(msg).toContain(`maxAllocWei: ${ADMIN_CONFIG_KEEP}\n`)
     // And an explicitly-null dial is the same statement as an absent one.
-    expect(buildAdminConfigMessage({
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.5, floorWei: null, maxAllocWei: null, nonce: 1n, expiresAt: 2,
     })).toBe(msg)
   })
@@ -56,10 +62,10 @@ describe('the canonical admin-config message', () => {
     // The route parses a bigint out of a decimal string; the CLI holds the
     // string it wrote into its artefact. Both must produce the same bytes, or
     // the flow signs in one place and verifies in another.
-    const asBig = buildAdminConfigMessage({
+    const asBig = buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.5, floorWei: 25_000_000_000_000_000n, nonce: 1n, expiresAt: 2,
     })
-    expect(buildAdminConfigMessage({
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.5, floorWei: '25000000000000000', nonce: 1n, expiresAt: 2,
     })).toBe(asBig)
   })
@@ -67,9 +73,9 @@ describe('the canonical admin-config message', () => {
   it('accepts a nonce as bigint, string or number identically', () => {
     // The route parses a bigint, the admin panel holds a bigint, and the CLI
     // reads a number out of JSON. All three must produce the same bytes.
-    const asBig = buildAdminConfigMessage({ rate: 0.2, nonce: 42n, expiresAt: 99 })
-    expect(buildAdminConfigMessage({ rate: 0.2, nonce: '42', expiresAt: 99 })).toBe(asBig)
-    expect(buildAdminConfigMessage({ rate: 0.2, nonce: 42, expiresAt: 99 })).toBe(asBig)
+    const asBig = buildAdminConfigMessage({ ...DEPLOYMENT, rate: 0.2, nonce: 42n, expiresAt: 99 })
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT, rate: 0.2, nonce: '42', expiresAt: 99 })).toBe(asBig)
+    expect(buildAdminConfigMessage({ ...DEPLOYMENT, rate: 0.2, nonce: 42, expiresAt: 99 })).toBe(asBig)
   })
 
   it('gives a multi-signature owner materially longer than a single signer', () => {
@@ -92,11 +98,12 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
       [
         'scripts/rotateGasRate.mjs', 'template',
         '--rate', '0.12', '--nonce', '1757000000000', '--expiresAt', '1757021600',
+        ...CLI_DEPLOYMENT,
       ],
       { cwd: REPO_ROOT, encoding: 'utf8' },
     )
 
-    const expected = buildAdminConfigMessage({
+    const expected = buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.12, nonce: 1757000000000n, expiresAt: 1757021600,
     })
     for (const line of expected.split('\n')) {
@@ -123,11 +130,12 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
         'scripts/rotateGasRate.mjs', 'template',
         '--rate', '0.5', '--floor', '0.025', '--max-alloc', '0.5',
         '--nonce', '1757000000000', '--expiresAt', '1757021600',
+        ...CLI_DEPLOYMENT,
       ],
       { cwd: REPO_ROOT, encoding: 'utf8' },
     )
 
-    const expected = buildAdminConfigMessage({
+    const expected = buildAdminConfigMessage({ ...DEPLOYMENT,
       rate: 0.5,
       floorWei: 25_000_000_000_000_000n,  // 0.025 ETH at 18 decimals
       maxAllocWei: 50_000_000n,           // 0.5 BEM at 8 decimals
@@ -143,6 +151,8 @@ describe('scripts/rotateGasRate.mjs reads this module rather than copying it', (
     // Guards the guard: the assertion above passes vacuously if the parser
     // silently returns something else, so pin the shape it depends on.
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toMatch(/^'?Tosh Admin Config Update/)
+    expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{chainId}')
+    expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{factory}')
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{rate}')
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{floorWei}')
     expect(ADMIN_CONFIG_MESSAGE_TEMPLATE).toContain('{maxAllocWei}')

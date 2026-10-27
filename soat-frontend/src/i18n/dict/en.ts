@@ -1178,8 +1178,6 @@ export const EN = {
     svg:           'SVG is not accepted — it is a document rather than an image and can carry script. Export it as PNG.',
     failed:        'Could not store that image',
     hint:          'PNG, JPEG, GIF or WebP · up to 1 MB',
-    pasteSummary:  'Or paste a URL',
-    urlLabel:      'Image URL',
   },
 
   /** The listing mock-up beside the `/launch` form. */

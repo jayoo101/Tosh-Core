@@ -171,7 +171,8 @@ afterEach(() => {
  * and passes while the real UI signs something the real route rejects. Importing
  * the one definition is what makes that comment true.
  */
-const signable = buildAdminConfigMessage
+const signable = (u: Omit<Parameters<typeof buildAdminConfigMessage>[0], 'chainId' | 'factory'>) =>
+  buildAdminConfigMessage({ chainId: 31337, factory: FACTORY, ...u })
 
 /** A distinct source IP per call — the POST limiter is 3-burst, 1 token per 30s,
  *  so a shared IP would turn the fourth assertion in this file into a 429. */

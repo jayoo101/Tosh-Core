@@ -22,18 +22,16 @@
  * is taken is a URL the listing will not carry. The parent therefore treats
  * `busy` as a deploy blocker, not as a spinner next to an armed button.
  *
- * ── The pasted-URL path stays ──────────────────────────────────────────────
+ * ── Why there is no pasted-URL field ───────────────────────────────────────
  *
- * The route is unauthenticated on purpose (no launch exists yet to recover a
- * creator from), and a deployment without the service-role key answers 503.
- * A creator who already hosts the image, or who hits that 503, still needs a
- * way to name a URL. The paste field is that way, not a competing upload.
+ * There was one. `POST /api/projects` now accepts only objects in our own
+ * bucket: an outside URL is rendered as an `<img>` on every directory card, so
+ * its host sees every visitor and can swap the picture after listing.
  */
 
 import { useId, useRef, useState } from 'react'
 import { Upload, X } from 'lucide-react'
 import { ProjectLogo } from '@/components/ProjectLogo'
-import { Field } from '@/components/ui/Field'
 import { cn } from '@/components/ui/cn'
 import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
 import { fill, useT } from '@/i18n'
@@ -215,30 +213,6 @@ export function LogoField({
           )}
         </div>
       </div>
-
-      {/* Behind a disclosure now. It is the fallback for a creator who already
-          hosts the image or who hit the 503 on a deployment with no storage
-          key, and as a permanently visible second row it looked like the other
-          half of a two-part control. */}
-      <details className="group mt-gap-tight">
-        <summary className="cursor-pointer list-none font-mono text-label text-text-quiet hover:text-text-tertiary">
-          {t.pasteSummary}
-          <span className="ml-2 group-open:hidden">+</span>
-          <span className="ml-2 hidden group-open:inline">−</span>
-        </summary>
-        <div className="mt-gap-tight">
-          <Field
-            label={t.urlLabel}
-            value={value}
-            onValueChange={(next) => {
-              setError(null)
-              onValueChange(next)
-            }}
-            placeholder="https://…/logo.png"
-            disabled={busy}
-          />
-        </div>
-      </details>
     </div>
   )
 }

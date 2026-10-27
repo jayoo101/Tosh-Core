@@ -41,9 +41,15 @@
  * the one worth attacking: it is the per-wallet deposit cap. So all three are
  * inside the signed bytes, and a request that carries a dial the message does
  * not is rejected as unauthorised rather than partially applied.
+ *
+ * `chainId` and `factory` bind the instruction to one deployment. Without them
+ * an EOA owner's signature for staging was equally valid against production
+ * whenever the two kept separate nonce stores.
  */
 export const ADMIN_CONFIG_MESSAGE_TEMPLATE =
   'Tosh Admin Config Update\n' +
+  'chainId:     {chainId}\n' +
+  'factory:     {factory}\n' +
   'rate:        {rate}\n' +
   'floorWei:    {floorWei}\n' +
   'maxAllocWei: {maxAllocWei}\n' +
@@ -61,6 +67,9 @@ export const ADMIN_CONFIG_MESSAGE_TEMPLATE =
 export const ADMIN_CONFIG_KEEP = 'keep'
 
 export interface AdminConfigUpdate {
+  chainId: number
+  /** The factory whose owner signs; lower-cased in the message. */
+  factory: string
   rate: number
   /** Wei, as a decimal string, or null to leave the dial alone. */
   floorWei?: string | bigint | null
@@ -83,6 +92,8 @@ export interface AdminConfigUpdate {
  */
 export function buildAdminConfigMessage(u: AdminConfigUpdate): string {
   return ADMIN_CONFIG_MESSAGE_TEMPLATE
+    .replace('{chainId}', String(u.chainId))
+    .replace('{factory}', u.factory.toLowerCase())
     .replace('{rate}', String(u.rate))
     .replace('{floorWei}', weiField(u.floorWei))
     .replace('{maxAllocWei}', weiField(u.maxAllocWei))

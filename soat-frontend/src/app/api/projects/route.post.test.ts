@@ -6,8 +6,8 @@ import { NextRequest } from 'next/server'
  *
  * The route already proves the caller is the creator: it reads the launch out
  * of the receipt, recovers the signer from a `personal_sign` attestation, and
- * requires that signer to be `launch.creator`, the hook's developer, or an
- * owner of the creating Safe. `lib/projectAttestation.ts`
+ * requires that signer to be `launch.creator` or the hook's developer; a Safe
+ * creator signs as itself through ERC-1271. `lib/projectAttestation.ts`
  * explains the attack that check exists for — watch for `LaunchCreated`, POST
  * that txHash first with your own links, and the real creator's publish comes
  * back `{ duplicate: true }` while the project page serves your site to their
@@ -99,6 +99,8 @@ const SAFE_OWNER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'
 let creatorCode: string
 let safeOwners: string[] | 'not-a-safe'
 let hookReadFails: boolean
+/** What the creator contract's ERC-1271 check answers. */
+let safeSigns: boolean
 
 vi.mock('../../lib/serverRpc', () => ({
   assertServerChain: async () => true,
@@ -116,6 +118,7 @@ vi.mock('../../lib/serverRpc', () => ({
       }
       throw new Error(`unexpected read ${functionName}`)
     },
+    verifyMessage: async () => safeSigns,
   }),
 }))
 
@@ -148,6 +151,7 @@ beforeEach(() => {
   creatorCode = '0x'
   safeOwners = []
   hookReadFails = false
+  safeSigns = false
 })
 
 afterEach(() => {
@@ -167,7 +171,7 @@ async function post(body: Record<string, unknown> = {}) {
     body: JSON.stringify({
       txHash: TX_HASH,
       signature: `0x${'cd'.repeat(65)}`,
-      logoUrl: 'https://example.test/logo.png',
+      logoUrl: `https://registry.test.invalid/storage/v1/object/public/project-logos/${'a'.repeat(64)}.png`,
       website: 'https://example.test',
       twitter: '', telegram: '', description: '',
       ...body,
@@ -202,10 +206,18 @@ describe('POST /api/projects — the writer', () => {
     expect(adminInserts).toBe(1)
   })
 
-  it('lets an owner of the creating Safe publish, since a Safe cannot sign', async () => {
+  it('refuses one owner of the creating Safe signing alone', async () => {
     creatorCode = '0x6080'
     safeOwners = [SAFE_OWNER, '0x0000000000000000000000000000000000000001']
     recovered = SAFE_OWNER.toLowerCase()
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it("lets the creating Safe publish with its own ERC-1271 signature", async () => {
+    creatorCode = '0x6080'
+    recovered = '0x000000000000000000000000000000000000dEaD'
+    safeSigns = true
     const res = await post()
     expect(res.status).toBe(200)
     expect(adminInserts).toBe(1)

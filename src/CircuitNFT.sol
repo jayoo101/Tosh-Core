@@ -14,7 +14,8 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 /// ── Selling a Circuit sells future revenue only ─────────────────────────────
 ///
 ///   Every transfer first sweeps the project's genesis pool fees into the vault
-///   (best effort — a sweep that reverts, e.g. before launch, is skipped), then
+///   (skipped before launch, when there are none; after launch a sweep that
+///   reverts reverts the transfer), then
 ///   pays the vault's quote-asset balance to the sender. Revenue earned up to
 ///   the transfer belongs to the seller and arrives in the same transaction;
 ///   the buyer starts from an empty vault. A buyer therefore
@@ -47,6 +48,7 @@ contract CircuitNFT is ERC721 {
     uint256 public totalMinted;
 
     error OnlyFactory();
+    error FeeSweepFailed();
 
     constructor(address factory_, address quoteAsset_) ERC721("Tosh Circuit", "CIRCUIT") {
         require(factory_ != address(0), "zero factory");
@@ -76,7 +78,15 @@ contract CircuitNFT is ERC721 {
     function _update(address to, uint256 tokenId, address auth) internal override returns (address from) {
         from = super._update(to, tokenId, auth);
         if (from != address(0)) {
-            try ICircuitHook(ICircuitFactory(factory).hookOfCircuit(tokenId)).collectGenesisFees() {} catch {}
+            ICircuitHook hook = ICircuitHook(ICircuitFactory(factory).hookOfCircuit(tokenId));
+            // Before launch there are no fees and the sweep reverts by design.
+            // After it, a failed sweep is not "nothing to collect": a caller
+            // holding the Vault's lock makes it fail on purpose, and the fees
+            // it left behind would land in the buyer's vault.
+            try hook.collectGenesisFees() {}
+            catch {
+                if (hook.launched()) revert FeeSweepFailed();
+            }
             CircuitRevenueVault(vaultOf(tokenId)).settle(from);
         }
     }
@@ -88,4 +98,5 @@ interface ICircuitFactory {
 
 interface ICircuitHook {
     function collectGenesisFees() external;
+    function launched() external view returns (bool);
 }

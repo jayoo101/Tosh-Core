@@ -63,6 +63,7 @@ import {
 } from '@/app/lib/pogQuota'
 import { readScanJob, isFresh } from '@/app/lib/scanJobStore'
 import { getPogBand } from '@/app/lib/pogParams'
+import { legacyGone } from '@/app/lib/legacyApi'
 import {
   applyCors,
   applyRateLimit,
@@ -260,6 +261,8 @@ export async function OPTIONS(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const gone = legacyGone()
+  if (gone) return gone
   // ── Hardening Gate 0a · Rate limit ─────────────────────────────────────
   const limited = await applyRateLimit(req, RATE_LIMIT_OPTS)
   if (limited) return applyCors(limited, req, CORS_OPTS)

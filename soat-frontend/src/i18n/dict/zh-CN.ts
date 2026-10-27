@@ -825,8 +825,6 @@ export const ZH_CN: PartialDictionary = {
     svg:           '不接受 SVG —— 它是一种文档而不是图片，可能携带脚本。请导出为 PNG。',
     failed:        '无法保存这张图片',
     hint:          'PNG、JPEG、GIF 或 WebP · 最大 1 MB',
-    pasteSummary:  '或者粘贴图片链接',
-    urlLabel:      '图片链接',
   },
 
   launchPreview: {

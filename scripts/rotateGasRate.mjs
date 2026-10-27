@@ -189,7 +189,7 @@ function canonicalTemplate() {
   const parts = [...assignment[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(m => m[1])
   if (parts.length === 0) fail('template literal parse produced nothing')
   const template = parts.join('').replace(/\\n/g, '\n')
-  for (const token of ['{rate}', '{floorWei}', '{maxAllocWei}', '{nonce}', '{expiresAt}']) {
+  for (const token of ['{chainId}', '{factory}', '{rate}', '{floorWei}', '{maxAllocWei}', '{nonce}', '{expiresAt}']) {
     if (!template.includes(token)) {
       fail(`parsed template is missing ${token}: ${JSON.stringify(template)}`)
     }
@@ -201,8 +201,10 @@ function canonicalTemplate() {
  *  in step with `ADMIN_CONFIG_KEEP` in adminConfigMessage.ts. */
 const KEEP = 'keep'
 
-function buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt }) {
+function buildMessage({ chainId, factory, rate, floorWei, maxAllocWei, nonce, expiresAt }) {
   return canonicalTemplate()
+    .replace('{chainId}', String(chainId))
+    .replace('{factory}', String(factory).toLowerCase())
     .replace('{rate}', String(rate))
     .replace('{floorWei}', floorWei == null ? KEEP : String(floorWei))
     .replace('{maxAllocWei}', maxAllocWei == null ? KEEP : String(maxAllocWei))
@@ -422,7 +424,9 @@ async function request() {
 
   const nonce = Date.now()
   const expiresAt = Math.floor(Date.now() / 1000) + ttl
-  const text = buildMessage({ rate, floorWei, maxAllocWei, nonce, expiresAt })
+  const text = buildMessage({
+    chainId, factory: factoryAddress(), rate, floorWei, maxAllocWei, nonce, expiresAt,
+  })
   const td = safeMessageTypedData(owner, chainId, text)
 
   const local = ethers.TypedDataEncoder.hash(td.domain, td.types, td.message)
@@ -604,6 +608,8 @@ function template() {
   const nonce = flag('nonce') ?? 1700000000000
   const expiresAt = Number(flag('expiresAt') ?? 1700000600)
   const text = buildMessage({
+    chainId: flag('chainId') ?? 56,
+    factory: flag('factory') ?? ethers.ZeroAddress,
     rate,
     floorWei: weiFlag('floor'),
     maxAllocWei: quoteFlag('max-alloc', Number(flag('quote-decimals') ?? 18)),

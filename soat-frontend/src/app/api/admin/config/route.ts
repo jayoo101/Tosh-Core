@@ -100,6 +100,7 @@ import { FACTORY_ABI } from '@/app/lib/abis'
 import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { reportError } from '@/lib/observability'
+import { legacyGone } from '@/app/lib/legacyApi'
 import {
   applyCors,
   applyRateLimit,
@@ -389,6 +390,8 @@ function corsify(req: NextRequest, res: NextResponse) {
 
 // ─── GET — read current config ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  const gone = legacyGone()
+  if (gone) return gone
   const limited = await applyRateLimit(req, GET_RATE_LIMIT)
   if (limited) return corsify(req, limited)
 
@@ -425,6 +428,8 @@ export async function GET(req: NextRequest) {
 
 // ─── POST — update config ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const gone = legacyGone()
+  if (gone) return gone
   const limited = await applyRateLimit(req, POST_RATE_LIMIT)
   if (limited) return corsify(req, limited)
 
@@ -617,6 +622,8 @@ export async function POST(req: NextRequest) {
   // ceiling" are two different signatures over two different texts, rather than
   // one signature that authorises whichever fields happen to be in the body.
   const message = buildAdminConfigMessage({
+    chainId: targetChain.id,
+    factory: FACTORY_ADDRESS,
     rate: newRate,
     floorWei: dials.newFloorWei ?? null,
     maxAllocWei: dials.newMaxAllocWei ?? null,

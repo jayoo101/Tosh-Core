@@ -11,7 +11,7 @@
  *   401  no credential    403  wrong credential    503  not configured
  *   502  the RPC or the database failed mid-pass (the cursor did not move)
  */
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { runIndexPass, type IndexPass } from '@/app/lib/v2Indexer'
@@ -25,10 +25,9 @@ function credential(req: NextRequest): string | null {
   return bearer || req.headers.get('x-cron-secret')?.trim() || null
 }
 
+/** Digests first, so the comparison is equal-length and leaks nothing, length included. */
 function equal(a: string, b: string): boolean {
-  const l = Buffer.from(a)
-  const r = Buffer.from(b)
-  return l.length === r.length && timingSafeEqual(l, r)
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 }
 
 const serialise = (p: IndexPass) => ({

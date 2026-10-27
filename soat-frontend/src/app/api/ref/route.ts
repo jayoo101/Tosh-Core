@@ -46,6 +46,7 @@ import {
 } from '@/app/lib/supabase'
 import { generateRefCode, isRefCodeShape } from '@/lib/refCode'
 import { reportError } from '@/lib/observability'
+import { legacyGone } from '@/app/lib/legacyApi'
 
 const CORS_OPTS = { methods: ['GET', 'POST', 'OPTIONS'] as const } as const
 
@@ -87,6 +88,8 @@ export async function OPTIONS(req: NextRequest) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const gone = legacyGone()
+  if (gone) return gone
   const limited = await applyRateLimit(req, GET_LIMIT)
   if (limited) return applyCors(limited, req, CORS_OPTS)
 
@@ -162,6 +165,8 @@ export async function GET(req: NextRequest) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const gone = legacyGone()
+  if (gone) return gone
   const limited = await applyRateLimit(req, POST_LIMIT)
   if (limited) return applyCors(limited, req, CORS_OPTS)
 

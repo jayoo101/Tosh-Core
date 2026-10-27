@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { applyRateLimit } from '@/app/lib/apiGuard'
+import { SupabaseAdminUnavailable } from '@/app/lib/supabaseAdmin'
 import { indexStaleness } from '@/app/lib/v2Indexer'
 import { reportError } from '@/lib/observability'
 
@@ -28,7 +29,14 @@ export function addrParam(req: NextRequest, name: string): string | undefined | 
 export async function readGate(req: NextRequest): Promise<NextResponse | null> {
   const limited = await applyRateLimit(req, READ_LIMIT)
   if (limited) return limited
-  const stale = await indexStaleness()
+  let stale: string | null
+  try {
+    stale = await indexStaleness()
+  } catch (err) {
+    // A deployment without the service key: the client falls back to logs on any 503.
+    if (err instanceof SupabaseAdminUnavailable) return NextResponse.json({ error: 'index not configured' }, { status: 503 })
+    throw err
+  }
   if (stale) return NextResponse.json({ error: stale }, { status: 503 })
   return null
 }
