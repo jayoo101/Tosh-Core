@@ -7,7 +7,7 @@ import { fill, useT } from '@/i18n'
 
 type Phase = 'wallet' | 'buy'
 
-const BINANCE_WALLET_INVITE = 'https://web3.binance.com/referral?ref=UXMSOBGQ'
+const BINANCE_WALLET_INVITE = 'https://web3.binance.com/referral?ref=TOSHX'
 
 /**
  * Getting an Agent ID (an invite into Binance Wallet), then buying with it. The buy list is

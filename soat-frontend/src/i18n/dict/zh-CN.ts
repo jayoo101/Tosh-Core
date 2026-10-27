@@ -1388,7 +1388,7 @@ export const ZH_CN: PartialDictionary = {
     stepsBuy:          '买入 {symbol}',
     stepsNext:         '下一步：买入 {symbol} →',
     stepCurrent:       '（当前步骤）',
-    walletInvite:      '通过邀请链接打开币安钱包，创建 Agentic Wallet 并领取 Agent ID。',
+    walletInvite:      '打开币安钱包，创建 Agentic Wallet 并领取 Agent ID。',
     walletInviteCta:   '前往币安钱包领取',
     buyStep1:          '准备 Agent ID',
     buyStep1Body:      '确认 Agentic Wallet 已领取 Agent ID 并开启开发者模式。',

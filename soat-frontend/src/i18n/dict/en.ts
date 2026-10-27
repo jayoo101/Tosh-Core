@@ -1774,7 +1774,7 @@ export const EN = {
     stepsBuy:          'Buy {symbol}',
     stepsNext:         'Next: buy {symbol} →',
     stepCurrent:       '(current step)',
-    walletInvite:      'Open Binance Wallet from the invite link, create an Agentic Wallet and claim your Agent ID.',
+    walletInvite:      'Open Binance Wallet, create an Agentic Wallet and claim your Agent ID.',
     walletInviteCta:   'Claim in Binance Wallet',
     buyStep1:          'Have the Agent ID ready',
     buyStep1Body:      'The Agentic Wallet holds its Agent ID and has Developer mode on.',
