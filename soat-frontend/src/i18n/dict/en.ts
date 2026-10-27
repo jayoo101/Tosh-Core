@@ -1840,7 +1840,7 @@ export const EN = {
     ruleBook:          'Bid market',
     ruleBookBody:      'Bids only. 1% from each side, charged on fill. Fills at most 10% below the latest GENESIS price. Cancel-only after launch.',
     ruleShelf:         'Shelf ladder',
-    ruleShelfBody:     '4,000 steps of 3,150 tokens from 2P, unlocking as the pool price rises. 99% to the project, 1% to the buyback reservoir.',
+    ruleShelfBody:     '4,000 steps of 3,150 tokens from 2P, unlocking as the pool price rises. 99% to the project for marketing, operations and promotion; 1% to the buyback reservoir.',
     ruleAgentNote:     'An Agent ID stands for one Binance KYC identity, not one unique person.',
 
     ladderTitle:       'Price ladder',

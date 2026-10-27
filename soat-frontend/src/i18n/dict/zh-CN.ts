@@ -1454,7 +1454,7 @@ export const ZH_CN: PartialDictionary = {
     ruleBook:          '挂单市场',
     ruleBookBody:      '只有买单。成交时买卖双方各收 1%。成交价最低为最新 GENESIS 价格的 90%。开盘后只能撤单。',
     ruleShelf:         '货架阶梯',
-    ruleShelfBody:     '从 2P 起共 4,000 档、每档 3,150 枚，随池子价格上涨逐档开放。99% 归项目，1% 进入回购储备池。',
+    ruleShelfBody:     '从 2P 起共 4,000 档、每档 3,150 枚，随池子价格上涨逐档开放。99% 归项目，用于市场运营、宣传推广等；1% 进入回购储备池。',
     ruleAgentNote:     '一个 Agent ID 代表一个币安 KYC 身份，不等于一个独立的人。',
 
     ladderTitle:       '价格阶梯',
