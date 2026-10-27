@@ -194,7 +194,7 @@ cost(s, x) = P × [ x + 0.25 × ((s + x)² − s²) / C ]
 
 1. **检查**
    - 处于创世期，未卖完，未开盘；
-   - 调用者是 EOA：`msg.sender == tx.origin`，且代码长度为 0；
+   - 调用者是交易发起人：`msg.sender == tx.origin`（普通 EOA 或 7702 账户）；
    - 调用者持有 Agent ID（§4.2），额度未用完；
    - `maxPay ≥ MIN_BUY`。最后一个人补齐剩余额度时可以低于这个值。
 2. **截断**：实际成交金额 = min(maxPay, 个人剩余额度, 卖完所需金额)。
@@ -385,7 +385,7 @@ cost(s, x) = P × [ x + 0.25 × ((s + x)² − s²) / C ]
 
 - 前提：
   - 项目已在工厂登记、尚未开盘；
-  - 挂单人是 EOA（`msg.sender == tx.origin`，代码长度为 0）。
+  - 挂单人是交易发起人（`msg.sender == tx.origin`，普通 EOA 或 7702 账户）。
 - `price ≥ currentGenesisPrice()`，金额不低于最低挂单额。
 - 托管金额 `escrow = G + ceil(G × 1%)`，其中 `G = ceil(price × qty ÷ 1e18)` 是整单货款，后一项是买方手续费预留。
 - 如果挂单人还没登记为收款地址，调用该项目代币的 `registerFor(bidder)`，保证成交时代币能转进来（§7.1.1）。
@@ -759,10 +759,17 @@ cost(s, x) = P × [ x + 0.25 × ((s + x)² − s²) / C ]
 
 ## 17. 待实测与待定事项
 
-**待实测**
+**待实测**（步骤见 `TOSHX_V2_AGENTIC_WALLET_TEST_zh.md`）
 
-- Agentic Wallet 调用任意合约，除开发者模式外是否还有白名单或额度限制。
+- 开发者模式下 `buyGenesis`、`approve`、`fill`、`transfer` 能否通过 Binance 的预执行模拟和风控。
 - Agentic Wallet 自带的"发送"能否直接发送 Binance 未收录的新币。
+
+**已从 Binance 文档确认**（2026-10-26）
+
+- 调用任意合约必须开开发者模式：在 App 里手动开启，有效 7 天，每次使用自动续期。
+- 开发者模式有独立的每日额度，可选 1000 / 5000 / 10000 / 50000 USDT；钱包总余额高于额度时无法开启（351804）。
+- "异常交易处理"默认自动拒绝，"可交易代币"默认只允许白名单；新币需要分别改成"需要确认"和"全部"。
+- 合约调用由 Agentic Wallet 地址自己签名并广播，没有中继或代付。
 
 **待定数值**
 
@@ -833,7 +840,7 @@ cost(s, x) = P × [ x + 0.25 × ((s + x)² − s²) / C ]
 | 售罄判定 | 卖满 `SALE_SUPPLY` | 剩余量低于一个极小值（DUST）即视为售罄并记录 `soldOutAt`，避免最后几 wei 永远卖不完、48 小时窗口永远不开始 |
 | 只读视图 | 写在 Hook 里 | Hook 超过 EIP-170 体积上限，`quoteGenesis`、`basePrice`、`agentKeyOf`、`getTiers`、`publicLaunchAt` 等移到新合约 `ToshHookLens`，另有 `genesisState(hook)` / `accountState(hook, account)` 一次读全 |
 | Hook 实现部署 | 工厂内部部署 | 实现合约体积过大，改为由部署脚本先部署到工厂的预测地址，工厂构造时校验每一个 immutable（`ImplementationMismatch`）并记录运行时代码哈希 |
-| 买单成交接口 | `fill(ids, qtys, minOut)` | `fill(hook, ids, qtys, minTotalOut)`：多了 `hook` 参数；每笔数量自动截断到剩余量；低于 90% 下限、出价人有代码、不足 1 枚且不能完成整单的，跳过而不是回退；一笔都没成交才回退 `NothingFilled` |
+| 买单成交接口 | `fill(ids, qtys, minOut)` | `fill(hook, ids, qtys, minTotalOut)`：多了 `hook` 参数；每笔数量自动截断到剩余量；低于 90% 下限、出价人已不是钱包（带合约代码；7702 委托不算）、不足 1 枚且不能完成整单的，跳过而不是回退；一笔都没成交才回退 `NothingFilled` |
 | 撤单 | — | 任何时候都能撤；撤单后 `qty` 记为已成交量，链上不再保留原始数量（索引里保留） |
 | 硬顶 / 额度上下限 | 固定常量 | 每个工厂可配置，owner 可调（`setHardCapBounds` / `setAgentCapBounds`）。部署默认值：BNB 硬顶 1–500、每 ID 0.01–50、最小买入 0.01；USDT 硬顶 500–300,000、每 ID 5–30,000、最小买入 5 |
 | 紧急制动 | — | 工厂新增 `setGenesisPaused(hook 或 0, bool)` 与黑名单，只影响 `buyGenesis`；开盘、撤单、成交不受影响 |
