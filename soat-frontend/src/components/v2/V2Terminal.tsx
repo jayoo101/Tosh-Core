@@ -20,7 +20,6 @@ import { Bar, Panel, Stat, StatGrid } from '@/components/x/Panel'
 import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
-import { DEMO, demoGenesisState, demoTierStatus, demoTiers } from '@/lib/demo'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
 import { useGenesisState } from '@/lib/v2/useV2'
@@ -215,18 +214,16 @@ const LADDER_WINDOW = 6
 
 function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const tx = useT().x
-  const { data: chainSt } = useReadContract({
+  const { data: st } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
-    query: { enabled: !DEMO, refetchInterval: 8_000 },
+    query: { refetchInterval: 8_000 },
   })
-  const st = DEMO ? demoTierStatus(hook) : chainSt
   const idx = st?.[0] ?? 0n
   const start = idx > 1n ? idx - 1n : 0n
-  const { data: chainTiers } = useReadContract({
+  const { data: tiers } = useReadContract({
     address: V2_LENS, abi: V2_LENS_ABI, functionName: 'getTiers', args: [hook, start, BigInt(LADDER_WINDOW)],
-    chainId: TARGET_CHAIN_ID, query: { enabled: !DEMO && !!st && !!V2_LENS, refetchInterval: 8_000 },
+    chainId: TARGET_CHAIN_ID, query: { enabled: !!st && !!V2_LENS, refetchInterval: 8_000 },
   })
-  const tiers = DEMO ? demoTiers(hook, start, BigInt(LADDER_WINDOW)) : chainTiers
   const current = tiers?.[Number(idx - start)]
   const filled = current ? pct(current.soldAmount, current.totalAmount) : 0
   const step = (n: bigint) => (n + 1n).toLocaleString()
@@ -362,10 +359,7 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
 
 function LaunchedLine({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const t = useT().v2
-  const { data: chainP0 } = useReadContract({
-    address: hook, abi: V2_HOOK_ABI, functionName: 'p0', chainId: TARGET_CHAIN_ID, query: { enabled: !DEMO },
-  })
-  const p0 = DEMO ? demoGenesisState(hook)?.currentPrice : chainP0
+  const { data: p0 } = useReadContract({ address: hook, abi: V2_HOOK_ABI, functionName: 'p0', chainId: TARGET_CHAIN_ID })
   return <p className="text-note text-success">{fill(t.launched, { p0: fmtSig(p0), quote: quote.symbol })}</p>
 }
 
@@ -425,11 +419,10 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
   const tw = useT().wrap
   const [raw, setRaw] = useState('')
   const amount = parseAmount(raw) ?? 0n
-  const { data: chainSt, refetch } = useReadContract({
+  const { data: st, refetch } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
-    query: { enabled: !DEMO, refetchInterval: 8_000 },
+    query: { refetchInterval: 8_000 },
   })
-  const st = DEMO ? demoTierStatus(hook) : chainSt
   const { data: cost } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'quoteMint', args: [amount], chainId: TARGET_CHAIN_ID,
     query: { enabled: amount > 0n },
