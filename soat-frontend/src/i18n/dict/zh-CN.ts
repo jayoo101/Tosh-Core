@@ -1366,15 +1366,6 @@ export const ZH_CN: PartialDictionary = {
     phaseGenesis:      'GENESIS',
     phasePending:      '待开盘',
     phaseTrading:      '交易中',
-    lifeLabel:         '生命周期',
-    lifeGenesis:       'GENESIS 认购',
-    lifeGenesisDesc:   'Agent ID 在曲线上买入，从 P 到 1.5P。',
-    lifePending:       '待开盘',
-    lifePendingDesc:   '已售罄或已到期，池子将以 2P 开盘。',
-    lifeTrading:       '交易中',
-    lifeTradingDesc:   '池子已上线，货架随价格上涨逐档开放。',
-    lifeNow:           '当前',
-    lifeDone:          '已完成',
 
     curveTitle:        'GENESIS 曲线',
     curveAria:         'GENESIS 曲线从 {p} 到 {p15} {quote}，以 {p2} 开盘。已售 {sold} / {total} 枚。',
@@ -1406,7 +1397,6 @@ export const ZH_CN: PartialDictionary = {
     statStage:         '阶段',
 
     tabMarket:         '挂单市场',
-    tabOverview:       '概览',
     tabTokenomics:     '代币经济',
     tabRules:          '规则',
     tabFund:           '项目资金',
@@ -1467,13 +1457,5 @@ export const ZH_CN: PartialDictionary = {
     ladderActive:      '进行中',
     ladderQueued:      '排队中',
 
-    taxTitle:          '池子 · 交易税 · 储备池',
-    taxBuy:            '买入税 1%',
-    taxBuyBody:        '0.70% 进入回购储备池，0.30% 归平台。',
-    taxSell:           '卖出税 1%',
-    taxSellBody:       '以代币收取并直接销毁。',
-    taxCeiling:        '货架上限',
-    taxCeilingBody:    '档位价格不超过 min(现价，30 分钟 TWAP) 的 105% 时开放。',
-    taxNote:           '货架从 2P 起且不收交易税，所以早期往往比池子便宜。池子发生交易的区块内，货架买入会被锁定。',
   },
 }

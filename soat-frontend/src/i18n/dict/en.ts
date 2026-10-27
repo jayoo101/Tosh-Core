@@ -1752,15 +1752,6 @@ export const EN = {
     phaseGenesis:      'GENESIS',
     phasePending:      'Awaiting launch',
     phaseTrading:      'Trading',
-    lifeLabel:         'Lifecycle',
-    lifeGenesis:       'GENESIS sale',
-    lifeGenesisDesc:   'Agent IDs buy on the curve, from P to 1.5P.',
-    lifePending:       'Awaiting launch',
-    lifePendingDesc:   'Sold out or past the deadline. The pool opens at 2P.',
-    lifeTrading:       'Trading',
-    lifeTradingDesc:   'The pool is live; shelves unlock as the price rises.',
-    lifeNow:           'Now',
-    lifeDone:          'done',
 
     curveTitle:        'GENESIS curve',
     curveAria:         'GENESIS curve from {p} to {p15} {quote}, launching at {p2}. {sold} of {total} tokens sold.',
@@ -1792,7 +1783,6 @@ export const EN = {
     statStage:         'Stage',
 
     tabMarket:         'Bid market',
-    tabOverview:       'Overview',
     tabTokenomics:     'Tokenomics',
     tabRules:          'Rules',
     tabFund:           'Fund',
@@ -1853,14 +1843,6 @@ export const EN = {
     ladderActive:      'Active',
     ladderQueued:      'Queued',
 
-    taxTitle:          'Pool · tax · reservoir',
-    taxBuy:            'Buy tax 1%',
-    taxBuyBody:        '0.70% to the buyback reservoir, 0.30% to the platform.',
-    taxSell:           'Sell tax 1%',
-    taxSellBody:       'Taken in tokens and burned.',
-    taxCeiling:        'Shelf ceiling',
-    taxCeilingBody:    'A step opens while its price is within 105% of min(spot, 30-minute TWAP).',
-    taxNote:           'Shelf steps start at 2P and carry no trade tax, so early on they are often cheaper than the pool. Shelf buys are locked in any block where the pool has traded.',
   },
 } as const
 

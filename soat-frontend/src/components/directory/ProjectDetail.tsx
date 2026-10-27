@@ -59,7 +59,7 @@ function VersionedTerminal({ project: p, about, header }: {
   const isV2 = useIsV2Hook(p.hook_address as Address | undefined)
   if (isV2 === false) return <ProjectTerminal project={p} about={about} header={header} />
   if (isV2 === undefined) return null
-  return <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} header={aside => header(null, aside)} about={about} />
+  return <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} header={aside => header(null, aside)} />
 }
 
 export function ProjectDetail({ project: p }: { project: ProjectRow }) {

@@ -15,7 +15,7 @@ import {
   fmtClock, fmtCompact, fmtPrice, pct, toNum,
 } from '@/components/x/curve'
 import { GenesisCurveChart, PriceLadderMini } from '@/components/x/GenesisCurveChart'
-import { LifecycleTracker, PhaseBadge, v2Phase, type V2Phase } from '@/components/x/Lifecycle'
+import { PhaseBadge, v2Phase, type V2Phase } from '@/components/x/Lifecycle'
 import { Bar, Panel, Stat, StatGrid } from '@/components/x/Panel'
 import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
@@ -38,11 +38,10 @@ type State = NonNullable<ReturnType<typeof useGenesisState>['data']>
  * `header` is the page's identity row; it takes the price block for its right
  * side because that block reads the same genesis state as everything here.
  */
-export function V2Terminal({ hook, symbol, header, about }: {
+export function V2Terminal({ hook, symbol, header }: {
   hook: Address
   symbol: string
   header?: (aside: ReactNode) => ReactNode
-  about?: ReactNode
 }) {
   const tx = useT().x
   const { data: s, refetch } = useGenesisState(hook)
@@ -64,7 +63,6 @@ export function V2Terminal({ hook, symbol, header, about }: {
   // After launch the book only takes cancellations, and those live on /market.
   const tabs = [
     ...(s.launched ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
-    { id: 'overview', label: tx.tabOverview, content: about ?? <p className="text-body text-text-tertiary">{tx.noDescription}</p> },
     { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
     { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },
     { id: 'fund', label: tx.tabFund, content: <FundPanel hook={hook} s={s} quote={quote} onDone={() => void refetch()} /> },
@@ -75,15 +73,9 @@ export function V2Terminal({ hook, symbol, header, about }: {
       {header?.(<PriceAside s={s} quote={quote} phase={phase} />)}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <Panel title={tx.lifeLabel}>
-            <LifecycleTracker phase={phase} />
-          </Panel>
           <GenesisStatGrid s={s} quote={quote} now={now} phase={phase} />
           {s.launched ? (
-            <>
-              <ShelfLadder hook={hook} quote={quote} />
-              <TaxPanel />
-            </>
+            <ShelfLadder hook={hook} quote={quote} />
           ) : (
             <Panel title={tx.curveTitle}>
               <GenesisCurveChart p={p} sold={toNum(s.sold)} quote={quote.symbol} />
@@ -284,27 +276,6 @@ function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
           </table>
         </div>
       )}
-    </Panel>
-  )
-}
-
-function TaxPanel() {
-  const tx = useT().x
-  return (
-    <Panel title={tx.taxTitle}>
-      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {[
-          [tx.taxBuy, tx.taxBuyBody],
-          [tx.taxSell, tx.taxSellBody],
-          [tx.taxCeiling, tx.taxCeilingBody],
-        ].map(([k, v]) => (
-          <div key={k} className="flex flex-col gap-1">
-            <dt className="font-bold text-text-primary">{k}</dt>
-            <dd className="text-body text-text-tertiary">{v}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="border-t border-border-subtle pt-5 text-body text-text-tertiary">{tx.taxNote}</p>
     </Panel>
   )
 }
