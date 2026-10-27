@@ -589,28 +589,28 @@ export const EN = {
    * ⚠ THE FOUR RULES ARE CONTRACT BEHAVIOUR, not marketing. An applicant ticks
    *   the box on the strength of them, so a translation must keep every claim:
    *   no team allocation, liquidity nobody can withdraw, 99 % of shelf revenue
-   *   to the Circuit NFT holder, and a failed raise refunding in full.
+   *   to the Circuit NFT holder, and GENESIS being Agent-ID-only and final.
    *
    * `ecosystemHint` carries `{count}` / `{max}`, counted in characters.
    */
   apply: {
     metaTitle:       'Apply to launch // ToshX',
-    metaDescription: 'Project teams building on TapeOut and $BEM: apply to launch on ToshX. Reviewed in Telegram.',
+    metaDescription: 'Project teams: apply to launch on ToshX, the fair launch for verified agents. Reviewed in Telegram.',
     eyebrow:         '// project applications · always open',
     title:           'Launch on',
     accent:          'ToshX',
-    subtitle:        'For teams with something already built on TapeOut or $BEM. Applications go straight to the review group, and we reply on Telegram.',
+    subtitle:        'For teams with a product or verifiable work already shipped. Applications go straight to the review group, and we reply on Telegram.',
 
     formTitle:       'Application',
     formSubtitle:    'Four fields. Nothing is stored on this site.',
     projectName:            'Project name',
-    projectNamePlaceholder: 'e.g. TapeLens',
+    projectNamePlaceholder: 'e.g. Orbit',
     projectNameHint:        'Short name, as it would appear in the directory.',
     demoOrRepo:             'Verifiable output',
     demoOrRepoPlaceholder:  'https://github.com/… or 0x… or https://demo…',
     demoOrRepoHint:         'GitHub repository, testnet contract address or a live demo — up to 3, separated by spaces. Applications with nothing to verify are filtered out.',
-    ecosystem:              'TapeOut / $BEM integration',
-    ecosystemPlaceholder:   'Which circuit ID it calls, or how it creates $BEM circulation or consumption.',
+    ecosystem:              'Project and token use',
+    ecosystemPlaceholder:   'What the project does, and what the token is for in it.',
     ecosystemHint:          '{count} / {max} characters',
     telegram:               'Telegram',
     telegramPlaceholder:    '@username',
@@ -619,14 +619,14 @@ export const EN = {
 
     rulesTitle: 'Launch rules',
     rule1:      'Ownerless launch: once the pool opens, the genesis liquidity is locked permanently and no one — not your team, not the platform — can withdraw it.',
-    rule2:      'No team allocation: every token is minted to genesis depositors, the locked pool, or shelf buyers. Your team buys like anyone else.',
+    rule2:      'No team allocation: tokens only go to GENESIS buyers, shelf buyers or the locked opening pool; unsold GENESIS tokens are burned at launch. Your team buys like anyone else.',
     rule3:      'Shelf mechanism: 60 % of supply sells on a fixed 4,000-tier price ladder above the opening price; 99 % of shelf revenue goes to the vault of the Circuit NFT your team holds, 1 % funds buyback-and-burn.',
-    rule4:      'A raise that falls short, or is not launched within 7 days, lets every depositor reclaim their deposit in full.',
-    rulesAccept: 'I have read and accept the ownerless launch and shelf mechanism.',
+    rule4:      'GENESIS: Binance Agent ID holders only, one allowance per ID; every buy is final, with no refunds. After sell-out or the deadline the pool opens at 2P, launched by the Circuit NFT holder within 48 hours, then by anyone.',
+    rulesAccept: 'I have read and accept the launch rules above.',
 
     errRequired:        'Required.',
     errTooLong:         'At most {max} characters.',
-    errTooShort:        'Say which circuit or which $BEM flow — at least {min} characters.',
+    errTooShort:        'Say what the project and the token are for — at least {min} characters.',
     errDemoInvalid:     'Each item must be an http(s) link or a 0x contract address, at most 3.',
     errTelegramInvalid: 'A Telegram username: 5–32 letters, digits or underscores, starting with a letter.',
     errRules:           'Accept the launch rules to apply.',
@@ -1488,7 +1488,7 @@ export const EN = {
    * build only — see `generateMetadata` in `app/layout.tsx`.
    */
   meta: {
-    siteDescription:      'The fair-launch terminal of the TapeOut ecosystem, built on PancakeSwap Infinity hooks. Proof-of-Gas gated genesis, 4000-rung shelf ladder, audit-cliff hardened.',
+    siteDescription:      'The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder.',
     cardTitle:            'ToshX — the fair-launch terminal of the {ecosystem} ecosystem',
     projectsTitle:        'Project Directory // ToshX',
     projectsDescription:  'Every launch on Tosh Protocol — open funding windows, launches awaiting their pool, and live shelf-ladder trading in {quote} on {chain}.',

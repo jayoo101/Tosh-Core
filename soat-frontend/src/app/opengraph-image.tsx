@@ -131,7 +131,7 @@ export default function Image() {
           </div>
 
           <div style={{ display: 'flex', fontSize: 26, color: MUTED }}>
-            The TapeOut ecosystem&apos;s launch venue · Proof-of-Gas genesis · 4,000-rung ladder
+            Fair launch for verified agents · Binance Agent ID genesis · 4,000-rung ladder
           </div>
         </div>
 
