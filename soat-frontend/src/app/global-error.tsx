@@ -53,8 +53,8 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
         style={{
           margin: 0,
           minHeight: '100vh',
-          backgroundColor: '#0B0811',
-          color: '#F8F3F8',
+          backgroundColor: '#0B0E11',
+          color: '#EAECEF',
           fontFamily:
             'ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace',
           display: 'flex',
@@ -69,7 +69,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           style={{
             maxWidth: '560px',
             width: '100%',
-            border: '1px solid #2D2534',
+            border: '1px solid #2B3139',
             padding: '32px',
             display: 'flex',
             flexDirection: 'column',
@@ -81,7 +81,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
               fontSize: '11px',
               letterSpacing: '0.4em',
               textTransform: 'uppercase',
-              color: '#F946A7',
+              color: '#F0B90B',
             }}
           >
             {'// SYSTEM // ROOT_FAULT'}
@@ -91,7 +91,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
             Console offline.
           </h1>
 
-          <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#9F93A6' }}>
+          <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#B7BDC6' }}>
             The top-level UI threw before the application chrome could load.
             Your wallet, balance, and any on-chain positions are unaffected —
             this is purely a frontend crash.
@@ -100,15 +100,15 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
           {error.digest && (
             <div
               style={{
-                border: '1px solid #2D2534',
+                border: '1px solid #2B3139',
                 padding: '12px',
                 fontSize: '11px',
-                color: '#9F93A6',
+                color: '#B7BDC6',
                 wordBreak: 'break-all',
               }}
             >
-              <div style={{ color: '#4C4455', marginBottom: '4px' }}>{'// DIGEST'}</div>
-              <div style={{ color: '#F8F3F8' }}>{error.digest}</div>
+              <div style={{ color: '#5E6673', marginBottom: '4px' }}>{'// DIGEST'}</div>
+              <div style={{ color: '#EAECEF' }}>{error.digest}</div>
             </div>
           )}
 
@@ -125,8 +125,8 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
               fontSize: '12px',
               letterSpacing: '0.3em',
               textTransform: 'uppercase',
-              color: '#F946A7',
-              border: '1px solid #F946A7',
+              color: '#F0B90B',
+              border: '1px solid #F0B90B',
               cursor: 'pointer',
             }}
           >

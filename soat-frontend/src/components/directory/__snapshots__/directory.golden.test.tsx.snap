@@ -380,8 +380,8 @@ exports[`ProjectCard · english copy golden master > grid card · live 2`] = `"T
 
 exports[`site chrome · english copy golden master > footer 1`] = `
 [
-  "Tosh",
-  "Protocol",
+  "TOSH",
+  "X",
   "GitHub",
   "X",
   "Telegram",
@@ -389,24 +389,28 @@ exports[`site chrome · english copy golden master > footer 1`] = `
   "Apply",
   "©",
   "2026",
-  "Tosh Protocol —",
+  "ToshX —",
   "BNB Smart Chain · testnet",
+  "Tokens launched here are high-risk and can lose all their value. Nothing on this site is investment advice.",
 ]
 `;
 
-exports[`site chrome · english copy golden master > footer 2`] = `"Tosh ProtocolGitHubXTelegramSecurityApply© 2026 Tosh Protocol — BNB Smart Chain · testnet"`;
+exports[`site chrome · english copy golden master > footer 2`] = `"TOSHXGitHubXTelegramSecurityApply© 2026 ToshX — BNB Smart Chain · testnetTokens launched here are high-risk and can lose all their value. Nothing on this site is investment advice."`;
 
 exports[`site chrome · english copy golden master > navbar on /projects 1`] = `
 [
-  "Tosh",
+  "[aria-label] Main",
+  "TOSH",
   "X",
   "BNB Smart Chain · testnet",
+  "Market",
+  "Launching",
+  "Launched",
   "Directory",
-  "Project Directory",
-  "Launch",
   "Portfolio",
+  "Launch",
   "Apply",
 ]
 `;
 
-exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"ToshXBNB Smart Chain · testnetDirectoryProject DirectoryLaunchPortfolioApply"`;
+exports[`site chrome · english copy golden master > navbar on /projects 2`] = `"TOSHXBNB Smart Chain · testnetMarketLaunchingLaunchedDirectoryPortfolioLaunchApply"`;

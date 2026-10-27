@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { formatUnits, type Address } from 'viem'
 import { useAccount, useBytecode, useReadContract } from 'wagmi'
 
-import { ActionButton, Card, Field, FieldAffix, Readout, revertOrder, useActionGate, useQuoteApproval, useTxAction } from '@/components/ui'
+import { ActionButton, Card, Field, FieldAffix, revertOrder, useActionGate, useQuoteApproval, useTxAction } from '@/components/ui'
+import { fmtPrice, priceAfterWei, toNum } from '@/components/x/curve'
+import { GenesisSteps } from '@/components/x/GenesisSteps'
+import { Row } from '@/components/x/Panel'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
@@ -18,8 +21,9 @@ import { approveStep } from './agentSteps'
 /** 0.5 % below the quoted token amount, for `minTokens`. */
 const SLIPPAGE_BPS = 50n
 
-export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V2Quote; open: boolean }) {
+export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; quote: V2Quote; open: boolean; symbol: string }) {
   const t = useT().v2
+  const tx2 = useT().x
   const { address } = useAccount()
   const [raw, setRaw] = useState('')
   const pay = parseAmount(raw, quote.decimals) ?? 0n
@@ -44,7 +48,10 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
     query: { enabled: budget > 0n },
   })
   const tokens = q?.[0] ?? 0n
+  const cost = q?.[1] ?? 0n
   const minTokens = (tokens * (10_000n - SLIPPAGE_BPS)) / 10_000n
+  const base = state.data?.basePrice ?? 0n
+  const after = tokens > 0n && base > 0n ? priceAfterWei(base, state.data?.sold ?? 0n, tokens) : 0n
 
   const approval = useQuoteApproval(quote.native ? undefined : hook, pay, quote.asset)
   const tx = useTxAction({
@@ -94,8 +101,17 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
               quote: quote.symbol,
             })
 
+  const activeStep = pay === 0n ? 1 : !risk.acked ? 2 : 3
+
   return (
     <Card title={t.genesisTitle} subtitle={t.agentTitle}>
+      <GenesisSteps
+        symbol={symbol}
+        quote={quote.symbol}
+        cap={fmtSig(state.data?.perAgentCap)}
+        activeBuyStep={activeStep}
+        needsAgentId={noAgentId}
+      />
       {agentLine && <p className="text-note text-text-secondary">{agentLine}</p>}
       <Field
         label={`${t.payLabel} (${quote.symbol})`}
@@ -106,7 +122,17 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
         affix={<FieldAffix onClick={() => setRaw(formatUnits(remaining, quote.decimals))} disabled={remaining === 0n} />}
         hint={fill(t.minBuy, { min: fmtSig(minBuy), quote: quote.symbol })}
       />
-      <Readout label={t.receiveLabel} value={tokens > 0n ? fmtSig(tokens, 18, 6) : '—'} />
+      <dl className="flex flex-col gap-2 rounded-card border border-border-subtle bg-bg-base/60 p-4 text-body">
+        <Row k={t.receiveLabel} v={tokens > 0n ? `${fmtSig(tokens, 18, 6)} ${symbol}` : '—'} strong />
+        <Row k={tx2.quoteAvg} v={tokens > 0n ? `${fmtPrice(toNum(cost, quote.decimals) / toNum(tokens))} ${quote.symbol}` : '—'} />
+        <Row k={tx2.quoteAfter} v={after > 0n ? `${fmtPrice(toNum(after, quote.decimals))} ${quote.symbol}` : '—'} />
+        <Row
+          k={tx2.quoteVs2P}
+          v={after > 0n ? `${((toNum(after, quote.decimals) / (2 * toNum(base, quote.decimals))) * 100).toFixed(1)}%` : '—'}
+        />
+        <Row k={tx2.quoteSlippage} v={`${Number(SLIPPAGE_BPS) / 100}%`} />
+        <Row k={tx2.quoteMin} v={tokens > 0n ? `${fmtSig(minTokens, 18, 6)} ${symbol}` : '—'} />
+      </dl>
       <RiskAck {...risk} />
       <ActionButton gate={gate} />
       {open && (
@@ -126,6 +152,7 @@ export function GenesisBuyPanel({ hook, quote, open }: { hook: Address; quote: V
           onDone={() => { void state.refetch(); void acct.refetch(); approval.refetch() }}
         />
       )}
+      <a href="#market" className="text-note text-brand hover:underline">{tx2.buyMarketLink}</a>
     </Card>
   )
 }

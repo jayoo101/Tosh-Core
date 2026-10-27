@@ -38,7 +38,7 @@ import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
 
-function directoryToRow(p: DirectoryProject): ProjectRow {
+export function directoryToRow(p: DirectoryProject): ProjectRow {
   return {
     id:            p.token,
     // The directory this card came from only ever lists this deployment's

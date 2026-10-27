@@ -32,13 +32,13 @@ import { QUOTE_SYMBOL } from '@/lib/contracts'
  */
 
 // From globals.css. See the note above for why these are copies.
-const BG = '#0B0811'
-const CARD = '#14101B'
-const BORDER = '#2D2534'
-const BRAND = '#F946A7'
-const VIOLET = '#9D5BF4'
-const TEXT = '#F8F3F8'
-const MUTED = '#6E6478'
+const BG = '#0B0E11'
+const CARD = '#1E2329'
+const BORDER = '#2B3139'
+const BRAND = '#F0B90B'
+const VIOLET = '#FCD535'
+const TEXT = '#EAECEF'
+const MUTED = '#848E9C'
 
 export const alt = `ToshX — the fair-launch terminal of the ${QUOTE_SYMBOL} ecosystem`
 export const size = { width: 1200, height: 630 }

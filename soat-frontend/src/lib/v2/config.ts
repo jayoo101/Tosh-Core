@@ -78,4 +78,5 @@ export const V2 = {
   ADMIN_LAUNCH_WINDOW_S: 48 * 3600,
   SALE_SUPPLY: 5_600_000n * 10n ** 18n,
   GENESIS_SUPPLY: 8_400_000n * 10n ** 18n,
+  FUND_BPS: 2000n,
 } as const

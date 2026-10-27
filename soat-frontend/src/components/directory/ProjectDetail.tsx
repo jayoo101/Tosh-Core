@@ -54,18 +54,12 @@ const SOCIAL_CLS =
 function VersionedTerminal({ project: p, about, header }: {
   project: ProjectRow
   about: ReactNode
-  header: (live: TerminalHeaderState | null) => ReactNode
+  header: (live: TerminalHeaderState | null, aside?: ReactNode) => ReactNode
 }) {
   const isV2 = useIsV2Hook(p.hook_address as Address | undefined)
   if (isV2 === false) return <ProjectTerminal project={p} about={about} header={header} />
   if (isV2 === undefined) return null
-  return (
-    <div className="flex flex-col gap-6">
-      {header(null)}
-      <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} />
-      {about}
-    </div>
-  )
+  return <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} header={aside => header(null, aside)} about={about} />
 }
 
 export function ProjectDetail({ project: p }: { project: ProjectRow }) {
@@ -97,7 +91,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
    * "nothing chain-derived is printable yet" (pre-clock-sync), which is why the
    * badge and the price render nothing rather than a zero.
    */
-  const header = (live: TerminalHeaderState | null) => {
+  const header = (live: TerminalHeaderState | null, aside?: ReactNode) => {
     const meta = live ? PHASE_BADGE[live.phase] : null
     const tradable = live?.phase === 'bonding'
 
@@ -177,6 +171,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
             </div>
           </div>
 
+          {aside}
           {tradable && live && (
             <div className="flex items-end gap-6 sm:flex-col sm:items-end sm:gap-1">
               <span className="font-mono text-section font-bold tabular-nums tracking-tight text-text-primary sm:text-hero">
@@ -207,7 +202,7 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
 
   return (
     <div className="font-sans text-text-primary">
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-[1440px] px-4 py-8 sm:px-6">
         {V2_ENABLED
           ? <VersionedTerminal project={p} about={about} header={header} />
           : <ProjectTerminal project={p} about={about} header={header} />}

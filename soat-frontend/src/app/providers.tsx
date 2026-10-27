@@ -182,7 +182,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               color:         'var(--tosh-text-primary)',
               border:        '1px solid var(--tosh-border-subtle)',
               borderRadius:  'var(--radius-card, 0.875rem)',
-              fontFamily:    'var(--font-jbm, ui-monospace, monospace)',
+              fontFamily:    'var(--font-chakra, ui-monospace, monospace)',
               fontSize:      '12px',
               lineHeight:    '1.5',
               letterSpacing: '0.02em',

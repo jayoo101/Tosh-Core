@@ -1,21 +1,30 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { isAddress, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
 import {
-  ActionButton, AddressLink, Badge, Card, Field, Progress, Readout, ReadoutGrid,
+  ActionButton, AddressLink, Card, Field, Readout, ReadoutGrid,
   revertOrder, useActionGate, useQuoteApproval, useTxAction,
 } from '@/components/ui'
 import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
+import {
+  GENESIS_TOKENS, LP_TOKENS_MAX, SALE_TOKENS, SHELF_TOKENS, TOTAL_TOKENS,
+  fmtClock, fmtCompact, fmtPrice, pct, toNum,
+} from '@/components/x/curve'
+import { GenesisCurveChart, PriceLadderMini } from '@/components/x/GenesisCurveChart'
+import { LifecycleTracker, PhaseBadge, v2Phase, type V2Phase } from '@/components/x/Lifecycle'
+import { Bar, Panel, Stat, StatGrid } from '@/components/x/Panel'
+import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
-import { V2_HOOK_ABI } from '@/lib/v2/abis'
-import { V2, v2Quote, type V2Quote } from '@/lib/v2/config'
+import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
+import { V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
 import { useGenesisState } from '@/lib/v2/useV2'
-import { fmtCountdown, fmtSig, fmtTime, parseAmount } from './fmt'
+import { BidMarket } from './BidMarket'
+import { fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
 import { useNow, useWrapShortfall } from './hooks'
 import { AgentModeSheet } from './AgentModeSheet'
@@ -24,68 +33,277 @@ import { TransferPanel } from './TransferPanel'
 
 type State = NonNullable<ReturnType<typeof useGenesisState>['data']>
 
-export function V2Terminal({ hook, symbol }: { hook: Address; symbol: string }) {
-  const t = useT().v2
+/**
+ * `header` is the page's identity row; it takes the price block for its right
+ * side because that block reads the same genesis state as everything here.
+ */
+export function V2Terminal({ hook, symbol, header, about }: {
+  hook: Address
+  symbol: string
+  header?: (aside: ReactNode) => ReactNode
+  about?: ReactNode
+}) {
+  const tx = useT().x
   const { data: s, refetch } = useGenesisState(hook)
   const now = useNow()
-  if (!s) return <Card><p className="text-note text-text-tertiary">…</p></Card>
+  if (!s) {
+    return (
+      <div className="flex flex-col gap-6">
+        {header?.(null)}
+        <Card><p className="text-note text-text-tertiary">…</p></Card>
+      </div>
+    )
+  }
 
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
   const genesisOpen = !s.launched && s.soldOutAt === 0n && BigInt(now) < s.genesisDeadline
+  const phase = v2Phase(s, now)
+  const p = toNum(s.basePrice)
+
+  const tabs = [
+    { id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> },
+    { id: 'overview', label: tx.tabOverview, content: about ?? <p className="text-body text-text-tertiary">{tx.noDescription}</p> },
+    { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
+    { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },
+    { id: 'fund', label: tx.tabFund, content: <FundPanel hook={hook} s={s} quote={quote} onDone={() => void refetch()} /> },
+  ]
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex min-w-0 flex-col gap-6">
-        <GenesisStats s={s} quote={quote} now={now} />
-        {!s.launched && (
-          <Card title={t.rulesTitle}>
-            <p className="text-note text-text-secondary">{t.rulesBody}</p>
-            <div className="flex flex-wrap gap-4 text-note">
-              <Link className="text-brand hover:underline" href={`/projects/${hook}/market`}>{t.marketLink} →</Link>
-              <Link className="text-brand hover:underline" href={`/register?token=${s.token}`}>{t.registerLink} →</Link>
-            </div>
-          </Card>
-        )}
-        {s.launched && <ShelfPanel hook={hook} quote={quote} symbol={symbol} />}
-        <FundPanel hook={hook} s={s} quote={quote} onDone={() => void refetch()} />
+    <div className="flex flex-col gap-6">
+      {header?.(<PriceAside s={s} quote={quote} phase={phase} />)}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <Panel title={tx.lifeLabel}>
+            <LifecycleTracker phase={phase} />
+          </Panel>
+          <GenesisStatGrid s={s} quote={quote} now={now} phase={phase} />
+          {s.launched ? (
+            <>
+              <ShelfLadder hook={hook} quote={quote} />
+              <TaxPanel />
+            </>
+          ) : (
+            <Panel title={tx.curveTitle}>
+              <GenesisCurveChart p={p} sold={toNum(s.sold)} quote={quote.symbol} />
+              <PriceLadderMini p={p} current={toNum(s.currentPrice)} quote={quote.symbol} />
+            </Panel>
+          )}
+          <ProjectTabs tabs={tabs} />
+        </div>
+        <aside className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
+          {s.launched
+            ? <ShelfPanel hook={hook} quote={quote} symbol={symbol} />
+            : <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} symbol={symbol} />}
+          <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
+          <TransferPanel token={s.token} symbol={symbol} />
+        </aside>
       </div>
-      <aside className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
-        {!s.launched && <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} />}
-        <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
-        <TransferPanel token={s.token} symbol={symbol} />
-      </aside>
     </div>
   )
 }
 
-function GenesisStats({ s, quote, now }: { s: State; quote: V2Quote; now: number }) {
+function PriceAside({ s, quote, phase }: { s: State; quote: V2Quote; phase: V2Phase }) {
+  const tx = useT().x
+  return (
+    <div className="flex flex-col gap-1 sm:items-end">
+      <PhaseBadge phase={phase} />
+      <span className="mt-2 text-label uppercase text-text-tertiary">{tx.currentPrice}</span>
+      <span className="font-mono text-section font-bold tabular-nums text-brand sm:text-hero">
+        {fmtPrice(toNum(s.currentPrice))}
+        <span className="ml-1.5 text-readout font-normal text-text-secondary">{quote.symbol}</span>
+      </span>
+      {!s.launched && (
+        <span className="font-mono text-note text-text-tertiary">
+          {fill(tx.launchAt2P, { p: fmtPrice(2 * toNum(s.basePrice)) })}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function GenesisStatGrid({ s, quote, now, phase }: { s: State; quote: V2Quote; now: number; phase: V2Phase }) {
+  const tx = useT().x
+  const sold = pct(s.sold, V2.SALE_SUPPLY)
+  const phaseLabel = { GENESIS: tx.phaseGenesis, PENDING: tx.phasePending, TRADING: tx.phaseTrading }[phase]
+  return (
+    <StatGrid>
+      <Stat label={tx.statSold} value={`${sold.toFixed(2)}%`} sub={`${fmtCompact(toNum(s.sold))} / ${fmtCompact(SALE_TOKENS)}`}>
+        <Bar pct={sold} label={tx.statSold} />
+      </Stat>
+      <Stat
+        label={tx.statRaised}
+        value={fmtSig(s.raised)}
+        sub={fill(tx.statRaisedSub, { cap: fmtSig(s.hardCap), quote: quote.symbol })}
+      />
+      <Stat label={tx.statPerAgent} value={fmtSig(s.perAgentCap)} sub={quote.symbol} />
+      {phase === 'GENESIS'
+        ? <Stat label={tx.statEndsIn} value={fmtClock(Number(s.genesisDeadline) - now)} highlight />
+        : <Stat label={tx.statStage} value={phaseLabel} highlight />}
+    </StatGrid>
+  )
+}
+
+function Tokenomics({ s, quote }: { s: State; quote: V2Quote }) {
+  const tx = useT().x
+  const parts = [
+    { label: tx.tokGenesis, value: SALE_TOKENS, cls: 'bg-brand' },
+    { label: tx.tokPool, value: LP_TOKENS_MAX, cls: 'bg-brand/50' },
+    { label: tx.tokShelf, value: SHELF_TOKENS, cls: 'bg-text-tertiary/40' },
+  ]
+  const fundPct = Number(V2.FUND_BPS) / 100
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex h-3 overflow-hidden rounded-pill" aria-hidden="true">
+        {parts.map(pt => <span key={pt.label} className={pt.cls} style={{ width: `${(pt.value / TOTAL_TOKENS) * 100}%` }} />)}
+      </div>
+      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {parts.map(pt => (
+          <div key={pt.label} className="flex flex-col gap-1">
+            <dt className="flex items-center gap-2 text-body text-text-tertiary">
+              <span className={`size-2.5 rounded-pill ${pt.cls}`} aria-hidden="true" />
+              {pt.label}
+            </dt>
+            <dd className="font-mono text-title text-text-primary">
+              {fmtCompact(pt.value)}
+              <span className="ml-2 text-note text-text-tertiary">{((pt.value / TOTAL_TOKENS) * 100).toFixed(0)}%</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <ul className="flex flex-col gap-2 border-t border-border-subtle pt-5 text-body text-text-tertiary">
+        <li>{fill(tx.tokNote1, { total: fmtCompact(TOTAL_TOKENS), genesis: fmtCompact(GENESIS_TOKENS) })}</li>
+        <li>{fill(tx.tokNote2, { fund: String(fundPct), lp: String(100 - fundPct) })}</li>
+        <li>{fill(tx.tokNote3, { amount: fmtSig((s.hardCap * (10_000n - V2.FUND_BPS)) / 10_000n), quote: quote.symbol, lp: fmtCompact(LP_TOKENS_MAX) })}</li>
+      </ul>
+    </div>
+  )
+}
+
+function Rules({ s, quote }: { s: State; quote: V2Quote }) {
   const t = useT().v2
-  const pct = Number((s.sold * 10_000n) / V2.SALE_SUPPLY) / 100
-  const status = s.launched
-    ? <Badge tone="ok" pip live>LIVE</Badge>
-    : s.soldOutAt !== 0n
-      ? <Badge tone="info">{t.soldOut}</Badge>
-      : BigInt(now) >= s.genesisDeadline
-        ? <Badge tone="neutral">{t.closed}</Badge>
-        : <Badge tone="warn" pip live>{t.genesisTitle}</Badge>
+  const tx = useT().x
+  const rules = [
+    [tx.ruleCurve, tx.ruleCurveBody],
+    [tx.ruleCap, fill(tx.ruleCapBody, { cap: fmtSig(s.perAgentCap), quote: quote.symbol })],
+    [tx.ruleFinal, tx.ruleFinalBody],
+    [tx.rulePrelaunch, tx.rulePrelaunchBody],
+    [tx.ruleLaunch, tx.ruleLaunchBody],
+    [tx.ruleBook, tx.ruleBookBody],
+    [tx.ruleShelf, tx.ruleShelfBody],
+  ]
+  return (
+    <div className="flex flex-col gap-4">
+      <dl className="flex flex-col divide-y divide-border-subtle">
+        {rules.map(([k, v]) => (
+          <div key={k} className="grid grid-cols-1 gap-1 py-3 first:pt-0 sm:grid-cols-[140px_1fr] sm:gap-4">
+            <dt className="font-bold text-text-primary">{k}</dt>
+            <dd className="text-pretty text-body text-text-tertiary">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-note text-text-tertiary">{tx.ruleAgentNote}</p>
+      <div className="flex flex-wrap gap-4 text-note">
+        <Link className="text-brand hover:underline" href={`/register?token=${s.token}`}>{t.registerLink} →</Link>
+      </div>
+    </div>
+  )
+}
+
+const LADDER_WINDOW = 6
+
+function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
+  const tx = useT().x
+  const { data: st } = useReadContract({
+    address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
+    query: { refetchInterval: 8_000 },
+  })
+  const idx = st?.[0] ?? 0n
+  const start = idx > 1n ? idx - 1n : 0n
+  const { data: tiers } = useReadContract({
+    address: V2_LENS, abi: V2_LENS_ABI, functionName: 'getTiers', args: [hook, start, BigInt(LADDER_WINDOW)],
+    chainId: TARGET_CHAIN_ID, query: { enabled: !!st && !!V2_LENS, refetchInterval: 8_000 },
+  })
+  const current = tiers?.[Number(idx - start)]
+  const filled = current ? pct(current.soldAmount, current.totalAmount) : 0
+  const step = (n: bigint) => (n + 1n).toLocaleString()
 
   return (
-    <Card title={t.genesisTitle} status={status}>
-      <p className="text-note text-text-secondary">
-        {fill(t.genesisBlurb, {
-          p: fmtSig(s.basePrice), p15: fmtSig((s.basePrice * 3n) / 2n), quote: quote.symbol,
-        })}
-      </p>
-      <Progress pct={pct} label={t.sold} caption={`${fmtSig(s.sold)} / 5.6M`} />
-      <ReadoutGrid columns={3}>
-        <Readout label={t.price} value={`${fmtSig(s.currentPrice)} ${quote.symbol}`} />
-        <Readout label={t.raised} value={`${fmtSig(s.raised)} / ${fmtSig(s.hardCap)} ${quote.symbol}`} />
-        <Readout label={t.perAgentCap} value={`${fmtSig(s.perAgentCap)} ${quote.symbol}`} />
-        {!s.launched && s.soldOutAt === 0n && (
-          <Readout label={t.endsIn} value={fmtCountdown(Number(s.genesisDeadline) - now)} />
-        )}
-      </ReadoutGrid>
-    </Card>
+    <Panel>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h2 className="text-label uppercase text-text-tertiary">{tx.ladderTitle}</h2>
+          <p className="text-pretty text-title text-text-primary">{tx.ladderBody}</p>
+        </div>
+        <span className="shrink-0 rounded-input border border-border-subtle px-2 py-1 font-mono text-note text-text-tertiary">
+          {tx.ladderCap}
+        </span>
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between font-mono">
+          <span className="font-bold text-text-primary">{fill(tx.ladderStep, { n: step(idx) })}</span>
+          <span className="text-brand">{`${filled.toFixed(1)}%`}</span>
+        </div>
+        <Bar pct={filled} label={fill(tx.ladderStep, { n: step(idx) })} thick />
+      </div>
+      <dl className="grid grid-cols-3 gap-4">
+        {[
+          [tx.ladderPrice, st ? `${fmtPrice(toNum(st[1]))} ${quote.symbol}` : '—'],
+          [tx.ladderLeft, st ? fmtCompact(toNum(st[2])) : '—'],
+          [tx.ladderSpot, st ? `${fmtPrice(toNum(st[3]))} ${quote.symbol}` : '—'],
+        ].map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-1">
+            <dt className="text-body text-text-tertiary">{k}</dt>
+            <dd className="font-mono text-title text-text-primary">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {tiers && tiers.length > 0 && (
+        <div className="overflow-hidden rounded-card border border-border-subtle">
+          <table className="w-full font-mono text-body">
+            <caption className="sr-only">{tx.ladderCaption}</caption>
+            <tbody>
+              {tiers.map((tier, i) => {
+                const n = start + BigInt(i)
+                const isCurrent = n === idx
+                const status = tier.soldAmount >= tier.totalAmount ? tx.ladderFilled : isCurrent ? tx.ladderActive : tx.ladderQueued
+                return (
+                  <tr
+                    key={n.toString()}
+                    className={`border-b border-border-subtle last:border-b-0 ${isCurrent ? 'bg-brand/10 text-text-primary' : 'text-text-tertiary'}`}
+                  >
+                    <th scope="row" className="px-5 py-3 text-left font-normal">#{step(n)}</th>
+                    <td className="px-5 py-3">{`${fmtPrice(toNum(tier.price))} ${quote.symbol}`}</td>
+                    <td className="px-5 py-3 text-right">{`${pct(tier.soldAmount, tier.totalAmount).toFixed(1)}%`}</td>
+                    <td className={`px-5 py-3 text-right font-sans ${isCurrent ? 'text-brand' : ''}`}>{status}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function TaxPanel() {
+  const tx = useT().x
+  return (
+    <Panel title={tx.taxTitle}>
+      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {[
+          [tx.taxBuy, tx.taxBuyBody],
+          [tx.taxSell, tx.taxSellBody],
+          [tx.taxCeiling, tx.taxCeilingBody],
+        ].map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-1">
+            <dt className="font-bold text-text-primary">{k}</dt>
+            <dd className="text-body text-text-tertiary">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="border-t border-border-subtle pt-5 text-body text-text-tertiary">{tx.taxNote}</p>
+    </Panel>
   )
 }
 

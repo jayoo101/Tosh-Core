@@ -26,17 +26,77 @@ import { approveStep, prepSteps } from './agentSteps'
 /** 1 % below the previewed proceeds, for `minTotalOut`. */
 const SELL_SLIPPAGE_BPS = 100n
 
-export function BidMarket({ hook, symbol }: { hook: Address; symbol: string }) {
+/**
+ * `embedded` is the project page's market tab: no page header, a stats strip,
+ * one order panel at a time, and a layout that follows the tab's width, not
+ * the viewport's, because the tab sits beside the buy column.
+ */
+export function BidMarket({ hook, symbol, embedded = false }: { hook: Address; symbol: string; embedded?: boolean }) {
   const t = useT().v2
+  const tx = useT().x
   const { address: connected } = useAccount()
   const agent = useAgentAddress()
   const address = connected ?? agent
   const { data: s } = useGenesisState(hook)
   const book = useBids(hook)
+  const [side, setSide] = useState<'sell' | 'bid'>('sell')
 
   if (!s) return <p className="text-note text-text-tertiary">…</p>
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
   const mine = book.bids.filter(b => address && b.bidder.toLowerCase() === address.toLowerCase() && b.escrow > 0n)
+
+  if (embedded) {
+    const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
+    const escrowed = book.open.reduce((sum, b) => sum + b.escrow, 0n)
+    const stats = [
+      [tx.mktBest, best > 0n ? `${fmtSig(best, 18, 6)} ${quote.symbol}` : '—'],
+      [tx.mktCurve, `${fmtSig(s.currentPrice, 18, 6)} ${quote.symbol}`],
+      [tx.mktFloor, `${fmtSig(fillFloor(s.currentPrice), 18, 6)} ${quote.symbol}`],
+      [tx.mktEscrow, `${fmtSig(escrowed)} ${quote.symbol}`],
+    ] as const
+    return (
+      <div className="@container flex flex-col gap-6">
+        <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-4">
+          {stats.map(([k, v]) => (
+            <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
+              <dt className="text-label uppercase text-text-tertiary">{k}</dt>
+              <dd className="font-mono text-readout font-bold text-text-primary">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        {s.launched && <Card tone="warn"><p className="text-note">{t.marketClosed}</p></Card>}
+        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_340px]">
+          <DepthTable bids={book.open} quote={quote} floor={fillFloor(s.currentPrice)} />
+          {!s.launched && (
+            <div className="flex flex-col gap-4">
+              <div role="tablist" aria-label={tx.mktSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
+                {([['sell', tx.mktSell], ['bid', tx.mktBid]] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={side === id}
+                    onClick={() => setSide(id)}
+                    className={`rounded-input px-2 py-1.5 text-note font-bold transition-colors ${
+                      side === id ? 'bg-brand text-bg-base' : 'text-text-tertiary hover:text-text-primary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {side === 'sell'
+                ? <SellPanel hook={hook} token={s.token} symbol={symbol} quote={quote} bids={book.open} price={s.currentPrice} onDone={book.refetch} />
+                : <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />}
+            </div>
+          )}
+        </div>
+        <MyBids bids={mine} quote={quote} onDone={book.refetch} />
+        <RecentTrades hook={hook} quote={quote} />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">

@@ -17,7 +17,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }))
 vi.mock('next/font/google', () => {
   const font = () => ({ variable: 'v', className: 'c', style: { fontFamily: 'f' } })
-  return { JetBrains_Mono: font, Geist: font, Noto_Sans_SC: font }
+  return { Chakra_Petch: font, Geist: font, Noto_Sans_SC: font }
 })
 vi.mock('./globals.css', () => ({}))
 vi.mock('./providers', () => ({ Providers: () => null }))
