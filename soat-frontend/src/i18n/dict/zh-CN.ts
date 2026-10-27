@@ -1033,6 +1033,8 @@ export const ZH_CN: PartialDictionary = {
     disconnect:      '断开',
     ledgerEyebrow:   '推荐台账',
     ledgerBody:      '所有项目的佣金，以及领取入口',
+    portfolioEyebrow: '我的持仓',
+    portfolioBody:    '你在各项目上的未成交买单',
     footerHint:      'esc · 点击外部关闭',
 
     quotaEyebrow:   '本窗口剩余 POG 额度',

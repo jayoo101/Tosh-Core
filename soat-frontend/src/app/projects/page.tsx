@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 
 import AgentDirectoryPage from '@/components/directory/AgentDirectoryPage'
 import { MAINNET_CHAIN_LABEL, QUOTE_SYMBOL } from '@/lib/contracts'
 import { fill } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
+import { LEGACY_V1 } from '@/lib/legacy'
 
 /**
  * This route used to be `redirect('/#directory')`.
@@ -26,5 +28,6 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function ProjectsPage() {
+  if (!LEGACY_V1) redirect('/launchpad')
   return <AgentDirectoryPage />
 }

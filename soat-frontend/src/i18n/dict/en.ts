@@ -1401,6 +1401,8 @@ export const EN = {
     disconnect:      'Disconnect',
     ledgerEyebrow:   'REFERRAL LEDGER',
     ledgerBody:      'Commission from every project, and the claims',
+    portfolioEyebrow: 'MY PORTFOLIO',
+    portfolioBody:    'Your open bids across projects',
     footerHint:      'esc · click_outside',
 
     quotaEyebrow:   'POG REMAINING · THIS WINDOW',

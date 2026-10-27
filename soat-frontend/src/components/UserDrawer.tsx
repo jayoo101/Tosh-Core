@@ -74,6 +74,7 @@ import {
   useNowMs, CLOCK_UNSYNCED,
 } from '@/components/ui'
 import { fill, useT } from '@/i18n'
+import { LEGACY_V1 } from '@/lib/legacy'
 
 /**
  * How many launches back the drawer walks when rebuilding a wallet's positions.
@@ -215,7 +216,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'eligibility',      args: [address, ZERO_ADDRESS] as const },
       { address: FACTORY_ADDRESS, abi: FACTORY_ABI, functionName: 'blacklistedUntil', args: [address] as const },
     ] : [],
-    query: { enabled: open && Boolean(address) },
+    query: { enabled: open && LEGACY_V1 && Boolean(address) },
   })
 
   const pogQuota:       bigint | undefined =
@@ -239,7 +240,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     contracts: LISTED_FACTORIES.map(f => ({
       address: f, abi: FACTORY_ABI, functionName: 'launchCount' as const,
     })),
-    query: { enabled: open },
+    query: { enabled: open && LEGACY_V1 },
   })
   const countsKey = LISTED_FACTORIES
     .map((_, i) => {
@@ -470,6 +471,12 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
         />
 
         <div className="flex-1 overflow-y-auto overscroll-contain">
+          {!LEGACY_V1 ? (
+            <>
+              <PortfolioLink onNavigate={onClose} />
+              {QUOTE_WRAPS_NATIVE && address && <UnwrapPanel address={address} />}
+            </>
+          ) : (<>
           <PoGQuotaPanel
             pogQuota={pogQuota}
             windowSpent={windowSpent}
@@ -503,6 +510,7 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
           />
           {QUOTE_WRAPS_NATIVE && address && <UnwrapPanel address={address} />}
           <ReferralLedgerLink onNavigate={onClose} />
+          </>)}
         </div>
 
         <DrawerFooter />
@@ -592,6 +600,31 @@ function DrawerHeader({
         </button>
       </div>
     </header>
+  )
+}
+
+/** The v2 drawer's one row: the connected wallet's `/portfolio`. */
+function PortfolioLink({ onNavigate }: { onNavigate: () => void }) {
+  const t = useT().drawer
+  return (
+    <section className="px-4 pb-4 pt-4">
+      <Link
+        href="/portfolio"
+        onClick={onNavigate}
+        className="flex items-center justify-between gap-3 rounded-xl border border-border-subtle/70
+                   bg-surface-card/50 p-4 transition-colors hover:border-brand/40"
+      >
+        <span className="min-w-0">
+          <span className="block font-mono text-micro font-bold tracking-widest text-brand/70">
+            {t.portfolioEyebrow}
+          </span>
+          <span className="mt-1 block text-note text-text-secondary">
+            {t.portfolioBody}
+          </span>
+        </span>
+        <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-text-tertiary" />
+      </Link>
+    </section>
   )
 }
 

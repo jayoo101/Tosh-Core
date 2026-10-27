@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 
 import { ReferralLedger } from '@/components/referrals/ReferralLedger'
 import { MAINNET_CHAIN_LABEL } from '@/lib/contracts'
 import { fill } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
+import { LEGACY_V1 } from '@/lib/legacy'
 
 /**
  * `/referrals` — every project that owes this wallet commission, in one place.
@@ -25,5 +27,6 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function ReferralsPage() {
+  if (!LEGACY_V1) redirect('/portfolio')
   return <ReferralLedger />
 }

@@ -60,6 +60,7 @@ import {
   CHAIN_BYLINE,
 } from '@/lib/contracts'
 import { useProtocolOwner } from '@/lib/useProtocolOwner'
+import { LEGACY_V1 } from '@/lib/legacy'
 import { ActionGateProvider, type AmbientGate } from '@/components/ui'
 import { WithoutWalletPicker } from '@/components/WalletPicker'
 import { Line, GroupHeader, AddressLink } from './shared'
@@ -226,7 +227,9 @@ const GROUPS = {
   },
 } as const
 
-const GROUP_ORDER = ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'diag'] as const
+const GROUP_ORDER: readonly (keyof typeof GROUPS)[] = LEGACY_V1
+  ? ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'diag']
+  : ['g6']
 
 /**
  * Jump bar for a console that is fourteen phone screens tall.
@@ -297,7 +300,7 @@ export default function AdminPage() {
                 <span className="text-label font-mono text-admin uppercase tracking-widest">
                   Operator Console
                 </span>
-                {!access.allowed && (
+                {LEGACY_V1 && !access.allowed && (
                   <span className="text-label font-mono text-danger uppercase tracking-widest">
                     · read-only
                   </span>
@@ -307,8 +310,8 @@ export default function AdminPage() {
                 Protocol <span className="text-brand">Control</span>
               </h1>
               <p className="text-xs text-text-tertiary mt-1 font-mono">
-                {CHAIN_BYLINE} ·{' '}
-                {FACTORY_ADDRESS.slice(0, 10)}…{FACTORY_ADDRESS.slice(-6)}
+                {CHAIN_BYLINE}
+                {LEGACY_V1 && <> · {FACTORY_ADDRESS.slice(0, 10)}…{FACTORY_ADDRESS.slice(-6)}</>}
               </p>
             </div>
             <WalletBar />
@@ -318,6 +321,7 @@ export default function AdminPage() {
       <main className="max-w-3xl mx-auto px-6 pb-24 pt-4">
         <GroupJumpBar />
 
+        {LEGACY_V1 && <>
         <AccessBanner
           isConnected={isConnected}
           ownerLoading={ownerLoading}
@@ -344,18 +348,21 @@ export default function AdminPage() {
 
         <GroupHeader anchor="g5" {...GROUPS.g5.header} />
         <OwnershipPanel connected={address} />
+        </>}
 
         <GroupHeader anchor="g6" {...GROUPS.g6.header} />
         <FeaturedProjectPanel />
 
+        {LEGACY_V1 && <>
         <GroupHeader anchor="diag" {...GROUPS.diag.header} />
         <InitcodeHashMonitor />
         <ExchangeRatePanel />
+        </>}
 
         <div className="pt-12">
           <Line />
           <p className="text-label text-text-quiet tracking-[0.4em] uppercase text-center pt-6">
-            every on-chain write here is onlyOwner · chain {TARGET_CHAIN_ID}
+            {LEGACY_V1 ? 'every on-chain write here is onlyOwner' : 'off-chain content only'} · chain {TARGET_CHAIN_ID}
           </p>
         </div>
       </main>

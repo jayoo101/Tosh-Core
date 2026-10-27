@@ -35,6 +35,7 @@ import { AddressLink, Badge, Card } from '@/components/ui'
 import { TIER_COUNT } from '@/lib/contracts'
 import { fill, useT } from '@/i18n'
 import { V2Terminal } from '@/components/v2/V2Terminal'
+import { LEGACY_V1 } from '@/lib/legacy'
 import { V2_ENABLED } from '@/lib/v2/config'
 import { useIsV2Hook } from '@/lib/v2/useV2'
 import type { ReactNode } from 'react'
@@ -57,6 +58,17 @@ function VersionedTerminal({ project: p, about, header }: {
   header: (live: TerminalHeaderState | null, aside?: ReactNode) => ReactNode
 }) {
   const isV2 = useIsV2Hook(p.hook_address as Address | undefined)
+  const t = useT().project
+  if (isV2 === false && !LEGACY_V1) {
+    return (
+      <>
+        {header(null)}
+        <p className="mt-6 rounded-panel border border-border-subtle bg-surface-card p-6 text-body text-text-secondary">
+          {t.legacyRetired}
+        </p>
+      </>
+    )
+  }
   if (isV2 === false) return <ProjectTerminal project={p} about={about} header={header} />
   if (isV2 === undefined) return null
   return <V2Terminal hook={p.hook_address as Address} symbol={p.symbol} header={aside => header(null, aside)} />

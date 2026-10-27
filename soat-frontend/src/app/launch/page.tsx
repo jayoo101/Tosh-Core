@@ -25,7 +25,8 @@
 
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { redirect, useRouter } from 'next/navigation'
+import { LEGACY_V1 } from '@/lib/legacy'
 import {
   useAccount, useBalance, useSwitchChain,
   useReadContracts, usePublicClient, useEstimateFeesPerGas,
@@ -181,6 +182,7 @@ function SectionNote({ children }: { children: ReactNode }) {
 }
 
 export default function LaunchRoute() {
+  if (!LEGACY_V1) redirect('/launch/v2')
   return LAUNCHES_PAUSED ? <LaunchesPaused /> : <GenesisConsole />
 }
 
