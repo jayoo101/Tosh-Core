@@ -207,7 +207,7 @@ contract DeployV2 is Script {
         console2.log("NEXT: Safe accepts ownership of both factories and both treasuries.");
     }
 
-    function _write(ToshBidBook book, ToshHookLens lens, Stack memory bnb, Stack memory usdt) internal {
+    function _write(ToshBidBook book, ToshHookLens lens, Stack memory bnb, Stack memory usdt) internal virtual {
         string memory k = "v2";
         vm.serializeAddress(k, "bidBook", address(book));
         vm.serializeAddress(k, "lens", address(lens));

@@ -126,8 +126,13 @@ jobs:
           set -euo pipefail
           echo "runs=$FOUNDRY_INVARIANT_RUNS depth=$FOUNDRY_INVARIANT_DEPTH"
           echo "(test.yml runs the same suite at 128 x 100)"
-          forge test --match-contract ToshV5InvariantsTest -vv \
+          # v2's two invariant suites; ToshV5InvariantsTest went to legacy/test-v1.
+          forge test --match-contract 'LifecycleInvariantTest|BidBookInvariantTest' -vv \
             | tee "$RUNNER_TEMP/invariants.log"
+          if grep -q 'No tests found' "$RUNNER_TEMP/invariants.log"; then
+            echo "::error::--match-contract matched no invariant suite, and forge exits 0 on that."
+            exit 1
+          fi
 
       - name: Fuzz properties (deep)
         env:

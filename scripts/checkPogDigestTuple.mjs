@@ -7,7 +7,7 @@
  *
  * The digest is built in three languages:
  *
- *   1. Solidity  `src/ToshFactory.sol`               — registerPoG, the verifier
+ *   1. Solidity  `legacy/src-v1/ToshFactory.sol`         — registerPoG, the verifier
  *   2. viem      `soat-frontend/.../sign-allocation` — the production signer
  *   3. ethers    `scripts/pogSigner.ts`              — the operator signer
  *
@@ -52,7 +52,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const SOLIDITY = 'src/ToshFactory.sol';
+// v2 dropped PoG; the live v1 factory still verifies it, from this source.
+const SOLIDITY = 'legacy/src-v1/ToshFactory.sol';
 const VIEM = 'soat-frontend/src/app/api/sign-allocation/route.ts';
 const ETHERS = 'scripts/pogSigner.ts';
 

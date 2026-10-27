@@ -434,10 +434,18 @@ jobs:
       #
       # 648 -> 678: the homepage PoG-quota entry and the WBNB move (native
       # deposit, auto-wrap on buys, WBNB unwrap, multi-factory directory).
+      #
+      # 678 -> 744. The v2 frontend had already carried the suite to 704 with
+      # the floor left behind (bid maths, agent encoding, the bids route). The
+      # other 40 cover the v2 server side that had none: the genesis-buys,
+      # trades and portfolio reads (+18), the CRON_SECRET-gated index route
+      # (+7), the indexer itself against real ABI-encoded logs (+11:
+      # idempotent replay, cursor held on a failed write, PASS_SPAN and
+      # LOG_CHUNK bounds, bids re-read from state), and bidMath edges (+4).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=678
+          floor=744
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

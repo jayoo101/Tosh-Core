@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { depth, escrowFor, planSell, quoteFill, withSlippage, type LiveBid } from './bidMath'
+import { depth, escrowFor, fillFloor, planSell, quoteFill, withSlippage, type LiveBid } from './bidMath'
 
 const E18 = 10n ** 18n
 const bid = (id: bigint, price: bigint, qty: bigint, filled = 0n): LiveBid => ({
@@ -59,5 +59,30 @@ describe('bidMath', () => {
 
   it('withSlippage', () => {
     expect(withSlippage(10_000n, 100n)).toBe(9_900n)
+  })
+
+  it('quoteFill clamps an oversized fill to what the bid has left', () => {
+    const f = quoteFill({ price: 100n, qty: 10n * E18, filled: 7n * E18 }, 50n * E18)
+    expect(f.q).toBe(3n * E18)
+    expect(f.gross).toBe(300n)
+  })
+
+  it('fillFloor is a rounded-down 90 % of the genesis price', () => {
+    expect(fillFloor(1_000n)).toBe(900n)
+    expect(fillFloor(1_001n)).toBe(900n)
+  })
+
+  it('planSell breaks price ties by bid id, totals the seller proceeds, and stops when sold', () => {
+    const bids = [bid(7n, 10n ** 16n, E18), bid(3n, 10n ** 16n, E18), bid(5n, 10n ** 15n, E18)]
+    const p = planSell(bids, 2n * E18, 0n)
+    expect(p.ids).toEqual([3n, 7n])
+    const one = quoteFill(bids[0], E18)
+    expect(p.out).toBe(2n * one.out)
+    expect(p.out).toBe(2n * (10n ** 16n - 10n ** 14n))
+  })
+
+  it('depth skips fully filled bids and prices each level at its gross', () => {
+    const d = depth([bid(1n, 100n, 10n * E18, 10n * E18), bid(2n, 3n, E18 + 1n)])
+    expect(d).toEqual([{ price: 3n, tokens: E18 + 1n, quote: 4n, bids: 1 }])
   })
 })
