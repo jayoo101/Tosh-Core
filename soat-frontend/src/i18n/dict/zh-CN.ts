@@ -1210,9 +1210,6 @@ export const ZH_CN: PartialDictionary = {
     marketClosed:      '已开盘 —— 买单市场已关闭，未成交的买单仍可撤回。',
     tradesTitle:       '最近成交',
     colSeller:         '卖方',
-    riskAck:           '我已了解：不退款；开盘前代币不能在 DEX 上卖出；开盘价格不保证维持。',
-    riskRequired:      '请先勾选风险确认。',
-
     registerTitle:     '登记收款',
     registerBlurb:     '项目开盘前，代币只能转给已登记的钱包。参与 GENESIS 或挂买单会自动登记。',
     registerToken:     '代币地址',
@@ -1232,7 +1229,6 @@ export const ZH_CN: PartialDictionary = {
     agentClose:        '收起',
     agentHowTo:        '粘贴给你的 Agent 执行即可。需先在 Agentic Wallet → 设置 开启开发者模式；价格变了请重新复制。',
     agentShow:         '查看指令内容',
-    agentAckFirst:     '勾选上面的风险提示后，即可复制指令。',
     agentCopyTemplate: '复制通用指令给 Agent',
     agentTemplateHint: '复制一次发给你的 Agent，之后直接告诉它买多少，例如"买 100U"。需先在 Agentic Wallet → 设置 开启开发者模式。',
     agentTplGenesis:   'ToshX GENESIS 认购 {symbol}。之后我说"买 X {quote}"时，请在 {chain}（chainId {id}）上用这个持有 Agent ID 的钱包依次执行：\n1. 调用 {quote} 合约 {asset}：approve(spender = {hook}, amount = X × 10^{dec})\n2. 调用合约 {hook}：buyGenesis(uint256 maxPay = X × 10^{dec}, uint256 minTokens = 0)，value = 0\n说明：认购价只随售出上涨，最高 1.5P；超过本 Agent ID 剩余额度的部分不会扣款。',

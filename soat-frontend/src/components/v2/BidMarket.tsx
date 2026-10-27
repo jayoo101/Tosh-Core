@@ -18,7 +18,6 @@ import { useBids, useGenesisState } from '@/lib/v2/useV2'
 import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
 import { fmtSig, parseAmount } from './fmt'
 import { useTokenBalance, useWrapShortfall } from './hooks'
-import { RiskAck, useRiskAck } from './RiskAck'
 import { RecentTrades } from './RecentTrades'
 import { WalletAction } from './WalletAction'
 import { AgentAddressField, AgentModeSheet, useAgentAddress } from './AgentModeSheet'
@@ -183,7 +182,6 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
   // and a bid that drops under it by inclusion time is skipped, not filled.
   const routeFloor = (fillFloor(price) * 101n) / 100n
   const plan = useMemo(() => planSell(bids, amount, routeFloor), [bids, amount, routeFloor])
-  const risk = useRiskAck(hook)
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: token, abi: erc20Abi, functionName: 'allowance',
     args: address && V2_BIDBOOK ? [address, V2_BIDBOOK] : undefined, chainId: TARGET_CHAIN_ID,
@@ -203,7 +201,6 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
       { id: 'amount', active: amount === 0n, label: t.sellBtn, reason: t.sellAmount, tone: 'neutral' },
       { id: 'balance', active: amount > (bal.data ?? 0n), label: t.sellBtn, reason: fill(t.sellBalance, { amount: fmtSig(bal.data) }), tone: 'neutral' },
       { id: 'nothing', active: plan.tokens === 0n, label: t.sellBtn, reason: t.sellNothing, tone: 'neutral' },
-      { id: 'risk', active: !risk.acked, label: t.sellBtn, reason: t.riskRequired, tone: 'neutral' },
       (allowance ?? 0n) < plan.tokens && {
         id: 'approve', active: true, label: fill(t.approveToken, { symbol }), reason: fill(t.approveToken, { symbol }), tone: 'info',
         resolve: () => approve.send({ address: token, abi: erc20Abi, functionName: 'approve', args: [V2_BIDBOOK!, plan.tokens] }),
@@ -228,12 +225,11 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
           {plan.tokens < amount && ` (${fmtSig(plan.tokens)} ${symbol})`}
         </p>
       )}
-      <RiskAck {...risk} />
       <WalletAction gate={gate} open />
       <AgentModeSheet
         title={`${t.agentNoteSell} ${fmtSig(plan.tokens)} ${symbol}`}
         summary={plan.tokens > 0n ? fill(t.sellReceive, { amount: fmtSig(plan.out), quote: quote.symbol }) : undefined}
-        steps={risk.acked && plan.tokens > 0n ? [
+        steps={plan.tokens > 0n ? [
           approveStep(token, symbol, V2_BIDBOOK!, plan.tokens, t),
           {
             note: t.agentNoteSell, to: V2_BIDBOOK!, abi: V2_BIDBOOK_ABI, functionName: 'fill',

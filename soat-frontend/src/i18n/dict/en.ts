@@ -1595,9 +1595,6 @@ export const EN = {
     marketClosed:      'Launched — the bid market is closed. Open bids can still be cancelled.',
     tradesTitle:       'Recent trades',
     colSeller:         'Seller',
-    riskAck:           'I understand there are no refunds, tokens cannot be sold on a DEX until launch, and the launch price is not guaranteed to hold.',
-    riskRequired:      'Tick the risk acknowledgement first.',
-
     registerTitle:     'Register to receive',
     registerBlurb:     'Until a project launches, its token can only be sent to wallets that registered. Buying GENESIS or placing a bid registers you automatically.',
     registerToken:     'Token address',
@@ -1617,7 +1614,6 @@ export const EN = {
     agentClose:        'Close',
     agentHowTo:        'Paste it to your agent and let it run. Developer mode must be on (Agentic Wallet → Settings); copy again if the price moves.',
     agentShow:         'Show the instructions',
-    agentAckFirst:     'Tick the risk notice above to copy the instructions.',
     agentCopyTemplate: 'Copy reusable instructions for your agent',
     agentTemplateHint: 'Send it to your agent once, then just say how much, e.g. "buy 100U". Developer mode must be on (Agentic Wallet → Settings).',
     agentTplGenesis:   'ToshX GENESIS buy of {symbol}. When I say "buy X {quote}", use this wallet (it holds the Agent ID) on {chain} (chainId {id}) to run, in order:\n1. On the {quote} contract {asset}: approve(spender = {hook}, amount = X × 10^{dec})\n2. On contract {hook}: buyGenesis(uint256 maxPay = X × 10^{dec}, uint256 minTokens = 0), value = 0\nNote: the GENESIS price only rises with sales and tops out at 1.5P; anything above this Agent ID\'s remaining allowance is not charged.',

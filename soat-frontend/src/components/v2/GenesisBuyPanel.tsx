@@ -14,12 +14,11 @@ import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { V2_LENS, type V2Quote } from '@/lib/v2/config'
 import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
 import { fmtSig, isContractCode, parseAmount } from './fmt'
-import { RiskAck, useRiskAck } from './RiskAck'
 import { AgentModeSheet } from './AgentModeSheet'
 import { WalletAction } from './WalletAction'
 import { approveStep } from './agentSteps'
-
 import { agentShares, sharesLeft } from './shares'
+
 /** 0.5 % below the quoted token amount, for `minTokens`. */
 const SLIPPAGE_BPS = 50n
 
@@ -33,12 +32,12 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
 
   const state = useGenesisState(hook)
   const acct = useAccountState(hook, address)
-  const { data: code } = useBytecode({ address, chainId: TARGET_CHAIN_ID, query: { enabled: !!address } })
   const shares = agentShares(quote, state.data?.minBuy, state.data?.perAgentCap)
   const shareCount = shares && /^\d+$/.test(raw.trim()) ? BigInt(raw.trim()) : 0n
   const pay = shares
     ? (shareCount > shares.count ? shares.count : shareCount) * shares.size
     : parseAmount(raw, quote.decimals) ?? 0n
+  const { data: code } = useBytecode({ address, chainId: TARGET_CHAIN_ID, query: { enabled: !!address } })
   const hasCode = isContractCode(code)
   const noAgentId = acct.data !== undefined && acct.data.registryOk && acct.data.agentKey === `0x${'0'.repeat(64)}`
   // The Agent ID lives on the Agentic Wallet, which cannot connect to a site.
@@ -68,7 +67,6 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
   })
 
   const minBuy = state.data?.minBuy ?? 0n
-  const risk = useRiskAck(hook)
   const gate = useActionGate({
     action: t.buy,
     tx,
@@ -88,7 +86,6 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
       acct.data !== undefined && acct.data.agentKey !== `0x${'0'.repeat(64)}` && remaining === 0n &&
         { id: 'used', active: true, label: t.agentTitle, reason: t.agentUsedUp, tone: 'neutral' },
       { id: 'amount', active: pay === 0n || tokens === 0n, label: t.buy, reason: fill(t.minBuy, { min: fmtSig(minBuy), quote: quote.symbol }), tone: 'neutral' },
-      { id: 'risk', active: !risk.acked, label: t.buy, reason: t.riskRequired, tone: 'neutral' },
       !quote.native && approval.needsApproval && {
         id: 'approve', active: true, label: fill(t.approve, { quote: quote.symbol }),
         reason: fill(t.approve, { quote: quote.symbol }), tone: 'info', resolve: approval.approve,
@@ -165,20 +162,18 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
           <Row k={tx2.quoteMin} v={tokens > 0n ? `${fmtSig(minTokens, 18, 6)} ${symbol}` : '—'} />
         </dl>
       </details>
-      <RiskAck {...risk} />
       {gate.verdict.kind !== 'connect' && <ActionButton gate={gate} />}
       {open && (
         <AgentModeSheet
           title={pay > 0n ? `${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}` : `${t.agentNoteBuy} ${symbol}`}
-          template={risk.acked ? [
+          template={[
             fill(quote.native ? t.agentTplGenesisNative : t.agentTplGenesis, {
               chain: ACTIVE_CHAIN_LABEL, id: String(TARGET_CHAIN_ID), quote: quote.symbol, symbol,
               asset: quote.asset, hook, dec: String(quote.decimals),
             }),
             t.agentWalletSettings,
-          ].join('\n\n') : undefined}
-          pending={t.agentAckFirst}
-          steps={risk.acked && pay > 0n && tokens > 0n ? [
+          ].join('\n\n')}
+          steps={pay > 0n && tokens > 0n ? [
             ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, pay, t)]),
             {
               note: t.agentNoteBuy, to: hook, abi: V2_HOOK_ABI, functionName: 'buyGenesis',
