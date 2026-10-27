@@ -16,6 +16,7 @@ import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
 import { fmtSig, isContractCode, parseAmount } from './fmt'
 import { RiskAck, useRiskAck } from './RiskAck'
 import { AgentModeSheet } from './AgentModeSheet'
+import { WalletAction } from './WalletAction'
 import { approveStep } from './agentSteps'
 
 /** 0.5 % below the quoted token amount, for `minTokens`. */
@@ -134,7 +135,7 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
         <Row k={tx2.quoteMin} v={tokens > 0n ? `${fmtSig(minTokens, 18, 6)} ${symbol}` : '—'} />
       </dl>
       <RiskAck {...risk} />
-      <ActionButton gate={gate} />
+      {gate.verdict.kind !== 'connect' && <ActionButton gate={gate} />}
       {open && (
         <AgentModeSheet
           title={`${t.agentNoteBuy} ${fmtSig(pay)} ${quote.symbol}`}
@@ -152,6 +153,7 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
           onDone={() => { void state.refetch(); void acct.refetch(); approval.refetch() }}
         />
       )}
+      {gate.verdict.kind === 'connect' && <WalletAction gate={gate} />}
       <a href="#market" className="text-note text-brand hover:underline">{tx2.buyMarketLink}</a>
     </Card>
   )

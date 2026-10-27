@@ -6,7 +6,7 @@ import { isAddress, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
 import {
-  ActionButton, AddressLink, Card, Field, Readout, ReadoutGrid,
+  AddressLink, Card, Field, Readout, ReadoutGrid,
   revertOrder, useActionGate, useQuoteApproval, useTxAction,
 } from '@/components/ui'
 import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
@@ -28,6 +28,7 @@ import { BidMarket } from './BidMarket'
 import { fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
 import { useNow, useWrapShortfall } from './hooks'
+import { WalletAction } from './WalletAction'
 import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { prepSteps } from './agentSteps'
 import { TransferPanel } from './TransferPanel'
@@ -346,7 +347,7 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
       <p className="text-note text-text-secondary">
         {s.launched ? t.launchExplain : started ? (publicOpen ? t.launchPublic : fill(t.launchAdminWindow, { time: fmtTime(s.publicLaunchAt) })) : t.launchExplain}
       </p>
-      {!s.launched && <ActionButton gate={gate} />}
+      {!s.launched && <WalletAction gate={gate} />}
       {!s.launched && started && (
         <AgentModeSheet
           title={t.launchBtn}
@@ -410,9 +411,9 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
       )}
       {isController && (
         <div className="flex flex-col gap-4">
-          <ActionButton gate={wGate} />
+          <WalletAction gate={wGate} />
           <Field label={t.fundAddrLabel} value={raw} onValueChange={setRaw} placeholder="0x…" />
-          <ActionButton gate={cGate} />
+          <WalletAction gate={cGate} />
         </div>
       )}
     </Card>
@@ -467,7 +468,7 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
       </ReadoutGrid>
       <Field label={`${t.mintAmount} (${symbol})`} value={raw} onValueChange={setRaw} inputMode="decimal" placeholder="0" />
       {maxCost > 0n && <Readout label={t.payLabel} value={`${fmtSig(maxCost)} ${quote.symbol}`} />}
-      <ActionButton gate={gate} />
+      <WalletAction gate={gate} />
       <AgentModeSheet
         title={fill(t.agentNoteMint, { amount: fmtSig(amount), symbol })}
         summary={maxCost > 0n ? `${t.payLabel}: ${fmtSig(maxCost)} ${quote.symbol}` : undefined}

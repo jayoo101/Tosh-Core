@@ -20,8 +20,10 @@ export function useNow(): number {
   return now
 }
 
-export function useTokenBalance(token: Address | undefined) {
-  const { address } = useAccount()
+/** `owner` defaults to the connected wallet. */
+export function useTokenBalance(token: Address | undefined, owner?: Address) {
+  const { address: connected } = useAccount()
+  const address = owner ?? connected
   return useReadContract({
     address: token,
     abi: erc20Abi,

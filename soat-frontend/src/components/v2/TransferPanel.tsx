@@ -4,11 +4,12 @@ import { useMemo, useState } from 'react'
 import { erc20Abi, formatUnits, isAddress, type Address } from 'viem'
 import { useAccount, useBytecode, useReadContract } from 'wagmi'
 
-import { ActionButton, Button, Card, Field, FieldAffix, Readout, revertOrder, useActionGate, useTxAction } from '@/components/ui'
+import { Button, Card, Field, FieldAffix, Readout, revertOrder, useActionGate, useTxAction } from '@/components/ui'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_TOKEN_ABI } from '@/lib/v2/abis'
-import { AgentModeSheet } from './AgentModeSheet'
+import { WalletAction } from './WalletAction'
+import { AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { fmtSig, isContractCode as hasCode, parseAmount } from './fmt'
 import { useTokenBalance } from './hooks'
 
@@ -19,13 +20,15 @@ import { useTokenBalance } from './hooks'
  */
 export function TransferPanel({ token, symbol }: { token: Address; symbol: string }) {
   const t = useT().v2
+  const tx2 = useT().x
   const { address } = useAccount()
+  const agent = useAgentAddress()
   const [rawTo, setRawTo] = useState('')
   const [raw, setRaw] = useState('')
   const [copied, setCopied] = useState(false)
   const to = isAddress(rawTo.trim()) ? (rawTo.trim() as Address) : undefined
   const amount = parseAmount(raw) ?? 0n
-  const bal = useTokenBalance(token)
+  const bal = useTokenBalance(token, address ?? agent)
 
   const { data: open } = useReadContract({
     address: token, abi: V2_TOKEN_ABI, functionName: 'tradingOpen', chainId: TARGET_CHAIN_ID,
@@ -65,6 +68,14 @@ export function TransferPanel({ token, symbol }: { token: Address; symbol: strin
     [to, amount, restricted, toCode, registered, token, symbol, t],
   )
 
+  if (!address && !agent) {
+    return (
+      <Card title={t.holdTitle}>
+        <p className="text-note text-text-tertiary">{tx2.holdHint}</p>
+      </Card>
+    )
+  }
+
   return (
     <Card title={t.holdTitle}>
       <Readout label={t.holdBalance} value={`${fmtSig(bal.data)} ${symbol}`} />
@@ -85,7 +96,7 @@ export function TransferPanel({ token, symbol }: { token: Address; symbol: strin
             onClick={() => void navigator.clipboard.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }, () => {})} />
         </div>
       )}
-      <ActionButton gate={gate} />
+      <WalletAction gate={gate} />
       <AgentModeSheet
         title={`${t.transferBtn} ${fmtSig(amount)} ${symbol}`}
         steps={steps}
