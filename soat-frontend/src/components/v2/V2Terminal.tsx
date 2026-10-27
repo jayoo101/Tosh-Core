@@ -89,7 +89,7 @@ export function V2Terminal({ hook, symbol, header }: {
             ? <ShelfPanel hook={hook} quote={quote} symbol={symbol} />
             : <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} symbol={symbol} />}
           <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
-          <TransferPanel token={s.token} symbol={symbol} />
+          {!s.launched && <TransferPanel token={s.token} symbol={symbol} />}
         </aside>
       </div>
     </div>
