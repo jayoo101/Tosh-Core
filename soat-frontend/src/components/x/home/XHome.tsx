@@ -11,7 +11,7 @@ export default function XHome() {
   const summaries = useV2Summaries(projects)
   return (
     <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-4 py-6 md:px-8 md:py-8">
-      <Hero projects={projects} counts={counts} summaries={summaries} />
+      <Hero projects={projects} counts={counts} />
       <BrowseSection projects={projects} summaries={summaries} loading={loading} />
       <Features />
     </main>

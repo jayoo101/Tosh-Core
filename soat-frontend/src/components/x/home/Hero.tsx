@@ -2,18 +2,14 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowRight, ArrowUpRight, Coins, Flame, Rocket, ShieldCheck, Wallet } from 'lucide-react'
+import { ArrowRight, Coins, Rocket, ShieldCheck, Wallet } from 'lucide-react'
 
 import type { DirectoryProject } from '@/components/directory/useDirectoryProjects'
-import { ProjectLogo } from '@/components/ProjectLogo'
-import { CLOCK_UNSYNCED, formatCountdown, useNowSec } from '@/components/ui'
+import { useNowSec } from '@/components/ui'
 import { fill, useT } from '@/i18n'
 import { ACTIVE_CHAIN_LABEL } from '@/lib/chain'
 import { isV2Factory } from '@/lib/v2/config'
-import { Bar } from '../Panel'
-import { ProjectLink, raisedLine } from '../ProjectBits'
-import { pct } from '../curve'
-import { summaryOf, type GenesisSummary } from '../useV2Summaries'
+import { ProjectLink } from '../ProjectBits'
 
 /** An editorial pin first, then the newest live v2 raise, then any live raise. */
 export function pickFeatured(projects: readonly DirectoryProject[], nowMs: number): DirectoryProject | undefined {
@@ -25,15 +21,13 @@ export function pickFeatured(projects: readonly DirectoryProject[], nowMs: numbe
   )
 }
 
-export function Hero({ projects, counts, summaries }: {
+export function Hero({ projects, counts }: {
   projects: readonly DirectoryProject[]
   counts: { live: number; launching: number; completed: number }
-  summaries: Map<string, GenesisSummary>
 }) {
   const t = useT().x
   const now = useNowSec('second')
   const featured = pickFeatured(projects, now * 1000)
-  const s = featured ? summaryOf(summaries, featured.hook) : undefined
 
   const stats = [
     { label: t.heroStatLaunches, value: projects.length },
@@ -91,23 +85,15 @@ export function Hero({ projects, counts, summaries }: {
           </div>
         </div>
 
-        <div className="relative flex flex-col items-center gap-4">
+        <div className="relative flex justify-center">
           <Image
             src="/images/launch-mascot.png"
             alt=""
             width={642}
             height={681}
             priority
-            className="w-full max-w-xs mix-blend-lighten [mask-image:radial-gradient(circle_at_center,#000_55%,transparent_72%)]"
+            className="w-full max-w-sm mix-blend-lighten [mask-image:radial-gradient(circle_at_center,#000_55%,transparent_72%)]"
           />
-          {featured ? (
-            <FeaturedCard project={featured} summary={s} now={now} />
-          ) : (
-            <div className="glow-panel glow-flow glow-delay flex w-full max-w-md flex-col gap-2 p-5 lg:-mt-10">
-              <span className="font-bold text-text-primary">{t.heroNoLive}</span>
-              <Link href="/launched" className="text-body text-brand hover:underline">{t.heroNoLiveLink}</Link>
-            </div>
-          )}
         </div>
       </div>
 
@@ -131,45 +117,5 @@ export function Hero({ projects, counts, summaries }: {
         ))}
       </ol>
     </section>
-  )
-}
-
-function FeaturedCard({ project: p, summary: s, now }: { project: DirectoryProject; summary: GenesisSummary | undefined; now: number }) {
-  const t = useT().x
-  const progress = s ? pct(s.raised, s.hardCap) : null
-  const deadline = s && s.soldOutAt === 0n ? s.genesisDeadline : p.genesisDeadline
-  return (
-    <ProjectLink
-      project={p}
-      label={fill(t.heroViewAria, { symbol: p.symbol })}
-      className="glow-panel glow-flow glow-delay group flex w-full max-w-md flex-col gap-4 p-4 lg:-mt-10"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <ProjectLogo src={p.logoUrl} name={p.name || p.symbol} className="size-11 rounded-card ring-1 ring-brand/40" />
-          <div className="flex flex-col">
-            <span className="font-mono text-title font-bold text-text-primary transition-colors group-hover:text-brand">${p.symbol}</span>
-            <span className="text-note text-text-tertiary">{p.name}</span>
-          </div>
-        </div>
-        <span className="flex items-center gap-1 rounded-pill bg-danger px-2.5 py-1 text-note font-bold text-text-primary">
-          <Flame className="size-3" aria-hidden />
-          {t.statusLive}
-        </span>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <span className="font-mono text-body font-bold text-brand">{raisedLine(p, s, t)}</span>
-        {progress !== null && <Bar pct={progress} label={t.raisedVsCap} thick />}
-      </div>
-
-      <div className="flex items-center justify-end gap-1.5 font-mono text-note text-text-tertiary">
-        {t.endsIn}
-        <span className="text-brand">
-          {now === CLOCK_UNSYNCED ? '--:--:--' : formatCountdown(Number(deadline) - now)}
-        </span>
-        <ArrowUpRight className="size-3.5 text-text-primary transition-colors group-hover:text-brand" aria-hidden />
-      </div>
-    </ProjectLink>
   )
 }
