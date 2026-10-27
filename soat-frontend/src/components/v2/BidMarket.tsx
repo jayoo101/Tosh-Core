@@ -106,8 +106,8 @@ export function BidMarket({ hook, symbol, embedded = false }: {
           bids={mine}
           quote={quote}
           onDone={book.refetch}
-          empty={address ? t.myBidsNone : t.myBidsLookup}
-          footer={!connected && <AgentAddressField label={t.myBidsAddr} />}
+          empty={address ? t.myBidsNone : t.myBidsConnect}
+          footer={!connected && <AgentBidsLookup known={!!agent} />}
         />
         <RecentTrades hook={hook} quote={quote} />
       </div>
@@ -305,6 +305,20 @@ function PlacePanel({ hook, quote, price, minBid, onDone }: {
       />
     </Card>
   )
+}
+
+/** The Agent address field, folded behind a link until someone needs it. */
+function AgentBidsLookup({ known }: { known: boolean }) {
+  const t = useT().v2
+  const [open, setOpen] = useState(false)
+  if (!open && !known) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="w-fit text-note text-brand hover:underline">
+        {t.myBidsAgentLink}
+      </button>
+    )
+  }
+  return <AgentAddressField label={t.myBidsAddr} />
 }
 
 /** Hidden when there are no bids, unless `empty` gives the card something to say. */
