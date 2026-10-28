@@ -601,10 +601,10 @@
 
 | 页面 | 路由 | 代码 |
 |---|---|---|
-| 项目页（v2 项目自动切换） | `/projects/[address]` | `components/v2/V2Terminal.tsx`、`GenesisBuyPanel.tsx`；由 `ProjectDetail` 读 `hook.factory()` 判断 v1 / v2 |
+| 项目页（v2 项目自动切换） | `/projects/[address]` | `components/v2/V2Terminal.tsx`、`GenesisBuyPanel.tsx`；`ProjectDetail` 经 BidBook 确认该 Hook 由 v2 工厂登记后显示交易界面，否则只显示"旧版（v1）项目"提示 |
 | 买单市场 | `/projects/[address]/market` | `components/v2/BidMarket.tsx`、`RecentTrades.tsx` |
 | 登记收款 | `/register?token=` | `components/v2/RegisterPanel.tsx` |
-| 我的资产 | `/portfolio` | `components/v2/Portfolio.tsx`（导航栏的「推荐」换成了「持仓」，`/referrals` 路由保留给 v1 领取） |
+| 我的资产 | `/portfolio` | `components/v2/Portfolio.tsx`（导航栏的「推荐」换成了「持仓」；`/referrals` 已删除） |
 | 新建 v2 项目（运营） | `/launch/v2` | `components/v2/V2LaunchForm.tsx`：owner 钱包直接发送，或导出 Safe 批量交易 JSON |
 
 与本文不同或尚未实现之处：

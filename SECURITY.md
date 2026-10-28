@@ -1,9 +1,10 @@
 # Security Policy
 
-This repository contains the contracts and frontend of ToshX v2. **v2 is not
-deployed to mainnet yet**; `script/DeployV2.s.sol` is the deployment path and
-`deployments/v2-<chainid>.json` will record it. Reports against the source are
-welcome and read.
+This repository contains the contracts and frontend of ToshX v2. **v2 is
+deployed on BNB Smart Chain `56`** (2026-10-28, from block 130,243,379) by
+`script/DeployV2.s.sol`; `deployments/v2-56.json` records the addresses, and all
+16 deployed contracts are an exact match on Sourcify. Reports against the source
+are welcome and read.
 
 The v1 contracts that remain on BNB Smart Chain `56` are no longer in this
 tree. Their source, tests and deployment records are in git history up to
@@ -33,9 +34,11 @@ test is worth more than the prose.
 - There is no automated on-chain monitor for v2 yet. Detection depends on
   people.
 - The incident commander and comms lead are the same person.
-- On `56`, ownership of every v2 factory and treasury goes to the 2-of-3 Safe
-  `0x02DE4629129D104C63329D13A6Ca67E43db7B310` (SafeL2 1.4.1).
-  `DeployV2.s.sol` refuses a chain-56 deploy whose owner Safe has any other
+- On `56`, the 2-of-3 Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310`
+  (SafeL2 1.4.1) owns both v2 treasuries directly, and each v2 factory is owned
+  by its `ToshLaunchGateway`, whose Safe is the same one: any current Safe
+  signer may list through it, and every other owner call needs the Safe itself.
+  `ToshBidBook` has no owner. `DeployV2.s.sol` refuses a chain-56 deploy whose owner Safe has any other
   shape. Two of the three owner keys are held by the operator's counterparties
   and one by the operator; that is an attestation, not a measurement, and
   nothing on chain proves it.
@@ -73,10 +76,6 @@ on, and the tests they cite (`test/ToshV5*.t.sol`) are in git history rather
 than in this tree. In v2, `launch()` is not creator-only: the Circuit NFT holder
 has 48 hours after sell-out or the deadline, and then anyone may call it, so
 read "the creator picks the block" below as "whoever launches picks the block".
-
-
-We would rather you spend your time on something new, so here are the issues we
-already know about, stated as the audit states them.
 
 **Sandwiching the treasury buyback used to pay ~7 %. It is closed, and the dial
 that closed it is the one to challenge.** The buyback is a public, sized,
@@ -199,23 +198,24 @@ shared across every pool on this quote asset, so its aggregate balance is nowher
 near one drained pool's; the coupling is nonetheless to the vault's balance at swap
 time rather than to the trade.
 
-**First-block pool flow is open, deliberately.** `launch()` is creator-only, so
-the creator picks the block, and `nonReentrant` does not serialise a swap later
-in the same transaction — they may bundle `launch()` with a buy, and a searcher
-may backrun instead. `beforeSwap` has no allowlist, no cooldown and no
-per-transaction cap, and `beforeAddLiquidity` is a no-op, so JIT LP is available
-from the first tick. Genesis LP is 3,780,000 tokens (18 % of supply) against
-`0.9 × R` of quote.
+**First-block pool flow is open, deliberately.** Whoever calls `launch()` picks
+the block — the Circuit NFT holder for the first 48 hours, then anyone — and
+`nonReentrant` does not serialise a swap later in the same transaction: they may
+bundle `launch()` with a buy, and a searcher may backrun instead. `beforeSwap`
+has no allowlist, no cooldown and no per-transaction cap, and
+`beforeAddLiquidity` is a no-op, so JIT LP is available from the first tick.
+The genesis position is 80 % of the raise against `0.8 × raised ÷ 2P` tokens at
+the opening price 2P — 2,800,000 tokens on a sold-out raise.
 
 Do not read the shelf's defences as covering this. The launch block shuts the
 **ladder** — `SameBlockMintForbidden` plus a pre-maturity reference price of
-`min(spot, p0)`, so a two-block pump cannot lift the ceiling — and the first
-shelf is 3,150 tokens, roughly 1,200× smaller than the float in the book beside
-it. What bounds the pool is price rather than permission: a sniper pays at least
-`p0`, the genesis price, plus 1 % hook tax and 0.3 % pool fee. It is a privileged
-first look at the float, not a discount against the depositors who funded it.
-`test_probeA2_launchBlockPoolFlowIsOpenByDesign` pins both halves — that the buy
-succeeds, and that it does not undercut `p0`.
+`min(spot, 2P)`, so a two-block pump cannot lift the ceiling — and the first
+shelf is 3,150 × raised ÷ hard cap tokens, about 0.11 % of the token side of the
+book beside it. What bounds the pool is price rather than permission: a sniper
+pays at least the opening price 2P, plus 1 % hook tax and 0.3 % pool fee. It is a
+privileged first look at the float, not a discount against the GENESIS buyers,
+whose cost was P to 1.5P. In v1 this was pinned by
+`test_probeA2_launchBlockPoolFlowIsOpenByDesign` (git history).
 
 **Buyback was unbounded in a pool's first 1800 s.** `_buybackSqrtFloor` returns
 `MIN_SQRT_PRICE + 1` — no bound at all — for exactly the window between a pool's
@@ -227,16 +227,17 @@ recovered by whoever parked the price.
 
 Those two figures are **denominated in ETH because that is the build they were
 measured on**, and they are left unconverted rather than rescaled. `TRIGGER_STEP`
-has since been re-denominated three times — ETH, then 3.5 BNB, then 92.8 BEM,
-and now **10 BEM** at 8 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
+has since been re-denominated several times — ETH, then 3.5 BNB, then 92.8 BEM,
+then 10 BEM, and in v2 **0.3 BNB** on the BNB treasury and **180 USDT** on the
+USDT treasury, both at 18 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
 attacker would be reaching for is a different number. Multiplying the old
 measurement through two currency rescales would produce a figure nobody measured
 and present it in the same sentence as one somebody did. If this window is ever
 reopened, the measurement has to be redone rather than converted.
 
 **Closed in source on 2026-09-11, on 4663 on 2026-09-12, and carried into every
-deployment since — including `97`.** The next two paragraphs are 4663 history;
-the one after them is what is true now.
+deployment since — including `97` and both v2 treasuries on `56`.** The next
+three paragraphs are v1 history; the gate itself is what is true now.
 `addLadderToken` now reads `twapSqrtPriceX96()` itself and reverts
 `TwapNotMature` unless it answers non-zero, which puts the window out of reach
 through the only door that leads to it. `test_probeG3_immatureTwapIsRefusedAtListing`
@@ -262,8 +263,10 @@ arm; the listing was retried a `TWAP_WINDOW` later and succeeded, and
 `ladderTokenCount()` on `0x79de…7674` now reads 1. Both arms of one branch,
 against deployed bytecode rather than a fork. That is observation, and it is
 worth more than the four directions of provenance it replaces — though note what
-it is observation *of*: the current source on a testnet, not the retired 4663
-treasury, which never got the gate and never could.
+it is observation *of*: the v1 source of the time on a testnet, not the retired
+4663 treasury, which never got the gate and never could. The v2 treasuries are
+built from source that carries the same gate; no token has been listed on them
+yet, so on v2 it rests on provenance until one is.
 
 One honest limit remains. The gate fires **once, at listing**, while
 `_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a

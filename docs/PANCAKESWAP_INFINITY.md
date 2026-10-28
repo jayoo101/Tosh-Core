@@ -1,5 +1,12 @@
 # Porting to PancakeSwap Infinity
 
+> **A v1-era record.** This documents the 2026 port of the v1 protocol (Proof-of-Gas
+> allocation, refunds, a BEM quote asset, testnet `97`) to Infinity. v2 kept the
+> Infinity integration and replaced most of the mechanism around it; where this file
+> describes allocation, refunds, the launch window, the quote asset, fees or the
+> `createLaunch` signature, it describes v1. For v2 read `docs/WHITEPAPER_zh.md` and
+> `docs/TOSHX_V2_AGENTID_UPGRADE_zh.md`.
+
 **Status: done and shipped.** This began as an assessment written before any code
 moved, and the header said so — "no production code has been changed, the port
 itself is not started". Both clauses are false now. The port is merged, the

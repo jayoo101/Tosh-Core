@@ -1,7 +1,7 @@
 # ToshX v2 完整设计书：Agent ID 首发 · 开盘前买单市场 · 货架阶梯
 
 > 版本：v1.0（2026-10-26）
-> 状态：规则已与项目方逐条确认，并合入两轮逻辑漏洞审查（自查 + Gemini）。尚未编码。
+> 状态：规则已与项目方逐条确认，并合入两轮逻辑漏洞审查（自查 + Gemini）。已实现，2026-10-28 部署到 BSC 主网（`deployments/v2-56.json`）；实现与本文不同之处见文末"以代码为准"一节。
 > 适用范围：新部署的工厂、Hook、代币实现，以及新增的买单簿合约。已上线项目（$TO 等）保持原合约，不受影响。
 
 ---
@@ -101,7 +101,7 @@
 |---|---|
 | `projectAdmin` | 项目方管理员。48 小时开盘专属权、修改基金会地址、提取基金会资金、收取货架收入 99% |
 | `projectFund` | 项目基金会地址，接收 20% 募集资金，用于宣传运营；不能是 Hook 自身；`projectAdmin` 随时可改，Circuit NFT 转让时自动改为买方 |
-| 平台多签 | `0x02DE4629129D104C63329D13A6Ca67E43db7B310`（2-of-3 Safe）。工厂 owner；买单簿手续费收款地址（部署时写死） |
+| 平台多签 | `0x02DE4629129D104C63329D13A6Ca67E43db7B310`（2-of-3 Safe）。经各工厂的发射网关管理工厂，直接持有两个金库；买单簿手续费收款地址（部署时写死） |
 | Agent ID 注册表 | `0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F`（BSC，SPACE ID Agent ID） |
 | 金库 `ToshLadderTreasury` | 只能单向回购并销毁项目代币，没有提款函数 |
 | 黑洞 | `0x000000000000000000000000000000000000dEaD` |
@@ -844,8 +844,10 @@ Circuit NFT 转让时，`CircuitNFT` 经工厂调用 Hook 的 `settleProjectFund
 | Hook 实现部署 | 工厂内部部署 | 实现合约体积过大，改为由部署脚本先部署到工厂的预测地址，工厂构造时校验每一个 immutable（`ImplementationMismatch`）并记录运行时代码哈希 |
 | 买单成交接口 | `fill(ids, qtys, minOut)` | `fill(hook, ids, qtys, minTotalOut)`：多了 `hook` 参数；每笔数量自动截断到剩余量；低于 90% 下限、出价人已不是钱包（带合约代码；7702 委托不算）、不足 1 枚且不能完成整单的，跳过而不是回退；一笔都没成交才回退 `NothingFilled` |
 | 撤单 | — | 任何时候都能撤；撤单后 `qty` 记为已成交量，链上不再保留原始数量（索引里保留） |
-| 硬顶 / 额度上下限 | 固定常量 | 每个工厂可配置，owner 可调（`setHardCapBounds` / `setAgentCapBounds`）。部署默认值：BNB 硬顶 1–500、每 ID 0.01–50、最小买入 0.01；USDT 硬顶 500–300,000、每 ID 5–30,000、最小买入 5 |
+| 硬顶 / 额度上下限 | 固定常量 | 每个工厂可配置，由 Safe 经网关 `execute` 调整（`setHardCapBounds` / `setAgentCapBounds`）。主网部署值：BNB 硬顶 1–500、每 ID 固定 0.1、最小买入 0.01；USDT 硬顶 500–300,000、每 ID 5–30,000、最小买入 5 |
+| `createLaunch` | `(name, symbol, projectAdmin, projectFund, quoteAsset, hardCap, perAgentCap, genesisDuration, hookSalt)` | `(name, symbol, developer, projectFund, hookSalt, hardCap, perAgentCap, genesisDuration)`：每个计价币一个工厂，所以没有 `quoteAsset` 参数；`developer` 收到 Circuit NFT，NFT 持有人即项目方；前端用随机 `hookSalt`，不再链下挖掘 |
+| 所有权与上架 | 多签是工厂 owner，负责创建项目 | 每个工厂归各自的 `ToshLaunchGateway` 所有，网关背后是 2-of-3 Safe：Safe 的任一当前签名人都可以经网关上架，其余管理操作只有 Safe 本身能做；两个金库直接归 Safe 所有 |
 | 紧急制动 | — | 工厂新增 `setGenesisPaused(hook 或 0, bool)` 与黑名单，只影响 `buyGenesis`；开盘、撤单、成交不受影响 |
 | 两个计价栈 | — | BNB 与 USDT 各一个工厂、一个金库、一个网关，共用一个 `ToshBidBook` 和一个 `ToshHookLens`（`script/DeployV2.s.sol`，输出 `deployments/v2-<chain>.json`） |
-| v1 资料 | — | v1 测试与脚本移到 `legacy/test-v1`、`legacy/script-v1`；v1 合约源码快照在 `legacy/src-v1`，供前端常量守卫核对仍在链上的 v1 项目 |
+| v1 资料 | — | v1 源码、测试和脚本已从仓库删除，只保留在 git 历史中（提交 `7cebff2e` 及之前） |
 
