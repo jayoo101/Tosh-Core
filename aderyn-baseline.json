@@ -3,35 +3,35 @@
   "_aderyn": "0.6.8",
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-28",
-  "sourceUnits": 18,
-  "sloc": 3788,
+  "sourceUnits": 19,
+  "sloc": 3987,
   "detectorsRun": 88,
-  "total": 252,
+  "total": 263,
   "byImpact": {
-    "High": 46,
-    "Low": 206
+    "High": 52,
+    "Low": 211
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 3,
     "centralization-risk": 33,
     "costly-loop": 6,
     "internal-function-used-once": 2,
-    "large-numeric-literal": 13,
+    "large-numeric-literal": 15,
     "literal-instead-of-constant": 23,
     "local-variable-shadowing": 29,
     "missing-inheritance": 2,
     "modifier-used-only-once": 8,
     "non-reentrant-not-first": 8,
-    "push-zero-opcode": 18,
-    "reentrancy-state-change": 41,
+    "push-zero-opcode": 19,
+    "reentrancy-state-change": 47,
     "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 1,
-    "unchecked-return": 11,
+    "unchecked-return": 12,
     "uninitialized-local-variable": 6,
     "unsafe-casting": 1,
     "unsafe-erc20-operation": 1,
     "unsafe-oz-erc721-mint": 1,
-    "unspecific-solidity-pragma": 12,
+    "unspecific-solidity-pragma": 13,
     "unused-error": 2,
     "unused-public-function": 20,
     "unused-state-variable": 1
@@ -372,6 +372,13 @@
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook",
       "count": 5
+    },
+    {
+      "check": "large-numeric-literal",
+      "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.hookImplementation",
+      "count": 2
     },
     {
       "check": "large-numeric-literal",
@@ -768,6 +775,13 @@
     {
       "check": "push-zero-opcode",
       "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "push-zero-opcode",
+      "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "<file>",
       "count": 1
@@ -861,6 +875,20 @@
       "impact": "High",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.mintBondingCurve",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
+      "count": 5
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.setFactory",
       "count": 1
     },
     {
@@ -1034,6 +1062,13 @@
     {
       "check": "unchecked-return",
       "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp._settleNet",
+      "count": 1
+    },
+    {
+      "check": "unchecked-return",
+      "impact": "Low",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3._addInitialLiquidity",
       "count": 2
@@ -1175,6 +1210,13 @@
       "check": "unspecific-solidity-pragma",
       "impact": "Low",
       "file": "src/ToshToken.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
       "scope": "<file>",
       "count": 1
     },

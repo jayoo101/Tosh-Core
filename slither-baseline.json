@@ -3,33 +3,33 @@
   "_slither": "0.11.6",
   "_filterPaths": "lib/|test/|script/",
   "_generated": "2026-10-28",
-  "contracts": 107,
+  "contracts": 111,
   "detectorsRun": 102,
-  "total": 159,
+  "total": 176,
   "byImpact": {
-    "Informational": 49,
-    "Low": 55,
-    "Medium": 53,
+    "Informational": 52,
+    "Low": 57,
+    "Medium": 65,
     "High": 2
   },
   "byCheck": {
     "assembly": 16,
     "calls-loop": 9,
     "cyclomatic-complexity": 6,
-    "divide-before-multiply": 3,
+    "divide-before-multiply": 7,
     "incorrect-equality": 9,
     "low-level-calls": 3,
-    "missing-inheritance": 8,
+    "missing-inheritance": 9,
     "missing-zero-check": 2,
-    "naming-convention": 15,
-    "reentrancy-benign": 6,
-    "reentrancy-events": 11,
-    "reentrancy-no-eth": 3,
+    "naming-convention": 17,
+    "reentrancy-benign": 7,
+    "reentrancy-events": 12,
+    "reentrancy-no-eth": 4,
     "timestamp": 27,
     "too-many-digits": 1,
     "tx-origin": 1,
-    "uninitialized-local": 13,
-    "unused-return": 24,
+    "uninitialized-local": 15,
+    "unused-return": 29,
     "weak-prng": 2
   },
   "findings": [
@@ -246,6 +246,27 @@
     {
       "check": "divide-before-multiply",
       "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp._swapAmount",
+      "count": 2
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp._tryAdd",
+      "count": 1
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
+      "count": 1
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.launch",
       "count": 1
@@ -358,6 +379,13 @@
     {
       "check": "missing-inheritance",
       "impact": "Informational",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "contract:ToshAutoLp",
+      "count": 1
+    },
+    {
+      "check": "missing-inheritance",
+      "impact": "Informational",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "contract:ToshFactoryV3",
       "count": 2
@@ -442,6 +470,20 @@
     {
       "check": "naming-convention",
       "impact": "Informational",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "IToshAutoLpHook.TAX_BPS",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "IToshAutoLpHook.TICK_SPACING",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3.HOOK_RUNTIME_CODEHASH",
       "count": 1
@@ -505,6 +547,13 @@
     {
       "check": "reentrancy-benign",
       "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-benign",
+      "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3.createLaunch",
       "count": 1
@@ -554,6 +603,13 @@
     {
       "check": "reentrancy-events",
       "impact": "Low",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-events",
+      "impact": "Low",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3._skimInputTax",
       "count": 3
@@ -577,6 +633,13 @@
       "impact": "Medium",
       "file": "src/ToshLadderTreasury.sol",
       "scope": "ToshLadderTreasury._runPiggyback",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
       "count": 1
     },
     {
@@ -841,6 +904,20 @@
     {
       "check": "uninitialized-local",
       "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "lockAcquired.liqDelta",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "lockAcquired.swapDelta",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
       "file": "src/v3/ToshHookLensV3.sol",
       "scope": "quoteMint.filled",
       "count": 1
@@ -963,6 +1040,27 @@
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.launch",
       "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp._settleNet",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp._tryAdd",
+      "count": 2
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshAutoLp.sol",
+      "scope": "ToshAutoLp.lockAcquired",
+      "count": 2
     },
     {
       "check": "unused-return",

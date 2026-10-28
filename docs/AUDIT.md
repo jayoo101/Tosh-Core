@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 159 findings, 2H/53M/55L/49I | 252 findings, 46H/206L |
+| Current | 176 findings, 2H/65M/57L/52I | 263 findings, 52H/211L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`, the next version of the hook, factory
@@ -147,16 +147,37 @@ rounded down toward negative infinity, the same correction Uniswap's
 
 ### Slither: v3 (not deployed)
 
-56 of the 159 findings are in `src/v3/`, and all of them repeat a v2 finding
-above, including the second `weak-prng` High in the v3 copy of
-`_twapSqrtPriceX96`. `quoteMint` moved from the hook to `ToshHookLensV3`, so its
-`calls-loop`, `unused-return` and `uninitialized-local` findings are now on the
-lens: the loop reads the hook's view getters. The v3 copies of the hook's
-private interfaces carry a V3 suffix so they do not reuse the v2 names.
+73 of the 176 findings are in `src/v3/`. 56 repeat a v2 finding above,
+including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`.
+`quoteMint` moved from the hook to `ToshHookLensV3`, so its `calls-loop`,
+`unused-return` and `uninitialized-local` findings are now on the lens: the loop
+reads the hook's view getters. The v3 copies of the hook's private interfaces
+carry a V3 suffix so they do not reuse the v2 names.
+
+The other 17 are in `ToshAutoLp`, which buys 80 % of each shelf payment into
+the project's pool and adds it as liquidity nobody can remove:
+
+- **`reentrancy-no-eth`**, **`reentrancy-benign`**, **`reentrancy-events`** —
+  `lockAcquired` writes the pending balances and emits after the swap and the
+  liquidity add. It is callable only by the Vault, and the Vault calls it only
+  from inside `deposit` or `flush`, both `nonReentrant`.
+- **`divide-before-multiply`** — `_swapAmount` floors the tax-and-fee factor to
+  a ppm before using it, `_tryAdd` floors the virtual reserve before taking 2 %
+  of it, and `lockAcquired` rounds `MIN_TICK` to the tick spacing, which is
+  the point. The first two lose under a ppm; the remainder stays pending.
+- **`uninitialized-local`** — `swapDelta` and `liqDelta` are zero on purpose
+  when the run has nothing to swap or nothing to add.
+- **`unused-return`** — `getSlot0` (only the price), `modifyLiquidity`'s fee
+  delta (already inside the returned delta) and `settle` (it returns the amount
+  just transferred).
+- **`naming-convention`** — interface getters for the hook's `TAX_BPS` and
+  `TICK_SPACING` constants keep the constant's name.
+- **`missing-inheritance`** — `ToshAutoLp` matches the one-function
+  `IToshAutoLp` the hook declares without importing it.
 
 ## Aderyn disposition record
 
-23 detectors, 252 instances, all triaged, nothing unresolved.
+23 detectors, 263 instances, all triaged, nothing unresolved.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -176,9 +197,14 @@ whose return value could be dropped.
 `AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
 Kept as named steps; inlining them changes nothing.
 
-`src/v3/` adds four source units (18 in all) and 88 instances. No detector
-fires there that does not fire on v2, and each v3 instance sits at the v3 copy
-of a v2 site described below, apart from `quoteMint`, which is now on the lens.
+`src/v3/` adds five source units (19 in all) and 99 instances. No detector
+fires there that does not fire on v2. 88 sit at the v3 copy of a v2 site
+described below, apart from `quoteMint`, which is now on the lens. The other
+11 are in `ToshAutoLp`: `reentrancy-state-change` in `lockAcquired` (5; see
+Slither's reentrancy entries above) and `setFactory` (1, a deployer-only
+one-shot that reads the factory it is binding); `unchecked-return` on
+`settle`; two `large-numeric-literal` (the bps and ppm denominators); and the
+file-level pragma and `PUSH0` notes every source unit carries.
 
 And one stopped: **`contract-locks-ether`** — was 1, on v1's
 `ToshFactory.depositNative`. The v2 factory has no payable entry; native BNB
@@ -208,7 +234,7 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 41, in three groups, none reachable:
+**`reentrancy-state-change`** — 47, in three groups, none reachable:
 
 - 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
   `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
@@ -269,7 +295,7 @@ engages — and the answer here is no for all four. `onlyOwner` and
 `buyGenesis`, `launch` and `mintBondingCurve`, are plain storage reads with no
 call.
 
-**`unchecked-return`** — 11. Each is a return value nobody needs:
+**`unchecked-return`** — 12. Each is a return value nobody needs:
 `vault.lock` and `vault.settle()` return amounts already known to the caller
 (`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
 returns the resulting tick, and `_grantRole()` returns whether the role was
@@ -344,7 +370,7 @@ each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (18) and **`unspecific-solidity-pragma`** (12) — both
+**`push-zero-opcode`** (19) and **`unspecific-solidity-pragma`** (13) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
@@ -356,7 +382,7 @@ they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (13),
+**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (15),
 **`modifier-used-only-once`** (8), **`costly-loop`** (6),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters

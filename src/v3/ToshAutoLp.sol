@@ -98,7 +98,7 @@ contract ToshAutoLp is ReentrancyGuard {
     mapping(address hook => uint256) public totalQuoteAdded;
     mapping(address hook => uint256) public totalTokenAdded;
 
-    event FactorySet(address factory);
+    event FactorySet(address indexed factory);
     event Deposited(address indexed hook, uint256 amount);
     event LiquidityAdded(address indexed hook, uint256 quoteIn, uint256 tokenIn, uint128 liquidity);
     event Deferred(address indexed hook, uint8 reason);
