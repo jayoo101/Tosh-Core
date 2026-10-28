@@ -175,7 +175,7 @@ const TRUSTED_PROXY_HOPS = (() => {
  * with `proxy_add_x_forwarded_for`, or any direct-to-Node deployment — leave
  * it fully attacker-controlled. Since the bucket id is
  * `${name}::${clientIp(req)}`, a fresh random value in that header meant a
- * fresh full bucket on every request, and the limit protecting
+ * fresh full bucket on every request, and the limit protecting v1's
  * `/api/sign-allocation` — a key-signing endpoint, and the whole point of
  * PM-F5 — came off with one header.
  *
@@ -186,7 +186,7 @@ const TRUSTED_PROXY_HOPS = (() => {
  * unspoofable options". A header is only unspoofable if the edge that sets it
  * is actually in front, and this app deploys to Vercel with no Cloudflare:
  * `.vercel/project.json` names the project, `vercel.json` only registers the
- * watch-ping cron and pins the function region (it is not an edge config and
+ * v2 index cron and pins the function region (it is not an edge config and
  * does not put another proxy in front), there is no `wrangler.toml`, and no
  * Cloudflare configuration anywhere in the tree.
  *

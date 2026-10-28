@@ -14,7 +14,7 @@
  *
  * Latency is reported because it is not incidental here. `consumeRateLimit`
  * runs before every rate-limited handler, so this round trip is added to every
- * `/api/sign-allocation`, `/api/projects` and `/api/admin/config` request. A
+ * `/api/apply`, `/api/projects` and `/api/admin/featured` request. A
  * database in the wrong region is not a slow database, it is a slow API.
  *
  * Usage:  node scripts/checkUpstash.mjs
@@ -71,7 +71,7 @@ if (!url || !token) {
     `${missing} not set, so the limiter is per-instance.`,
     '      Counters then live in one process: N instances multiply every quota\n' +
     '      by N, and a deploy resets them. On serverless that is close to no\n' +
-    '      limit at all — including on /api/sign-allocation.\n\n' +
+    '      limit at all — including on /api/apply and /api/admin/featured.\n\n' +
     `      Create a database at console.upstash.com, then put both values in\n` +
     `      soat-frontend/${ENV_FILE} (REST API section, not the redis:// URL).`,
   )

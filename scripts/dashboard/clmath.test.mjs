@@ -19,7 +19,10 @@ import {
   inputAfterCuts, spotToken0PerToken1,
 } from './clmath.mjs'
 
-/** Live state read from the $TO pool on chain 56, so the numbers are realistic. */
+/**
+ * State read from the v1 $TO pool on chain 56, so the numbers are realistic.
+ * Its quote (BEM) has 8 decimals where v2's have 18; the maths is the same.
+ */
 const POOL = {
   sqrtPriceX96: 337797843947084782602217337655734542n,
   liquidity: 797210828226714278n,
@@ -107,7 +110,7 @@ function assertAgrees(label, mine, theirs) {
 
 test('matches a constant-product derivation across four orders of magnitude', () => {
   for (const whole of [1n, 10n, 100n, 1000n]) {
-    const amountIn = whole * 10n ** 8n // BEM has 8 decimals
+    const amountIn = whole * 10n ** 8n // the fixture's quote has 8 decimals
     const mine = quoteExactIn({
       ...POOL, amountIn, zeroForOne: true, taxBps: TAX_BPS, bps: BPS,
     }).amountOut
@@ -176,6 +179,6 @@ test('spot price inverts sqrtPriceX96 and applies the decimal gap', () => {
   // Independently: (1/ratio²)·10^(18-8).
   const ratio = Number(POOL.sqrtPriceX96) / Number(Q96)
   assert.ok(Math.abs(spot - (1 / (ratio * ratio)) * 1e10) / spot < 1e-12)
-  // Sanity against the live pool: a fraction of a BEM per token.
+  // Sanity against the pool the fixture was captured from: a fraction of a quote unit per token.
   assert.ok(spot > 1e-4 && spot < 1e-2, `spot was ${spot}`)
 })

@@ -110,7 +110,7 @@ export function FeaturedProjectPanel() {
    * one decides what an operator may choose. What they must not do is disagree
    * about eligibility — so a launch that cannot appear in the block is not
    * offered here, which is the whole reason this is a picker and not an address
-   * field. Pinning a refundable raise would write a row, report success, and
+   * field. Pinning a closed raise would write a row, report success, and
    * change nothing on the page.
    */
   const eligible = useMemo(() => projects.filter(p => p.tab === 'live'), [projects])
@@ -133,7 +133,7 @@ export function FeaturedProjectPanel() {
    *
    * Reachable without anyone doing anything wrong: pin a raise while its window
    * is open, and when the window closes the launch becomes `launching` or
-   * `archived` and leaves the eligible set with the pin still on it. Silent
+   * `ended` and leaves the eligible set with the pin still on it. Silent
    * otherwise — the operator set a pin, the homepage ignores it, and nothing
    * anywhere says why.
    */

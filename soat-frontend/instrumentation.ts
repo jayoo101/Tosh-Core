@@ -2,8 +2,8 @@
  * Server + edge Sentry init, and the App Router's server-error hook.
  *
  * Pre-mainnet item #26. `onRequestError` is what makes a throw inside
- * `src/app/api/**` — the PoG signing route above all — visible to the
- * on-call instead of dying in a serverless log nobody tails.
+ * `src/app/api/**` visible to the on-call instead of dying in a serverless
+ * log nobody tails.
  */
 
 import * as Sentry from '@sentry/nextjs'

@@ -5,10 +5,9 @@
  *
  * `AgentDirectoryHome` ranks the three launches in "Active markets" by amount
  * raised, and gives the first one a double-width card. Early in a deployment
- * every raise sits near zero, so that slot goes to whoever deposits one more
- * unit of quote than the current leader — and a raise too small to carry a
- * ladder refunds when its window closes, so the deposit can be taken back
- * afterwards. The most prominent slot on the site was rentable for gas.
+ * every raise sits near zero, so that slot goes to whoever buys one more unit
+ * of quote than the current leader. The most prominent slot on the site was
+ * for sale at the price of one small buy.
  *
  * This route is the editorial override: it writes `projects.featured_until`,
  * and a row whose value is in the future sorts first. See
@@ -17,25 +16,22 @@
  *
  * ── Authorisation, and why it is not the owner signature ──────────────────
  *
- * `POST /api/admin/config` authenticates by recovering an owner signature and
- * checking it against `ToshFactory.owner()` — correct there, because everything
- * that route changes is a protocol dial. This is not a protocol dial. Nothing
- * here touches a contract, moves a balance, or changes what any launch can do;
- * it changes which of three eligible cards is drawn widest.
+ * The protocol dials sit behind `ToshFactory.owner()`, which is right for
+ * them. This is not a protocol dial. Nothing here touches a contract, moves a
+ * balance, or changes what any launch can do; it changes which of three
+ * eligible cards is drawn widest.
  *
  * Putting it behind the owner path would price it at a 2-of-3 Safe signature
  * collected across two devices, for a decision that is reversed by waiting.
  * And it would not work from the admin page at all: `/admin` connects through
  * `injected()` alone, so the browser can never hold the Safe's pen — the reason
- * `ExchangeRatePanel` renders a blocker instead of a button and the working
- * path for the PoG rate is a CLI script.
+ * the owner's writes there export as Safe Transaction Builder batches.
  *
  * So this takes a bearer credential of its own, `CONTENT_ADMIN_SECRET`, and
  * the separation is the point rather than a shortcut: a token that can reorder
  * a teaser cannot pause the factory, and the credential that can pause the
  * factory is not typed into a browser to promote a project. `bearerMatches`
- * is shared with the config route, including its refusal to accept a
- * credential that is not actually a secret.
+ * carries its refusal to accept a credential that is not actually a secret.
  *
  * UNSET MEANS CLOSED. With no `CONTENT_ADMIN_SECRET` the route 503s and the
  * homepage keeps its computed order, which is the posture a deployment that

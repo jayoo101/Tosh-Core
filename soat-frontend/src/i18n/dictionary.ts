@@ -39,7 +39,7 @@ const LOADERS: Readonly<Record<Locale, () => Promise<PartialDictionary>>> = {
 /**
  * English with a locale's translations laid over it, one key at a time.
  *
- * ⚠ FALLBACK IS PER KEY, NOT PER GROUP. Laying `{ refund: {...} }` over the base
+ * ⚠ FALLBACK IS PER KEY, NOT PER GROUP. Laying `{ v2: {...} }` over the base
  *   with a plain spread of the group would be right; replacing the group would
  *   silently delete every key the locale had not translated yet. A partly
  *   finished locale is the normal state here for months, so the merge has to be

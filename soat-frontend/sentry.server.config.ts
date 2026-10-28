@@ -17,7 +17,7 @@ if (dsn) {
     dsn,
     environment: SENTRY_ENVIRONMENT,
     tracesSampleRate: 0,
-    // The PoG signing route handles a private key and wallet addresses.
+    // The API routes handle wallet addresses and an admin credential.
     // Never let request bodies or headers ride along with an event.
     sendDefaultPii: false,
   })

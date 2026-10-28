@@ -85,13 +85,13 @@ export const MAINNET_CHAIN_LABEL = 'BNB Smart Chain'
 /**
  * The settlement coin's ticker, for any copy that prints an amount.
  *
- * ⚠ THE REASON THIS EXISTS is that the migration renamed identifiers and left
- *   the words on screen behind. `totalEthDeposited` became `totalNativeDeposited`
- *   across 843 call sites, the contracts were recalibrated ×3.5, the factory on
- *   97 charges 0.35 — and roughly 230 literal "ETH"s stayed in the copy, so the
- *   UI confidently labelled BNB amounts as ETH. Every individual string was
- *   untouched and therefore uninspected, which is exactly how this class of bug
- *   survives a rename.
+ * ⚠ THE REASON THIS EXISTS is that v1's move from ETH to BNB renamed
+ *   identifiers and left the words on screen behind. `totalEthDeposited` became
+ *   `totalNativeDeposited` across 843 call sites, the contracts were recalibrated
+ *   ×3.5, the v1 factory on 97 charged 0.35 — and roughly 230 literal "ETH"s
+ *   stayed in the copy, so the UI confidently labelled BNB amounts as ETH.
+ *   Every individual string was untouched and therefore uninspected, which is
+ *   exactly how this class of bug survives a rename.
  *
  * Derived from the chain rather than declared, so it cannot drift from what the
  * wallet is actually spending. On 31337 that yields "ETH", and that is correct

@@ -47,8 +47,8 @@ export interface TxRequest {
 
 export interface TxActionOptions {
   /**
-   * Lower-case verb for the toast copy: `'deposit'`, `'claim your allocation'`.
-   * Reads as "Confirmed — deposit".
+   * Lower-case verb for the toast copy: `'buy'`, `'bid'`.
+   * Reads as "Confirmed — bid".
    */
   action: string
   /** Overrides for individual lifecycle lines. */

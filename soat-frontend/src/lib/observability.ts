@@ -5,9 +5,8 @@
  *  and dropped the error entirely in production: a user hit a broken page and
  *  nobody found out.
  *
- *  This file is only the frontend half. On-chain events are watched by
- *  `monitoring/watch.mjs`. Do not read a working Sentry install as
- *  "monitoring is done".
+ *  This file is only the frontend half; nothing here watches the chain. Do
+ *  not read a working Sentry install as "monitoring is done".
  *
  *  Design notes
  *  ────────────
@@ -21,9 +20,8 @@
  *    boundaries — a monitoring failure must not become the thing that breaks
  *    the fallback UI.
  *
- *  NOT covered here: on-chain alerting. Paused / OwnershipTransferred /
- *  PogSignerUpdated are in `monitoring/alerts.json` and watched by
- *  `monitoring/watch.mjs`.
+ *  NOT covered here: on-chain alerting (Paused, OwnershipTransferred and the
+ *  like).
  */
 
 import * as Sentry from '@sentry/nextjs'

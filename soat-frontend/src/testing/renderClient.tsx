@@ -41,7 +41,7 @@ export interface Mounted {
    *   Moving ~930 hardcoded English strings into a dictionary is a mechanical
    *   edit across ~60 files whose worst failure mode is silent: two blockers
    *   swapping `reason` strings renders a page that states the wrong cause for
-   *   why a deposit is refused. That passes `tsc`, passes eslint, passes every
+   *   why a buy is refused. That passes `tsc`, passes eslint, passes every
    *   existing test, and looks correct in a screenshot. The same class of
    *   invisible money bug is written up in `scripts/checkQuoteFormat.ts`, where
    *   four surfaces rendered 8-decimal amounts on the 18-decimal scale and the
@@ -74,8 +74,7 @@ export interface Mounted {
    * That merge is not hypothetical, it is what extracting copy DOES. This
    * sentence is three text nodes today:
    *
-   *     A fresh address cannot be made eligible by funding it with {QUOTE_SYMBOL}.
-   *     The quota comes from gas spent, ...
+   *     Bidders lock {QUOTE_SYMBOL}; holders sell into their bids.
    *
    * because the ticker is interpolated mid-sentence. A dictionary stores the
    * whole sentence with a `{symbol}` placeholder — that is the entire point, a
@@ -89,8 +88,8 @@ export interface Mounted {
    * pass it, and neither can a dropped one.
    *
    * ⚠ IT CANNOT SEE ATTRIBUTES, and `textContent` never could. A `placeholder`
-   *   or a `title` is real copy — `RefundPanel` puts a whole blocker reason in
-   *   a `title` — and only `strings()` covers those. Neither replaces the other.
+   *   or a `title` is real copy — a whole blocker reason can sit in a `title` —
+   *   and only `strings()` covers those. Neither replaces the other.
    */
   prose(): string
   unmount(): void

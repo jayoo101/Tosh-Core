@@ -38,8 +38,8 @@ const geist = Geist({
 
 /*
  * ⚠ NEITHER FONT ABOVE HAS A SINGLE CJK GLYPH, and until this existed that was
- *   a silent hole rather than a visible one. Measured on the Chinese refund
- *   panel: `申领退款` computed to `Geist, "Geist Fallback"` and `你存入的金额`
+ *   a silent hole rather than a visible one. Measured on v1's Chinese refund
+ *   panel, since removed: `申领退款` computed to `Geist, "Geist Fallback"` and `你存入的金额`
  *   to `"JetBrains Mono", "JetBrains Mono Fallback"` — all four of those are
  *   Latin-only, so the browser fell through every declared family and let the
  *   OS pick. Nothing was broken and nothing was clipped; the page simply

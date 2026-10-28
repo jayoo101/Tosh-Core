@@ -64,8 +64,8 @@ run-name: Verify ${{ inputs.script }} on chain ${{ inputs.chain }}
 #
 # What is actionable does not depend on settling it. On 56, re-running is not
 # the remedy the allowance theory implied it was: buy a plan, or use BscScan's
-# web form, which takes no key and no plan and is what `verify-manual/` in the
-# repo root was generated for.
+# web form, which takes no key and no plan; `node scripts/genVerifyInput.mjs`
+# writes the upload package for every v2 contract into `verify-input/`.
 #
 # The original reading, kept because it is the correct reading FOR 97:
 # a SUBMISSION ALLOWANCE. The shape of the evidence,
@@ -98,11 +98,13 @@ run-name: Verify ${{ inputs.script }} on chain ${{ inputs.chain }}
 # Foundry does not add v2's `chainid` selector to a configured URL, so it has
 # to be written into the URL beside a `chain` field that already names it.
 #
-# SOURCIFY IS NOT AN OPTION HERE, WHICH IS WORTH KNOWING BEFORE TRYING
+# SOURCIFY IS NOT WIRED INTO THIS WORKFLOW, WHICH IS WORTH KNOWING BEFORE TRYING
 #
-# This workflow briefly had a `verifier` input offering Sourcify as a
-# no-account alternative. It was removed because it did not work and it was
-# not obvious that it did not work:
+# The v2 deployment on 56 IS on Sourcify — all 16 contracts, exact match — but
+# it got there through Sourcify's own v2 API (`/server/v2/verify/56/{addr}`
+# with the Standard JSON input), not through Foundry. This workflow briefly
+# had a `verifier` input offering Sourcify through Foundry. It was removed
+# because it did not work and it was not obvious that it did not work:
 #
 #   · `--verifier sourcify` is IGNORED by Foundry 1.7.1 while
 #     `ETHERSCAN_API_KEY` is set in the environment. Not overridden with a
@@ -130,11 +132,11 @@ on:
       chain:
         description: Chain the contracts are deployed on
         required: true
-        default: "97"
+        default: "56"
         type: choice
         options:
-          - "97"
           - "56"
+          - "97"
       script:
         description: Broadcast log to read the deployment out of
         required: true
@@ -170,7 +172,7 @@ jobs:
 
       # Reads the deployment out of the broadcast artefact rather than a list
       # maintained here, so this workflow cannot name an address the deploy did
-      # not produce. Same artefact SECURITY.md cites as the provenance anchor.
+      # not produce. Same deploy `deployments/v2-56.json` records.
       - name: Verify every contract the deploy created
         env:
           # Consumed by foundry.toml's `[etherscan]` table, NOT passed to
@@ -203,31 +205,36 @@ jobs:
 
           # ── What counts as "every contract the deploy created" ──────────────
           #
-          # Every CREATE and CREATE2 the script broadcast, plus the factory's
-          # hook and token implementations read off its immutables: a contract
-          # built inside another's constructor is an `additionalContracts`
-          # entry with no contractName, so no name-based filter reaches it.
+          # Every CREATE and CREATE2 the script broadcast, every contract a
+          # constructor built (`additionalContracts`), and, for EVERY factory in
+          # the log, the implementations read off its immutables. v2 deploys
+          # one factory per quote asset, and each factory's constructor creates
+          # its token implementation and its CircuitNFT, which creates the
+          # revenue-vault implementation — 16 contracts on 56, five of them
+          # never a transaction of their own.
           #
-          # The hook implementation is the one that matters most. It holds the
-          # swap, fee, genesis and ladder logic, and every project's hook is an
-          # EIP-1167 clone pointing at it — so it is the contract a user
-          # auditing a launch actually reads.
-          #
-          # Their addresses come from the factory's own immutables rather than
-          # from a list kept here, so this cannot name a hook the deployed
-          # factory does not use.
+          # The getters are the cross-check for the log: an implementation the
+          # factory uses but the log does not name still gets published, and a
+          # name the log carries for an address the factory does not use is
+          # still only what the deploy produced.
           targets="${RUNNER_TEMP:-/tmp}/verify-targets.tsv"
           jq -r '.transactions[]
             | select(.transactionType=="CREATE" or .transactionType=="CREATE2")
-            | select(.contractName != null)
-            | [.contractName, .contractAddress] | @tsv' "$log" > "$targets"
+            | ([.contractName, .contractAddress],
+               (.additionalContracts[]? | [.contractName, .address]))
+            | select(.[0] != null)
+            | @tsv' "$log" > "$targets"
 
-          factory=$(jq -r '.transactions[]
-            | select(.contractName=="ToshFactory")
-            | .contractAddress' "$log" | head -n 1)
+          factories=$(jq -r '.transactions[]
+            | select(.transactionType=="CREATE" and .contractName=="ToshFactory")
+            | .contractAddress' "$log")
 
-          if [ -n "$factory" ]; then
-            for pair in "ToshLaunchpadHook:hookImplementation" "ToshToken:tokenImplementation"; do
+          if [ -z "$factories" ]; then
+            echo "::warning::no ToshFactory in ${log}, so no implementations can be cross-checked"
+          fi
+          for factory in $factories; do
+            for pair in "ToshLaunchpadHook:hookImplementation" "ToshToken:tokenImplementation" \
+                        "CircuitNFT:circuitNFT" "CircuitRevenueVault:vaultImplementation"; do
               nm="${pair%%:*}"; getter="${pair##*:}"
               addr=$(cast call "$factory" "${getter}()(address)" --rpc-url "$rpc" | tr -d '[:space:]')
               case "$addr" in
@@ -237,10 +244,10 @@ jobs:
                 *) printf '%s\t%s\n' "$nm" "$addr" >> "$targets" ;;
               esac
             done
-          else
-            echo "::warning::no ToshFactory in ${log}, so its hook and token implementations cannot be resolved"
-          fi
-          sort -u -o "$targets" "$targets"
+          done
+          # Lower-cased before de-duplicating: the log and `cast` disagree on
+          # checksum casing, and a case-sensitive `sort -u` would keep both.
+          awk -F'\t' '{ printf "%s\t%s\n", $1, tolower($2) }' "$targets" | sort -u -o "$targets"
 
           echo "contracts to publish:"
           sed 's/^/  /' "$targets"
@@ -286,12 +293,9 @@ jobs:
               continue
             fi
 
-            # `library` as well as `contract`, because HookDeployLib is one and
-            # a `contract`-only pattern made it unfindable. That did not show up
-            # while the target list was CREATE-only: the filter dropped the
-            # library before the search could fail to find it, so widening the
-            # filter without widening this would have turned a silent omission
-            # into a red step. Deployed libraries verify like any other address.
+            # `library` as well as `contract`: v1 deployed a linked library, and
+            # a `contract`-only pattern made it unfindable. v2 links none, but a
+            # deployed library verifies like any other address.
             src=$(grep -rl --include='*.sol' -E "^\s*(abstract\s+)?(contract|library)\s+${name}\b" src/ | head -n 1)
             if [ -z "$src" ]; then
               echo "::error::no source file under src/ declares contract or library ${name}"
@@ -344,7 +348,7 @@ jobs:
             if [ "$ok" = 1 ]; then
               echo "verified: ${name}"
             elif [ "$budget" = 1 ]; then
-              echo "::error::${name} at ${addr} was refused with \"Free API access is not supported for this chain\" on chain ${CHAIN}. On 97 this key has published (run 6), so there the message is not a plan boundary and re-running later is worth a try. On 56 it has never published: 15 submissions across three runs on 2026-09-21, all refused, while reads were unaffected throughout -- which is what a plan boundary looks like and not what an allowance looks like. So on 56 do not just re-run. Either buy an Etherscan plan, which is the same purchase PoG gas scanning on 56 needs, or publish through BscScan's web form, which has no key and no plan; verify-manual/ in the repo root carries the Standard JSON Input for each contract."
+              echo "::error::${name} at ${addr} was refused with \"Free API access is not supported for this chain\" on chain ${CHAIN}. On 97 this key has published (run 6), so there the message is not a plan boundary and re-running later is worth a try. On 56 it has never published: 15 submissions across three runs on 2026-09-21, all refused, while reads were unaffected throughout -- which is what a plan boundary looks like and not what an allowance looks like. So on 56 do not just re-run. Either buy an Etherscan plan that covers BSC, or publish through BscScan's web form, which has no key and no plan; node scripts/genVerifyInput.mjs writes the Standard JSON Input and constructor arguments for each contract into verify-input/."
               failed=1
             else
               echo "::error::verification failed for ${name} at ${addr} after 3 attempts -- see the output above; this is not the tier refusal."
@@ -380,15 +384,17 @@ jobs:
           # The same list the publishing step worked from, so this reports on
           # what was actually attempted. It is written there; regenerate it
           # here only if that step died before getting that far, in which case
-          # the broadcast log is all there is and the two constructor-built
-          # contracts cannot be named.
+          # the broadcast log is all there is: no getter cross-check, but the
+          # constructor-built contracts are still named in it.
           targets="${RUNNER_TEMP:-/tmp}/verify-targets.tsv"
           if [ ! -s "$targets" ]; then
             echo "(the publishing step did not get as far as resolving its targets)"
             jq -r '.transactions[]
               | select(.transactionType=="CREATE" or .transactionType=="CREATE2")
-              | select(.contractName != null)
-              | [.contractName, .contractAddress] | @tsv' "$log" > "$targets"
+              | ([.contractName, .contractAddress],
+                 (.additionalContracts[]? | [.contractName, .address]))
+              | select(.[0] != null)
+              | @tsv' "$log" > "$targets"
           fi
 
           while IFS=$'\t' read -r name addr; do

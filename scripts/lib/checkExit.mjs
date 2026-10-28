@@ -27,10 +27,9 @@
  * The first five consumers were in `soat-frontend/scripts/`. A count of those
  * against the comment that described them found a sixth family in *this*
  * directory — the same `fetch` + `process.exit` pairing, the same crash, and
- * the scripts a human reaches for when something is already on fire
- * (`checkBlockscoutKey`, `checkStatusPage`, `checkFooterLinks`,
- * `checkDrillPage`, `drillQ1`, `verifyOwnerSafe`). A module that only the
- * frontend tree can import cannot protect them. This file is the one copy;
+ * the scripts a human reaches for when something is already on fire (of
+ * those, `checkFooterLinks` is the one still in the tree; the rest left with
+ * v1). A module that only the frontend tree can import cannot protect them. This file is the one copy;
  * `soat-frontend/scripts/lib/checkExit.mjs` re-exports it so existing relative
  * imports keep resolving.
  *
@@ -44,7 +43,7 @@
  * A throw keeps the guarantee.
  *
  * Scripts that collect every finding and decide once at the end — the
- * `checkDeployedChain` / `checkStatusPage` shape — do not throw. They set
+ * `checkDeployedChain` shape — do not throw. They set
  * `process.exitCode` and let the loop drain. `CheckFailed` has nothing to model
  * there; `installFailureExit` still covers their unguarded fetches.
  *

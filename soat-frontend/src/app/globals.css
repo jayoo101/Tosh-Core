@@ -170,8 +170,8 @@
    *    this block that was previously in danger of being read as the CTA, and
    *    the ambiguity is gone by hue - see the header. ---------------------- */
   --tosh-success: #0ECB81;  /* pool open, genesis window ticking, tx acknowledged */
-  --tosh-warning: #FF8A3D;  /* cooldown, price gate, deadline approaching */
-  --tosh-danger:  #F6465D;  /* revert, halt, refund, blacklist */
+  --tosh-warning: #FF8A3D;  /* price gate, deadline approaching */
+  --tosh-danger:  #F6465D;  /* revert, halt, blacklist */
   --tosh-info:    #42A3FD;  /* phase-2 ladder, neutral explanation */
   --tosh-admin:   #9D5BF4;  /* owner-only chrome */
 

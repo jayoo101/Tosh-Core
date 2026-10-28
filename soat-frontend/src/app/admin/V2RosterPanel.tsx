@@ -7,8 +7,8 @@
  * Nothing lists a project on its own. Until the treasury owner (the Safe) calls
  * `addLadderToken`, the reservoir only fills. The owner is rarely a browser
  * wallet, so every write here can also be exported as a Safe Transaction
- * Builder batch, and the gate is this treasury's owner rather than the page's
- * ambient v1 factory owner.
+ * Builder batch, and the gate is this treasury's owner rather than the
+ * factory owner.
  */
 
 import { useCallback, useMemo, useState } from 'react'

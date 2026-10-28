@@ -10,7 +10,7 @@ import type { PartialDictionary } from '../types'
  * ⚠ RUNS LONGER THAN ENGLISH, typically 20–30%, and the diacritics add height to
  *   every line. This app's panels are mono-spaced cells with fixed widths, so
  *   this is the locale most likely to overflow a readout or wrap a button label
- *   onto two lines. Check the deposit and refund panels in a browser rather than
+ *   onto two lines. Check the GENESIS buy and bid panels in a browser rather than
  *   trusting the tests, which only prove the words are right.
  *
  * Read the comments in `zh-CN.ts` first — they record why each line is worded

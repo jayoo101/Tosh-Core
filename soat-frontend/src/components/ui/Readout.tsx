@@ -13,9 +13,9 @@
  * mechanisms ("tnum" feature settings vs. the property) drifted apart before.
  *
  * REPLACES: `Readout` in ProjectTerminal.tsx, `Readout` in admin/page.tsx,
- * `Row` in UserDrawer.tsx, `QuotaLedger`'s internal `row()` closure, and the
+ * `Row` in UserDrawer.tsx, and the hand-written
  * `<div className="flex justify-between"><span>label</span><span>value</span>`
- * literal in PoGQuotaPanel and ImmutablePact.
+ * literal the v1 panels repeated.
  */
 
 import type { ReactNode } from 'react'

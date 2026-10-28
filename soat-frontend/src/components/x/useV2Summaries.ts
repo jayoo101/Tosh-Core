@@ -26,8 +26,9 @@ export interface ShelfSummary { tierIndex: bigint; tierPrice: bigint; spotPrice:
 const key = (a: string) => a.toLowerCase()
 
 /**
- * One `genesisState` per v2 project in the list, keyed by hook. v1 projects
- * are not in the map: the cards fall back to what the directory already read.
+ * One `genesisState` per v2 project in the list, keyed by hook. A project the
+ * lens did not answer for is not in the map: the cards fall back to what the
+ * directory already read.
  */
 export function useV2Summaries(projects: readonly DirectoryProject[]): Map<string, GenesisSummary> {
   const hooks = useMemo(() => projects.filter(p => isV2Factory(p.factory)).map(p => p.hook), [projects])

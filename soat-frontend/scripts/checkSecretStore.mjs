@@ -256,7 +256,7 @@ const INVENTORY = {
     why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
        + 'at Etherscan v2\'s multichain host on this one key, so losing it blocks verification on '
        + 'both at once — and an unverified launchpad is one nobody can read the terms of before '
-       + 'depositing.',
+       + 'buying. (The v2 contracts on 56 are also verified on Sourcify, which needs no key.)',
   },
   ROBINHOOD_RPC: {
     tier: 'absent',
@@ -290,9 +290,8 @@ const INVENTORY = {
        + 'NOT the same posture as ADMIN_SECRET below: this one can do exactly one thing — reorder three cards the homepage '
        + 'was already showing, for at most 14 days, with no contract call anywhere behind it. '
        + 'Holding it buys placement, not authority. It is a real secret because placement has '
-       + 'value: without it the widest card goes to whoever deposits the most, which early in a '
-       + 'deployment is one unit of quote above the leader and refundable afterwards. Unset is '
-       + 'safe and closed — the route 503s and the homepage keeps its computed order.',
+       + 'value: without it the widest card goes by the computed order. Unset is safe and closed '
+       + '— the route 503s and the homepage keeps that order.',
   },
   PRIVATE_KEY: {
     tier: 'absent',

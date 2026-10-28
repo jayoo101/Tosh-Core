@@ -6,7 +6,7 @@ import { withSentryConfig } from "@sentry/nextjs";
  * Headers that cannot break a page. No `script-src`: Next's hydration scripts
  * are inline, so a strict one needs per-request nonces, and the wallet
  * connectors load from origins that change with the connector. What is here
- * stops the launch, deposit and admin pages being framed for clickjacking.
+ * stops the launch, buy and admin pages being framed for clickjacking.
  */
 const SECURITY_HEADERS = [
   { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" },
