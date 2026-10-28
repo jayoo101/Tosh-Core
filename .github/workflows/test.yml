@@ -264,7 +264,7 @@ jobs:
           # (195) plus V3Params (4).
           # 411 -> 428: test/v3/AutoLp (17).
           # 428 -> 429: the v3 buy-tax dust case.
-          floor=429
+          floor=440
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

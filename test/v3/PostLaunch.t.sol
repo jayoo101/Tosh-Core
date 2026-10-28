@@ -278,7 +278,7 @@ contract PostLaunchTestV3 is V2BaseV3 {
         assertTrue(factory.ladderMintingHalted(address(hook)));
         assertEq(hook.maxMintable(), 0);
         vm.prank(bob, bob);
-        vm.expectRevert(ToshLaunchpadHookV3.LadderMintingHalted.selector);
+        vm.expectRevert(ToshFactoryV3.LadderHalted.selector);
         hook.mintBondingCurve(1e18, type(uint256).max);
 
         vm.prank(admin);

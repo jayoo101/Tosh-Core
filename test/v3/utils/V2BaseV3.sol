@@ -42,6 +42,7 @@ abstract contract V2BaseV3 is Test {
     uint256 internal constant HARD_CAP = 100e18;
     uint256 internal constant AGENT_CAP = 5e18;
     uint256 internal constant MIN_BUY = 0.01e18;
+    uint256 internal constant SHELF_CAP = 500e18;
     uint256 internal constant DURATION = 24 hours;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -122,7 +123,8 @@ abstract contract V2BaseV3 is Test {
                 minHardCap: 1e18,
                 maxHardCap: 10_000e18,
                 minAgentCap: minBuy_,
-                maxAgentCap: 1_000e18
+                maxAgentCap: 1_000e18,
+                shelfCapPerAgent: SHELF_CAP
             })
         );
         require(address(f) == predicted, "factory address prediction");
