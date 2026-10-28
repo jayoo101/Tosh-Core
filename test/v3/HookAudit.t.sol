@@ -18,9 +18,9 @@ import {ToshToken} from "../../src/ToshToken.sol";
 import {CircuitRevenueVault} from "../../src/CircuitRevenueVault.sol";
 
 /// @notice Adversarial PoCs against ToshLaunchpadHookV3 (v2).
-/// @dev    `test_DESIGN_*` pin accepted behaviour: the Circuit holder funds the
-///         project through shelves at ~1 % net cost once the market has risen
-///         to them, which is the point of routing 99 % of proceeds to it.
+/// @dev    `test_DESIGN_*` pin accepted behaviour. In v3 the Circuit holder
+///         receives 19 % of shelf proceeds and `autoLp` 80 %, so minting its
+///         own shelves no longer nets out near zero.
 ///         `test_OPEN_*` pin behaviour that is known and not yet changed: they
 ///         pass while the issue stands, and are meant to fail, and be inverted,
 ///         by whatever change closes it.
@@ -62,7 +62,10 @@ contract HookAuditTestV3 is V2BaseV3 {
 
     /// @dev No outside buyers at all: the controller funds its own pump, waits
     ///      one TWAP window, mints the unlocked shelves, then dumps everything.
-    function test_DESIGN_H1_controllerSelfFundedCycles_drainGenesisLp() public {
+    ///      v2 pinned this as profitable (99 % of each shelf came back to the
+    ///      controller). In v3 only 19 % does and 80 % deepens the pool, so the
+    ///      cycle loses money.
+    function test_H1_controllerSelfFundedCycles_loseMoney() public {
         _launched();
         CircuitRevenueVault rv = CircuitRevenueVault(hook.projectAdmin());
         uint256 q0 = quote.balanceOf(dev);
@@ -87,7 +90,7 @@ contract HookAuditTestV3 is V2BaseV3 {
         console2.log("controller PnL after 4 self-funded cycles (wei)", pnl);
         console2.log("pool quote drained (wei)", poolQ0 - quote.balanceOf(address(vault)));
         console2.log("new supply minted (tokens)", (token.totalSupply() - supply0) / 1e18);
-        assertGt(pnl, 0, "self-funded pump/mint/dump is profitable for the shelf beneficiary");
+        assertLt(pnl, 0, "self-funded pump/mint/dump must not pay the shelf beneficiary");
     }
 
     /// @dev Shelves are fixed-size in tokens while pool depth scales with the

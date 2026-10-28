@@ -52,30 +52,37 @@
 
 1. v2 的检查全部保留：平台暂停、同区块锁定、`min(现价, TWAP)` 平价天花板、`maxCost`。
 2. 逐档循环算出 `cost`，更新阶梯状态（与 v2 相同）。
-3. 从买家拉款：1% 给阶梯金库，19% 给 `projectAdmin`，80% 给 hook，记入 `pendingLpQuote`。
+3. 从买家拉款：1% 给阶梯金库，19% 给 `projectAdmin`，80% 给 `ToshAutoLp`。
 4. 给买家铸 `x`。
-5. 调用内部的 `_tryAddLp()`（见下），不满足条件就跳过，资金留在挂起里。
+5. 最后调用 `ToshAutoLp.deposit(80%)`。它把钱记入该项目的挂起额，尝试加池；条件不满足就留在挂起里，**不会让这笔货架交易失败**。
 
 天花板在循环开始前算一次，循环中没有 swap，所以 v2“天花板只算一次”的前提仍然成立；配池的 swap 发生在循环之后。
 
-### `_tryAddLp()`：买币并加池
+### 为什么是独立合约 `ToshAutoLp`
 
-只有同时满足以下条件才执行，否则直接返回：
+hook 已贴近 EIP-170 上限（v3 现为 24,527 字节，余 49 字节），装不下买币加池的逻辑。所以 hook 只转账并调用 `deposit`，其余都在 `ToshAutoLp`（每个市场一个，`setFactory` 一次性绑定，且要求该 factory 的 hook 实现指向自己）。它按 hook 分账：`pendingQuote[hook]`、`pendingToken[hook]` 是该项目池子还欠着的钱和币，`totalQuoteAdded` / `totalTokenAdded` 是累计加进去的量。LP 仓位归 `ToshAutoLp` 所有，合约没有移除流动性的函数，所以永久锁定。
 
-- `pendingLpQuote` 大于零；
-- `!_priceMovedThisBlock()`：本区块价格没有被别人推动过；
-- `spot ≤ TWAP × (1 + 2%)`：现价没有明显高于 TWAP；TWAP 窗口未成熟前以 `p0` 代替。
+### 加池条件与执行
+
+满足以下全部条件才执行，否则发出 `Deferred(reason)` 并保留挂起：
+
+- 挂起额大于零；
+- hook 的 TWAP 已成熟（`twapSqrtPriceX96() != 0`）；
+- 现价的 sqrt 不低于 TWAP 的 sqrt × (1 − 0.99%)，即代币现价不高于 TWAP 约 2%；
+- 池子有流动性。
+
+`deposit` 来自 `mintBondingCurve` 内部，而后者已经拒绝了本区块价格被推动超过 10 tick 的情况，所以不再重复检查同区块。
 
 执行时：
 
-1. 取 `q = min(pendingLpQuote, 池中报价币虚拟储备 × 1%)` 作为本次额度。
-2. 按全区间池子的当前状态算出买入量 `s`，使买入后剩余报价币和买到的 TOSH 恰好符合新价格的比例。计算要扣除 1% 交易税和 0.3% LP 手续费。
-3. 在 `vault.lock` 里依次做 exact-input swap（买入 `s`），再用 `modifyLiquidity` 加入 hook 的全区间仓位。
-4. 扣掉实际用掉的报价币，凑不齐比例的零头留在 `pendingLpQuote`；多出的 TOSH 记入 `pendingLpToken`，下次一起加。
+1. 取 `q = min(挂起额, 池中报价币虚拟储备 × 2%)`，大约一半用于买币，所以单次买入约为池子的 1%。
+2. 用常数乘积的 zap 公式算出买入量 `s`，扣除 1% 交易税和 0.3% 手续费，使剩余报价币和买到的币符合买入后的价格比例。swap 另设 sqrt 价格不超过 2% 的硬性限价作为兜底。
+3. 在 `vault.lock` 里依次做 exact-input swap 和 `modifyLiquidity`（全区间），按净额与 Vault 结算。
+4. 凑不齐比例的零头留在挂起里，下次一起加。已有仓位累积的手续费会在同一次结算中计入挂起，自动复投。
 
-### `flushLp()`
+### `flush(hook)`
 
-任何人都可以调用，内部就是 `_tryAddLp()`，用来在没有新货架成交时把挂起的报价币加进池子。条件相同，所以不能被用来在拉盘后让 hook 高位接盘。
+任何人都可以调用，条件同上，另外要求本区块该池还没有 swap（`lastSwapBlock < block.number`），否则 revert `PriceMovedThisBlock`。什么都没加进去时 revert `NothingAdded(reason)`。
 
 ### hook 自己的买单
 
@@ -83,7 +90,7 @@ Infinity 的 `CLHooks` 不会跳过 hook 自己发起的 swap，`beforeSwap` / `
 
 - **照常收交易税**：不需要豁免分支。满募时成本约为货架收入的 0.4%，其中 70% 进阶梯金库，30% 进平台手续费地址。
 - **计入同区块锁定和 TWAP 观测**：`afterSwap` 的区块戳和 `_writeObservation()` 放在任何豁免之前（v2 已经如此）。hook 买入把价格推动超过 10 tick 后，本区块后续的货架铸造会 revert，相当于每个区块只成交一笔较大的货架单。
-- **跳过顺带回购**：`afterSwap` 里增加 `sender == address(this)` 时不调用阶梯金库的 piggyback poke。原因是货架买家的 gas 需要可预测，回购也不应嵌套在 hook 已打开的 Vault 会话里。回购仍由普通交易或 `pokeBuyback()` 触发。
+- **跳过顺带回购**：`afterSwap` 里 `sender == autoLp` 时不调用阶梯金库的 piggyback poke。原因是货架买家的 gas 需要可预测，回购也不应嵌套在 `ToshAutoLp` 已打开的 Vault 会话里。回购仍由普通交易或 `pokeBuyback()` 触发。
 
 ### 为什么保留 TWAP
 
@@ -118,24 +125,32 @@ Infinity 的 `CLHooks` 不会跳过 hook 自己发起的 swap，`beforeSwap` / `
 | 文件 | 改动 |
 | --- | --- |
 | `GenesisCurve.sol` | `SALE_SUPPLY`、`N` |
-| `ToshLaunchpadHook.sol` | `GENESIS_SUPPLY`、`TIER_SIZE`、`TIER_STEP_E18`；新增 `LP_SHARE_BPS = 8000`、`PROJECT_SHARE_BPS = 1900`；货架拉款三分；`pendingLpQuote` / `pendingLpToken`；`_tryAddLp()`、`flushLp()`；`afterSwap` 对 `sender == address(this)` 跳过 piggyback；Vault 回调新增买入加池动作 |
+| `ToshLaunchpadHookV3.sol` | `GENESIS_SUPPLY`、`TIER_SIZE`、`TIER_STEP_E18`；构造参数和不可变量 `autoLp`；`LP_SHARE_BPS = 8000`；货架拉款三分后调用 `deposit`；`afterSwap` 对 `sender == autoLp` 跳过 piggyback；`quoteMint` 移到 Lens |
+| `ToshAutoLp.sol`（新） | 挂起记账、加池条件、zap、`vault.lock` 回调、`flush` |
 | `ToshFactory.sol` | 校验新 hook 实现；参数范围沿用 v2 |
 | `ToshToken.sol` | 不改（`MAX_SUPPLY` 仍为 21M） |
-| Lens | 新增 `pendingLpQuote`、`pendingLpToken`、累计配池报价币和锁定 TOSH 的读接口 |
+| Lens | `quoteMint`（从 hook 移出）；配池数据直接读 `ToshAutoLp` 的公开映射 |
 | 部署脚本 | `DeployV3.s.sol`，两个市场各一套 |
 
 v2 的源码保持不动（改动会破坏已部署字节码的验证），v3 用新文件或新目录实现。
 
 ## 7. 测试清单
 
-- **不变量**：总供应 ≤ 21M；阶梯卖出 ≤ `TIER_COUNT × tierSize`；hook 不能移除自己的 LP；`pendingLpQuote` 不超过 hook 实际持有的报价币。
+- **不变量**：总供应 ≤ 21M；阶梯卖出 ≤ `TIER_COUNT × tierSize`；LP 无法移除；`ToshAutoLp` 持有的报价币和代币等于各项目挂起额。
 - **不变量**：货架铸造的逐档循环不改变现价；配池只在循环之后改变现价。
-- **单测**：三方分账精确到 wei；`_tryAddLp` 的每个跳过条件；单笔 1% 上限和挂起累积；`flushLp` 在拉盘后和同区块内被拒；hook 买单照常收税且不触发 piggyback；hook 买入后本区块后续铸造 revert。
+- **单测**：三方分账；`ToshAutoLp` 的每个推迟原因；单次上限和挂起累积；`flush` 在同区块 swap 之后和无挂起时被拒；`autoLp` 的买单照常收税且不触发 piggyback；配池买入后本区块后续铸造 revert；挂起额始终等于合约实际持有量。
 - **创世**：新常量下开盘价仍为 2P；部分募集的燃烧量和 `tierSize` 缩放。
 - **`TIER_STEP_E18`**：`_powE18(STEP, 3999) ≤ 1e27` 且 `_powE18(STEP + 1, 3999) > 1e27`。
 - **v2 回归**：v2 测试套件不受影响。
 
-## 8. 下一步
+## 8. 货架阶梯的 Agent ID 门槛（已定，单独 PR）
+
+- 货架铸造需要 Agent ID；创世阶段的额度不沿用，进入货架阶段后每个 ID 重新计算。
+- 每个 ID 在整个货架阶段的总额度：USDT 市场 500U；BNB 市场为 factory 上的固定 BNB 数额，由 Safe 调整，不接喂价。
+- **市场价上限保留**。上限挡的是高于市价的铸造，只有拿返还的一方（项目方，v3 下 19%）会这样做：去掉上限后，货架价不超过市价约 22% 时铸了就砸就有利可图，而项目方可以自备多个 ID，限额挡不住。Agent ID 和限额解决的是巨鲸囤货架和套利集中，两者互补。
+- hook 只剩 49 字节，额度记账要放在 hook 之外。
+
+## 9. 下一步
 
 1. 我写 v3 合约和测试，按小 PR 提交，CI 通过后合并。
 2. 本地和 fork 测试通过后，再改前端、白皮书和其他文案。

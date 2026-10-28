@@ -205,8 +205,15 @@ contract PostLaunchTestV3 is V2BaseV3 {
         vm.prank(bob, bob);
         hook.mintBondingCurve(amount, cost);
         uint256 platformCut = cost * hook.PLATFORM_TAX_BPS() / 10_000;
-        assertEq(ladder.reservoir() - resBefore, platformCut);
-        assertEq(quote.balanceOf(hook.projectAdmin()) - vaultBefore, cost - platformCut);
+        uint256 lpCut = cost * hook.LP_SHARE_BPS() / 10_000;
+        // On top of the 1 %, the reservoir's share of the tax on autoLp's buy.
+        uint256 resGain = ladder.reservoir() - resBefore;
+        assertGe(resGain, platformCut);
+        assertLt(resGain, platformCut + lpCut / 100);
+        assertEq(quote.balanceOf(hook.projectAdmin()) - vaultBefore, cost - platformCut - lpCut);
+        assertEq(
+            autoLp.pendingQuote(address(hook)) + autoLp.totalQuoteAdded(address(hook)), lpCut, "80 % reached autoLp"
+        );
         assertEq(hook.currentTierIndex(), 1);
         assertEq(hook.currentTierSold(), amount - hook.tierSize());
     }
