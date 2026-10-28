@@ -138,9 +138,11 @@ contract AutoLpTestV3 is V2BaseV3 {
 
     function test_shelfMint_autoLpBuyIsTaxed() public {
         _openLadder();
-        uint256 platBefore = quote.balanceOf(platform);
-        _mintShelves(bob);
-        assertGt(quote.balanceOf(platform), platBefore, "the platform's 30 bps of autoLp's buy");
+        uint256 resBefore = ladder.reservoir();
+        uint256 cost = _mintShelves(bob);
+        assertGt(
+            ladder.reservoir() - resBefore, cost / 100, "the reservoir's 40 bps of autoLp's buy, on top of the 1 %"
+        );
     }
 
     function test_shelfMint_autoLpBuyCarriesNoPiggyback() public {

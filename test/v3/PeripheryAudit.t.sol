@@ -142,7 +142,10 @@ contract PeripheryAuditTestV3 is V2BaseV3 {
 
     function test_F1_vaultLockCannotSkipSellerFeeSweep() public {
         _launchAndAccrueFees();
-        assertEq(quote.balanceOf(address(rv)), 0, "vault empty before the sale");
+        // v3: the project's 0.6 % of every buy accrues in the vault; the
+        // genesis pool fees the sweep collects go to the platform.
+        uint256 accrued = quote.balanceOf(address(rv));
+        assertGt(accrued, 0, "the project's share of the buy tax accrued");
 
         NaiveCircuitMarketV3 market = new NaiveCircuitMarketV3(IERC20(address(quote)), nft);
         uint256 price = 1e18;
@@ -161,9 +164,8 @@ contract PeripheryAuditTestV3 is V2BaseV3 {
         market.buy(circuitId);
         vm.stopPrank();
         uint256 honestSellerGain = quote.balanceOf(dev) - devBefore;
-        uint256 fees = honestSellerGain - price;
-        assertGt(fees, 0, "pool fees were swept to the seller");
-        console2.log("honest sale: seller gain", honestSellerGain, "fees", fees);
+        assertEq(honestSellerGain - price, accrued, "the seller is paid what its vault accrued");
+        console2.log("honest sale: seller gain", honestSellerGain, "vault settled", accrued);
         vm.revertToState(snap);
 
         // ── Attack: buyer purchases from inside its own Vault lock.

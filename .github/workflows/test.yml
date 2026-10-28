@@ -263,7 +263,8 @@ jobs:
           # 212 -> 411: test/v3 runs the v2 suites against the v3 contracts
           # (195) plus V3Params (4).
           # 411 -> 428: test/v3/AutoLp (17).
-          floor=428
+          # 428 -> 429: the v3 buy-tax dust case.
+          floor=429
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
