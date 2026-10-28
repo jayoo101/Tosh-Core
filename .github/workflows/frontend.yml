@@ -363,10 +363,13 @@ jobs:
       # (deposit, refund, claim, bonding, liquidity, referral, PoG), their
       # routes and their lib code took their tests with them; every v2 suite
       # above is still collected.
+      #
+      # 256 -> 250: the unrendered directory cards went, and `genesisWindow`
+      # (-7) with them; `bucket` gained the ENDED case (+1).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=256
+          floor=250
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

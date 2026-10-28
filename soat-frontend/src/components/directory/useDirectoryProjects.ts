@@ -9,7 +9,7 @@ import { useIsHydrated, useNowSec } from '@/components/ui'
 import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
 import { V2_FACTORIES, v2QuoteConfig } from '@/lib/v2/config'
 
-export type DirectoryTab = 'live' | 'launching' | 'completed'
+export type DirectoryTab = 'live' | 'launching' | 'completed' | 'ended'
 
 export interface DirectoryProject {
   token:           Address
@@ -104,20 +104,21 @@ function parseFeaturedUntil(iso: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms
 }
 
-/// Neither boundary is a funding level: deposits run until the deadline (or
-/// sell-out), and an unlaunched genesis past it is waiting on `launch()`.
-/// v2 has no refunds, so there is no fourth state.
+/// Buys run until the deadline (or sell-out); after that a genesis that sold
+/// anything is waiting on `launch()`, and one that sold nothing is over for
+/// good, because `launch()` reverts `NothingRaised` and v2 has no refunds.
 export function bucket(
   launched: boolean,
   genesisDeadline: bigint,
   nowSec: number,
+  raised: bigint,
 ): DirectoryTab {
   if (launched) return 'completed'
 
   // nowSec === 0 means the clock has not ticked yet; do not call it expired.
   if (nowSec === 0 || Number(genesisDeadline) > nowSec) return 'live'
 
-  return 'launching'
+  return raised > 0n ? 'launching' : 'ended'
 }
 
 /**
@@ -308,7 +309,7 @@ export function useDirectoryProjects() {
   // below pure and lets it hold its result until a tab genuinely flips.
   const tabKey = useMemo(
     () => rows
-      .map(r => bucket(r.launched, r.genesisDeadline, nowSec))
+      .map(r => bucket(r.launched, r.genesisDeadline, nowSec, r.totalNative))
       .join(','),
     [rows, nowSec],
   )
@@ -322,6 +323,7 @@ export function useDirectoryProjects() {
     live:       projects.filter(p => p.tab === 'live').length,
     launching:  projects.filter(p => p.tab === 'launching').length,
     completed:  projects.filter(p => p.tab === 'completed').length,
+    ended:      projects.filter(p => p.tab === 'ended').length,
   }), [projects])
 
   // `/` is prerendered, and at build time wagmi reports `isLoading: false`

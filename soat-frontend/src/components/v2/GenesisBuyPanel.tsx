@@ -24,7 +24,9 @@ const SLIPPAGE_BPS = 50n
 
 const BINANCE_WALLET_INVITE = 'https://web3.binance.com/referral?ref=TOSHX'
 
-export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; quote: V2Quote; open: boolean; symbol: string }) {
+export function GenesisBuyPanel({ hook, quote, open, ended = false, symbol }: {
+  hook: Address; quote: V2Quote; open: boolean; ended?: boolean; symbol: string
+}) {
   const t = useT().v2
   const tx2 = useT().x
   const { address } = useAccount()
@@ -79,7 +81,7 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
         ...(quote.native ? { value: budget } : {}),
       }),
     blockersInRevertOrder: revertOrder(
-      !open && { id: 'closed', active: true, label: t.closed, reason: t.launchWaiting, tone: 'neutral' },
+      !open && { id: 'closed', active: true, label: t.closed, reason: ended ? t.launchAbandoned : t.launchWaiting, tone: 'neutral' },
       hasCode && { id: 'code', active: true, label: t.agentTitle, reason: t.agentCodeWallet },
       acct.data !== undefined && !acct.data.registryOk && { id: 'registry', active: true, label: t.agentTitle, reason: t.agentRegistryDown, tone: 'warn' },
       noAgentId && { id: 'agent', active: true, label: t.agentTitle, reason: t.agentNone },

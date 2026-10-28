@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ReactNode } from 'react'
 
-import { directoryToRow } from '@/components/directory/ProjectCard'
+import { directoryToRow } from '@/components/directory/directoryToRow'
 import { fmtQuote, type DirectoryProject } from '@/components/directory/useDirectoryProjects'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { cn } from '@/components/ui/cn'
@@ -15,17 +15,18 @@ import { fill, useT } from '@/i18n'
 import { prefetchProject, rememberProject } from '@/lib/projectCache'
 import type { GenesisSummary } from './useV2Summaries'
 
-export type CardStatus = 'live' | 'pending' | 'trading'
+export type CardStatus = 'live' | 'pending' | 'trading' | 'ended'
 
 export function statusOf(p: DirectoryProject): CardStatus {
   if (p.tab === 'completed') return 'trading'
   if (p.tab === 'launching') return 'pending'
+  if (p.tab === 'ended') return 'ended'
   return 'live'
 }
 
 export function StatusPill({ status, className }: { status: CardStatus; className?: string }) {
   const t = useT().x
-  const label = { live: t.statusLive, pending: t.statusPending, trading: t.statusTrading }[status]
+  const label = { live: t.statusLive, pending: t.statusPending, trading: t.statusTrading, ended: t.statusEnded }[status]
   return (
     <span
       className={cn(
