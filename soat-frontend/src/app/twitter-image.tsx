@@ -13,6 +13,6 @@
  *
  *  The `twitter:image` query hash is derived from this file's source alone, so
  *  a redesign in opengraph-image.tsx leaves X's URL, and X's cached card,
- *  unchanged. Touch this file whenever the card changes. Card revision: 2.
+ *  unchanged. Touch this file whenever the card changes. Card revision: 3.
  */
 export { alt, size, contentType, default } from './opengraph-image'

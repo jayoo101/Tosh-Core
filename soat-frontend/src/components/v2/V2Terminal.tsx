@@ -88,7 +88,7 @@ export function V2Terminal({ hook, symbol, header }: {
         <aside className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
           {s.launched
             ? <ShelfPanel hook={hook} quote={quote} symbol={symbol} />
-            : <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} symbol={symbol} />}
+            : <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} ended={phase === 'ENDED'} symbol={symbol} />}
           <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
           {!s.launched && <TransferPanel token={s.token} symbol={symbol} />}
         </aside>
@@ -119,7 +119,7 @@ function PriceAside({ s, quote, phase }: { s: State; quote: V2Quote; phase: V2Ph
 function GenesisStatGrid({ s, quote, now, phase }: { s: State; quote: V2Quote; now: number; phase: V2Phase }) {
   const tx = useT().x
   const sold = pct(s.sold, V2.SALE_SUPPLY)
-  const phaseLabel = { GENESIS: tx.phaseGenesis, PENDING: tx.phasePending, TRADING: tx.phaseTrading }[phase]
+  const phaseLabel = { GENESIS: tx.phaseGenesis, PENDING: tx.phasePending, TRADING: tx.phaseTrading, ENDED: tx.phaseEnded }[phase]
   return (
     <StatGrid>
       <Stat label={tx.statSold} value={`${sold.toFixed(2)}%`} sub={`${fmtCompact(toNum(s.sold))} / ${fmtCompact(SALE_TOKENS)}`}>
@@ -292,6 +292,7 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
   const agent = useAgentAddress()
   const tx = useTxAction({ action: t.launchAction, onConfirmed: onDone })
   const started = BigInt(now) >= s.launchStart && s.raised > 0n
+  const ended = v2Phase(s, now) === 'ENDED'
   const publicOpen = BigInt(now) >= s.publicLaunchAt
   const controller = s.projectController.toLowerCase()
   const isController = !!address && address.toLowerCase() === controller
@@ -305,6 +306,7 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
     onAct: () => tx.send({ address: hook, abi: V2_HOOK_ABI, functionName: 'launch' }),
     blockersInRevertOrder: revertOrder(
       s.launched && { id: 'launched', active: true, label: t.launchBtn, reason: t.marketClosed, tone: 'neutral' },
+      ended && { id: 'ended', active: true, label: t.launchBtn, reason: t.launchAbandoned, tone: 'neutral' },
       !started && { id: 'wait', active: true, label: t.launchBtn, reason: t.launchWaiting, tone: 'neutral' },
       started && !publicOpen && !isController && {
         id: 'window', active: true, label: t.launchBtn,
@@ -318,7 +320,7 @@ function LaunchPanel({ hook, s, quote, now, onDone }: {
   return (
     <Card title={t.launchTitle}>
       <p className="text-note text-text-secondary">
-        {s.launched ? t.launchExplain : started ? (publicOpen ? t.launchPublic : fill(t.launchAdminWindow, { time: fmtTime(s.publicLaunchAt) })) : t.launchExplain}
+        {s.launched ? t.launchExplain : ended ? t.launchAbandoned : started ? (publicOpen ? t.launchPublic : fill(t.launchAdminWindow, { time: fmtTime(s.publicLaunchAt) })) : t.launchExplain}
       </p>
       {!s.launched && <WalletAction gate={gate} />}
       {!s.launched && started && (

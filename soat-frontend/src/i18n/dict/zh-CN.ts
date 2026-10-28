@@ -128,36 +128,8 @@ export const ZH_CN: PartialDictionary = {
     another:         '再提交一份',
   },
 
-  directory: {
-    title: '项目目录',
-
-    pillLive:      '募资中',
-    pillLaunching: '待上线',
-    pillCompleted: '交易中',
-
-    noDescription: '创建者未提供描述。',
-
-    endsIn:        '{left}后截止',
-    closed:        '已截止',
-    durationDays:  '{d} 天 {h} 小时',
-    durationHours: '{h} 小时 {m} 分',
-
-    raised:           '已募集',
-    raisedAtGenesis:  'GENESIS 募集额',
-    noPriceFeed:      '暂无价格源',
-    waitingOnCreator: '等待创建者',
-    viewAgent:        '查看项目 →',
-
-    featureWaiting: '等待创建者',
-    featureRaised:  'GENESIS 募集额 *{quote}*',
-  },
-
   project: {
     legacyRetired: '这是旧版（v1）项目，本站已不再提供它的交易界面；链上合约仍可直接调用。',
-    phaseLabel:      '阶段',
-
-    raised:          '已募集',
-    raisedAtGenesis: 'GENESIS 募集额',
 
     backToAll:       '全部项目',
     tokenLabel:      '代币',
@@ -177,11 +149,6 @@ export const ZH_CN: PartialDictionary = {
     portfolioEyebrow: '我的持仓',
     portfolioBody:    '你在各项目上的未成交买单',
     footerHint:      'esc · 点击外部关闭',
-    spent:          '本窗口已用',
-    curve:        '交易中',
-    genesis:      'GENESIS',
-    deposited:    '已存入',
-    claimable:    '可领取',
     signing:      '[ 签名中… ]',
     mining:       '[ 确认中… ]',
   },
@@ -193,7 +160,7 @@ export const ZH_CN: PartialDictionary = {
                  + '合约才能扣款；多出来的可以在个人面板里解包。',
     unwrapTx:      '解包 {wrapped}',
     unwrapTitle:   '已包装的 {native}',
-    unwrapHint:    '货架购买或撤出流动性后剩下的。解包后按 1:1 换回 {native}。',
+    unwrapHint:    '货架购买后剩下的。解包后按 1:1 换回 {native}。',
     unwrapCta:     '解包 {amount} {wrapped}',
   },
 
@@ -257,6 +224,7 @@ export const ZH_CN: PartialDictionary = {
     launchTitle:       '开盘',
     launchExplain:     '用募集资金的 80% 以首个 GENESIS 价格的 2 倍建池，销毁未售出的代币，并解除转账限制。',
     launchWaiting:     'GENESIS 售罄或结束后才能开盘。',
+    launchAbandoned:   'GENESIS 已结束且没有任何成交，这个项目无法开盘。',
     launchAdminWindow: '{time} 之前只有 Circuit NFT 持有人可以开盘，之后任何人都可以。',
     launchPublic:      '现在任何人都可以开盘。',
     launchBtn:         '开盘建池',
@@ -274,7 +242,6 @@ export const ZH_CN: PartialDictionary = {
     fundAddrLabel:     '新的基金地址',
     controllerOnly:    '仅限 Circuit NFT 持有人。',
 
-    rulesTitle:        '开盘前',
     registerLink:      '登记收款',
 
     marketTitle:       '买单市场',
@@ -420,6 +387,7 @@ export const ZH_CN: PartialDictionary = {
     statusLive:        '进行中',
     statusPending:     '待开盘',
     statusTrading:     '交易中',
+    statusEnded:       '已结束',
     raisedOfCap:       '{raised} / {cap} {quote}',
     raisedOnly:        '已募 {raised} {quote}',
     raisedVsCap:       '已募集占硬顶比例',
@@ -473,6 +441,7 @@ export const ZH_CN: PartialDictionary = {
     phaseGenesis:      'GENESIS',
     phasePending:      '待开盘',
     phaseTrading:      '交易中',
+    phaseEnded:        '已结束',
 
     curveTitle:        'GENESIS 曲线',
     curveAria:         'GENESIS 曲线从 {p} 到 {p15} {quote}，以 {p2} 开盘。已售 {sold} / {total} 枚。',
@@ -572,7 +541,6 @@ export const ZH_CN: PartialDictionary = {
     eyebrow:           '运营控制台',
     titleLead:         '协议',
     titleBrand:        '控制',
-    readOnly:          '· 只读',
     connect:           '连接钱包',
     disconnect:        '断开',
     jumpAria:          '控制台分区',
@@ -634,7 +602,7 @@ export const ZH_CN: PartialDictionary = {
     featEligible:      '可选项目',
     featEligibleOne:   '1 个项目',
     featEligibleMany:  '{n} 个项目',
-    featPinnedHidden:  '${symbol} 已置顶，但它已不在首页展示范围内，置顶没有效果：它的募集已结束且未开盘，或处于可退款状态。清除置顶没有任何成本，可以避免误解。',
+    featPinnedHidden:  '${symbol} 已置顶，但它已不在首页展示范围内，置顶没有效果：它的 GENESIS 已结束：正在等待开盘、已经开盘，或因没有任何成交而结束。清除置顶没有任何成本，可以避免误解。',
     featLaunchLabel:   '要置顶的项目',
     featSelectNone:    '没有可置顶的项目',
     featSelectPrompt:  '选择一个项目…',

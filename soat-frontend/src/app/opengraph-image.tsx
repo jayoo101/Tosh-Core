@@ -173,7 +173,7 @@ export default function Image() {
             >
               {/* The denomination, and the reason this card is worth deriving
                   rather than exporting once as a PNG. */}
-              {NATIVE_SYMBOL}-denominated
+              {NATIVE_SYMBOL} or USDT
             </div>
           </div>
           <div style={{ display: 'flex', fontSize: 24, color: VIOLET }}>toshx.xyz</div>

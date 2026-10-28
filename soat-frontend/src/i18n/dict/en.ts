@@ -228,67 +228,11 @@ export const EN = {
   },
 
   /**
-   * `/projects` and the cards it shares with the home page.
-   *
-   * ⚠ THE PHASE BLURBS MAKE CLAIMS THE CONTRACTS HAVE TO BACK, and each one was
-   *   rewritten away from a mock that described something false. `launching` is
-   *   "waiting on creator" because nothing deploys on its own — `launch()` is
-   *   creator-only. `archived` names the refund and not an expired window,
-   *   because a raise too small to open a pool is archived at genesis close with
-   *   most of the window unspent. A translation must keep each claim, not
-   *   smooth it back toward the mock.
-   *
-   * ⚠ ONE / MANY ARE SEPARATE STRINGS rather than a suffix bolted onto one,
-   *   because a language without plural inflection needs to write the same
-   *   thing twice and a language with more than two forms needs to be able to
-   *   say so. The count itself is a styled span in front of `results*`, which is
-   *   why those four strings start after the number.
-   *
-   * `nothingMatches` carries the reader's own query in `*{query}*`, rendered by
-   * `Emph` with the query passed as `vars` so a typed `*` cannot re-cut it.
-   */
-  directory: {
-    title: 'Project Directory',
-
-    // The card's phase pill. Uppercase in the source because the pill is.
-    pillLive:      'FUNDING',
-    pillLaunching: 'AWAITING LAUNCH',
-    pillCompleted: 'TRADING',
-
-    noDescription: 'No description provided.',
-
-    /*
-     * The grid card's two-unit countdown. Units are copy — `d`/`h`/`m` are
-     * English abbreviations — so the shape of the whole reading belongs here.
-     */
-    endsIn:       'ends in {left}',
-    closed:       'closed',
-    durationDays: '{d}d {h}h',
-    durationHours: '{h}h {m}m',
-
-    raised:          'Raised',
-    raisedAtGenesis: 'Raised at genesis',
-    noPriceFeed:     'no price feed',
-    waitingOnCreator: 'Waiting on creator',
-    viewAgent:       'View project →',
-
-    // The feature card writes these lowercase and lets CSS uppercase them; the
-    // ticker is `*{quote}*` so it can be exempted from that — `mBEM` is not `MBEM`.
-    featureWaiting: 'waiting on creator',
-    featureRaised:  'raised at genesis *{quote}*',
-  },
-
-  /**
    * The project page's rails: the four-figure header strip and the lifecycle
    * tracker. Neither takes money; both are read before anything that does.
    */
   project: {
     legacyRetired: 'This is a legacy v1 launch. The site no longer offers its trading screen; its contracts remain callable on-chain.',
-    phaseLabel:      'Phase',
-
-    // "Raised at genesis" once refunds open: the figure is a peak, not a balance.
-    raised:          'Raised',
-    raisedAtGenesis: 'Raised at genesis',
 
     // The identity header above the terminal.
     backToAll:     'All projects',
@@ -314,11 +258,6 @@ export const EN = {
     portfolioEyebrow: 'MY PORTFOLIO',
     portfolioBody:    'Your open bids across projects',
     footerHint:      'esc · click_outside',
-    spent:          'Spent This Window',
-    curve:        'CURVE',
-    genesis:      'GENESIS',
-    deposited:    'DEPOSITED',
-    claimable:    'CLAIMABLE',
     signing:      '[ SIGN… ]',
     mining:       '[ MINING… ]',
   },
@@ -335,7 +274,7 @@ export const EN = {
                  + 'into {wrapped} 1:1 so the contract can take it; unwrap any leftover from your profile.',
     unwrapTx:      'Unwrap {wrapped}',
     unwrapTitle:   'Wrapped {native}',
-    unwrapHint:    'Left over from a shelf buy or an LP removal. Unwrap to get {native} back 1:1.',
+    unwrapHint:    'Left over from a shelf buy. Unwrap to get {native} back 1:1.',
     unwrapCta:     'Unwrap {amount} {wrapped}',
   },
 
@@ -411,6 +350,7 @@ export const EN = {
     launchTitle:       'Launch',
     launchExplain:     'Opens the pool at 2× the first GENESIS price with 80 % of the raise, burns the unsold supply and lifts the transfer limits.',
     launchWaiting:     'Launch opens when GENESIS sells out or ends.',
+    launchAbandoned:   'GENESIS ended with nothing sold, so this project can never launch.',
     launchAdminWindow: 'Only the Circuit NFT holder can launch until {time}. After that, anyone can.',
     launchPublic:      'Anyone can launch now.',
     launchBtn:         'Launch pool',
@@ -428,7 +368,6 @@ export const EN = {
     fundAddrLabel:     'New fund address',
     controllerOnly:    'Circuit NFT holder only.',
 
-    rulesTitle:        'Before launch',
     registerLink:      'Register to receive',
 
     marketTitle:       'Bid market',
@@ -575,6 +514,7 @@ export const EN = {
     statusLive:        'Live',
     statusPending:     'Awaiting launch',
     statusTrading:     'Trading',
+    statusEnded:       'Ended',
     raisedOfCap:       '{raised} / {cap} {quote}',
     raisedOnly:        '{raised} {quote} raised',
     raisedVsCap:       'Raised against the hard cap',
@@ -628,6 +568,7 @@ export const EN = {
     phaseGenesis:      'GENESIS',
     phasePending:      'Awaiting launch',
     phaseTrading:      'Trading',
+    phaseEnded:        'Ended',
 
     curveTitle:        'GENESIS curve',
     curveAria:         'GENESIS curve from {p} to {p15} {quote}, launching at {p2}. {sold} of {total} tokens sold.',
@@ -728,7 +669,6 @@ export const EN = {
     eyebrow:           'Operator Console',
     titleLead:         'Protocol',
     titleBrand:        'Control',
-    readOnly:          '· read-only',
     connect:           'connect wallet',
     disconnect:        'disc',
     jumpAria:          'Console sections',
@@ -790,7 +730,7 @@ export const EN = {
     featEligible:      'Eligible',
     featEligibleOne:   '1 launch',
     featEligibleMany:  '{n} launches',
-    featPinnedHidden:  '${symbol} is pinned but is no longer one of the launches this block shows, so the pin is doing nothing. Its raise has closed without launching, or it is refundable. Clearing the pin costs nothing and removes the confusion.',
+    featPinnedHidden:  '${symbol} is pinned but is no longer one of the launches this block shows, so the pin is doing nothing. Its GENESIS has closed: it is awaiting launch, has launched, or ended with nothing sold. Clearing the pin costs nothing and removes the confusion.',
     featLaunchLabel:   'LAUNCH TO FEATURE',
     featSelectNone:    'nothing eligible to feature',
     featSelectPrompt:  'select a launch…',
