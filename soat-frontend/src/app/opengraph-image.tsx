@@ -1,6 +1,4 @@
 import { ImageResponse } from 'next/og'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 
 import { CHAIN_STATUS_BADGE } from '@/lib/chain'
 import { NATIVE_SYMBOL } from '@/lib/chain'
@@ -44,12 +42,21 @@ export const alt = `ToshX — the fair-launch terminal of the ${NATIVE_SYMBOL} e
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
-/* Inlined as a data URI rather than referenced by URL. satori fetches remote
- * images at render time, so an `https://toshx.xyz/brand-mark.png` here would
- * make the card depend on the very deployment that is trying to serve it —
- * and fail closed on the first request after a cold start. */
-const markData = await readFile(join(process.cwd(), 'public', 'brand-mark.png'))
-const MARK = `data:image/png;base64,${markData.toString('base64')}`
+/* LogoMark's three bars, drawn here rather than read from a PNG. Next derives
+ * the `og:image` query hash from this file's source, and platforms cache the
+ * card by that URL: a mark kept in a separate image changed the picture without
+ * changing the URL, so Telegram kept serving the previous card. A data URI also
+ * keeps satori from fetching the deployment that is serving it. */
+const MARK_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+  `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">` +
+  `<stop offset="0" stop-color="${BRAND}"/><stop offset="1" stop-color="${BRAND}" stop-opacity="0.78"/>` +
+  `</linearGradient></defs>` +
+  [[4, 0.45], [38, 0.72], [72, 1]]
+    .map(([x, o]) => `<polygon points="${x},6 ${x + 24},22 ${x + 24},78 ${x},94" fill="url(#g)" opacity="${o}"/>`)
+    .join('') +
+  `</svg>`
+const MARK = `data:image/svg+xml;base64,${Buffer.from(MARK_SVG).toString('base64')}`
 
 export default function Image() {
   return new ImageResponse(
