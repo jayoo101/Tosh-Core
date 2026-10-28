@@ -485,9 +485,20 @@ jobs:
               # reached only through eslint-config-next -> fast-glob, a dev
               # dependency expanding globs from our own config. The only
               # `audit fix` is downgrading eslint-config-next to 14.
-              # `npm audit --omit=dev` is clean. Remove once braces ships a fix.
+              # Remove once braces ships a fix.
+              #
+              # GHSA-mrhx-c7xc-m3w5 (zod <4.6.6, memory exhaustion validating
+              # oversized collections; no 3.x fix): nothing in src/ imports zod,
+              # and no route validates request bodies with it. It arrives through
+              # @reown/appkit-wallet (zod 3.22, checking messages from Reown's own
+              # iframe in the user's browser), @coinbase/cdp-sdk via the Base
+              # connector, abitype's unused `abitype/zod` entry, and the
+              # react-hooks lint plugin. Forcing zod 4 under libraries written
+              # against 3 risks breaking wallet connection silently, so this waits
+              # for those packages to move. The 14 high entries `npm audit` prints
+              # for wagmi, @reown/* and friends are this one advisory, inherited.
               npm audit --json > /tmp/audit.json 2>/dev/null || true
-              ALLOWED='GHSA-vfj7-8cjw-p6xm' node -e '
+              ALLOWED='GHSA-vfj7-8cjw-p6xm,GHSA-mrhx-c7xc-m3w5' node -e '
                 const allowed = new Set(process.env.ALLOWED.split(","));
                 const r = JSON.parse(require("fs").readFileSync("/tmp/audit.json", "utf8"));
                 const bad = new Set();
