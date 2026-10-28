@@ -56,7 +56,8 @@ contract FactoryV2TestV3 is V2BaseV3 {
             address(quote),
             address(registry),
             MIN_BUY + 1, // differs from the factory's
-            true
+            true,
+            address(autoLp)
         );
         vm.expectRevert(ToshFactoryV3.ImplementationMismatch.selector);
         new ToshFactoryV3(

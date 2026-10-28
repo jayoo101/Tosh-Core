@@ -97,9 +97,9 @@ import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 ///      Phase 2 is a monotonic ramp of `TIER_COUNT` (4000) fixed-price shelves
 ///      spanning 2000× from the opening price, each gated behind a market-price
 ///      ceiling so no OUTSIDER can mint below the market and dump at a profit.
-///      The Circuit holder is different by design: 99 % of what it pays comes
-///      back through its revenue vault, so shelves the ceiling has opened
-///      cost it about 1 %. That is the project's funding channel, and it is
+///      v3: the Circuit holder gets 19 % of what it pays back through its
+///      revenue vault and `autoLp` locks 80 % into the pool, so minting its
+///      own shelves costs it most of the payment. The funding channel is
 ///      bounded by the ceiling — once a dump lowers the price, the ladder
 ///      closes until the market climbs back.
 ///
@@ -386,8 +386,14 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     // ─── Economics ────────────────────────────────────────────────────────────
 
     /// @notice Platform cut of Phase-2 shelf proceeds (1 %), routed to the
-    ///         buyback reservoir; the remaining 99 % goes to `projectAdmin`.
+    ///         buyback reservoir. v3: `LP_SHARE_BPS` goes to `autoLp` and the
+    ///         remaining 19 % to `projectAdmin`.
     uint256 public constant PLATFORM_TAX_BPS = 100;
+
+    /// @notice Share of every shelf payment sent to `autoLp`, which buys the
+    ///         project token with part of it in this pool and adds the rest
+    ///         as permanently locked full-range liquidity.
+    uint256 public constant LP_SHARE_BPS = 8000;
 
     /// @notice Asymmetric in-flight tax skimmed off the INPUT of every pool
     ///         swap (1.00 %).  Buys (ETH in) split between the buyback
@@ -476,7 +482,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         0..25 (81 900 tokens), open at launch with no price move at all.
     ///         The pool's token side is 0.9M × (raised / hardCap), so on a 10 %
     ///         raise that band was 23 % of the pool's quote for the Circuit
-    ///         holder, who gets 99 % of a shelf payment back. At par a shelf
+    ///         holder, who then got 99 % of a shelf payment back. At par a shelf
     ///         opens only once the market has risen to its price.
     uint256 public constant PRICE_CEILING_BPS = 10_000;
 
@@ -786,6 +792,11 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         share of the buy-side dark tax and the shelf cut.
     address payable public immutable ladderTreasury;
 
+    /// @notice Market-wide `ToshAutoLp`: receives `LP_SHARE_BPS` of every
+    ///         shelf payment. Its swaps are taxed like any other, but never
+    ///         carry the piggyback buyback (see `afterSwap`).
+    address public immutable autoLp;
+
     /// @notice Receives `PLATFORM_SWAP_FEE_BPS` (30 bps) of every buy's ETH
     ///         input — the platform's maintenance and development cut.
     ///
@@ -864,7 +875,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    ⚠ THIS ADDRESS NEVER RECEIVES FUNDS.  Nothing in this contract,
     ///         the factory, or the treasury transfers to it.  Project revenue —
-    ///         99 % of every shelf sale — is paid to `projectAdmin`, the Circuit
+    ///         19 % of every shelf sale — is paid to `projectAdmin`, the Circuit
     ///         revenue vault, which follows the NFT rather than this address.
     ///
     ///         It survives because it is part of the clone's immutable args and
@@ -915,7 +926,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     //  Mutable state
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Receives the 99 % Phase-2 cut: the project's Circuit revenue
+    /// @notice Receives the 19 % Phase-2 cut: the project's Circuit revenue
     ///         vault, written once by `initializeToken` and never again.
     ///
     /// @dev    There is deliberately no setter. The revenue right travels with
@@ -1262,14 +1273,15 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         address _quoteAsset,
         address _agentRegistry,
         uint256 _minBuy,
-        bool _acceptsNative
+        bool _acceptsNative,
+        address _autoLp
     ) {
         // Custom errors rather than one revert string per argument: the hook
         // sits close to the EIP-170 limit.
         if (
             _poolManager == address(0) || _vault == address(0) || _factory == address(0)
                 || _ladderTreasury == address(0) || _platformFeeRecipient == address(0) || _quoteAsset == address(0)
-                || _agentRegistry == address(0) || _minBuy == 0
+                || _agentRegistry == address(0) || _minBuy == 0 || _autoLp == address(0)
         ) revert ZeroAddress();
         // Asserted, not assumed: `ToshFactoryV3.MIN_HARD_CAP` and the ladder's usable
         // range were both computed against 18 decimals. A quote asset with any
@@ -1281,6 +1293,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
+        autoLp = _autoLp;
         PIGGYBACK_TRIGGER_STEP = IToshLadderTreasuryV3(_ladderTreasury).TRIGGER_STEP();
         platformFeeRecipient = payable(_platformFeeRecipient);
         quoteAsset = IERC20(_quoteAsset);
@@ -1438,7 +1451,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         `test_implementationIsInertAsItself`.
     ///
     /// @param token_        The project's ERC-20, already pointed at this hook.
-    /// @param projectAdmin_ Permanent recipient of the 99 % Phase-2 cut.
+    /// @param projectAdmin_ Permanent recipient of the 19 % Phase-2 cut.
     /// @param projectFund_  First recipient of the 20 % genesis share.
     function initializeToken(address token_, address projectAdmin_, address projectFund_) external onlyClone {
         if (msg.sender != factory) revert OnlyFactory();
@@ -1763,8 +1776,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     ///   The failure mode this defends against: a buyer mints a shelf below
     ///   the market and dumps it into the pool, extracting the genesis quote.
-    ///   It does not bind the Circuit holder, which gets 99 % of its payment
-    ///   back (see the header).  Three compounding guards:
+    ///   It also bounds the Circuit holder, which gets only 19 % of its
+    ///   payment back in v3 (see the header).  Three compounding guards:
     ///
     ///     1. SAME-BLOCK LOCKOUT.  Once a swap in this block has moved the
     ///        price more than `MAX_MINT_TICK_DRIFT` from the block's open,
@@ -1905,7 +1918,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         // Pipe 4 of the treasury's funding matrix: the platform's 1 % cut of
         // every shelf mint is buyback fuel, not platform profit.
         uint256 platformCut = (cost * PLATFORM_TAX_BPS) / BPS_DENOMINATOR;
-        uint256 projectCut = cost - platformCut;
+        uint256 lpCut = (cost * LP_SHARE_BPS) / BPS_DENOMINATOR;
+        uint256 projectCut = cost - platformCut - lpCut;
 
         // Pulled from the buyer straight to each recipient, so this contract
         // never custodies a shelf payment. Under native settlement it had no
@@ -1915,8 +1929,14 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         // amount transferred is computed, not offered.
         if (platformCut > 0) SafeERC20.safeTransferFrom(quoteAsset, msg.sender, ladderTreasury, platformCut);
         if (projectCut > 0) SafeERC20.safeTransferFrom(quoteAsset, msg.sender, projectAdmin, projectCut);
+        if (lpCut > 0) SafeERC20.safeTransferFrom(quoteAsset, msg.sender, autoLp, lpCut);
 
         projectToken.mint(msg.sender, tokenAmount);
+
+        // Last, once every effect above has landed: the buy it may run swaps
+        // through this hook's callbacks. `deposit` never reverts on a market
+        // condition, so the sale does not depend on the LP being added now.
+        if (lpCut > 0) IToshAutoLp(autoLp).deposit(lpCut);
 
         nativeCharged = cost;
     }
@@ -2189,8 +2209,14 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         // manager for `isUnlocked`, and a cold `ladderTokens.length`), so the
         // conclusion holds; the margin is a few thousand gas rather than two
         // orders of magnitude.
+        // v3: not on `autoLp`'s buys. They run inside a shelf mint, whose gas
+        // the buyer estimated without a buyback leg, and inside `autoLp`'s own
+        // Vault frame. The tax above still applies to them.
         uint256 avail = gasleft();
-        if (quoteAsset.balanceOf(ladderTreasury) >= PIGGYBACK_TRIGGER_STEP && avail >= PIGGYBACK_MIN_GAS) {
+        if (
+            sender != autoLp && quoteAsset.balanceOf(ladderTreasury) >= PIGGYBACK_TRIGGER_STEP
+                && avail >= PIGGYBACK_MIN_GAS
+        ) {
             try IToshLadderTreasuryV3(ladderTreasury).autoPiggybackBuyback{gas: avail - PIGGYBACK_TAIL_RESERVE}() {}
             catch {
                 emit PiggybackPokeFailed(ladderTreasury);
@@ -2848,6 +2874,10 @@ interface ICircuitVaultHolderV3 {
 
 interface IWrappedNativeDepositV3 {
     function deposit() external payable;
+}
+
+interface IToshAutoLp {
+    function deposit(uint256 amount) external;
 }
 
 interface IToshLadderTreasuryV3 {
