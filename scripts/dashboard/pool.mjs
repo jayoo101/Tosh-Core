@@ -9,7 +9,7 @@
 
 import { ethers } from 'ethers'
 import {
-  CHAIN_ID, CL_POOL_MANAGER, QUOTE_ASSET, POOL_FEE, TICK_SPACING, HOOK_ABI,
+  CHAIN_ID, CL_POOL_MANAGER, POOL_FEE, TICK_SPACING, HOOK_ABI,
 } from './config.mjs'
 
 const CL_POOL_ABI = [
@@ -41,7 +41,7 @@ export function poolIdOf(key) {
  * pool that does not exist, which reads as an empty pool rather than as an
  * error — a health panel reporting zero depth for a pool that has plenty.
  */
-export async function loadPool(hookAddress, prov) {
+export async function loadPool(hookAddress, prov, market) {
   const net = await prov.getNetwork()
   if (Number(net.chainId) !== CHAIN_ID) {
     throw new Error(`the RPC points at chain ${net.chainId}, not ${CHAIN_ID}`)
@@ -65,8 +65,8 @@ export async function loadPool(hookAddress, prov) {
   if (key.poolManager.toLowerCase() !== CL_POOL_MANAGER.toLowerCase()) {
     throw new Error(`pool runs on manager ${key.poolManager}, not the pinned ${CL_POOL_MANAGER}`)
   }
-  if (key.currency0.toLowerCase() !== QUOTE_ASSET.toLowerCase()) {
-    throw new Error(`currency0 is ${key.currency0}, not the quote asset ${QUOTE_ASSET}`)
+  if (key.currency0.toLowerCase() !== market.quote.toLowerCase()) {
+    throw new Error(`currency0 is ${key.currency0}, not the ${market.symbol} market's quote asset ${market.quote}`)
   }
   if (key.fee !== POOL_FEE) throw new Error(`pool fee is ${key.fee}, not ${POOL_FEE}`)
 
@@ -103,5 +103,6 @@ export async function loadPool(hookAddress, prov) {
     liquidity,
     token: key.currency1,
     quote: key.currency0,
+    quoteDecimals: market.quoteDecimals,
   }
 }
