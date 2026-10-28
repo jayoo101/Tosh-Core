@@ -181,15 +181,15 @@ contract PoolGuardsTestV3 is V2BaseV3 {
         );
     }
 
-    function test_afterLaunch_donationReachesTheCircuitVault() public {
+    function test_afterLaunch_donationReachesThePlatform() public {
         _launchAsAdmin(hook);
         _nextBlock();
         PoolKey memory key = hook.getPoolKey();
         vm.prank(trader);
         router.donate(key, 1e18, 0, "");
-        uint256 before = quote.balanceOf(hook.projectAdmin());
+        uint256 before = quote.balanceOf(platform);
         hook.collectGenesisFees();
-        assertApproxEqRel(quote.balanceOf(hook.projectAdmin()) - before, 1e18, 1e15, "genesis LP owns ~all of it");
+        assertApproxEqRel(quote.balanceOf(platform) - before, 1e18, 1e15, "genesis LP owns ~all of it");
     }
 
     function test_revert_hookCallbacksOnlyFromTheManager() public {

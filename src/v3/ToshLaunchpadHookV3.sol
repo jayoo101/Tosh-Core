@@ -107,12 +107,12 @@ import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 ///      INPUT of every swap, routed by direction rather than by which currency
 ///      happened to be `amountSpecified`:
 ///
-///        BUY  (ETH in)   → 0.7 % ETH   → ToshLadderTreasury  (buyback fuel)
-///                        + 0.3 % ETH   → platformFeeRecipient (platform revenue)
+///        BUY  (quote in) → 0.6 % quote → projectAdmin        (project revenue)
+///                        + 0.4 % quote → ToshLadderTreasury  (buyback fuel)
 ///        SELL (token in) → 1.0 % TOKEN → 0xdead              (burned in place)
 ///
 ///      Only the buy leg is split, and only because only the buy leg's input is
-///      ETH — see `PLATFORM_SWAP_FEE_BPS`.
+///      the quote asset — see `PROJECT_SWAP_TAX_BPS`.
 ///
 ///      Exact-input settles that skim in `beforeSwap` (specified IS the input).
 ///      Exact-output settles it in `afterSwap` against the unspecified input,
@@ -134,13 +134,16 @@ import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 ///
 ///      v5.0 opens the pool to third-party LPs and splits the budget:
 ///
-///        0.3 %  POOL_FEE  → LPs, settled natively by V4 (no code of ours)
-///        1.0 %  hook tax  → buyback reservoir / burn / platform
+///        0.2 %  POOL_FEE  → LPs, settled natively by V4 (no code of ours)
+///        1.0 %  hook tax  → project / buyback reservoir / burn
+///
+///      v3: 0.6 % of a buy to the project and 0.4 % to the reservoir, and a
+///      0.20 % pool fee whose genesis-position share goes to the platform.
 ///
 ///      That started as a flat 1 % all-in (0.3 + 0.7).  Carving the platform's
 ///      maintenance cut out of the hook tax raised the total toll to 1.3 % —
 ///      still well below v4.x's 2 %, and the pool fee half is no longer dead
-///      weight.  See `PLATFORM_SWAP_FEE_BPS` for what that bought and cost.
+///      weight.  v3 is 1.0 % tax plus a 0.2 % pool fee, 1.2 % in all.
 ///
 ///      The genesis position stays locked without any callback: V4 keys
 ///      positions to their creator, it belongs to this hook, and this hook has
@@ -411,11 +414,9 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         and `test_taxRates_areDistinctPathsDespiteSharedLiteral` pins
     ///         both against their own paths.
     ///
-    /// @dev    Stacked on the 0.30 % `POOL_FEE` that goes to third-party LPs,
-    ///         a trader's total friction is 1.30 %.  This was 0.70 % (a flat
-    ///         1.00 % all-in) until the platform's own maintenance cut was
-    ///         carved out; see `PLATFORM_SWAP_FEE_BPS` for what changed and
-    ///         what it cost.
+    /// @dev    Stacked on the 0.20 % `POOL_FEE` that goes to LPs, a trader's
+    ///         total friction is 1.20 %.  See `PROJECT_SWAP_TAX_BPS` for how
+    ///         the buy leg divides it.
     ///
     /// @dev    THE TWO PATHS APPLY THIS RATE TO DIFFERENT BASES, ON PURPOSE.
     ///
@@ -440,35 +441,22 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         the threshold where it is worth the division.
     uint256 public constant TAX_BPS = 100;
 
-    /// @notice The platform's maintenance cut, carved OUT OF `TAX_BPS` on the
-    ///         buy leg only (0.30 % of the ETH input), paid to
-    ///         `platformFeeRecipient`.
+    /// @notice The project's share of `TAX_BPS` on the buy leg: 0.60 % of the
+    ///         quote input, paid to `projectAdmin`.  The other 0.40 % goes to
+    ///         the buyback reservoir.
     ///
     /// @dev    CARVED OUT OF, NOT ADDED ON TOP.  `TAX_BPS` is the whole toll a
-    ///         trader pays; this is how the buy leg divides it.  The reservoir
-    ///         receives `TAX_BPS - PLATFORM_SWAP_FEE_BPS` = 70 bps, which is
-    ///         exactly what it received before this split existed, so the
-    ///         buyback engine's economics are untouched and every reservoir
-    ///         assertion written against 70 bps of input still holds.
+    ///         trader pays; this is how the buy leg divides it.
     ///
-    /// @dev    BUY LEG ONLY, and that is the substantive half of the decision.
-    ///         The sell leg's input is the project's own token, so splitting it
-    ///         would pay the platform in whatever each project happens to have
-    ///         issued — a growing bag of illiquid positions in the very tokens
-    ///         it is supposed to be neutral about, which it would then have to
-    ///         sell into those pools to realise.  Burning the full 1 % instead
-    ///         keeps the sell leg deflationary and keeps the platform holding
-    ///         nothing but ETH.
+    /// @dev    BUY LEG ONLY.  The sell leg's input is the project's own token,
+    ///         and paying anyone in it would only hand them something to sell
+    ///         back into this pool.  The full 1 % of a sell is burned instead.
     ///
-    /// @dev    This was the one place platform revenue did NOT end at
-    ///         `ladderTreasury`, a deliberate break with the v5.0 claim that
-    ///         all of it is committed to buyback-and-burn, documented as such
-    ///         in `PRD-v5.0.md` §2 rather than being quietly true.
-    ///
-    ///         It is one of TWO such places: orphaned referral commission is
-    ///         flushed to the same address at `launch`.  The shelf cut still
-    ///         routes to the reservoir in full.
-    uint256 public constant PLATFORM_SWAP_FEE_BPS = 30;
+    /// @dev    v2 sent 70 bps to the reservoir and 30 bps to
+    ///         `platformFeeRecipient`.  In v3 the platform's share of trading
+    ///         is the genesis position's pool fees instead; see
+    ///         `collectGenesisFees`.
+    uint256 public constant PROJECT_SWAP_TAX_BPS = 60;
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
 
@@ -584,10 +572,13 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 
     // ─── Pool ─────────────────────────────────────────────────────────────────
 
-    /// @notice V4 static swap fee, 0.30 % — paid entirely to liquidity
+    /// @notice V4 static swap fee, 0.20 % — paid entirely to liquidity
     ///         providers by V4's native accounting.
     ///
-    /// @dev    Together with the 0.70 % hook tax this holds total trader
+    /// @dev    v3 lowers it from 0.30 %.  The paragraphs below are from v5,
+    ///         when the hook tax was 0.70 %.
+    ///
+    ///         Together with the 0.70 % hook tax this holds total trader
     ///         friction at exactly 1.00 %, the same figure v4.x charged.  What
     ///         changed is where it goes: v4.x split it 1 % pool + 1 % tax for
     ///         2 % total, and the pool half was dead weight because the only
@@ -598,9 +589,9 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         needs no distribution code of ours at all.  V4 credits fees to
     ///         positions natively; LPs collect by calling `modifyLiquidity` on
     ///         their own position like any other V4 pool.
-    uint24 public constant POOL_FEE = 3000; // 0.30 %
+    uint24 public constant POOL_FEE = 2000; // 0.20 %
 
-    /// @dev Uniswap pairs 0.30 % with a tick spacing of 60 by convention.  This
+    /// @dev Uniswap pairs a 0.30 % tier with a tick spacing of 60 by convention.  This
     ///      pool keeps 200 so that TICK_LOWER/UPPER stay aligned and the
     ///      genesis range is unchanged; the cost is that third-party LPs can
     ///      only place range bounds on a ~2 % grid, which is coarse but
@@ -788,7 +779,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      raise; docs/BEM_QUOTE_ASSET.md 2.1 has the table from that era.
     uint8 internal constant QUOTE_DECIMALS = 18;
 
-    /// @notice Platform buyback reservoir; receives the reservoir's 70 bps
+    /// @notice Platform buyback reservoir; receives the reservoir's 40 bps
     ///         share of the buy-side dark tax and the shelf cut.
     address payable public immutable ladderTreasury;
 
@@ -797,8 +788,10 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         carry the piggyback buyback (see `afterSwap`).
     address public immutable autoLp;
 
-    /// @notice Receives `PLATFORM_SWAP_FEE_BPS` (30 bps) of every buy's ETH
-    ///         input — the platform's maintenance and development cut.
+    /// @notice The platform's revenue address. v3: receives the quote side of
+    ///         the genesis position's pool fees (see `collectGenesisFees`) and
+    ///         orphaned referral commission at `launch`; no share of the swap
+    ///         tax.
     ///
     /// @dev    IMMUTABLE ON PURPOSE, and this is a re-litigated decision.
     ///         v4.x let the factory owner retarget Phase-2 fee routing through
@@ -1118,10 +1111,10 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Emitted when a shelf sells out and the ladder advances.
     event TierAdvanced(uint256 indexed newTierIndex, uint256 newTierPrice);
 
-    /// @notice Emitted when an ETH-side skim funds the platform buyback
-    ///         reservoir.  Carries the reservoir's share only (70 bps of the
-    ///         input), NOT the whole `TAX_BPS` skim — the platform's 30 bps is
-    ///         reported separately by `PlatformSwapFeePaid` in the same swap,
+    /// @notice Emitted when a quote-side skim funds the platform buyback
+    ///         reservoir.  Carries the reservoir's share only (40 bps of the
+    ///         input), NOT the whole `TAX_BPS` skim — the project's 60 bps is
+    ///         reported separately by `ProjectSwapTaxPaid` in the same swap,
     ///         and the two sum to the skim.
     ///
     /// @dev    The name predates the split and is kept so existing indexers and
@@ -1130,12 +1123,12 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         always "what the reservoir received".
     event BuyTaxToTreasury(uint256 nativeAmount);
 
-    /// @notice Emitted when a buy's ETH-side skim pays the platform's
-    ///         maintenance cut to `platformFeeRecipient`.
+    /// @notice Emitted when a buy's quote-side skim pays the project's share
+    ///         to `projectAdmin`.
     ///
     /// @dev    Buys only.  A sell emits `SellTaxBurned` alone, because the sell
-    ///         leg is not split — see `PLATFORM_SWAP_FEE_BPS`.
-    event PlatformSwapFeePaid(address indexed recipient, uint256 nativeAmount);
+    ///         leg is not split — see `PROJECT_SWAP_TAX_BPS`.
+    event ProjectSwapTaxPaid(address indexed recipient, uint256 amount);
 
     /// @notice Emitted when a token-side skim is burned in place at 0xdead.
     ///         Carries the FULL `TAX_BPS` skim; the sell leg is not split.
@@ -1740,7 +1733,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Sweep the pool fees the genesis position has earned.  Permissionless.
     ///
     /// @dev    The genesis position is owned by this hook and can never be
-    ///         withdrawn, so without this its 0.30 % pool fee would accrue in the
+    ///         withdrawn, so without this its 0.20 % pool fee would accrue in the
     ///         Vault forever: fees are only paid out on a `modifyLiquidity` by the
     ///         owner, and the hook used to have exactly one — the initial add.
     ///
@@ -1751,11 +1744,10 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         remove callbacks, so nothing of ours re-enters.
     ///
     ///         The destinations are fixed and the caller chooses nothing, which is
-    ///         why nobody needs to be trusted to call it: the quote leg goes to
-    ///         `projectAdmin` (the Circuit vault) beside the shelf revenue, the
-    ///         token leg is burned.  `CircuitNFT` calls it (try/catch) on every
-    ///         transfer, so fees earned up to a sale land in the seller's vault
-    ///         rather than the buyer's; between transfers anyone may call it.
+    ///         why nobody needs to be trusted to call it: v3 sends the quote leg
+    ///         to `platformFeeRecipient` and burns the token leg.  `CircuitNFT`
+    ///         still calls it (try/catch) on every transfer, which now only
+    ///         sweeps the platform's fees early; anyone may call it.
     ///
     ///         No `nonReentrant`: it writes no storage of ours, and the Vault
     ///         refuses a second `lock` while this one is open.
@@ -2045,16 +2037,16 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// ── The rule ────────────────────────────────────────────────────────────
     ///
-    ///     BUY  (ETH → token) : 0.7 % of the ETH input  → ToshLadderTreasury
-    ///                        + 0.3 % of the ETH input  → platformFeeRecipient
-    ///     SELL (token → ETH) : 1.0 % of the token input → 0xdead
+    ///     BUY  (quote → token) : 0.6 % of the quote input → projectAdmin
+    ///                          + 0.4 % of the quote input → ToshLadderTreasury
+    ///     SELL (token → quote) : 1.0 % of the token input → 0xdead
     ///
-    ///   Stacked on the 0.3 % native pool fee this is a 1.30 % total toll.
+    ///   Stacked on the 0.2 % native pool fee this is a 1.20 % total toll.
     ///   The pool fee accrues to LPs via V4; this tax is the protocol's cut.
     ///
     ///   The asymmetry in the rule above is the split, not the rate: both legs
     ///   charge the same 1.0 %.  Only the buy leg divides it, because only the
-    ///   buy leg's input is ETH — see `PLATFORM_SWAP_FEE_BPS`.
+    ///   buy leg's input is the quote asset — see `PROJECT_SWAP_TAX_BPS`.
     ///
     /// ── Why two callbacks ───────────────────────────────────────────────────
     ///
@@ -2226,11 +2218,11 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         return (ICLHooks.afterSwap.selector, hookUnspecified);
     }
 
-    /// @dev Route `tax` of the input asset: ETH (a buy) splits between the
-    ///      reservoir and the platform; tokens (a sell) all go to the fire.
+    /// @dev Route `tax` of the input asset: quote (a buy) splits between the
+    ///      project and the reservoir; tokens (a sell) all go to the fire.
     ///
     ///      `input` is the gross input the rate was applied to, passed in so
-    ///      the platform's share is computed from the SAME base as `tax`
+    ///      the project's share is computed from the SAME base as `tax`
     ///      rather than as a percentage of a percentage.
     ///
     ///      ── The conservation requirement ────────────────────────────────
@@ -2242,51 +2234,44 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      never credited.  Either way it is not a rounding blemish, it is a
     ///      pool that cannot be traded.
     ///
-    ///      Which is why the reservoir's share is `tax - platformCut` and not
+    ///      Which is why the reservoir's share is `tax - projectCut` and not
     ///      its own multiplication.  Two independent floor divisions of the
     ///      same base do not have to sum back to a third:
     ///
     ///          input = 110 wei
     ///          tax          = 110 · 100 / 10_000 = 1   (floor of 1.1)
-    ///          platformCut  = 110 ·  30 / 10_000 = 0   (floor of 0.33)
-    ///          70 bps direct= 110 ·  70 / 10_000 = 0   (floor of 0.77)
+    ///          projectCut   = 110 ·  60 / 10_000 = 0   (floor of 0.66)
+    ///          40 bps direct= 110 ·  40 / 10_000 = 0   (floor of 0.44)
     ///
     ///      so the naive pair would settle 0 against a credit of 1.  By
     ///      subtraction the reservoir takes 1, and the wei that rounding
     ///      would have dropped lands in the reservoir rather than nowhere.
     ///      The bias is deliberate and one-directional: dust favours the
-    ///      buyback, never the platform.
+    ///      buyback, never the project.
     ///
-    ///      The subtraction cannot underflow.  `floor(a·30/d) ≤ floor(a·100/d)`
+    ///      The subtraction cannot underflow.  `floor(a·60/d) ≤ floor(a·100/d)`
     ///      holds for every non-negative `a` because the numerator is strictly
-    ///      smaller, so `platformCut ≤ tax` always.
+    ///      smaller, so `projectCut ≤ tax` always.  Either share can floor to
+    ///      zero on a dust input (at 167 wei both round to 1), so both are
+    ///      guarded.
     function _skimInputTax(PoolKey calldata key, bool nativeIsInput, uint256 input, uint256 tax) internal {
         if (!nativeIsInput) {
-            // Sell leg: not split. The platform takes no share of a project's
-            // own token — see `PLATFORM_SWAP_FEE_BPS`.
+            // Sell leg: not split — see `PROJECT_SWAP_TAX_BPS`.
             vault.take(key.currency1, DEAD_ADDRESS, tax);
             emit SellTaxBurned(tax);
             return;
         }
 
-        uint256 platformCut = (input * PLATFORM_SWAP_FEE_BPS) / BPS_DENOMINATOR;
-        uint256 reservoirCut = tax - platformCut;
+        uint256 projectCut = (input * PROJECT_SWAP_TAX_BPS) / BPS_DENOMINATOR;
+        uint256 reservoirCut = tax - projectCut;
 
-        // `reservoirCut` needs no zero guard, in two cases. Below 334 wei of
-        // input `platformCut` floors to 0, so `reservoirCut == tax`, which the
-        // caller already established is non-zero. At or above 334 wei
-        // `tax >= 3` and `platformCut < 0.4 * tax`, so the difference is at
-        // least 2. Either way it is positive.
-        //
-        // `platformCut` does need the guard — it is 0 for that entire first
-        // case, and a zero-value `take` would spend gas and emit a fee event
-        // reporting nothing.
-        vault.take(key.currency0, ladderTreasury, reservoirCut);
-        emit BuyTaxToTreasury(reservoirCut);
-
-        if (platformCut > 0) {
-            vault.take(key.currency0, platformFeeRecipient, platformCut);
-            emit PlatformSwapFeePaid(platformFeeRecipient, platformCut);
+        if (reservoirCut > 0) {
+            vault.take(key.currency0, ladderTreasury, reservoirCut);
+            emit BuyTaxToTreasury(reservoirCut);
+        }
+        if (projectCut > 0) {
+            vault.take(key.currency0, projectAdmin, projectCut);
+            emit ProjectSwapTaxPaid(projectAdmin, projectCut);
         }
     }
 
@@ -2543,7 +2528,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      settlement.
     ///
     ///      No event of its own: the two `take`s are Transfers out of the Vault
-    ///      to `projectAdmin` and 0xdead.  The hook has no bytecode to spare —
+    ///      to `platformFeeRecipient` and 0xdead.  The hook has no bytecode to spare —
     ///      see the constructor.
     function _collectGenesisFees() internal {
         PoolKey memory key = _key();
@@ -2557,7 +2542,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 
         uint256 quoteFees = uint256(uint128(delta.amount0()));
         uint256 tokenFees = uint256(uint128(delta.amount1()));
-        if (quoteFees > 0) vault.take(key.currency0, projectAdmin, quoteFees);
+        if (quoteFees > 0) vault.take(key.currency0, platformFeeRecipient, quoteFees);
         if (tokenFees > 0) vault.take(key.currency1, DEAD_ADDRESS, tokenFees);
     }
 

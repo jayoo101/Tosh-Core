@@ -82,35 +82,47 @@ contract PostLaunchTestV3 is V2BaseV3 {
 
     // ─── swap tax ─────────────────────────────────────────────────────────────
 
-    function test_buyTax_exactInput_splitsSevenToThree() public {
+    function test_buyTax_exactInput_splitsSixToFour() public {
         uint256 input = 1e18;
         uint256 resBefore = ladder.reservoir();
+        uint256 projBefore = quote.balanceOf(hook.projectAdmin());
         uint256 platBefore = quote.balanceOf(platform);
         _swapBuy(hook, trader, input);
         uint256 tax = input * hook.TAX_BPS() / 10_000;
-        uint256 platformCut = input * hook.PLATFORM_SWAP_FEE_BPS() / 10_000;
-        assertEq(quote.balanceOf(platform) - platBefore, platformCut, "0.3 % to the platform");
-        assertEq(ladder.reservoir() - resBefore, tax - platformCut, "0.7 % to the reservoir");
+        uint256 projectCut = input * hook.PROJECT_SWAP_TAX_BPS() / 10_000;
+        assertEq(quote.balanceOf(hook.projectAdmin()) - projBefore, projectCut, "0.6 % to the project");
+        assertEq(ladder.reservoir() - resBefore, tax - projectCut, "0.4 % to the reservoir");
+        assertEq(quote.balanceOf(platform), platBefore, "the platform takes no share of the swap tax");
+    }
+
+    /// @dev At 167 wei the 1 % and the 0.6 % both floor to 1, so the project
+    ///      takes the whole tax and the reservoir's zero share is skipped.
+    function test_buyTax_dust_projectShareCanBeTheWholeTax() public {
+        uint256 resBefore = ladder.reservoir();
+        uint256 projBefore = quote.balanceOf(hook.projectAdmin());
+        _swapBuy(hook, trader, 167);
+        assertEq(quote.balanceOf(hook.projectAdmin()) - projBefore, 1);
+        assertEq(ladder.reservoir(), resBefore);
     }
 
     function test_sellTax_exactInput_burnsOnePercent() public {
         uint256 sell = 1_000e18;
         uint256 deadBefore = token.balanceOf(DEAD);
-        uint256 platBefore = quote.balanceOf(platform);
+        uint256 projBefore = quote.balanceOf(hook.projectAdmin());
         _swapSell(hook, alice, sell);
         assertEq(token.balanceOf(DEAD) - deadBefore, sell / 100, "1 % of the token input burned");
-        assertEq(quote.balanceOf(platform), platBefore, "the platform takes no share of a sell");
+        assertEq(quote.balanceOf(hook.projectAdmin()), projBefore, "the project takes no share of a sell");
     }
 
     function test_buyTax_exactOutput_chargesTheInputNotTheOutput() public {
         uint256 resBefore = ladder.reservoir();
-        uint256 platBefore = quote.balanceOf(platform);
+        uint256 projBefore = quote.balanceOf(hook.projectAdmin());
         uint256 qBefore = quote.balanceOf(trader);
         uint256 deadBefore = token.balanceOf(DEAD);
         _swapExactOut(hook, trader, true, 10_000e18);
         assertEq(token.balanceOf(trader), 10_000e18, "exact output delivered");
         uint256 paid = qBefore - quote.balanceOf(trader);
-        uint256 taxed = (ladder.reservoir() - resBefore) + (quote.balanceOf(platform) - platBefore);
+        uint256 taxed = (ladder.reservoir() - resBefore) + (quote.balanceOf(hook.projectAdmin()) - projBefore);
         assertGt(taxed, 0, "input taxed");
         assertApproxEqRel(taxed, (paid - taxed) / 100, 1e15, "1 % of the pool input");
         assertEq(token.balanceOf(DEAD), deadBefore, "no tokens burned on a buy");
@@ -210,7 +222,10 @@ contract PostLaunchTestV3 is V2BaseV3 {
         uint256 resGain = ladder.reservoir() - resBefore;
         assertGe(resGain, platformCut);
         assertLt(resGain, platformCut + lpCut / 100);
-        assertEq(quote.balanceOf(hook.projectAdmin()) - vaultBefore, cost - platformCut - lpCut);
+        // On top of the 19 %, the project's share of the tax on autoLp's buy.
+        uint256 projGain = quote.balanceOf(hook.projectAdmin()) - vaultBefore;
+        assertGe(projGain, cost - platformCut - lpCut);
+        assertLt(projGain, cost - platformCut - lpCut + lpCut / 100);
         assertEq(
             autoLp.pendingQuote(address(hook)) + autoLp.totalQuoteAdded(address(hook)), lpCut, "80 % reached autoLp"
         );
@@ -508,15 +523,17 @@ contract PostLaunchTestV3 is V2BaseV3 {
 
     // ─── genesis LP fees and the Circuit vault ────────────────────────────────
 
-    function test_genesisFees_quoteToTheVault_tokensToTheFire() public {
+    function test_genesisFees_quoteToThePlatform_tokensToTheFire() public {
         _swapBuy(hook, trader, 2e18);
         _nextBlock();
         _swapSell(hook, alice, 50_000e18);
         address rv = hook.projectAdmin();
-        uint256 qBefore = quote.balanceOf(rv);
+        uint256 rvBefore = quote.balanceOf(rv);
+        uint256 qBefore = quote.balanceOf(platform);
         uint256 deadBefore = token.balanceOf(DEAD);
         hook.collectGenesisFees();
-        assertGt(quote.balanceOf(rv), qBefore, "0.3 % pool fee on buys");
+        assertGt(quote.balanceOf(platform), qBefore, "0.2 % pool fee on buys");
+        assertEq(quote.balanceOf(rv), rvBefore, "none of it to the project");
         assertGt(token.balanceOf(DEAD), deadBefore, "token-side fees burned");
     }
 

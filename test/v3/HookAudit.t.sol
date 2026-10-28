@@ -202,7 +202,7 @@ contract HookAuditTestV3 is V2BaseV3 {
 
         uint256 q0 = quote.balanceOf(trader);
         uint256 res0 = quote.balanceOf(address(ladder));
-        uint256 plat0 = quote.balanceOf(platform);
+        uint256 proj0 = quote.balanceOf(hook.projectAdmin());
         vm.prank(trader);
         router.swap(
             key,
@@ -211,7 +211,7 @@ contract HookAuditTestV3 is V2BaseV3 {
             ""
         );
         uint256 paid = q0 - quote.balanceOf(trader);
-        uint256 taxed = (quote.balanceOf(address(ladder)) - res0) + (quote.balanceOf(platform) - plat0);
+        uint256 taxed = (quote.balanceOf(address(ladder)) - res0) + (quote.balanceOf(hook.projectAdmin()) - proj0);
         uint256 filled = paid - taxed;
         console2.log("quote paid", paid);
         console2.log("tax charged", taxed);
