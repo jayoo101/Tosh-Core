@@ -1228,7 +1228,6 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         or globally.  Trading, LP, genesis claims, referral claims and
     ///         refunds are all unaffected, and the halt lapses on its own.
     ///         See `ToshFactoryV3.haltLadderMinting`.
-    error LadderMintingHalted();
 
     /// @notice The active shelf costs more than `min(spot, TWAP)`.
     ///         The secondary market has to catch up before this shelf unlocks.
@@ -1821,15 +1820,6 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         if (!launched) revert NotLaunched();
         if (tokenAmount == 0) revert ZeroAmount();
 
-        // ── Guard 0: platform ladder halt ─────────────────────────────────────
-        // The only platform brake that reaches a launched project, and it
-        // reaches nothing else here: swaps, LP, `claimGenesis`,
-        // `claimReferralReward` and `refund` all stay open, so a halt can cost a
-        // buyer an opportunity but never a balance.  It also expires on its own
-        // (`MAX_HALT_DURATION`), which is what keeps it a break-glass brake
-        // rather than a permanent veto.  See `ToshFactoryV3.haltLadderMinting`.
-        if (IToshFactoryHaltV3(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
-
         // ── Guard 1: same-block lockout ───────────────────────────────────────
         if (_priceMovedThisBlock()) revert SameBlockMintForbidden();
 
@@ -1907,6 +1897,16 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         });
 
         // INTERACTIONS
+        //
+        // Platform halt and the per-Agent-ID allowance both live in the
+        // factory: it reverts if shelf minting is halted on this project (the
+        // one platform brake that reaches a launched project, and one that
+        // lapses on its own), if the buyer has no Agent ID, or if `cost` would
+        // take the ID past its allowance on this project; otherwise it books
+        // `cost`. Here because the allowance is in quote and `cost` is only
+        // known after the loop. Swaps, LP and claims never reach it.
+        IToshFactoryHaltV3(factory).bookShelfMint(msg.sender, cost);
+
         // Pipe 4 of the treasury's funding matrix: the platform's 1 % cut of
         // every shelf mint is buyback fuel, not platform profit.
         uint256 platformCut = (cost * PLATFORM_TAX_BPS) / BPS_DENOMINATOR;
@@ -2877,6 +2877,7 @@ interface IToshLadderTreasuryV3 {
 interface IToshFactoryHaltV3 {
     function ladderMintingHalted(address hook) external view returns (bool);
     function genesisBlocked(address hook, address user) external view returns (bool);
+    function bookShelfMint(address buyer, uint256 cost) external;
 }
 
 /// @dev The one ArbSys method this contract needs.  Declared locally rather than

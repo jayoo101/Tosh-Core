@@ -67,6 +67,7 @@ contract HookAuditTestV3 is V2BaseV3 {
     ///      cycle loses money.
     function test_H1_controllerSelfFundedCycles_loseMoney() public {
         _launched();
+        registry.setHandle(dev, "dev");
         CircuitRevenueVault rv = CircuitRevenueVault(hook.projectAdmin());
         uint256 q0 = quote.balanceOf(dev);
         uint256 poolQ0 = quote.balanceOf(address(vault));

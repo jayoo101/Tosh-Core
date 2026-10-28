@@ -227,7 +227,7 @@ contract AutoLpTestV3 is V2BaseV3 {
 
     function test_manyShelfMints_booksStayExact() public {
         _openLadder();
-        address[3] memory buyers = [bob, carol, dave];
+        address[3] memory buyers = [bob, carol, alice];
         uint256 lpTotal;
         for (uint256 i; i < 12; ++i) {
             if (hook.maxMintable() == 0) {

@@ -75,7 +75,8 @@ contract FactoryV2TestV3 is V2BaseV3 {
                 minHardCap: 1e18,
                 maxHardCap: 10_000e18,
                 minAgentCap: MIN_BUY,
-                maxAgentCap: 1_000e18
+                maxAgentCap: 1_000e18,
+                shelfCapPerAgent: SHELF_CAP
             })
         );
         vm.stopPrank();

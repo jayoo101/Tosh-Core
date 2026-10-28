@@ -160,12 +160,16 @@ v2 的源码保持不动（改动会破坏已部署字节码的验证），v3 �
 - 已知代价：项目方自买时交 1% 拿回 0.6%，刷买单的净成本约 0.4%。
 - 合约：`PROJECT_SWAP_TAX_BPS = 60`（替换 `PLATFORM_SWAP_FEE_BPS`），`POOL_FEE = 2000`，事件 `ProjectSwapTaxPaid`。hook 24,551 字节，余 25 字节。
 
-## 9. 货架阶梯的 Agent ID 门槛（已定，单独 PR）
+## 9. 货架阶梯的 Agent ID 门槛（已实现）
 
 - 货架铸造需要 Agent ID；创世阶段的额度不沿用，进入货架阶段后每个 ID 重新计算。
-- 每个 ID 在整个货架阶段的总额度：USDT 市场 500U；BNB 市场为 factory 上的固定 BNB 数额，由 Safe 调整，不接喂价。
+- 额度按项目分开：同一个 ID 在每个项目的货架上各有一份，整个货架阶段累计计算，不按天重置。
+- 初始额度：USDT 市场 500 USDT，BNB 市场 0.7 BNB。数额写在各自的 factory 上（`shelfCapPerAgent`），由 Safe 通过 `setShelfCapPerAgent` 调整，不接喂价；调整后对所有项目立即生效，调低到已用额度以下的 ID 就不能再铸。
+- 记账在 factory：hook 的 `mintBondingCurve` 算出 cost 后调用 `factory.bookShelfMint(buyer, cost)`。factory 依次检查：货架是否暂停（`LadderHalted`）、买家有没有 ID（`NoAgentId`）、加上这笔是否超额（`ShelfCapExceeded`），通过后记账。超额整笔回退，不做部分成交。
+- 已用额度取“这个 ID 已用”和“这个钱包已用”中较大的一个，两边同时记账：换新 ID 或把 ID 转给别的钱包，都不会多出一份额度。
+- 查询：`shelfRemaining(hook, account)` 返回还能花多少，没有 ID 返回 0；`shelfSpentByAgent`、`shelfSpentByWallet` 可查已用。
 - **市场价上限保留**。上限挡的是高于市价的铸造，只有拿返还的一方（项目方，v3 下 19%）会这样做：去掉上限后，货架价不超过市价约 22% 时铸了就砸就有利可图，而项目方可以自备多个 ID，限额挡不住。Agent ID 和限额解决的是巨鲸囤货架和套利集中，两者互补。
-- hook 只剩 49 字节，额度记账要放在 hook 之外。
+- 额度记账放在 hook 之外（factory），hook 现在 24,562 字节，离上限还有 14 字节。
 
 ## 10. 下一步
 

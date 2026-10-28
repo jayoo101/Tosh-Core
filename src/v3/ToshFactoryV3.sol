@@ -12,6 +12,7 @@ import {ToshLaunchpadHookV3} from "./ToshLaunchpadHookV3.sol";
 import {HookAddress} from "../libraries/HookAddress.sol";
 import {ToshCloneLib} from "../libraries/ToshCloneLib.sol";
 import {CircuitNFT} from "../CircuitNFT.sol";
+import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 
 /// @title  ToshFactoryV3 (ToshX v2)
 /// @notice Platform singleton for ONE quote asset: deploys launches and holds
@@ -117,6 +118,21 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
 
     LaunchInfo[] public launches;
     mapping(address => bool) public registeredHooks;
+
+    /// @notice Most quote one Agent ID may spend on one project's shelves,
+    ///         over the whole ladder. The owner can change it, and a change
+    ///         applies to every project at once.
+    uint256 public shelfCapPerAgent;
+
+    /// @notice Quote spent on `hook`'s shelves per Agent ID, keyed like the
+    ///         genesis allowance by `keccak256(handle)`. Separate from genesis:
+    ///         the ladder starts every ID from zero.
+    mapping(address hook => mapping(bytes32 agentKey => uint256)) public shelfSpentByAgent;
+
+    /// @notice Quote spent on `hook`'s shelves per wallet. The allowance is
+    ///         booked against the larger of this and `shelfSpentByAgent`, so
+    ///         moving to another ID does not start a fresh one.
+    mapping(address hook => mapping(address wallet => uint256)) public shelfSpentByWallet;
     mapping(address => address) public tokenToHook;
     mapping(bytes32 => bool) public nameTaken;
     mapping(address => bytes32) public hookNameKey;
@@ -144,6 +160,8 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     event LadderMintingResumed(address indexed hook);
     event HardCapBoundsSet(uint256 min, uint256 max);
     event AgentCapBoundsSet(uint256 min, uint256 max);
+    event ShelfCapSet(uint256 cap);
+    event ShelfMintBooked(address indexed hook, bytes32 indexed agentKey, address indexed buyer, uint256 cost);
 
     // ─── Errors ───────────────────────────────────────────────────────────────
 
@@ -162,6 +180,10 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     error HaltDurationTooLong();
     error ImplementationMismatch();
     error OnlyCircuit();
+    error InvalidShelfCap();
+    error LadderHalted();
+    error NoAgentId();
+    error ShelfCapExceeded();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -180,6 +202,7 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 maxHardCap;
         uint256 minAgentCap;
         uint256 maxAgentCap;
+        uint256 shelfCapPerAgent;
     }
 
     /// @dev The hook implementation is too large to embed here, so it is
@@ -204,6 +227,7 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
 
         _setHardCapBounds(c.minHardCap, c.maxHardCap);
         _setAgentCapBounds(c.minAgentCap, c.maxAgentCap);
+        _setShelfCapPerAgent(c.shelfCapPerAgent);
 
         ToshLaunchpadHookV3 impl = ToshLaunchpadHookV3(payable(c.hookImplementation));
         if (
@@ -248,6 +272,16 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
 
     function setAgentCapBounds(uint256 min_, uint256 max_) external onlyOwner {
         _setAgentCapBounds(min_, max_);
+    }
+
+    function setShelfCapPerAgent(uint256 cap) external onlyOwner {
+        _setShelfCapPerAgent(cap);
+    }
+
+    function _setShelfCapPerAgent(uint256 cap) private {
+        if (cap < minBuy || cap > ABS_MAX_CAP) revert InvalidShelfCap();
+        shelfCapPerAgent = cap;
+        emit ShelfCapSet(cap);
     }
 
     function _setHardCapBounds(uint256 min_, uint256 max_) private {
@@ -325,8 +359,42 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
         emit LadderMintingResumed(hook);
     }
 
-    function ladderMintingHalted(address hook) external view returns (bool) {
+    function ladderMintingHalted(address hook) public view returns (bool) {
         return block.timestamp < globalLadderHaltedUntil || block.timestamp < hookLadderHaltedUntil[hook];
+    }
+
+    // ─── Shelf allowance ──────────────────────────────────────────────────────
+
+    /// @notice Called by a hook's `mintBondingCurve` once it knows what the
+    ///         mint costs. Reverts if minting is halted on that hook, if
+    ///         `buyer` has no Agent ID, or if `cost` would take the ID past
+    ///         `shelfCapPerAgent` on that hook; otherwise books it.
+    function bookShelfMint(address buyer, uint256 cost) external {
+        if (!registeredHooks[msg.sender]) revert HookNotRegistered();
+        if (ladderMintingHalted(msg.sender)) revert LadderHalted();
+        bytes32 key = AgentIdLib.agentKeyOf(agentRegistry, buyer);
+        if (key == bytes32(0)) revert NoAgentId();
+        uint256 total = _shelfSpent(msg.sender, key, buyer) + cost;
+        if (total > shelfCapPerAgent) revert ShelfCapExceeded();
+        shelfSpentByAgent[msg.sender][key] = total;
+        shelfSpentByWallet[msg.sender][buyer] = total;
+        emit ShelfMintBooked(msg.sender, key, buyer, cost);
+    }
+
+    /// @notice Quote `account` may still spend on `hook`'s shelves; zero
+    ///         without an Agent ID.
+    function shelfRemaining(address hook, address account) external view returns (uint256) {
+        bytes32 key = AgentIdLib.agentKeyOf(agentRegistry, account);
+        if (key == bytes32(0)) return 0;
+        uint256 spent = _shelfSpent(hook, key, account);
+        uint256 cap = shelfCapPerAgent;
+        return spent >= cap ? 0 : cap - spent;
+    }
+
+    function _shelfSpent(address hook, bytes32 key, address wallet) private view returns (uint256) {
+        uint256 byAgent = shelfSpentByAgent[hook][key];
+        uint256 byWallet = shelfSpentByWallet[hook][wallet];
+        return byWallet > byAgent ? byWallet : byAgent;
     }
 
     // ══════════════════════════════════════════════════════════════════════════

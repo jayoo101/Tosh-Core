@@ -4,26 +4,26 @@
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-28",
   "sourceUnits": 19,
-  "sloc": 3987,
+  "sloc": 4032,
   "detectorsRun": 88,
-  "total": 263,
+  "total": 264,
   "byImpact": {
-    "High": 52,
-    "Low": 211
+    "High": 51,
+    "Low": 213
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 3,
-    "centralization-risk": 33,
+    "centralization-risk": 34,
     "costly-loop": 6,
     "internal-function-used-once": 2,
     "large-numeric-literal": 15,
     "literal-instead-of-constant": 23,
-    "local-variable-shadowing": 29,
+    "local-variable-shadowing": 30,
     "missing-inheritance": 2,
     "modifier-used-only-once": 8,
     "non-reentrant-not-first": 8,
     "push-zero-opcode": 19,
-    "reentrancy-state-change": 47,
+    "reentrancy-state-change": 46,
     "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 1,
     "unchecked-return": 12,
@@ -286,6 +286,13 @@
       "check": "centralization-risk",
       "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setShelfCapPerAgent",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3.unpause",
       "count": 1
     },
@@ -539,7 +546,7 @@
       "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3",
-      "count": 14
+      "count": 15
     },
     {
       "check": "missing-inheritance",
@@ -932,13 +939,6 @@
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.launch",
       "count": 4
-    },
-    {
-      "check": "reentrancy-state-change",
-      "impact": "High",
-      "file": "src/v3/ToshLaunchpadHookV3.sol",
-      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
-      "count": 1
     },
     {
       "check": "require-revert-in-loop",
