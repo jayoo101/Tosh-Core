@@ -264,7 +264,9 @@ jobs:
           # (195) plus V3Params (4).
           # 411 -> 428: test/v3/AutoLp (17).
           # 428 -> 429: the v3 buy-tax dust case.
-          floor=440
+          # 429 -> 440: test/v3/ShelfGate (11).
+          # 440 -> 443: DeployV3 (1) and ForkV3Bsc (2; return early without BSC_RPC).
+          floor=443
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
@@ -383,12 +385,20 @@ jobs:
           # fails on any unexpected file, and a log dropped in the repo root
           # would trip it.
           log="$RUNNER_TEMP/fork-test.log"
-          forge test --match-contract 'ForkV2BscTest|ToshV5ForkInfinityTest' -vvv | tee "$log"
+          forge test --match-contract 'ForkV2BscTest|ForkV3BscTest|ToshV5ForkInfinityTest' -vvv | tee "$log"
 
           if grep -q 'No tests found' "$log"; then
-            echo "::error::--match-contract matched no fork contract. ForkV2BscTest or ToshV5ForkInfinityTest was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
+            echo "::error::--match-contract matched no fork contract. ForkV2BscTest, ForkV3BscTest or ToshV5ForkInfinityTest was renamed or removed, and forge exits 0 on that, so this step would otherwise pass having run no tests."
             exit 1
           fi
+          # One pattern matching three contracts still finds tests when one of
+          # them is gone, so each has to be named in the log.
+          for c in ForkV2BscTest ForkV3BscTest ToshV5ForkInfinityTest; do
+            if ! grep -q ":$c" "$log"; then
+              echo "::error::$c did not run. It was renamed or removed; update --match-contract and this list together."
+              exit 1
+            fi
+          done
           if ! grep -qE '[1-9][0-9]* (tests? )?passed' "$log"; then
             echo "::error::The fork suites ran but nothing passed. With BSC_RPC set this usually means setUp() could not reach the endpoint, so it never forked and every test skipped. Check that the value names chain 56 and not 97."
             exit 1
