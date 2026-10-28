@@ -1,12 +1,12 @@
 /**
  * Bearer-credential checking for the admin routes.
  *
- * Lifted out of `api/admin/config/route.ts`, which is where both of these were
- * written and where the reasoning below was learned. It moved rather than being
- * copied because `api/admin/featured/route.ts` needs the same check, and a
- * second copy of `looksLikeARealSecret` is a second place for the weak-secret
- * refusal to be quietly dropped by someone who did not know it was load
- * bearing. It is load bearing — see below.
+ * Lifted out of v1's `api/admin/config/route.ts`, since removed, which is where
+ * both of these were written and where the reasoning below was learned. It
+ * lives here rather than inside `api/admin/featured/route.ts` because a second
+ * copy of `looksLikeARealSecret` is a second place for the weak-secret refusal
+ * to be quietly dropped by someone who did not know it was load bearing. It is
+ * load bearing — see below.
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'

@@ -9,23 +9,21 @@
  * because `_buybackSqrtFloor` treats a zero reading as "no reference, fill
  * unbounded" and a token listed inside its first `TWAP_WINDOW` therefore has no
  * anti-sandwich bound on its buyback legs, on the pool whose liquidity is
- * thinnest.  Measured at 0.93 ETH of a 3.33 ETH leg, repeatable per block.
+ * thinnest.  Measured on v1 at 0.93 ETH of a 3.33 ETH leg, repeatable per block.
  *
  * The audit's own verdict on that trade is that it "is exactly as strong as the
  * runbook and the alert pipeline".  This script is the part of that sentence
- * that was missing.  The rule was written in three places and checked in none
- * of them before the signature; `STATE-07` catches a violation AFTER the fact,
- * hourly, which is recovery rather than prevention.
+ * that was missing: the rule was written down in several places and checked in
+ * none of them before the signature.
  *
- * Since 2026-09-11 `addLadderToken` enforces the rule itself, and since the
- * 2026-09-12 deployment the live treasury is one that carries the gate — the
- * platform WAS replaced, for an unrelated reason, and this arrived with it.
- * So the exposure above is now held shut by the contract rather than by the
- * signer reading this output.
+ * Since 2026-09-11 `addLadderToken` enforces the rule itself, and both v2
+ * treasuries are built from source that carries the gate, so the exposure
+ * above is held shut by the contract rather than by the signer reading this
+ * output.
  *
  * That does not retire the script.  The gate fires ONCE, at listing, while
  * `_buybackSqrtFloor` runs on every leg thereafter, and a premature listing is
- * still the one owner call that decides where reservoir ETH gets spent.  What
+ * still the one owner call that decides where reservoir funds get spent.  What
  * it does change is the claim this script is entitled to make about itself: it
  * is a second control now, not the only one, and on a treasury it cannot prove
  * is gated it must say so rather than guess.
@@ -154,7 +152,7 @@ try {
       problems.push(`the factory at ${factoryAddr} does not know this token, so it was not `
         + 'launched on this platform and `addLadderToken` would revert `TokenNotLaunchedHere`. '
         + 'Check the address you were given before anything else: a listing is the one owner '
-        + 'call that decides where reservoir ETH gets spent.')
+        + 'call that decides where reservoir funds get spent.')
     } else {
       hook = new ethers.Contract(h, HOOK_ABI, provider)
       console.log(`hook     ${h}`)

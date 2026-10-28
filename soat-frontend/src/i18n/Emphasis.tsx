@@ -7,24 +7,22 @@ import { fill } from './fill'
  *
  * Because it is the only place that can. The emphasis in
  *
- *     The floor is measured against gas this address has <span>already spent</span>
+ *     Bids can be cancelled <span>for a full refund</span> any time before launch.
  *
- * lands on the verb, and the verb is at the end of the clause in English and in
- * front of the noun in Chinese. Leaving the `<span>` in the JSX pins it to an
- * English word order and there is no correct translation of the three fragments
- * it creates — a translator handed "The floor is measured against gas this
- * address has", "already spent" and ", across {chains}, so it only moves as that
- * history grows." separately cannot produce a Chinese sentence out of them.
+ * lands mid-clause in English and at the end of the sentence in Chinese.
+ * Leaving the `<span>` in the JSX pins it to an English word order and there is
+ * no correct translation of the three fragments it creates — a translator handed
+ * "Bids can be cancelled", "for a full refund" and " any time before launch."
+ * separately cannot produce a Chinese sentence out of them.
  *
  * So the sentence stays whole and carries its own emphasis:
  *
- *     'The floor is measured against gas this address has *already spent*, …'
+ *     'Bids can be cancelled *for a full refund* any time before launch.'
  *
  * and every locale puts the stars where its own grammar wants them. The
  * alternative was dropping the highlight, which reads the same to a snapshot and
- * worse to a person: that phrase is the one word in the paragraph that answers
- * "so what do I do", and the paragraph exists because the previous version of
- * this screen sent people off to wait for something that was never coming.
+ * worse to a person: the emphasised phrase is the one a reader came to the
+ * paragraph for.
  *
  * ⚠ ODD STARS ARE A TRANSLATION BUG, not a render-time one. An unpaired `*`
  *   leaves its tail unemphasised rather than throwing, because a missing

@@ -10,12 +10,12 @@
  * NON-OBVIOUS CONSTRAINT — `busy` and `disabledLabel` are mutually exclusive
  * in the type, because they were mutually exclusive in behaviour and the
  * hand-rolled versions kept getting it wrong: a busy button that also swaps in
- * `[quota_exceeded]` tells the user the transaction they just signed is
+ * `[sold_out]` tells the user the transaction they just signed is
  * invalid.  Busy always wins and always says so.
  *
  * REPLACES: `WriteButton` in admin/page.tsx, `WriteButton` in
  * ProjectTerminal.tsx, the `tosh-nuke-btn` CTA in launch/page.tsx, and the
- * bespoke `[ CLAIM_TOKENS ]` / `Withdraw` buttons in UserDrawer.tsx.
+ * bespoke buttons in UserDrawer.tsx.
  *
  * For any button whose enabled state depends on wallet, network or on-chain
  * preconditions, do not reach for this directly — use <ActionButton/>, which
@@ -33,7 +33,7 @@ type ButtonStateProps =
   | {
       busy?: false
       busyLabel?: never
-      /** Shown instead of `label` while `disabled`, e.g. `[cooldown 00:12:31]`. */
+      /** Shown instead of `label` while `disabled`, e.g. `[genesis_closed]`. */
       disabledLabel?: ReactNode
     }
   | {

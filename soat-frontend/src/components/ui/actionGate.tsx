@@ -66,7 +66,7 @@ export interface ActionBlocker {
   /**
    * Button label while this blocker binds, e.g. `Wallet blocked`.
    *
-   * On the public panels this is a short phrase a depositor can act on. The
+   * On the public panels this is a short phrase a buyer can act on. The
    * `[snake_case_code]` form these all started as belongs to `/admin`, where
    * the reader is an operator who wants the identifier — out here it made the
    * button face read like a stack trace.

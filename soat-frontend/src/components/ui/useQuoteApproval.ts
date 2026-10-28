@@ -11,7 +11,7 @@
  * It did not, until the quote asset stopped being the native coin. A deposit used
  * to carry its own funding — `value: amountWei` and the money arrived with the
  * call, so there was nothing to authorise and no state between the user and the
- * button. An ERC-20 quote asset is PULLED: the factory and the per-project hooks
+ * button. An ERC-20 quote asset is PULLED: the per-project hooks and the BidBook
  * call `transferFrom`, which means every one of those actions is now two
  * transactions and can fail in a new way that has nothing to do with the protocol.
  *
@@ -23,13 +23,12 @@
  * than three.
  *
  * NON-OBVIOUS CONSTRAINTS
- *   • EXACT AMOUNTS, NOT `type(uint256).max`. The spenders are the factory and
+ *   • EXACT AMOUNTS, NOT `type(uint256).max`. The spenders are the BidBook and
  *     per-project hook clones, and while a clone's code is fixed by the
  *     implementation it points at, an unlimited allowance is still a standing
- *     claim on the user's entire balance held by a contract some stranger
- *     deployed. The cost of exactness is real and worth naming: every deposit and
- *     every shelf mint is two transactions, forever, not two the first time and
- *     one thereafter.
+ *     claim on the user's entire balance. The cost of exactness is real and worth
+ *     naming: every GENESIS buy, bid and shelf mint in an ERC-20 quote is two
+ *     transactions, forever, not two the first time and one thereafter.
  *   • A residue is normal, and is not a bug. `mintBondingCurve` is approved for
  *     its `maxCost` bound and charges the true cost, so a few base units of
  *     allowance usually survive the call. The next approve therefore overwrites a

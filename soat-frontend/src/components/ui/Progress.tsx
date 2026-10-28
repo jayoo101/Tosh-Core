@@ -6,7 +6,7 @@
  * One job: show a percentage, with a caption on either side of the track.
  *
  * NON-OBVIOUS CONSTRAINT — `pct` is a percentage (0–100), not a fraction, and
- * it is clamped here.  Genesis raises routinely overshoot their soft cap, so
+ * it is clamped here.  v1 raises routinely overshot their soft cap, so
  * every caller was clamping by hand and one of them forgot; a 140 % bar that
  * runs past its own container is a rendering bug, not a data point.  Show the
  * overshoot in `caption`, not in the track.

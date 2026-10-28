@@ -112,23 +112,14 @@ const LABEL_SOURCE = 'src/lib/chain.ts'
  * The fix is `NATIVE_SYMBOL` in `chain.ts`, derived from the chain. This makes
  * bypassing it a build failure.
  *
- * THE EXCEPTION IS NOT A LOOPHOLE, it is the design. Proof-of-Gas measures gas
- * burned on ETH-settled chains, and that figure stays in ETH on purpose — a
- * ×3.5 rescale would have raised the eligibility bar while looking like a
- * rename. So the PoG rate is BNB-per-ETH, and screens like GasHistoryDialog
- * legitimately show "0.025 ETH" of gas directly above "0.04 BNB" of quota.
- *
- * So a ticker survives only where the SOURCE AROUND IT is reading a gas figure.
- * The test is against a window of source lines, not against the literal, and
- * that is not a convenience — a template literal reaches the AST already torn
- * into chunks, so `{fmt(BigInt(scan.floorWei))} ETH` arrives as the bare string
- * "ETH" with every clue stripped off. Judging the literal alone flagged all
- * fourteen legitimate PoG sites on the first run.
- *
- * Keyed on the identifiers that hold gas, because the copy does not always say
- * "gas" where it shows one: the Floor row renders `scan.floorWei` and the word
- * never appears. Identifiers are also the harder thing to fake, so the exception
- * cannot be claimed by writing "gas" into a sentence about deposits.
+ * One exception: a line that already consults `NATIVE_SYMBOL` is
+ * currency-aware by construction, which covers comparisons like
+ * `NATIVE_SYMBOL !== 'BNB'`. It is tested against a window of source lines,
+ * not the literal, because a template literal reaches the AST already torn into
+ * chunks: `{amount} BNB` arrives as the bare string "BNB" with the identifier
+ * that would excuse it on a neighbouring node. (v1 also exempted Proof-of-Gas
+ * figures, which were denominated in ETH; that mechanism is gone and so is the
+ * exception.)
  *
  * Test files are out of scope. Their names quote copy on purpose, including copy
  * that has since changed, and a guard that could not tell a test name from a
@@ -136,62 +127,26 @@ const LABEL_SOURCE = 'src/lib/chain.ts'
  */
 const COIN_TICKERS = /\b(?:ETH|BNB|WETH|WBNB)\b/
 
-/** Reading a gas figure, so a ticker beside it is the PoG currency, not the
- *  settlement one. `NATIVE_SYMBOL` earns an exception too: a line that already
- *  consults it is currency-aware by construction, which covers comparisons like
- *  `NATIVE_SYMBOL !== 'ETH'` that gate the cross-currency note. */
-const GAS_DENOMINATED_SOURCE =
-  /gasWei|floorWei|GasCapWei|NATIVE_SYMBOL|historical gas|lifetime gas|gas burned|ETH-settled|ETH gas/i
+/** Source that consults the derived symbol, so a ticker beside it is not hard-coded. */
+const NATIVE_AWARE_SOURCE = /NATIVE_SYMBOL/
 
 /** Lines around the literal that the exception may be read from. One either
  *  side, because JSX wraps and the identifier often sits on the previous line. */
-const GAS_CONTEXT_LINES = 1
+const NATIVE_CONTEXT_LINES = 1
 
 /**
- * The quote asset's ticker, which the UI must not hard-code either.
+ * RULE 4: v1's quote asset must not come back as a denomination.
  *
- * ⚠ RULE 4, AND IT IS THE THIRD TIME THIS SHAPE HAS SHIPPED. Read rules 1-3 in
- *   order: a chain name hard-coded in `layout.tsx` outlived a whole migration,
- *   then an AMM name did the same thing one layer down, then the coin's ticker
- *   did it again with ~230 "ETH"s still on screen after the BNB migration. Each
- *   time the guard was extended to cover exactly the thing that had just broken.
- *
- *   The denomination is the next one down, and it has moved faster than any of
- *   them: ETH, then BNB, then BEM, inside two months. Until this rule it was the
- *   only one of the four with no guard at all — which is precisely the state the
- *   coin ticker was in on the day it broke.
- *
- * `QUOTE_SYMBOL` in `contracts.ts` is the source, and it is READ FROM ENV rather
- * than derived from the chain, which makes hard-coding worse here than it is for
- * `NATIVE_SYMBOL`. Chain 97 runs against an 8-decimal mock whose `symbol()`
- * answers `mBEM`; chain 56 runs against real BEM. A literal "BEM" in a component
- * is therefore not merely fragile, it is already false on the only chain this is
- * deployed to — and the interface would be asserting a token that chain does not
- * have.
+ * v1 raised in BEM (and on chain 97 in an 8-decimal mock answering `mBEM`).
+ * v2 raises in BNB or USDT only, so any screen that still names BEM as what a
+ * figure is denominated in is describing a market that no longer exists.
+ * Rules 1-3 were each added after a migration left the old name on screen; this
+ * one is kept so the BEM -> BNB/USDT move cannot do the same.
  *
  * `[mt]?` catches the stand-in forms. `\bBEM\b` alone does not match `mBEM`,
- * because the boundary it needs is between two word characters.
- *
- * Case-sensitive, following RULE 3 rather than rules 1 and 2: these are tickers
- * and they are written in caps, while a case-insensitive match would fire on
- * ordinary prose. Hex cannot produce a false positive — `M` is not a hex digit,
- * so no address or hash contains `BEM`.
- *
- * NO EXCEPTION, unlike rule 3. The Proof-of-Gas carve-out exists because gas is
- * genuinely denominated in a different asset from deposits, and both appear on
- * one screen. Nothing on any screen is denominated in a quote asset other than
- * the quote asset, so there is no second currency to name.
- *
- * ⚠ WHAT THIS RULE DOES NOT DO, stated because the asymmetry with rule 2 is real
- *   and a reader would otherwise assume parity: the probe above re-evaluates
- *   `chain.ts` once per chain in a fresh process, so it catches a string that is
- *   true on staging and false on mainnet. There is no equivalent pass for
- *   `QUOTE_POSITIONING`. `chain.ts` is self-contained and can be transpiled and
- *   imported alone; `contracts.ts` pulls in generated ABIs and throws on missing
- *   env, so probing it would mean standing up most of the app. This rule
- *   therefore catches hard-coding, not a wrong derivation. `QUOTE_POSITIONING`
- *   is one ternary on `IS_TESTNET` and is commented at its definition, which is
- *   a weaker guarantee than rule 2 offers and is the honest state of it.
+ * because the boundary it needs is between two word characters. Case-sensitive,
+ * as for rule 3: tickers are written in caps, and `M` is not a hex digit, so
+ * no address or hash contains `BEM`.
  */
 // `$BEM` is exempt: since the quote asset moved to WBNB, the `$`-prefixed
 // form names the TapeOut ecosystem token on /apply, not a denomination.
@@ -199,64 +154,6 @@ const QUOTE_TICKERS = /(?<!\$)\b[mt]?BEM\b/
 const QUOTE_SOURCE = 'src/lib/contracts.ts'
 /** The per-asset symbol table, which states tickers on purpose. */
 const SYMBOL_TABLE = 'src/lib/quoteAssets.ts'
-
-/**
- * RULE 5: the launch fee is the one figure NOT denominated in the quote asset,
- * so copy that names it must not reach for `QUOTE_SYMBOL`.
- *
- * ⚠ THIS IS A DIFFERENT SHAPE FROM RULES 1-4 AND THAT IS THE WHOLE POINT. Those
- *   catch a hard-coded literal where a derived constant belongs. This catches
- *   the RIGHT KIND of constant with the WRONG ONE of two chosen — which rule 3
- *   cannot see by construction, because `GAS_DENOMINATED_SOURCE` grants any line
- *   mentioning a currency constant an exception for being "currency-aware".
- *   Interpolating `QUOTE_SYMBOL` is maximally currency-aware and still wrong.
- *
- * It shipped. `TrustPipeline` step 02 read "Pay the launch fee in ${QUOTE_SYMBOL}"
- * on the landing page, directly above step 03's correct "Deposits run in
- * ${QUOTE_SYMBOL}" — so the first sentence a creator read told them to fund the
- * wrong coin, and the adjacency is why one symbol got pasted over both.
- *
- * The fee's denomination has now moved three times — native, then BEM, then back
- * to native — and each move leaves prose behind. Everything else on every screen
- * (deposits, refunds, shelf buys, the buyback reservoir) is the quote asset;
- * `launchFee` alone is `msg.value` at 18 decimals, settling at
- * `platformTreasury`, which cannot even receive the quote asset.
- *
- * A source-window test rather than a literal test, for the reason rule 3 gives:
- * a template literal reaches the AST already torn into chunks, so the sentence
- * and the interpolation it is wrong about are never the same node. The window is
- * the same width as the gas exception's.
- *
- * Tests are out of scope, as in rules 2-4: they quote copy on purpose. Comments
- * are NOT excluded here, unlike the literal scan — `shared.tsx` listed the
- * launch fee among `fmtQuote`'s callers long after the fee left the quote asset,
- * and a stale comment that routes the next reader to the 8-decimal parser is the
- * failure this rule is named after. A comment that discusses the mistake has to
- * say so; the phrasing below does.
- */
-const FEE_COPY = /launch fee/i
-const FEE_WRONG_SYMBOL = /QUOTE_SYMBOL|QUOTE_DECIMALS|fmtQuote|parseEthInput/
-/**
- * What earns the exception: naming the native side through the constant or
- * helper that derives it.
- *
- * ⚠ IDENTIFIERS, NOT PHRASING, and the first draft of this rule got that wrong
- *   in a way worth recording. It also accepted prose — "not the quote asset",
- *   "native" — and then flagged a corrected sentence that said "the chain's own
- *   coin rather than {QUOTE_SYMBOL}", which is about as currency-aware as copy
- *   can get. Matching English gives a rule two ways to be wrong at once: it
- *   misses the phrasings nobody predicted and fires on the ones that are fine.
- *
- *   Rule 3 already settled this for tickers — its exception is keyed on the
- *   identifiers that hold gas, "because the copy does not always say 'gas' where
- *   it shows one" and "identifiers are also the harder thing to fake". Same
- *   reasoning, same conclusion: the exemption is a claim the source makes
- *   mechanically, so satisfying it means naming `NATIVE_SYMBOL` rather than
- *   describing it. That is better copy regardless — the admin reads `tBNB`
- *   instead of a periphrasis for it.
- */
-const FEE_COPY_AWARE = /NATIVE_SYMBOL|fmtNative|parseNativeInput|nativeDisplay|formatEstimateEth|msg\.value/
-const FEE_CONTEXT_LINES = 1
 
 /** Cheap text-level reject, so only candidate files pay for a parse.
  *
@@ -299,9 +196,9 @@ function scanLiterals(mainnetLabel) {
     if (!mightCarryGuardedCopy(text, mainnetLabel, isLabelSource)) continue
 
     const srcLines = text.split('\n')
-    /** Is the literal on line `n` (0-based) sitting next to a gas figure? */
-    const gasContext = (n) => GAS_DENOMINATED_SOURCE.test(
-      srcLines.slice(Math.max(0, n - GAS_CONTEXT_LINES), n + GAS_CONTEXT_LINES + 1).join('\n'),
+    /** Does the source around line `n` (0-based) already consult NATIVE_SYMBOL? */
+    const nativeContext = (n) => NATIVE_AWARE_SOURCE.test(
+      srcLines.slice(Math.max(0, n - NATIVE_CONTEXT_LINES), n + NATIVE_CONTEXT_LINES + 1).join('\n'),
     )
 
     const sf = ts.createSourceFile(
@@ -330,21 +227,19 @@ function scanLiterals(mainnetLabel) {
         } else if (!isLabelSource && mainnetLabel && value.includes(mainnetLabel)) {
           hits++
           console.log(`FAIL  ${where} — hard-codes "${mainnetLabel}"; import it from ${LABEL_SOURCE} instead: ${JSON.stringify(value.trim().slice(0, 80))}`)
-        } else if (!isLabelSource && !isTest && COIN_TICKERS.test(value) && !gasContext(line)) {
+        } else if (!isLabelSource && !isTest && COIN_TICKERS.test(value) && !nativeContext(line)) {
           hits++
           console.log(
             `FAIL  ${where} — hard-codes a coin ticker; use NATIVE_SYMBOL from ${LABEL_SOURCE}`
-            + ` (a ticker is allowed only where the surrounding source reads a gas`
-            + ` figure, which is the Proof-of-Gas exception):`
+            + ` (or the per-asset symbol from ${SYMBOL_TABLE}):`
             + ` ${JSON.stringify(value.trim().slice(0, 80))}`,
           )
         } else if (!isQuoteSource && !isTest && QUOTE_TICKERS.test(value)) {
           hits++
           console.log(
-            `FAIL  ${where} — hard-codes the quote asset's ticker; use QUOTE_SYMBOL from`
-            + ` ${QUOTE_SOURCE}, or QUOTE_POSITIONING if you are writing a sentence about`
-            + ` the denomination. This is already false on chain 97, where the quote asset`
-            + ` is an 8-decimal mock whose symbol() answers "mBEM":`
+            `FAIL  ${where} — names BEM, v1's quote asset, as a denomination. v2 raises`
+            + ` in BNB or USDT: use the quote's own symbol, or QUOTE_POSITIONING from`
+            + ` ${QUOTE_SOURCE} for a sentence about the denomination:`
             + ` ${JSON.stringify(value.trim().slice(0, 80))}`,
           )
         }
@@ -357,64 +252,11 @@ function scanLiterals(mainnetLabel) {
   failures += hits
   console.log(
     hits === 0
-      // Four rule families, two source files. The old wording said "no chain
-      // name", which was already only rule 1 and 2 of the three then wired in —
-      // a passing line that under-reports what passed is its own small lie.
-      ? `\n${files.length} source files scanned — no chain name, AMM, coin ticker or quote`
-        + ` ticker is hard-coded outside ${LABEL_SOURCE} / ${QUOTE_SOURCE}.`
+      // Four rule families; a passing line that under-reports what passed is
+      // its own small lie.
+      ? `\n${files.length} source files scanned — no abandoned chain or AMM name, no`
+        + ` hard-coded coin ticker, and no BEM denomination outside ${LABEL_SOURCE} / ${QUOTE_SOURCE}.`
       : `\n${hits} hard-coded string(s) — see FAIL lines above.`,
-  )
-}
-
-/**
- * Rule 5's pass. Separate from `scanLiterals` because that one is gated on
- * `mightCarryGuardedCopy`, which looks for tickers — and the bug this catches
- * hard-codes no ticker at all. Reusing that gate would have skipped the very
- * file the rule was written for.
- */
-function scanFeeDenomination() {
-  const files = []
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir)) {
-      const p = join(dir, entry)
-      if (statSync(p).isDirectory()) walk(p)
-      else if (/\.tsx?$/.test(entry)) files.push(p)
-    }
-  }
-  walk('src')
-
-  let hits = 0
-  for (const file of files) {
-    const rel = file.split('\\').join('/')
-    if (/\.test\.tsx?$/.test(rel)) continue
-
-    const text = readFileSync(file, 'utf8')
-    if (!FEE_COPY.test(text)) continue
-
-    const lines = text.split('\n')
-    for (let n = 0; n < lines.length; n++) {
-      if (!FEE_COPY.test(lines[n])) continue
-      const window = lines
-        .slice(Math.max(0, n - FEE_CONTEXT_LINES), n + FEE_CONTEXT_LINES + 1)
-        .join('\n')
-      if (!FEE_WRONG_SYMBOL.test(window)) continue
-      if (FEE_COPY_AWARE.test(window)) continue
-      hits++
-      console.log(
-        `FAIL  ${rel}:${n + 1} — names the launch fee beside the quote asset's symbol,`
-        + ` scale or formatter. The fee is the one figure that is NOT the quote asset:`
-        + ` it is native, 18 decimals, arrives as msg.value and settles at`
-        + ` platformTreasury. Use NATIVE_SYMBOL / fmtNative / parseNativeInput:`
-        + ` ${JSON.stringify(lines[n].trim().slice(0, 90))}`,
-      )
-    }
-  }
-
-  failures += hits
-  console.log(
-    hits === 0
-      ? `\n${files.length} source files scanned — no launch-fee copy reaches for the quote asset.`
-      : `\n${hits} launch-fee denomination mismatch(es) — see FAIL lines above.`,
   )
 }
 
@@ -519,10 +361,6 @@ if (!mainnetLabel) {
 } else {
   scanLiterals(mainnetLabel)
 }
-
-// Independent of `mainnetLabel`: rule 5 reads no chain label, so it runs even
-// when the probe above could not.
-scanFeeDenomination()
 
 console.log(
   failures === 0

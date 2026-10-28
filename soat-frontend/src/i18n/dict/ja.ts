@@ -16,6 +16,6 @@ import type { PartialDictionary } from '../types'
  *
  * Read the comments in `zh-CN.ts` before starting: they record why each line is
  * worded the way it is, which matters more than the wording itself for the
- * refund and deposit copy.
+ * buy and bid copy.
  */
 export const JA: PartialDictionary = {}

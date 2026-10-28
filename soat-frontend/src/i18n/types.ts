@@ -22,7 +22,7 @@ export type Dictionary = {
  *   understands the contracts, and a type that demanded every key would block
  *   the first language from shipping until the sixth was finished. Anything
  *   absent falls back to English per key — mixed language is ugly and safe,
- *   where a missing key rendering as `refund.noneReason` is neither.
+ *   where a missing key rendering as `v2.placeMin` is neither.
  *
  *   Completeness is a POLICY question, so it lives in `guard:i18n`, which can
  *   require it for the surfaces and locales that have been promised and stay

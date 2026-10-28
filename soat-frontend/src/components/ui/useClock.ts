@@ -45,7 +45,7 @@ export const CLOCK_UNSYNCED = 0
 
 /**
  * How often the clock reports a new value.
- *   'second' — 1 000 ms, the default; countdowns, cooldowns, deadlines.
+ *   'second' — 1 000 ms, the default; countdowns and deadlines.
  *   'frame'  — requestAnimationFrame; only for sub-second readouts such as
  *              the drawer's HH:MM:SS_cs counter.
  *   number   — an explicit interval in ms, for slow polls (admin used 15 000).
@@ -133,7 +133,7 @@ export function useNowMs(cadence: ClockCadence = 'second', active = true): numbe
 /**
  * Unix seconds, or `CLOCK_UNSYNCED` before the first client tick.
  *
- * This is the one every countdown, cooldown and deadline comparison should
+ * This is the one every countdown and deadline comparison should
  * use.  Compare against a `bigint` timestamp with `BigInt(nowSec)`.
  */
 export function useNowSec(cadence: ClockCadence = 'second', active = true): number {

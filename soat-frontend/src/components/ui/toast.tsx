@@ -118,7 +118,7 @@ export const toshToast = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface TxToastLabels {
-  /** Verb for the action, lower case: `'deposit'`, `'claim your allocation'`. */
+  /** Verb for the action, lower case: `'buy'`, `'bid'`. */
   action: string
   /** Default: `Awaiting signature`. */
   signing?: string

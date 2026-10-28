@@ -17,7 +17,7 @@ import { WalletPip } from './WalletPip'
  * of its own is that this is the LAST English string on the money path. Every
  * panel behind it now renders Chinese, and a reader who cannot connect a wallet
  * never reaches any of them — so the three words on this button are the
- * gateway to deposit, claim and refund alike.
+ * gateway to buying, bidding and selling alike.
  *
  * ⚠ THE LABEL IS UPPERCASE IN THE SOURCE **AND** IN CSS, and that is the trap
  *   this file exists to hold still. `connectCls` carries Tailwind's `uppercase`,

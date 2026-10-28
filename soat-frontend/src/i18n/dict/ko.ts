@@ -12,6 +12,6 @@ import type { PartialDictionary } from '../types'
  *   English sentence that was assembled from parts.
  *
  * Read the comments in `zh-CN.ts` first — they record the reasoning behind each
- * line, which for the refund copy matters more than the phrasing.
+ * line, which for the buy and bid copy matters more than the phrasing.
  */
 export const KO: PartialDictionary = {}

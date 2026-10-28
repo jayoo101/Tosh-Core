@@ -23,7 +23,7 @@
  *      placeholder form also shows a translator that a value lands there, and
  *      `guard:i18n` fails the build when a locale drops one.
  *
- *   3. NO TICKER OR CONTRACT IDENTIFIER GOES IN A STRING. `BEM`, `QMT` and the
+ *   3. NO TICKER OR CONTRACT IDENTIFIER GOES IN A STRING. `USDT`, `WBNB` and the
  *      like name real on-chain things and are interpolated, never translated.
  *
  *   4. PROTOCOL TERMS STAY ENGLISH IN EVERY LOCALE — GENESIS, Agent ID, the ladder,
@@ -92,7 +92,7 @@ export const EN = {
     /*
      * The BUTTON FACE while a write is in flight, which is not the toast copy in
      * `tx` above. Same moment, two surfaces, and they read differently on
-     * purpose: the toast names the action ("Awaiting signature — deposit")
+     * purpose: the toast names the action ("Awaiting signature — bid")
      * because it outlives the panel it came from, and the button does not
      * because it is sitting inside the panel that says so.
      */
@@ -157,9 +157,6 @@ export const EN = {
    *   word; both are always in the DOM and a media query picks one. A locale
    *   whose full form is already short may make the two identical, but the short
    *   one must never be the longer of the pair.
-   *
-   * `navLaunch` and `navReferrals` have no short form because they were never
-   * the ones that overflowed.
    *
    * GitHub, X and "Tosh Protocol" are names, not copy, and stay in the JSX.
    */
@@ -263,7 +260,7 @@ export const EN = {
   },
 
   /**
-   * BNB ⇄ WBNB on a WBNB project. A genesis deposit takes BNB directly; a shelf
+   * BNB ⇄ WBNB on a WBNB project. A GENESIS buy takes BNB directly; a shelf
    * buy and an LP add pull WBNB, so a short wrapped balance is topped up by
    * wrapping first. `{amount}` is already formatted.
    */

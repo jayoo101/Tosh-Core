@@ -178,7 +178,7 @@ describe('useActionGate — wrong network', () => {
 //   the app, were pinned nowhere.
 //
 //   They are also the highest-leverage strings in the extraction: one swap here
-//   is wrong on every action card at once, where a swap inside `RefundPanel` is
+//   is wrong on every action card at once, where a swap inside one panel is
 //   wrong on one.
 //
 // ⚠ RED DURING THE i18n WORK MEANS STOP, not `-u`.

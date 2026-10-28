@@ -14,7 +14,7 @@ optimizer_runs = 200
 #
 # Verified on the deployment target by execution, not by hardfork name. A fork
 # test cannot establish this — forking borrows a chain's STATE and runs it on
-# the local EVM at whatever `evm_version` says, so `ToshV5ForkBsc.t.sol` passing
+# the local EVM at whatever `evm_version` says, so `test/v2/ForkV2Bsc.t.sol` passing
 # proves nothing about what chain 56 itself executes. The probe that does is an
 # `eth_call` against a BSC node with a state override planting
 # `0x60075f5d5f5c5f5260205ff3` — tstore(0,7), then return tload(0). BNB Smart
@@ -45,11 +45,11 @@ evm_version = "cancun"
 # the metadata hash is part of it.
 #
 # Be precise about what that costs, because the first version of this comment
-# was not. It does NOT break launching: the launch page reads
-# `factory.hookInitcodeHash(...)` off the chain and mines against the answer,
-# so it tracks whatever factory is deployed. What it breaks is verification —
-# a clean clone does not rebuild what was deployed, which is the tree an
-# auditor builds and the tree Blockscout compares against.
+# was not. It does NOT break launching: the factory clones whatever hook
+# implementation it was deployed with, and the launch form picks a random hook
+# salt rather than mining against a hash. What it breaks is verification — a
+# clean clone does not rebuild what was deployed, which is the tree an auditor
+# builds and the tree Sourcify and BscScan compare against.
 #
 # So: every prefix any compiled source imports, listed here and nowhere else.
 # Derived by scanning imports across src, test, script and the vendored trees,
@@ -121,12 +121,12 @@ runs = 256
 # either, so the report names the wrong problem. `afterInvariant()` only logs.
 #
 # `depth` is the knob that matters here. A genesis window is 3–72 h and the
-# launch window is another 7 days, and the handler warps at most 4 days per
-# call — so a shallow run can never reach the refund or zombie phases at all,
-# and the refund invariants would be vacuously true. Depth also has to be
-# enough to reach a *funded* treasury: the buyback invariants need a launched
-# pool, a listed ladder token and a full `TRIGGER_STEP` of accumulated tax
-# (10 BEM) before anything can leave, which is several actions deep past launch.
+# Circuit holder's exclusive launch window another 48 h, and the handler warps
+# at most 4 days per call — so a shallow run spends most of its calls before
+# launch and the post-launch invariants are exercised thinly. Depth also has to
+# be enough to reach a *funded* treasury: a buyback needs a launched pool, a
+# listed ladder token and a full `TRIGGER_STEP` of accumulated tax before
+# anything can leave, which is several actions deep past launch.
 #
 # depth stays 100 HERE, and the deeper setting lives in `.github/workflows/
 # soak.yml` instead. It was raised to 250 on 2026-09-06 and moved back out the
@@ -139,9 +139,9 @@ runs = 256
 # every push.
 #
 # Everything from here to the end of this block is the measurement, kept because
-# it is the argument for what soak.yml runs. Measured 2026-09,
-# measured on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one sample per
-# depth, reading afterInvariant()'s counters:
+# it is the argument for what soak.yml runs. Measured 2026-09 on the v1 suite
+# (in git history), on `invariant_treasuryOutflowAlwaysBurns` at runs=64, one
+# sample per depth, reading afterInvariant()'s counters:
 #
 #   depth  100    250    500   1000      wall (64 runs)
 #   buys     5     25     35     75      3.1s  5.9s  12.1s  26.4s
@@ -187,9 +187,10 @@ shrink_run_limit = 2000
 # build signal.
 #
 # The two rules it fires on in this codebase are benign by construction:
-#   block-timestamp — every comparison is against a 24h genesis deadline or a
-#                     7-day launch window; a validator's few-second drift
-#                     cannot move either one meaningfully.
+#   block-timestamp — every comparison is against a 3/24/72h genesis deadline,
+#                     the 48h exclusive launch window or the 30-minute TWAP; a
+#                     validator's few-second drift cannot move any of them
+#                     meaningfully.
 #   unsafe-typecast — each remaining cast is range-checked by its own caller
 #                     (`out > 0`, `d0 < 0`, `span > 0`) or bounded by V4's
 #                     int128 delta accounting. The one cast that genuinely fed
@@ -221,14 +222,12 @@ lint_on_build = false
 # and `test/ToshV5ForkInfinity.t.sol`, both of which read `BSC_RPC` directly
 # rather than by alias.
 #
-# `bsc_testnet` (97) is where the rehearsal actually runs, against the deployed
-# factory. This paragraph used to say the opposite — that 97 could not host a
-# rehearsal because Uniswap V4 is not deployed there, so the lifecycle had to be
-# driven against `anvil --fork-url $BSC_RPC`, and that the devnet was therefore
-# the frontend's default chain. Every clause of that was made false by the move
-# to PancakeSwap Infinity, which IS deployed on 97: the full lifecycle ran on the
-# real chain there, and the frontend's default is 97. The V4/97 gap is in fact
-# why Infinity was chosen; see docs/PANCAKESWAP_INFINITY.md §2.
+# `bsc_testnet` (97) hosted the v1 rehearsals: PancakeSwap Infinity is deployed
+# there, unlike Uniswap V4, and the full v1 lifecycle ran on it — the V4/97 gap
+# is why Infinity was chosen (docs/PANCAKESWAP_INFINITY.md §2). v2 has no 97
+# deployment: its GENESIS is bought through Binance's Agentic Wallet, which does
+# not support testnets, so v2 went straight to 56 and is rehearsed there
+# (docs/TOSHX_V2_AGENTIC_WALLET_TEST_zh.md).
 #
 # A public BSC endpoint is fine for forking but not for indexing: the dataseed
 # nodes reject a 9,000-block `eth_getLogs` span. `BSC_RPC` wants a keyed

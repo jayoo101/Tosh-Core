@@ -1,7 +1,7 @@
 // ToshX v2 on-chain coordinates.
 //
 // v2 is OPTIONAL in a build: with NEXT_PUBLIC_V2_BIDBOOK unset the v2 surfaces
-// render a "not deployed" notice and every v1 page behaves exactly as before.
+// render a "not deployed" notice instead.
 // All values come from `script/DeployV2.s.sol` (deployments/v2-<chain>.json).
 //
 //   NEXT_PUBLIC_V2_BIDBOOK        ToshBidBook (shared by both stacks)
@@ -61,7 +61,7 @@ export function v2Quote(asset: string, acceptsNative: boolean): V2Quote {
   }
 }
 
-/** A v2 factory's quote in the shape the v1 directory cards format with. */
+/** A v2 factory's quote in the `QuoteConfig` shape the directory cards format with. */
 export function v2QuoteConfig(factory: string): { asset: Address; decimals: number; symbol: string; wrapsNative: boolean } {
   const native = V2_FACTORY_BNB !== undefined && factory.toLowerCase() === V2_FACTORY_BNB.toLowerCase()
   const asset = (native ? V2_WBNB : V2_USDT) ?? ('0x0000000000000000000000000000000000000000' as Address)
