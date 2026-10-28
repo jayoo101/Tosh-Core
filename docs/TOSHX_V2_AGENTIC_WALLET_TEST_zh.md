@@ -147,7 +147,7 @@ A 用 Agent 模式挂一张最低额买单，再撤单。核对托管资金全�
 
 建议：
 
-- USDT 工厂：每个 Agent ID 额度上限从 30,000 调到 10,000（`USDT_AGENTCAP_MAX`）。最高一档 50,000 USDT 只有大户会开，而且余额超过额度时开不了开发者模式。
+- USDT 工厂：主网部署值为每个 Agent ID 5–30,000 USDT。已决定把上限调到 **100 USDT**（与 BNB 市场 0.1 BNB 同一量级，远低于开发者模式最低一档），Safe 交易文件为仓库根目录的 `safe-v2-usdt-agentcap-100.json`，签名执行前链上仍是 30,000。
 - BNB 工厂：额度固定为 0.1 BNB（`BNB_AGENTCAP_MIN` = `BNB_AGENTCAP_MAX` = 0.1 BNB，每份 0.01 BNB，最多 10 份），远低于开发者模式最低一档，不用再按 BNB 价格调整。
 
-这两个值部署后可以由多签用 `setAgentCapBounds` 调整，不需要重新部署。
+这两个值部署后可以由 Safe 经网关 `execute` 调用 `setAgentCapBounds` 调整，不需要重新部署；只影响之后上架的项目，已上架项目的额度在创建时就写死了。

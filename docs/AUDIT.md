@@ -312,7 +312,7 @@ check inside `mint`, and there is deliberately no kill-switch.
 **`unused-public-function`** — 10: on the hook `creator`, `projectTreasury`,
 `currentTierIndex`, `currentTierSold`, `phase2Minted`, `currentGenesisPrice`,
 `maxMintable` and `lastSwapBlock`, and on the lens `basePrice` and
-`publicLaunchAt`. Read by the frontend, by monitoring, and — for
+`publicLaunchAt`. Read by the frontend, by `scripts/dashboard`, and — for
 `currentGenesisPrice` — by the bid book through an interface, none of which is
 visible to a tool that only sees `src/` by name.
 
@@ -345,3 +345,18 @@ findings with no behavioural claim. The uninitialised locals are loop counters
 starting at zero; the loops that revert are batch operations (the bid book's
 fills, the factory's blacklist batches) or bounded ladder walks where partial
 application would be worse than rejection.
+
+## Source comments that still describe v1
+
+`ToshLaunchpadHook.sol`, `ToshLadderTreasury.sol` and `ToshCloneLib.sol` carry
+NatSpec written for v1 that was not rewritten when the mechanism changed: it
+mentions deposits, claims, refunds, referral commission, a launch fee, a 5 %
+shelf premium, an ETH or BEM quote asset and a creator-only `launch()`. None of
+that exists in v2. Where a comment and the code disagree, the code is right, and
+`docs/WHITEPAPER_zh.md` describes what the code does.
+
+The comments are left as they are on purpose. Solidity hashes the source,
+comments included, into the metadata appended to the bytecode, so editing them
+would make this tree compile to bytecode that no longer matches the 16 contracts
+deployed on chain 56 and verified as an exact match on Sourcify. Rewriting them
+belongs with the next deployment, not before it.
