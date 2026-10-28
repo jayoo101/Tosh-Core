@@ -3,7 +3,8 @@
   "_generated": "2026-10-28",
   "totals": {
     "block-timestamp": 14,
-    "unsafe-typecast": 31
+    "divide-before-multiply": 1,
+    "unsafe-typecast": 39
   },
   "findings": [
     {
@@ -76,6 +77,12 @@
       "rule": "block-timestamp",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "text": "if (block.timestamp >= genesisDeadline) revert GenesisExpired();",
+      "count": 1
+    },
+    {
+      "rule": "divide-before-multiply",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "int24 lower = (TickMath.MIN_TICK / spacing) * spacing;",
       "count": 1
     },
     {
@@ -161,6 +168,48 @@
       "file": "src/ToshLaunchpadHook.sol",
       "text": "uint256 input = uint256(uint128(-inputDelta));",
       "count": 2
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "amountSpecified: -int256(s),",
+      "count": 1
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "IERC20(Currency.unwrap(currency)).safeTransfer(address(vault), uint256(-net));",
+      "count": 1
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "pendingQuote[hook] = uint256(int256(pendingQuote[hook]) + net0);",
+      "count": 1
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "pendingToken[hook] = uint256(int256(pendingToken[hook]) + net1);",
+      "count": 1
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "return d < 0 ? uint256(uint128(-d)) : 0;",
+      "count": 2
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "sqrtPriceLimitX96: uint160(uint256(spot) * (BPS - MAX_SWAP_SQRT_MOVE_BPS) / BPS)",
+      "count": 1
+    },
+    {
+      "rule": "unsafe-typecast",
+      "file": "src/v3/ToshAutoLp.sol",
+      "text": "vault.take(currency, address(this), uint256(net));",
+      "count": 1
     },
     {
       "rule": "unsafe-typecast",

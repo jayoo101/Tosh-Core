@@ -338,7 +338,7 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     ///
     /// @param  developer       Receives the Circuit NFT, and with it the right
     ///                         to launch in the exclusive window, the project
-    ///                         fund and 99 % of shelf revenue.
+    ///                         fund and 19 % of shelf revenue.
     /// @param  projectFund     First recipient of the 20 % genesis share; the
     ///                         NFT holder can change it later.
     /// @param  hardCap         Quote raised when the sale sells out (P = H/2.25M).

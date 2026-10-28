@@ -19,6 +19,7 @@ import {ToshLadderTreasury} from "../../../src/ToshLadderTreasury.sol";
 import {ToshToken} from "../../../src/ToshToken.sol";
 import {ToshBidBook} from "../../../src/ToshBidBook.sol";
 import {ToshHookLensV3} from "../../../src/v3/ToshHookLensV3.sol";
+import {ToshAutoLp} from "../../../src/v3/ToshAutoLp.sol";
 import {CircuitNFT} from "../../../src/CircuitNFT.sol";
 import {HookAddress} from "../../../src/libraries/HookAddress.sol";
 import {MockQuoteAsset} from "../../utils/MockQuoteAsset.sol";
@@ -53,6 +54,7 @@ abstract contract V2BaseV3 is Test {
     ToshBidBook internal book;
     ToshFactoryV3 internal factory;
     ToshHookLensV3 internal lens;
+    ToshAutoLp internal autoLp;
 
     function setUp() public virtual {
         vault = new Vault();
@@ -67,8 +69,10 @@ abstract contract V2BaseV3 is Test {
         book = new ToshBidBook(feeSafe);
         ladder =
             new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0), 0.3 ether);
+        autoLp = new ToshAutoLp(address(vault), address(poolManager));
         factory = _deployFactory(address(quote), MIN_BUY, true);
         ladder.setFactory(address(factory));
+        autoLp.setFactory(address(factory));
         address[] memory fs = new address[](1);
         fs[0] = address(factory);
         book.initialize(fs);
@@ -100,7 +104,8 @@ abstract contract V2BaseV3 is Test {
             quote_,
             address(registry),
             minBuy_,
-            native_
+            native_,
+            address(autoLp)
         );
         f = new ToshFactoryV3(
             ToshFactoryV3.Config({

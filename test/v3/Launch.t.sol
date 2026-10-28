@@ -203,7 +203,7 @@ contract LaunchTestV3 is V2BaseV3 {
         vm.prank(bob, bob);
         hook.mintBondingCurve(amount, cost);
         assertEq(token.balanceOf(bob), amount);
-        assertGt(quote.balanceOf(hook.projectAdmin()), adminBefore, "99 % to the Circuit vault");
+        assertGt(quote.balanceOf(hook.projectAdmin()), adminBefore, "19 % to the Circuit vault");
     }
 
     function test_afterLaunch_genesisClosed() public {
