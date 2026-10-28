@@ -5,7 +5,7 @@ import {Math} from "../../lib/openzeppelin-contracts/contracts/utils/math/Math.s
 import {GenesisCurveV3} from "./libraries/GenesisCurveV3.sol";
 import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 
-interface IToshHookView {
+interface IToshHookViewV3 {
     function hardCap() external view returns (uint256);
     function perAgentCap() external view returns (uint256);
     function genesisSold() external view returns (uint256);
@@ -98,22 +98,22 @@ contract ToshHookLensV3 {
     /// @notice Tokens and cost `pay` buys at the current point of the curve,
     ///         ignoring any individual allowance.
     function quoteGenesis(address hook, uint256 pay) external view returns (uint256 tokens, uint256 cost) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         return GenesisCurveV3.tokensFor(h.hardCap(), h.genesisSold(), pay);
     }
 
     /// @notice P = hardCap / 2.25M, the curve's first price.
     function basePrice(address hook) public view returns (uint256) {
-        return GenesisCurveV3.priceAt(IToshHookView(hook).hardCap(), 0);
+        return GenesisCurveV3.priceAt(IToshHookViewV3(hook).hardCap(), 0);
     }
 
     function publicLaunchAt(address hook) public view returns (uint256) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         return h.launchStart() + h.ADMIN_LAUNCH_WINDOW();
     }
 
     function genesisState(address hook) external view returns (GenesisState memory s) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         s.quoteAsset = h.quoteAsset();
         s.token = h.projectToken();
         s.acceptsNative = h.acceptsNative();
@@ -139,7 +139,7 @@ contract ToshHookLensV3 {
     /// @notice `account`'s Agent ID standing on `hook`. `registryOk` is false
     ///         when the registry could not be read; the other fields are then 0.
     function accountState(address hook, address account) external view returns (AccountState memory a) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         try this.agentKeyOf(h.agentRegistry(), account) returns (bytes32 key) {
             a.registryOk = true;
             a.agentKey = key;
@@ -162,7 +162,7 @@ contract ToshHookLensV3 {
 
     /// @notice A window of the shelf ladder.
     function getTiers(address hook, uint256 start, uint256 count) external view returns (Tier[] memory ladder) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         uint256 tierCount = h.TIER_COUNT();
         if (start >= tierCount) return new Tier[](0);
         uint256 end = start + count;
@@ -183,7 +183,7 @@ contract ToshHookLensV3 {
     /// @notice Tokens per shelf: the hook's own figure once launched, and before
     ///         that what launching on the current raise would fix it at.
     function shelfSize(address hook) public view returns (uint256) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         if (h.launched()) return h.tierSize();
         return Math.mulDiv(h.TIER_SIZE(), h.raised(), h.hardCap(), Math.Rounding.Ceil);
     }
@@ -199,7 +199,7 @@ contract ToshHookLensV3 {
     ///         and the platform halt; `maxMintable()` folds those in.
     function quoteMint(address hook, uint256 tokenAmount) external view returns (uint256 cost) {
         if (tokenAmount == 0) return 0;
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         if (!h.launched()) revert NotLaunched();
 
         uint256 tierCount = h.TIER_COUNT();
@@ -240,7 +240,7 @@ contract ToshHookLensV3 {
 
     /// @notice Shelf tokens still unissued across the whole ladder.
     function bondingRemaining(address hook) external view returns (uint256) {
-        IToshHookView h = IToshHookView(hook);
+        IToshHookViewV3 h = IToshHookViewV3(hook);
         uint256 minted = h.phase2Minted();
         uint256 max = h.TIER_COUNT() * shelfSize(hook);
         return minted >= max ? 0 : max - minted;

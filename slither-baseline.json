@@ -3,34 +3,34 @@
   "_slither": "0.11.6",
   "_filterPaths": "lib/|test/|script/",
   "_generated": "2026-10-28",
-  "contracts": 97,
+  "contracts": 107,
   "detectorsRun": 102,
-  "total": 103,
+  "total": 159,
   "byImpact": {
-    "Informational": 36,
-    "Low": 33,
-    "Medium": 33,
-    "High": 1
+    "Informational": 49,
+    "Low": 55,
+    "Medium": 53,
+    "High": 2
   },
   "byCheck": {
     "assembly": 16,
-    "calls-loop": 7,
-    "cyclomatic-complexity": 4,
-    "divide-before-multiply": 2,
-    "incorrect-equality": 7,
-    "low-level-calls": 2,
-    "missing-inheritance": 5,
+    "calls-loop": 9,
+    "cyclomatic-complexity": 6,
+    "divide-before-multiply": 3,
+    "incorrect-equality": 9,
+    "low-level-calls": 3,
+    "missing-inheritance": 8,
     "missing-zero-check": 2,
-    "naming-convention": 8,
-    "reentrancy-benign": 3,
-    "reentrancy-events": 7,
-    "reentrancy-no-eth": 2,
-    "timestamp": 14,
+    "naming-convention": 15,
+    "reentrancy-benign": 6,
+    "reentrancy-events": 11,
+    "reentrancy-no-eth": 3,
+    "timestamp": 27,
     "too-many-digits": 1,
     "tx-origin": 1,
-    "uninitialized-local": 7,
-    "unused-return": 14,
-    "weak-prng": 1
+    "uninitialized-local": 13,
+    "unused-return": 24,
+    "weak-prng": 2
   },
   "findings": [
     {
@@ -174,6 +174,20 @@
       "count": 2
     },
     {
+      "check": "calls-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.getTiers",
+      "count": 1
+    },
+    {
+      "check": "calls-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.quoteMint",
+      "count": 1
+    },
+    {
       "check": "cyclomatic-complexity",
       "impact": "Informational",
       "file": "src/ToshBidBook.sol",
@@ -202,6 +216,20 @@
       "count": 1
     },
     {
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.buyGenesis",
+      "count": 1
+    },
+    {
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
+      "count": 1
+    },
+    {
       "check": "divide-before-multiply",
       "impact": "Medium",
       "file": "src/ToshLadderTreasury.sol",
@@ -213,6 +241,13 @@
       "impact": "Medium",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.launch",
+      "count": 1
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
       "count": 1
     },
     {
@@ -258,6 +293,20 @@
       "count": 1
     },
     {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._safeReferencePrice",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._sqrtPriceToNativePerToken",
+      "count": 1
+    },
+    {
       "check": "low-level-calls",
       "impact": "Informational",
       "file": "src/ToshLaunchGateway.sol",
@@ -269,6 +318,13 @@
       "impact": "Informational",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.buyGenesis",
+      "count": 1
+    },
+    {
+      "check": "low-level-calls",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.buyGenesis",
       "count": 1
     },
     {
@@ -297,6 +353,20 @@
       "impact": "Informational",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "contract:ToshLaunchpadHook",
+      "count": 1
+    },
+    {
+      "check": "missing-inheritance",
+      "impact": "Informational",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "contract:ToshFactoryV3",
+      "count": 2
+    },
+    {
+      "check": "missing-inheritance",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "contract:ToshLaunchpadHookV3",
       "count": 1
     },
     {
@@ -370,6 +440,55 @@
       "count": 1
     },
     {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.HOOK_RUNTIME_CODEHASH",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "IToshHookViewV3.ADMIN_LAUNCH_WINDOW",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "IToshHookViewV3.MAX_TIERS_PER_TX",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "IToshHookViewV3.TIER_COUNT",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "IToshHookViewV3.TIER_SIZE",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "IToshLadderTreasuryV3.TRIGGER_STEP",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.PIGGYBACK_TRIGGER_STEP",
+      "count": 1
+    },
+    {
       "check": "reentrancy-benign",
       "impact": "Low",
       "file": "src/ToshFactory.sol",
@@ -381,6 +500,20 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.launch",
+      "count": 2
+    },
+    {
+      "check": "reentrancy-benign",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-benign",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
       "count": 2
     },
     {
@@ -419,6 +552,20 @@
       "count": 1
     },
     {
+      "check": "reentrancy-events",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._skimInputTax",
+      "count": 3
+    },
+    {
+      "check": "reentrancy-events",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.afterSwap",
+      "count": 1
+    },
+    {
       "check": "reentrancy-no-eth",
       "impact": "Medium",
       "file": "src/ToshFactory.sol",
@@ -430,6 +577,13 @@
       "impact": "Medium",
       "file": "src/ToshLadderTreasury.sol",
       "scope": "ToshLadderTreasury._runPiggyback",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
       "count": 1
     },
     {
@@ -531,6 +685,97 @@
       "count": 1
     },
     {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.genesisBlocked",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.ladderMintingHalted",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.releaseAbandonedName",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._safeReferencePrice",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._sqrtPriceToNativePerToken",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._twapSqrtPriceX96",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._writeObservation",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.buyGenesis",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launchStart",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.maxMintable",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.tierStatus",
+      "count": 1
+    },
+    {
       "check": "too-many-digits",
       "impact": "Informational",
       "file": "src/ToshLadderTreasury.sol",
@@ -591,6 +836,48 @@
       "impact": "Medium",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "quoteMint.filled",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "quoteMint.filled",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "_addInitialLiquidity.quoteOwed",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "_addInitialLiquidity.tokensOwed",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "afterSwap.hookUnspecified",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "mintBondingCurve.cost",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "mintBondingCurve.filled",
       "count": 1
     },
     {
@@ -678,10 +965,73 @@
       "count": 1
     },
     {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.quoteMint",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._addInitialLiquidity",
+      "count": 3
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._collectGenesisFees",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._getSpotPrice",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._writeObservation",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.collectGenesisFees",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
       "check": "weak-prng",
       "impact": "High",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook._twapSqrtPriceX96",
+      "count": 1
+    },
+    {
+      "check": "weak-prng",
+      "impact": "High",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._twapSqrtPriceX96",
       "count": 1
     }
   ]

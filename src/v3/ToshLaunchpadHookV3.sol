@@ -1281,7 +1281,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
-        PIGGYBACK_TRIGGER_STEP = IToshLadderTreasury(_ladderTreasury).TRIGGER_STEP();
+        PIGGYBACK_TRIGGER_STEP = IToshLadderTreasuryV3(_ladderTreasury).TRIGGER_STEP();
         platformFeeRecipient = payable(_platformFeeRecipient);
         quoteAsset = IERC20(_quoteAsset);
         agentRegistry = _agentRegistry;
@@ -1339,7 +1339,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         that does not `vm.etch` a mock at `ARB_SYS` before the
     ///         implementation is deployed. `ToshV5ArbSys.t.sol` is what covers it.
     function _blockNumber() internal view returns (uint256) {
-        if (_hasArbSys) return IArbSys(ARB_SYS).arbBlockNumber();
+        if (_hasArbSys) return IArbSysV3(ARB_SYS).arbBlockNumber();
         return block.number;
     }
 
@@ -1519,7 +1519,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         if (block.timestamp >= genesisDeadline) revert GenesisExpired();
         if (soldOutAt != 0) revert GenesisSoldOut();
         if (msg.sender != tx.origin) revert NotAWallet();
-        if (IToshFactoryHalt(factory).genesisBlocked(address(this), msg.sender)) revert GenesisPaused();
+        if (IToshFactoryHaltV3(factory).genesisBlocked(address(this), msg.sender)) revert GenesisPaused();
         if (msg.value != 0) {
             if (!acceptsNative) revert NativeNotAccepted();
             if (msg.value != maxPay) revert NativeAmountMismatch();
@@ -1567,7 +1567,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 
         // ── Interactions ─────────────────────────────────────────────────────
         if (msg.value != 0) {
-            IWrappedNativeDeposit(address(quoteAsset)).deposit{value: cost}();
+            IWrappedNativeDepositV3(address(quoteAsset)).deposit{value: cost}();
         } else {
             quoteAsset.safeTransferFrom(msg.sender, address(this), cost);
         }
@@ -1601,7 +1601,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Current holder of the project's Circuit NFT — the party that
     ///         launches during the exclusive window and controls the fund.
     function projectController() public view returns (address) {
-        return ICircuitVaultHolder(projectAdmin).holder();
+        return ICircuitVaultHolderV3(projectAdmin).holder();
     }
 
     // ─── Project fund ─────────────────────────────────────────────────────────
@@ -1823,7 +1823,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         // buyer an opportunity but never a balance.  It also expires on its own
         // (`MAX_HALT_DURATION`), which is what keeps it a break-glass brake
         // rather than a permanent veto.  See `ToshFactoryV3.haltLadderMinting`.
-        if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
+        if (IToshFactoryHaltV3(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
 
         // ── Guard 1: same-block lockout ───────────────────────────────────────
         if (_priceMovedThisBlock()) revert SameBlockMintForbidden();
@@ -1940,7 +1940,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     function maxMintable() public view returns (uint256 tokens) {
         if (!launched) return 0;
         if (_priceMovedThisBlock()) return 0;
-        if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) return 0;
+        if (IToshFactoryHaltV3(factory).ladderMintingHalted(address(this))) return 0;
 
         LadderState memory st = _ladderState;
 
@@ -2191,7 +2191,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         // orders of magnitude.
         uint256 avail = gasleft();
         if (quoteAsset.balanceOf(ladderTreasury) >= PIGGYBACK_TRIGGER_STEP && avail >= PIGGYBACK_MIN_GAS) {
-            try IToshLadderTreasury(ladderTreasury).autoPiggybackBuyback{gas: avail - PIGGYBACK_TAIL_RESERVE}() {}
+            try IToshLadderTreasuryV3(ladderTreasury).autoPiggybackBuyback{gas: avail - PIGGYBACK_TAIL_RESERVE}() {}
             catch {
                 emit PiggybackPokeFailed(ladderTreasury);
             }
@@ -2681,7 +2681,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     }
 
     function _piggybackActive() internal view returns (bool) {
-        return IToshLadderTreasury(ladderTreasury).piggybackActive();
+        return IToshLadderTreasuryV3(ladderTreasury).piggybackActive();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -2842,15 +2842,15 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 // ─── Minimal external interfaces ──────────────────────────────────────────────
 
 /// @dev `CircuitRevenueVault.holder()`: the current owner of the Circuit NFT.
-interface ICircuitVaultHolder {
+interface ICircuitVaultHolderV3 {
     function holder() external view returns (address);
 }
 
-interface IWrappedNativeDeposit {
+interface IWrappedNativeDepositV3 {
     function deposit() external payable;
 }
 
-interface IToshLadderTreasury {
+interface IToshLadderTreasuryV3 {
     function autoPiggybackBuyback() external;
     function piggybackActive() external view returns (bool);
     function TRIGGER_STEP() external view returns (uint256);
@@ -2859,7 +2859,7 @@ interface IToshLadderTreasury {
 /// @dev Minimal factory view for the ladder halt.  Declared here rather than
 ///      importing ToshFactoryV3 because the factory already imports this file to
 ///      deploy hooks, and a direct import would close that cycle.
-interface IToshFactoryHalt {
+interface IToshFactoryHaltV3 {
     function ladderMintingHalted(address hook) external view returns (bool);
     function genesisBlocked(address hook, address user) external view returns (bool);
 }
@@ -2868,6 +2868,6 @@ interface IToshFactoryHalt {
 ///      pulled from a Nitro package: a two-line interface is not worth a
 ///      dependency, and `lib/**` is version-pinned by policy (SECURITY_AUDIT
 ///      §5.6), so adding one costs more than it saves.  See `_blockNumber`.
-interface IArbSys {
+interface IArbSysV3 {
     function arbBlockNumber() external view returns (uint256);
 }
