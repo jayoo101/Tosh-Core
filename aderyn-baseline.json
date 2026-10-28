@@ -3,37 +3,37 @@
   "_aderyn": "0.6.8",
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-28",
-  "sourceUnits": 14,
-  "sloc": 2403,
+  "sourceUnits": 18,
+  "sloc": 3788,
   "detectorsRun": 88,
-  "total": 164,
+  "total": 252,
   "byImpact": {
-    "High": 33,
-    "Low": 131
+    "High": 46,
+    "Low": 206
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 3,
-    "centralization-risk": 20,
-    "costly-loop": 4,
+    "centralization-risk": 33,
+    "costly-loop": 6,
     "internal-function-used-once": 2,
-    "large-numeric-literal": 8,
-    "literal-instead-of-constant": 17,
-    "local-variable-shadowing": 15,
+    "large-numeric-literal": 13,
+    "literal-instead-of-constant": 23,
+    "local-variable-shadowing": 29,
     "missing-inheritance": 2,
-    "modifier-used-only-once": 6,
-    "non-reentrant-not-first": 4,
-    "push-zero-opcode": 14,
-    "reentrancy-state-change": 28,
-    "require-revert-in-loop": 6,
+    "modifier-used-only-once": 8,
+    "non-reentrant-not-first": 8,
+    "push-zero-opcode": 18,
+    "reentrancy-state-change": 41,
+    "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 1,
-    "unchecked-return": 7,
-    "uninitialized-local-variable": 3,
+    "unchecked-return": 11,
+    "uninitialized-local-variable": 6,
     "unsafe-casting": 1,
     "unsafe-erc20-operation": 1,
     "unsafe-oz-erc721-mint": 1,
-    "unspecific-solidity-pragma": 9,
-    "unused-error": 1,
-    "unused-public-function": 10,
+    "unspecific-solidity-pragma": 12,
+    "unused-error": 2,
+    "unused-public-function": 20,
     "unused-state-variable": 1
   },
   "findings": [
@@ -199,6 +199,97 @@
       "count": 1
     },
     {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.haltLadderMinting",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.liftBlacklist",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.pause",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.releaseName",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.renounceOwnership",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.resumeLadderMinting",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setAgentCapBounds",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setBlacklist",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setGenesisPaused",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setHardCapBounds",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.unpause",
+      "count": 1
+    },
+    {
       "check": "costly-loop",
       "impact": "Low",
       "file": "src/ToshBidBook.sol",
@@ -224,6 +315,20 @@
       "impact": "Low",
       "file": "src/ToshFactory.sol",
       "scope": "ToshFactory.setBlacklist",
+      "count": 1
+    },
+    {
+      "check": "costly-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.liftBlacklist",
+      "count": 1
+    },
+    {
+      "check": "costly-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setBlacklist",
       "count": 1
     },
     {
@@ -266,6 +371,13 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook",
+      "count": 5
+    },
+    {
+      "check": "large-numeric-literal",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3",
       "count": 5
     },
     {
@@ -367,6 +479,41 @@
       "count": 1
     },
     {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.liftBlacklist",
+      "count": 1
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.setBlacklist",
+      "count": 1
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._sqrtPriceToNativePerToken",
+      "count": 2
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._toSqrtPriceX96",
+      "count": 1
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
+      "count": 1
+    },
+    {
       "check": "local-variable-shadowing",
       "impact": "Low",
       "file": "src/ToshFactory.sol",
@@ -379,6 +526,13 @@
       "file": "src/ToshLadderTreasury.sol",
       "scope": "ToshLadderTreasury.constructor",
       "count": 1
+    },
+    {
+      "check": "local-variable-shadowing",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3",
+      "count": 14
     },
     {
       "check": "missing-inheritance",
@@ -437,6 +591,20 @@
       "count": 1
     },
     {
+      "check": "modifier-used-only-once",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.onlyClone",
+      "count": 1
+    },
+    {
+      "check": "modifier-used-only-once",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.onlyVault",
+      "count": 1
+    },
+    {
       "check": "non-reentrant-not-first",
       "impact": "Low",
       "file": "src/ToshFactory.sol",
@@ -462,6 +630,34 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.mintBondingCurve",
+      "count": 1
+    },
+    {
+      "check": "non-reentrant-not-first",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
+      "count": 1
+    },
+    {
+      "check": "non-reentrant-not-first",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.buyGenesis",
+      "count": 1
+    },
+    {
+      "check": "non-reentrant-not-first",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
+      "check": "non-reentrant-not-first",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
       "count": 1
     },
     {
@@ -563,6 +759,34 @@
       "count": 1
     },
     {
+      "check": "push-zero-opcode",
+      "impact": "Low",
+      "file": "src/v3/libraries/GenesisCurveV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "push-zero-opcode",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "push-zero-opcode",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "push-zero-opcode",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
       "check": "reentrancy-state-change",
       "impact": "High",
       "file": "src/ToshBidBook.sol",
@@ -640,6 +864,55 @@
       "count": 1
     },
     {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.constructor",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.createLaunch",
+      "count": 3
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "ToshFactoryV3.releaseAbandonedName",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.buyGenesis",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.constructor",
+      "count": 2
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
+      "count": 4
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
+      "count": 1
+    },
+    {
       "check": "require-revert-in-loop",
       "impact": "Low",
       "file": "src/ToshBidBook.sol",
@@ -679,6 +952,34 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.quoteMint",
+      "count": 1
+    },
+    {
+      "check": "require-revert-in-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.quoteMint",
+      "count": 1
+    },
+    {
+      "check": "require-revert-in-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._powE18",
+      "count": 1
+    },
+    {
+      "check": "require-revert-in-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.maxMintable",
+      "count": 1
+    },
+    {
+      "check": "require-revert-in-loop",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
       "count": 1
     },
     {
@@ -731,6 +1032,27 @@
       "count": 1
     },
     {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3._addInitialLiquidity",
+      "count": 2
+    },
+    {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.collectGenesisFees",
+      "count": 1
+    },
+    {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
       "check": "uninitialized-local-variable",
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
@@ -749,6 +1071,27 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.quoteMint",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local-variable",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.quoteMint",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local-variable",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.maxMintable",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local-variable",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.mintBondingCurve",
       "count": 1
     },
     {
@@ -836,10 +1179,38 @@
       "count": 1
     },
     {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
+      "file": "src/v3/ToshFactoryV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
       "check": "unused-error",
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook",
+      "count": 1
+    },
+    {
+      "check": "unused-error",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3",
       "count": 1
     },
     {
@@ -910,6 +1281,76 @@
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook.projectTreasury",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.basePrice",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshHookLensV3.sol",
+      "scope": "ToshHookLensV3.publicLaunchAt",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.creator",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.currentGenesisPrice",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.currentTierIndex",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.currentTierSold",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.lastSwapBlock",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.maxMintable",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.phase2Minted",
+      "count": 1
+    },
+    {
+      "check": "unused-public-function",
+      "impact": "Low",
+      "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "ToshLaunchpadHookV3.projectTreasury",
       "count": 1
     },
     {

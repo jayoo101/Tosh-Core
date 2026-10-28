@@ -260,7 +260,9 @@ jobs:
           # 184 -> 212: later v2 suites had grown the count to 217, past the
           # ceiling, and the floor had not followed; the v1-only
           # ToshV5LpMathVectors (5) was then deleted with the rest of v1.
-          floor=212
+          # 212 -> 411: test/v3 runs the v2 suites against the v3 contracts
+          # (195) plus V3Params (4).
+          floor=411
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

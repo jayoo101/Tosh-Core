@@ -10,8 +10,13 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 103 findings, 1H/33M/33L/36I | 164 findings, 33H/131L |
+| Current | 159 findings, 2H/53M/55L/49I | 252 findings, 46H/206L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
+
+The current counts include `src/v3/`, the next version of the hook, factory
+and lens. It is not deployed. Its files began as copies of the v2 ones, so most
+of its findings are the v2 findings below under a V3 file name, with the same
+disposition; the differences are noted at the end of each section.
 
 ## Why both
 
@@ -140,9 +145,18 @@ and is not randomness: `delta % span` decides whether the average tick is
 rounded down toward negative infinity, the same correction Uniswap's
 `OracleLibrary.consult` makes.
 
+### Slither: v3 (not deployed)
+
+56 of the 159 findings are in `src/v3/`, and all of them repeat a v2 finding
+above, including the second `weak-prng` High in the v3 copy of
+`_twapSqrtPriceX96`. `quoteMint` moved from the hook to `ToshHookLensV3`, so its
+`calls-loop`, `unused-return` and `uninitialized-local` findings are now on the
+lens: the loop reads the hook's view getters. The v3 copies of the hook's
+private interfaces carry a V3 suffix so they do not reuse the v2 names.
+
 ## Aderyn disposition record
 
-23 detectors, 164 instances, all triaged, nothing unresolved.
+23 detectors, 252 instances, all triaged, nothing unresolved.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -161,6 +175,10 @@ whose return value could be dropped.
 **`internal-function-used-once`** — 2, `AgentIdLib.handleOf` and
 `AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
 Kept as named steps; inlining them changes nothing.
+
+`src/v3/` adds four source units (18 in all) and 88 instances. No detector
+fires there that does not fire on v2, and each v3 instance sits at the v3 copy
+of a v2 site described below, apart from `quoteMint`, which is now on the lens.
 
 And one stopped: **`contract-locks-ether`** — was 1, on v1's
 `ToshFactory.depositNative`. The v2 factory has no payable entry; native BNB
@@ -190,7 +208,7 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 28, in three groups, none reachable:
+**`reentrancy-state-change`** — 41, in three groups, none reachable:
 
 - 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
   `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
@@ -232,7 +250,7 @@ metadata at the end of the treasury's creation code. The gate failed with
 "finding GONE" rather than silently accepting a smaller finding set, which is
 the half of the baseline contract that only matters when something is fixed.
 
-**`unused-error`** — 1, `ToshLaunchpadHook.OnlyCreator`. Opening the pool
+**`unused-error`** — 2, `ToshLaunchpadHook.OnlyCreator`. Opening the pool
 moved behind the Circuit holder's admin window, and the error is kept so the
 ABI does not lose a selector indexers may already match on. Its companion
 `NativeTransferFailed` is in use again, by the BNB refund in `buyGenesis`.
@@ -244,20 +262,20 @@ the treasury's hand-rolled reentrancy mutex. Aderyn's AST walk does not
 descend into `assembly` blocks. Read as written, this finding says the mutex
 is dead code.
 
-**`non-reentrant-not-first`** — 4. The detector asks a real question — whether
+**`non-reentrant-not-first`** — 8. The detector asks a real question — whether
 a modifier ahead of `nonReentrant` can make an external call before the guard
 engages — and the answer here is no for all four. `onlyOwner` and
 `whenNotPaused` on `createLaunch`, and `initialized` on the hook's
 `buyGenesis`, `launch` and `mintBondingCurve`, are plain storage reads with no
 call.
 
-**`unchecked-return`** — 7. Each is a return value nobody needs:
+**`unchecked-return`** — 11. Each is a return value nobody needs:
 `vault.lock` and `vault.settle()` return amounts already known to the caller
 (`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
 returns the resulting tick, and `_grantRole()` returns whether the role was
 newly granted inside the token's run-once `initialize`.
 
-**`centralization-risk`** — 20. Accurate and by design. Mainnet ownership is a
+**`centralization-risk`** — 33. Accurate and by design. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
 Each v2 factory is owned by its `ToshLaunchGateway` — BNB
 `0xdaA1F95d4D319B04792759551587E24c751f2EaA`, USDT
@@ -309,7 +327,7 @@ life: the minter cannot be changed, added to, or taken away by anyone,
 including the platform. Supply is bounded independently by the `MAX_SUPPLY`
 check inside `mint`, and there is deliberately no kill-switch.
 
-**`unused-public-function`** — 10: on the hook `creator`, `projectTreasury`,
+**`unused-public-function`** — 20: on the hook `creator`, `projectTreasury`,
 `currentTierIndex`, `currentTierSold`, `phase2Minted`, `currentGenesisPrice`,
 `maxMintable` and `lastSwapBlock`, and on the lens `basePrice` and
 `publicLaunchAt`. Read by the frontend, by `scripts/dashboard`, and — for
@@ -326,21 +344,21 @@ each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (14) and **`unspecific-solidity-pragma`** (9) — both
+**`push-zero-opcode`** (18) and **`unspecific-solidity-pragma`** (12) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
 verified by execution against chain 56 — see `foundry.toml`).
 
-**`local-variable-shadowing`** (15) — 14 are the fields of `ToshFactory.Config`,
+**`local-variable-shadowing`** (29) — 14 are the fields of `ToshFactory.Config`,
 the constructor's argument struct, which are named after the state variables
 they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (17), **`large-numeric-literal`** (8),
-**`modifier-used-only-once`** (6), **`costly-loop`** (4),
-**`require-revert-in-loop`** (6), **`uninitialized-local-variable`** (3) — style
+**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (13),
+**`modifier-used-only-once`** (8), **`costly-loop`** (6),
+**`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters
 starting at zero; the loops that revert are batch operations (the bid book's
 fills, the factory's blacklist batches) or bounded ladder walks where partial
