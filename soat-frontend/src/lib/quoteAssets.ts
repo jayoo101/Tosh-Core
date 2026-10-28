@@ -10,9 +10,6 @@ export interface QuoteConfig {
   readonly wrapsNative: boolean
 }
 
-/** The ecosystem the site positions itself in (TapeOut's coin), whatever a raise is paid in. */
-export const ECOSYSTEM_SYMBOL = 'BEM'
-
 /** Canonical WETH9-style wrapper surface. */
 export const WRAPPED_NATIVE_ABI = [
   { type: 'function', name: 'deposit',  stateMutability: 'payable',    inputs: [], outputs: [] },

@@ -14,7 +14,7 @@ exports[`page metadata · english golden master > root layout 1`] = `
     "description": "The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
     "locale": "en_US",
     "siteName": "ToshX",
-    "title": "ToshX — the fair-launch terminal of the BEM ecosystem",
+    "title": "ToshX — the fair-launch terminal of the tBNB ecosystem",
     "type": "website",
     "url": "https://toshx.xyz/",
   },
@@ -22,7 +22,7 @@ exports[`page metadata · english golden master > root layout 1`] = `
   "twitter": {
     "card": "summary_large_image",
     "description": "The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
-    "title": "ToshX — the fair-launch terminal of the BEM ecosystem",
+    "title": "ToshX — the fair-launch terminal of the tBNB ecosystem",
   },
 }
 `;
