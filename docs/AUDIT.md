@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 87 findings, 1H/32M/29L/25I | 120 findings, 21H/99L |
+| Current | 103 findings, 1H/33M/33L/36I | 164 findings, 33H/131L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 ## Why both
@@ -77,82 +77,95 @@ It prints one of three things, and they mean different things:
   Confirm the removal was deliberate (it often is, after a refactor) and
   `--update`.
 
-## Slither: the genesis fee sweep
+## Slither: v2
 
-Seven instances arrived with `collectGenesisFees` on 2026-09-26, taking the
-baseline from 76 to 83. None is a defect.
+Re-baselined on 2026-10-28, from 87 to 103, against the v2 contracts deployed
+on BNB Smart Chain at block 130243379. v2 replaced the deposit-and-refund sale
+with a GENESIS curve gated on Binance Agent ID, and added a shared pre-launch
+bid book and a second quote asset (USDT beside WBNB). 29 findings are new, 15
+left with the v1 code they described, and none is a defect.
 
-- **`unused-return`** — 2. `ToshLaunchpadHook._collectGenesisFees` drops the
-  second return of `modifyLiquidity`, the fee delta, which is already inside
-  the first (Infinity returns `delta + feeDelta` to the caller);
-  `_addInitialLiquidity` drops it for the same reason. `collectGenesisFees`
-  drops what `vault.lock` returns, which is the empty bytes its callback
-  returns.
-- *Superseded 2026-09-29:* `ToshLadderTreasury._collectGenesisFees` and both
-  of its events were removed — the sweep now runs from `CircuitNFT._update`
-  inside `try/catch` and from `hook.collectGenesisFees()` directly — so the
-  three findings below no longer reproduce. Kept as the record of what was
-  dispositioned.
-- **`calls-loop`** — 3, in `ToshLadderTreasury._collectGenesisFees`: the sweep
-  and the two `balanceOf` reads that measure it. The loop runs
-  `LEGS_PER_POKE` times (1), the hook comes from a listing that proved it is
-  this factory's, and the sweep is inside `try/catch`, so one hook that reverts
-  is skipped rather than stalling the poke — the same shape as the buyback
-  loop beside it.
-- **`reentrancy-events`** — 1, same function. `GenesisFeesCollected` is emitted
-  after the sweep because it reports what the sweep delivered.
-- **`missing-inheritance`** — 1. The hook matches the treasury's minimal
-  `IToshHookGenesisFees` without inheriting it, like the instance already in
-  the baseline; inheriting would import the treasury into the hook.
+Medium:
 
-## Slither: the WBNB rework and the launch gateway
+- **`tx-origin`** — `ToshToken._update`. The pre-launch transfer rule:
+  before `openTrading()`, a transfer has to be sent by the holder's own wallet,
+  executed by that wallet or the bid book, and land on a registered wallet.
+  `tx.origin` can only make this stricter. The pattern the detector exists for
+  — a contract the victim calls, spending the victim's balance — is the one
+  `caller != from && caller != bidBook` refuses. The rule switches off for good
+  at launch.
+- **`incorrect-equality`** — `ToshLadderTreasury._buyAndBurn` compares
+  `lastLegBlock[token] == block.number`, a one-leg-per-block guard that an
+  attacker can only trip, not hold open. The other strict equalities, new and
+  old, are zero checks that skip work.
+- **`uninitialized-local`** — `_addInitialLiquidity.quoteOwed` and
+  `.tokensOwed` (renamed from one shared `owed`), and `ToshBidBook.fill.fees`.
+  Each starts at zero on purpose and is written only on the branch that owes
+  or accrues something.
+- **`unused-return`** — `getVaultReserve()` in `_runPiggyback` (only the
+  synced currency matters) and `getSlot0()` in `_spotStretchedAboveTwap`
+  (only the price matters).
 
-Re-baselined on 2026-10-10, from 83 to 87. None is a defect.
+Low and Informational:
 
-- **`incorrect-equality`** (Medium) — `CircuitRevenueVault.settle` returns
-  early on `balance == 0`. That is a skip-the-transfer shortcut, not a guard
-  an attacker can hold open: a donation only makes the balance larger, and a
-  non-zero balance is paid in full.
-- **`missing-zero-check`** — `CircuitNFT`'s `quoteAsset_` and
-  `ToshLadderTreasury`'s `_legacyFactory`. The first was WBNB at deployment
-  (read back from the vault implementation's `quoteAsset()`); the second is
-  zero on purpose in this deployment, because a WBNB treasury cannot list a
-  BEM-quoted pool.
-- **`ToshLaunchGateway.execute`** — `low-level-calls`, `assembly` and
-  `reentrancy-events`. It is `onlySafe`, its only target is the factory it
-  was constructed with, the assembly re-throws the factory's revert data
-  verbatim, and `Executed` is emitted after the call because it reports a
-  call that succeeded. `missing-inheritance` on the gateway is the same shape
-  as the hook's: it matches a minimal interface without importing it.
-- **`timestamp`** moved from `ToshFactory.deposit` to `ToshFactory._deposit`,
-  which `deposit` and `depositNative` now share; **`assembly`** follows the
-  clone readers (`argHardCap`, `argVaultTokenId`, `deployVaultClone`) that
-  replaced `argSoftCap`. The other findings that vanished went with code the
-  rework removed: `_sendNative`, the timestamp check in `refund`, and the
-  treasury's `_collectGenesisFees`.
+- **`calls-loop`** — `ToshBidBook.factoryOf` and `initialize` loop over the
+  factories the book serves, which are fixed at initialisation (two on chain
+  56); `ToshHookLens.getTiers` is a view the frontend pages through.
+- **`low-level-calls`** — `buyGenesis` returns unspent BNB to the buyer with a
+  plain `call`, as the last statement of a `nonReentrant` function whose state
+  is already written, and reverts if the refund fails.
+- **`timestamp`** — `buyGenesis`, `launchStart`, `genesisBlocked` and
+  `releaseAbandonedName` read the genesis deadline, the sell-out time and
+  blacklist expiry. Validator skew of seconds does not matter at
+  hour-scale windows.
+- **`assembly`** — `AgentIdLib._boundedStaticcall`, `handleOf` and
+  `ownerOfHandle` cap the gas and the size of the return data from the Agent ID
+  registry, so a misbehaving registry cannot grief a buy; `WalletLib.isWallet`
+  reads `extcodesize` and the EIP-7702 delegation prefix.
+- **`cyclomatic-complexity`** — `buyGenesis` and `ToshBidBook.fill`. Each check
+  is a separate early revert or skip, and splitting them would only move them.
+- **`naming-convention`** — interface getters for public constants
+  (`ADMIN_LAUNCH_WINDOW`, `TIER_COUNT`, `TIER_SIZE`, `TRIGGER_STEP`) keep the
+  constant's name, as do `HOOK_RUNTIME_CODEHASH` and `PIGGYBACK_TRIGGER_STEP`,
+  which are immutables set once in a constructor.
+- **`missing-inheritance`** — `CircuitRevenueVault` matches an interface the
+  hook declares without importing it, the same shape as the treasury and the
+  gateway.
+
+What left: v1's `deposit`, `refund`, `canRefund`, `registerPoG`,
+`eligibility` and the quota window, the hook's `getTier`/`getTiers` (moved to
+`ToshHookLens`), `ladderViable`, and `HookDeployLib`, which the clone factory
+replaced. The single High, `weak-prng` in `_twapSqrtPriceX96`, is unchanged
+and is not randomness: `delta % span` decides whether the average tick is
+rounded down toward negative infinity, the same correction Uniswap's
+`OracleLibrary.consult` makes.
 
 ## Aderyn disposition record
 
-21 detectors, 120 instances, all triaged, nothing unresolved.
+23 detectors, 164 instances, all triaged, nothing unresolved.
 
-Re-baselined on 2026-10-10 against the WBNB rework, which added
-`CircuitNFT`, `CircuitRevenueVault` and `ToshLaunchGateway` to `src/` (7 to
-10 source units). The three detectors that fired for the first time:
+Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
+14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
+`GenesisCurve` arrived, and `HookDeployLib` left. Three detectors fired for the
+first time:
 
-**`contract-locks-ether`** — 1, `ToshFactory`. False positive. The factory
-has no `receive` or `fallback`, and its one payable entry, `depositNative`,
-wraps the whole of `msg.value` into WBNB and transfers it to the hook in the
-same call, so no native balance survives a transaction. The `deposit` the
-detector names is the `IWrappedNative.deposit()` declaration in the same file.
+**`tx-origin-used-for-auth`** — 1, `ToshToken._update`. The pre-launch
+transfer rule described under Slither's `tx-origin` above. It narrows what a
+transfer may do and grants nothing.
 
-**`unsafe-oz-erc721-mint`** — 1, `CircuitNFT.mint`. Deliberate. `_mint`
-rather than `_safeMint` means minting the developer's Circuit cannot call
-into the developer's address in the middle of `createLaunch`; a developer
-contract that cannot hold ERC-721s is the developer's choice to make.
+**`unsafe-erc20-operation`** — 1, `ToshToken.approve`. False positive. The line
+is `super.approve` inside the token's own override, which refuses approvals to
+anyone but the bid book before launch; it is not a call into some other token
+whose return value could be dropped.
 
-**`missing-inheritance`** — 1, `ToshLaunchGateway`, which matches
-`IToshFactoryLaunch` without inheriting it. Inheriting would import the
-factory's interface file into the gateway for no behavioural change.
+**`internal-function-used-once`** — 2, `AgentIdLib.handleOf` and
+`AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
+Kept as named steps; inlining them changes nothing.
+
+And one stopped: **`contract-locks-ether`** — was 1, on v1's
+`ToshFactory.depositNative`. The v2 factory has no payable entry; native BNB
+reaches only the hook's `buyGenesis`, which wraps what it spends and returns
+the rest in the same call.
 
 These counts are the baseline's, and they are worth re-reading against it when
 this file is touched. The prose below drifted from `aderyn-baseline.json` once
@@ -167,29 +180,36 @@ is pointed at, which is the only part of this that is published.
 **`abi-encode-packed-hash-collision`** — 3, in `ToshCloneLib.bareCloneInitcode`,
 `ToshCloneLib.cloneInitcode` and `ToshCloneLib.vaultCloneInitcode`. Not
 applicable. All three take only fixed-width arguments: `hex"…"` literals,
-`address`, `uint128`, `uint128`, `uint32`, and the vault's `uint256` token id. An `encodePacked` collision needs at least two adjacent
-variable-length arguments so the boundary between them can shift; there is no
-variable-length argument here at all, and there cannot be, because the output
-is EVM bytecode where a shifted boundary would be a different program rather
-than an ambiguous encoding. The code already handles the one real version of
-this concern: the `genesisDuration > type(uint32).max` revert immediately
-above `cloneInitcode`'s encode exists precisely so a silent truncation cannot
-make two durations produce the same initcode hash.
+`address`, `uint128`, `uint128`, `uint32`, and the vault's `uint256` token id.
+An `encodePacked` collision needs at least two adjacent variable-length
+arguments so the boundary between them can shift; there is no variable-length
+argument here at all, and there cannot be, because the output is EVM bytecode
+where a shifted boundary would be a different program rather than an ambiguous
+encoding. The code already handles the one real version of this concern: the
+`uint128` and `uint32` range checks at the top of `cloneInitcode` exist so a
+silent truncation cannot make two different caps or durations produce the same
+initcode hash.
 
-**`reentrancy-state-change`** — 16, split into two causes, neither reachable:
+**`reentrancy-state-change`** — 28, in three groups, none reachable:
 
-- 8 are inside `nonReentrant` functions (`ToshFactory.createLaunch` ×3,
-  `ToshLaunchpadHook.launch` ×4, `ToshLaunchpadHook.mintBondingCurve`). Aderyn
-  does not model modifiers. `createLaunch`'s third is the call into the hook
-  it has just deployed, handing it the token and the revenue vault.
-- 8 call `external view` functions, which solc compiles to `STATICCALL`, so no
-  state change can occur during them: `canRefund()`, `tokenToHook()` (on the
-  factory and, since the rework, on the legacy factory), `launched()`,
-  `twapSqrtPriceX96()`, `getPoolKey()`, `decimals()`, `balanceOf()`. Aderyn
-  does not model mutability.
+- 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
+  `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
+  `buyGenesis` and `mintBondingCurve`. Aderyn does not model modifiers. Most
+  of these calls are also views on the hook or factory the function has just
+  checked is registered, and `placeBid` writes the bid before it pulls the
+  escrow.
+- 4 run before anyone else can call in: the factory constructor, the hook
+  implementation's constructor ×2 (`decimals()` on the quote asset and the
+  treasury's `TRIGGER_STEP()`), and `ToshBidBook.initialize`, which only the
+  deployer can call, once, and which has already run on chain 56.
+- 6 call `external view` functions, which solc compiles to `STATICCALL`, so
+  no state can change during them: `ToshFactory.releaseAbandonedName` reading
+  `raised()` and `genesisDeadline()`, and `ToshLadderTreasury.addLadderToken`
+  ×5 (`tokenToHook()`, `launched()`, `twapSqrtPriceX96()`, `getPoolKey()`),
+  which is owner-only besides. Aderyn does not model mutability.
 
-`ToshFactory.releaseAbandonedName` is the one worth naming individually, since
-it is permissionless and takes an address argument: its first statement is
+`releaseAbandonedName` is the one worth naming individually, since it is
+permissionless and takes an address argument: its first statement is
 `if (!registeredHooks[hook]) revert HookNotRegistered()`, so the callee is
 always a clone this factory deployed, never caller-supplied code.
 
@@ -207,31 +227,15 @@ is strictly smaller than a value that already fits.
 resulted in a code change.** All three were imported and referenced nowhere.
 `ILockCallback` is the one that looks like a mistake and is not: the contract
 does implement `lockAcquired`, but the Vault dispatches to it by selector, so
-declaring the interface bought nothing.
+declaring the interface bought nothing. Removing them changed only the CBOR
+metadata at the end of the treasury's creation code. The gate failed with
+"finding GONE" rather than silently accepting a smaller finding set, which is
+the half of the baseline contract that only matters when something is fixed.
 
-Removing them was measured rather than estimated, because this repository's
-CREATE2 addresses are sensitive to anything that moves a metadata hash. The
-result: `ToshLadderTreasury`'s creation code changed in its **last 43 bytes
-only** — the CBOR metadata blob — with the executable code byte-identical, and
-`ToshLaunchpadHook` and `ToshFactory` unchanged entirely. So no hook address
-moved and no initcode hash needed republishing; PM-C6 did not apply.
-
-The cost was one chain 97 redeploy, so the deployed treasury keeps
-byte-matching a fresh build. Verified after deployment by comparing runtime
-code with the 384 bytes of immutables masked out.
-
-The gate behaved as intended across this: it failed with "finding GONE" rather
-than silently accepting a smaller finding set, which is the half of the
-baseline contract that only matters when something is fixed.
-
-**`unused-error`** — 2, `ToshLaunchpadHook.NativeTransferFailed` and
-`ToshLaunchpadHook.OnlyCreator`. Intentional. `NativeTransferFailed` is
-documented at the declaration: unreachable since `_payQuote` moved to
-`SafeERC20.safeTransfer`, which bubbles the token's own revert. `OnlyCreator`
-went unused when opening the pool moved behind the factory's owner check.
-Both are kept so the ABI does not lose a selector indexers may already match
-on, and removing either now would change the bytecode of a deployed hook
-implementation.
+**`unused-error`** — 1, `ToshLaunchpadHook.OnlyCreator`. Opening the pool
+moved behind the Circuit holder's admin window, and the error is kept so the
+ABI does not lose a selector indexers may already match on. Its companion
+`NativeTransferFailed` is in use again, by the BNB refund in `buyGenesis`.
 
 **`unused-state-variable`** — 1, `ToshLadderTreasury._PIGGYBACK_SLOT`. False
 positive, and the most important one to understand before trusting this
@@ -240,100 +244,104 @@ the treasury's hand-rolled reentrancy mutex. Aderyn's AST walk does not
 descend into `assembly` blocks. Read as written, this finding says the mutex
 is dead code.
 
-**`non-reentrant-not-first`** — 3. The detector asks a real question — whether
+**`non-reentrant-not-first`** — 4. The detector asks a real question — whether
 a modifier ahead of `nonReentrant` can make an external call before the guard
-engages — and the answer here is no for all three. `whenNotPaused` reads
-`_paused`; `initialized` reads `tokenInitialized`. Both are plain storage
-reads with no call.
+engages — and the answer here is no for all four. `onlyOwner` and
+`whenNotPaused` on `createLaunch`, and `initialized` on the hook's
+`buyGenesis`, `launch` and `mintBondingCurve`, are plain storage reads with no
+call.
 
 **`unchecked-return`** — 7. Each is a return value nobody needs:
-`vault.lock("")` and `vault.settle()` return amounts already known to the
-caller, `poolManager.initialize()` returns the resulting tick, and
-`_grantRole()` returns whether the role was newly granted inside a
-run-once `initialize`. The seventh, since 2026-09-26, is the `vault.lock` in
-`ToshLaunchpadHook.collectGenesisFees`, whose callback returns empty bytes.
+`vault.lock` and `vault.settle()` return amounts already known to the caller
+(`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
+returns the resulting tick, and `_grantRole()` returns whether the role was
+newly granted inside the token's run-once `initialize`.
 
-**`centralization-risk`** — 23. Accurate and by design. Mainnet ownership is a
-2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`);
-every powerful setter is bounded by a hard-coded ceiling and emits an event.
-Since 2026-10-10 the WBNB factory's `owner()` is `ToshLaunchGateway`
-`0xbD378b7A30adf3AdBcC4D6369206472232a75dD3`, which lets any signer of that
-Safe call `createLaunch` and `launch` and forwards everything else only from
-the Safe itself; the ladder treasury is owned by the Safe directly. The two
-added by the rework are `setDepositsPaused` (one project's deposits) and
-`setPogQuota` (a batch quota grant); `setLaunchFee` and `setDefaultSoftCap`
-left with the dials they set.
-`README.md` §"What the owner can do" is the real answer to this detector and is
-deliberately not summarised here, because a summary would be the thing that goes
-stale.
+**`centralization-risk`** — 20. Accurate and by design. Mainnet ownership is a
+2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
+Each v2 factory is owned by its `ToshLaunchGateway` — BNB
+`0xdaA1F95d4D319B04792759551587E24c751f2EaA`, USDT
+`0x16efaC5111417F810f23817B5EEB95Cb14801881` — which lets any current signer
+of that Safe call `createLaunch` and forwards every other owner call only from
+the Safe itself. Both ladder treasuries are owned by the Safe directly. On the
+factory the detector names the contract and twelve functions: `pause`,
+`unpause`, `renounceOwnership`, `setHardCapBounds` and `setAgentCapBounds`
+(bounded by hard-coded absolute limits), `setGenesisPaused`, `setBlacklist`
+and `liftBlacklist` (batches of at most 200), `haltLadderMinting` (bounded by
+`MAX_HALT_DURATION`) and `resumeLadderMinting`, `createLaunch`, and
+`releaseName`, which frees the name of a launch the platform did not mean to
+list and is kept with the Safe as a whole rather than with a single signer. On
+the treasury: the contract, `renounceOwnership`, `setFactory` (once only),
+`addLadderToken` and `removeLadderToken`. Every one emits an event, and
+`README.md` §"Contracts" says who owns what.
 
-That last sentence is in this file because this paragraph had already broken it.
-It read **3-of-5** until 2026-09-22, and it was the only place in the repository
-that did: `scripts/verifyOwnerSafe.mjs` refuses to pass any Safe that is not
-2-of-3, `README.md`, `monitoring/alerts.json`, the mainnet runbook and four
-frontend modules all say 2-of-3, and the three signers each signed a message
-naming the role as "(2-of-3, BNB Smart Chain 56)" — so the consent on record is
-to 2-of-3 as well.
+The Safe's shape is stated once and checked. This paragraph read **3-of-5**
+until 2026-09-22, and it was the only place in the repository that did: the
+deploy refused any other Safe than 2-of-3, the frontend said 2-of-3, and the
+three signers each signed a message naming the role as "(2-of-3, BNB Smart
+Chain 56)" — so the consent on record is to 2-of-3 as well.
 
 Nothing was mis-built; one published sentence was wrong about what was built.
 The direction is what makes it worth writing down rather than quietly fixing: it
 **overstated** the protection. A reader weighing custody risk was told three
-signatures stand between them and every owner-only dial, when two move them. The
-counts at the top of this file were gated against their baselines in the same
-week, and this number — the only one here a reader might actually act on — had
-nothing looking at it, because neither analyser baseline has anything to say
-about who owns the contracts. `checkAuditDoc.mjs` now compares this claim with
-the constants `verifyOwnerSafe.mjs` enforces against the live Safe.
+signatures stand between them and every owner-only dial, when two move them.
+`checkAuditDoc.mjs` now compares this claim with the shape
+`script/DeployV2.s.sol` enforces on chain 56.
 
-Two of those 23 arrived on 2026-09-21 and are worth naming, because the detector
-reads them exactly backwards: `ToshFactory.renounceOwnership` and
+Two of those 20 are worth naming, because the detector reads them exactly
+backwards: `ToshFactory.renounceOwnership` and
 `ToshLadderTreasury.renounceOwnership` are `onlyOwner` functions that
 unconditionally **revert**. They exist to *remove* a power, not to hold one.
-
-`Ownable2Step` makes `transferOwnership` propose-then-accept so ownership cannot
-land on an address nobody holds, and then inherits from `Ownable` a one-call,
-unconfirmed `renounceOwnership` that sets the owner to zero — permanently
-disabling `pause`, `setBlacklist`, `haltLadder` and every other brake on a live
-launchpad holding user quote. On the treasury the failure is quieter and no
-better: `addLadderToken` and `removeLadderToken` freeze, so a rugged token can
-never be delisted and the reservoir keeps market-buying it out of every future
-launch's fees. Both overrides revert; `onlyOwner` stays in front so a stranger
-is still refused as a stranger. Pinned by `test_factory_ownershipCannotBeRenounced`,
-`test_ladderTreasury_ownershipCannotBeRenounced` and
-`test_renounceOwnership_refusesStrangersAsStrangers`.
+`Ownable2Step` inherits from `Ownable` a one-call, unconfirmed
+`renounceOwnership` that sets the owner to zero, which would permanently
+disable `pause`, `setBlacklist`, `haltLadderMinting` and every other brake on a
+live launchpad holding user funds, and freeze the ladder list so a rugged token
+could never be delisted. Both overrides revert; `onlyOwner` stays in front so a
+stranger is still refused as a stranger. Pinned by `test_renounceDisabled` and
+`test_revert_treasury_ownership`.
 
 Two more sit on `ToshToken` — the contract itself and `ToshToken.mint` — and the
-detector reads these backwards too, harder than it does the two above. The token
-has no owner at all. `MINTER_ROLE` is granted once, to the hook, inside an
-`initialize` the factory calls exactly once, and **`DEFAULT_ADMIN_ROLE` is left
-deliberately vacant**, so `grantRole` and `revokeRole` have no eligible caller
-for the rest of the token's life: the minter cannot be changed, added to, or
-taken away by anyone, including the platform. What the detector sees as a
-privileged role is the mechanism that makes the hook's exclusivity permanent —
-the Immutable Pact described at the top of `ToshToken.sol`. Supply is bounded
-independently by the `MAX_SUPPLY` check inside `mint`, which needs nobody to
-intervene, and there is deliberately no kill-switch to intervene with.
+detector reads these backwards too. The token has no owner at all.
+`MINTER_ROLE` is granted once, to the hook, inside an `initialize` the factory
+calls exactly once, and **`DEFAULT_ADMIN_ROLE` is left deliberately vacant**, so
+`grantRole` and `revokeRole` have no eligible caller for the rest of the token's
+life: the minter cannot be changed, added to, or taken away by anyone,
+including the platform. Supply is bounded independently by the `MAX_SUPPLY`
+check inside `mint`, and there is deliberately no kill-switch.
 
-**`unused-public-function`** — 8, all in `ToshLaunchpadHook`. Read by the
-frontend and by monitoring rather than by other contracts, which is not
-visible to a tool that only sees `src/`.
+**`unused-public-function`** — 10: on the hook `creator`, `projectTreasury`,
+`currentTierIndex`, `currentTierSold`, `phase2Minted`, `currentGenesisPrice`,
+`maxMintable` and `lastSwapBlock`, and on the lens `basePrice` and
+`publicLaunchAt`. Read by the frontend, by monitoring, and — for
+`currentGenesisPrice` — by the bid book through an interface, none of which is
+visible to a tool that only sees `src/` by name.
 
-It was 9 until 2026-09-21. `canRefund()` left the list because `refund()` now
-calls it instead of inlining its own copy of the seven-day comparison — the
-change that opened refunds immediately for a raise too small to carry a ladder,
-which gave the predicate two clauses and made a second copy of them a liability.
-The detector is right that it is now reachable internally; nothing was removed.
+**`unsafe-oz-erc721-mint`** — 1, `CircuitNFT.mint`. Deliberate. `_mint`
+rather than `_safeMint` means minting the developer's Circuit cannot call
+into the developer's address in the middle of `createLaunch`; a developer
+contract that cannot hold ERC-721s is the developer's choice to make.
 
-**`push-zero-opcode`** (10) and **`unspecific-solidity-pragma`** (7) — both
-follow from `pragma solidity ^0.8.26` plus `evm_version = "cancun"`. PUSH0 is
+**`missing-inheritance`** — 2, `ToshLaunchGateway` and `CircuitRevenueVault`,
+each matching a minimal interface declared elsewhere without importing it.
+Inheriting would pull another contract's interface file in for no behavioural
+change.
+
+**`push-zero-opcode`** (14) and **`unspecific-solidity-pragma`** (9) — both
+follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
 verified by execution against chain 56 — see `foundry.toml`).
 
-**`literal-instead-of-constant`** (15), **`large-numeric-literal`** (4),
-**`modifier-used-only-once`** (5), **`costly-loop`** (3),
-**`require-revert-in-loop`** (5), **`uninitialized-local-variable`** (3),
-**`local-variable-shadowing`** (1) — style findings with no behavioural claim.
-The uninitialised locals are accumulators written before first read on every
-path; the loops that revert are batch operations where partial application
-would be worse than rejection.
+**`local-variable-shadowing`** (15) — 14 are the fields of `ToshFactory.Config`,
+the constructor's argument struct, which are named after the state variables
+they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
+`_owner`, which shadows `Ownable`'s private slot and is handed straight to
+`Ownable`'s constructor. Nothing is shadowed at run time.
+
+**`literal-instead-of-constant`** (17), **`large-numeric-literal`** (8),
+**`modifier-used-only-once`** (6), **`costly-loop`** (4),
+**`require-revert-in-loop`** (6), **`uninitialized-local-variable`** (3) — style
+findings with no behavioural claim. The uninitialised locals are loop counters
+starting at zero; the loops that revert are batch operations (the bid book's
+fills, the factory's blacklist batches) or bounded ladder walks where partial
+application would be worse than rejection.
