@@ -7,7 +7,7 @@
  */
 
 import { quoteExactIn, spotToken0PerToken1, priceImpact } from './clmath.mjs'
-import { TAX_BPS, BPS, QUOTE_DECIMALS, TOKEN_DECIMALS } from './config.mjs'
+import { TAX_BPS, BPS, TOKEN_DECIMALS } from './config.mjs'
 
 /**
  * Quote one leg.
@@ -43,21 +43,21 @@ export function quoteLeg(pool, amountIn, side) {
     sqrtPriceAfter,
     impact: priceImpact(pool.sqrtPriceX96, sqrtPriceAfter),
     hookTax: (amountIn * TAX_BPS) / BPS,
-    decimalsIn: zeroForOne ? QUOTE_DECIMALS : TOKEN_DECIMALS,
-    decimalsOut: zeroForOne ? TOKEN_DECIMALS : QUOTE_DECIMALS,
+    decimalsIn: zeroForOne ? pool.quoteDecimals : TOKEN_DECIMALS,
+    decimalsOut: zeroForOne ? TOKEN_DECIMALS : pool.quoteDecimals,
   }
 }
 
 /** Quote-asset price of one whole project token. */
 export function spotPrice(pool) {
-  return spotToken0PerToken1(pool.sqrtPriceX96, QUOTE_DECIMALS, TOKEN_DECIMALS)
+  return spotToken0PerToken1(pool.sqrtPriceX96, pool.quoteDecimals, TOKEN_DECIMALS)
 }
 
 /**
  * Round-trip cost at a given size, as a fraction.
  *
  * Buying and immediately selling back returns less than it cost by roughly 2.6%
- * before price impact — two legs of a 1% hook tax and a 0.30% pool fee — which
+ * before price impact — two legs of the 1% hook tax and the 0.30% pool fee — which
  * is the friction any holder pays to get in and out.
  */
 export function roundTripCost(pool, amountIn) {
