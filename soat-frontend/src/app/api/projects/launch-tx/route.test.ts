@@ -27,6 +27,8 @@ interface Calls {
   /** The same, for the public endpoint the route consults second. */
   publicScans: [string, string][]
   blocks:   bigint[]
+  /** The factory addresses each scan filtered on, lowercased. */
+  addresses: string[][]
 }
 
 let calls: Calls
@@ -76,9 +78,10 @@ function endpoint(
       // the range — enough for the bisection to have something to converge on.
       return { timestamp: CREATED_AT - (HEAD - blockNumber) / 10n }
     },
-    request: async ({ params }: { params: [{ fromBlock: string; toBlock: string }] }) => {
-      const { fromBlock, toBlock } = params[0]
+    request: async ({ params }: { params: [{ fromBlock: string; toBlock: string; address: string[] }] }) => {
+      const { fromBlock, toBlock, address } = params[0]
       scans().push([fromBlock, toBlock])
+      calls.addresses.push(address.map(a => a.toLowerCase()))
       const isFullRange = fromBlock === '0x0' && toBlock === 'latest'
       const err = rangeError()
       if (isFullRange && err) throw err
@@ -107,7 +110,7 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
-  calls = { reads: [], scans: [], publicScans: [], blocks: [] }
+  calls = { reads: [], scans: [], publicScans: [], blocks: [], addresses: [] }
   chainOk = true
   creator = CREATOR
   fullRangeError = null
@@ -145,6 +148,14 @@ describe('GET /api/projects/launch-tx', { timeout: 20_000 }, () => {
     // The fast path only. Nothing needed the bisection, so nothing paid for it.
     expect(calls.scans).toEqual([['0x0', 'latest']])
     expect(calls.blocks).toEqual([])
+  })
+
+  it('scans the v2 factories too, which emit the same LaunchCreated', async () => {
+    const v2 = '0x5FbDB2315678afecb367f032d93F642f64180aa3'
+    vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', v2)
+    expect((await get(HOOK)).status).toBe(200)
+    expect(calls.addresses[0]).toContain(v2.toLowerCase())
+    expect(calls.addresses[0]).toContain('0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0')
   })
 
   it('caches the answer, because a launch is created exactly once', async () => {

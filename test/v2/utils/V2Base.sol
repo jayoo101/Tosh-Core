@@ -65,7 +65,8 @@ abstract contract V2Base is Test {
 
         vm.startPrank(admin);
         book = new ToshBidBook(feeSafe);
-        ladder = new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0));
+        ladder =
+            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0), 0.3 ether);
         factory = _deployFactory(address(quote), MIN_BUY, true);
         ladder.setFactory(address(factory));
         address[] memory fs = new address[](1);

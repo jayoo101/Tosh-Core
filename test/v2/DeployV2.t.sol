@@ -127,6 +127,9 @@ contract DeployV2Test is Test {
         _checkStack(b, address(wbnb), true, 0.01e18, 500e18, 0.1e18);
         assertEq(ToshFactory(b.factory).minAgentCap(), 0.1e18);
         _checkStack(u, address(usdt), false, 5e18, 300_000e18, 30_000e18);
+        assertEq(ToshLadderTreasury(b.treasury).TRIGGER_STEP(), 0.3e18);
+        assertEq(ToshLadderTreasury(u.treasury).TRIGGER_STEP(), 180e18, "a USDT step is dollars, not 0.3");
+        assertEq(ToshLaunchpadHook(payable(u.hookImplementation)).PIGGYBACK_TRIGGER_STEP(), 180e18);
 
         // The deployer keeps nothing once the Safe accepts.
         _accept(b);

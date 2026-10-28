@@ -37,6 +37,9 @@ interface ISafeOwners {
 //    BNB_AGENTCAP_MIN [0.1e18]   BNB_AGENTCAP_MAX [0.1e18]   (ten 0.01 BNB shares per Agent ID)
 //    USDT_MIN_BUY [5e18]    USDT_HARDCAP_MIN [500e18] USDT_HARDCAP_MAX [300000e18]
 //    USDT_AGENTCAP_MIN [5e18]    USDT_AGENTCAP_MAX [30000e18]
+//    BNB_TRIGGER_STEP [0.3e18]   USDT_TRIGGER_STEP [180e18]
+//      reservoir balance that arms a buyback leg (~125k gas). Keep the two
+//      at about the same value: 0.3e18 USDT would fire on nearly every buy.
 //
 //  On chain 56 the registry, WBNB, USDT and fee recipient are asserted against
 //  the known mainnet addresses.
@@ -46,6 +49,8 @@ interface ISafeOwners {
 //  After broadcast the Safe must `acceptOwnership()` on both factories and both
 //  treasuries, then (optionally) hand each factory to its gateway:
 //  `factory.transferOwnership(gateway)` + `gateway.execute(acceptOwnership())`.
+//  `node scripts/v2SafeAccept.mjs <chainId> [--handoff]` writes both steps as
+//  one Safe Transaction Builder batch from `deployments/v2-<chainId>.json`.
 // ─────────────────────────────────────────────────────────────────────────────
 contract DeployV2 is Script {
     address internal constant MAINNET_AGENT_REGISTRY = 0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F;
@@ -86,6 +91,7 @@ contract DeployV2 is Script {
             e.wbnb,
             true,
             vm.envOr("BNB_MIN_BUY", uint256(0.01e18)),
+            vm.envOr("BNB_TRIGGER_STEP", uint256(0.3e18)),
             [
                 vm.envOr("BNB_HARDCAP_MIN", uint256(1e18)),
                 vm.envOr("BNB_HARDCAP_MAX", uint256(500e18)),
@@ -99,6 +105,7 @@ contract DeployV2 is Script {
             e.usdt,
             false,
             vm.envOr("USDT_MIN_BUY", uint256(5e18)),
+            vm.envOr("USDT_TRIGGER_STEP", uint256(180e18)),
             [
                 vm.envOr("USDT_HARDCAP_MIN", uint256(500e18)),
                 vm.envOr("USDT_HARDCAP_MAX", uint256(300_000e18)),
@@ -155,9 +162,12 @@ contract DeployV2 is Script {
         address quote,
         bool native,
         uint256 minBuy,
+        uint256 triggerStep,
         uint256[4] memory bounds
     ) internal returns (Stack memory s) {
-        ToshLadderTreasury treasury = new ToshLadderTreasury(e.poolManager, e.vault, e.deployer, quote, address(0));
+        ToshLadderTreasury treasury = new ToshLadderTreasury(
+            e.poolManager, e.vault, e.deployer, quote, address(0), triggerStep
+        );
         s.treasury = address(treasury);
 
         address predicted = vm.computeCreateAddress(e.deployer, vm.getNonce(e.deployer) + 1);

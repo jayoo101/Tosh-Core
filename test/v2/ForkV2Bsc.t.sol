@@ -39,7 +39,7 @@ contract ForkV2BscTest is Test {
 
         vm.startPrank(admin);
         ToshBidBook book = new ToshBidBook(makeAddr("fee"));
-        ToshLadderTreasury ladder = new ToshLadderTreasury(CL_POOL_MANAGER, VAULT, admin, WBNB, address(0));
+        ToshLadderTreasury ladder = new ToshLadderTreasury(CL_POOL_MANAGER, VAULT, admin, WBNB, address(0), 0.3 ether);
         address predicted = vm.computeCreateAddress(admin, vm.getNonce(admin) + 1);
         ToshLaunchpadHook impl = new ToshLaunchpadHook(
             CL_POOL_MANAGER, VAULT, predicted, address(ladder), makeAddr("platform"), WBNB, REGISTRY, 0.01e18, true

@@ -596,13 +596,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    Held here so `afterSwap` can decide whether the poke is worth
     ///         making without paying for a call to find out — see the comment at
-    ///         the call site.  Mirroring a constant across two contracts is a
-    ///         coupling, and the failure mode if it drifts is quiet (a buyback
-    ///         that never fires, or a poke on every swap), so
-    ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
-    ///         equal.  Reading it from the treasury instead would cost the very
-    ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 0.3 ether;
+    ///         the call site.  Copied from the treasury once, in the constructor,
+    ///         so the two cannot drift; clones delegate to this implementation
+    ///         and read the same value.
+    uint256 public immutable PIGGYBACK_TRIGGER_STEP;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.
@@ -1266,6 +1263,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
+        PIGGYBACK_TRIGGER_STEP = IToshLadderTreasury(_ladderTreasury).TRIGGER_STEP();
         platformFeeRecipient = payable(_platformFeeRecipient);
         quoteAsset = IERC20(_quoteAsset);
         agentRegistry = _agentRegistry;
@@ -2889,6 +2887,7 @@ interface IWrappedNativeDeposit {
 interface IToshLadderTreasury {
     function autoPiggybackBuyback() external;
     function piggybackActive() external view returns (bool);
+    function TRIGGER_STEP() external view returns (uint256);
 }
 
 /// @dev Minimal factory view for the ladder halt.  Declared here rather than

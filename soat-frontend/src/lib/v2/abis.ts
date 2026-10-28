@@ -5919,6 +5919,11 @@ export const V2_TREASURY_ABI = [
         "name": "_legacyFactory",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_triggerStep",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"

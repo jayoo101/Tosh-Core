@@ -476,11 +476,18 @@ contract PostLaunchTest is V2Base {
         ladder.setFactory(address(1));
     }
 
+    function test_hookTriggerMirrorsItsTreasury() public view {
+        assertEq(hook.PIGGYBACK_TRIGGER_STEP(), ladder.TRIGGER_STEP());
+    }
+
     function test_revert_treasury_constructorZeros() public {
         vm.expectRevert(ToshLadderTreasury.ZeroAddress.selector);
-        new ToshLadderTreasury(address(0), address(vault), admin, address(quote), address(0));
+        new ToshLadderTreasury(address(0), address(vault), admin, address(quote), address(0), 0.3 ether);
+        vm.expectRevert(ToshLadderTreasury.ZeroAddress.selector);
+        new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0), 0);
         ToshLadderTreasury fresh =
-            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0));
+            new ToshLadderTreasury(address(poolManager), address(vault), admin, address(quote), address(0), 300e18);
+        assertEq(fresh.TRIGGER_STEP(), 300e18, "step is per deployment");
         vm.prank(admin);
         vm.expectRevert(ToshLadderTreasury.ZeroAddress.selector);
         fresh.setFactory(address(0));

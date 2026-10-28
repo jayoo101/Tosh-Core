@@ -28,6 +28,7 @@ import { encodeEventTopics } from 'viem'
 import type { Address, Hex, PublicClient } from 'viem'
 
 import { FACTORY_ABI, HOOK_ABI, LISTED_FACTORIES } from '@/lib/contracts'
+import { V2_FACTORIES } from '@/lib/v2/config'
 import { applyCors, applyRateLimit, corsPreflight } from '@/app/lib/apiGuard'
 import { assertServerChain, publicFallbackClient, serverPublicClient } from '@/app/lib/serverRpc'
 import { reportError } from '@/lib/observability'
@@ -122,8 +123,9 @@ async function scan(
   const logs = await client.request({
     method: 'eth_getLogs',
     params: [{
-      // Every listed factory: a retired one emitted the same `LaunchCreated`.
-      address: [...LISTED_FACTORIES],
+      // Every listed factory: a retired one and the v2 ones emit the same
+      // `LaunchCreated`, so one topic filter covers all of them.
+      address: [...LISTED_FACTORIES, ...V2_FACTORIES],
       topics,
       fromBlock: `0x${fromBlock.toString(16)}`,
       toBlock: toBlock === 'latest' ? 'latest' : `0x${toBlock.toString(16)}`,
