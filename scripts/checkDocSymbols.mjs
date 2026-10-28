@@ -56,14 +56,8 @@ const DOC_DIR = join(REPO, 'docs');
 //   Note what this does NOT cover: `isCandidate` drops SCREAMING_SNAKE_CASE,
 //   so the Solidity constants in the README appendix and the whitepaper's
 //   parameter tables are still ungated here and were checked against `src/` by
-//   hand. For the whitepaper that hand-check is the one recorded in §0.
-//
-//   WHITEPAPER_zh.md is OUT until its v2 revision lands. It still describes v1,
-//   whose symbols left the tree with legacy/, so gating it would mean either a
-//   permanently red step or an allowlist of every v1 name — and an allowlist that
-//   size is where the next real dangling name hides. Put it back in this list in
-//   the same commit as the revision.
-const DOCS = ['../README.md'];
+//   hand.
+const DOCS = ['../README.md', 'WHITEPAPER_zh.md'];
 
 // Backticked identifiers, >= 6 chars, optional trailing (). Both cases are
 // wanted: `registerPoG` for functions and members, and `InvalidSignature` for
