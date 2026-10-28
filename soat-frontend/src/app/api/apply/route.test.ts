@@ -15,7 +15,7 @@ const CHAT = '-1001234567890'
 const VALID = {
   projectName: 'TapeLens',
   demoOrRepo: 'https://github.com/example/tapelens 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  ecosystemIntegration: '调用电路 ID 42，每次查询消耗 1 $BEM',
+  ecosystemIntegration: '链上数据看板，代币用于解锁高级查询',
   telegramHandle: 't.me/tapelens_dev',
   rulesAccepted: true,
   locale: 'zh-CN',
@@ -70,7 +70,7 @@ describe('POST /api/apply', () => {
     expect(card.text).toContain('Project: TapeLens')
     expect(card.text).toContain('Telegram: @tapelens_dev  https://t.me/tapelens_dev')
     expect(card.text).toContain('https://github.com/example/tapelens\n0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
-    expect(card.text).toContain('调用电路 ID 42')
+    expect(card.text).toContain('代币用于解锁高级查询')
     expect(card.text).toContain('Locale: zh-CN')
   })
 

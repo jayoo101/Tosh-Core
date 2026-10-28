@@ -14,7 +14,7 @@ export const APPLICATION_LIMITS = {
   projectName: 40,
   demoOrRepo: 300,
   ecosystemIntegration: 200,
-  /** Below this, the answer cannot name a circuit or a BEM flow. */
+  /** Below this, the answer cannot say what the project or token is for. */
   ecosystemIntegrationMin: 10,
   /** Links or addresses in `demoOrRepo`. */
   demoOrRepoItems: 3,
@@ -88,10 +88,10 @@ export function formatApplicationCard(a: ApplicationInput, meta: { locale: strin
     'Verifiable output:',
     a.demoOrRepo,
     '',
-    'TapeOut / $BEM integration:',
+    'Project and token use:',
     a.ecosystemIntegration,
     '',
-    'Rules (ownerless launch + shelf mechanism): accepted',
+    'Launch rules: accepted',
     `Locale: ${meta.locale} · ${meta.at.toISOString()}`,
   ].join('\n')
 }

@@ -170,7 +170,7 @@ export function useTxLifecycleToast(args: UseTxToastArgs): void {
    *
    * ⚠ A LABEL PASSED IN STILL WINS. Each `??` keeps the caller's override ahead
    *   of the dictionary, because that override is itself already translated —
-   *   `RefundPanel` hands over `t.refund.txConfirmed`. Reversing the precedence
+   *   it comes from the surface's own dictionary group. Reversing the precedence
    *   would replace every surface's specific line with the generic one.
    */
   const t = useT()

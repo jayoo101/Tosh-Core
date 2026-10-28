@@ -28,8 +28,6 @@ export {
   formatCountdownMs,
   formatDuration,
   formatExact,
-  formatQuote,
-  formatQuoteExact,
   formatHorizonLabel,
   formatHorizonUtc,
   percentOf,

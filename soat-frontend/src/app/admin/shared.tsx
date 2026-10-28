@@ -3,21 +3,15 @@
 /**
  * Admin console · shared surface.
  *
- * The minimal primitives every governance panel renders through, and the
- * parsing helpers they share.  Split out of the former 2.4k-line page.tsx so a
- * panel is editable without scrolling past eighteen others.
+ * The minimal primitives the console's panels render through.
  *
  * Buttons and transaction feedback are deliberately NOT here: they come from
  * `@/components/ui` (`ActionButton` + `useActionGate` + `useTxAction`), which is
- * the same mechanism the rest of the app uses.  The page's owner verdict rides
- * on that mechanism's ambient gate, set once in page.tsx.
+ * the same mechanism the rest of the app uses.
  */
 
 import { useEffect } from 'react'
-import { parseUnits, formatUnits, isAddress, getAddress } from 'viem'
-import { ADMIN_BATCH_MAX, testnetExplorerAddress } from '@/lib/contracts'
-import { QUOTE_DECIMALS, QUOTE_SYMBOL } from '@/lib/contracts'
-import { NATIVE_SYMBOL } from '@/lib/chain'
+import { testnetExplorerAddress } from '@/lib/contracts'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MINIMAL PRIMITIVES — every visual is a 1 px line or a typeface contrast
@@ -130,33 +124,6 @@ export function Field({
                     text-text-primary placeholder:text-text-quiet tabular-nums
                     disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors duration-150`}
-      />
-      {hint && <span className="text-label text-text-tertiary tracking-wider">{hint}</span>}
-    </label>
-  )
-}
-
-export function TextAreaField({
-  label, hint, value, onChange, placeholder, disabled, rows = 4,
-}: {
-  label:        string
-  hint?:        React.ReactNode
-  value:        string
-  onChange:     (v: string) => void
-  placeholder?: string
-  disabled?:    boolean
-  rows?:        number
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className={labelCls}>{label}</span>
-      <textarea
-        rows={rows} value={value} placeholder={placeholder} disabled={disabled}
-        onChange={e => onChange(e.target.value)}
-        className="bg-transparent border border-border-subtle focus:border-brand
-                   px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-quiet
-                   tabular-nums resize-y transition-colors duration-150
-                   disabled:opacity-40"
       />
       {hint && <span className="text-label text-text-tertiary tracking-wider">{hint}</span>}
     </label>
@@ -295,69 +262,6 @@ export function ConfirmDialog({
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type AddressRowStatus = 'valid' | 'duplicate' | 'invalid' | 'over-cap'
-
-export interface ParsedAddressRow {
-  index:   number
-  raw:     string
-  status:  AddressRowStatus
-  display: string
-}
-
-export function parseAddressGrid(raw: string): ParsedAddressRow[] {
-  const tokens = raw.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean)
-  const seen   = new Set<string>()
-  return tokens.map((tok, i) => {
-    if (!isAddress(tok)) {
-      return { index: i, raw: tok, status: 'invalid', display: tok }
-    }
-    const checksum = getAddress(tok)
-    if (i >= ADMIN_BATCH_MAX) {
-      return { index: i, raw: tok, status: 'over-cap', display: checksum }
-    }
-    if (seen.has(checksum)) {
-      return { index: i, raw: tok, status: 'duplicate', display: checksum }
-    }
-    seen.add(checksum)
-    return { index: i, raw: tok, status: 'valid', display: checksum }
-  })
-}
-
-export function trimEthDisplay(units: string): string {
-  if (!units.includes('.')) return units
-  return units.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0'
-}
-
-/**
- * Every caller formats a SETTLEMENT figure — the default soft cap, the PoG
- * allocation ceiling, the treasury balance and its next spend — so the suffix
- * and the scale both follow the quote asset. Nothing here formats a
- * Proof-of-Gas floor or a lifetime-gas total; those stay ETH-denominated and are
- * printed by `Monitors.tsx`, which spells the unit out per row for exactly that
- * reason.
- *
- * ⚠ THE LAUNCH FEE WAS ON THAT LIST AND IS NOT A SETTLEMENT FIGURE. It went
- *   back to the chain's own coin at 18 decimals; `fmtNative` prints it and
- *   `parseNativeInput` reads it, which is what `FactoryDials` actually calls.
- *   The list below says it is load-bearing, and it was: naming the fee here
- *   pointed the next reader at the 8-decimal pair, and that direction is the
- *   silent one — a typed `0.005` parses to 500000 wei and sets successfully.
- *
- * RENAMED FROM `fmtEth`, and the rename is the point rather than tidying. The old
- * name was accurate while settlement was native, and it went on compiling after
- * settlement moved to an 8-decimal ERC-20 — printing every one of the figures above
- * at 18 decimals. A launch fee of 9.28 came out as `9.28e-8 BNB`: the right digits,
- * the wrong scale, the wrong ticker, and nothing anywhere to flag it. Leaving the
- * name would have left the next reader no reason to look.
- *
- * The list in the first paragraph is load-bearing. A caller that formats gas or a
- * lifetime-ETH total belongs on `formatEstimateEth`, not here.
- */
-export function fmtQuote(units: bigint | undefined): string {
-  if (units === undefined) return '—'
-  return `${trimEthDisplay(formatUnits(units, QUOTE_DECIMALS))} ${QUOTE_SYMBOL}`
-}
-
 export function fmtDuration(sec: bigint, zeroHint: string): string {
   const n = Number(sec)
   if (n === 0)   return zeroHint
@@ -366,87 +270,3 @@ export function fmtDuration(sec: bigint, zeroHint: string): string {
   if (n < 86400) return `${(n / 3600).toFixed(2)} h`
   return `${(n / 86400).toFixed(2)} d`
 }
-
-/**
- * Parse a quote-asset field. Zero is a legitimate value for fees.
- *
- * ⚠ THIS IS THE WRITE PATH FOR EVERY FACTORY DIAL, so the scale here is not a
- * display concern. `parseUnits(raw, 18)` is what it said, and against an 8-decimal
- * quote asset that turns a typed `9.28` into 9.28e18 base units — ten orders of
- * magnitude above the 928e8 ceiling — so `setLaunchFee`, `setDefaultSoftCap` and
- * `setPogAllocationLimit` would each have been handed a figure the factory reverts.
- *
- * Which is, for once, the good outcome: `MAX_LAUNCH_FEE` and friends exist precisely
- * to catch a slip of this size, so the transaction fails instead of setting a launch
- * fee of 9.28 billion. The UI's own ceiling checks compare against the same 8-decimal
- * constants and would have blocked it one step earlier still. The damage was confined
- * to every dial being unusable — arming nothing, refusing every legal value — which
- * is how the admin tests found it.
- *
- * The name keeps "Eth" only because it is referenced across the admin panels and the
- * unit it takes is now stated here; the argument for renaming it is the same one that
- * moved `fmtEth` to `fmtQuote`, and it is worth doing next time this file is touched.
- */
-export function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
-  return parseAtScale(raw, QUOTE_DECIMALS)
-}
-
-/**
- * The same parse at 18 decimals, for the one dial denominated in the chain's
- * own coin.
- *
- * ⚠ `launchFee` IS THAT DIAL AND IT IS THE ONLY ONE. Everything else the admin
- *   console writes — `defaultSoftCap`, `maxPogAllocationLimit` — is 8-decimal
- *   BEM and belongs on `parseEthInput`. Routing the fee through that one parses
- *   a typed `0.005` into 500000 wei, which is not a revert and not a visible
- *   error: it is a fee of half a millionth of a cent, set successfully, and
- *   discovered when the anti-spam toll stops deterring anything.
- *
- *   The reverse slip is louder and therefore safer — a BEM dial sent through
- *   this one lands ten orders of magnitude above `MAX_DEFAULT_SOFT_CAP` and
- *   the panel refuses it inline. Only this direction is silent, which is why
- *   the two are separate functions rather than a decimals argument with a
- *   default.
- */
-export function parseNativeInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string | null } {
-  return parseAtScale(raw, 18)
-}
-
-function parseAtScale(
-  raw: string,
-  decimals: number,
-): { ok: true; value: bigint } | { ok: false; reason: string | null } {
-  const trimmed = raw.trim()
-  if (!trimmed) return { ok: false, reason: null }
-  try {
-    const value = parseUnits(trimmed, decimals)
-    if (value < 0n) return { ok: false, reason: 'Negative amount' }
-    return { ok: true, value }
-  } catch {
-    return { ok: false, reason: 'Invalid number format' }
-  }
-}
-
-/** A native-coin amount, for the launch fee readout. */
-export function fmtNative(wei: bigint | undefined): string {
-  if (wei === undefined) return '—'
-  return `${trimEthDisplay(formatUnits(wei, 18))} ${NATIVE_SYMBOL}`
-}
-
-export function shortErr(e: { message?: string } | null | undefined): string | null {
-  if (!e?.message) return null
-  return e.message.split('\n')[0]!.slice(0, 200)
-}
-
-/**
- * Re-exported so the admin modules keep importing the clock from one place.
- *
- * The local implementation this replaces seeded its state with `Date.now()`,
- * which makes the server snapshot and the hydration snapshot disagree by
- * construction — it only went unnoticed because a dev machine renders both with
- * the same clock. The shared store returns `CLOCK_UNSYNCED` (0) until the first
- * client tick instead, and both call sites here already funnel through
- * `classifyHorizon`, which reads 0 as "wall time not known yet" rather than
- * as 1970.
- */
-export { useNowSec } from '@/components/ui'

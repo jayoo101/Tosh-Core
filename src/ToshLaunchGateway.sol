@@ -6,13 +6,12 @@ interface IToshFactoryLaunch {
         string calldata name,
         string calldata symbol,
         address developer,
+        address projectFund,
         bytes32 hookSalt,
         uint256 hardCap,
-        uint256 walletCap,
+        uint256 perAgentCap,
         uint256 genesisDuration
     ) external returns (address token, address hook);
-
-    function launch(address hook) external;
 }
 
 interface ISafeOwners {
@@ -21,25 +20,20 @@ interface ISafeOwners {
 }
 
 /// @title  ToshLaunchGateway — lets each signer of the platform Safe list a project
-/// @notice Holds `ToshFactory` ownership on the Safe's behalf. `createLaunch` and
-///         `launch` are open to the Safe itself and to any of its CURRENT owners,
-///         so a signer can list a project from the site with their own wallet.
+/// @notice Holds `ToshFactory` ownership on the Safe's behalf. `createLaunch` is
+///         open to the Safe itself and to any of its CURRENT owners, so a signer
+///         can list a reviewed project from the site with their own wallet.
 ///         Every other owner-gated factory function is reachable only through
-///         `execute`, which only the Safe can call.
+///         `execute`, which only the Safe can call. One gateway per factory.
 ///
-/// @dev    A signer's key is therefore enough to list a project, and to open a
-///         round whose genesis has closed, but not to pause, unpause, blacklist,
-///         halt, re-key the PoG signer, or move ownership. Removing a signer from
-///         the Safe revokes their listing right in the same transaction, because
-///         `isOwner` is read live rather than copied in.
+/// @dev    A signer's key is therefore enough to list a project, but not to
+///         pause, blacklist, halt, retune bounds or move ownership. Removing a
+///         signer from the Safe revokes their listing right in the same
+///         transaction, because `isOwner` is read live rather than copied in.
 ///
 ///         The gateway is `msg.sender` to the factory, so it is what
 ///         `createLaunch` records as `creator` and binds `finalSalt` to: a hook
 ///         salt for a gateway-listed project must be mined against this address.
-///
-///         Leaving is `execute(transferOwnership(newOwner))` followed by the new
-///         owner's `acceptOwnership`; the gateway holds no other state and no
-///         funds, so nothing is stranded when it is retired.
 contract ToshLaunchGateway {
     IToshFactoryLaunch public immutable factory;
     ISafeOwners public immutable safe;
@@ -66,7 +60,7 @@ contract ToshLaunchGateway {
         _;
     }
 
-    /// @notice Whether `account` may call `createLaunch` and `launch` here.
+    /// @notice Whether `account` may call `createLaunch` here.
     function canLaunch(address account) public view returns (bool) {
         return account == address(safe) || safe.isOwner(account);
     }
@@ -82,17 +76,15 @@ contract ToshLaunchGateway {
         string calldata name,
         string calldata symbol,
         address developer,
+        address projectFund,
         bytes32 hookSalt,
         uint256 hardCap,
-        uint256 walletCap,
+        uint256 perAgentCap,
         uint256 genesisDuration
     ) external onlyLauncher returns (address token, address hook) {
-        return factory.createLaunch(name, symbol, developer, hookSalt, hardCap, walletCap, genesisDuration);
-    }
-
-    /// @notice `ToshFactory.launch`, unchanged, for the Safe or one of its owners.
-    function launch(address hook) external onlyLauncher {
-        factory.launch(hook);
+        return factory.createLaunch(
+            name, symbol, developer, projectFund, hookSalt, hardCap, perAgentCap, genesisDuration
+        );
     }
 
     /// @notice Forward any call to the factory as its owner. Safe only.

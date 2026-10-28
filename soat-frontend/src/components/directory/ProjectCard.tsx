@@ -30,15 +30,16 @@ import { useRouter } from 'next/navigation'
 import { ArrowUpRight } from 'lucide-react'
 import type { DirectoryProject } from './useDirectoryProjects'
 import { fmtQuote } from './useDirectoryProjects'
-import { LAUNCH_WINDOW_SECONDS, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { TARGET_CHAIN_ID } from '@/lib/contracts'
+import { V2 } from '@/lib/v2/config'
 import type { ProjectRow } from '@/app/lib/supabase'
 import { CLOCK_UNSYNCED, formatCountdown, Progress, useNowSec } from '@/components/ui'
-import { genesisWindow } from '@/components/ProjectTerminal/phase'
+import { genesisWindow } from './genesisWindow'
 import { ProjectLogo } from '@/components/ProjectLogo'
 import { rememberProject, prefetchProject } from '@/lib/projectCache'
 import { Emph, fill, useT, type Dictionary } from '@/i18n'
 
-function directoryToRow(p: DirectoryProject): ProjectRow {
+export function directoryToRow(p: DirectoryProject): ProjectRow {
   return {
     id:            p.token,
     // The directory this card came from only ever lists this deployment's
@@ -84,14 +85,12 @@ function directoryToRow(p: DirectoryProject): ProjectRow {
  * The mock's four tones, and they are the right four: `FUNDING` is the brand
  * colour because a funding round is the one thing on this card a visitor can
  * act on, `TRADING` is success, `AWAITING LAUNCH` is warning because it is a
- * deadline, and `ARCHIVED` is neutral rather than danger — the project is over,
- * which is not an error.
+ * deadline.
  *
- * `pulse` only on the two phases that are genuinely counting down. A breathing
- * pip on an archived row claims something is still happening.
+ * `pulse` only on the two phases that are genuinely counting down.
  */
 const PHASE: Record<DirectoryProject['tab'], {
-  label: 'pillLive' | 'pillLaunching' | 'pillCompleted' | 'pillArchived'
+  label: 'pillLive' | 'pillLaunching' | 'pillCompleted'
   cls: string
   pip: string
   pulse: boolean
@@ -114,12 +113,6 @@ const PHASE: Record<DirectoryProject['tab'], {
     pip: 'bg-success',
     pulse: false,
   },
-  archived: {
-    label: 'pillArchived',
-    cls: 'border-border-subtle bg-surface-hover text-text-secondary',
-    pip: 'bg-text-secondary',
-    pulse: false,
-  },
 }
 
 /** `8h 59m`, or `1d 6h` past a day — the mock's two-unit form. */
@@ -135,8 +128,8 @@ function coarse(seconds: number, t: Dictionary['directory']): string {
  *
  * Two different clocks, and reading the wrong one is how a healthy raise came
  * to show `00:00:00`. A `launching` card is already past its genesis deadline;
- * what is still ticking for it is the creator's window to call `launch()`,
- * after which refunds open to everyone.
+ * what is still ticking for it is the controller's window to call `launch()`,
+ * after which anyone may.
  */
 function Remaining({
   deadline, tab, precise = false,
@@ -150,7 +143,7 @@ function Remaining({
   const d = useT().directory
   if (nowSec === CLOCK_UNSYNCED) return <span>&nbsp;</span>
 
-  const target = tab === 'launching' ? deadline + LAUNCH_WINDOW_SECONDS : deadline
+  const target = tab === 'launching' ? deadline + BigInt(V2.ADMIN_LAUNCH_WINDOW_S) : deadline
   const left = Number(target) - nowSec
   if (precise) {
     return (
@@ -192,9 +185,7 @@ function GenesisTrack({
   const nowSec = useNowSec()
   if (nowSec === CLOCK_UNSYNCED) return null
 
-  const win = genesisWindow({
-    phase: 'genesis', genesisDeadline: deadline, genesisDuration: duration, nowSec,
-  })
+  const win = genesisWindow({ genesisDeadline: deadline, genesisDuration: duration, nowSec })
   if (!win) return null
 
   return <Progress pct={win.elapsedPct} variant={variant} burn />
@@ -320,21 +311,7 @@ function ProjectCardImpl({ project: p }: { project: DirectoryProject }) {
 
       {p.tab === 'launching' && (
         <div className="mt-card rounded-input border border-warning/30 bg-warning/5 px-3 py-2 font-mono text-micro uppercase text-warning">
-          {/* The mock reads "Soft cap cleared · ladder deploying", which
-              describes something automatic. Nothing deploys on its own here:
-              `launch()` is creator-only and expires after LAUNCH_WINDOW, at
-              which point every depositor is refunded instead. See v0 audit §D2. */}
           {d.waitingOnCreator}
-        </div>
-      )}
-
-      {p.tab === 'archived' && (
-        <div className="mt-card rounded-input border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-micro uppercase text-danger">
-          {/* NOT "launch window closed". A raise too small to open a pool is
-              archived the moment genesis ends, with most of the window still
-              unspent, so naming the window would be false on half these cards.
-              The refund is what both failures have in common. */}
-          {d.refundsOpen}
         </div>
       )}
 

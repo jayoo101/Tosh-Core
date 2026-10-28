@@ -14,13 +14,16 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 /// ── Selling a Circuit sells future revenue only ─────────────────────────────
 ///
 ///   Every transfer first sweeps the project's genesis pool fees into the vault
-///   (best effort — a sweep that reverts, e.g. before launch, is skipped), then
-///   pays the vault's quote-asset balance to the sender. Revenue earned up to
-///   the transfer belongs to the seller and arrives in the same transaction;
-///   the buyer starts from an empty vault. A buyer therefore
-///   has nothing to check before buying, and the vault needs no withdrawal
-///   delay: there is no accumulated balance for a seller to pull out from under
-///   a pending sale.
+///   (skipped before launch, when there are none; after launch a sweep that
+///   reverts reverts the transfer), then
+///   pays the vault's quote-asset balance to the sender, then pays the hook's
+///   accrued 20 % genesis fund to the address it currently names and points
+///   the fund at the buyer. Revenue earned up to the transfer belongs to the
+///   seller and arrives in the same transaction; the buyer starts from an
+///   empty vault and a fund address they control. A buyer therefore has
+///   nothing to check before buying, and the vault needs no withdrawal delay:
+///   there is no accumulated balance for a seller to pull out from under a
+///   pending sale.
 ///
 ///   Only the quote asset is settled. Anything else sent to a vault stays there
 ///   and moves with the NFT; the holder can withdraw it at any time.
@@ -47,6 +50,7 @@ contract CircuitNFT is ERC721 {
     uint256 public totalMinted;
 
     error OnlyFactory();
+    error FeeSweepFailed();
 
     constructor(address factory_, address quoteAsset_) ERC721("Tosh Circuit", "CIRCUIT") {
         require(factory_ != address(0), "zero factory");
@@ -76,16 +80,27 @@ contract CircuitNFT is ERC721 {
     function _update(address to, uint256 tokenId, address auth) internal override returns (address from) {
         from = super._update(to, tokenId, auth);
         if (from != address(0)) {
-            try ICircuitHook(ICircuitFactory(factory).hookOfCircuit(tokenId)).collectGenesisFees() {} catch {}
+            ICircuitHook hook = ICircuitHook(ICircuitFactory(factory).hookOfCircuit(tokenId));
+            // Before launch there are no fees and the sweep reverts by design.
+            // After it, a failed sweep is not "nothing to collect": a caller
+            // holding the Vault's lock makes it fail on purpose, and the fees
+            // it left behind would land in the buyer's vault.
+            try hook.collectGenesisFees() {}
+            catch {
+                if (hook.launched()) revert FeeSweepFailed();
+            }
             CircuitRevenueVault(vaultOf(tokenId)).settle(from);
+            ICircuitFactory(factory).settleProjectFund(tokenId, to);
         }
     }
 }
 
 interface ICircuitFactory {
     function hookOfCircuit(uint256 tokenId) external view returns (address);
+    function settleProjectFund(uint256 tokenId, address newFund) external;
 }
 
 interface ICircuitHook {
     function collectGenesisFees() external;
+    function launched() external view returns (bool);
 }

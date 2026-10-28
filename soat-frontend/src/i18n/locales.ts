@@ -10,9 +10,9 @@
  * content off the chain, so the prerendered HTML a crawler sees carries almost
  * no copy in any language. The SEO the prefix pays for does not exist yet.
  *
- * What the prefix would cost is concrete: seven pages move, and `/r/[code]`
- * referral links — already shared outside this app and impossible to recall —
- * would every one of them start taking a redirect hop through the negotiator.
+ * What the prefix would cost is concrete: every page moves, and every link
+ * already shared outside this app would start taking a redirect hop through
+ * the negotiator.
  *
  * So the locale rides in a cookie. If server-rendered marketing pages ever
  * arrive, prefixes are additive and can be put in front of this.

@@ -97,33 +97,17 @@ remappings = [
 
 # Cheatcode FS permissions.
 #
-# `./out` and `./soat-frontend` are read by ToshV5AbiTest, which compares the
-# frontend's `abis.ts` against the compiled artifacts. A stale ABI is the
-# failure that is worth catching here: wagmi encodes against a signature the
-# deployed contract no longer has, and the user sees an opaque revert at the
-# wallet prompt.
-#
-# There was a sibling permission for a hook-bytecode guard. It is gone, and the
-# reason is worth keeping: since hooks became EIP-1167 clones, the launch page
-# mines against `factory.hookInitcodeHash(...)` read from chain, so no local
-# copy of the hook's creation code is on the launch path at all. The guard was
-# pinning a constant nothing imported.
-#
-# `./src` is read by ToshV5LpMathVectorsTest, which needs the hook's genesis
-# tick bounds. They are `internal constant`, so there is neither a getter to
-# call nor an ABI entry to read — parsing the source is the only way to take
-# them from the contract instead of restating them in a second file.
+# `DeployV2.s.sol` writes its address book to `./deployments/v2-<chainid>.json`.
+# Nothing reads the tree, so nothing else is granted.
 fs_permissions = [
-    { access = "read", path = "./out" },
-    { access = "read", path = "./src" },
-    { access = "read", path = "./soat-frontend" },
+    { access = "read-write", path = "./deployments" },
 ]
 
 [profile.default.fuzz]
 runs = 256
 
 # ---------------------------------------------------------------------------
-# Stateful invariants (test/ToshV5Invariants.t.sol)
+# Stateful invariants (test/v2/LifecycleInvariant.t.sol, test/v2/BidBookInvariant.t.sol)
 #
 # `fail_on_revert = false` is required, not a concession: the handler drives a
 # real state machine, so a random sequence legitimately hits phase guards
@@ -233,9 +217,9 @@ lint_on_build = false
 # Network RPC endpoints (values read from .env via ${VAR} interpolation)
 # ---------------------------------------------------------------------------
 #
-# `bsc` is the production target (chain 56). It serves `ToshV5Fork.t.sol`,
-# `ToshV5ForkInfinity.t.sol` and `ToshV5FirstLaunchRehearsal.t.sol`, all three of
-# which read `BSC_RPC` directly rather than by alias.
+# `bsc` is the production target (chain 56). It serves `test/v2/ForkV2Bsc.t.sol`
+# and `test/ToshV5ForkInfinity.t.sol`, both of which read `BSC_RPC` directly
+# rather than by alias.
 #
 # `bsc_testnet` (97) is where the rehearsal actually runs, against the deployed
 # factory. This paragraph used to say the opposite — that 97 could not host a
@@ -246,22 +230,13 @@ lint_on_build = false
 # real chain there, and the frontend's default is 97. The V4/97 gap is in fact
 # why Infinity was chosen; see docs/PANCAKESWAP_INFINITY.md §2.
 #
-# `robinhood` / `robinhood_testnet` are retained but nothing reads them. Their
-# rationale used to be `ToshV5Fork.t.sol`, which now reads `BSC_RPC`; no alias
-# resolves to either entry today, and `ROBINHOOD_TESTNET_RPC` is not in `.env`
-# at all, so `robinhood_testnet` would not even interpolate if something tried.
-# They are kept only so the retired 4663 deployment stays re-verifiable, and
-# nothing new should be pointed at them.
-#
-# A public BSC endpoint is fine for forking but not for the watcher: the
-# dataseed nodes reject a 9,000-block `eth_getLogs` span. `BSC_RPC` wants a
-# keyed provider before anything indexes against it.
+# A public BSC endpoint is fine for forking but not for indexing: the dataseed
+# nodes reject a 9,000-block `eth_getLogs` span. `BSC_RPC` wants a keyed
+# provider before anything indexes against it.
 # ---------------------------------------------------------------------------
 [rpc_endpoints]
 bsc               = "${BSC_RPC}"
 bsc_testnet       = "${BSC_TESTNET_RPC}"
-robinhood         = "${ROBINHOOD_RPC}"
-robinhood_testnet = "${ROBINHOOD_TESTNET_RPC}"
 anvil             = "http://127.0.0.1:8545"
 
 # ---------------------------------------------------------------------------
@@ -289,18 +264,7 @@ anvil             = "http://127.0.0.1:8545"
 # Queried from `api.etherscan.io/v2/chainlist` rather than assumed — 56 and 97
 # are both listed, as bscscan.com and testnet.bscscan.com.
 #
-# That same query corrected a claim this section used to make. It asserted chain
-# 4663 was "absent from Etherscan v2's multichain host"; 4663 is in fact listed,
-# as robin.etherscan.io. What is genuinely absent is the TESTNET, 46630. So
-# Blockscout is not Robinhood's only option, only its testnet's — and the
-# `blockscout` key below is a placeholder Foundry requires rather than a secret,
-# which remains true and is why nothing for it belongs in `.env`.
-#
-# The Blockscout entries need `--verifier blockscout` on the command line; this
-# section only supplies the URL. See the deploy scripts' headers.
 # ---------------------------------------------------------------------------
 [etherscan]
 bsc               = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=56", chain = 56    }
 bsc_testnet       = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=97", chain = 97    }
-robinhood         = { key = "blockscout", url = "https://robinhoodchain.blockscout.com/api",           chain = 4663  }
-robinhood_testnet = { key = "blockscout", url = "https://explorer.testnet.chain.robinhood.com/api",    chain = 46630 }

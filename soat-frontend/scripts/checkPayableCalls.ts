@@ -27,7 +27,7 @@
  *
  * Payability is read from the ABIs the frontend actually ships, not from a list
  * kept here, so a new payable function is covered the day it lands. Today there
- * is exactly one (`createLaunch`) and two call sites.
+ * are a few, across the genesis buy, the bid book and the launch flow.
  *
  * It asserts a `value` key is PRESENT, never that the amount is right — that is
  * a question about two runtime figures and this is a source scan. Presence is
@@ -42,12 +42,14 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
-import { ERC20_ABI, FACTORY_ABI, HOOK_ABI, TREASURY_ABI } from '../src/app/lib/abis'
+import {
+  V2_BIDBOOK_ABI, V2_FACTORY_ABI, V2_HOOK_ABI, V2_LENS_ABI, V2_TOKEN_ABI, V2_TREASURY_ABI,
+} from '../src/lib/v2/abis'
 
 interface AbiEntry { type?: string; name?: string; stateMutability?: string }
 
 const ABIS: Record<string, readonly AbiEntry[]> = {
-  FACTORY_ABI, HOOK_ABI, TREASURY_ABI, ERC20_ABI,
+  V2_BIDBOOK_ABI, V2_FACTORY_ABI, V2_HOOK_ABI, V2_LENS_ABI, V2_TOKEN_ABI, V2_TREASURY_ABI,
 }
 
 /** Function names the shipped ABIs mark `payable`, with the ABI that says so. */
@@ -138,10 +140,25 @@ function enclosingObject(code: string, pos: number): [number, number] | null {
   return null
 }
 
-/** True when the object spanning `[open, close]` has a top-level `value:` key. */
+/**
+ * True when the object spanning `[open, close]` has a top-level `value:` key,
+ * or spreads one in conditionally: `...(native ? { value } : {})` is how a hook
+ * whose quote asset is an ERC-20 sends the same call with nothing attached.
+ */
 function hasValueKey(code: string, open: number, close: number): boolean {
   let depth = 0
   for (let i = open + 1; i < close; i++) {
+    if (depth === 0 && code.startsWith('...(', i)) {
+      let d = 0
+      let j = i + 3
+      for (; j < close; j++) {
+        if (code[j] === '(') d++
+        else if (code[j] === ')' && --d === 0) break
+      }
+      if (/\bvalue\s*:/.test(code.slice(i + 4, j))) return true
+      i = j
+      continue
+    }
     const c = code[i]
     if (c === '{' || c === '[' || c === '(') { depth++; continue }
     if (c === '}' || c === ']' || c === ')') { depth--; continue }
@@ -204,9 +221,9 @@ for (const file of sourceFiles('src')) {
 }
 
 // A guard that inspects nothing reports success, which is the failure mode this
-// file's own header describes. `createLaunch` is called from the launch page and
-// from `useTosh`; if neither is visible any more, the scan is broken — a renamed
-// key, a moved directory, a literal built by concatenation — not the call sites.
+// file's own header describes. If no payable call is visible any more, the scan
+// is broken — a renamed key, a moved directory, a literal built by
+// concatenation — not the call sites.
 if (checked === 0) {
   console.error('checkPayableCalls: found no calls to any payable function.')
   console.error(`  Expected at least one for [${[...payable.keys()].join(', ')}].`)

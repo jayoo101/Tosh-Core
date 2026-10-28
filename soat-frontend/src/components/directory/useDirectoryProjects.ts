@@ -4,42 +4,32 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useReadContracts } from 'wagmi'
 import { formatUnits, type Address } from 'viem'
 
-import {
-  FACTORY_ABI, LISTED_FACTORIES, HOOK_ABI, ERC20_ABI, HIDDEN_HOOKS,
-  QUOTE_DECIMALS, GENESIS_DURATIONS, quoteForFactory, type QuoteConfig,
-} from '@/lib/contracts'
+import { ERC20_ABI, QUOTE_DECIMALS, type QuoteConfig } from '@/lib/contracts'
 import { useIsHydrated, useNowSec } from '@/components/ui'
+import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORIES, v2QuoteConfig } from '@/lib/v2/config'
 
-export type DirectoryTab = 'live' | 'launching' | 'completed' | 'archived'
+export type DirectoryTab = 'live' | 'launching' | 'completed'
 
 export interface DirectoryProject {
   token:           Address
   hook:            Address
   creator:         Address
   createdAt:       bigint
-  /** The factory that created it — the current one, or a retired one still listed. */
+  /** The v2 factory that created it; it fixes the quote asset. */
   factory:         Address
   launched:        boolean
   genesisDeadline: bigint
-  /**
-   * The window the creator chose, in seconds — the countdown bar's denominator.
-   *
-   * DERIVED, NOT READ, and `0n` when the derivation cannot be trusted. See
-   * `deriveGenesisDuration`.
-   */
+  /** The window the creator chose, in seconds — the countdown bar's denominator. */
   genesisDuration: bigint
   totalNative:        bigint
-  /**
-   * What `totalNative` is denominated in. A retired factory's launches raised
-   * BEM at 8 decimals and the current one's raise WBNB at 18, so formatting
-   * either with the other's decimals is off by ten orders of magnitude.
-   */
+  /** What `totalNative` is denominated in: WBNB on the BNB factory, USDT on the other. */
   quote:           QuoteConfig
-  /** The hook's `canRefund()`. The `archived` tab is this and nothing else. */
-  canRefund:       boolean
   symbol:          string
   name:            string
   logoUrl:         string | null
+  /** The platform-set 16:9 card cover (migration 0007); absent or null means none. */
+  coverUrl?:       string | null
   website:         string | null
   twitter:         string | null
   description:     string | null
@@ -50,7 +40,7 @@ export interface DirectoryProject {
    * The only field here that is neither chain state nor presentation: it is an
    * editorial decision, and the one thing in the registry that changes what
    * order launches are shown in rather than what a card says. `null` is the
-   * normal case — see `AgentDirectoryHome` for what a live pin overrides, and
+   * normal case; a live pin puts the launch in the homepage feature slot. See
    * `supabase/migrations/0005_projects_featured.sql` for why it expires.
    *
    * A PAST TIMESTAMP IS NOT NORMALISED TO `null` HERE. The comparison belongs
@@ -65,66 +55,23 @@ export interface DirectoryProject {
 /**
  * How many launches back the enumeration reaches, newest first.
  *
- * Exported because a caller that presents itself as complete has to know it is
- * not. The directory can be bounded without lying — it sorts and filters a
- * recent window and says so — but `/referrals` claims to collect every project
- * that owes a wallet, and a referrer whose commission sits on launch #3 of 400
- * would be told they have none. That page reads this to bound its own claim.
+ * Per factory. The directory sorts and filters this recent window and says
+ * when it truncates.
  */
-export const SCAN_DEPTH = 48
+const SCAN_DEPTH = 48
 
 /**
- * The per-hook reads, in the order `rows` unpacks them.
- *
- * ONE list, so the stride cannot drift from the batch. These were written out
- * as literals in the `useReadContracts` call with a separate `i * 3` below and
- * a comment warning that the two "silently mis-read every field if they
- * disagree" — which is a hazard, not a mitigation. Adding `canRefund` was
- * exactly the edit that comment was afraid of, so the length now comes from
- * the list itself.
- *
- * `canRefund` costs the chain call `softCap` used to, and buys the one thing
- * the tabs cannot work out locally: whether a closed genesis owes refunds
- * today or in a week. The soft cap bought nothing — by the time it came out it
- * was displayed nowhere and bucketed on nothing.
+ * The per-hook reads, in the order `rows` unpacks them. `soldOutAt` is there
+ * because a sold-out genesis is closed even before its deadline.
  */
 const HOOK_READS = [
   'launched',
   'genesisDeadline',
-  'totalNativeDeposited',
-  'canRefund',
+  'raised',
+  'soldOutAt',
 ] as const
 
 const READS_PER_HOOK = HOOK_READS.length
-
-/**
- * The genesis window's length, without spending a read on it.
- *
- * `genesisDuration()` is the authority and this is not it, so the reason for
- * deriving has to be better than "one fewer call". It is: the value is frozen
- * at deployment, so polling it every 20 s re-fetches a constant — 48 of them to
- * paint one grid, on a list whose read budget is why `SCAN_DEPTH` exists at all.
- *
- * The identity is exact rather than approximate. `initializeToken` sets
- * `genesisDeadline = block.timestamp + duration`, and the factory pushes
- * `LaunchInfo(..., block.timestamp)` later in the SAME `createLaunch` call, so
- * both timestamps are one block's and the difference is the duration to the
- * second.
- *
- * ⚠ THAT IS AN INVARIANT ACROSS TWO CONTRACTS, which is exactly the kind of
- *   thing a later refactor breaks without meaning to. So this does not trust
- *   it: the hook rejects any duration that is not one of three rungs
- *   (`InvalidDuration`), so a difference that is not a rung cannot be a real
- *   duration, and the only honest answer is `0n`. `genesisWindow` draws nothing
- *   on `0n`, so the failure mode is a missing bar rather than a bar measuring
- *   the raise against a number no contract agrees with.
- */
-export function deriveGenesisDuration(genesisDeadline: bigint, createdAt: bigint): bigint {
-  if (genesisDeadline <= createdAt) return 0n
-  const span = genesisDeadline - createdAt
-  const rungs: readonly bigint[] = Object.values(GENESIS_DURATIONS)
-  return rungs.includes(span) ? span : 0n
-}
 
 interface RegistryRow {
   name:          string
@@ -138,6 +85,8 @@ interface RegistryRow {
   telegram:      string | null
   /** ISO-8601 from Postgres `timestamptz`, or absent on a row written before 0005. */
   featured_until: string | null
+  /** Absent on a row written before 0007. */
+  cover_url?:    string | null
 }
 
 /**
@@ -155,39 +104,11 @@ function parseFeaturedUntil(iso: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms
 }
 
-/// Order matters, and neither boundary is a funding level.
-///
-///   • `launching` once fired as soon as the soft cap was touched, while the
-///     window was still open. Nothing is launching then: deposits are still
-///     accepted and the creator cannot call `launch()` until the deadline
-///     passes.
-///   • After the deadline, an unlaunched raise is `launching` only while a
-///     launch is still possible. `archived` means the refund door is open.
-///
-/// ⚠ THIS USED TO DERIVE `archived` FROM THE 7-DAY CLOCK, and that is now a
-///   week late on every raise too small to carry a ladder. Those refund the
-///   moment genesis closes — `launch()` is arithmetically impossible on them,
-///   so there is no window to wait out — and the old rule filed them under
-///   `launching` for seven days: a countdown to a launch that could never
-///   happen, sitting on top of a refund the depositor could already take.
-///
-///   The justification that used to be here read "filing an under-target raise
-///   as `archived` advertised a refund the hook would reject". That sentence
-///   was true of the old hook and is now exactly backwards.
-///
-///   So the tab reads `canRefund()` instead of re-deriving it. That view is
-///   the contract's own answer and already folds in both doors, which is the
-///   whole reason it is worth a chain call: any local re-derivation is a
-///   second copy of a rule that has now changed once.
-///
-/// ⚠ THE SOFT CAP PARAMETER IS GONE, and its absence is the point rather than
-///   a tidy-up. It was `_softCap`, underscored because this function never
-///   read it — two revisions of a tab rule that both concluded the raise's
-///   size decides nothing about its phase. Keeping the argument invited the
-///   next reader to wire it back in.
+/// Neither boundary is a funding level: deposits run until the deadline (or
+/// sell-out), and an unlaunched genesis past it is waiting on `launch()`.
+/// v2 has no refunds, so there is no fourth state.
 export function bucket(
   launched: boolean,
-  canRefund: boolean,
   genesisDeadline: bigint,
   nowSec: number,
 ): DirectoryTab {
@@ -196,10 +117,7 @@ export function bucket(
   // nowSec === 0 means the clock has not ticked yet; do not call it expired.
   if (nowSec === 0 || Number(genesisDeadline) > nowSec) return 'live'
 
-  // A failed read defaults `canRefund` to false, which lands here as
-  // `launching`. That is the safe direction: it understates a refund rather
-  // than advertising one the hook would reject.
-  return canRefund ? 'archived' : 'launching'
+  return 'launching'
 }
 
 /**
@@ -231,9 +149,7 @@ function warnRegistryUnavailable(reason: string): null {
   return null
 }
 
-/** `includeHidden` is for views that owe a wallet something on every round —
- *  see `HIDDEN_HOOKS`. */
-export function useDirectoryProjects({ includeHidden = false }: { includeHidden?: boolean } = {}) {
+export function useDirectoryProjects() {
   const nowSec = useNowSec(BUCKET_CADENCE_MS)
   const [registry, setRegistry] = useState<Map<string, RegistryRow>>(new Map())
 
@@ -278,18 +194,17 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
     if (map) setRegistry(map)
   }, [fetchRegistry])
 
-  // Every listed factory, current first. A retired factory keeps its hooks for
-  // life, so its launches stay in the directory — see `LISTED_FACTORIES`.
+  // Both v2 factories; a launch lives on exactly one.
   const countsQuery = useReadContracts({
-    contracts: LISTED_FACTORIES.map(address => ({
-      address, abi: FACTORY_ABI, functionName: 'launchCount' as const,
+    contracts: V2_FACTORIES.map(address => ({
+      address, abi: V2_FACTORY_ABI, functionName: 'launchCount' as const,
     })),
     query: { refetchInterval: 30_000, staleTime: DIRECTORY_STALE_MS },
   })
   const countLoading = countsQuery.isLoading
   const refetchCount = countsQuery.refetch
   // Joined to a primitive so the memo below does not re-run on every poll.
-  const countsKey = LISTED_FACTORIES
+  const countsKey = V2_FACTORIES
     .map((_, i) => {
       const r = countsQuery.data?.[i]
       return r?.status === 'success' ? Number(r.result as bigint) : 0
@@ -301,7 +216,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
 
   const launchRefs = useMemo(() => {
     const counts = countsKey.split(',').map(Number)
-    return LISTED_FACTORIES.flatMap((factory, f) => {
+    return V2_FACTORIES.flatMap((factory, f) => {
       const n = counts[f] ?? 0
       const start = Math.max(0, n - SCAN_DEPTH)
       return Array.from({ length: n - start }, (_, i) => ({ factory, id: BigInt(start + i) }))
@@ -311,7 +226,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   // `launches(id)` is written once at deploy and never again.
   const launchesQuery = useReadContracts({
     contracts: launchRefs.map(({ factory, id }) => ({
-      address: factory, abi: FACTORY_ABI, functionName: 'launches' as const, args: [id] as const,
+      address: factory, abi: V2_FACTORY_ABI, functionName: 'launches' as const, args: [id] as const,
     })),
     query: { enabled: launchRefs.length > 0, staleTime: Infinity },
   })
@@ -322,11 +237,10 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
     launchesQuery.data.forEach((r, i) => {
       if (r.status !== 'success') return
       const t = r.result as readonly [Address, Address, Address, bigint]
-      if (!includeHidden && HIDDEN_HOOKS.has(t[1].toLowerCase())) return
       out.push({ token: t[0], hook: t[1], creator: t[2], createdAt: t[3], factory: launchRefs[i].factory })
     })
     return out
-  }, [launchesQuery.data, launchRefs, includeHidden])
+  }, [launchesQuery.data, launchRefs])
 
   // ERC-20 name and symbol are immutable, so they rode the 15s poll for
   // nothing: a third of every refresh re-read two constants per project.
@@ -340,7 +254,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
 
   const phaseQuery = useReadContracts({
     contracts: launches.flatMap(l =>
-      HOOK_READS.map(functionName => ({ address: l.hook, abi: HOOK_ABI, functionName })),
+      HOOK_READS.map(functionName => ({ address: l.hook, abi: V2_HOOK_ABI, functionName })),
     ),
     query: {
       enabled: launches.length > 0,
@@ -357,27 +271,26 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
     const ident = identityQuery.data
     const out: Omit<DirectoryProject, 'tab'>[] = []
     for (let i = 0; i < launches.length; i++) {
-      // Four reads per hook. This stride moves with the contract list above
-      // and silently mis-reads every field if the two disagree — it was three
-      // until `canRefund` joined the batch.
       const off = i * READS_PER_HOOK
       const ioff = i * 2
       const l = launches[i]
       const launched        = d[off]?.status === 'success' ? (d[off].result as boolean) : false
-      const genesisDeadline = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
+      const deadline        = d[off + 1]?.status === 'success' ? (d[off + 1].result as bigint) : 0n
       const totalNative        = d[off + 2]?.status === 'success' ? (d[off + 2].result as bigint) : 0n
-      const canRefund       = d[off + 3]?.status === 'success' ? (d[off + 3].result as boolean) : false
+      const soldOutAt       = d[off + 3]?.status === 'success' ? (d[off + 3].result as bigint) : 0n
+      const genesisDeadline = soldOutAt > 0n && soldOutAt < deadline ? soldOutAt : deadline
       const symbol          = ident?.[ioff]?.status === 'success' ? (ident[ioff].result as string) : '???'
       const name            = ident?.[ioff + 1]?.status === 'success' ? (ident[ioff + 1].result as string) : 'Unknown'
       const reg             = registry.get(l.token.toLowerCase())
       out.push({
         ...l,
-        launched, genesisDeadline, totalNative, canRefund,
-        quote: quoteForFactory(l.factory),
-        genesisDuration: deriveGenesisDuration(genesisDeadline, l.createdAt),
+        launched, genesisDeadline, totalNative,
+        quote: v2QuoteConfig(l.factory),
+        genesisDuration: deadline > l.createdAt ? deadline - l.createdAt : 0n,
         symbol: reg?.symbol || symbol,
         name: reg?.name || name,
         logoUrl: reg?.logo_url ?? null,
+        coverUrl: reg?.cover_url ?? null,
         website: reg?.website ?? null,
         twitter: reg?.twitter ?? null,
         description: reg?.description ?? null,
@@ -395,7 +308,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   // below pure and lets it hold its result until a tab genuinely flips.
   const tabKey = useMemo(
     () => rows
-      .map(r => bucket(r.launched, r.canRefund, r.genesisDeadline, nowSec))
+      .map(r => bucket(r.launched, r.genesisDeadline, nowSec))
       .join(','),
     [rows, nowSec],
   )
@@ -409,7 +322,6 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
     live:       projects.filter(p => p.tab === 'live').length,
     launching:  projects.filter(p => p.tab === 'launching').length,
     completed:  projects.filter(p => p.tab === 'completed').length,
-    archived:   projects.filter(p => p.tab === 'archived').length,
   }), [projects])
 
   // `/` is prerendered, and at build time wagmi reports `isLoading: false`
@@ -435,15 +347,7 @@ export function useDirectoryProjects({ includeHidden = false }: { includeHidden?
   return { projects, counts, loading, refetch, launchCount, truncated }
 }
 
-/**
- * A raise or a soft cap, for the cards and the feed.
- *
- * Renamed from `fmtQuote` and rescaled: every caller passes `totalNative` or
- * `softCap`, both of which are quote-asset amounts at 8 decimals. Left at 18 it
- * showed a 500-unit raise as `0.000005`, which reads as a project nobody has funded
- * rather than as a formatting fault — so every card in the directory would have
- * understated its progress bar by ten orders of magnitude while looking fine.
- */
+/** A raise, for the cards and the feed. */
 export function fmtQuote(units: bigint, decimals: number = QUOTE_DECIMALS): string {
   const n = Number(formatUnits(units, decimals))
   if (!Number.isFinite(n)) return '0'

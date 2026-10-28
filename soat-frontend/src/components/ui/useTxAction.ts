@@ -11,14 +11,12 @@
  *     write in this app must be pinned to `TARGET_CHAIN_ID` or a wallet parked
  *     on another network will happily broadcast to it.  Binding it here means
  *     a caller cannot forget, and cannot override it either.
- *   • `isBusy` is `isPending || isConfirming`, derived once.  Every panel in
- *     ProjectTerminal and admin/page re-derives that pair by hand today; hand
- *     this straight to `useActionGate({ tx })` instead.
+ *   • `isBusy` is `isPending || isConfirming`, derived once; hand it
+ *     straight to `useActionGate({ tx })`.
  *   • `abi` is typed as viem's widened `Abi`.  Per-function argument inference
- *     is given up deliberately: `HOOK_ABI` alone is ~130 entries and wagmi's
+ *     is given up deliberately: `V2_HOOK_ABI` is large enough that wagmi's
  *     per-entry mapped type blows past TypeScript's instantiation depth when
- *     it is threaded through another generic wrapper.  ProjectTerminal already
- *     hit this and left a comment about it.
+ *     it is threaded through another generic wrapper.
  */
 
 import { useCallback, useEffect, useRef } from 'react'

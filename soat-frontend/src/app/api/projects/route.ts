@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  isAddress,
-  parseAbi,
   parseEventLogs,
   recoverMessageAddress,
   type Address,
@@ -19,7 +17,8 @@ import {
   corsPreflight,
   readJsonBody,
 } from '../../lib/apiGuard'
-import { FACTORY_ABI, HOOK_ABI } from '../../lib/abis'
+import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORIES } from '@/lib/v2/config'
 import { assertServerChain, serverPublicClient } from '../../lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
@@ -52,15 +51,8 @@ const GET_RATE_LIMIT = {
  *  discover that by silently dropping projects. */
 const MAX_DIRECTORY_ROWS = 500
 
-const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
-
-/** The current factory plus any retired one the site still lists; lowercased. */
-const LISTED_FACTORY_SET = new Set(
-  [FACTORY_ADDRESS, ...(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES ?? '').split(',')]
-    .map((a) => a.trim())
-    .filter((a) => isAddress(a, { strict: false }))
-    .map((a) => a.toLowerCase()),
-)
+/** The v2 factories, lowercased; only their `LaunchCreated` logs authorise a listing. */
+const LISTED_FACTORY_SET = new Set(V2_FACTORIES.map((a) => a.toLowerCase()))
 
 export async function OPTIONS(req: NextRequest) {
   return corsPreflight(req, CORS_OPTS)
@@ -90,8 +82,8 @@ interface OnChainLaunch {
 async function readLaunchFromChain(
   txHash: Hex,
 ): Promise<{ launch: OnChainLaunch } | { error: NextResponse }> {
-  if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) {
-    console.error('[Tosh API] NEXT_PUBLIC_FACTORY_ADDRESS is unset or malformed')
+  if (LISTED_FACTORY_SET.size === 0) {
+    console.error('[Tosh API] NEXT_PUBLIC_V2_FACTORY_BNB / _USDT are unset or malformed')
     return {
       error: NextResponse.json(
         { error: 'Project verification is not configured on this deployment' },
@@ -154,7 +146,7 @@ async function readLaunchFromChain(
   // same signature, and an attacker who could point this at their own emitter
   // would be back to naming themselves creator.
   const logs = parseEventLogs({
-    abi: FACTORY_ABI,
+    abi: V2_FACTORY_ABI,
     eventName: 'LaunchCreated',
     logs: receipt.logs.filter(
       (l) => LISTED_FACTORY_SET.has(l.address.toLowerCase()),
@@ -184,34 +176,44 @@ async function readLaunchFromChain(
   }
 }
 
-const SAFE_OWNERS_ABI = parseAbi(['function getOwners() view returns (address[])'])
-
 /**
- * Whether `signer` may publish for `launch` without being its creator.
+ * Whether `signature` over `message` authorises publishing for `launch`.
  *
- * Launches are owner-only, and the owner is a Safe: a contract cannot
- * `personal_sign`, so a creator-only rule left every Safe-made launch without
- * a listing. Two other parties are vouched for by the chain itself — the
+ * Two parties are vouched for by the chain itself: the creator, and the
  * developer the hook was deployed for (`projectTreasury`, part of the clone's
- * immutable args), and, when the creator is a Safe, any of its current owners.
+ * immutable args). Launches are owner-only and the owner is a Safe, which
+ * cannot `personal_sign` — so a contract creator is checked through ERC-1271,
+ * i.e. the Safe's own threshold. Any single owner's key used to be enough,
+ * which let one compromised signer write a listing the 2-of-3 never approved,
+ * permanently, since there is no update route.
  *
  * `'unavailable'` is an RPC failure, kept apart from `false` so the caller can
  * answer 503 rather than telling an honest publisher they are not allowed.
  */
-async function isDelegatedPublisher(
+async function isAuthorisedPublisher(
   launch: OnChainLaunch,
-  signer: Address,
-): Promise<boolean | 'unavailable'> {
+  message: string,
+  signature: Hex,
+): Promise<{ ok: boolean; signer: Address | null } | 'unavailable'> {
   const client = serverPublicClient()
-  const me = signer.toLowerCase()
-  try {
-    const developer = await client.readContract({
-      address: launch.hook, abi: HOOK_ABI, functionName: 'projectTreasury',
-    }) as Address
-    if (developer.toLowerCase() === me) return true
 
+  let signer: Address | null = null
+  try {
+    signer = await recoverMessageAddress({ message, signature })
+  } catch { /* not an ECDSA signature; may still be the Safe's */ }
+
+  if (signer && signer.toLowerCase() === launch.creator.toLowerCase()) return { ok: true, signer }
+
+  let creatorIsContract: boolean
+  try {
+    if (signer) {
+      const developer = await client.readContract({
+        address: launch.hook, abi: V2_HOOK_ABI, functionName: 'projectTreasury',
+      }) as Address
+      if (developer.toLowerCase() === signer.toLowerCase()) return { ok: true, signer }
+    }
     const code = await client.getCode({ address: launch.creator })
-    if (!code || code === '0x') return false
+    creatorIsContract = !!code && code !== '0x'
   } catch (err) {
     reportError(err, {
       surface: 'api-route',
@@ -219,17 +221,55 @@ async function isDelegatedPublisher(
     })
     return 'unavailable'
   }
+  if (!creatorIsContract) return { ok: false, signer }
 
-  // A contract creator that is not a Safe has no `getOwners`, and that is an
-  // answer (nobody is vouched for), not an outage.
+  // A contract that does not implement ERC-1271, or rejects the signature, is
+  // an answer (not authorised), not an outage.
   try {
-    const owners = await client.readContract({
-      address: launch.creator, abi: SAFE_OWNERS_ABI, functionName: 'getOwners',
-    })
-    return owners.some((o) => o.toLowerCase() === me)
+    const ok = await client.verifyMessage({ address: launch.creator, message, signature })
+    return { ok, signer }
   } catch {
-    return false
+    return { ok: false, signer }
   }
+}
+
+const LOGO_URL_MAX = 512
+const LINK_MAX = 256
+const DESCRIPTION_MAX = 500
+
+/** Public URL prefix of the bucket `POST /api/projects/logo` writes to. */
+function logoPrefix(): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  return base ? `${base.replace(/\/+$/, '')}/storage/v1/object/public/project-logos/` : null
+}
+
+/**
+ * Why the presentation fields are unacceptable, or `null`.
+ *
+ * The logo must be one of our own content-addressed objects: any other URL is
+ * an `<img>` on every directory card, so its host sees every visitor and can
+ * swap the picture after listing. Links are rendered through `safeHref`, so
+ * they only need to be bounded strings.
+ */
+function presentationError(body: Partial<ProjectPayload>): string | null {
+  const { logoUrl, website, twitter, telegram, description } = body
+  for (const [k, v, max] of [
+    ['logoUrl', logoUrl, LOGO_URL_MAX], ['website', website, LINK_MAX], ['twitter', twitter, LINK_MAX],
+    ['telegram', telegram, LINK_MAX], ['description', description, DESCRIPTION_MAX],
+  ] as const) {
+    if (v === undefined || v === null) continue
+    if (typeof v !== 'string') return `${k} must be a string`
+    if (v.length > max) return `${k} is longer than ${max} characters`
+    if (k !== 'description' && /[\u0000-\u001f\u007f]/.test(v)) return `${k} contains control characters`
+  }
+  if (logoUrl) {
+    const prefix = logoPrefix()
+    if (!prefix || !logoUrl.startsWith(prefix) ||
+        !/^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(logoUrl.slice(prefix.length))) {
+      return 'logoUrl must be an image uploaded through this site'
+    }
+  }
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,6 +331,10 @@ export async function POST(req: NextRequest) {
   // what the signed message already uses, what `viem` returns from
   // `getTransactionReceipt`, and what the existing rows were written with.
   const txHash = rawTxHash.toLowerCase()
+  const fieldsBad = presentationError(body)
+  if (fieldsBad) {
+    return applyCors(NextResponse.json({ error: fieldsBad }, { status: 422 }), req, CORS_OPTS)
+  }
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]+$/.test(signature)) {
     return applyCors(
       NextResponse.json({ error: 'signature (hex string) required' }, { status: 401 }),
@@ -315,20 +359,7 @@ export async function POST(req: NextRequest) {
     description: description ?? '',
   })
 
-  let signer: Address
-  try {
-    signer = await recoverMessageAddress({ message, signature: signature as Hex })
-  } catch {
-    return applyCors(
-      NextResponse.json({ error: 'Invalid signature' }, { status: 401 }),
-      req,
-      CORS_OPTS,
-    )
-  }
-
-  const allowed = signer.toLowerCase() === launch.creator.toLowerCase()
-    ? true
-    : await isDelegatedPublisher(launch, signer)
+  const allowed = await isAuthorisedPublisher(launch, message, signature as Hex)
 
   if (allowed === 'unavailable') {
     return applyCors(
@@ -341,13 +372,13 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (!allowed) {
+  if (!allowed.ok) {
     console.warn('[Tosh API] project metadata signed by a non-creator', {
-      txHash, signer, creator: launch.creator,
+      txHash, signer: allowed.signer, creator: launch.creator,
     })
     return applyCors(
       NextResponse.json(
-        { error: "That signature is not from this launch's creator, its developer, or an owner of the creating Safe" },
+        { error: "That signature is not from this launch's creator or its developer. A Safe creator must sign as the Safe itself." },
         { status: 403 },
       ),
       req,

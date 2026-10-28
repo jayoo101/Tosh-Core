@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import sharp from 'sharp'
 import { getSupabaseAdmin, SupabaseAdminUnavailable } from '../../../lib/supabaseAdmin'
 import { applyCors, applyRateLimit, corsPreflight } from '../../../lib/apiGuard'
+import { consumeRateLimit } from '../../../lib/rateLimitStore'
 import { reportError } from '@/lib/observability'
 import { LOGO_MAX_BYTES } from '@/lib/logoUpload'
 
@@ -46,7 +48,12 @@ export { LOGO_MAX_BYTES }
  *   • the real bytes sniffed, because `file.type` is client-controlled and a
  *     declared `image/png` proves nothing;
  *   • object names derived from a hash of the content, so the caller never
- *     chooses a path and the same image twice is the same object.
+ *     chooses a path and the same image twice is the same object;
+ *   • the image decoded and re-encoded, so what is stored is pixels and
+ *     nothing else: a valid header followed by HTML or a ZIP would otherwise
+ *     pass the sniff and turn the bucket into free hosting for anything;
+ *   • a ceiling on dimensions and a daily ceiling across every caller, because
+ *     a per-caller limit alone does not bound the bill.
  *
  * The accepted cost is orphans: someone can upload and never launch, and that
  * object stays. Content addressing bounds it — the same bytes never occupy two
@@ -73,6 +80,38 @@ const POST_RATE_LIMIT = {
 
 const BUCKET = 'project-logos'
 /** Size cap lives in `lib/logoUpload.ts` so the form can refuse before upload. */
+
+/** Largest side accepted. A 16:9 cover at 4096 px is far beyond any card. */
+const MAX_SIDE = 4096
+
+/** Uploads per day across all callers; a launch needs one or two. */
+const DAILY_GLOBAL_UPLOADS = 500
+const DAY_MS = 86_400_000
+
+/**
+ * Decode and re-encode in the sniffed format, dropping metadata and any bytes
+ * outside the image. `null` when the bytes do not decode as that format or are
+ * too large on either side.
+ */
+async function reencode(bytes: Uint8Array, ext: string): Promise<Uint8Array | null> {
+  const animated = ext === 'gif' || ext === 'webp'
+  try {
+    const img = sharp(bytes, { animated, limitInputPixels: MAX_SIDE * MAX_SIDE, failOn: 'error' })
+    const meta = await img.metadata()
+    const formatOk =
+      (ext === 'jpg' && meta.format === 'jpeg') || meta.format === ext
+    const height = meta.pageHeight ?? meta.height ?? 0
+    if (!formatOk || !meta.width || !height || meta.width > MAX_SIDE || height > MAX_SIDE) return null
+    const out =
+      ext === 'png' ? img.png()
+      : ext === 'jpg' ? img.jpeg({ quality: 90 })
+      : ext === 'gif' ? img.gif()
+      : img.webp({ quality: 90 })
+    return new Uint8Array(await out.toBuffer())
+  } catch {
+    return null
+  }
+}
 
 /**
  * Magic-byte signatures, checked against the actual upload.
@@ -183,7 +222,24 @@ export async function POST(req: NextRequest) {
     return bad('That file is not a PNG, JPEG, GIF or WebP.', 415)
   }
 
-  const path = `${await sha256Hex(bytes)}.${kind.ext}`
+  const clean = await reencode(bytes, kind.ext)
+  if (!clean) {
+    return bad(`That image could not be read, or is larger than ${MAX_SIDE} px on a side.`, 415)
+  }
+  if (clean.byteLength > LOGO_MAX_BYTES) {
+    return bad(`That image is over the ${LOGO_MAX_BYTES / 1024} KB limit once processed.`, 413)
+  }
+
+  const daily = await consumeRateLimit('project-logo-global::all', DAILY_GLOBAL_UPLOADS, DAY_MS)
+  if (!daily.ok) {
+    return applyCors(
+      NextResponse.json({ error: 'Image uploads are paused for today. Try again tomorrow.' }, { status: 503 }),
+      req,
+      CORS_OPTS,
+    )
+  }
+
+  const path = `${await sha256Hex(clean)}.${kind.ext}`
 
   let admin
   try {
@@ -205,7 +261,7 @@ export async function POST(req: NextRequest) {
   /* `upsert` because the name IS the content: a second upload of the same image
    * is the same object, and failing it as a conflict would be reporting success
    * as an error. */
-  const { error } = await admin.storage.from(BUCKET).upload(path, bytes, {
+  const { error } = await admin.storage.from(BUCKET).upload(path, clean, {
     contentType: kind.contentType,
     upsert: true,
   })

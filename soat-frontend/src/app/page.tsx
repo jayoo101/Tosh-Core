@@ -1,5 +1,5 @@
-import AgentDirectoryHome from '@/components/directory/AgentDirectoryHome'
+import XHome from '@/components/x/home/XHome'
 
 export default function HomePage() {
-  return <AgentDirectoryHome />
+  return <XHome />
 }

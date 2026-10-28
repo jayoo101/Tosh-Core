@@ -27,7 +27,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { encodeEventTopics } from 'viem'
 import type { Address, Hex, PublicClient } from 'viem'
 
-import { FACTORY_ABI, HOOK_ABI, LISTED_FACTORIES } from '@/lib/contracts'
+import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORIES } from '@/lib/v2/config'
 import { applyCors, applyRateLimit, corsPreflight } from '@/app/lib/apiGuard'
 import { assertServerChain, publicFallbackClient, serverPublicClient } from '@/app/lib/serverRpc'
 import { reportError } from '@/lib/observability'
@@ -81,8 +82,8 @@ const SCAN_MARGIN = 5_000n
  */
 async function creationBlock(client: PublicClient, hook: Address): Promise<bigint> {
   const [deadline, duration, head] = await Promise.all([
-    client.readContract({ address: hook, abi: HOOK_ABI, functionName: 'genesisDeadline' }) as Promise<bigint>,
-    client.readContract({ address: hook, abi: HOOK_ABI, functionName: 'genesisDuration' }) as Promise<bigint>,
+    client.readContract({ address: hook, abi: V2_HOOK_ABI, functionName: 'genesisDeadline' }) as Promise<bigint>,
+    client.readContract({ address: hook, abi: V2_HOOK_ABI, functionName: 'genesisDuration' }) as Promise<bigint>,
     client.getBlockNumber(),
   ])
   const createdAt = deadline - duration
@@ -102,7 +103,7 @@ async function creationBlock(client: PublicClient, hook: Address): Promise<bigin
  * `eth_getLogs` over an explicit topic filter, via `request` rather than viem's
  * `getLogs`.
  *
- * The topics come from `encodeEventTopics` against `FACTORY_ABI`, so the event
+ * The topics come from `encodeEventTopics` against `V2_FACTORY_ABI`, so the event
  * signature is not written out a second time here — a copy of it would be free
  * to drift from `ToshFactory.sol` while still compiling. Nothing needs decoding
  * either: `transactionHash` is the whole answer, and it is on the raw log.
@@ -114,7 +115,7 @@ async function scan(
   toBlock: bigint | 'latest',
 ): Promise<Hex | null> {
   const topics = encodeEventTopics({
-    abi: FACTORY_ABI,
+    abi: V2_FACTORY_ABI,
     eventName: 'LaunchCreated',
     args: { hook },
   })
@@ -122,8 +123,7 @@ async function scan(
   const logs = await client.request({
     method: 'eth_getLogs',
     params: [{
-      // Every listed factory: a retired one emitted the same `LaunchCreated`.
-      address: [...LISTED_FACTORIES],
+      address: [...V2_FACTORIES],
       topics,
       fromBlock: `0x${fromBlock.toString(16)}`,
       toBlock: toBlock === 'latest' ? 'latest' : `0x${toBlock.toString(16)}`,
@@ -198,7 +198,7 @@ async function resolve(hook: Address): Promise<Resolution> {
   let creator: Address
   try {
     creator = await client.readContract({
-      address: hook, abi: HOOK_ABI, functionName: 'creator',
+      address: hook, abi: V2_HOOK_ABI, functionName: 'creator',
     }) as Address
   } catch {
     return { status: 'not-found' }

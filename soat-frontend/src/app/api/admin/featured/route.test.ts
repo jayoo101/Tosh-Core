@@ -23,6 +23,7 @@ import { NextRequest } from 'next/server'
 
 const TOKEN = '0xa783CDc72e34a174CCa57a6d9a74904d0Bec05A9'
 const SECRET = 'r7Qe1pVnK4sZbX9wLmT2yHgC8dFj3aUv'   // 32 chars, not address-shaped
+const COVER = `https://registry.test.invalid/storage/v1/object/public/project-logos/${'ab'.repeat(32)}.webp`
 
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://registry.test.invalid'
@@ -228,6 +229,49 @@ describe('POST /api/admin/featured: the write', () => {
     expect(await res.json()).toMatchObject({ ok: true, featuredUntil: null })
     const updates = ops.filter(o => o.kind === 'update')
     expect(updates).toEqual([{ kind: 'update', arg: { featured_until: null } }])
+  })
+
+  it('leaves the cover alone when the request does not mention it', async () => {
+    await post({ tokenAddress: TOKEN, hours: 24 })
+    expect(ops.some(o => o.kind === 'update' && 'cover_url' in (o.arg as object))).toBe(false)
+  })
+
+  it('writes the cover before touching any pin', async () => {
+    const res = await post({ tokenAddress: TOKEN, hours: 24, coverUrl: COVER })
+    expect(res.status).toBe(200)
+    const updates = ops.filter(o => o.kind === 'update')
+    expect(updates[0].arg).toEqual({ cover_url: COVER })
+    expect(updates).toHaveLength(3)
+  })
+
+  it('changes only the cover when no hours are sent', async () => {
+    const res = await post({ tokenAddress: TOKEN, coverUrl: COVER })
+    expect(res.status).toBe(200)
+    expect(ops.filter(o => o.kind === 'update')).toEqual([{ kind: 'update', arg: { cover_url: COVER } }])
+  })
+
+  it('still requires hours when there is no cover either', async () => {
+    const res = await post({ tokenAddress: TOKEN })
+    expect(res.status).toBe(422)
+  })
+
+  it('removes the cover on null', async () => {
+    await post({ tokenAddress: TOKEN, hours: 0, coverUrl: null })
+    expect(ops.filter(o => o.kind === 'update')[0].arg).toEqual({ cover_url: null })
+  })
+
+  it('refuses a cover outside our bucket', async () => {
+    for (const coverUrl of [
+      'https://elsewhere.example/a.png',
+      'https://registry.test.invalid/storage/v1/object/public/project-logos/../x.png',
+      'https://registry.test.invalid/storage/v1/object/public/other-bucket/' + 'a'.repeat(64) + '.png',
+      42,
+    ]) {
+      ops = []
+      const res = await post({ tokenAddress: TOKEN, hours: 24, coverUrl })
+      expect(res.status, String(coverUrl)).toBe(422)
+      expect(ops).toEqual([])
+    }
   })
 
   it('reports a failed clear rather than setting a second pin', async () => {

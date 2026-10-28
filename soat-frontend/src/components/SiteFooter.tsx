@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { CHAIN_BYLINE } from '@/lib/contracts'
 import { EN } from '@/i18n/dict/en'
 import type { Dictionary } from '@/i18n'
+import { Wordmark } from './x/LogoMark'
 
 /** Brand marks from Simple Icons (CC0). lucide-react dropped its brand icons. */
 const BRAND_PATHS = {
@@ -36,12 +37,10 @@ const brandLinkCls =
  */
 export function SiteFooter({ t = EN }: { t?: Dictionary }) {
   return (
-    <footer className="mt-auto border-t border-border-subtle/60">
-      <div className="max-w-7xl mx-auto flex flex-col gap-gap px-4 py-card-lg sm:px-6 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-card">
-          <span className="text-title text-text-primary tracking-tighter">
-            Tosh<span className="text-brand"> Protocol</span>
-          </span>
+    <footer className="mt-auto flex flex-col gap-gap border-t border-border-subtle px-4 py-card-lg md:px-8">
+      <div className="flex flex-col gap-gap md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-card">
+          <Wordmark className="text-title" />
           {/* The repository, not an organisation. This read
               `github.com/tosh-protocol` until 2026-09-12 — a plausible name for
               an org that has never existed, so the one link on the site that
@@ -100,9 +99,10 @@ export function SiteFooter({ t = EN }: { t?: Dictionary }) {
         </Link>
         </div>
         <span className="font-mono text-label text-text-quiet">
-          © {new Date().getFullYear()} Tosh Protocol — {CHAIN_BYLINE}
+          © {new Date().getFullYear()} ToshX — {CHAIN_BYLINE}
         </span>
       </div>
+      <p className="text-note text-text-tertiary">{t.x.footerRisk}</p>
     </footer>
   )
 }

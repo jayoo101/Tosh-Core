@@ -67,6 +67,8 @@ import {IERC20Metadata} from "../lib/openzeppelin-contracts/contracts/token/ERC2
 // ──────────────────────────────────────────────────────────────────────────────
 import {ToshToken} from "./ToshToken.sol";
 import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
+import {GenesisCurve} from "./libraries/GenesisCurve.sol";
+import {AgentIdLib} from "./libraries/AgentIdLib.sol";
 
 /// @title  ToshLaunchpadHook (v5.0 — ETH-native, tiered shelves, piggyback burn)
 /// @notice Uniswap V4 Hook powering a single Tosh project launch.
@@ -94,8 +96,12 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///   3. DISCRETE TIER SHELVES replace the v4.x `tan(z)` Taylor bonding curve.
 ///      Phase 2 is a monotonic ramp of `TIER_COUNT` (4000) fixed-price shelves
 ///      spanning 2000× from the opening price, each gated behind a market-price
-///      ceiling so the project cannot mint its way down into the pool and
-///      drain it.
+///      ceiling so no OUTSIDER can mint below the market and dump at a profit.
+///      The Circuit holder is different by design: 99 % of what it pays comes
+///      back through its revenue vault, so shelves the ceiling has opened
+///      cost it about 1 %. That is the project's funding channel, and it is
+///      bounded by the ceiling — once a dump lowers the price, the ladder
+///      closes until the market climbs back.
 ///
 ///   4. ASYMMETRIC IN-FLIGHT TAX & DIRECT BURN.  A 1.0 % skim is taken off the
 ///      INPUT of every swap, routed by direction rather than by which currency
@@ -143,7 +149,26 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///      added `AFTER_SWAP_RETURNS_DELTA` (0x20C8 → 0x20CC) so exact-output
 ///      buys still fund the treasury instead of burning the output token.
 ///
-/// ── Lifecycle ───────────────────────────────────────────────────────────────
+/// ── v2 (ToshX) ──────────────────────────────────────────────────────────────
+///
+///   Phase 1 below is the v5 design and is kept for the history it carries.
+///   v2 replaced it outright:
+///
+///     • `buyGenesis` sells up to 5.6 M tokens along a linear curve from P to
+///       1.5P (P = hardCap / 7M), to Binance Agent ID holders only, capped per
+///       ID. Tokens arrive immediately; there is no claim, refund, referral or
+///       minimum raise.
+///     • 20 % of each payment accrues to the project fund, 80 % to the LP.
+///     • Until `launch()` the token only moves wallet-to-wallet (`ToshToken`).
+///     • `launch()` seeds the pool at 2P with the LP reserve, burns whatever
+///       genesis supply did not sell, and opens the shelves at 2P. It belongs
+///       to the Circuit NFT holder for 48 h after sell-out or the deadline,
+///       then to anyone, and cannot expire.
+///
+///   Phase 2 — shelves, the pool tax and the buyback — is unchanged except
+///   that shelf 0 sits level with the opening price.
+///
+/// ── Lifecycle (v5) ──────────────────────────────────────────────────────────
 ///
 ///   Phase 1 — Genesis (24 h)
 ///     • Qualified wallets deposit native ETH through ToshFactory.
@@ -245,17 +270,29 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         and the premium moves with it, so
     ///         `test_genesisPremium_isExactlyTenPercent` pins the relationship
     ///         rather than the individual numbers.
-    uint256 public constant GENESIS_CLAIM_SUPPLY = 4_620_000e18; // 55 %
-    uint256 public constant GENESIS_LP_SUPPLY = 3_780_000e18; // 45 %
+    ///
+    /// @dev    v2: the 55 / 45 claim / LP split above is gone with the claim.
+    ///         Genesis is now `SALE_SUPPLY` sold on the curve, up to 2.8 M into
+    ///         the pool, and the unsold remainder burned.
+    uint256 public constant SALE_SUPPLY = GenesisCurve.SALE_SUPPLY;
+
+    /// @notice A sale this close to `SALE_SUPPLY` counts as sold out.
+    uint256 public constant DUST = 1e15;
+
+    /// @notice Share of each genesis payment accrued to the project fund.
+    uint256 public constant FUND_BPS = 2000;
 
     /// @notice Number of discrete price shelves in Phase 2.
     uint256 public constant TIER_COUNT = 4000;
 
-    /// @notice Token quota per shelf.  4000 × 3 150 = 12 600 000, which keeps
-    ///         the total-supply arithmetic intact (8.4 M + 12.6 M = 21 M).
+    /// @notice Token quota per shelf on a sold-out raise.  4000 × 3 150 =
+    ///         12 600 000, which keeps the total-supply arithmetic intact
+    ///         (8.4 M + 12.6 M = 21 M).  A partial raise sells smaller shelves;
+    ///         see `tierSize`.
     uint256 public constant TIER_SIZE = 3_150e18;
 
-    /// @notice Total Phase-2 issuance once every shelf is cleared.
+    /// @notice Most Phase-2 issuance can ever be: every shelf cleared on a
+    ///         sold-out raise.  A partial raise caps at `TIER_COUNT * tierSize`.
     uint256 public constant BONDING_MAX = TIER_COUNT * TIER_SIZE;
 
     /// @dev Geometric shelf step in 1e18 fixed point: price(i) = shelfP0 · STEP^i.
@@ -286,18 +323,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    A gas bound, NOT a security bound.  Shelf mints never touch the
     ///         pool, so `min(spot, TWAP)` is constant for the whole call and
-    ///         the 105 % ceiling caps how far the ladder can travel regardless
+    ///         the price ceiling caps how far the ladder can travel regardless
     ///         of how the order is chopped up — a buyer who hits this limit can
     ///         simply send a second transaction in the same block and reach the
     ///         identical end state.  The cap exists only so one call cannot be
     ///         made to loop hundreds of times (each leg recomputes
     ///         `tierPriceAt`, which is O(log i)) and run out of gas.
     ///
-    ///         Sized against the gate rather than picked round: a market that
-    ///         has caught up to the cursor opens `ln(1.05) / ln(STEP) ≈ 25.7`
-    ///         shelves, so 32 legs let the 105 % ceiling be the thing that
-    ///         stops a normal sweep.  At 16 the leg cap bound first and every
-    ///         such buyer paid for a second transaction that changed nothing.
+    ///         Sized when the ceiling was 105 %, at which a market level with
+    ///         the cursor opened `ln(1.05) / ln(STEP) ≈ 25.7` shelves. At par
+    ///         each 1 % the market rises opens about 5 shelves, so 32 legs
+    ///         cover a ~6 % rally in one call.
     uint256 public constant MAX_TIERS_PER_TX = 32;
 
     // ─── Genesis timing ───────────────────────────────────────────────────────
@@ -316,7 +352,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     uint256 public constant DURATION_STANDARD = 24 hours;
     uint256 public constant DURATION_SLOW = 72 hours;
 
-    uint256 public constant LAUNCH_WINDOW = 7 days;
+    /// @notice How long after `launchStart()` only the project controller may
+    ///         launch. After it anyone may, with no expiry.
+    uint256 public constant ADMIN_LAUNCH_WINDOW = 48 hours;
 
     /// @notice The window this launch actually chose, frozen at deployment.
     /// @dev    A clone immutable arg — see the per-project block below.  Only
@@ -328,32 +366,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     }
 
     // ─── Economics ────────────────────────────────────────────────────────────
-
-    /// @notice Referral commission carved from every genesis deposit (10 %).
-    uint256 public constant REFERRAL_BPS = 1000;
-
-    /// @notice The project-level referrer's share OF THE COMMISSION (80 %),
-    ///         i.e. 8 % of the deposit.  The lifetime referrer takes the rest.
-    ///
-    /// @dev    THIS SPLITS THE CARVE, IT DOES NOT RESIZE IT.  `REFERRAL_BPS`
-    ///         stays at 10 % and the two legs always sum back to it, which is
-    ///         the only reason a split is safe to introduce at all.  The
-    ///         depositors' opening premium is `(0.9 / 3.78) · 4.62 = 1.10`
-    ///         exactly, and every term in that is a function of how much is
-    ///         carved — never of who receives it.  So moving THIS number
-    ///         reprices referrers against each other and leaves the premium
-    ///         untouched, while moving `REFERRAL_BPS` moves the premium.
-    ///         `test_genesisPremium_isExactlyTenPercent` passes unchanged
-    ///         across this split, which is the assertion that says so.
-    ///
-    ///         The sum is held exact by SUBTRACTION, never by a second mulDiv
-    ///         — see `deposit`.  Two independent divisions would each round
-    ///         down and leave a wei of the commission uncarved, and an
-    ///         uncarved wei does not stay put: it falls into `lpNative`, which is
-    ///         the numerator of `p0`.  One wei of ETH is nothing.  A premium
-    ///         that is no longer exactly 10 % is the invariant this contract
-    ///         is built around.
-    uint256 public constant PROJECT_REFERRAL_SHARE_BPS = 8000;
 
     /// @notice Platform cut of Phase-2 shelf proceeds (1 %), routed to the
     ///         buyback reservoir; the remaining 99 % goes to `projectAdmin`.
@@ -439,8 +451,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     // ─── Anti-spike gate ──────────────────────────────────────────────────────
 
     /// @notice A shelf may only be minted while its price sits at or below
-    ///         105 % of the anti-spike reference price.
-    uint256 public constant PRICE_CEILING_BPS = 10_500;
+    ///         the anti-spike reference price.
+    ///
+    /// @dev    Par, not 105 %. With shelf 0 level with the pool (see
+    ///         `SHELF_PREMIUM_BPS`), a 105 % ceiling left a 5 % band, shelves
+    ///         0..25 (81 900 tokens), open at launch with no price move at all.
+    ///         The pool's token side is 2.8M × (raised / hardCap), so on a 10 %
+    ///         raise that band was 23 % of the pool's quote for the Circuit
+    ///         holder, who gets 99 % of a shelf payment back. At par a shelf
+    ///         opens only once the market has risen to its price.
+    uint256 public constant PRICE_CEILING_BPS = 10_000;
 
     /// @notice Shelf 0 opens at this markup over the pool's opening price, so
     ///         the ladder starts one notch ABOVE the market instead of level
@@ -465,7 +485,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///             ceiling left shelves 0..25 (109 200 tokens) mintable in the
     ///             launch block.  One notch above it, only shelf 0 can ever be
     ///             in range at the open, and even that is held back: `launch()`
-    ///             stamps `lastSwapBlock`, so the launch block is closed
+    ///             stamps the launch block as moved, so it is closed
     ///             outright and Phase 2 lifts from the next block, only once
     ///             the market holds at or above the genesis price.
     ///
@@ -484,7 +504,20 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///             `1.05 × 1.10 = 1.155 ×` what a genesis depositor paid.  The
     ///             depositors' 10 % head start is therefore never undercut by
     ///             Phase-2 issuance.
-    uint256 public constant SHELF_PREMIUM_BPS = 10_500;
+    ///
+    /// @dev    v2 SETS THIS TO PAR, so the paragraphs above describe v5. Shelf
+    ///         0 now opens level with the pool at 2P, which is already a third
+    ///         above what the last genesis buyer paid, so the depositor
+    ///         protection the 5 % notch existed for is supplied by the curve
+    ///         instead. The ceiling is par as well (see `PRICE_CEILING_BPS`),
+    ///         so at the open at most shelf 0 is in range, and the launch
+    ///         block's same-block lockout keeps even that shut until the next
+    ///         block.
+    uint256 public constant SHELF_PREMIUM_BPS = 10_000;
+
+    /// @notice Ticks (≈ 1 bp of price each) the pool may drift within a block
+    ///         and still let shelves mint in that block.
+    int256 public constant MAX_MINT_TICK_DRIFT = 10;
 
     /// @notice Target TWAP window.  The hook keeps two rolling checkpoints
     ///         rather than a full ring buffer, so on a pool that trades at
@@ -518,10 +551,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         So the number is the lever.  1800 s puts the realised window in
     ///         [30 min, 60 min) and triples the hold an attacker has to fund,
     ///         while still letting an honestly rallying market open its ladder
-    ///         within the hour.  It is not a wall: minting stays deliberately
-    ///         unprofitable on its own terms (every shelf costs 105 % of the
-    ///         reference), and this window is what makes reaching that
-    ///         reference cost real time rather than one block.
+    ///         within the hour.  It is not a wall: a shelf costs at most the
+    ///         reference, so an outsider profits only from spot running above
+    ///         the TWAP by more than a round trip's fees, and this window is
+    ///         what makes reaching that reference cost real time rather than
+    ///         one block.
     uint32 public constant TWAP_WINDOW = 1800;
 
     // ─── Pool ─────────────────────────────────────────────────────────────────
@@ -562,13 +596,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    Held here so `afterSwap` can decide whether the poke is worth
     ///         making without paying for a call to find out — see the comment at
-    ///         the call site.  Mirroring a constant across two contracts is a
-    ///         coupling, and the failure mode if it drifts is quiet (a buyback
-    ///         that never fires, or a poke on every swap), so
-    ///         `test_piggybackTriggerMirrorsTheTreasury` asserts the two are
-    ///         equal.  Reading it from the treasury instead would cost the very
-    ///         call this exists to avoid.
-    uint256 public constant PIGGYBACK_TRIGGER_STEP = 0.3 ether;
+    ///         the call site.  Copied from the treasury once, in the constructor,
+    ///         so the two cannot drift; clones delegate to this implementation
+    ///         and read the same value.
+    uint256 public immutable PIGGYBACK_TRIGGER_STEP;
 
     /// @notice Gas held back from the piggyback poke so the swap can always
     ///         finish.
@@ -765,6 +796,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         address that has to satisfy it.
     address payable public immutable platformFeeRecipient;
 
+    /// @notice The Binance Agent ID registry genesis eligibility is read from.
+    address public immutable agentRegistry;
+
+    /// @notice Smallest genesis buy, in quote units (0.01 BNB / 5 USDT).
+    uint256 public immutable minBuy;
+
+    /// @notice Whether `buyGenesis` takes native BNB, i.e. the quote asset is
+    ///         WBNB.
+    bool public immutable acceptsNative;
+
     /// @dev This implementation's own address, captured at construction. Under
     ///      DELEGATECALL `address(this)` is the clone, so `address(this) ==
     ///      _self` means nobody proxied us and the per-project config below is
@@ -844,7 +885,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         was funded under.  Freezing it at creation means a change only
     ///         ever governs projects launched after it — rounds already in
     ///         flight keep the cap their depositors signed up to.
-    function perWalletCap() public view returns (uint256) {
+    ///
+    /// @dev    v2: the same clone slot, read as the most quote one Agent ID may
+    ///         spend in this genesis. Chosen by the project within platform
+    ///         bounds at creation and frozen with the clone.
+    function perAgentCap() public view returns (uint256) {
         return ToshCloneLib.argPerWalletCap();
     }
 
@@ -866,49 +911,36 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
     uint256 public genesisDeadline;
     bool public launched;
-    /// @notice Event-dedup flag, NOT the refund gate.
-    ///
-    /// @dev    Set lazily the first time `refund()` actually runs, so that the
-    ///         announcement — `GenesisFailed` or `ZombieRefund`, whichever the
-    ///         failure was — fires once. Nothing reads it as a condition:
-    ///         `refund()` and `canRefund()` recompute the outcome on every
-    ///         call. Indexers and the UI must treat `canRefund()` as the
-    ///         authority; this flag stays `false` until the first claimant
-    ///         shows up, even when refunds are already available.
-    ///
-    ///         Named `zombieRefundEnabled` until a too-small raise became its
-    ///         own refund trigger. It dedups both announcements now, and only
-    ///         one of them is a zombie.
-    ///
-    ///         A `refundEnabled` twin stood here until Slither noticed it could
-    ///         be `constant`. It could, in the worst sense: nothing in the
-    ///         repository ever assigned it, so the getter answered `false` for
-    ///         the life of every hook. It was the soft-cap refund's flag, and it
-    ///         lost its only writer when a missed soft cap stopped being a
-    ///         refund trigger — the creator may now `launch()` with whatever was
-    ///         raised. Removed rather than documented, because a permanently
-    ///         false `refundEnabled()` sitting beside `canRefund()` reads as an
-    ///         answer to the question `canRefund()` actually answers.
-    bool public refundAnnounced;
+    // ─── Genesis accounting (quote-asset units) ──────────────────────────────
 
-    // ─── Genesis accounting (all ETH-wei) ─────────────────────────────────────
+    /// @notice Tokens sold on the genesis curve.
+    uint256 public genesisSold;
 
-    uint256 public totalNativeDeposited;
-    mapping(address => uint256) public nativeDeposited;
-    mapping(address => bool) public genesisShareClaimed;
+    /// @notice Quote paid for them.
+    uint256 public raised;
 
-    /// @notice Referral commission accrued per referrer, claimable post-launch.
-    mapping(address => uint256) public referralAccrued;
+    /// @notice When the sale sold out, or zero.
+    uint256 public soldOutAt;
 
-    /// @notice Sum of `referralAccrued`, held back from the LP seed.
-    uint256 public totalReferralReserved;
+    /// @notice 20 % share accrued and not yet withdrawn to `projectFund`.
+    uint256 public fundAccrued;
 
-    /// @notice Commission from deposits that carried no referrer.  Forwarded to
-    ///         `ladderTreasury` at launch so it can never become stuck ETH.
-    uint256 public orphanReferral;
+    /// @notice 20 % share already paid out.
+    uint256 public fundWithdrawn;
 
-    /// @notice Total referral ETH already withdrawn.
-    uint256 public totalReferralClaimed;
+    /// @notice 80 % share, the pool's quote side at launch.
+    uint256 public lpReserve;
+
+    /// @notice Recipient of `withdrawFund`, changeable by the project controller.
+    address public projectFund;
+
+    /// @notice Quote spent per Agent ID, keyed by `keccak256(handle)`.
+    mapping(bytes32 => uint256) public agentSpent;
+
+    /// @notice Quote spent per buying wallet. The cap is booked against the
+    ///         larger of this and `agentSpent`, so a wallet that moves to a
+    ///         different Agent ID does not start a fresh allowance.
+    mapping(address => uint256) public walletSpent;
 
     // ─── Phase 2 shelves ──────────────────────────────────────────────────────
 
@@ -923,6 +955,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         every read, because `tierPriceAt` is on the mint hot path and in
     ///         every view the UI polls.
     uint256 public shelfP0;
+
+    /// @notice Tokens per shelf for this project: `TIER_SIZE × raised / hardCap`,
+    ///         rounded up, fixed at launch.  Zero before launch.
+    ///
+    /// @dev    The pool is seeded with 2.8 M × raised / hardCap tokens at a
+    ///         price that does not depend on the raise, so a thin raise opens
+    ///         a thin pool.  Shelves scaled by the same ratio keep every shelf
+    ///         the same share of the pool on any raise; full-size shelves
+    ///         against a 10 % pool would let each one move the price ten times
+    ///         as far.
+    uint256 public tierSize;
 
     /// @notice The whole Phase-2 ladder position, in one slot.
     ///
@@ -940,7 +983,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         silently rather than revert.
     ///
     ///           tierIndex  ≤ TIER_COUNT  = 4 000    (uint16  holds 65 535)
-    ///           tierSold   < TIER_SIZE   = 3.15e21  (uint88  holds 3.09e26)
+    ///           tierSold   < tierSize    ≤ TIER_SIZE = 3.15e21  (uint88  holds 3.09e26)
     ///           minted     ≤ BONDING_MAX = 1.26e25  (uint96  holds 7.92e28)
     ///
     ///         Shelf PRICES are still not stored.  With 4000 rungs a materialised
@@ -995,11 +1038,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      ticks every 100 ms.  That is 120x faster and still ~890,000 years,
     ///      so the narrowing remains far from a real ceiling; the old premise
     ///      simply no longer describes where this deploys.  Slot use is
-    ///      7 + 4 + 3 + 6 = 20 of 32 bytes.
+    ///      7 + 4 + 3 + 6 + 3 = 23 of 32 bytes.
     int56 public tickCumulative;
     uint32 public lastObservationTs;
     int24 public lastTick;
     uint48 private _lastSwapBlock;
+    /// @dev The tick this block opened at, latched by its first swap.
+    int24 private _blockOpenTick;
 
     /// @dev Rolling TWAP checkpoints. `_prev` is the reference point the TWAP
     ///      is measured from; it rolls forward once `_cur` ages past TWAP_WINDOW.
@@ -1023,31 +1068,19 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     event TokenInitialized(address indexed token);
-    /// @dev Carries BOTH referrer slots rather than one ambiguous `referrer`.
-    ///      They are paid different rates, so a log line naming only one of
-    ///      them cannot be read without guessing which.
-    event Deposited(
-        address indexed user, uint256 nativeAmount, address indexed projectReferrer, address indexed lifetimeReferrer
+    event GenesisBuy(address indexed buyer, bytes32 indexed agentKey, uint256 paid, uint256 tokens, uint256 soldAfter);
+    event SoldOut(uint256 timestamp);
+    event Launched(
+        uint256 raised,
+        uint256 lpQuote,
+        uint256 lpTokens,
+        uint256 burned,
+        uint128 lpLiquidity,
+        uint160 sqrtPriceX96,
+        uint256 p0
     );
-    event Launched(uint256 totalNative, uint256 lpNative, uint128 lpLiquidity, uint160 sqrtPriceX96, uint256 p0);
-    event GenesisFailed(uint256 totalNativeRaised);
-    event ZombieRefund(uint256 totalNativeRaised);
-    event Refunded(address indexed user, uint256 nativeAmount);
-    event GenesisShareClaimed(address indexed user, uint256 tokenAllocation);
-    /// @notice The project-level leg, `PROJECT_REFERRAL_SHARE_BPS` of the carve.
-    event ReferralAccrued(address indexed referrer, address indexed referee, uint256 amount);
-
-    /// @notice The lifetime leg, the remainder of the carve.
-    ///
-    /// @dev    A separate event rather than a flag on `ReferralAccrued` so each
-    ///         one means a single thing and a log reader can filter by topic
-    ///         instead of decoding a discriminator.  Both fire for the same
-    ///         deposit whenever both slots are filled, and with the same
-    ///         `referrer` when one wallet holds both.
-    event LifetimeReferralAccrued(address indexed referrer, address indexed referee, uint256 amount);
-
-    event ReferralClaimed(address indexed referrer, uint256 amount);
-    event OrphanReferralForwarded(uint256 amount);
+    event ProjectFundChanged(address indexed previousFund, address indexed newFund);
+    event FundWithdrawn(address indexed to, uint256 amount);
     /// @notice Emitted per shelf purchase.
     event TierMinted(
         address indexed buyer, uint256 indexed tierIndex, uint256 tierPrice, uint256 tokensOut, uint256 nativeIn
@@ -1098,15 +1131,37 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     error GenesisExpired();
     error AlreadyLaunched();
     error NotLaunched();
-    error AlreadyClaimed();
-    error NoDeposit();
     error ZeroAmount();
     error UnauthorizedInitialization();
     error UnknownAction();
-    error LaunchWindowExpired();
     error InvalidAdmin();
     error ZeroAddress();
     error WrongQuoteDecimals();
+
+    // ─── v2 genesis ───────────────────────────────────────────────────────────
+
+    /// @notice The caller is not a code-less transaction origin.
+    error NotAWallet();
+    error GenesisPaused();
+    /// @notice The caller holds no Agent ID that resolves back to it.
+    error NoAgentId();
+    /// @notice This Agent ID has spent its whole allowance in this genesis.
+    error AgentCapReached();
+    /// @notice Under `minBuy`, and neither closing the sale nor the buyer's
+    ///         last allowance.
+    error BelowMinBuy();
+    /// @notice Fewer tokens than `minTokens` would arrive.
+    error BelowMinTokens();
+    error GenesisSoldOut();
+    /// @notice Native BNB sent to a project not quoted in WBNB.
+    error NativeNotAccepted();
+    /// @notice `msg.value` must equal `maxPay` when paying natively.
+    error NativeAmountMismatch();
+    error OnlyProjectController();
+    error NothingRaised();
+    /// @notice Inside the exclusive window only the project controller may
+    ///         launch. See `publicLaunchAt()`.
+    error AdminLaunchWindow();
 
     /// @notice Something tried to execute this contract as itself rather than
     ///         through a project clone.
@@ -1145,6 +1200,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice A swap touched this pool in the current block.  Shelf mints must
     ///         wait one block so a flash-loan spike cannot fake the price gate.
     error SameBlockMintForbidden();
+    error RangeNotFull();
 
     /// @notice The platform has suspended shelf minting, either for this project
     ///         or globally.  Trading, LP, genesis claims, referral claims and
@@ -1152,72 +1208,15 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         See `ToshFactory.haltLadderMinting`.
     error LadderMintingHalted();
 
-    /// @notice The active shelf costs more than 105 % of `min(spot, TWAP)`.
+    /// @notice The active shelf costs more than `min(spot, TWAP)`.
     ///         The secondary market has to catch up before this shelf unlocks.
     error TierPriceAboveCeiling();
-
-    /// @notice The genesis raise is too small for the shelf ladder to rise: the
-    ///         step from shelf 0 to shelf 1 would truncate to zero, pricing a
-    ///         run of shelves identically.
-    ///
-    /// @dev    Not a cap check — the soft cap gates nothing. This is about the
-    ///         amount actually raised. See the note in `launch()` for the
-    ///         measured window and why it had no guard before.
-    ///
-    ///         A CREATOR WHO HITS THIS HAS EXACTLY ONE OUTCOME AVAILABLE, and
-    ///         saying so is the point of this paragraph: it used to offer
-    ///         "raise more" as an alternative, which the code forbids. The two
-    ///         windows are disjoint by construction — `deposit` refuses at
-    ///         `block.timestamp >= genesisDeadline` and `launch` refuses below
-    ///         it — so the first moment this error can be reached is already
-    ///         past the last moment a deposit could have arrived. There is no
-    ///         top-up and no way back.
-    ///
-    ///         DEPOSITORS DO NOT WAIT FOR IT. `canRefund()` reads the same
-    ///         `ladderViable()` this does, so refunds open the moment genesis
-    ///         closes rather than seven days later: the raise is final once
-    ///         deposits shut, which makes the verdict final too, and the window
-    ///         existed to give a creator time to do something that in this case
-    ///         cannot be done. The 7-day path is still there for the other
-    ///         failure — a round that COULD have launched and was abandoned.
-    ///
-    ///         Refunds are 100 %. Referrers are owed nothing: the 10 % carve is
-    ///         realised at `launch()` and nowhere else, so on a failed genesis
-    ///         `referralAccrued` is simply never claimable.
-    ///
-    ///         Failing here is deliberate rather than a missing feature. A flat
-    ///         ladder is worse for the depositors than no pool, because it lets
-    ///         a buyer clear high shelves at the base price against tokens they
-    ///         are holding.
-    error RaiseTooSmallForLadder();
 
     /// @notice The shelf sweep came to more than the caller's `maxCost`.
     ///
     /// @dev    Replaces `InsufficientPayment`, which said the same thing from the
     ///         other side while `msg.value` was the bound.
     error CostAboveMax();
-
-    /// @notice A caller-supplied quote-asset amount is not backed by tokens this
-    ///         contract actually holds.
-    ///
-    /// @dev    Fires in `deposit`, the one place that is told an amount rather
-    ///         than sent one. It is reached only from the factory, so this is the
-    ///         shape a bug takes, not an attack: a mis-ordered transfer, a
-    ///         partial-transfer token, or an amount computed from one figure and
-    ///         moved from another. Failing here means the mistake costs a
-    ///         reverted transaction instead of an uncollateralised credit.
-    error DepositNotReceived();
-
-    /// @notice No referral commission accrued to the caller.
-    error NoReferralReward();
-
-    /// @notice This wallet's total stake in this project would exceed the
-    ///         per-wallet cap snapshotted when the project was created.
-    error PerWalletCapExceeded();
-
-    /// @notice The deposit would carry the round's total past `hardCap()`.
-    ///         Reduce the amount to at most `hardCap() - totalNativeDeposited`.
-    error HardCapExceeded();
 
     // ══════════════════════════════════════════════════════════════════════════
     //  Constructor
@@ -1242,14 +1241,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         address _factory,
         address _ladderTreasury,
         address _platformFeeRecipient,
-        address _quoteAsset
+        address _quoteAsset,
+        address _agentRegistry,
+        uint256 _minBuy,
+        bool _acceptsNative
     ) {
-        // Custom errors rather than one revert string per argument: this
-        // constructor's bytecode is embedded in `HookDeployLib`, which sits at
-        // the EIP-170 limit, and six strings cost more than it has to spare.
+        // Custom errors rather than one revert string per argument: the hook
+        // sits close to the EIP-170 limit.
         if (
             _poolManager == address(0) || _vault == address(0) || _factory == address(0)
                 || _ladderTreasury == address(0) || _platformFeeRecipient == address(0) || _quoteAsset == address(0)
+                || _agentRegistry == address(0) || _minBuy == 0
         ) revert ZeroAddress();
         // Asserted, not assumed: `ToshFactory.MIN_HARD_CAP` and the ladder's usable
         // range were both computed against 18 decimals. A quote asset with any
@@ -1261,8 +1263,12 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         vault = IVault(_vault);
         factory = _factory;
         ladderTreasury = payable(_ladderTreasury);
+        PIGGYBACK_TRIGGER_STEP = IToshLadderTreasury(_ladderTreasury).TRIGGER_STEP();
         platformFeeRecipient = payable(_platformFeeRecipient);
         quoteAsset = IERC20(_quoteAsset);
+        agentRegistry = _agentRegistry;
+        minBuy = _minBuy;
+        acceptsNative = _acceptsNative;
         _self = address(this);
         _hasArbSys = ARB_SYS.code.length != 0;
     }
@@ -1415,11 +1421,15 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @param token_        The project's ERC-20, already pointed at this hook.
     /// @param projectAdmin_ Permanent recipient of the 99 % Phase-2 cut.
-    function initializeToken(address token_, address projectAdmin_) external onlyClone {
+    /// @param projectFund_  First recipient of the 20 % genesis share.
+    function initializeToken(address token_, address projectAdmin_, address projectFund_) external onlyClone {
         if (msg.sender != factory) revert OnlyFactory();
         if (tokenInitialized) revert AlreadyInitialized();
-        require(token_ != address(0), "zero token");
+        if (token_ == address(0)) revert ZeroAddress();
         if (projectAdmin_ == address(0)) revert InvalidAdmin();
+        // Same trap as `setProjectFund`: paying the hook parks the 20 % as a
+        // balance `launch()` then treats as surplus and sends to the platform.
+        if (projectFund_ == address(0) || projectFund_ == address(this)) revert ZeroAddress();
 
         // Validated here rather than in the factory because the value is read
         // out of this clone's own bytecode: checking the factory's argument
@@ -1439,13 +1449,14 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // the one new failure mode this design introduces, and a degenerate
         // config is exactly what one would look like, so the values are checked
         // where they are read rather than where they were written.
-        require(ToshCloneLib.argCreator() != address(0), "zero creator");
-        require(ToshCloneLib.argProjectTreasury() != address(0), "zero treasury");
-        require(ToshCloneLib.argHardCap() != 0, "zero hardCap");
-        require(ToshCloneLib.argPerWalletCap() != 0, "zero perWalletCap");
+        if (ToshCloneLib.argCreator() == address(0)) revert ZeroAddress();
+        if (ToshCloneLib.argProjectTreasury() == address(0)) revert ZeroAddress();
+        if (ToshCloneLib.argHardCap() == 0) revert ZeroAddress();
+        if (ToshCloneLib.argPerWalletCap() == 0) revert ZeroAddress();
 
         projectToken = ToshToken(token_);
         projectAdmin = projectAdmin_;
+        projectFund = projectFund_;
         genesisDeadline = block.timestamp + duration;
         tokenInitialized = true;
 
@@ -1453,435 +1464,246 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  PHASE 1 — GENESIS
+    //  PHASE 1 — GENESIS (v2: Agent ID allowance, linear curve, instant delivery)
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Record a native-ETH genesis deposit.  The ETH arrives with this
-    ///         call; all eligibility checks (blacklist / PoG / cooldown) and
-    ///         both referral resolutions happen in ToshFactory.
+    /// @notice Buy genesis tokens off the curve. Tokens are minted to the
+    ///         buyer immediately; there is no claim and no refund.
     ///
-    /// @param user             Beneficiary of the deposit.
-    /// @param projectReferrer  The referrer bound to THIS project for `user`,
-    ///                         or `address(0)`.  Takes
-    ///                         `PROJECT_REFERRAL_SHARE_BPS` of the carve.
-    /// @param lifetimeReferrer The wallet's permanent platform-wide referrer,
-    ///                         or `address(0)`.  Takes the remainder.
+    /// @dev    Eligibility is a Binance Agent ID resolved on-chain, with the
+    ///         allowance booked against the name rather than the address (see
+    ///         `AgentIdLib`). The buyer must be the transaction's origin, so a
+    ///         contract or constructor cannot buy on someone's behalf and then
+    ///         hold tokens the pre-launch transfer rules keep in wallets. An
+    ///         EIP-7702 account qualifies: its delegate runs only on its own
+    ///         signature (see `ToshToken`).
     ///
-    /// @dev    Both come from the factory's registries and never from the
-    ///         caller, so neither can be spoofed.  They are frequently the
-    ///         SAME address — a first-time depositor arriving on one link
-    ///         fills both slots with it — and that case is handled by
-    ///         crediting `referralAccrued` twice rather than being
-    ///         special-cased.  Two credits to one address sum to the same
-    ///         thing as one credit of the total, and keeping the legs
-    ///         independent means neither branch has to know about the other.
+    ///         The spend is `min(maxPay, remaining allowance, cost to sell
+    ///         out)`, and the buyer pays exactly the curve cost of what they
+    ///         receive — never more than `maxPay`. Paying in native BNB is
+    ///         offered on WBNB projects only: send `maxPay` as `msg.value`, the
+    ///         cost is wrapped and the change is returned to the buyer.
     ///
-    /// @param amount           Quote-asset units the factory has ALREADY
-    ///                         transferred to this contract, immediately before
-    ///                         this call.
+    ///         20 % of every payment accrues to the project fund and 80 % to
+    ///         the LP reserve. Accrued rather than pushed, so no recipient can
+    ///         make a buy fail.
     ///
-    ///                         ⚠ THE TOKENS ARRIVE BEFORE THIS RUNS, which is
-    ///                           the one structural difference from the native
-    ///                           version and the reason for the balance check
-    ///                           below. `msg.value` was self-evidencing: the EVM
-    ///                           moved the value as part of the call, so the
-    ///                           amount could not be misstated. An ERC20 arrives
-    ///                           by a transfer this contract never observes, so
-    ///                           `amount` is a CLAIM. It comes from the factory,
-    ///                           which is trusted, but "trusted" and "checked"
-    ///                           are different properties and the cost of
-    ///                           checking is one `balanceOf`.
-    function deposit(address user, address projectReferrer, address lifetimeReferrer, uint256 amount) external {
-        if (msg.sender != factory) revert OnlyFactory();
-        if (!tokenInitialized) revert NotInitialized();
-        if (block.timestamp >= genesisDeadline) revert GenesisExpired();
-        if (amount == 0) revert ZeroAmount();
-
-        // The claim, measured. Everything credited so far is owed to somebody —
-        // depositors via `nativeDeposited`, referrers via `referralAccrued` —
-        // so the balance must cover the old obligations plus this new one.
-        //
-        // `>=` rather than `==` because a donation or a rounding surplus can
-        // leave this contract holding MORE than it owes, and refusing that would
-        // let anyone brick a genesis round by sending it one unit of BEM.
-        //
-        // WHERE A SURPLUS GOES: to the platform at `launch()`, alongside the
-        // orphaned commission. It is credited to no depositor and does NOT
-        // join the LP — the pool is seeded with `lpNative`, derived from
-        // `totalNativeDeposited`. Quote donated after launch, or to a round
-        // that ends in refunds, is still locked here permanently.
-        //
-        // This check is also what makes that sweep's subtraction safe: the
-        // balance never falls below `totalNativeDeposited` before launch.
-        //
-        // ⚠ AND IT WEAKENS THIS CHECK BY ITS OWN SIZE. The comparison is
-        //   defence-in-depth against the factory crediting an `amount` it did
-        //   not actually transfer; a pre-existing surplus of S lets a claim of
-        //   up to S pass unbacked. Nothing enforces a zero surplus, so treat
-        //   this as a guard against accident, not against a factory that lies.
-        if (quoteAsset.balanceOf(address(this)) < totalNativeDeposited + amount) revert DepositNotReceived();
-
-        // Per-project cap, enforced against the snapshot taken at creation so
-        // a later platform-wide retune cannot move the goalposts on a round
-        // that is already open.
-        if (nativeDeposited[user] + amount > perWalletCap()) revert PerWalletCapExceeded();
-        if (totalNativeDeposited + amount > hardCap()) revert HardCapExceeded();
-
-        nativeDeposited[user] += amount;
-        totalNativeDeposited += amount;
-
-        // Carve the referral commission up-front so `launch()` can seed the LP
-        // with exactly the non-commission remainder.
-        //
-        // The second leg is the SUBTRACTED remainder, never a second mulDiv, so
-        // `projectCut + lifetimeCut` is identically `commission` for every
-        // amount — including amounts where both divisions would have rounded
-        // down. See `PROJECT_REFERRAL_SHARE_BPS` for what a wei of drift here
-        // would do to the opening premium.
-        uint256 commission = (amount * REFERRAL_BPS) / BPS_DENOMINATOR;
-        uint256 projectCut = (commission * PROJECT_REFERRAL_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 lifetimeCut = commission - projectCut;
-
-        // Accumulated and written once. The two legs are independent, but
-        // `totalReferralReserved` is one slot and there is no state between
-        // them that could observe a half-applied total.
-        uint256 reserved;
-
-        if (projectReferrer != address(0)) {
-            referralAccrued[projectReferrer] += projectCut;
-            reserved += projectCut;
-            emit ReferralAccrued(projectReferrer, user, projectCut);
-        } else {
-            // An empty slot's leg becomes platform buyback ammunition rather
-            // than ETH nobody can ever claim. Expect this on a project's
-            // earliest deposits: the factory will not bind a project referrer
-            // who has no deposit here yet, and at the start nobody does.
-            orphanReferral += projectCut;
-        }
-
-        if (lifetimeReferrer != address(0)) {
-            referralAccrued[lifetimeReferrer] += lifetimeCut;
-            reserved += lifetimeCut;
-            emit LifetimeReferralAccrued(lifetimeReferrer, user, lifetimeCut);
-        } else {
-            orphanReferral += lifetimeCut;
-        }
-
-        totalReferralReserved += reserved;
-
-        emit Deposited(user, amount, projectReferrer, lifetimeReferrer);
-    }
-
-    /// @notice The quote that would back the LP if `launch()` ran on the raise
-    ///         standing right now.
-    ///
-    /// @dev    Zero when the commission carve has eaten the whole raise, which
-    ///         `launch()` reaches as a revert rather than a subtraction: this
-    ///         returns 0 instead of underflowing, because it is a view two
-    ///         callers ask speculatively.
-    function _projectedLpQuote() internal view returns (uint256) {
-        uint256 commissionPool = totalReferralReserved + orphanReferral;
-        if (totalNativeDeposited <= commissionPool) return 0;
-        return totalNativeDeposited - commissionPool;
-    }
-
-    /// @notice True when the raise standing now is large enough for the shelf
-    ///         ladder to actually rise.
-    ///
-    /// @dev    ⚠ THIS IS THE ONE COPY OF THE CONDITION. `launch()` refuses on
-    ///         it and `canRefund()` opens on it, and those two MUST agree: if
-    ///         `canRefund()` were the looser of the pair a launchable round
-    ///         would drain through the refund door, and if it were the tighter
-    ///         one a round that can never launch would sit locked for seven
-    ///         days waiting for a window that cannot help it. Two copies of
-    ///         this arithmetic in two functions is exactly the shape that lets
-    ///         them drift, so there is one and both call it.
-    ///
-    ///         The PROPERTY, never a `MIN_RAISE` constant — same reasoning as
-    ///         the note in `launch()`. Shelves are geometric at +0.19025 %, so
-    ///         below `shelfP0 == 526` the first step truncates to zero and a
-    ///         run of shelves carries one price. Asking the ladder is
-    ///         self-maintaining; a hand-derived minimum goes stale silently the
-    ///         next time `GENESIS_LP_SUPPLY`, `SHELF_PREMIUM_BPS` or
-    ///         `TIER_STEP_E18` moves.
-    ///
-    ///         Not a soft-cap check. Nothing reads the cap at all; this is
-    ///         about the amount actually raised, net of the commission carve —
-    ///         so the deposit total that clears it sits a little above the bare
-    ///         21.042 whenever referrers are involved.
-    function ladderViable() public view returns (bool) {
-        uint256 lpQuote = _projectedLpQuote();
-        if (lpQuote == 0) return false;
-
-        uint256 projectedP0 = (lpQuote * ONE_E18) / GENESIS_LP_SUPPLY;
-        if (projectedP0 == 0) return false;
-
-        // ⚠ THE DIVISION ABOVE MUST STAY SEPARATE FROM THE MULTIPLICATION BELOW.
-        //   Slither flags this as `divide-before-multiply` and it is baselined,
-        //   not overlooked: `launch()` stores the FLOORED `p0`, so the shelf base
-        //   this predicate tests has to be derived from the floored value too.
-        //   Folding the two into one expression is more precise and therefore
-        //   WRONG — it would compute a shelf price a launch never sets, and
-        //   `ladderViable()` would start disagreeing with `launch()` on exactly
-        //   the small raises where the disagreement reverts a deposit.
-        uint256 projectedShelfP0 = (projectedP0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
-
-        // `tierPriceAt(1) > tierPriceAt(0)` for this shelf base. Written out
-        // rather than called, because `tierPriceAt` reads the STORED `shelfP0`
-        // and before `launch()` that is still zero.
-        return FullMath.mulDiv(projectedShelfP0, TIER_STEP_E18, ONE_E18) > projectedShelfP0;
-    }
-
-    /// @notice True when depositors may reclaim their quote asset.
-    ///
-    /// @dev    Two independent failures open this door, and they are not the
-    ///         same event wearing different clocks:
-    ///
-    ///           • THE RAISE CANNOT CARRY A LADDER — opens the moment genesis
-    ///             closes. `launch()` is arithmetically impossible on this
-    ///             raise and no amount of waiting changes that: deposits are
-    ///             shut, so `totalNativeDeposited` is final, and the predicate
-    ///             reads only frozen state. Making depositors sit out the
-    ///             seven days was a wait for an outcome already settled.
-    ///
-    ///           • THE CREATOR NEVER LAUNCHED — opens after the 7-day window
-    ///             lapses. Here the round COULD have opened a pool, so the
-    ///             window is the creator's to use and the wait is the point.
-    ///
-    ///         The soft cap is neither of them, and is not a third: nothing
-    ///         reads it.
-    function canRefund() public view returns (bool) {
-        if (launched) return false;
-        if (block.timestamp <= genesisDeadline) return false;
-        if (!ladderViable()) return true;
-        return block.timestamp > genesisDeadline + LAUNCH_WINDOW;
-    }
-
-    /// @notice Reclaim the full deposit when the refund path is open.
-    /// @dev    Refunds return 100 % of the deposit; the 10 % commission carve is
-    ///         only realised at `launch()`, so a failed genesis owes nothing to
-    ///         referrers and `referralAccrued` is simply never claimable.
-    function refund() external nonReentrant {
-        // `canRefund()` is the authority, not a second copy of its clauses —
-        // it already refuses a launched round and an open window.
-        // This used to inline the 7-day comparison, which was the whole gate
-        // when the window was the only way in; there are two ways in now.
-        require(canRefund(), "Refund not available");
-
-        uint256 dep = nativeDeposited[msg.sender];
-        if (dep == 0) revert NoDeposit();
-
-        // EFFECTS before INTERACTIONS.
-        nativeDeposited[msg.sender] = 0;
-
-        if (!refundAnnounced) {
-            refundAnnounced = true;
-            // WHICH failure this was, not merely that refunds started. The two
-            // read identically on-chain — a stuck round paying people back —
-            // and mean opposite things about the creator: `GenesisFailed` is a
-            // round that could not open, `ZombieRefund` is one that could and
-            // was left. An indexer that cannot tell them apart has to accuse
-            // both or neither.
-            //
-            // `ladderViable()` is stable here. Deposits are closed and
-            // `refund()` never touches `totalNativeDeposited` — it zeroes the
-            // caller's row only, because `claimTokens` divides by the total —
-            // so the first claimant and the last read the same answer.
-            if (ladderViable()) {
-                emit ZombieRefund(totalNativeDeposited);
-            } else {
-                emit GenesisFailed(totalNativeDeposited);
-            }
-        }
-
-        _payQuote(msg.sender, dep);
-        emit Refunded(msg.sender, dep);
-    }
-
-    /// @notice Finalise genesis: seed the ETH/token V4 pool, lock the LP, and
-    ///         open the Phase-2 ladder.
-    ///
-    ///   1. Enforce the 7-day launch window. There is no raise target: any
-    ///      raise that can carry a ladder may open the pool, however far below
-    ///      the soft cap it lands.
-    ///   2. Split the raise: 90 % → LP, 10 % → referral commission pool.
-    ///   3. Forward orphaned commission to the platform.
-    ///   4. Mint 8.4 M tokens; 3.78 M into the LP, 4.62 M held for claims.
-    ///   5. P0 = lpNative / GENESIS_LP_SUPPLY, which is the pool's opening
-    ///      price and tier 0's shelf price — genesis buyers pay no premium.
-    function launch() external initialized nonReentrant {
-        // Reached through `ToshFactory.launch`, which is `onlyOwner`: the
-        // factory's CURRENT owner, not the `creator` baked in at deployment,
-        // so rotating the Safe does not orphan open rounds.
-        if (msg.sender != factory) revert OnlyFactory();
-        if (block.timestamp < genesisDeadline) revert GenesisActive();
+    /// @param  maxPay    Most quote asset to spend.
+    /// @param  minTokens Slippage bound: revert if fewer tokens would arrive.
+    function buyGenesis(uint256 maxPay, uint256 minTokens)
+        external
+        payable
+        initialized
+        nonReentrant
+        returns (uint256 tokens, uint256 cost)
+    {
         if (launched) revert AlreadyLaunched();
-        if (totalNativeDeposited == 0) revert ZeroAmount();
-        if (block.timestamp > genesisDeadline + LAUNCH_WINDOW) revert LaunchWindowExpired();
+        if (block.timestamp >= genesisDeadline) revert GenesisExpired();
+        if (soldOutAt != 0) revert GenesisSoldOut();
+        if (msg.sender != tx.origin) revert NotAWallet();
+        if (IToshFactoryHalt(factory).genesisBlocked(address(this), msg.sender)) revert GenesisPaused();
+        if (msg.value != 0) {
+            if (!acceptsNative) revert NativeNotAccepted();
+            if (msg.value != maxPay) revert NativeAmountMismatch();
+        }
+
+        bytes32 agentKey = AgentIdLib.agentKeyOf(agentRegistry, msg.sender);
+        if (agentKey == bytes32(0)) revert NoAgentId();
+
+        uint256 spent = agentSpent[agentKey];
+        uint256 spentByWallet = walletSpent[msg.sender];
+        if (spentByWallet > spent) spent = spentByWallet;
+        uint256 cap = perAgentCap();
+        if (spent >= cap) revert AgentCapReached();
+        uint256 budget = maxPay;
+        if (budget > cap - spent) budget = cap - spent;
+
+        uint256 soldBefore = genesisSold;
+        uint256 h = hardCap();
+        uint256 toSellOut = GenesisCurve.costOf(h, soldBefore, SALE_SUPPLY - soldBefore);
+        // Below the minimum only when this buy closes the sale or uses up the
+        // buyer's whole remaining allowance: neither can be repeated as dust.
+        if (budget < minBuy && budget < toSellOut && budget != cap - spent) revert BelowMinBuy();
+
+        (tokens, cost) = GenesisCurve.tokensFor(h, soldBefore, budget);
+        if (tokens == 0) revert ZeroAmount();
+        if (tokens < minTokens) revert BelowMinTokens();
+
+        // ── Effects ──────────────────────────────────────────────────────────
+        uint256 soldAfter = soldBefore + tokens;
+        genesisSold = soldAfter;
+        raised += cost;
+        agentSpent[agentKey] = spent + cost;
+        walletSpent[msg.sender] = spent + cost;
+
+        uint256 fund = (cost * FUND_BPS) / BPS_DENOMINATOR;
+        fundAccrued += fund;
+        lpReserve += cost - fund;
+
+        // A remainder below DUST is not worth a transaction and would leave the
+        // sale open forever; it is treated as sold and burned at launch.
+        if (SALE_SUPPLY - soldAfter < DUST) {
+            soldOutAt = block.timestamp;
+            emit SoldOut(block.timestamp);
+        }
+
+        // ── Interactions ─────────────────────────────────────────────────────
+        if (msg.value != 0) {
+            IWrappedNativeDeposit(address(quoteAsset)).deposit{value: cost}();
+        } else {
+            quoteAsset.safeTransferFrom(msg.sender, address(this), cost);
+        }
+
+        projectToken.mint(msg.sender, tokens);
+        projectToken.registerFor(msg.sender);
+
+        emit GenesisBuy(msg.sender, agentKey, cost, tokens, soldAfter);
+
+        // Last: a 7702 buyer's delegate code runs on this call.
+        uint256 change = msg.value == 0 ? 0 : msg.value - cost;
+        if (change != 0) {
+            (bool ok,) = msg.sender.call{value: change}("");
+            if (!ok) revert NativeTransferFailed();
+        }
+    }
+
+    /// @notice Price of the next genesis token, quote wei per whole token.
+    ///         Frozen at 1.5P once sold out. The bid book's price floor.
+    function currentGenesisPrice() public view returns (uint256) {
+        return GenesisCurve.priceAt(hardCap(), genesisSold);
+    }
+
+    /// @notice When the launch clock starts: sell-out if it sold out,
+    ///         otherwise the genesis deadline.
+    function launchStart() public view returns (uint256) {
+        uint256 s = soldOutAt;
+        return s != 0 ? s : genesisDeadline;
+    }
+
+    /// @notice Current holder of the project's Circuit NFT — the party that
+    ///         launches during the exclusive window and controls the fund.
+    function projectController() public view returns (address) {
+        return ICircuitVaultHolder(projectAdmin).holder();
+    }
+
+    // ─── Project fund ─────────────────────────────────────────────────────────
+
+    /// @notice Where `withdrawFund` pays the accrued 20 %.
+    function setProjectFund(address newFund) external {
+        if (msg.sender != projectController()) revert OnlyProjectController();
+        // Paid to the hook, the fund would read as surplus at `launch()`.
+        if (newFund == address(0) || newFund == address(this)) revert ZeroAddress();
+        emit ProjectFundChanged(projectFund, newFund);
+        projectFund = newFund;
+    }
+
+    /// @notice Pay everything accrued so far to `projectFund`.
+    function withdrawFund() external nonReentrant {
+        if (msg.sender != projectController()) revert OnlyProjectController();
+        uint256 amount = fundAccrued;
+        if (amount == 0) revert ZeroAmount();
+        fundAccrued = 0;
+        fundWithdrawn += amount;
+        address to = projectFund;
+        _payQuote(to, amount);
+        emit FundWithdrawn(to, amount);
+    }
+
+    /// @notice Pay `fundAccrued` to the current `projectFund` and point the
+    ///         fund at `newFund`. The factory calls this from a Circuit transfer
+    ///         so a sale settles the 20 % genesis share the same way it
+    ///         settles the revenue vault: the seller is paid, the buyer starts
+    ///         with a fund address they control.
+    function settleProjectFund(address newFund) external {
+        if (msg.sender != factory) revert OnlyFactory();
+        if (newFund == address(0) || newFund == address(this)) revert ZeroAddress();
+        uint256 amount = fundAccrued;
+        address to = projectFund;
+        if (amount != 0) {
+            fundAccrued = 0;
+            fundWithdrawn += amount;
+            _payQuote(to, amount);
+            emit FundWithdrawn(to, amount);
+        }
+        emit ProjectFundChanged(to, newFund);
+        projectFund = newFund;
+    }
+
+    // ─── Launch ───────────────────────────────────────────────────────────────
+
+    /// @notice Open the pool: seed it with the LP reserve at 2P, burn the unsold
+    ///         genesis supply, lift the token's transfer restrictions and open
+    ///         the shelf ladder.
+    ///
+    /// @dev    REACHABLE BY CONSTRUCTION. Once anything has been raised and the
+    ///         sale has sold out or closed, the only gate is who may call: the
+    ///         project controller for `ADMIN_LAUNCH_WINDOW`, then anyone, with
+    ///         no expiry. Nothing here reads the factory's pause, blacklist or
+    ///         ladder halt, the project fund, or the Agent ID registry, and the
+    ///         controller lookup is skipped entirely once the window is over.
+    ///
+    ///         The opening price does not depend on how much sold. The pool is
+    ///         seeded with exactly `lpReserve` and `L = lpReserve / 2P` tokens,
+    ///         so p0 = 2P for any raise; a sold-out round has L = 2.8M. Quote
+    ///         sent here from outside never reaches the pool — it is paid to the
+    ///         platform with the rounding remainder — so a donation cannot move
+    ///         the opening price.
+    ///
+    ///         `openTrading()` runs first so the token is a plain ERC-20 by the
+    ///         time any of it moves; the pool's side is minted straight into
+    ///         the Vault, and the unsold remainder straight to 0xdead, so
+    ///         sold + L + burned = GENESIS_SUPPLY exactly.
+    function launch() external initialized nonReentrant {
+        if (launched) revert AlreadyLaunched();
+        uint256 totalRaised = raised;
+        if (totalRaised == 0) revert NothingRaised();
+        uint256 start = launchStart();
+        if (block.timestamp < start) revert GenesisActive();
+        if (block.timestamp < start + ADMIN_LAUNCH_WINDOW && msg.sender != projectController()) {
+            revert AdminLaunchWindow();
+        }
 
         launched = true;
+        projectToken.openTrading();
 
-        // Quote sent here directly is owed to nobody: before launch every
-        // obligation is inside `totalNativeDeposited`, and no refund can have
-        // run while `launch` is still reachable.
-        uint256 surplus = quoteAsset.balanceOf(address(this)) - totalNativeDeposited;
+        uint256 lpQuote = lpReserve;
+        uint256 soldTotal = genesisSold;
+        uint256 lpTokens = FullMath.mulDiv(lpQuote, GenesisCurve.N, 2 * hardCap());
+        if (lpTokens > GENESIS_SUPPLY - soldTotal) lpTokens = GENESIS_SUPPLY - soldTotal;
 
-        // v4.x snapshotted `platformTreasury` here so a later factory-owner
-        // change could not retarget Phase-2 fee routing mid-launch (the M-2
-        // fix).  v5.0 needs no snapshot: all platform revenue flows to
-        // `ladderTreasury`, which is an immutable constructor argument, so the
-        // retargeting vector does not exist at the bytecode level.
-
-        // ── 1. Split the raise ────────────────────────────────────────────────
-        uint256 commissionPool = totalReferralReserved + orphanReferral;
-        uint256 lpNative = totalNativeDeposited - commissionPool;
-        require(lpNative > 0, "no LP eth");
-
-        // THE RAISE MUST BE LARGE ENOUGH FOR THE LADDER TO RISE, and until now
-        // nothing in the protocol checked that.
-        //
-        // `p0 > 0` above is a far weaker condition than it looks. It only needs
-        // `lpQuote >= GENESIS_LP_SUPPLY / 1e18` = 3,780,000 base units, which at
-        // 8 decimals is a raise of 0.042 quote units. Monotone shelves need
-        // `shelfP0 >= 526`, because shelves are geometric at +0.19025% and below
-        // that the first step truncates to zero — which needs a raise of 21.042.
-        // Between those two figures sits a 500x window in which `launch()`
-        // succeeded, the pool opened, and the first 2 to 365 shelves all carried
-        // the SAME integer price. Measured: a 1-unit raise flattens 22 shelves,
-        // letting a buyer take 69,300 tokens at shelf 0's price; a 0.042-unit
-        // raise flattens 365 and sells 1,149,750 that way.
-        //
-        // A floor on the CAP is not a defence against this either.
-        // `ToshFactory.MIN_HARD_CAP` floors the ceiling a round may reach, and a
-        // round can close anywhere below its ceiling, so only a check on the
-        // raise itself can refuse a dust round.
-        //
-        // It went unnoticed because an 18-decimal quote asset made the window
-        // unreachable: any BNB raise worth opening a pool for produces `p0` in
-        // the billions, nine orders clear of 526. BEM's 8 decimals moved it to
-        // one small round away; with WBNB it is theoretical again, and the
-        // check stays because it costs nothing and is precision-agnostic.
-        //
-        // Checked as the PROPERTY rather than as a derived minimum. A
-        // `MIN_RAISE` constant would have to be re-derived by hand whenever
-        // `GENESIS_LP_SUPPLY`, `SHELF_PREMIUM_BPS` or `TIER_STEP_E18` moved, and
-        // would go stale silently; this asks the ladder itself. Testing shelf
-        // 0 -> 1 is sufficient for the geometric part: each step is
-        // `price(i) · (STEP-1)` and `price(i)` is non-decreasing, so a first step
-        // that survives truncation means every later one does.
-        // `testFuzz_tierPriceAt_strictlyMonotone` remains the general guard,
-        // since `_powE18` accumulates its own truncation across 4000 rungs.
-        //
-        // Asked of `ladderViable()` rather than of `tierPriceAt` directly, even
-        // though `shelfP0` is in storage by this line and the two are
-        // equivalent here. `canRefund()` has to answer the same question BEFORE
-        // `shelfP0` exists, and one predicate that both call is the only way
-        // the launch door and the refund door cannot disagree about which
-        // raises are viable. See the note on `ladderViable()`.
-        //
-        // Checked BEFORE `p0` is derived, which is a change of order and not
-        // only of expression. A dust raise used to trip `require(p0 > 0)` first
-        // and report "p0=0" — an internal assertion string, to a creator whose
-        // actual problem is the documented, translated `RaiseTooSmallForLadder`
-        // that every larger-but-still-too-small raise gets. A fuzz run over the
-        // whole range found the seam. One refusal, one error, one sentence in
-        // the UI.
-        if (!ladderViable()) revert RaiseTooSmallForLadder();
-
-        // ── 2. Derive the pool anchor and the ladder base ─────────────────────
-        p0 = (lpNative * 1e18) / GENESIS_LP_SUPPLY;
-        // Unreachable behind `ladderViable()`, which derives this same quotient
-        // and rejects a zero. Kept as a backstop, not as the guard it was.
-        require(p0 > 0, "p0=0");
+        p0 = (lpQuote * ONE_E18) / lpTokens;
         shelfP0 = (p0 * SHELF_PREMIUM_BPS) / BPS_DENOMINATOR;
+        tierSize = FullMath.mulDivRoundingUp(TIER_SIZE, totalRaised, hardCap());
 
-        // ── 3. Mint the genesis allocation to this hook ───────────────────────
-        projectToken.mint(address(this), GENESIS_SUPPLY);
-
-        // ── 4. Build the ETH/token pool ───────────────────────────────────────
-        uint160 sqrtPriceX96 = _toSqrtPriceX96(lpNative, GENESIS_LP_SUPPLY);
-
+        uint160 sqrtPriceX96 = _toSqrtPriceX96(lpQuote, lpTokens);
         poolManager.initialize(_key(), sqrtPriceX96);
 
-        bytes memory result = vault.lock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpNative));
-        uint128 liquidity = abi.decode(result, (uint128));
+        (uint128 liquidity, uint256 quoteIn, uint256 tokensIn) = abi.decode(
+            vault.lock(abi.encode(ACTION_ADD_LIQUIDITY, sqrtPriceX96, lpQuote, lpTokens)), (uint128, uint256, uint256)
+        );
 
-        // ── 5. Seed the oracle at the opening tick ────────────────────────────
+        uint256 burned = GENESIS_SUPPLY - soldTotal - tokensIn;
+        if (burned != 0) projectToken.mint(DEAD_ADDRESS, burned);
+
         int24 openingTick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
         lastTick = openingTick;
         lastObservationTs = uint32(block.timestamp);
         _prevCheckpointTs = uint32(block.timestamp);
         _curCheckpointTs = uint32(block.timestamp);
 
-        // Reuse the same-block swap lockout to hold Phase 2 shut for the launch
-        // block itself.
-        //
-        // The gate is `tierPrice > ceiling`, and `shelfP0` and `ceiling` are the
-        // SAME expression — `(x * 10500) / 10000` — applied to `p0` and to
-        // `min(spot, p0)`.  At launch those two inputs are the same number up to
-        // the truncation in `_toSqrtPriceX96` / `_sqrtPriceToNativePerToken`, so
-        // shelf 0 lands EXACTLY ON the boundary and the strict `>` lets it
-        // through whenever the round-tripped spot happens to land at or above
-        // `p0`.  Which side it lands on is a function of the raise size: a sweep
-        // of 1..24 ETH opens the launch block at 10 ETH and locks it at the
-        // other 23.  `test_ladderOpensLockedAtLaunch` passed only because it
-        // exercised a single raise.
-        //
-        // Nothing was being stolen — a launch-block buyer pays 1.155x what a
-        // depositor paid — but "Phase 2 opens shut" was being asserted by a
-        // rounding coin flip rather than by the code.  One block of lockout
-        // makes it deterministic for every raise, costs a buyer nothing they
-        // cannot recover in the next block, and needs no change to the pricing
-        // algebra (which correctly says shelf i unlocks at REF >= p0 * STEP^i).
+        // Shelf 0 is level with the pool, so it can sit exactly on the
+        // ceiling in the launch block itself. The same-block lockout keeps
+        // Phase 2 shut until the next block: no real tick is this far from any
+        // other, so `_priceMovedThisBlock` holds for the rest of the block.
         _lastSwapBlock = uint48(_blockNumber());
+        _blockOpenTick = type(int24).max;
 
-        // ── 6. Flush orphaned commission and any surplus to the platform ──────
-        uint256 orphan = orphanReferral + surplus;
-        if (orphan > 0) {
-            orphanReferral = 0;
-            _payQuote(platformFeeRecipient, orphan);
-            emit OrphanReferralForwarded(orphan);
-        }
+        // Everything held beyond the unwithdrawn fund is owed to nobody: the
+        // seed's rounding remainder plus anything sent here from outside.
+        uint256 surplus = quoteAsset.balanceOf(address(this)) - fundAccrued;
+        if (surplus != 0) _payQuote(platformFeeRecipient, surplus);
 
-        emit Launched(totalNativeDeposited, lpNative, liquidity, sqrtPriceX96, p0);
-    }
-
-    /// @notice Claim the pro-rata share of the 4.62 M genesis claim allocation.
-    function claimGenesis() external nonReentrant {
-        if (!launched) revert NotLaunched();
-        if (genesisShareClaimed[msg.sender]) revert AlreadyClaimed();
-        uint256 dep = nativeDeposited[msg.sender];
-        if (dep == 0) revert NoDeposit();
-
-        uint256 allocation = (GENESIS_CLAIM_SUPPLY * dep) / totalNativeDeposited;
-
-        genesisShareClaimed[msg.sender] = true;
-
-        IERC20(address(projectToken)).safeTransfer(msg.sender, allocation);
-        emit GenesisShareClaimed(msg.sender, allocation);
-    }
-
-    /// @notice Withdraw accrued referral commission.
-    ///
-    /// @dev    Commission is credited pro-rata at deposit time and unlocked in
-    ///         full once the project launches.  One balance holds both legs:
-    ///         a wallet that is this project's referrer for some depositors and
-    ///         the lifetime referrer of others claims the sum in a single call,
-    ///         because `referralAccrued` is keyed by address and not by which
-    ///         slot earned it.  It is deliberately NOT time-vested: the amount is
-    ///         already proportional to what each referee actually brought in,
-    ///         and a launched project has no mechanism to claw it back.
-    function claimReferralReward() external nonReentrant {
-        if (!launched) revert NotLaunched();
-
-        uint256 amount = referralAccrued[msg.sender];
-        if (amount == 0) revert NoReferralReward();
-
-        referralAccrued[msg.sender] = 0;
-        totalReferralClaimed += amount;
-
-        _payQuote(msg.sender, amount);
-        emit ReferralClaimed(msg.sender, amount);
+        emit Launched(totalRaised, quoteIn, tokensIn, burned, liquidity, sqrtPriceX96, p0);
     }
 
     /// @notice Sweep the pool fees the genesis position has earned.  Permissionless.
@@ -1921,13 +1743,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// ── Anti-drain gate ─────────────────────────────────────────────────────
     ///
-    ///   The failure mode this defends against: a project admin with limited
-    ///   capital mints cheap tokens from a low shelf and dumps them into the
-    ///   pool, extracting the genesis ETH.  Three compounding guards close it:
+    ///   The failure mode this defends against: a buyer mints a shelf below
+    ///   the market and dumps it into the pool, extracting the genesis quote.
+    ///   It does not bind the Circuit holder, which gets 99 % of its payment
+    ///   back (see the header).  Three compounding guards:
     ///
-    ///     1. SAME-BLOCK LOCKOUT.  Any swap on this pool sets `lastSwapBlock`.
-    ///        Minting in that same block reverts, so a flash-loaned pump cannot
-    ///        be observed by the price gate before it unwinds.
+    ///     1. SAME-BLOCK LOCKOUT.  Once a swap in this block has moved the
+    ///        price more than `MAX_MINT_TICK_DRIFT` from the block's open,
+    ///        minting in that block reverts, so a flash-loaned pump cannot be
+    ///        observed by the price gate before it unwinds. A dust swap that
+    ///        leaves the price where it was no longer shuts the block.
     ///
     ///     2. min(SPOT, SLOW).  Once a full `TWAP_WINDOW` has elapsed the
     ///        slow leg is the rolling geometric TWAP, so pumping spot cannot
@@ -1936,7 +1761,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///        name, and falling back to it would let a two-block pump mint
     ///        against a fabricated ceiling.
     ///
-    ///     3. 105 % CEILING.  The shelf must cost no more than 1.05 × that
+    ///     3. PAR CEILING.  The shelf must cost no more than that
     ///        reference.  A shelf therefore only unlocks after the secondary
     ///        market has genuinely, durably risen to meet it — the ladder is
     ///        pulled up by real demand rather than pushed up by the issuer.
@@ -1954,7 +1779,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///   never a safety property, only a gas tax on the buyer.
     ///
     /// @param tokenAmount Tokens to buy.  May span several shelves; capped by
-    ///                    `maxMintable()`, which folds in both the 105 %
+    ///                    `maxMintable()`, which folds in both the price
     ///                    ceiling and `MAX_TIERS_PER_TX`.
     /// @param maxCost     Most quote asset the caller will pay. Pass the figure
     ///                    `quoteBondingCurve` returned, plus whatever tolerance
@@ -1983,7 +1808,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) revert LadderMintingHalted();
 
         // ── Guard 1: same-block lockout ───────────────────────────────────────
-        if (_blockNumber() <= _lastSwapBlock) revert SameBlockMintForbidden();
+        if (_priceMovedThisBlock()) revert SameBlockMintForbidden();
 
         // One SLOAD for the whole position. Read as a struct rather than through
         // the three getters, which would be three reads of the same slot.
@@ -1992,10 +1817,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint256 tierIndex = st.tierIndex;
         if (tierIndex >= TIER_COUNT) revert LadderExhausted();
 
-        // ── Guards 2 + 3: anti-spike reference and 105 % ceiling ──────────────
+        // ── Guards 2 + 3: anti-spike reference and par ceiling ──────────────
         // Hoisted out of the loop: no leg can move it (see the note above).
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
         uint256 filled;
         uint256 cost;
@@ -2008,7 +1834,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             uint256 tierPrice = tierPriceAt(tierIndex);
             if (tierPrice > ceiling) revert TierPriceAboveCeiling();
 
-            uint256 room = TIER_SIZE - sold;
+            uint256 room = size - sold;
             uint256 take = tokenAmount - filled;
             if (take > room) take = room;
 
@@ -2023,7 +1849,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
             emit TierMinted(msg.sender, tierIndex, tierPrice, take, legCost);
 
-            if (sold == TIER_SIZE) {
+            if (sold == size) {
                 sold = 0;
                 unchecked {
                     ++tierIndex;
@@ -2050,7 +1876,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         //
         // One SSTORE for all three. The casts are safe by the bounds proved on
         // `LadderState`: `tierIndex` is fenced by the `TIER_COUNT` checks above,
-        // `sold` by the rollover that resets it at `TIER_SIZE`, and the running
+        // `sold` by the rollover that resets it at `tierSize`, and the running
         // total by the same `TIER_COUNT` fence, which caps lifetime issuance at
         // `BONDING_MAX`.
         _ladderState = LadderState({
@@ -2089,6 +1915,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         two loops together.
     function quoteMint(uint256 tokenAmount) external view returns (uint256 nativeCost) {
         if (tokenAmount == 0) return 0;
+        if (!launched) revert NotLaunched();
 
         LadderState memory st = _ladderState;
 
@@ -2097,6 +1924,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
 
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
         uint256 filled;
         uint256 legs;
@@ -2108,7 +1936,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             uint256 tierPrice = tierPriceAt(tierIndex);
             if (tierPrice > ceiling) revert TierPriceAboveCeiling();
 
-            uint256 room = TIER_SIZE - sold;
+            uint256 room = size - sold;
             uint256 take = tokenAmount - filled;
             if (take > room) take = room;
 
@@ -2116,7 +1944,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             filled += take;
             sold += take;
 
-            if (sold == TIER_SIZE) {
+            if (sold == size) {
                 sold = 0;
                 unchecked {
                     ++tierIndex;
@@ -2131,9 +1959,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     /// @dev    Folds together every quantity limit the buyer can hit: the
     ///         active shelf's leftovers, every subsequent shelf still under the
-    ///         105 % ceiling, the end of the ladder, `MAX_TIERS_PER_TX`, and the
+    ///         price ceiling, the end of the ladder, `MAX_TIERS_PER_TX`, and the
     ///         same-block lockout.  The UI sizes its "max" button off this
-    ///         instead of guessing `TIER_SIZE`.  Returns 0 while the gate is
+    ///         instead of guessing `tierSize`.  Returns 0 while the gate is
     ///         shut.
     ///
     ///         RIGHT NOW, not next block — which is why the lockout belongs
@@ -2145,7 +1973,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         launch block too.
     function maxMintable() public view returns (uint256 tokens) {
         if (!launched) return 0;
-        if (_blockNumber() <= _lastSwapBlock) return 0;
+        if (_priceMovedThisBlock()) return 0;
         if (IToshFactoryHalt(factory).ladderMintingHalted(address(this))) return 0;
 
         LadderState memory st = _ladderState;
@@ -2154,11 +1982,12 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         if (tierIndex >= TIER_COUNT) return 0;
 
         uint256 ceiling = (_safeReferencePrice() * PRICE_CEILING_BPS) / BPS_DENOMINATOR;
+        uint256 size = tierSize;
         uint256 sold = st.tierSold;
 
         for (uint256 legs; legs < MAX_TIERS_PER_TX && tierIndex < TIER_COUNT; ++legs) {
             if (tierPriceAt(tierIndex) > ceiling) break;
-            tokens += TIER_SIZE - sold;
+            tokens += size - sold;
             sold = 0;
             unchecked {
                 ++tierIndex;
@@ -2325,6 +2154,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // Sampling here rather than after `_skimUnspecifiedInput` is
         // price-neutral: the skim settles deltas through `poolManager.take`,
         // which moves no price, so `lastTick` reads the same either way.
+        //
+        // Before the observation overwrites it, `lastTick` is where the last
+        // swap left the price, which is where this block opened.
+        if (_lastSwapBlock < _blockNumber()) _blockOpenTick = lastTick;
         _lastSwapBlock = uint48(_blockNumber());
         _writeObservation();
 
@@ -2494,12 +2327,16 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         return ICLHooks.afterInitialize.selector;
     }
 
+    /// @dev Full range only. A narrow position is a limit order: one-sided
+    ///      liquidity that buyers or sellers cross converts at the pool price
+    ///      without ever passing through `beforeSwap`, so it trades untaxed.
     function beforeAddLiquidity(
         address,
         PoolKey calldata,
-        ICLPoolManager.ModifyLiquidityParams calldata,
+        ICLPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata
     ) external pure returns (bytes4) {
+        if (params.tickLower != TICK_LOWER || params.tickUpper != TICK_UPPER) revert RangeNotFull();
         return ICLHooks.beforeAddLiquidity.selector;
     }
 
@@ -2541,8 +2378,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         uint8 action = abi.decode(data, (uint8));
 
         if (action == ACTION_ADD_LIQUIDITY) {
-            (, uint160 sqrtPriceX96, uint256 lpNative) = abi.decode(data, (uint8, uint160, uint256));
-            return _addInitialLiquidity(sqrtPriceX96, lpNative);
+            (, uint160 sqrtPriceX96, uint256 lpQuote, uint256 lpTokens) =
+                abi.decode(data, (uint8, uint160, uint256, uint256));
+            return _addInitialLiquidity(sqrtPriceX96, lpQuote, lpTokens);
         }
         if (action == ACTION_COLLECT_FEES) {
             _collectGenesisFees();
@@ -2642,15 +2480,23 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
             | (uint16(1) << HOOKS_AFTER_SWAP_RETURNS_DELTA_OFFSET);
     }
 
-    /// @dev Settle the full-range genesis position: `lpNative` native ETH plus
-    ///      GENESIS_LP_SUPPLY tokens.
-    function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpNative) internal returns (bytes memory) {
+    /// @dev Settle the full-range genesis position from `lpQuote` quote and at
+    ///      most `lpTokens` tokens. Returns the liquidity and what each side
+    ///      actually took, which `launch()` needs to size the burn.
+    ///
+    ///      v2 mints the token side directly into the Vault rather than to the
+    ///      hook and across: the token is held by nobody before the pool owns
+    ///      it, and whatever the position does not take is simply never minted.
+    function _addInitialLiquidity(uint160 sqrtPriceX96, uint256 lpQuote, uint256 lpTokens)
+        internal
+        returns (bytes memory)
+    {
         uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtPriceX96,
             TickMath.getSqrtRatioAtTick(TICK_LOWER),
             TickMath.getSqrtRatioAtTick(TICK_UPPER),
-            lpNative,
-            GENESIS_LP_SUPPLY
+            lpQuote,
+            lpTokens
         );
 
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
@@ -2666,6 +2512,8 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         int128 d0 = delta.amount0();
         int128 d1 = delta.amount1();
+        uint256 quoteOwed;
+        uint256 tokensOwed;
 
         // currency0 == the quote asset
         //
@@ -2675,9 +2523,9 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // sync/transfer/settle against a measured one — and now they differ only
         // in which token and which delta.
         if (d0 < 0) {
-            uint256 owed = uint256(uint128(-d0));
+            quoteOwed = uint256(uint128(-d0));
             vault.sync(Currency.wrap(address(quoteAsset)));
-            SafeERC20.safeTransfer(quoteAsset, address(vault), owed);
+            SafeERC20.safeTransfer(quoteAsset, address(vault), quoteOwed);
             vault.settle();
         }
         // currency1 == project token
@@ -2689,13 +2537,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // measuring a balance that never changed, so it credits nothing and the
         // frame closes with `CurrencyNotSettled()`.
         if (d1 < 0) {
-            uint256 owed = uint256(uint128(-d1));
+            tokensOwed = uint256(uint128(-d1));
             vault.sync(Currency.wrap(address(projectToken)));
-            IERC20(address(projectToken)).safeTransfer(address(vault), owed);
+            projectToken.mint(address(vault), tokensOwed);
             vault.settle();
         }
 
-        return abi.encode(liquidity);
+        return abi.encode(liquidity, quoteOwed, tokensOwed);
     }
 
     /// @dev With a zero liquidity delta the returned delta is the fee delta
@@ -2724,6 +2572,17 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
     //  Dark tax + oracle internals
     // ══════════════════════════════════════════════════════════════════════════
+
+    /// @dev Whether a swap in this block has moved the price further than
+    ///      `MAX_MINT_TICK_DRIFT` from where the block opened. Every swap
+    ///      refreshes `lastTick` and nothing else moves the price, so `lastTick`
+    ///      is spot. A dust swap no longer shuts the ladder for the block; a
+    ///      pump or dump that the reference price would see still does.
+    function _priceMovedThisBlock() internal view returns (bool) {
+        if (_lastSwapBlock < _blockNumber()) return false;
+        int256 drift = int256(lastTick) - int256(_blockOpenTick);
+        return drift > MAX_MINT_TICK_DRIFT || drift < -MAX_MINT_TICK_DRIFT;
+    }
 
     /// @dev Advance the geometric-mean accumulator and roll the TWAP window.
     function _writeObservation() internal {
@@ -2908,13 +2767,6 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     //  Views
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Shelf descriptor, matching the v5.0 spec's `Tier` shape.
-    struct Tier {
-        uint256 price;
-        uint256 totalAmount;
-        uint256 soldAmount;
-    }
-
     /// @notice Price of shelf `index` in ETH-wei per whole token.
     ///
     /// @dev    Closed form `shelfP0 · STEP^index`, evaluated by exponentiation
@@ -2945,93 +2797,13 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         }
     }
 
-    /// @notice Describe shelf `index`.
-    ///
-    /// @dev    Every shelf holds the same `TIER_SIZE` quota and its price is
-    ///         closed-form, so the ladder is DERIVED on demand rather than
-    ///         materialised into 4000 storage structs at launch (which would
-    ///         cost millions of gas).  The struct shape is preserved for
-    ///         ABI / front-end parity with the v5.0 spec.
-    function getTier(uint256 index) public view returns (Tier memory tier) {
-        require(index < TIER_COUNT, "tier out of range");
-
-        LadderState memory st = _ladderState;
-
-        uint256 sold;
-        if (index < st.tierIndex) {
-            sold = TIER_SIZE; // fully cleared
-        } else if (index == st.tierIndex) {
-            sold = st.tierSold;
-        }
-
-        tier = Tier({price: tierPriceAt(index), totalAmount: TIER_SIZE, soldAmount: sold});
-    }
-
-    /// @notice A window of the ladder, for the front-end shelf display.
-    ///
-    /// @dev    Paginated rather than all-at-once: a 4000-rung ladder is 12 000
-    ///         words, which is far too large to return in a single call.  The
-    ///         UI only ever renders a window around `currentTierIndex`.
-    /// @param  start First shelf index to return.
-    /// @param  count Maximum shelves to return; clamped to the ladder end.
-    function getTiers(uint256 start, uint256 count) external view returns (Tier[] memory ladder) {
-        if (start >= TIER_COUNT) return new Tier[](0);
-
-        uint256 end = start + count;
-        if (end > TIER_COUNT) end = TIER_COUNT;
-        uint256 n = end - start;
-
-        ladder = new Tier[](n);
-
-        // Hoisted: this used to read two storage fields per rung, and the UI
-        // asks for a window at a time.
-        LadderState memory st = _ladderState;
-
-        for (uint256 i; i < n; ++i) {
-            uint256 idx = start + i;
-            uint256 sold;
-            if (idx < st.tierIndex) sold = TIER_SIZE;
-            else if (idx == st.tierIndex) sold = st.tierSold;
-
-            // Deliberately re-derives via `tierPriceAt` per rung instead of
-            // walking the series forward: sequential multiplication would
-            // accumulate different truncation than the closed form, and a
-            // display price that disagrees with the charged price by even one
-            // wei is a support ticket waiting to happen.
-            ladder[i] = Tier({price: tierPriceAt(idx), totalAmount: TIER_SIZE, soldAmount: sold});
-        }
-    }
-
-    function tierCount() external pure returns (uint256) {
-        return TIER_COUNT;
-    }
-
-    /// @notice Tokens left on the active shelf.
-    function tierRemaining() external view returns (uint256) {
-        LadderState memory st = _ladderState;
-        if (st.tierIndex >= TIER_COUNT) return 0;
-        return TIER_SIZE - st.tierSold;
-    }
-
-    /// @notice Phase-2 tokens still unissued across the whole ladder.
-    function bondingRemaining() external view returns (uint256) {
-        uint256 minted = _ladderState.minted;
-        if (minted >= BONDING_MAX) return 0;
-        return BONDING_MAX - minted;
-    }
-
-    /// @notice Price of the shelf currently on sale (ETH-wei per whole token).
-    function currentBondingPrice() external view returns (uint256) {
-        return tierPriceAt(_ladderState.tierIndex);
-    }
-
     /// @notice Everything the front-end needs to render the shelf gate.
     /// @return tierIndex   Active shelf.
     /// @return tierPrice   Its fixed price.
     /// @return remaining   Tokens left on it.
     /// @return spotPrice   Live pool price.
     /// @return twapPrice   Rolling geometric TWAP (0 before the first window).
-    /// @return ceiling     105 % of the anti-spike reference (`min(spot, TWAP)`
+    /// @return ceiling     The anti-spike reference (`min(spot, TWAP)`
     ///                     once the window is mature, `min(spot, p0)` until then).
     /// @return unlocked    Whether the shelf currently passes the price gate.
     function tierStatus()
@@ -3051,7 +2823,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
 
         tierIndex = st.tierIndex;
         tierPrice = tierPriceAt(tierIndex);
-        remaining = tierIndex >= TIER_COUNT ? 0 : TIER_SIZE - st.tierSold;
+        remaining = tierIndex >= TIER_COUNT ? 0 : tierSize - st.tierSold;
 
         if (!launched) return (tierIndex, tierPrice, remaining, 0, 0, 0, false);
 
@@ -3099,35 +2871,23 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     function twapSqrtPriceX96() external view returns (uint160) {
         return _twapSqrtPriceX96();
     }
-
-    function hasClaimed(address user) external view returns (bool) {
-        return genesisShareClaimed[user];
-    }
-
-    /// @notice Referral commission `referrer` can withdraw right now.
-    function claimableReferral(address referrer) external view returns (uint256) {
-        return launched ? referralAccrued[referrer] : 0;
-    }
-
-    // ─── v4.x compatibility shims ─────────────────────────────────────────────
-
-    /// @notice Deprecated alias of `nativeDeposited`, kept so existing indexers and
-    ///         the factory's eligibility view keep compiling against v5.0.
-    function satoDeposited(address user) external view returns (uint256) {
-        return nativeDeposited[user];
-    }
-
-    /// @notice Deprecated alias of `totalNativeDeposited`.
-    function totalSatoDeposited() external view returns (uint256) {
-        return totalNativeDeposited;
-    }
 }
 
 // ─── Minimal external interfaces ──────────────────────────────────────────────
 
+/// @dev `CircuitRevenueVault.holder()`: the current owner of the Circuit NFT.
+interface ICircuitVaultHolder {
+    function holder() external view returns (address);
+}
+
+interface IWrappedNativeDeposit {
+    function deposit() external payable;
+}
+
 interface IToshLadderTreasury {
     function autoPiggybackBuyback() external;
     function piggybackActive() external view returns (bool);
+    function TRIGGER_STEP() external view returns (uint256);
 }
 
 /// @dev Minimal factory view for the ladder halt.  Declared here rather than
@@ -3135,6 +2895,7 @@ interface IToshLadderTreasury {
 ///      deploy hooks, and a direct import would close that cycle.
 interface IToshFactoryHalt {
     function ladderMintingHalted(address hook) external view returns (bool);
+    function genesisBlocked(address hook, address user) external view returns (bool);
 }
 
 /// @dev The one ArbSys method this contract needs.  Declared locally rather than

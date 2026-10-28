@@ -34,9 +34,6 @@ import { WalletPip } from './WalletPip'
  *   390px the navbar needs 424px of the 358px it has, and this button is 152px
  *   of that. Two spans rather than an `aria-label`, so a voice-control user
  *   saying "click connect wallet" is never naming something invisible.
- *
- * `sys_control` is not covered here — it needs `useProtocolOwner` to answer
- * true, and it is an operator link into `/admin`, which stays English.
  */
 
 const ACCOUNT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
@@ -52,13 +49,6 @@ vi.mock('wagmi', () => ({
   }),
   useConnect: () => ({ connect: vi.fn(), isPending: connecting }),
   useReadContract: () => ({ data: undefined, refetch: vi.fn() }),
-}))
-
-// `useProtocolOwner` reads a contract through wagmi; the mock above answers
-// `undefined`, which is what a non-owner looks like. Stubbed explicitly so the
-// hidden admin link cannot appear because of a change in that hook.
-vi.mock('@/lib/useProtocolOwner', () => ({
-  useProtocolOwner: () => ({ isOwner: false, owner: undefined }),
 }))
 
 // The drawer only mounts when connected, and its copy is a separate surface.

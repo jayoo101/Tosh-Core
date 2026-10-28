@@ -1,11 +1,27 @@
 /**
- * Re-export, for the reason `./checkExit.mjs` gives: the module lives at the
- * repository root so both `scripts/` trees share ONE list, and this file exists
- * so imports from here stay `./lib/retiredChains.mjs` rather than a `../../..`
- * that is free to point at the wrong tree.
+ * Chains this protocol has left.
  *
- * Sharing the list is the whole point rather than a tidiness preference. A
- * second copy is how `checkStatusPage.mjs` nearly shipped a departed-chain
- * check that was green on one side and blind on the other.
+ * Keyed by id because that is what a script has in hand — either as a pinned
+ * constant or as the answer to `eth_chainId` — and matching on the id rather
+ * than on a name means a build that only ever wrote `46630` is still covered.
+ *
+ * A retired chain's endpoint can still answer: on 2026-09-18 the Robinhood
+ * testnet RPC served `eth_chainId` as 46630. A build pointed at one therefore
+ * connects and reads real contracts rather than failing, which is why it is
+ * refused by id instead of being left to a network error.
  */
-export { RETIRED_CHAINS, retiredChain, refuseIfRetired } from '../../../scripts/lib/retiredChains.mjs'
+export const RETIRED_CHAINS = {
+  4663: {
+    name: 'Robinhood Chain mainnet',
+    left: 'Settlement moved to BNB Smart Chain 56 with PancakeSwap Infinity.',
+  },
+  46630: {
+    name: 'Robinhood Chain testnet',
+    left: 'Rehearsals moved to BNB Smart Chain testnet 97.',
+  },
+}
+
+/** What `chainId` was, or `null` when it is a chain this protocol still uses. */
+export function retiredChain(chainId) {
+  return RETIRED_CHAINS[String(BigInt(chainId))] ?? null
+}

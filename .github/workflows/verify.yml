@@ -2,14 +2,14 @@ name: Verify deployment
 
 # ⚠ THE RUN NAME CARRIES THE CHAIN, and that is a safety control rather than a
 #   nicety. Both inputs below are `choice` with testnet defaults, so a dispatch
-#   that accepts them reads `broadcast/Deploy.s.sol/97/run-latest.json` — a file
-#   already in this tree — verifies testnet, and goes green. An operator who
+#   that accepts them reads `broadcast/DeployV2.s.sol/97/run-latest.json` once a
+#   testnet deploy is committed, verifies testnet, and goes green. An operator who
 #   opened this workflow to publish MAINNET source then has a green
 #   "Verify deployment" against their name and no reason to look further.
 #
 #   The inputs are internally coherent in that case, so the guard in the verify
 #   step cannot catch it; only the label can. In the Actions list this now reads
-#   "Verify Deploy.s.sol on chain 97", which is unmistakable at a glance and
+#   "Verify DeployV2.s.sol on chain 97", which is unmistakable at a glance and
 #   stays in the run history as the record of what was actually published.
 run-name: Verify ${{ inputs.script }} on chain ${{ inputs.chain }}
 
@@ -138,11 +138,11 @@ on:
       script:
         description: Broadcast log to read the deployment out of
         required: true
-        default: Deploy.s.sol
+        default: DeployV2.s.sol
         type: choice
         options:
-          - Deploy.s.sol
-          - DeployMainnet.s.sol
+          - DeployV2.s.sol
+          - DeployLaunchGateway.s.sol
 
 jobs:
   verify:
@@ -189,23 +189,9 @@ jobs:
             exit 1
           fi
 
-          # Each deploy script pins its own chain -- `Deploy.s.sol` refuses
-          # anything but 97, `DeployMainnet.s.sol` anything but 56 -- so a
-          # crossed pair names a broadcast log that cannot exist. Caught here
-          # with the reason, rather than below as a missing file: "commit the
-          # broadcast artefact" is the wrong instruction for an operator who has
-          # simply left one of the two dropdowns alone.
-          case "${CHAIN}:${SCRIPT}" in
-            56:DeployMainnet.s.sol|97:Deploy.s.sol) ;;
-            *)
-              echo "::error::chain ${CHAIN} and script ${SCRIPT} do not go together. Deploy.s.sol deploys chain 97; DeployMainnet.s.sol deploys chain 56. Re-dispatch with both inputs set for the same chain."
-              exit 1
-              ;;
-          esac
-
           log="broadcast/${SCRIPT}/${CHAIN}/run-latest.json"
           if [ ! -f "$log" ]; then
-            echo "::error::${log} is not in the tree. Commit the broadcast artefact for this deployment, or pick the other script input."
+            echo "::error::${log} is not in the tree. Commit the broadcast artefact for this deployment, or check the chain and script inputs name the same deploy."
             exit 1
           fi
 
@@ -217,22 +203,15 @@ jobs:
 
           # ── What counts as "every contract the deploy created" ──────────────
           #
-          # The list used to be `transactionType=="CREATE"`, which on the
-          # chain-56 deploy is two of the five contracts that exist afterwards,
-          # and the job went green having published two. The three it missed are
-          # not incidental:
-          #
-          #   · HookDeployLib is CREATE2, so the filter dropped it by type.
-          #   · ToshLaunchpadHook and ToshToken are built inside ToshFactory's
-          #     constructor. They are `additionalContracts` entries with an
-          #     address and no contractName, so no name-based filter can reach
-          #     them.
+          # Every CREATE and CREATE2 the script broadcast, plus the factory's
+          # hook and token implementations read off its immutables: a contract
+          # built inside another's constructor is an `additionalContracts`
+          # entry with no contractName, so no name-based filter reaches it.
           #
           # The hook implementation is the one that matters most. It holds the
-          # swap, fee, genesis and refund logic, `platformFeeRecipient` is baked
-          # into it, and every project's hook is an EIP-1167 clone pointing at
-          # it — so it is the contract a user auditing a launch actually reads,
-          # and it was the one contract guaranteed not to be published.
+          # swap, fee, genesis and ladder logic, and every project's hook is an
+          # EIP-1167 clone pointing at it — so it is the contract a user
+          # auditing a launch actually reads.
           #
           # Their addresses come from the factory's own immutables rather than
           # from a list kept here, so this cannot name a hook the deployed
@@ -259,8 +238,9 @@ jobs:
               esac
             done
           else
-            echo "::warning::no ToshFactory in ${log}, so the two contracts it builds in its constructor cannot be resolved"
+            echo "::warning::no ToshFactory in ${log}, so its hook and token implementations cannot be resolved"
           fi
+          sort -u -o "$targets" "$targets"
 
           echo "contracts to publish:"
           sed 's/^/  /' "$targets"

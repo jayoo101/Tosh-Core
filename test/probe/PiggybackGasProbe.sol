@@ -85,7 +85,7 @@ contract ProbeTreasury is ToshLadderTreasury {
     event ProbeSpendSet(uint256 amount);
 
     constructor(address _poolManager, address _vault, address _owner, address _quoteAsset)
-        ToshLadderTreasury(_poolManager, _vault, _owner, _quoteAsset, address(0))
+        ToshLadderTreasury(_poolManager, _vault, _owner, _quoteAsset, address(0), 0.3 ether)
     {}
 
     function setProbeSpend(uint256 amount) external onlyOwner {

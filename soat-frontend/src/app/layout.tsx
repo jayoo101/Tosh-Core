@@ -1,25 +1,27 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { JetBrains_Mono, Geist, Noto_Sans_SC } from 'next/font/google'
+import { Chakra_Petch, Geist, Noto_Sans_SC } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { ToshNavbar } from '@/components/ToshNavbar'
 import { NetworkGuardClient } from '@/components/NetworkGuardClient'
 import { FactoryGuardClient } from '@/components/FactoryGuardClient'
-import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
-import { CHAIN_POSITIONING } from '@/lib/chain'
+import { Backdrop } from '@/components/x/Backdrop'
+import { SideRail } from '@/components/x/SideRail'
+import { CHAIN_POSITIONING, NATIVE_SYMBOL } from '@/lib/chain'
 import { QUOTE_POSITIONING } from '@/lib/contracts'
-import { ECOSYSTEM_SYMBOL } from '@/lib/quoteAssets'
 import { I18nProvider, LOCALES_ENABLED, DEFAULT_LOCALE, fill, type Locale } from '@/i18n'
 import { requestDictionary } from '@/i18n/server'
 
-// JetBrains Mono — labels, numbers, addresses, audit-cliff IDs, code-style text.
-const jbm = JetBrains_Mono({
+// Chakra Petch — labels, numbers, addresses, tickers. The ToshX v2 design's
+// display face; it replaced JetBrains Mono, so `font-mono` is no longer
+// fixed-pitch and numerals rely on `tabular-nums` (set on <body>) to align.
+const chakra = Chakra_Petch({
   subsets: ['latin'],
-  variable: '--font-jbm',
-  weight:   ['200', '300', '400', '500', '700'],
+  variable: '--font-chakra',
+  weight:   ['300', '400', '500', '600', '700'],
   display:  'swap',
 })
 
@@ -104,7 +106,7 @@ const OG_LOCALE: Partial<Record<Locale, string>> = { 'en': 'en_US', 'zh-CN': 'zh
 export async function generateMetadata(): Promise<Metadata> {
   const { locale, dict } = await requestDictionary()
   const t = dict.meta
-  const cardTitle = fill(t.cardTitle, { ecosystem: ECOSYSTEM_SYMBOL })
+  const cardTitle = fill(t.cardTitle, { ecosystem: NATIVE_SYMBOL })
 
   /*
    * One description, used three times.
@@ -179,15 +181,20 @@ export default async function RootLayout({
       {/* useSearchParams needs a boundary or it opts the whole tree out of
           static rendering. */}
       <Suspense fallback={null}>
-        <ReferralCapture />
       </Suspense>
+      <Backdrop />
       <ToshNavbar />
       <NetworkGuardClient />
       <FactoryGuardClient />
-      <div className="flex-1">
-        <InstantProjectSlot>{children}</InstantProjectSlot>
+      <div className="flex flex-1">
+        <SideRail />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex-1">
+            <InstantProjectSlot>{children}</InstantProjectSlot>
+          </div>
+          <SiteFooter t={dict} />
+        </div>
       </div>
-      <SiteFooter t={dict} />
     </Providers>
   )
 
@@ -219,7 +226,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       translate="no"
-      className={`${jbm.variable} ${geist.variable}`}
+      className={`${chakra.variable} ${geist.variable}`}
       style={fontVars}
       suppressHydrationWarning
     >

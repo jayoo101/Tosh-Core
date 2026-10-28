@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 
 import { Badge, Button, Card, Field, PageHeader } from '@/components/ui'
 import { CHAIN_BYLINE } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 import { fill, useLocale, useT, type Dictionary } from '@/i18n'
 import {
   APPLICATION_LIMITS,
@@ -108,7 +109,7 @@ export function ApplyForm() {
   }
 
   const eiCount = codePointLength(ecosystemIntegration.trim())
-  const rules = [t.rule1, t.rule2, t.rule3, t.rule4]
+  const rules = [t.rule1, t.rule2, t.rule3, fill(t.rule4, { native: NATIVE_SYMBOL })]
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10 flex flex-col gap-card-lg">

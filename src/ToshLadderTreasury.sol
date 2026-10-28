@@ -61,7 +61,8 @@ import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/uti
 ///        fees from the inflow; the claim that they are buyback fuel survived
 ///        in three docstrings after it stopped being true.
 ///     2. Every swap's `afterSwap` pokes `autoPiggybackBuyback()`.
-///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (0.3 BNB),
+///     3. Whenever this contract's balance crosses `TRIGGER_STEP` (0.3 BNB on
+///        the WBNB treasury; set per quote asset at deploy),
 ///        the poking swap "gives a ride" (顺风车) to a buyback:
 ///        `max(TRIGGER_STEP, balance × SPEND_BPS / 10_000)` is sized per pool
 ///        as `spend / BATCH_SIZE` and market-bought through PancakeSwap
@@ -148,22 +149,17 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         `SPEND_BPS` of its balance instead, so ammunition does not
     ///         pile up through quiet trading hours.
     ///
-    /// @dev    Sized by intent rather than by a spot rate, because it is a
-    ///         constant and a constant outlives the rate that set it.  The
-    ///         question it answers is "how much ammunition is worth one shot,
-    ///         net of the gas to fire it".  Under BEM it was cut from 92.8 to
-    ///         10 BEM so small projects' buybacks fire at all; 0.3 BNB is what
-    ///         10 BEM was worth when the quote asset moved to WBNB.  A cheaper
-    ///         trigger spends the reservoir on fees; a dearer one lets it idle.
+    /// @dev    Set per deployment because each treasury holds one quote asset
+    ///         and a step is a value, not a unit count: 0.3 BNB is about the
+    ///         gas-worthy shot for WBNB, while the same 0.3e18 in USDT is $0.30
+    ///         and would arm a ~125k-gas leg on nearly every buy. The question
+    ///         it answers is "how much ammunition is worth one shot, net of the
+    ///         gas to fire it". A cheaper trigger spends the reservoir on fees;
+    ///         a dearer one lets it idle. No setter.
     ///
-    ///         ⚠ MUST EQUAL `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP`. Both are
-    ///           `constant` with no setter, in separately deployed contracts, so
-    ///           nothing on-chain reconciles them. If the hook's copy is the
-    ///           higher of the two, `afterSwap` stops poking at balances this
-    ///           contract would have acted on and the buyback simply goes quiet —
-    ///           a skipped poke emits nothing by design, so the symptom is
-    ///           silence. `ToshV5Guards.t.sol` pins the pair.
-    uint256 public constant TRIGGER_STEP = 0.3 ether;
+    ///         `ToshLaunchpadHook.PIGGYBACK_TRIGGER_STEP` is copied from this
+    ///         value in the hook's constructor, so the pair cannot drift.
+    uint256 public immutable TRIGGER_STEP;
 
     /// @notice Fraction of the reservoir spent per piggyback cycle, in
     ///         basis points.  5000 = 50 %.  Floored at `TRIGGER_STEP`.
@@ -283,6 +279,19 @@ contract ToshLadderTreasury is Ownable2Step {
     ///         pins the width, and PROBE G measures what leaks through it.
     uint256 public constant MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000;
 
+    /// @notice How far the pool's spot may already sit above its TWAP, in sqrt
+    ///         terms (50 bps ≈ 1 % in price), for a leg to start at all.
+    ///
+    /// @dev    `MAX_BUYBACK_SQRT_DEVIATION_BPS` bounds where a leg ENDS, so a
+    ///         pump that stops inside that band left the leg free to buy the
+    ///         whole stretch. And `MAX_LEG_DEPTH_BPS` reads ACTIVE liquidity,
+    ///         which anyone can inflate with a narrow position around spot for
+    ///         one transaction. Together they let a leg run at full size against
+    ///         the attacker's own just-in-time position at a pumped price. With
+    ///         spot pinned near the TWAP before the swap, whatever liquidity the
+    ///         leg fills against, it fills at about the market's settled price.
+    uint256 public constant MAX_PRE_LEG_SQRT_PREMIUM_BPS = 50;
+
     /// @dev Transient-storage slot holding the recursion guard.  A piggyback
     ///      buys through OTHER Tosh pools, whose hooks would otherwise tax the
     ///      buyback and re-trigger a nested piggyback.  Hooks read
@@ -354,6 +363,12 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev token => (index in `ladderTokens`) + 1.  Zero means "not listed".
     mapping(address => uint256) internal _indexPlusOne;
 
+    /// @notice token => block of its last buyback leg.  One leg per pool per
+    ///         block: `MAX_LEG_DEPTH_BPS` bounds a leg, but a sandwich captures
+    ///         every leg between its buy and its sell, and the TWAP cannot move
+    ///         inside a block to tighten the floor between them.
+    mapping(address => uint256) public lastLegBlock;
+
     // ─── Events ───────────────────────────────────────────────────────────────
 
     event FactorySet(address indexed factory);
@@ -400,6 +415,8 @@ contract ToshLadderTreasury is Ownable2Step {
     /// @dev `pokeBuyback` called with nothing to deploy.
     error NotArmed();
     error PiggybackInProgress();
+    error LegAlreadyRanThisBlock();
+    error SpotAboveTwap();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -408,16 +425,25 @@ contract ToshLadderTreasury is Ownable2Step {
     ///      `vault()` from `ProtocolFees`, but `ICLPoolManager` does not declare
     ///      it, and hand-rolling an interface for a getter would put a claim
     ///      about the live pair into a local declaration instead of a test.
-    constructor(address _poolManager, address _vault, address _owner, address _quoteAsset, address _legacyFactory)
-        Ownable(_owner)
-    {
-        if (_poolManager == address(0) || _vault == address(0) || _owner == address(0) || _quoteAsset == address(0)) {
+    constructor(
+        address _poolManager,
+        address _vault,
+        address _owner,
+        address _quoteAsset,
+        address _legacyFactory,
+        uint256 _triggerStep
+    ) Ownable(_owner) {
+        if (
+            _poolManager == address(0) || _vault == address(0) || _owner == address(0) || _quoteAsset == address(0)
+                || _triggerStep == 0
+        ) {
             revert ZeroAddress();
         }
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
         quoteAsset = IERC20(_quoteAsset);
         legacyFactory = _legacyFactory;
+        TRIGGER_STEP = _triggerStep;
     }
 
     // ─── Funding ──────────────────────────────────────────────────────────────
@@ -777,6 +803,15 @@ contract ToshLadderTreasury is Ownable2Step {
         uint256 total = ladderTokens.length;
         if (total == 0) return;
 
+        // An outer frame that synced the quote asset and has not settled yet
+        // would have that sync overwritten by a leg's own `sync`, and its
+        // settle would then credit nothing. Wait for a cleaner swap instead.
+        try vault.getVaultReserve() returns (Currency synced, uint256) {
+            if (Currency.unwrap(synced) != address(0)) return;
+        } catch {
+            return;
+        }
+
         // Legs per poke and the spend divisor are separate numbers; see both
         // constants.  `count` is only clamped by the ladder length so a
         // one-token ladder does not index past the end.
@@ -856,10 +891,14 @@ contract ToshLadderTreasury is Ownable2Step {
         //   that a thin pool is bought back over more pokes; pokes are
         //   permissionless and ride on user swaps, so that costs nobody a
         //   transaction.
+        if (lastLegBlock[token] == block.number) revert LegAlreadyRanThisBlock();
+        if (_spotStretchedAboveTwap(key)) revert SpotAboveTwap();
+
         uint256 ceiling = _legDepthCeiling(key);
         if (ceiling == 0) return;
         if (nativeIn > ceiling) nativeIn = ceiling;
 
+        lastLegBlock[token] = block.number;
         BalanceDelta delta = poolManager.swap(
             key,
             ICLPoolManager.SwapParams({
@@ -1034,6 +1073,22 @@ contract ToshLadderTreasury is Ownable2Step {
         }
     }
 
+    /// @dev True when spot already prices the token more than
+    ///      `MAX_PRE_LEG_SQRT_PREMIUM_BPS` above its TWAP. The token is
+    ///      currency1, so a dearer token is a LOWER sqrt price. No TWAP, or a
+    ///      hook that cannot answer, falls through to `_buybackSqrtFloor`'s
+    ///      handling of the same two cases.
+    function _spotStretchedAboveTwap(PoolKey memory key) internal view returns (bool) {
+        try IToshHookTwap(address(key.hooks)).twapSqrtPriceX96() returns (uint160 twapSqrt) {
+            if (twapSqrt == 0) return false;
+            (uint160 spot,,,) = poolManager.getSlot0(key.toId());
+            uint256 lowest = (uint256(twapSqrt) * (BPS_DENOMINATOR - MAX_PRE_LEG_SQRT_PREMIUM_BPS)) / BPS_DENOMINATOR;
+            return uint256(spot) < lowest;
+        } catch {
+            return false;
+        }
+    }
+
     // ─── Views ────────────────────────────────────────────────────────────────
 
     /// @notice True while a piggyback cycle is mid-flight.  Tosh hooks consult
@@ -1100,9 +1155,9 @@ contract ToshLadderTreasury is Ownable2Step {
     ///
     ///      `virtual` exists for exactly one reason and it is worth naming, so
     ///      that nobody deletes it as decoration or takes it as an invitation.
-    ///      `TRIGGER_STEP` is a 1 ETH `constant` with no setter, which means the
-    ///      piggyback branch cannot be reached on any chain where a tester
-    ///      cannot assemble 1 ETH — testnets, in other words. That branch is
+    ///      `TRIGGER_STEP` has no setter, which means the piggyback branch
+    ///      cannot be reached on any chain where a tester cannot assemble one
+    ///      production step — testnets, in other words. That branch is
     ///      also the only consumer of `PIGGYBACK_MIN_GAS` and
     ///      `PIGGYBACK_TAIL_RESERVE` in `ToshLaunchpadHook`, two gas budgets
     ///      measured against Ethereum's accounting and deployed to an ArbOS

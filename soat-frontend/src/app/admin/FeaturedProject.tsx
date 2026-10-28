@@ -3,9 +3,10 @@
 /**
  * The homepage feature pin.
  *
- * `AgentDirectoryHome` draws the newest launch in "Active markets" double-width
- * and ranks the cards beside it by amount raised. This panel overrides that for a bounded window by
- * writing `projects.featured_until` through `POST /api/admin/featured`.
+ * The homepage features one raise (`pickFeatured`): the newest live v2 raise
+ * unless one is pinned. This panel pins one for a bounded window by writing
+ * `projects.featured_until` through `POST /api/admin/featured`, and sets the
+ * card's cover (`projects.cover_url`) through the same route.
  *
  * ── Why this panel does not use the ambient gate ──────────────────────────
  *
@@ -18,7 +19,7 @@
  * unusable. The owner is a 2-of-3 Safe, and `/admin` connects through
  * `injected()` alone — so the ambient verdict on this page is permanently
  * `[read_only]` for any wallet a browser can actually connect. Deciding which
- * of three eligible cards is drawn widest is not an owner power and does not
+ * raise the homepage features is not an owner power and does not
  * need the Safe's pen; it needs a credential scoped to exactly that. So the
  * button is a plain button, the authorisation is `CONTENT_ADMIN_SECRET`, and
  * the wallet in the header is irrelevant to it.
@@ -30,6 +31,9 @@ import {
   toshToast, shortErrorMessage, useNowMs, useIsHydrated, CLOCK_UNSYNCED,
 } from '@/components/ui'
 import { useDirectoryProjects, fmtQuote } from '@/components/directory/useDirectoryProjects'
+import { pickFeatured } from '@/components/x/home/Hero'
+import { fill, useT } from '@/i18n'
+import { LOGO_ACCEPT, LOGO_ENDPOINT, LOGO_MAX_BYTES } from '@/lib/logoUpload'
 import { Section, ScopeNote, Field, labelCls, fmtDuration } from './shared'
 
 /**
@@ -53,12 +57,7 @@ function readHeldCredential(): string {
 }
 
 /** The offered windows. The route's own ceiling is 14 days; see `MAX_PIN_HOURS`. */
-const DURATIONS = [
-  { hours: 6,   label: '6H'  },
-  { hours: 24,  label: '24H' },
-  { hours: 72,  label: '72H' },
-  { hours: 168, label: '7D'  },
-] as const
+const DURATIONS = [6, 24, 72, 168] as const
 
 /** Matches the teaser's own expiry cadence, so the two read the same. */
 const CADENCE_MS = 10_000
@@ -68,12 +67,16 @@ const inputCls =
    font-mono text-sm text-text-primary disabled:opacity-40 transition-colors duration-150`
 
 export function FeaturedProjectPanel() {
+  const t = useT().admin
   const { projects, loading } = useDirectoryProjects()
   const nowMs = useNowMs(CADENCE_MS)
 
   const [selected, setSelected] = useState('')
   const [hours, setHours] = useState<number>(24)
   const [busy, setBusy] = useState(false)
+  /** An unsaved cover choice, tied to the launch it was made for. `url: null` is "remove". */
+  const [coverEdit, setCoverEdit] = useState<{ token: string; url: string | null } | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   /**
    * The credential, from storage until the operator types.
@@ -99,9 +102,9 @@ export function FeaturedProjectPanel() {
   }, [])
 
   /**
-   * Only what the teaser would actually show.
+   * Only what the homepage would actually show.
    *
-   * The same filter `AgentDirectoryHome` applies, deliberately duplicated as a
+   * The same filter `pickFeatured` applies, deliberately duplicated as a
    * filter on a list rather than shared as a predicate, because the two are
    * answering different questions: that one decides what a visitor sees, this
    * one decides what an operator may choose. What they must not do is disagree
@@ -110,10 +113,7 @@ export function FeaturedProjectPanel() {
    * field. Pinning a refundable raise would write a row, report success, and
    * change nothing on the page.
    */
-  const eligible = useMemo(
-    () => projects.filter(p => p.tab === 'live' || p.tab === 'completed'),
-    [projects],
-  )
+  const eligible = useMemo(() => projects.filter(p => p.tab === 'live'), [projects])
 
   const pinned = useMemo(() => {
     const live = (p: typeof projects[number]) =>
@@ -122,13 +122,11 @@ export function FeaturedProjectPanel() {
     return projects.find(live) ?? null
   }, [projects, nowMs])
 
-  /** What the double-width card holds right now, by the rule the page applies. */
-  const currentFeature = useMemo(() => {
-    if (pinned && eligible.some(p => p.token === pinned.token)) return pinned
-    return [...eligible].sort((a, b) =>
-      a.totalNative === b.totalNative ? 0 : a.totalNative > b.totalNative ? -1 : 1,
-    )[0] ?? null
-  }, [eligible, pinned])
+  /** What the homepage card holds right now, by the rule the page applies. */
+  const currentFeature = useMemo(
+    () => pickFeatured(projects, nowMs === CLOCK_UNSYNCED ? 0 : nowMs) ?? null,
+    [projects, nowMs],
+  )
 
   /**
    * A pin on a launch the teaser will not show.
@@ -141,10 +139,38 @@ export function FeaturedProjectPanel() {
    */
   const pinnedButHidden = pinned !== null && !eligible.some(p => p.token === pinned.token)
 
-  const submit = useCallback(async (hoursToSet: number) => {
+  const coverTouched = coverEdit !== null && coverEdit.token === selected
+  const cover = coverTouched
+    ? coverEdit.url
+    : eligible.find(p => p.token === selected)?.coverUrl ?? null
+
+  const uploadCover = useCallback(async (file: File) => {
+    if (!selected) return
+    if (file.size === 0 || file.size > LOGO_MAX_BYTES) {
+      toshToast.error(fill(t.featCoverSize, { kb: LOGO_MAX_BYTES / 1024 }))
+      return
+    }
+    setUploading(true)
+    try {
+      const body = new FormData()
+      body.set('file', file)
+      const res = await fetch(LOGO_ENDPOINT, { method: 'POST', body })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || typeof data.url !== 'string') throw new Error(data.error ?? `HTTP ${res.status}`)
+      setCoverEdit({ token: selected, url: data.url })
+    } catch (err) {
+      toshToast.error(shortErrorMessage(err) ?? t.featCoverFailed)
+    } finally {
+      setUploading(false)
+    }
+  }, [selected, t])
+
+  /** `hoursToSet` undefined saves the cover alone and leaves every pin as it is. */
+  const submit = useCallback(async (hoursToSet: number | undefined) => {
     const token = hoursToSet === 0 ? pinned?.token ?? selected : selected
     if (!token || !secret) return
 
+    const withCover = hoursToSet !== 0 && coverTouched
     setBusy(true)
     try {
       const res = await fetch('/api/admin/featured', {
@@ -153,72 +179,74 @@ export function FeaturedProjectPanel() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
         },
-        body: JSON.stringify({ tokenAddress: token, hours: hoursToSet }),
+        body: JSON.stringify({
+          tokenAddress: token,
+          hours: hoursToSet,
+          ...(withCover ? { coverUrl: cover } : {}),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       toshToast.success(
-        hoursToSet === 0
-          ? 'Pin cleared — the homepage is back on its computed order.'
-          : `${data.symbol} pinned for ${hoursToSet}h.`,
+        hoursToSet === undefined
+          ? fill(cover ? t.featCoverSaved : t.featCoverRemoved, { symbol: data.symbol })
+          : hoursToSet === 0
+            ? t.featPinCleared
+            : fill(withCover ? t.featPinnedForCover : t.featPinnedFor, { symbol: data.symbol, h: hoursToSet }),
       )
     } catch (err) {
-      toshToast.error(shortErrorMessage(err) ?? 'Could not update the feature pin.')
+      toshToast.error(shortErrorMessage(err) ?? t.featPinFailed)
     } finally {
       setBusy(false)
     }
-  }, [pinned, selected, secret])
+  }, [pinned, selected, secret, coverTouched, cover, t])
 
-  const armed = selected !== '' && secret !== '' && !busy
+  const armed = selected !== '' && secret !== '' && !busy && !uploading
 
   return (
     <Section
       id="G6-A"
-      title="HOMEPAGE FEATURE"
-      subtitle="POST /api/admin/featured · off-chain, no transaction · expires on its own"
+      title={t.featTitle}
+      subtitle={t.featSubtitle}
     >
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 font-mono text-note @sm:grid-cols-2">
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Pinned</dt>
+          <dt className="text-text-tertiary">{t.featPinned}</dt>
           <dd>
             {loading && projects.length === 0
-              ? 'reading…'
+              ? t.featReading
               : pinned
                 ? `$${pinned.symbol}`
-                : 'nothing — computed order'}
+                : t.featPinnedNone}
           </dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Expires in</dt>
+          <dt className="text-text-tertiary">{t.featExpiresIn}</dt>
           <dd>
             {pinned && pinned.featuredUntilMs !== null && nowMs !== CLOCK_UNSYNCED
               ? fmtDuration(
                   BigInt(Math.max(0, Math.floor((pinned.featuredUntilMs - nowMs) / 1000))),
-                  'now',
+                  t.featNow,
                 )
               : '—'}
           </dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Big card now</dt>
-          <dd>{currentFeature ? `$${currentFeature.symbol}` : 'nothing eligible'}</dd>
+          <dt className="text-text-tertiary">{t.featFeaturedNow}</dt>
+          <dd>{currentFeature ? `$${currentFeature.symbol}` : t.featNothingEligible}</dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-text-tertiary">Eligible</dt>
-          <dd>{eligible.length} launch{eligible.length === 1 ? '' : 'es'}</dd>
+          <dt className="text-text-tertiary">{t.featEligible}</dt>
+          <dd>{eligible.length === 1 ? t.featEligibleOne : fill(t.featEligibleMany, { n: eligible.length })}</dd>
         </div>
       </dl>
 
       {pinnedButHidden && (
-        <ScopeNote tone="warn">
-          ${pinned?.symbol} is pinned but is no longer one of the launches this block
-          shows, so the pin is doing nothing. Its raise has closed without launching, or
-          it is refundable. Clearing the pin costs nothing and removes the confusion.
-        </ScopeNote>
+        <ScopeNote tone="warn">{fill(t.featPinnedHidden, { symbol: pinned?.symbol ?? '' })}</ScopeNote>
       )}
 
       <label className="flex flex-col gap-1.5">
-        <span className={labelCls}>LAUNCH TO FEATURE</span>
+        <span className={labelCls}>{t.featLaunchLabel}</span>
         <select
           value={selected}
           disabled={busy || eligible.length === 0}
@@ -226,12 +254,11 @@ export function FeaturedProjectPanel() {
           className={inputCls}
         >
           <option value="">
-            {eligible.length === 0 ? 'nothing eligible to feature' : 'select a launch…'}
+            {eligible.length === 0 ? t.featSelectNone : t.featSelectPrompt}
           </option>
           {eligible.map(p => (
             <option key={p.token} value={p.token}>
-              ${p.symbol} · {p.name} · {fmtQuote(p.totalNative)} raised
-              {p.tab === 'completed' ? ' · trading' : ' · funding'}
+              ${p.symbol} · {p.name} · {fill(t.featOptionRaised, { raised: fmtQuote(p.totalNative) })}
             </option>
           ))}
         </select>
@@ -239,40 +266,93 @@ export function FeaturedProjectPanel() {
             and the route refuses to pin a launch without one. Saying so here is
             cheaper than a 404 the operator has to interpret. */}
         <span className="text-label text-text-tertiary tracking-wider">
-          Launches appear once their creator has published metadata.
+          {t.featPublishedHint}
         </span>
       </label>
 
       <div className="flex flex-col gap-1.5">
-        <span className={labelCls}>FOR HOW LONG</span>
-        <div className="flex flex-wrap gap-2">
-          {DURATIONS.map(d => (
+        <span className={labelCls}>{t.featCoverLabel}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative aspect-[16/9] w-48 overflow-hidden rounded-lg border border-border-subtle bg-bg-base">
+            {cover ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a bucket object, previewed as uploaded
+              <img src={cover} alt="" className="size-full object-cover" />
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center px-2 text-center font-mono text-micro text-text-tertiary">
+                {selected ? t.featCoverNone : t.featCoverSelectFirst}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={`inline-flex w-fit items-center rounded-lg border border-border-subtle px-3 py-2 font-mono text-note text-text-primary transition-colors hover:border-brand/50 ${!selected || busy || uploading ? 'pointer-events-none opacity-40' : 'cursor-pointer'}`}>
+              {uploading ? t.featUploading : cover ? t.featReplace : t.featUpload}
+              <input
+                type="file"
+                accept={LOGO_ACCEPT}
+                className="hidden"
+                disabled={!selected || busy || uploading}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void uploadCover(file)
+                }}
+              />
+            </label>
+            {cover && (
+              <button
+                type="button"
+                disabled={busy || uploading}
+                onClick={() => setCoverEdit({ token: selected, url: null })}
+                className="w-fit font-mono text-note text-text-tertiary hover:text-danger disabled:opacity-40"
+              >
+                {t.featRemove}
+              </button>
+            )}
             <button
-              key={d.hours}
+              type="button"
+              disabled={!armed || !coverTouched}
+              onClick={() => void submit(undefined)}
+              className="w-fit font-mono text-note text-brand hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
+            >
+              {t.featSaveCover}
+            </button>
+          </div>
+        </div>
+        <span className="text-label text-text-tertiary tracking-wider">
+          {fill(t.featCoverHint, { kb: LOGO_MAX_BYTES / 1024 })}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className={labelCls}>{t.featDurationLabel}</span>
+        <div className="flex flex-wrap gap-2">
+          {DURATIONS.map(h => (
+            <button
+              key={h}
               type="button"
               disabled={busy}
-              onClick={() => setHours(d.hours)}
+              onClick={() => setHours(h)}
               className={`rounded-lg border px-3 py-2 font-mono text-note transition-colors
                           disabled:opacity-40 ${
-                            hours === d.hours
+                            hours === h
                               ? 'border-brand text-brand'
                               : 'border-border-subtle text-text-tertiary hover:border-brand/50'
                           }`}
             >
-              {d.label}
+              {h % 24 === 0 && h > 72 ? fill(t.featDays, { n: h / 24 }) : fill(t.featHours, { n: h })}
             </button>
           ))}
         </div>
       </div>
 
       <Field
-        label="CONTENT ADMIN CREDENTIAL"
+        label={t.featCredential}
         type="password"
         value={secret}
         onChange={rememberSecret}
         placeholder="CONTENT_ADMIN_SECRET"
         disabled={busy}
-        hint="Held for this tab only, never stored. Not the factory owner's key — this credential cannot reach a contract."
+        hint={t.featCredentialHint}
       />
 
       <div className="flex flex-wrap gap-2">
@@ -284,7 +364,7 @@ export function FeaturedProjectPanel() {
                      text-readout font-semibold text-bg-base transition-opacity
                      hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {busy ? 'Working…' : `Pin for ${hours}h`}
+          {busy ? t.featWorking : fill(t.featPinFor, { h: hours })}
         </button>
         <button
           type="button"
@@ -295,17 +375,11 @@ export function FeaturedProjectPanel() {
                      transition-colors hover:border-brand/50 disabled:opacity-40
                      disabled:cursor-not-allowed"
         >
-          Clear pin
+          {t.featClearPin}
         </button>
       </div>
 
-      <ScopeNote>
-        This decides ORDER, not eligibility. A pinned launch still has to be one the
-        block would show — funding or trading — so pinning cannot put a refundable raise
-        on the homepage. Setting a pin clears any other, and every pin lapses on its own,
-        so a promotion nobody remembers returns the largest card to the newest launch
-        rather than staying there indefinitely.
-      </ScopeNote>
+      <ScopeNote>{t.featScope}</ScopeNote>
     </Section>
   )
 }

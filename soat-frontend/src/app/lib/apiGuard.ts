@@ -259,6 +259,33 @@ function clientIp(req: NextRequest | Request): string {
 }
 
 /**
+ * The bucket an address is counted in: itself for IPv4, its /64 for IPv6.
+ *
+ * One IPv6 subscriber is routinely handed a whole /64 and picks the interface
+ * id freely, so a per-address bucket is 2^64 buckets for one caller. An
+ * IPv4-mapped address (`::ffff:a.b.c.d`) is counted as the IPv4 it carries.
+ * Anything unparseable is returned unchanged.
+ */
+export function rateLimitSubject(ip: string): string {
+  const addr = ip.trim().toLowerCase().replace(/^\[|\]$/g, '').split('%')[0]
+  if (!addr.includes(':')) return addr
+
+  const mapped = addr.match(/^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (mapped) return mapped[1]
+
+  const halves = addr.split('::')
+  if (halves.length > 2) return addr
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const fill = 8 - head.length - tail.length
+  if (halves.length === 1 ? head.length !== 8 : fill < 1) return addr
+  const groups = [...head, ...Array<string>(halves.length === 2 ? fill : 0).fill('0'), ...tail]
+  if (groups.some(g => !/^[0-9a-f]{1,4}$/.test(g))) return addr
+
+  return `${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`
+}
+
+/**
  * Returns null when the request is allowed, or a populated 429 response
  * when it's rate-limited.  Caller short-circuits with `if (rl) return rl`.
  *
@@ -271,7 +298,7 @@ export async function applyRateLimit(
   opts: RateLimitOptions
 ): Promise<NextResponse | null> {
   const result = await consumeRateLimit(
-    `${opts.name}::${clientIp(req)}`,
+    `${opts.name}::${rateLimitSubject(clientIp(req))}`,
     opts.capacity,
     windowMsFor(opts)
   )

@@ -46,7 +46,7 @@
 import { useCallback } from 'react'
 import { useAccount, useReadContract } from 'wagmi'
 import type { Address } from 'viem'
-import { QUOTE_ASSET, ERC20_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
+import { ERC20_ABI, TARGET_CHAIN_ID } from '@/lib/contracts'
 import { useTxAction, type TxAction } from './useTxAction'
 
 /**
@@ -74,18 +74,16 @@ export interface QuoteApproval {
 }
 
 /**
- * @param spender who will call `transferFrom` — the factory for a launch fee or a
- *                genesis deposit, the project's own hook for a shelf mint.
- * @param amount  the exact figure the action will pull. For a bounded call such
- *                as `mintBondingCurve` this is the bound, not the expected charge.
- * @param asset   the token pulled — the project's own `quoteAsset()` on a project
- *                page (`useQuote().asset`), which is not the current factory's on
- *                a retired launch.
+ * @param spender who will call `transferFrom` — the bid book for an escrowed
+ *                bid, the project's own hook for a genesis or shelf buy.
+ * @param amount  the exact figure the action will pull. For a bounded call this
+ *                is the bound, not the expected charge.
+ * @param asset   the token pulled — the hook's own quote asset.
  */
 export function useQuoteApproval(
   spender: Address | undefined,
   amount: bigint,
-  asset: Address = QUOTE_ASSET,
+  asset: Address,
 ): QuoteApproval {
   const { address: owner } = useAccount()
 
