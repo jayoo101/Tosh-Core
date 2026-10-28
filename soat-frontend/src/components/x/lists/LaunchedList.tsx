@@ -43,12 +43,12 @@ export function LaunchedList() {
             const shelf = summaryOf(shelves, p.hook)
             const d = p.quote.decimals
             return (
-              <li key={p.hook}>
+              <li key={p.hook} className="min-w-0">
                 <ProjectLink
                   project={p}
                   className={`glow-frame flex h-full rounded-panel bg-surface-card p-px ${idx % 2 ? 'glow-delay' : ''}`}
                 >
-                  <div className="flex flex-1 gap-4 rounded-panel bg-surface-card p-5">
+                  <div className="flex min-w-0 flex-1 gap-4 rounded-panel bg-surface-card p-5">
                   <ProjectLogo src={p.logoUrl} name={p.name || p.symbol} className="size-12 shrink-0 rounded-pill" />
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                     <div className="flex items-center gap-2">
