@@ -10,5 +10,9 @@
  *  differ, and the failure mode of copying the JSX is that one of them gets a
  *  fix and the other does not — which nobody would notice, because you only
  *  ever see one at a time.
+ *
+ *  The `twitter:image` query hash is derived from this file's source alone, so
+ *  a redesign in opengraph-image.tsx leaves X's URL, and X's cached card,
+ *  unchanged. Touch this file whenever the card changes. Card revision: 2.
  */
 export { alt, size, contentType, default } from './opengraph-image'
